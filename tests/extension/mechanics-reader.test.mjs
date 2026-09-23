@@ -1,5 +1,5 @@
 /**
- * Contract §136.20: the visual reader writes mechanical shapes, and the draft check refuses a malformed one.
+ * Contract §136.26: the visual reader writes mechanical shapes, and the draft check refuses a malformed one.
  *
  * Every case travels a real entry: `checkDraft` (what publication runs, with the host's viewed pages) fed
  * the contract `loadModuleContract` loads from the shipped content root, `checkReview` (publication's

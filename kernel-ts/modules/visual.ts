@@ -335,7 +335,7 @@ function deepOverlay(known: any, drafted: any): any {
  * The graph this draft would publish into: `packet.known_nodes` overlaid by the draft's nodes,
  * `packet.known_claims` overlaid by the draft's claims by `claim_id`, and one relation per claim, as
  * `assembleVisual` derives them. §134.16 overlays a drafted node's `properties` over the known node's
- * key by key (`deep` false); §136.20 merges them all the way down (`deep` true), as publication does, so
+ * key by key (`deep` false); §136.26 merges them all the way down (`deep` true), as publication does, so
  * a delta that adds one slot to a known shape is checked as the shape it makes. With `filled` null the
  * view is the known graph alone.
  */
@@ -360,7 +360,7 @@ function overlayGraph(filled: Row | null, packet: Row, contract: ModuleContract,
 }
 
 /**
- * Contract §136.20: an actor's numbers outside `mechanics.profile` do not reach the rules engine. The standalone
+ * Contract §136.26: an actor's numbers outside `mechanics.profile` do not reach the rules engine. The standalone
  * dictionary refusal is §22's, unchanged in its bytes and now also on creatures; a loose characteristic number is
  * refused with its path and rule.
  */
@@ -375,7 +375,7 @@ function actorNumbersLaw(props: Row, i: number, contract: ModuleContract): void 
             details: { reason: 'reading_failed', path: `/nodes/${i}/properties/${flat.replace(/~/g, '~0').replace(/\//g, '~1')}`, rule: 'profile_outside_seat' },
         });
 }
-/** §136.20 step 1: a node stating a shape cites pages this reader viewed, refused with its path and rule before the generic law. */
+/** §136.26 step 1: a node stating a shape cites pages this reader viewed, refused with its path and rule before the generic law. */
 function mechanicsSourceLaw(node: Row, i: number, seen?: ReadonlySet<any>): void {
     const refs = node.source_refs, id = string(node.node_id);
     if (!Array.isArray(refs) || !refs.length)
@@ -385,7 +385,7 @@ function mechanicsSourceLaw(node: Row, i: number, seen?: ReadonlySet<any>): void
         ? [{ node: id, rule: 'mechanics_unsourced', path: `/nodes/${i}/source_refs/${j}`, message: `physical page ${ref.page} was not actually viewed by this reader` }] : []);
     if (unviewed.length) refuseMechanics(unviewed);
 }
-/** Contract §136.20: a shape refusal names its node, its JSON pointer and its stable rule; the fix follows the rules refused. */
+/** Contract §136.26: a shape refusal names its node, its JSON pointer and its stable rule; the fix follows the rules refused. */
 function refuseMechanics(refusals: Row[], extra: Row = {}): never {
     const first = refusals[0], rules = new Set(refusals.map(refusal => refusal.rule));
     throw new RpcError('invalid_params', `mechanics ${first.node}: ${first.path}: ${first.message}`, {
@@ -400,7 +400,7 @@ function refuseMechanics(refusals: Row[], extra: Row = {}): never {
     });
 }
 /**
- * §136.20 step 2: the shared validator over the graph this draft would publish into, `starter: false`
+ * §136.26 step 2: the shared validator over the graph this draft would publish into, `starter: false`
  * (no legacy allowance). A refusal the known graph already earns on its own is not the draft's: the draft
  * cannot remove a published key, so only the refusals the draft introduces refuse it.
  */

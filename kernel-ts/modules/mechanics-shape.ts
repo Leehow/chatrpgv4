@@ -38,7 +38,7 @@ export type MechanicsRules = {
 
 /**
  * The ruleset tables a shape resolves against, read once for every caller: starter registration and the
- * reader's draft check (§136.20, through `loadModuleContract`) hold a shape to the same names.
+ * reader's draft check (§136.26, through `loadModuleContract`) hold a shape to the same names.
  */
 export async function mechanicsRules(tables: RuleTables): Promise<MechanicsRules> {
     const damageBonuses = array(await tables.load("damage-bonus-build"))

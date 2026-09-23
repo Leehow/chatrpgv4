@@ -1,4 +1,4 @@
-"""Contract §136.20 at publication: a reader's mechanical shapes reach the module graph only whole and reviewed.
+"""Contract §136.26 at publication: a reader's mechanical shapes reach the module graph only whole and reviewed.
 
 Through the emitted kernel's `module.read.finish`, the one publication entry, at the deterministic source
 seam (`module_helpers`): never a PDF read and never gameplay acceptance. The draft is the JSON a reader writes.

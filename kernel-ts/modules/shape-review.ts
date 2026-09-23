@@ -1,5 +1,5 @@
 /**
- * Contract §136.20: which pointers of a drafted node's mechanical shapes an independent reviewer must
+ * Contract §136.26: which pointers of a drafted node's mechanical shapes an independent reviewer must
  * support against the page image, whether or not the reader listed them in `critical`.
  *
  * One function for both ends of the review, as `obligation-review.ts` is for obligations: the kernel's

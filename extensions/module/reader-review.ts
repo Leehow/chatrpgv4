@@ -26,7 +26,7 @@ export function reviewUnits(draft: Row): string[][] {
 			pointers.add(`${path}/properties/map_regions`);
 		// Contract §134.16: the publication gate requires every obligation field, listed in critical or not.
 		if (collection === "nodes") for (const pointer of obligationReviewPaths(row, path)) pointers.add(pointer);
-		// Contract §136.20: and every leaf of a stated mechanical shape, dice strings included.
+		// Contract §136.26: and every leaf of a stated mechanical shape, dice strings included.
 		if (collection === "nodes") for (const pointer of shapeReviewPaths(row, path)) pointers.add(pointer);
 		groups.set(path, pointers);
 	}

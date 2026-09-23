@@ -33,7 +33,7 @@ await build({ stdin: { contents: exports.map(([path, names]) => `export {${names
 const api = await import(pathToFileURL(join(evidence, 'api.mjs')).href);
 const json = async path => api.parsePythonJson(await readFile(path, 'utf8'));
 const clone = value => api.parsePythonJson(api.pythonJsonDumps(value));
-// The contract publication loads (§134.16, §136.20): the graph vocabulary and the ruleset names a drafted shape resolves against.
+// The contract publication loads (§134.16, §136.26): the graph vocabulary and the ruleset names a drafted shape resolves against.
 const contract = await api.loadModuleContract({ content: join(ROOT, 'content'), snapshots: api.snapshots });
 const refs = [{ page: 1 }];
 const base = { nodes: [
@@ -104,7 +104,7 @@ async function compare(name, cases, t) {
   await writeFile(join(evidence, name + '-captured.json'), captured);
   await writeFile(join(evidence, name + '-typescript.json'), api.pythonJsonDumps(actual));
   for (const [i, item] of cases.entries()) await t.test(item.name ?? String(i), () => {
-    // Contract §136.20 also post-dates the frozen oracle: a reader's profile is now a mechanical shape held to
+    // Contract §136.26 also post-dates the frozen oracle: a reader's profile is now a mechanical shape held to
     // §136.6, whose integer slots stop at the largest exact integer. Assert that refusal here; the oracle's
     // bytes are never touched, and no other case carries a shape the catalog refuses.
     if (item.name === 'large authored number retains identity') {
