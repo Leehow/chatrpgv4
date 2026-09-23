@@ -24,7 +24,8 @@ export function readFixture(name){
 function writable(path){
   try{const stat=statSync(path);chmodSync(path,stat.mode|0o200);if(stat.isDirectory())for(const entry of readdirSync(path))writable(join(path,entry));}catch{/* already gone */}
 }
-export function removeTree(path){writable(path);rmSync(path,{recursive:true,force:true});}
+/** A background lane of the finished session may still be writing into the workspace: retry instead of leaking it. */
+export function removeTree(path){writable(path);rmSync(path,{recursive:true,force:true,maxRetries:10,retryDelay:200});}
 
 /** Extract the tarball into a fresh temporary workspace. The caller removes it. */
 export function materialize(name){
