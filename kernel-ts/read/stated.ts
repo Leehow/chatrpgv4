@@ -8,7 +8,7 @@
  */
 import { SHAPE_KINDS } from "../modules/mechanics-catalog.js";
 import type { ModuleGraph } from "./module-graph.js";
-import { recordOf } from "./module-graph.js";
+import { conditionStatus, recordOf } from "./module-graph.js";
 import { array, integer, number, row, string, truth, type Row } from "./values.js";
 
 /** The node kinds `action.rule` may name: a rule, a hazard, a tome (its read check), an object or artifact (its sanity loss). */
@@ -178,4 +178,19 @@ export function statedNode(graph: ModuleGraph, name: any): Row | null {
     if (node.node_kind === "threat")
         return array(recordOf(node).clocks).some(clock => Array.isArray(row(clock).advances_on)) ? node : null;
     return Object.keys(graph.mechanicsOf(node)).length ? node : null;
+}
+
+/**
+ * Contract §136.27: the Sanity reward the book states for a `conclusion` ending at the active scene -- exactly one rule the
+ * scene links by `uses-rule` whose `reward` states `sanity` as dice and whose `when` gate, if any, holds. Null otherwise
+ * (another ending kind, no stated reward, an unstated one, or two), and the omitted expression keeps today's meaning.
+ */
+export function statedEndingReward(graph: ModuleGraph, world: Row, ending: any): { rule: string; expression: string } | null {
+    if (ending != null && ending !== "conclusion")
+        return null;
+    const scene = typeof world.active_scene === "string" ? graph.sceneByHandle(world.active_scene) : null;
+    if (!scene)
+        return null;
+    const stated = graph.statedRewards(scene).filter(reward => typeof reward.sanity === "string" && (reward.when == null || conditionStatus(reward.when, world) === true));
+    return stated.length === 1 ? { rule: string(stated[0].rule), expression: stated[0].sanity } : null;
 }

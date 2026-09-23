@@ -205,7 +205,23 @@ export class SkillResolver {
     }
     resolveExplicit(text: string): string | null {
         const key = normalizeText(text);
-        return this.unique.get(key) ?? this.canonicalNames().find(name => normalizeText(name) === key) ?? this.specialization(text)?.canonical ?? null;
+        return this.unique.get(key) ?? this.canonicalNames().find(name => normalizeText(name) === key) ?? this.specialization(text)?.canonical ?? this.nestedMemberOnSheet(text);
+    }
+    /** §52.6: a nested group's member (`Language (Other: Latin)`, or `Language (Other) (Latin)`) read against the
+     *  card's short row for it (`Language (Latin)`). The group is a declared group key that carries a parenthesis;
+     *  the row is the card's own. Null when the phrase names no such group or the card has no such row. */
+    nestedMemberOnSheet(text: string): string | null {
+        const key = normalizeText(text);
+        for (const group of Object.keys(this.groups)) {
+            const parts = PAREN.exec(group), prefix = `${normalizeText(group)} `;
+            if (!parts || !key.startsWith(prefix) || key.length <= prefix.length)
+                continue;
+            const short = normalizeText(`${parts[1]} (${key.slice(prefix.length)})`);
+            const row = Object.keys(this.sheetSkills).find(name => normalizeText(name) === short);
+            if (row)
+                return row;
+        }
+        return null;
     }
     findInText(text: string): string[] {
         const haystack = ` ${normalizeText(text)} `,

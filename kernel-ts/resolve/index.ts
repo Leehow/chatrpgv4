@@ -24,6 +24,7 @@ import type {FixedFamilies} from './families.js';
 import {trackResolveReceipts} from '../runtime/receipt-advance.js';
 import { bindObligation, continuedClaim, crossedByTarget, settleClaim, type ObligationClaim } from './obligation.js';
 import { bindRule, continuedRule, settleRule, type RuleClaim } from './rule.js';
+import { statedEndingReward } from '../read/stated.js';
 import { latestCheckReceipt as latestCheck } from './context.js';
 export { CheckArithmetic, rollExpression, resourceDelta } from './arithmetic.js';
 export { SettleContext, continuableCheck, latestCheckReceipt, recordSkillTicks, skillTickEligible } from './context.js';
@@ -232,6 +233,13 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             if (action.obligation != null) {
                 ({ claim, action } = await bindObligation({ kernel, tables, graph, world: transaction.world, transaction, action, intent }));
             }
+            // Contract §136.27: a conclusion ended without an expression takes the reward the scene's book states.
+            let endingReward: { rule: string; expression: string } | null = null;
+            if (string(action.decision).replace(/^decision:coc7:/, '') === 'development:end-session' && action.scenario_san_reward_expr == null) {
+                endingReward = statedEndingReward(graph, transaction.world, action.ending);
+                if (endingReward)
+                    action = { ...action, scenario_san_reward_expr: endingReward.expression };
+            }
             if (!NONE_INTENTS.has(intent)) {
                 if (contributions.requireMaterial)
                     await contributions.requireMaterial(graph, [transaction.world.active_scene, action.actor, action.target]);
@@ -349,6 +357,11 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             // §136.21: what the level reached states, bound and handed back; nothing of it is applied.
             if (ruleClaim)
                 settleRule({ graph, claim: ruleClaim, outcome: row(settled.outcome), receipts: context.receipts, result, pushed, pushable: level === 'failure' && !pushed && action.luck == null });
+            if (endingReward) {
+                result.stated = { rule: endingReward.rule, scenario_san_reward_expr: endingReward.expression };
+                for (const receipt of context.receipts.filter(receipt => receipt.kind === 'delta' && receipt.resource === 'san'))
+                    receipt.basis = { rule: endingReward.rule };
+            }
             if (claim) {
                 const flagged = await settleClaim({ graph, transaction, claim, level, receipts: context.receipts, result, pushable: level === 'failure' && !pushed && action.luck == null });
                 if (flagged)
