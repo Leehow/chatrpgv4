@@ -71,7 +71,7 @@ Depends on: SO-01 merged.
 
 ## SO-04 — Loop consumption (inside SL-02)
 
-Status: ready-for-human (implemented 2026-09-23 on `claude/so04-loop-obligations-20260923`; the Q6 replay line is **not met** on the turn-3 variant and needs an owner decision; the live-table gate is still owed; see Comments)
+Status: ready-for-human (implemented 2026-09-23 on `claude/so04-loop-obligations-20260923`, with the owner's two rulings of the same day; the Q6 replay line is still **not met** on the turn-3 variant; the live-table gate is still owed; see Comments)
 Depends on: SO-02 merged; SL-02's RunPolicy and candidate builder in place (the §32 admission research result may still be open; then the obligation `resolve` goes through admission like any policy-origin operation until the measurement says otherwise).
 
 **What.** In the product RunPolicy's candidate builder (spec D6): an open obligation's `meet` step becomes the stated person candidate (replacing, not duplicating, the roster candidate), its `check` step an `obligation_check` candidate with the closed approach binder (one approach → bound; several → `decide(bind)`; below the gates → `infer(bind)`); `guarded_by` candidates withheld; `blocked` obligations issue nothing; precedence `person → mod_check → obligation_check → core-check → clue/handout → move`; the operation carries `basis: obligation <handle>` for admission; "clerk did" lines name the obligation step, receipt and page; clerk-origin refusals drop the candidate for the run and stay off the Keeper's refusal budget. Labels carry the demand and what it guards, never the page, kernel tags or `authority` strings.
@@ -228,3 +228,41 @@ person (no fixture has one).
 
 Not verified: the live table at the SL-02/SL-05 gate (the real Keeper, the main session as the one player, one sentence
 a turn) — still owed, and not delegable.
+
+### 2026-09-23 — SO-04 after the owner's rulings (stated meeting is data; `now` on the check carries the meeting)
+
+Rulings recorded in the spec's Comments. Implemented in `82bf990ee` (the kernel row's `then`, §134.9; §135.2's exception;
+§135.26; spec D6 amended; `tests/kernel/test_scene_obligations.py` pins `then`) and `1abdf65ac` (builder and policy);
+replay pre-registered in `58d5a36e6`, scored in `bcbe07267`.
+
+- Where it lives: the stated meeting binds `untold.label || <record name>` (`meeting` in
+  `runtime/jev/obligation-candidates.ts`); a meeting followed by a check is carried by the check as `before` (built from
+  the row's `then`) and the roster candidate is skipped (`carried` in `buildCandidates`); `itemsFor` runs a carried step
+  first and `settleExecute` hands on to the check as the fresh read issues it (`runtime/jev/step-policy.ts`, fields
+  `Candidate.before` / `Candidate.then`); a meeting-only obligation, or a meeting whose check is served or unstated, stays
+  routed; the check's body names the carried meeting first (`candidate-bodies.ts`).
+- Verified: `tests/extension/scene-obligation-candidates.test.mjs`, 10 cases, including the new policy case "now on the
+  gate's check carries its meeting directly first, under the book's name and with no LLM step, then binds and rolls the
+  check" (real kernel reads and the real apply). Every earlier mutation re-run and killed, plus M18 "meeting still asks
+  Jev" (not carried; killed by that case and the arrival case), M19 "stated meeting keeps the open name", M20 "carried
+  meeting does not hand on to the check", M21 "roster candidate offered beside the carried meeting": 23 of 23 killed.
+- The replay (pre-registered line: meeting carried directly 3/3, check `now` 3/3, passing roll ≤ 3 LLM steps): **not met.**
+  The check carrying the meeting was `later` at arrival in 6/6 (0.87–0.91), so nothing carried the meeting (0/6); the
+  replayed Keeper staged Arty, after which the check was `now` 6/6 (0.54–0.61) and the clerk rolled it with the claim;
+  5 LLM steps on a passing roll in 3/3; the failing arm left the obligation open and the Keeper's clues crossed it 3/3;
+  11/11 live rows in 6/6; every distribution retained. Jev does not read "get an old colleague to help me dig out the
+  reports" as declaring the book's price before anyone stands in front of the investigator.
+- 0.9.5a merged twice more: `3ae7483c5` (SL-10, `2c4582c4a`: §135.25 run budget, §32.11; the carried meeting is exempt
+  from the budget cut like a forced no-model step, mutation M22 killed; 24 of 24 mutations killed on that tree) and the
+  RD-04 merge (`b669887c5`). `fixtures/turn3-obligations` was then re-derived from RD-04's starter: graph digest
+  `35f98e57…4573` (was `cfc354e1…0d96`); the registered lines re-run on it came out the same (0/6 carried, 5 LLM steps,
+  11/11 rows; RESULTS).
+- Suites on the final state (0.9.5a `b669887c5` included; merge commit on this branch before `e6ebb0493`):
+  `npm run build:runtime` ok, `npm run test:ext` 2803/2803, `uv run --frozen python -m pytest tests/kernel tests/play`
+  1699 passed, 1 skipped. (On the SL-10 merge alone, pytest had one failure outside SO-04's paths,
+  `test_setup_card.py::test_soft_allocations_are_sticky_and_only_the_biggest_holder_gives_way` — a Brawl 80 above the
+  75 starting cap — which is gone after the RD-04 merge; not investigated.)
+
+Not ruled, left as they are (the coordinator's note): the Keeper's unclaimed same-skill roll settles nothing (D4
+stands), so the double Persuade remains in the replay; the replayed Keeper predates SO-02. Still owed: the live-table
+gate (SL-02/SL-05), not delegable.
