@@ -12,6 +12,8 @@ PDF 视觉阅读已按 [visual-pdf-reader.md](specs/visual-pdf-reader.md) 与 [�
 
 我们不 fork Pi，也不打补丁。这份文件写清 pi-coc 依赖 Pi 的哪些接口与行为、我们在哪里绕过了它的限制、想请上游改什么，以及 Pi 升版时怎么核对。Pi 升级 = 改一个版本号，然后按第 7 节走一遍。
 
+> Superseded for the single-loop engine by [ADR-0006](adr/0006-pi-native-single-loop.md) (Proposed): Pi is consumed from a vendored source snapshot (`vendor/pi/`, upstream `v0.87.0`) plus a reviewed patch series, and an upgrade means rebasing that series.
+
 Current target: `@earendil-works/pi-coding-agent` 0.87.0. The root `dependencies` and lockfile pin the production runtime; `peerDependencies: "*"` declare the extension-facing Pi packages. The production manifest, Electron backend dependency/lockfile, and managed-runtime version must agree. The 2026-09-22 source upgrade passed the checks recorded in section 7. The installed App remains on its previously packaged version until a separately requested package/install.
 
 ## 1. 启动契约
