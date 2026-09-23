@@ -20,6 +20,7 @@ import { recordOf, type ModuleGraph } from "../read/module-graph.js";
 import { array, integer, normalize, number, row, string, type Row } from "../read/values.js";
 import { validateSanLossExpression } from "../sanity/expression.js";
 import { checkDeclarationRefusals, type CheckOwner, type Refusal } from "./obligation-shape.js";
+import { AUTHORED_ACTION_WORDS, DISPOSITION_WORDS } from "../combat/standing-words.js";
 
 /** The ruleset's closed tables a shape's names and references resolve against. */
 export type MechanicsRules = {
@@ -58,6 +59,8 @@ export const STARTER_LEGACY = {
 } as const;
 const TACTIC_KINDS = ["npc", "creature"];
 const DEFENSES = ["dodge", "fight_back", "none"];
+/** The record's `combat` words: the standing defence (§11.5.2), the authored standing action and disposition (§11.5.3). */
+const COMBAT_WORDS: ReadonlyArray<readonly [string, readonly string[]]> = [["defense", DEFENSES], ["action", AUTHORED_ACTION_WORDS], ["disposition", DISPOSITION_WORDS]];
 const TIME_UNITS = ["round", "minute", "hour", "day", "week"];
 const RESOURCES = ["mp", "pow", "san", "luck", "hp"];
 const PER = ["use", "round", "cast"];
@@ -184,12 +187,14 @@ export function mechanicsRefusals(graph: ModuleGraph, rules: MechanicsRules, opt
         if (Object.hasOwn(record, "combat")) {
             const combat = record.combat, at = `${base}.combat`;
             sourced = true;
-            if (!TACTIC_KINDS.includes(kind)) refuse("mechanics_wrong_kind", at, "combat.defense (tactic) sits only on npc and creature records");
-            if (!plain(combat)) refuse("shape_prose", at, "combat is {defense}");
+            if (!TACTIC_KINDS.includes(kind)) refuse("mechanics_wrong_kind", at, "combat (defense, action, disposition) sits only on npc and creature records");
+            // §11.5.2 `defense`, §11.5.3 `action` and `disposition`: each optional, each a closed word, at least one.
+            if (!plain(combat) || !COMBAT_WORDS.some(([key]) => Object.hasOwn(combat, key))) refuse("shape_prose", at, "combat is {defense?, action?, disposition?}, at least one");
             else {
-                for (const key of Object.keys(combat).filter(key => key !== "defense"))
-                    refuse("shape_unknown_key", `${at}.${key}`, "combat carries only defense");
-                if (!DEFENSES.includes(combat.defense)) refuse("shape_prose", `${at}.defense`, `defense is ${DEFENSES.join(", ")}`);
+                for (const key of Object.keys(combat).filter(key => !COMBAT_WORDS.some(([name]) => name === key)))
+                    refuse("shape_unknown_key", `${at}.${key}`, "combat carries only defense, action and disposition");
+                for (const [key, words] of COMBAT_WORDS)
+                    if (Object.hasOwn(combat, key) && !words.includes(combat[key])) refuse("shape_prose", `${at}.${key}`, `${key} is ${words.join(", ")}`);
             }
         }
         array(record.clocks).forEach((clock: any, index: number) => {

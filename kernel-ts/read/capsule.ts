@@ -9,7 +9,7 @@ import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memory
 import {personalityView} from '../npc/material.js';
 import {npcRelationships,npcRecentSpeech,npcCommitments} from '../npc/perspective.js';
 import {reunionView} from '../npc/reunion.js';
-import {cardTactic} from '../combat/standing.js';
+import {cardAction,cardTactic} from '../combat/standing.js';
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /**
  * The one name this table uses for a place, by its handle: the campaign label the Keeper gave it,
@@ -442,7 +442,7 @@ export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledge
     const rank = (entry: Row) => truth(row(entry.history).promises) ? 0 : truth(row(entry.history).met_turns) || truth(entry.toward_party) ? 1 : truth(entry.wants) ? 2 : 3;
     return npcsPresent(graph, world, scene).map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep", row(options.journal), options.records,options.scope)).sort((a, b) => rank(a) - rank(b));
 }
-export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, journal: Row = {}, records: Row[] = [], memory:Row[] = [], scope:Row = {}): Row {
+export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, journal: Row = {}, records: Row[] = [], memory:Row[] = [], scope:Row = {}, combat: Row | null = null): Row {
     const untold = untoldBlock(graph, world, journal, node, records), handle = graph.handle(node),
         view: Row = {
         kind: "npc",
@@ -490,6 +490,9 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
         });
     // §11.5.2: how this person defends when attacked, and why that word (Keeper-only: this card is the Keeper's).
     view.combat_tactic = cardTactic(graph, world, node);
+    // §11.5.3: how this person behaves in a fight (their disposition) and the standing action a card can state; the
+    // table reads the rest in the fight itself. `combat` is the saved fight, so a Keeper's hold shows only in its round.
+    Object.assign(view, cardAction(graph, world, node, combat));
     const authored = graph.entityView(node).properties;
     if (truth(authored))
         view.properties = authored;

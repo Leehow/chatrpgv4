@@ -357,7 +357,8 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 }
                 catch { /* A derived cache that cannot be read says nothing about what the player was told. */
                 }
-                return npcView(graph, world, graph.npc(required(params, "name")), ledger, journal, await campaign.files("turns"), await campaign.log("memory/candidates.jsonl"), {worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)});
+                return npcView(graph, world, graph.npc(required(params, "name")), ledger, journal, await campaign.files("turns"), await campaign.log("memory/candidates.jsonl"), {worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)},
+                    row(await campaign.optional("save/combat.json")));
             }
             if (focus === "investigator") {
                 campaign.party = await campaign.files("party");

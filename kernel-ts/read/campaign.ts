@@ -10,6 +10,7 @@ import { campaignModule } from '../adaptation/source.js';
 import { scopedModuleRoot } from '../modules/campaign-scope.js';
 import { ModuleStore } from '../modules/store.js';
 import { withTablePeople } from './table-people.js';
+import { standingTables, type StandingTables } from '../combat/standing.js';
 import { array, row, clone, normalize, stripPrefix, number, repr, type Row } from "./values.js";
 export class CampaignSnapshot {
     readonly dir: string;
@@ -21,6 +22,8 @@ export class CampaignSnapshot {
     turn: Row = {};
     party: Row[] = [];
     records: Row[] = [];
+    /** The stance and combat-disposition tables an NPC's standing action reads (§11.5.3); loaded by `preload`. */
+    standingTables: StandingTables | null = null;
     constructor(readonly context: KernelContext, readonly id: string) {
         this.dir = join(context.campaignsRoot, id);
     }
@@ -60,8 +63,18 @@ export class CampaignSnapshot {
             if (mode === "all")
                 saves.push(`healing-state/${sheet.id}.json`, `sanity-gain-pending/${sheet.id}.json`);
         }
-        if (mode !== "people")
+        if (mode !== "people") {
             await Promise.all(saves.map(path => this.optional(join("save", path))));
+            // §11.5.3: the session view reads an NPC's standing action off the stance ledger and two ruleset tables.
+            // It is synchronous, so what it reads is loaded here, beside the combat snapshot it reads with.
+            this.standingTables ??= await standingTables(this.context);
+            try {
+                await this.optional("npc-ledger.json");
+            }
+            catch {
+                this.jsonFiles.set("npc-ledger.json", null);
+            }
+        }
         if (mode === "view")
             return;
         for (const path of ["npc-ledger.json", "npc-journal.json", ...(mode === "all" ? ["save/worldlines/anchor.json", "save/worldlines/echoes.json"] : [])]) {

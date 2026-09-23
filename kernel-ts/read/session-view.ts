@@ -3,9 +3,11 @@ import { ModuleGraph, recordOf } from "./module-graph.js";
 import { CampaignSnapshot } from "./campaign.js";
 import { entries, array, row, number, truth, string, integer, type Row } from "./values.js";
 import { OUT_OF_FIGHT_CONDITIONS } from "../healing/conditions.js";
-import { standingDefense, type Standing } from "../combat/standing.js";
+import { standingAction, standingDefense, stanceNow, type Standing, type StandingAction } from "../combat/standing.js";
 export const active = (snapshot: Row | null): boolean => snapshot?.status === "active";
 export const boutActive = (snapshot: Row | null): boolean => truth(snapshot?.bout_active);
+/** A participant who can still fight: hit points left and none of the rules layer's out-of-fight conditions (§42.1). */
+const able = (participant: Row): boolean => number(participant.hp_current) > 0 && !array(participant.conditions).some(c => OUT_OF_FIGHT_CONDITIONS.has(c));
 export function defenseOptions(pending: Row): string[] {
     const firearm = pending.resolution_hint === "firearm_attack",
         allowed = new Set(array(pending.allowed_defenses));
@@ -37,6 +39,11 @@ export class SessionView {
             cursor = number(snapshot.initiative_cursor);
         return cursor >= 0 && cursor < order.length && Object.keys(row(order[cursor])).length ? string(order[cursor].actor_id) : null;
     }
+    /** The legal targets of `actor`'s attack: opposing participants who can still fight (the attack action's `targets`). */
+    combatTargets(snapshot: Row, actor: string): string[] {
+        const participants = array(snapshot.participants), me = row(participants.find(p => string(p.actor_id) === actor));
+        return participants.filter(p => string(p.actor_id) !== actor && p.side !== me.side && able(p)).map(p => string(p.actor_id));
+    }
     combatActions(snapshot: Row): Row[] {
         const pending = snapshot.pending_attack;
         if (pending && typeof pending === "object" && !Array.isArray(pending)) {
@@ -51,9 +58,8 @@ export class SessionView {
         const actor = this.combatTurnOf(snapshot);
         if (actor == null || !active(snapshot))
             return [];
-        const participants = new Map(array(snapshot.participants).map(p => [string(p.actor_id), p])),
-            me = row(participants.get(actor));
-        const targets = [...participants].filter(([id, p]) => id !== actor && p.side !== me.side && number(p.hp_current) > 0 && !array(p.conditions).some(c => OUT_OF_FIGHT_CONDITIONS.has(c))).map(([id]) => id);
+        const me = row(array(snapshot.participants).find(p => string(p.actor_id) === actor)),
+            targets = this.combatTargets(snapshot, actor);
         const weapons = array(me.weapons).map(w => string(typeof w === "object" ? w.weapon_id : w)),
             catalog = row(snapshot.weapon_catalog);
         const actions: Row[] = [{
@@ -97,18 +103,35 @@ export class SessionView {
         const participant = row(array(snapshot.participants).find(p => string(p.actor_id) === defender));
         return standingDefense(this.graph, this.world, defender, participant, defenseOptions(pending), pending.resolution_hint === "firearm_attack");
     }
+    /**
+     * The standing action of the NPC whose turn it is (contract §11.5.3), or null: not an NPC's turn, an attack already
+     * pending its defence, the tables not loaded, or no source gives one. The fight's state is read off the saved
+     * snapshot (hit points, who can still fight on each side) and the stance ledger as it folds now.
+     */
+    npcAction(snapshot: Row): StandingAction | null {
+        const pending = snapshot.pending_attack, actor = this.combatTurnOf(snapshot), tables = this.campaign.standingTables;
+        if (!active(snapshot) || pending && typeof pending === "object" && !Array.isArray(pending) || actor == null || this.isInvestigator(actor) || !tables)
+            return null;
+        const participants = array(snapshot.participants), me = row(participants.find(p => string(p.actor_id) === actor)), hpMax = number(me.hp_max);
+        const allies = participants.filter(p => p.side === me.side && able(p)).length, opponents = participants.filter(p => p.side !== me.side && able(p)).length;
+        const state = { hp_fraction: hpMax > 0 ? number(me.hp_current) / hpMax : 0, outnumbered: opponents > allies,
+            stance: stanceNow(this.graph, row(this.campaign.jsonFiles.get("npc-ledger.json")), tables.stance, this.campaign.turn, actor) };
+        return standingAction(this.graph, this.world, actor, snapshot, { canAct: able(me), hasTarget: this.combatTargets(snapshot, actor).length > 0, state }, tables.disposition);
+    }
     combatView(snapshot = this.combat): Row | null {
         if (!snapshot)
             return null;
         const pending = snapshot.pending_attack,
             defender = string(row(pending).target_actor_id),
-            standing = pending && typeof pending === "object" ? this.npcStanding(snapshot, pending) : null;
+            standing = pending && typeof pending === "object" ? this.npcStanding(snapshot, pending) : null,
+            standingAction = this.npcAction(snapshot);
         return {
             kind: "combat",
             status: active(snapshot) ? "active" : "ended",
             round: number(snapshot.current_round),
             turn_of: active(snapshot) ? this.combatTurnOf(snapshot) : null,
             actions: active(snapshot) ? this.combatActions(snapshot) : [],
+            ...(standingAction ? { standing_action: standingAction } : {}),
             pending_defense: pending && typeof pending === "object" ? {
                 for: this.isInvestigator(defender) ? "player" : "npc",
                 actor: defender,
