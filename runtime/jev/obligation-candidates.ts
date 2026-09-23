@@ -1,6 +1,6 @@
 /**
  * Scene obligations as candidates (SO-04 of `docs/specs/scene-obligations-as-candidates-tickets.md`, spec D6;
- * contract §135.11). The clerk's half of what the kernel issues in `table.apply.options.obligations` (§134.9–§134.10).
+ * contract §135.26). The clerk's half of what the kernel issues in `table.apply.options.obligations` (§134.9–§134.10).
  *
  * Everything here is read from that one issued list and its sibling rows -- the same projection the Keeper's capsule
  * compacts -- and nothing classifies text:

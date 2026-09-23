@@ -18,7 +18,7 @@ const answer=(result:DecisionResult|undefined,key:string):string|undefined=>{con
 
 /**
  * The ordinary binder's closed intent and dice-modifier questions, shared with the obligation check's closed binder
- * (contract §135.11), so the two binders cannot ask the same choice in two wordings.
+ * (contract §135.26), so the two binders cannot ask the same choice in two wordings.
  */
 export const ORDINARY_CHOICES={
   intent:{instructions:'Bind the existing canonical intent to the declared ordinary action. Do not reinterpret its family to make it executable.',

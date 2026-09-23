@@ -258,8 +258,11 @@ function director() {
  * 契约 §13.1 的九节胶囊：where、present、known、pressures、obligations、director、
  * situations、memory、style，外加不计预算的 head 与 turn，以及 recent。
  */
-function capsule(playerText) {
+function capsule(playerText, params = {}) {
 	const beat = director();
+	// Contract §13.6/§135.23: a rehydrated capsule carries the source's whole style, a later turn's capsule only the
+	// part its budget holds. FAKE_KERNEL_STYLE_BUDGET=1 gives the turn capsule one directive and the rehydrated two.
+	const styleBudget = process.env.FAKE_KERNEL_STYLE_BUDGET === "1";
 	return {
 		head: HEAD,
 		turn: { number: turn, state, pending_choice: null, player_text: playerText ?? null },
@@ -323,7 +326,8 @@ function capsule(playerText) {
 			language: "zh-Hans",
 			register: "purist",
 			axes: ["感官先于解释", "留白胜过说明"],
-			directives: [{ id: "reveal-through-detail", line: "把线索藏进一个具体的东西里，别直接报答案。" }],
+			directives: [{ id: "reveal-through-detail", line: "把线索藏进一个具体的东西里，别直接报答案。" },
+				...(styleBudget && params.rehydrate === true ? [{ id: "observable-first", line: "Say what can be seen before what it means." }] : [])],
 		},
 		recent: process.env.FAKE_KERNEL_INTERRUPTED_PLAYER_TEXT
 			? [{ turn: Math.max(0, turn - 1), player: process.env.FAKE_KERNEL_INTERRUPTED_PLAYER_TEXT, keeper: "", closed: "stranded", receipts: 0 }]
@@ -855,7 +859,7 @@ function handle(method, params) {
 			return { ok: true, result: { turn, state, capsule: capsule(params.text) } };
 		}
 		case "table.capsule":
-			return { ok: true, result: capsule(null) };
+			return { ok: true, result: capsule(null, params) };
 		case "table.workspace.read": {
 			if (!WORKSPACE_ON) return { ok: false, error: { code: "unknown_method", message: `fake kernel does not know ${method}` } };
 			return {

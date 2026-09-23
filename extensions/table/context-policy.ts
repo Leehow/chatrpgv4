@@ -22,6 +22,21 @@ export const PRESCREEN_TYPE = 'coc-prescreen';
 export const NPC_ADVICE_TYPE = 'coc-npc-advice';
 /** The single-loop run's own note to the Keeper (contract §135.8): the clerk's steps of this turn and what it asks. */
 export const CLERK_TYPE = 'coc-clerk';
+/**
+ * Transport-only (contract §135.23): on the single-loop engine the turn's capsule stays as its first request sent it,
+ * and what changed since then rides at the end of the request as this update, so the request's prefix only grows.
+ */
+export const CAPSULE_UPDATE_TYPE = 'coc-capsule-update';
+export const CAPSULE_UPDATE_HEAD = 'The turn capsule above is this turn\'s start. These sections of it have changed since then, after this '
+    + 'turn\'s own receipts: the values here are current and replace the ones above; every other section is unchanged.';
+/** The capsule sections whose value differs from the turn's first capsule, or none. Structural: whole sections by key. */
+export function capsuleUpdate(first: Row, current: Row): Row | undefined {
+    const changed: Row = {}, removed: string[] = [];
+    for (const [key, value] of Object.entries(current)) if (JSON.stringify(value) !== JSON.stringify(first[key])) changed[key] = value;
+    for (const key of Object.keys(first)) if (!(key in current)) removed.push(key);
+    if (!Object.keys(changed).length && !removed.length) return undefined;
+    return {kind: 'capsule_update', head: CAPSULE_UPDATE_HEAD, sections: changed, ...(removed.length ? {removed} : {})};
+}
 export const POLICY_VERSION = 2;
 export type Row = Record<string, any>;
 export interface ContextBinding {
@@ -187,7 +202,7 @@ function closedNoise(message: Row): boolean {
     if (message.role !== 'custom') return false;
     // A coc-workspace from an older binding is regenerated for the current request or omitted;
     // keeping one would let stale evidence ride every later turn as unclassified material.
-    if (['coc-capsule', HISTORY_TYPE, BRIEF_TYPE, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, NPC_ADVICE_TYPE, CLERK_TYPE].includes(message.customType)) return true;
+    if (['coc-capsule', HISTORY_TYPE, BRIEF_TYPE, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, NPC_ADVICE_TYPE, CLERK_TYPE, CAPSULE_UPDATE_TYPE].includes(message.customType)) return true;
     const details = object(message.details);
     if (message.customType === 'coc-delivery' && details.coc_delivery === true && Number.isSafeInteger(details.turn)) return true;
     return message.customType === 'coc-host' && (details.kind === 'compacted'

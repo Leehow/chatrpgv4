@@ -1,5 +1,5 @@
 /**
- * SO-04 (spec scene-obligations-as-candidates D6, owner rulings Q1/Q2/Q5; contract §135.11): the scene obligations the
+ * SO-04 (spec scene-obligations-as-candidates D6, owner rulings Q1/Q2/Q5; contract §135.26): the scene obligations the
  * kernel issues become the clerk's candidates.
  *
  * The kernel is the subject of every state read at the morgue, so those reads come from the emitted kernel on a real
@@ -21,6 +21,7 @@ import { createRealCampaign, openTable } from "./harness.mjs";
 import { buildCandidates, keeperCall, obligationCandidates } from "../../runtime/jev/candidates.ts";
 import { BIND_FAMILY, CLERK_AUTHORITY, ROUTE_FAMILY, bindBatch, bindingOf, initialView, interpretBind, interpretRoute, next, routeBatch, settleExecute, settleRead } from "../../runtime/jev/step-policy.ts";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { issuedSection, readCandidateBodies } from "../../runtime/jev/candidate-bodies.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CAMPAIGN = "camp";
@@ -152,6 +153,15 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	assert.deepEqual(check.unbound.map((value) => [value.name, value.options]),
 		[["skill", APPROACHES], ["bonus", ["none", "one", "two"]], ["penalty", ["none", "one", "two"]], ["intent", ["investigate", "social", "move"]]]);
 	for (const key of GUARDED) assert.ok(!keys(candidates).includes(key), "still withheld: the gate is open until its check settles");
+	// §135.20: the read hands the Keeper the check's body -- the demand and what it guards, never the page.
+	const bodies = await readCandidateBodies({ candidates, capsule: state.capsule, call });
+	const body = bodies.bodies.find((entry) => entry.family === "obligation_check");
+	assert.equal(body?.name, ACCESS);
+	assert.equal(body.body.demand, "Access to the Globe clippings");
+	assert.deepEqual(body.body.next.approaches.map((value) => value.skill), APPROACHES);
+	assert.deepEqual(body.body.guards.map((guard) => guard.clue), ["globe-unpublished-story", "macario-tragedy"]);
+	const section = allText(issuedSection(bodies));
+	for (const hidden of ["pdf", "448", '"source"', "mod_contact", "Arty refuses"]) assert.ok(!section.includes(hidden), `the body carries no ${hidden}`);
 
 	// The policy: several approaches go to decide(bind); a confident answer runs the clerk's resolve with the claim.
 	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [], readFirst: false });

@@ -225,14 +225,14 @@ function dispositionInference(actor: string, name: string, fighter: Row, relatio
     basis: {read: 'table.look', path: 'combat_disposition', row: {npc: actor, read} as Json}};
 }
 
-/** Scene obligations (SO-04, contract §135.11): their candidates, what they guard, and the Mod checks they preordain. */
+/** Scene obligations (SO-04, contract §135.26): their candidates, what they guard, and the Mod checks they preordain. */
 export {obligationCandidates} from './obligation-candidates.ts';
 
 /**
  * candidates(view): apply.options (moves and scene clues the kernel issues), the scene's handout assets, the
  * people present and not yet introduced (under the capsule's own label), the active Mods' pending contact
  * checks, the ordinary check with its closed binder, the active combat/chase session's steps, and located
- * clue/handout entities, and the scene obligations' next steps (§135.11: the stated meeting in place of the roster
+ * clue/handout entities, and the scene obligations' next steps (§135.26: the stated meeting in place of the roster
  * candidate, the obligation check after the Mod contact checks; what an unsettled obligation guards, and a Mod
  * contact check the book preordains, withheld). Consumed keys are removed. While a combat or chase session runs, leaving is the
  * session's own flee/chase step, so scene moves are not offered then; the ordinary check is not offered either,
@@ -240,7 +240,7 @@ export {obligationCandidates} from './obligation-candidates.ts';
  */
 export function buildCandidates(reads: StateReads, rawInput: string, consumed: ReadonlySet<string> = new Set()): Candidate[] {
   const out: Candidate[] = [], seen = new Set<string>();
-  // Scene obligations (contract §135.11): an open one's next step, what the unsettled ones guard, and the Mod
+  // Scene obligations (contract §135.26): an open one's next step, what the unsettled ones guard, and the Mod
   // contact checks a preordained one takes off the clerk's hands.
   const stated = obligationCandidates(reads, rawInput), guards = guardsOf(reads), preordained = preordainedContacts(reads);
   const meetings = new Map(stated.filter(candidate => candidate.family === 'person').map(candidate => [String(candidate.bound.who), candidate]));
@@ -267,7 +267,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     // at all, and the internal `authority` tag is not shown.
     const unlock = object(description.unlock_when);
     if (kind === 'move' && (unlock.met === false || sessionLive)) continue;
-    // A row an unsettled stated obligation guards is withheld until the kernel stops naming the guard (§135.11).
+    // A row an unsettled stated obligation guards is withheld until the kernel stops naming the guard (§135.26).
     if (text(row.guarded_by)) continue;
     if (kind === 'move') push({key: `apply:move:${text(effect.to)}`, verb: 'apply', family: 'move', source: 'table.apply.options',
       label: `Move the party to ${text(description.display_name) || text(effect.to)}`, bound: {kind: 'move', to: text(effect.to)},
@@ -295,7 +295,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   // the name is open and only the LLM can fill it.
   for (const [index, person] of array(capsule.present).map(object).entries()) {
     if (!text(person.name) || text(object(person.called).name) || guards.people.has(text(person.name))) continue;
-    // The person the book puts here as an obligation's meeting: the stated candidate replaces this one (§135.11).
+    // The person the book puts here as an obligation's meeting: the stated candidate replaces this one (§135.26).
     const meeting = meetings.get(text(person.name));
     if (meeting) { push(meeting); continue; }
     const label = text(object(person.untold).label);
@@ -360,7 +360,7 @@ export function kernelCall(candidate: Candidate, extra: Record<string, Json> = {
 export function keeperCall(candidate: Candidate, extra: Record<string, Json> = {}): {tool: 'apply' | 'resolve'; args: Row} {
   if (candidate.verb === 'apply') return {tool: 'apply', args: {effects: [{...candidate.bound, ...extra}]}};
   const {decision, actor, target, goal, method, choice, bonus, penalty, ...rest} = {...candidate.bound, ...extra} as Row;
-  // The closed dice words of a bind (the ordinary binder's, §135.11) become the check's modifiers; a die on a social
+  // The closed dice words of a bind (the ordinary binder's, §135.26) become the check's modifiers; a die on a social
   // attempt carries its reason, which is the player's declaration, as the ordinary binder's does.
   if (typeof bonus === 'string' || typeof penalty === 'string') {
     const dice = {bonus_dice: DICE[String(bonus)] ?? 0, penalty_dice: DICE[String(penalty)] ?? 0};
