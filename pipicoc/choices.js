@@ -20,8 +20,12 @@ export function createComponent(React) {
   return function Choice({details={},onSelectOption}) {
     const [selected,setSelected]=React.useState(null),[busy,setBusy]=React.useState(false),[error,setError]=React.useState(null);
     const t=(key,fallback)=>word(details.ui,'choices',key,fallback);
+    // Retire the whole defense interaction, including old cards that also offered flee.
+    const retiredDefense = (typeof details.binds === 'string' && details.binds.startsWith('defense:'))
+      || (typeof details.name === 'string' && details.name.startsWith('defense:'))
+      || (details.kind === 'mechanics' && (details.options || []).some(option => option === 'dodge' || option === 'fight_back'));
     async function choose(option) {
-      if(!onSelectOption)return;
+      if(!onSelectOption||retiredDefense)return;
       setBusy(true);setError(null);
       // A refusal is shown by its code; the English message it carries is for the log, so it goes
       // behind a fold rather than becoming the sentence the player reads.
@@ -31,7 +35,7 @@ export function createComponent(React) {
     }
     return h('section',{'aria-label':t('actions'),style:{display:'grid',gap:8,padding:'12px 0'}},
       details.kind==='story'&&details.prompt?h('p',null,details.prompt):null,
-      h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},...(details.options||[]).map(option=>h('button',{key:option,type:'button',disabled:busy||selected!==null||!onSelectOption,onClick:()=>void choose(option),style:{padding:'8px 14px',borderRadius:8,border:'1px solid var(--border)',background:selected===option?'var(--accent-soft)':'var(--surface)',color:'var(--text)'}},details.kind==='mechanics'?t(`option.${option}`):option))),
+      h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},...(details.options||[]).map(option=>h('button',{key:option,type:'button',disabled:busy||selected!==null||!onSelectOption||retiredDefense,onClick:()=>void choose(option),style:{padding:'8px 14px',borderRadius:8,border:'1px solid var(--border)',background:selected===option?'var(--accent-soft)':'var(--surface)',color:'var(--text)'}},details.kind==='mechanics'?t(`option.${option}`):option))),
       error?h('p',{role:'alert'},word(details.ui,'errors',error.code,word(details.ui,'errors','unknown')),
         error.message?h('details',null,h('summary',null,word(details.ui,'errors','details')),h('p',null,error.message)):null):null);
   };

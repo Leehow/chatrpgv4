@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { readerInput, type ReaderRequest, type ReaderOutcome } from "./reader.ts";
 import { draftHasMapRegions } from "./map-publication.ts";
+import { obligationReviewPaths } from "../../kernel-ts/modules/obligation-review.ts";
 
 type Row = Record<string, any>;
 function numeric(value: any, path: string): string[] {
@@ -22,6 +23,8 @@ export function reviewUnits(draft: Row): string[][] {
 			Object.entries(row.properties ?? {}).filter(([k]) => k !== "image_sources")), path + "/properties") : [])]);
 		if (collection === "nodes" && Array.isArray(row.properties?.map_regions) && row.properties.map_regions.length)
 			pointers.add(`${path}/properties/map_regions`);
+		// Contract §134.16: the publication gate requires every obligation field, listed in critical or not.
+		if (collection === "nodes") for (const pointer of obligationReviewPaths(row, path)) pointers.add(pointer);
 		groups.set(path, pointers);
 	}
 	for (const path of draft.critical ?? []) {

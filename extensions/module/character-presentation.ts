@@ -298,6 +298,9 @@ export function rulesTexts(view:Row):string[] {
       if(rows&&typeof rows==='object'&&!Array.isArray(rows))for(const key of Object.keys(rows))add(key);
     }
   }
+  for(const mechanic of Array.isArray(view?.mechanics)?view.mechanics:[]) {
+    if(mechanic?.kind==='roll'&&mechanic.visibility!=='keeper')add(mechanic.skill);
+  }
   return [...texts].sort();
 }
 export function prepareRulesPresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {

@@ -134,6 +134,7 @@ type PreparationHost = {home:string; start(action:string,input:Row,signal?:Abort
   child:ChildProcessByStdio<null,Readable,Readable>; closed:Promise<void>; close():Promise<void>}};
 export class CocOnboardingHost {
   private presentations = new Map<string,{task:Promise<Row>;result?:Row;error?:unknown}>();
+  private growingPresentationTails = new Map<string,Promise<Row>>();
   /** One background caption projection per tag (contract §23); a failed one waits for `retryUiWords`. */
   private wordJobs = new Map<string,{task:Promise<void>;failed:boolean}>();
   private documentReadings = new Map<string,{result?:Row;error?:unknown}>();
@@ -599,14 +600,29 @@ export class CocOnboardingHost {
     return CocOnboardingHost.laneFlags(data).some(lane=>lane!=='ui');
   }
   private presentationKey(data:Row) {
-    return JSON.stringify([data.campaign,data.revision,data.play_language,CocOnboardingHost.laneFlags(data)]);
+    const skills=data.rules===true&&Array.isArray(data.mechanics)
+      ? [...new Set(data.mechanics.filter((row:any)=>row?.kind==='roll'&&row.visibility!=='keeper'&&typeof row.skill==='string')
+        .map((row:any)=>row.skill.trim()).filter(Boolean))].sort() : [];
+    return JSON.stringify([data.campaign,data.revision,data.play_language,CocOnboardingHost.laneFlags(data),skills]);
+  }
+  /** Different deliveries must not join a run that never saw their terms, nor overwrite its cache.
+   *  Each growing lane reads its missing words again after its predecessor has saved them. */
+  private queuedPresentation(data:Row):Promise<Row> {
+    const lanes=CocOnboardingHost.laneFlags(data).filter(lane=>lane!=='ui')
+      .map(lane=>JSON.stringify([data.campaign,data.play_language,lane]));
+    const prior=lanes.flatMap(lane=>this.growingPresentationTails.has(lane)?[this.growingPresentationTails.get(lane)!]:[]);
+    const task=prior.length?Promise.all(prior.map(task=>task.catch(()=>undefined))).then(()=>this.runPresentation(data)):this.runPresentation(data);
+    for(const lane of lanes)this.growingPresentationTails.set(lane,task);
+    const clear=()=>{for(const lane of lanes)if(this.growingPresentationTails.get(lane)===task)this.growingPresentationTails.delete(lane);};
+    void task.then(clear,clear);
+    return task;
   }
   private presentationJob(data:Row) {
     const key=this.presentationKey(data);
     if(!this.presentations.has(key)) {
       const job:{task:Promise<Row>;result?:Row;error?:unknown}={task:Promise.resolve({})};
       this.presentations.set(key,job);
-      job.task=this.runPresentation(data).then(result=>{job.result=result;return result;},error=>{job.error=error;throw error;})
+      job.task=this.queuedPresentation(data).then(result=>{job.result=result;return result;},error=>{job.error=error;throw error;})
         .finally(()=>{if(CocOnboardingHost.growingLane(data))this.presentations.delete(key);});
       void job.task.catch(()=>undefined);
     }

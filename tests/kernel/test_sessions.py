@@ -59,7 +59,7 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
         assert session["kind"] == "combat" and session["status"] == "active" and session["round"] == 1
         assert session["turn_of"] == INVESTIGATOR
         # §11.5.2: an NPC defender's standing -- Fighting 50 >= Dodge 17 says fight back, which a firearm reads as dodge.
-        assert session["pending_defense"] == {"for": "npc", "actor": CORBITT, "attacker": INVESTIGATOR, "options": ["dodge", "none"],
+        assert session["pending_defense"] == {"for": "npc", "actor": CORBITT, "attacker": INVESTIGATOR, "options": ["dodge", "none"], "attack_command_id": f"t1-c{n}", "revision": 2,
                                               "standing": {"defense": "dodge", "basis": "rule-default"}}
         assert [p["name"] for p in session["participants"]] == [INVESTIGATOR, CORBITT]
         corbitt = session["participants"][1]
@@ -115,7 +115,7 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
         assert strike["outcome"]["status"] == "pending_defense" and strike["outcome"]["actor"] == CORBITT
         assert strike["outcome"]["defense_options"] == ["dodge", "fight_back", "none"]
         assert strike["session"]["pending_defense"] == {"for": "player", "actor": INVESTIGATOR, "attacker": CORBITT,
-                                                        "options": ["dodge", "fight_back", "none"]}
+                                                        "options": ["dodge", "fight_back", "none"], "attack_command_id": f"t1-c{n+2}", "revision": 4}
         pending = strike["pending_choice"]
         assert pending["for"] == "player" and pending["name"] == f"defense:{CORBITT}-r1"
         assert pending["options"] == ["dodge", "fight_back", "none"] and "Walter Corbitt" in pending["prompt"]

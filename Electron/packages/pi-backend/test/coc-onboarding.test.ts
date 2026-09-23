@@ -3,6 +3,8 @@ import {mkdir, mkdtemp, readFile,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {CocOnboardingHost} from '../src/coc-onboarding.js';
+import {prepareRulesPresentation} from '../../../../extensions/module/character-presentation.ts';
+import {PRESENTATION_REFERENCE_PROTOCOL} from '../../../../runtime/jev/presentation-references.ts';
 
 const services:CocOnboardingHost[]=[];
 async function service(){
@@ -44,6 +46,51 @@ it('joins one background presentation across status polls',async()=>{
  expect(host.presentationStatus(data)).toEqual({pending:true});expect(host.presentationStatus(data)).toEqual({pending:true});
  complete({play_language:'en',texts:{Name:'Name'}});await host.presentation(data);
  expect(host.presentationStatus(data)).toEqual({play_language:'en',texts:{Name:'Name'}});expect(run).toHaveBeenCalledTimes(1);
+});
+it('queues new delivery terms behind a running rules lane and rechecks its saved words before projecting',async()=>{
+ const {host,home}=await service();
+ let release:()=>void=()=>{},started:()=>void=()=>{};
+ const gate=new Promise<void>(resolve=>{release=resolve}),firstStarted=new Promise<void>(resolve=>{started=resolve});
+ const requested:string[][]=[];let active=0,maxActive=0;
+ const run=vi.spyOn(host as any,'run').mockImplementation(async(_action:any,data:any)=>{
+  active++;maxActive=Math.max(maxActive,active);
+  try {return await prepareRulesPresentation({home,campaign:data.campaign,play_language:data.play_language,
+   view:{play_language:data.play_language,investigators:[{skills:{Listen:60}}],mechanics:data.mechanics},
+   runner:async request=>{
+    const packet=JSON.parse(await readFile(join(request.cwd,'texts.json'),'utf8'));
+    requested.push(packet.sources.map((source:any)=>source.text));
+    if(requested.length===1){started();await gate;}
+    await writeFile(join(request.cwd,'presentation.json'),JSON.stringify({protocol:PRESENTATION_REFERENCE_PROTOCOL,
+     texts:packet.sources.map((source:any)=>({source:source.alias,action:'translate',text:`Projected ${source.text}`})),finance_equipment_sources:[]}));
+    return {ok:true};
+   }});
+  } finally {active--;}
+ });
+ const base={campaign:'queued-rules',play_language:'fr',rules:true};
+ const panel=host.presentation(base);await firstStarted;
+ const fighting={...base,mechanics:[{kind:'roll',skill:'Fighting',visibility:'public'}]};
+ const delivery=host.presentation(fighting);
+ expect(host.presentation(fighting)).toBe(delivery);
+ const later=host.presentation({...base,mechanics:[...fighting.mechanics,{kind:'roll',skill:'Dodge',visibility:'public'}]});
+ expect(run).toHaveBeenCalledTimes(1);
+ release();
+ await panel;
+ expect((await delivery).texts.Fighting).toBe('Projected Fighting');
+ expect((await later).texts).toMatchObject({Listen:'Projected Listen',Fighting:'Projected Fighting',Dodge:'Projected Dodge'});
+ expect(requested).toEqual([['Listen'],['Fighting'],['Dodge']]);
+ expect(maxActive).toBe(1);
+ const cached=JSON.parse(await readFile(join(home,'.coc/campaigns/queued-rules/setup/presentations/rules-fr.json'),'utf8'));
+ expect(cached.texts).toEqual({Listen:'Projected Listen',Fighting:'Projected Fighting',Dodge:'Projected Dodge'});
+});
+it('a failed growing projection does not swallow or poison a queued delivery',async()=>{
+ const {host}=await service();let fail:(error:Error)=>void=()=>{};
+ const run=vi.spyOn(host as any,'runPresentation').mockImplementationOnce(()=>new Promise((_resolve,reject)=>{fail=reject}))
+  .mockResolvedValueOnce({texts:{Fighting:'Projected Fighting'}});
+ const base={campaign:'failed-queue',play_language:'fr',rules:true};
+ const panel=host.presentation(base),delivery=host.presentation({...base,mechanics:[{kind:'roll',skill:'Fighting'}]});
+ const rejected=expect(panel).rejects.toThrow('first failed');fail(new Error('first failed'));
+ await rejected;expect((await delivery).texts.Fighting).toBe('Projected Fighting');
+ expect(run).toHaveBeenCalledTimes(2);
 });
 it('retries a failed presentation inside the job, and the poll only ever sees a final failure',async()=>{
  // The retry has to live in the job. A failed job is retained so the card's poll can read the

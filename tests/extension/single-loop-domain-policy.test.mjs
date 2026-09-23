@@ -168,8 +168,8 @@ test("SL-07: an NPC's pending defence with a standing is a direct clerk step -- 
 		decide: (batch) => batch.family === BIND_FAMILY
 			? answered(batch, (question) => question.key === "decision" ? "combat:attack" : "unknown")
 			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
-		// The Keeper's one step: the player's own defence, handed back with the kernel's options -- `none` included.
-		responses: [fauxAssistantMessage([fauxToolCall("ask", { kind: "mechanics", options: ["dodge", "fight_back", "none"], text: "他的拳头朝你脸上砸来。" })], { stopReason: "toolUse" })],
+		// The Keeper's one step: the prose close (the player's defence is settled by §11.5.1's standing preference).
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "他的拳头朝你脸上砸来，你侧身闪开。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("继续揍他");
@@ -191,10 +191,12 @@ test("SL-07: an NPC's pending defence with a standing is a direct clerk step -- 
 	const infers = events.filter((event) => event.type === "step_start" && event.kind === "infer");
 	assert.equal(infers.filter((event) => event.purpose === "bind").length, 0, "no LLM bind");
 	assert.ok(!telemetry.some((entry) => entry.event === "llm_bound" && String(entry.candidate).includes("combat:defend")));
-	// The round closes on the one LLM step, and the player's `none` is accepted by ask.
-	assert.equal(infers.length, 1);
-	const asked = calls.find((call) => call.phase === "result" && call.tool === "ask");
-	assert.equal(asked.isError, false, JSON.stringify(asked.details?.coc_error ?? null));
+	// With §11.5.1 the player's own defence against Knott's counter-attack is the host's, by the campaign preference,
+	// so the round closes on one LLM step: the compose.
+	assert.deepEqual(infers.map((event) => event.purpose), ["compose"]);
+	assert.ok(telemetry.some((entry) => entry.lane === "standing-defense" && entry.ok === true), "the player's defence settled by §11.5.1");
+	const delivered = calls.find((call) => call.phase === "result" && call.tool === "narrate");
+	assert.equal(delivered.isError, false);
 });
 
 test("a Keeper batch whose step fails returns to the Keeper at once: the rest is not run and no route question comes first", async (t) => {

@@ -5190,6 +5190,141 @@
       ]
     },
     {
+      "node_id": "requirement-globe-archivist",
+      "node_kind": "requirement",
+      "name": "The Globe archivist",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "Once Arty relents, records keeper Ruth Blake takes the investigators down to the clippings files.",
+      "evidence_span_ids": [
+        "span-page-447-anchor-2",
+        "span-page-448-anchor-5"
+      ],
+      "properties": {
+        "obligation": {
+          "scene": "scene-newspaper-morgue",
+          "trigger": {
+            "kind": "after",
+            "obligation": "requirement-globe-clippings-access"
+          },
+          "who": "npc-ruth-blake",
+          "demand": [
+            {
+              "kind": "meet",
+              "npc": "npc-ruth-blake"
+            }
+          ],
+          "settles": {
+            "kind": "flag_set",
+            "flag_id": "newspaper-morgue-archivist"
+          }
+        }
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+          "pdf_index": 448,
+          "grep_anchor": "Ruth Blake"
+        }
+      ]
+    },
+    {
+      "node_id": "requirement-globe-clippings-access",
+      "node_kind": "requirement",
+      "name": "Access to the Globe clippings",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "City editor Arty Wilmot refuses the clippings room; a regular Persuade, Intimidate, Charm or Fast Talk wins access. His reaction roll is not used.",
+      "evidence_span_ids": [
+        "span-page-447-anchor-1",
+        "span-page-447-anchor-2"
+      ],
+      "properties": {
+        "obligation": {
+          "scene": "scene-newspaper-morgue",
+          "trigger": {
+            "kind": "attempt",
+            "guards": {
+              "clues": [
+                "clue-globe-unpublished-story",
+                "clue-macario-tragedy"
+              ]
+            }
+          },
+          "who": "npc-arty-wilmot",
+          "reaction": "preordained",
+          "demand": [
+            {
+              "kind": "meet",
+              "npc": "npc-arty-wilmot"
+            },
+            {
+              "kind": "check",
+              "scope": "actor-target",
+              "target": "npc-arty-wilmot",
+              "selection": "approach",
+              "values": [
+                {
+                  "path": "skills.Persuade",
+                  "label": "Persuade"
+                },
+                {
+                  "path": "skills.Intimidate",
+                  "label": "Intimidate"
+                },
+                {
+                  "path": "skills.Charm",
+                  "label": "Charm"
+                },
+                {
+                  "path": "skills.Fast Talk",
+                  "label": "Fast Talk"
+                }
+              ],
+              "difficulty": "regular",
+              "results": {
+                "critical": {
+                  "settles": true
+                },
+                "extreme": {
+                  "settles": true
+                },
+                "hard": {
+                  "settles": true
+                },
+                "regular": {
+                  "settles": true
+                },
+                "failure": {
+                  "settles": false,
+                  "book": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt."
+                },
+                "fumble": {
+                  "settles": false,
+                  "book": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room."
+                }
+              },
+              "push": {
+                "allowed": true,
+                "book": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room."
+              }
+            }
+          ],
+          "settles": {
+            "kind": "flag_set",
+            "flag_id": "newspaper-morgue-clippings-access"
+          }
+        }
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+          "pdf_index": 447,
+          "grep_anchor": "Arty Wilmot"
+        }
+      ]
+    },
+    {
       "node_id": "scene-basement-rites",
       "node_kind": "scene",
       "name": "scene basement rites",
@@ -6879,14 +7014,6 @@
               "npc-arty-wilmot",
               "npc-ruth-blake"
             ],
-            "npc_presence_requirements": [
-              {
-                "npc_id": "npc-ruth-blake",
-                "requires_completed_route_ids": [
-                  "persuade-arty"
-                ]
-              }
-            ],
             "pressure_moves": [
               "Arty Wilmot enjoys denying access and makes them work for every courtesy",
               "Knott telephones if research stretches past a day — time is money"
@@ -6914,47 +7041,6 @@
                   "Charm",
                   "Fast Talk"
                 ],
-                "roll_gate": {
-                  "kind": "skill_check",
-                  "difficulty": "regular",
-                  "stakes": "permission to enter the newspaper clipping room",
-                  "ordinary_failure": {
-                    "mode": "no_progress",
-                    "summary": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt."
-                  },
-                  "fumble_consequence": {
-                    "summary": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
-                    "effect": {
-                      "kind": "route_closed",
-                      "route_id": "persuade-arty"
-                    }
-                  },
-                  "push_failure_consequence": {
-                    "summary": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room.",
-                    "effect": {
-                      "kind": "route_closed",
-                      "route_id": "persuade-arty"
-                    }
-                  },
-                  "approaches": [
-                    {
-                      "verb": "persuade",
-                      "skill": "Persuade"
-                    },
-                    {
-                      "verb": "intimidate",
-                      "skill": "Intimidate"
-                    },
-                    {
-                      "verb": "charm",
-                      "skill": "Charm"
-                    },
-                    {
-                      "verb": "fast-talk",
-                      "skill": "Fast Talk"
-                    }
-                  ]
-                },
                 "route_type": "npc_question",
                 "status": "open"
               },
@@ -6964,9 +7050,6 @@
                 "grants_clue_ids": [
                   "clue-globe-unpublished-story",
                   "clue-macario-tragedy"
-                ],
-                "requires_completed_route_ids": [
-                  "persuade-arty"
                 ],
                 "route_type": "investigative_lead",
                 "status": "open"
@@ -6988,50 +7071,6 @@
                   "Charm",
                   "Persuade",
                   "Fast Talk"
-                ],
-                "roll_gate": {
-                  "kind": "skill_check",
-                  "difficulty": "regular",
-                  "stakes": "Ruth's willingness to share the fire-cutoff fact and/or risk helping with the morgue",
-                  "ordinary_failure": {
-                    "mode": "no_progress",
-                    "summary": "Ruth stays polite but noncommittal; she will not risk her job today. The investigator may try another approach, another person, or return later."
-                  },
-                  "fumble_consequence": {
-                    "summary": "Ruth takes fright or offence and alerts Arty; further help from her is closed for this visit.",
-                    "effect": {
-                      "kind": "route_closed",
-                      "route_id": "befriend-ruth"
-                    }
-                  },
-                  "push_failure_consequence": {
-                    "summary": "After a failed pushed attempt Ruth withdraws entirely and tells Arty; her help is closed for the rest of the investigation.",
-                    "effect": {
-                      "kind": "route_closed",
-                      "route_id": "befriend-ruth"
-                    }
-                  },
-                  "retry_policy": {
-                    "mode": "elapsed_time_reset",
-                    "minimum_elapsed_minutes": 720
-                  },
-                  "approaches": [
-                    {
-                      "verb": "charm",
-                      "skill": "Charm"
-                    },
-                    {
-                      "verb": "persuade",
-                      "skill": "Persuade"
-                    },
-                    {
-                      "verb": "fast-talk",
-                      "skill": "Fast Talk"
-                    }
-                  ]
-                },
-                "requires_completed_route_ids": [
-                  "persuade-arty"
                 ],
                 "npc_interaction": {
                   "npc_id": "npc-ruth-blake",
@@ -18023,6 +18062,44 @@
       "reason": "Structured curated starter projection."
     },
     {
+      "claim_id": "claim-has-requirement-globe-archivist",
+      "subject_id": "scene-newspaper-morgue",
+      "predicate": "has-requirement",
+      "object": {
+        "node_id": "requirement-globe-archivist"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-447-anchor-2",
+        "span-page-448-anchor-5"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Authored scene obligation (contract section 133)."
+    },
+    {
+      "claim_id": "claim-has-requirement-globe-clippings-access",
+      "subject_id": "scene-newspaper-morgue",
+      "predicate": "has-requirement",
+      "object": {
+        "node_id": "requirement-globe-clippings-access"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-447-anchor-1",
+        "span-page-447-anchor-2"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Authored scene obligation (contract section 133)."
+    },
+    {
       "claim_id": "claim-house-contains-basement",
       "subject_id": "location-corbitt-house",
       "predicate": "contains",
@@ -22818,6 +22895,22 @@
       "from_node_id": "handout-the-haunting-corbitt-house-investigator-map",
       "to_node_id": "scene-basement-rites",
       "claim_id": "claim-discoverable-at-295",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-has-requirement-globe-archivist",
+      "relation_kind": "has-requirement",
+      "from_node_id": "scene-newspaper-morgue",
+      "to_node_id": "requirement-globe-archivist",
+      "claim_id": "claim-has-requirement-globe-archivist",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-has-requirement-globe-clippings-access",
+      "relation_kind": "has-requirement",
+      "from_node_id": "scene-newspaper-morgue",
+      "to_node_id": "requirement-globe-clippings-access",
+      "claim_id": "claim-has-requirement-globe-clippings-access",
       "properties": {}
     },
     {

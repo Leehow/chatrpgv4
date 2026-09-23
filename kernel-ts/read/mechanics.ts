@@ -50,6 +50,13 @@ function investigator(out: Row, receipt: Row, key: string) {
         labeled(out, `${key}_label`, receipt[`${key}_label`]);
     }
 }
+function combatLabels(out: Row, receipt: Row, keys: string[]): void {
+    if (receipt.public_combat !== true || dieHidden(receipt.visibility))
+        return;
+    out.public_combat = true;
+    for (const key of keys)
+        labeled(out, key, receipt[key]);
+}
 export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = new Map()): Row | null {
     const id = receipt.id ?? null,
         kind = receipt.kind;
@@ -83,6 +90,11 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
                 visibility: receipt.visibility || "public"
             };
         investigator(out, receipt, "actor");
+        combatLabels(out, receipt, ['combat_action']);
+        if (receipt.public_combat === true && !dieHidden(receipt.visibility)) {
+            labeled(out, 'actor_label', receipt.public_actor_label);
+            labeled(out, 'target_label', receipt.public_target_label);
+        }
         // The engine's stable name for a die it rolled itself (§23): the card looks the play-language
         // word up by this and keeps the English `label` as what it draws when there is none.
         if (receipt.form === "dice")
@@ -98,6 +110,12 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
             after: receipt.after ?? null
         };
         investigator(out, receipt, "subject");
+        combatLabels(out, receipt, ['source_receipt']);
+        if (receipt.public_combat === true && !dieHidden(receipt.visibility)) {
+            labeled(out, 'subject_label', receipt.public_subject_label);
+            labeled(out, 'source_label', receipt.public_source_label);
+        }
+        if (receipt.visibility) out.visibility = receipt.visibility;
         labeled(out, "item", receipt.item);
         return out;
     }

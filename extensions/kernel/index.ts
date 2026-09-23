@@ -14,6 +14,7 @@ import { adaptationModel, adaptationService } from './adaptation.ts';
 import { fastLaneChoice } from '../lanes/subsession.ts';
 export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
+import { automaticDefense, isDefenseChoice, readDefensePreference } from '../../runtime/combat-defense.ts';
 import { agentHomeOf, openingHelp } from "../ui/hints.ts";
 import { extensionSurface } from "../ui/words.ts";
 import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError } from "./client.ts";
@@ -141,6 +142,7 @@ interface OpenResult {
 	/** The resume checkpoint (contract §12.2): after a restart the first capsule carries this section itself, so the extension sends no separate host message for it. */
 	resume?: { turn?: number; commit?: string; one_line?: string; rebuilt?: boolean } | null;
 	opening_needed?: boolean;
+	session?: SessionSummary | null;
   mod_context?: unknown;
   setup_prologue?: unknown;
   /** Contract §39.2: the module's own map captions, for the host's play-language projection. Absent when the module publishes no player map. */
@@ -1198,6 +1200,7 @@ export default function (pi: ExtensionAPI) {
 		if (open.mods_unreadable?.length) noteModSkew(table.campaign, open.mods_unreadable);
 		table.turn = typeof open.turn?.number === "number" ? open.turn.number : table.turn;
 		table.state = open.turn?.state ?? table.state;
+		table.session = open.session ?? null;
 		table.openingPending = open.opening_needed === true;
 		// A recovered turn goes on minting ordinals after the dead process, or the first write hits idempotency_conflict.
 		table.callOrdinal = open.pending_turn?.last_call_ordinal ?? 0;
@@ -1265,8 +1268,8 @@ export default function (pi: ExtensionAPI) {
 
 	/**
 	 * A `resolve` result may carry a session and a pending choice (contract §11.5). The turn state
-	 * machine gains no state for it: a session leaves the turn in `acting`, and the Keeper goes on
-	 * to hand the player's defence back with ask, or answers for an NPC with actor plus defense.
+	 * machine gains no state for it: a session leaves the turn in `acting`. The host settles the
+	 * investigator's standing defense; the Keeper answers for an NPC with actor plus defense.
 	 * Only the summary is mirrored here, for the status line and telemetry.
 	 */
 	function noteResolve(state: TableState, result: ResolveResult): void {
@@ -1618,6 +1621,8 @@ export default function (pi: ExtensionAPI) {
 	function noteCapsule(state: TableState, capsule: unknown): void {
 		if (!capsule || typeof capsule !== "object") return;
 		const view = capsule as { where?: Record<string, unknown>; present?: unknown; known?: { investigator?: Record<string, unknown> }; recent?: unknown };
+		if (view.where && Object.hasOwn(view.where, 'session'))
+			state.session = (view.where.session ?? null) as SessionSummary | null;
 		const handle = asString(view.where?.scene);
 		const label = asString(view.where?.display_name);
 		if (handle || label) state.scene = { ...(handle ? { handle } : {}), ...(label ? { label } : {}) };
@@ -2716,6 +2721,57 @@ export default function (pi: ExtensionAPI) {
 			+ ` Settle whatever the player's own action can reach without it and return control without a story menu.${HOST_SAYS_THE_WAIT}`;
 	}
 
+	const defenseRecoveryTurns = new WeakMap<TableState, number>();
+	const defenseAttempts = new WeakMap<TableState, Map<string, Promise<Record<string, unknown>>>>();
+	async function settleStandingDefense(state: TableState, session: unknown, signal?: AbortSignal): Promise<Record<string, unknown> | undefined> {
+		if (!['open', 'acting'].includes(state.state) || !sessionCtx || state.reviewUnavailable) return;
+		const candidate = (session as any)?.pending_defense;
+		if (candidate?.for !== 'player') return;
+		const preference = await readDefensePreference(cocHome(sessionCtx.cwd), state.campaign);
+		const selected = automaticDefense(session, preference);
+		if (!selected) return;
+		let attempts = defenseAttempts.get(state);
+		if (!attempts) defenseAttempts.set(state, attempts = new Map());
+		const key = JSON.stringify(selected.expected);
+		// Keep a refused/uncertain attempt as well: a later delivery cannot silently skip it or reroll it.
+		const previous = attempts.get(key);
+		if (previous) return previous;
+		const attempt = (async () => {
+			if (signal?.aborted) throw new Error('Standing defense was cancelled before settlement');
+			const callId = mintCallId(state), payload = {campaign: state.campaign, call_id: callId,
+				action: selected.action, _standing_defense: selected.expected};
+			try {
+				// This host-owned operation has its own identity, never the attack's dispatcher frame.
+				// Standing player authorization replaces semantic admission; kernel turn/attack guards remain authoritative.
+				if (mods) await mods.prepare('resolve', payload, signal);
+				const result = await state.kernel.call<Record<string, unknown>>('table.resolve', payload);
+				applyToolSuccess(state, 'resolve', `standing-defense:${callId}`, result);
+				if (mods?.after) await mods.after('resolve', payload, signal);
+				await record({tool: 'resolve', lane: 'standing-defense', call_id: callId, ok: true, preference,
+					...selected.expected, ...resolveTelemetry(result as ResolveResult)});
+				return result;
+			} catch (error) {
+				await record({tool: 'resolve', lane: 'standing-defense', call_id: callId, ok: false,
+					...selected.expected, code: isKernelError(error) ? error.code : 'internal'});
+				throw error;
+			}
+		})();
+		attempts.set(key, attempt);
+		return attempt;
+	}
+
+	async function recoverStandingDefense(state: TableState, signal?: AbortSignal): Promise<Record<string, unknown> | undefined> {
+		if (!['open', 'acting'].includes(state.state) || state.session?.pending_defense?.for !== 'player') return;
+		if (defenseRecoveryTurns.get(state) !== state.turn) {
+			// table.view intentionally truncates session to kind/status/round for the player panel.
+			// Read the host's full session snapshot without touching the open turn.
+			const view = await state.kernel.call<Record<string, unknown>>('table.look', {campaign: state.campaign, focus: 'session', _context_read: true});
+			defenseRecoveryTurns.set(state, state.turn);
+			state.session = (view.session ?? null) as SessionSummary | null;
+		}
+		return settleStandingDefense(state, state.session, signal);
+	}
+
 	async function runTool(
 		spec: CocToolSpec,
 		toolCallId: string,
@@ -2724,6 +2780,7 @@ export default function (pi: ExtensionAPI) {
 		onUpdate?: AgentToolUpdateCallback<Record<string, unknown>>,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
 		const providerBudget = dispatcher.providerBudget(toolCallId) ?? foregroundProviderBudget?.();
+		delete params._standing_defense;
 		const state = table;
 		// §135.4/§135.7: a single-loop policy-origin call (the clerk's) says so on its rows; the model's own calls carry nothing new.
 		const host = dispatcher.hostOrigin(toolCallId);
@@ -2774,6 +2831,18 @@ export default function (pi: ExtensionAPI) {
 			return state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress);
 		};
 		try {
+			// Cold/legacy pending attacks wait for an actual open turn, never a UI read or a closed ask.
+			const recoveredDefense = await recoverStandingDefense(state, signal);
+			if (recoveredDefense) {
+				// Defense owns these receipts. An intercepted proposal has not executed and must not
+				// acquire them as its own success in either canonical or incumbent dispatch.
+				throw new KernelError({code: 'operation_not_executed', retryable: false, next: 'change_input',
+					message: 'The standing defense settled the live attack; the requested operation was not executed.',
+					fix: `Continue from the defense result and reconsider the requested operation: ${JSON.stringify(recoveredDefense)}`,
+					details: {reason: 'standing_defense_settled', operation_executed: false, automatic_defense: recoveredDefense}});
+			}
+			if (spec.name === 'ask' && isDefenseChoice(params)) throw new KernelError({code: 'stale_choice',
+				message: 'Combat defense uses the campaign standing preference, not ask. Continue with narrate after the defense result.'});
 			if (spec.name === "recall") {
 				if (params.query !== undefined && (params.what !== 'memory' || typeof params.query !== 'string' || !params.query.trim()
 					|| params.query.length > 2048 || params.read != null || params.detail != null || Number((params.page as any)?.offset ?? 0) > 0))
@@ -2919,6 +2988,25 @@ export default function (pi: ExtensionAPI) {
                 pi.events.emit('coc:task-receipt-advance', result._task_advance);
 			const completedCombatMove = spec.name === "apply" ? combatSceneMove(state, payload) : undefined;
 			applyToolSuccess(state, spec.name, toolCallId, result);
+			if (spec.name === 'resolve') {
+				// A replay describes the original declaration, not necessarily a still-live attack.
+				const current = result.replayed
+					? await state.kernel.call<Record<string, unknown>>('table.look', {campaign: state.campaign, focus: 'session', _context_read: true}) : result;
+				if (result.replayed) {
+					state.session = (current.session ?? null) as SessionSummary | null;
+					state.pendingChoice = (current.pending_choice ?? null) as PendingChoice | null;
+				}
+				if ((current.session as SessionSummary | null)?.pending_defense?.for === 'player' && !result.replayed)
+					defenseRecoveryTurns.set(state, state.turn);
+				const defense = await settleStandingDefense(state, current.session, signal);
+				if (defense) result = {...result, automatic_defense: defense, outcome: defense.outcome,
+					continuations: defense.continuations, session: defense.session, pending_choice: defense.pending_choice,
+					effects: [...(Array.isArray(result.effects) ? result.effects : []), ...(Array.isArray(defense.effects) ? defense.effects : [])],
+					receipts: [...new Set([...(Array.isArray(result.receipts) ? result.receipts : []), ...(Array.isArray(defense.receipts) ? defense.receipts : [])])],
+					note: 'The attack was declared and its investigator defense settled under the standing preference. Do not ask for or repeat this defense.'};
+				else if (result.replayed) result = {...result, session: current.session, pending_choice: current.pending_choice,
+					note: 'This is a replay of the recorded action, not a new attack. Use the current session state; do not repeat settled defenses.'};
+			}
 			if (completedCombatMove) state.combatSceneMoves.delete(completedCombatMove);
 			if (closesOpening && sessionCtx) {
 				// Words in the play language from the extension surface; whether the fold starts open is
@@ -4252,6 +4340,16 @@ export default function (pi: ExtensionAPI) {
 			// Keeper had said it -- the one path by which raw model output reached the player without
 			// passing through narrate or ask. It leaves with the message, like the drafts below it.
 			if (!prose || !canClose || state.closedThisRun) return dropText(failedLeg ? "failed_leg_not_delivered" : "text_not_a_delivery");
+			try {
+				const defense = await recoverStandingDefense(state);
+				if (defense) {
+					state.deliveryFix = {kind: 'standing-defense', text: `The live attack settled under the player standing defense preference: ${JSON.stringify(defense)}. Continue from these receipts and deliver with narrate, not ask.`};
+					return dropText('standing_defense_settled');
+				}
+			} catch (error) {
+				state.deliveryFix = {kind: 'standing-defense', text: `Standing defense is unresolved: ${error instanceof Error ? error.message : String(error)}. Do not narrate an outcome or ask for defense. Report the settlement failure.`};
+				return dropText('standing_defense_unresolved');
+			}
 			const sourceWait = state.readingWait || state.sourceWait !== undefined;
 			if (state.preparationWait && !sourceWait) {
 				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state, state.preparationWait) };

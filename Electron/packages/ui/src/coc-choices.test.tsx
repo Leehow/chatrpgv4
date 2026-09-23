@@ -25,6 +25,27 @@ it('offers the same options in English when the delivery carries English words',
   for(const option of ['option.push','option.dodge','option.flee'])
     expect(screen.getByRole('button',{name:say('en','choices',option)})).toBeTruthy();
   expect(screen.queryByRole('button',{name:say('zh-Hans','choices','option.push')})).toBeNull();
+  expect((screen.getByRole('button',{name:say('en','choices','option.dodge')}) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('retains historical defense words without permitting another submission',()=>{
+  const select=vi.fn();
+  render(<Choice details={{kind:'mechanics',binds:'defense:attacker-r1',ui:ui('en'),options:['dodge','fight_back','flee']}} onSelectOption={select}/>);
+  for(const option of ['dodge','fight_back','flee']) {
+    const button=screen.getByRole('button',{name:say('en','choices',`option.${option}`)}) as HTMLButtonElement;
+    expect(button.disabled).toBe(true); fireEvent.click(button);
+  }
+  expect(select).not.toHaveBeenCalled();
+});
+
+it('retains ordinary flee choices but retires a defense-bound story choice',async()=>{
+  const select=vi.fn(async()=>{});
+  const rendered=render(<Choice details={{kind:'mechanics',ui:ui('en'),options:['flee','accept']}} onSelectOption={select}/>);
+  fireEvent.click(screen.getByRole('button',{name:say('en','choices','option.flee')}));
+  await waitFor(()=>expect(select).toHaveBeenCalledWith('flee'));
+  rendered.unmount();
+  render(<Choice details={{kind:'story',binds:'defense:attacker-r1',ui:ui('en'),options:['Run away']}} onSelectOption={select}/>);
+  expect((screen.getByRole('button',{name:'Run away'}) as HTMLButtonElement).disabled).toBe(true);
 });
 
 /** An option no language has a word for shows its own key: a gap a player can quote. */

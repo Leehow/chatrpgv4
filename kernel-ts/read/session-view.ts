@@ -112,6 +112,8 @@ export class SessionView {
             pending_defense: pending && typeof pending === "object" ? {
                 for: this.isInvestigator(defender) ? "player" : "npc",
                 actor: defender,
+                ...(typeof pending.attack_command_id === "string" ? { attack_command_id: pending.attack_command_id } : {}),
+                ...(Number.isInteger(snapshot.revision) ? { revision: snapshot.revision } : {}),
                 attacker: string(pending.actor_id),
                 options: defenseOptions(pending),
                 ...(standing ? { standing } : {})

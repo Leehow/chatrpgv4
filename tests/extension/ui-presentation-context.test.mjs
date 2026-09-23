@@ -24,6 +24,7 @@ test("for zh-Hans the context carries the rules glossary and exactly the shipped
 	const authored = await resolveUiWords({ contentRoot: CONTENT, tag: "en" });
 	const context = await uiPresentationContext(CONTENT, "zh-Hans", uiCaptions(authored.words));
 	assert.ok(Object.keys(context.established_terms).length > 0, "the zh-Hans glossary block is empty");
+	assert.equal(context.established_terms.Fighting, "格斗", "generic combat checks need a first-draw rule term");
 	for (const [term, word] of Object.entries(context.established_terms)) {
 		assert.equal(typeof term, "string");
 		assert.ok(typeof word === "string" && word.trim(), `${term} has no established word`);

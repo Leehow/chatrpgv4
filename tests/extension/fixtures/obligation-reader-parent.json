@@ -1,0 +1,831 @@
+{
+ "recorded_on": "cafd5fbaa",
+ "cases": [
+  {
+   "name": "an opening draft",
+   "op": "draft",
+   "draft": {
+    "nodes": [
+     {
+      "node_id": "scene-dock",
+      "node_kind": "scene",
+      "name": "Dock",
+      "properties": {
+       "is_entrance": true
+      },
+      "source_refs": [
+       {
+        "page": 1
+       }
+      ]
+     },
+     {
+      "node_id": "npc-witness",
+      "node_kind": "npc",
+      "name": "Witness",
+      "source_refs": [
+       {
+        "page": 1
+       }
+      ],
+      "properties": {
+       "mechanics": {
+        "profile": {
+         "characteristics": {
+          "STR": 50
+         }
+        }
+       },
+       "knowledge": [
+        "A recorded fact."
+       ]
+      }
+     }
+    ],
+    "claims": [
+     {
+      "subject_id": "npc-witness",
+      "predicate": "present-in",
+      "object": {
+       "node_id": "scene-dock"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 1
+       }
+      ]
+     }
+    ],
+    "node_refs": [],
+    "coverage": {},
+    "critical": [],
+    "dependencies": [],
+    "ready_nodes": [
+     "scene-dock",
+     "npc-witness"
+    ]
+   },
+   "packet": {
+    "module_id": "book-1",
+    "purpose": "opening",
+    "source": {
+     "page_count": 2
+    },
+    "known_nodes": [
+     {
+      "node_id": "module-book-1",
+      "node_kind": "module",
+      "name": "Book",
+      "ready": false
+     }
+    ],
+    "known_claims": []
+   },
+   "seen": [
+    1,
+    2
+   ],
+   "result": "{\"value\": {\"nodes\": [{\"node_id\": \"scene-dock\", \"node_kind\": \"scene\", \"name\": \"Dock\", \"properties\": {\"is_entrance\": true}, \"source_refs\": [{\"page\": 1}], \"visibility\": \"keeper-only\"}, {\"node_id\": \"npc-witness\", \"node_kind\": \"npc\", \"name\": \"Witness\", \"source_refs\": [{\"page\": 1}], \"properties\": {\"mechanics\": {\"profile\": {\"characteristics\": {\"STR\": 50}}}, \"knowledge\": [\"A recorded fact.\"]}, \"visibility\": \"keeper-only\"}], \"claims\": [{\"subject_id\": \"npc-witness\", \"predicate\": \"present-in\", \"object\": {\"node_id\": \"scene-dock\"}, \"truth_status\": \"authored-fact\", \"source_refs\": [{\"page\": 1}], \"claim_id\": \"claim-npc-witness-present-in-scene-dock\", \"visibility\": \"keeper-only\", \"known_by_ids\": [], \"asserted_by_ids\": [], \"validity\": null}], \"node_refs\": [], \"coverage\": {}, \"critical\": [], \"dependencies\": [], \"ready_nodes\": [\"scene-dock\", \"npc-witness\"], \"required_review\": [\"/claims/0\", \"/coverage\", \"/nodes/0\", \"/nodes/1\", \"/nodes/1/properties/mechanics/profile/characteristics/STR\"]}}"
+  },
+  {
+   "name": "a detail delta keeping the gate as rule prose",
+   "op": "draft",
+   "draft": {
+    "nodes": [
+     {
+      "node_id": "clue-old-report",
+      "node_kind": "clue",
+      "name": "Old report",
+      "summary": "The paper ran a report on the house.",
+      "visibility": "revealable",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {}
+     },
+     {
+      "node_id": "rule-newsroom-access",
+      "node_kind": "rule",
+      "name": "Newsroom access",
+      "summary": "The editor refuses the files unless persuaded.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "skills": "Persuade (reason), Credit Rating (60 or more)",
+       "difficulty": "Regular"
+      }
+     },
+     {
+      "node_id": "requirement-newsroom-files",
+      "node_kind": "requirement",
+      "name": "Access to the files",
+      "summary": "The editor must be won over.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {}
+     }
+    ],
+    "claims": [
+     {
+      "subject_id": "clue-old-report",
+      "predicate": "discoverable-at",
+      "object": {
+       "node_id": "scene-newsroom"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "scene-newsroom",
+      "predicate": "uses-rule",
+      "object": {
+       "node_id": "rule-newsroom-access"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "scene-newsroom",
+      "predicate": "has-requirement",
+      "object": {
+       "node_id": "requirement-newsroom-files"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "requirement-newsroom-files",
+      "predicate": "calls-for-check",
+      "object": {
+       "node_id": "rule-newsroom-access"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     }
+    ],
+    "node_refs": [
+     "scene-newsroom",
+     "npc-editor"
+    ],
+    "coverage": {},
+    "critical": [
+     "/nodes/1/properties/skills"
+    ],
+    "dependencies": [],
+    "ready_nodes": [
+     "clue-old-report",
+     "rule-newsroom-access",
+     "requirement-newsroom-files"
+    ]
+   },
+   "packet": {
+    "module_id": "book-1",
+    "purpose": "detail",
+    "focus": "Newsroom",
+    "question": "",
+    "source": {
+     "page_count": 10
+    },
+    "known_nodes": [
+     {
+      "node_id": "module-book-1",
+      "node_kind": "module",
+      "name": "Book",
+      "ready": false
+     },
+     {
+      "node_id": "scene-newsroom",
+      "node_kind": "scene",
+      "name": "Newsroom",
+      "summary": "The paper's newsroom.",
+      "properties": {},
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true
+     },
+     {
+      "node_id": "npc-editor",
+      "node_kind": "npc",
+      "name": "The Editor",
+      "summary": "The city editor.",
+      "properties": {},
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true
+     }
+    ],
+    "known_claims": [
+     {
+      "claim_id": "claim-npc-editor-present-in-scene-newsroom",
+      "subject_id": "npc-editor",
+      "predicate": "present-in",
+      "object": {
+       "node_id": "scene-newsroom"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "source_id": "pdf:book-1",
+        "pdf_index": 2
+       }
+      ],
+      "known_by_ids": [],
+      "asserted_by_ids": [],
+      "validity": null
+     }
+    ]
+   },
+   "seen": [
+    3,
+    4
+   ],
+   "result": "{\"value\": {\"nodes\": [{\"node_id\": \"clue-old-report\", \"node_kind\": \"clue\", \"name\": \"Old report\", \"summary\": \"The paper ran a report on the house.\", \"visibility\": \"revealable\", \"source_refs\": [{\"page\": 4}], \"properties\": {}}, {\"node_id\": \"rule-newsroom-access\", \"node_kind\": \"rule\", \"name\": \"Newsroom access\", \"summary\": \"The editor refuses the files unless persuaded.\", \"source_refs\": [{\"page\": 4}], \"properties\": {\"skills\": \"Persuade (reason), Credit Rating (60 or more)\", \"difficulty\": \"Regular\"}, \"visibility\": \"keeper-only\"}, {\"node_id\": \"requirement-newsroom-files\", \"node_kind\": \"requirement\", \"name\": \"Access to the files\", \"summary\": \"The editor must be won over.\", \"source_refs\": [{\"page\": 4}], \"properties\": {}, \"visibility\": \"keeper-only\"}], \"claims\": [{\"subject_id\": \"clue-old-report\", \"predicate\": \"discoverable-at\", \"object\": {\"node_id\": \"scene-newsroom\"}, \"truth_status\": \"authored-fact\", \"source_refs\": [{\"page\": 4}], \"claim_id\": \"claim-clue-old-report-discoverable-at-scene-newsroom\", \"visibility\": \"keeper-only\", \"known_by_ids\": [], \"asserted_by_ids\": [], \"validity\": null}, {\"subject_id\": \"scene-newsroom\", \"predicate\": \"uses-rule\", \"object\": {\"node_id\": \"rule-newsroom-access\"}, \"truth_status\": \"authored-fact\", \"source_refs\": [{\"page\": 4}], \"claim_id\": \"claim-scene-newsroom-uses-rule-rule-newsroom-access\", \"visibility\": \"keeper-only\", \"known_by_ids\": [], \"asserted_by_ids\": [], \"validity\": null}, {\"subject_id\": \"scene-newsroom\", \"predicate\": \"has-requirement\", \"object\": {\"node_id\": \"requirement-newsroom-files\"}, \"truth_status\": \"authored-fact\", \"source_refs\": [{\"page\": 4}], \"claim_id\": \"claim-scene-newsroom-has-requirement-requirement-newsroom-files\", \"visibility\": \"keeper-only\", \"known_by_ids\": [], \"asserted_by_ids\": [], \"validity\": null}, {\"subject_id\": \"requirement-newsroom-files\", \"predicate\": \"calls-for-check\", \"object\": {\"node_id\": \"rule-newsroom-access\"}, \"truth_status\": \"authored-fact\", \"source_refs\": [{\"page\": 4}], \"claim_id\": \"claim-requirement-newsroom-files-calls-for-check-rule-newsroom-access\", \"visibility\": \"keeper-only\", \"known_by_ids\": [], \"asserted_by_ids\": [], \"validity\": null}], \"node_refs\": [\"scene-newsroom\", \"npc-editor\"], \"coverage\": {}, \"critical\": [\"/nodes/1/properties/skills\"], \"dependencies\": [], \"ready_nodes\": [\"clue-old-report\", \"rule-newsroom-access\", \"requirement-newsroom-files\"], \"required_review\": [\"/claims/0\", \"/claims/1\", \"/claims/2\", \"/claims/3\", \"/coverage\", \"/nodes/0\", \"/nodes/1\", \"/nodes/1/properties/skills\", \"/nodes/2\"]}}"
+  },
+  {
+   "name": "a requirement node that states no obligation, without source_refs",
+   "op": "draft",
+   "draft": {
+    "nodes": [
+     {
+      "node_id": "clue-old-report",
+      "node_kind": "clue",
+      "name": "Old report",
+      "summary": "The paper ran a report on the house.",
+      "visibility": "revealable",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {}
+     },
+     {
+      "node_id": "rule-newsroom-access",
+      "node_kind": "rule",
+      "name": "Newsroom access",
+      "summary": "The editor refuses the files unless persuaded.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "skills": "Persuade (reason), Credit Rating (60 or more)",
+       "difficulty": "Regular"
+      }
+     },
+     {
+      "node_id": "requirement-newsroom-files",
+      "node_kind": "requirement",
+      "name": "Access to the files",
+      "summary": "The editor must be won over.",
+      "properties": {}
+     }
+    ],
+    "claims": [
+     {
+      "subject_id": "clue-old-report",
+      "predicate": "discoverable-at",
+      "object": {
+       "node_id": "scene-newsroom"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "scene-newsroom",
+      "predicate": "uses-rule",
+      "object": {
+       "node_id": "rule-newsroom-access"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "scene-newsroom",
+      "predicate": "has-requirement",
+      "object": {
+       "node_id": "requirement-newsroom-files"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "requirement-newsroom-files",
+      "predicate": "calls-for-check",
+      "object": {
+       "node_id": "rule-newsroom-access"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     }
+    ],
+    "node_refs": [
+     "scene-newsroom",
+     "npc-editor"
+    ],
+    "coverage": {},
+    "critical": [
+     "/nodes/1/properties/skills"
+    ],
+    "dependencies": [],
+    "ready_nodes": [
+     "clue-old-report",
+     "rule-newsroom-access",
+     "requirement-newsroom-files"
+    ]
+   },
+   "packet": {
+    "module_id": "book-1",
+    "purpose": "detail",
+    "focus": "Newsroom",
+    "question": "",
+    "source": {
+     "page_count": 10
+    },
+    "known_nodes": [
+     {
+      "node_id": "module-book-1",
+      "node_kind": "module",
+      "name": "Book",
+      "ready": false
+     },
+     {
+      "node_id": "scene-newsroom",
+      "node_kind": "scene",
+      "name": "Newsroom",
+      "summary": "The paper's newsroom.",
+      "properties": {},
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true
+     },
+     {
+      "node_id": "npc-editor",
+      "node_kind": "npc",
+      "name": "The Editor",
+      "summary": "The city editor.",
+      "properties": {},
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true
+     }
+    ],
+    "known_claims": [
+     {
+      "claim_id": "claim-npc-editor-present-in-scene-newsroom",
+      "subject_id": "npc-editor",
+      "predicate": "present-in",
+      "object": {
+       "node_id": "scene-newsroom"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "source_id": "pdf:book-1",
+        "pdf_index": 2
+       }
+      ],
+      "known_by_ids": [],
+      "asserted_by_ids": [],
+      "validity": null
+     }
+    ]
+   },
+   "seen": [
+    3,
+    4
+   ],
+   "result": "{\"error\": {\"code\": \"invalid_params\", \"message\": \"source_refs must contain at least one original page\", \"retryable\": false, \"next\": \"change_input\", \"fix\": \"correct the draft using the original pages and submit again\", \"details\": {\"reason\": \"reading_failed\", \"path\": \"/\"}}}"
+  },
+  {
+   "name": "a requirement node that states no obligation, citing an unviewed page",
+   "op": "draft",
+   "draft": {
+    "nodes": [
+     {
+      "node_id": "clue-old-report",
+      "node_kind": "clue",
+      "name": "Old report",
+      "summary": "The paper ran a report on the house.",
+      "visibility": "revealable",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {}
+     },
+     {
+      "node_id": "rule-newsroom-access",
+      "node_kind": "rule",
+      "name": "Newsroom access",
+      "summary": "The editor refuses the files unless persuaded.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "skills": "Persuade (reason), Credit Rating (60 or more)",
+       "difficulty": "Regular"
+      }
+     },
+     {
+      "node_id": "requirement-newsroom-files",
+      "node_kind": "requirement",
+      "name": "Access to the files",
+      "summary": "The editor must be won over.",
+      "source_refs": [
+       {
+        "page": 7
+       }
+      ],
+      "properties": {}
+     }
+    ],
+    "claims": [
+     {
+      "subject_id": "clue-old-report",
+      "predicate": "discoverable-at",
+      "object": {
+       "node_id": "scene-newsroom"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "scene-newsroom",
+      "predicate": "uses-rule",
+      "object": {
+       "node_id": "rule-newsroom-access"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "scene-newsroom",
+      "predicate": "has-requirement",
+      "object": {
+       "node_id": "requirement-newsroom-files"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "requirement-newsroom-files",
+      "predicate": "calls-for-check",
+      "object": {
+       "node_id": "rule-newsroom-access"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     }
+    ],
+    "node_refs": [
+     "scene-newsroom",
+     "npc-editor"
+    ],
+    "coverage": {},
+    "critical": [
+     "/nodes/1/properties/skills"
+    ],
+    "dependencies": [],
+    "ready_nodes": [
+     "clue-old-report",
+     "rule-newsroom-access",
+     "requirement-newsroom-files"
+    ]
+   },
+   "packet": {
+    "module_id": "book-1",
+    "purpose": "detail",
+    "focus": "Newsroom",
+    "question": "",
+    "source": {
+     "page_count": 10
+    },
+    "known_nodes": [
+     {
+      "node_id": "module-book-1",
+      "node_kind": "module",
+      "name": "Book",
+      "ready": false
+     },
+     {
+      "node_id": "scene-newsroom",
+      "node_kind": "scene",
+      "name": "Newsroom",
+      "summary": "The paper's newsroom.",
+      "properties": {},
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true
+     },
+     {
+      "node_id": "npc-editor",
+      "node_kind": "npc",
+      "name": "The Editor",
+      "summary": "The city editor.",
+      "properties": {},
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true
+     }
+    ],
+    "known_claims": [
+     {
+      "claim_id": "claim-npc-editor-present-in-scene-newsroom",
+      "subject_id": "npc-editor",
+      "predicate": "present-in",
+      "object": {
+       "node_id": "scene-newsroom"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "source_id": "pdf:book-1",
+        "pdf_index": 2
+       }
+      ],
+      "known_by_ids": [],
+      "asserted_by_ids": [],
+      "validity": null
+     }
+    ]
+   },
+   "seen": [
+    3,
+    4
+   ],
+   "result": "{\"error\": {\"code\": \"invalid_params\", \"message\": \"physical page 7 was not actually viewed by this reader\", \"retryable\": false, \"next\": \"change_input\", \"fix\": \"correct the draft using the original pages and submit again\", \"details\": {\"reason\": \"reading_failed\", \"path\": \"/\"}}}"
+  },
+  {
+   "name": "the offline check of the rule-prose delta",
+   "op": "offline",
+   "draft": {
+    "nodes": [
+     {
+      "node_id": "clue-old-report",
+      "node_kind": "clue",
+      "name": "Old report",
+      "summary": "The paper ran a report on the house.",
+      "visibility": "revealable",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {}
+     },
+     {
+      "node_id": "rule-newsroom-access",
+      "node_kind": "rule",
+      "name": "Newsroom access",
+      "summary": "The editor refuses the files unless persuaded.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {
+       "skills": "Persuade (reason), Credit Rating (60 or more)",
+       "difficulty": "Regular"
+      }
+     },
+     {
+      "node_id": "requirement-newsroom-files",
+      "node_kind": "requirement",
+      "name": "Access to the files",
+      "summary": "The editor must be won over.",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ],
+      "properties": {}
+     }
+    ],
+    "claims": [
+     {
+      "subject_id": "clue-old-report",
+      "predicate": "discoverable-at",
+      "object": {
+       "node_id": "scene-newsroom"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "scene-newsroom",
+      "predicate": "uses-rule",
+      "object": {
+       "node_id": "rule-newsroom-access"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "scene-newsroom",
+      "predicate": "has-requirement",
+      "object": {
+       "node_id": "requirement-newsroom-files"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     },
+     {
+      "subject_id": "requirement-newsroom-files",
+      "predicate": "calls-for-check",
+      "object": {
+       "node_id": "rule-newsroom-access"
+      },
+      "truth_status": "authored-fact",
+      "source_refs": [
+       {
+        "page": 4
+       }
+      ]
+     }
+    ],
+    "node_refs": [
+     "scene-newsroom",
+     "npc-editor"
+    ],
+    "coverage": {},
+    "critical": [
+     "/nodes/1/properties/skills"
+    ],
+    "dependencies": [],
+    "ready_nodes": [
+     "clue-old-report",
+     "rule-newsroom-access",
+     "requirement-newsroom-files"
+    ]
+   },
+   "packet": {
+    "module_id": "book-1",
+    "purpose": "detail",
+    "focus": "Newsroom",
+    "question": "",
+    "source": {
+     "page_count": 10
+    },
+    "known_nodes": [
+     {
+      "node_id": "module-book-1",
+      "node_kind": "module",
+      "name": "Book",
+      "ready": false
+     },
+     {
+      "node_id": "scene-newsroom",
+      "node_kind": "scene",
+      "name": "Newsroom",
+      "summary": "The paper's newsroom.",
+      "properties": {},
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true
+     },
+     {
+      "node_id": "npc-editor",
+      "node_kind": "npc",
+      "name": "The Editor",
+      "summary": "The city editor.",
+      "properties": {},
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "page": 3
+       }
+      ],
+      "ready": true
+     }
+    ],
+    "known_claims": [
+     {
+      "claim_id": "claim-npc-editor-present-in-scene-newsroom",
+      "subject_id": "npc-editor",
+      "predicate": "present-in",
+      "object": {
+       "node_id": "scene-newsroom"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "source_refs": [
+       {
+        "source_id": "pdf:book-1",
+        "pdf_index": 2
+       }
+      ],
+      "known_by_ids": [],
+      "asserted_by_ids": [],
+      "validity": null
+     }
+    ]
+   },
+   "result": "{\"ok\": true, \"required_review\": [\"/claims/0\", \"/claims/1\", \"/claims/2\", \"/claims/3\", \"/coverage\", \"/nodes/0\", \"/nodes/1\", \"/nodes/1/properties/skills\", \"/nodes/2\"], \"required_view_pages\": [4]}"
+  }
+ ]
+}

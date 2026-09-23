@@ -153,7 +153,7 @@ async function main() {
       // `view.labels` -- the kernel's own glossary -- and skips everything already in it, so a
       // table in a seeded language collects nothing and this costs a read, not a model round.
       const view=await call('table.view',{campaign:input.campaign});
-      return prepareRulesPresentation({...input,contentRoot:context.contentRoot,view,known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
+      return prepareRulesPresentation({...input,contentRoot:context.contentRoot,view:{...view,mechanics:input.mechanics},known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
     }
     if(input.handouts) {
       // The lane reads the files `apply handout` wrote, which is where a handout's words are: it
