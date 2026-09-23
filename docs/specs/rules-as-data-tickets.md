@@ -23,7 +23,7 @@ RD-02 and RD-05 can run in parallel after RD-01 (RD-05 also waits for SO-03 to m
 
 ## RD-01 — The catalog's contract and its one validator
 
-Status: ready-for-agent
+Status: ready-for-human (implemented on `claude/rd01-mechanics-shape-20260923`; awaiting review and merge)
 Depends on: SO-01 (landed: `kernel-ts/modules/obligation-shape.ts`); the spec is accepted (Owner rulings, 2026-09-23).
 
 **What.** Write the contract section for spec D4 (container, registered seats, `_unstated` convention, the dice grammar, the effect vocabulary, the fifteen shapes) and D5 (refusal rules). Implement `kernel-ts/modules/mechanics-shape.ts` with `mechanicsRefusals(graph, rules, {starter})`; extend `checkDeclarationRefusals` with the owner `rule` (selection `{maximum, approach}`, scope `{actor, actor-target, opposed}`, result entry `{effects?, book?}`, any subset of the six levels). Call it from starter registration (`registerStarter`, after `obligationRefusals`) and keep the Mod manifest check on the shared form. Dice slots validate with `definitionExpression` (`kernel-ts/mods/definition.ts:30-47`), sanity halves also with `validateSanLossExpression`. The `stat_block` closure accepts, on starters only, a listed legacy allowance (`attacks`, `attacks_per_round`, `san_loss_to_see`) that shrinks as starters migrate; the reader's drafts get no allowance (RD-05). No reader, no data.
@@ -152,3 +152,12 @@ Depends on: SL-07 landed.
 **Acceptance.** Validator cases for `tactic`; the SL-07 kernel tests still pass; no second seat for an NPC's defence exists.
 
 ## Comments
+
+### 2026-09-23 — RD-01 implementation record (branch `claude/rd01-mechanics-shape-20260923`, parent `7709b5ded`)
+
+- **Rulings first.** The worker stopped before code on four contradictions between the spec and the shipped starter data; the coordinator's decisions A–D are in the spec's Comments and applied to P1, D4.1, D4.5 and D5 (`94731c1ff`). One further consequence was decided in the implementation and is stated in §136.1: while the starter allowance stands, a starter's lone registered `profile` is not held to `mechanics_unsourced`, because the curated starters cite their stat blocks inside the allowance's container `source_refs` and three of the four carriers have no node-level citation.
+- **Contract §136** (`1460da0a2`; §136 was free: SL-07 took §11.5.2, SL-02 §135). Amends §26 and §134.2–§134.3 for the owner `rule`. §136.3 narrows the dice law to what both rollers read: `definitionExpression` plus canonical spelling, at least one die and no subtracted die (a bare constant is refused by `rollExpression`, a subtracted die by `rollDamageExpression`); a Sanity half is `"0"` or passes both grammars.
+- **Validator** `kernel-ts/modules/mechanics-shape.ts` `mechanicsRefusals(graph, rules, {starter})`; `checkDeclarationRefusals` gains the owner `rule` (`kernel-ts/modules/obligation-shape.ts`); called from `registerStarterLocked` (`kernel-ts/write/source.ts`) after `obligationRefusals`, reason `mechanics_invalid` (`818ad940f`). The Mod manifest check is unchanged.
+- **Tests** `tests/extension/mechanics-shape.test.mjs` (46 cases, `a18707cb1`, `9679feb80`): one refusal per §136.8 rule through `module.register`, the fifteen minimal shapes, `_unstated` variants, the dice table rolled through both rollers, the reader-draft branch getting no allowance, Mod-owner cases through `mods.install`, `natural-npc` 1.4.2 at digest `623c126f…25b2`. All 16 rules and 13 targeted mutations killed (the canonical-spelling mutation survived the first run and gained its case).
+- **Numbers.** `test:ext` 2626/0 on the parent → 2672/0 on the branch (a first branch run under load average 109 timed out 8 and cancelled 2 in unrelated files; those files passed 86/86 on rerun and the full rerun is 2672/0). `uv run --frozen python -m pytest tests/kernel tests/play` 1625 passed, 1 skipped. Goldens — capsule, `table.apply.options`, `table.resolve.options` and the secret lookups (module and scene) of every scene of all four starters, each reached along authored exits in a fresh seeded campaign — byte-identical to the parent (46 scenes; per-run digests masked).
+- **Not done here** (RD-05/RD-09): the reader's draft check and its page-view law; confirming `combat.defense` once SL-07 lands.
