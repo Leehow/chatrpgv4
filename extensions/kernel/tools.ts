@@ -65,9 +65,13 @@ const ClueEffect = Type.Object({
 	label: Type.Optional(Type.String({ description: "short name of this clue in the player's language; omitted means the clue name" })),
 });
 
+/** Contract §136.22: the book's amount, named instead of the Keeper's own. */
+const StatedAmount = Type.Optional(Type.String({ description: "instead of your own amount: the name of the stated rule whose book amount this is (a where.rules row with a mech line; for threat also the threat whose clock the book advances). The kernel takes the amount from what this turn's resolve with action.rule on it reached, else from the rule's own shape, and records basis stated. Never give an amount as well: that is refused. Without stated the amount is yours and is recorded as yours" }));
+
 const DamageEffect = Type.Object({
 	kind: StringEnum(["damage"] as const, { description: "damage with no attacker: a fall, fire, a falling object, suffocation, an overdose — and the failed check whose stated cost was that someone got hurt" }),
-	dice: Type.String({ description: "the damage dice from the rulebook, such as 1D6; the kernel rolls them" }),
+	dice: Type.Optional(Type.String({ description: "the damage dice from the rulebook, such as 1D6; the kernel rolls them. Required unless stated names them" })),
+	stated: StatedAmount,
 	subject: Type.Optional(Type.String({ description: "who is hurt: an investigator or an NPC who is in the scene; defaults to the current investigator. An NPC whose numbers the book never printed needs an archetype pinned first (npc.archetype); until someone has hit points, nothing that happens to them can be settled, healed or clocked — it is only prose" })),
 	why: Type.Optional(Type.String({ description: "one sentence: how they were hurt" })),
 });
@@ -80,7 +84,8 @@ const ClockEffect = Type.Object({
 
 const TimeEffect = Type.Object({
 	kind: StringEnum(["time"] as const, { description: "the world clock moves forward" }),
-	minutes: Type.Integer({ description: "minutes advanced. Six hours or more is a day of rest and the party heals for it (1 HP a day with no major wound), an hour or more regenerates magic points; the result lists what came back in recovered, and your narration owes those numbers like any other change" }),
+	stated: StatedAmount,
+	minutes: Type.Optional(Type.Integer({ description: "required unless stated gives them: minutes advanced. Six hours or more is a day of rest and the party heals for it (1 HP a day with no major wound), an hour or more regenerates magic points; the result lists what came back in recovered, and your narration owes those numbers like any other change" })),
 	why: Type.Optional(Type.String({ description: "one sentence: where the time went" })),
 });
 
@@ -157,8 +162,9 @@ const AbilityEffect = Type.Object({
 const CashEffect = Type.Object({
 	kind: StringEnum(["cash"] as const, { description: "settle money received or a purchase, either from cash or under the investigator's Spending Level" }),
 	subject: Type.Optional(Type.String({ description: "whose money; defaults to the current investigator" })),
-	delta: Type.Number({ description: "signed finite amount in the balance's unit. A purchase is negative. With settlement spending_level this is the purchase price even though cash remains unchanged" }),
-	source: StringEnum(["price", "quote", "found"] as const, { description: "where the amount came from, before you say how much. price: the rulebook prints this price — give its price_id, and run lookup kind=catalog kinds=[\"item\"] for the thing being bought if you do not have one. quote: someone in the fiction named this amount — name them in `with`. found: no price is involved (found, stolen, wages, a gift, a debt settled). A figure the player said about their own purse is a balance, not a price: the capsule tells you the balance, so charge what the thing is worth, not what they have" }),
+	stated: StatedAmount,
+	delta: Type.Optional(Type.Number({ description: "required unless stated gives it (a reward the book pays): signed finite amount in the balance's unit. A purchase is negative. With settlement spending_level this is the purchase price even though cash remains unchanged" })),
+	source: Type.Optional(StringEnum(["price", "quote", "found"] as const, { description: "required unless stated gives the amount, which is then a quote: where the amount came from, before you say how much. price: the rulebook prints this price — give its price_id, and run lookup kind=catalog kinds=[\"item\"] for the thing being bought if you do not have one. quote: someone in the fiction named this amount — name them in `with`. found: no price is involved (found, stolen, wages, a gift, a debt settled). A figure the player said about their own purse is a balance, not a price: the capsule tells you the balance, so charge what the thing is worth, not what they have" })),
 	settlement: Type.Optional(StringEnum(["cash", "spending_level"] as const, { description: "cash (default) changes the purse and requires disclosed terms plus player acceptance. spending_level is the rulebook fast path for an occasional purchase no greater than known.investigator.living.spending_level: it records the price but spends no cash and needs no separate price confirmation. Use it only after the player chose the service, item or activity; the kernel enforces the numeric limit" })),
 	price_id: Type.Optional(Type.String({ description: "required with source price: the price_id of the printed record you are charging, exactly as lookup kind=catalog returned it. An invented one is refused" })),
 	currency: Type.Optional(Type.String({ description: "the unit this amount is counted in, when the fiction named one. It must be the unit the balance is held in — the kernel does not convert between units. If a price was quoted in another currency, settle the exchange in the fiction and record what actually left the purse" })),
@@ -169,7 +175,8 @@ const CashEffect = Type.Object({
 /** The Keeper's pacing instrument (contract §30.9): the book writes the clock, only this moves it. */
 const ThreatEffect = Type.Object({
 	kind: StringEnum(["threat"] as const, { description: "advance a threat's clock: the danger has come one step closer because of what just happened" }),
-	name: Type.String({ description: "the threat, as pressures names it" }),
+	name: Type.Optional(Type.String({ description: "the threat, as pressures names it; required unless stated names it" })),
+	stated: StatedAmount,
 	clock: Type.Optional(Type.String({ description: "which of its clocks; only needed when the threat has more than one" })),
 	segments: Type.Optional(Type.Integer({ description: "omitted means one segment forward; a negative number gives ground back" })),
 	why: Type.Optional(Type.String({ description: "one sentence: what moved it" })),
@@ -178,7 +185,8 @@ const ThreatEffect = Type.Object({
 /** The Keeper's bookkeeping (contract §18, #27): world switches, debts owed, table rulings. */
 const FlagEffect = Type.Object({
 	kind: StringEnum(["flag"] as const, { description: "set a world switch: something is now barred, lit, alarmed, opened" }),
-	name: Type.String({ description: "the switch's name; a name the book uses for a gate reads back on the exits that gate on it" }),
+	name: Type.Optional(Type.String({ description: "the switch's name; a name the book uses for a gate reads back on the exits that gate on it. Required unless stated names it" })),
+	stated: StatedAmount,
 	value: Type.Optional(Type.String({ description: 'omitted means true; "false" clears it; any other short string is kept as the switch\'s value' })),
 	why: Type.Optional(Type.String({ description: "one sentence: what set it" })),
 });
@@ -441,6 +449,13 @@ const ResolveAction = Type.Object({
 		}),
 	),
 	decision: Type.Optional(Type.String({ description: "when the kernel reports needs_choice, the name of the candidate you pick" })),
+	rule: Type.Optional(
+		Type.String({
+			description:
+				"a stated rule, hazard or tome the capsule's where.rules lists with a mech line, by its name: the kernel binds the check the book states (the skill among its approaches, its difficulty, its person, the hazard step), rolls it, and returns stated -- the level reached and the book's effects for that level as arguments you may apply with stated, or not. It applies none of them. With decision sanity:check it fills san_loss from the node's stated sanity loss instead. Leave it out to roll your own check: the book is reference",
+		}),
+	),
+	step: Type.Optional(Type.Integer({ minimum: 0, description: "with rule naming a hazard: which of its steps to roll, from 0 (default 0); a result's next_step names the step the book says follows, and whether it happens is yours" })),
 	obligation: Type.Optional(
 		Type.String({
 			description:
