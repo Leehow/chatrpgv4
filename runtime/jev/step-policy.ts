@@ -87,7 +87,7 @@ export const EXITS = ['ask_llm', 'read_more', 'finish', 'none_of_above'] as cons
 export type Exit = typeof EXITS[number];
 /** Starting gate (fixed until SL-05's paired runs calibrate it); every confidence is recorded so other gates can be read off. */
 export const DEFAULT_CONFIDENCE_GATE = 0.6;
-/** The run's wall-time budget from its start (contract §135.11, `PI_COC_TURN_BUDGET_MS`): past it the next model step is the compose. */
+/** The run's wall-time budget from its start (contract §135.25, `PI_COC_TURN_BUDGET_MS`): past it the next model step is the compose. */
 export const DEFAULT_TURN_BUDGET_MS = 45_000;
 /** The product's per-input preparation allowance (contract §124.10), reused as the per-run Jev budget. */
 export const DEFAULT_BUDGET = {maxJevCalls: PREPARATION_DECISION_BUDGET.actions, maxJevMs: PRESELECT_ALLOWANCE_DEFAULT_MS, maxSteps: 40, maxRunMs: DEFAULT_TURN_BUDGET_MS};
@@ -123,9 +123,9 @@ export interface PlanStep {index: number; operation: string; onSuccess: 'next'; 
 export interface PlanArtifact {origin: 'keeper'; step: number; steps: PlanStep[]}
 /** What the run still owes beyond its pending steps (the driver's boundary requirements); optional. */
 export interface Requirements {pending: string[]}
-/** `runMs` is the run's elapsed wall time as of the last folded step (stamped by the driver's clock, §135.11). */
+/** `runMs` is the run's elapsed wall time as of the last folded step (stamped by the driver's clock, §135.25). */
 export interface Budget {jevCalls: number; jevMs: number; steps: number; runMs: number; maxJevCalls: number; maxJevMs: number; maxSteps: number; maxRunMs: number}
-/** A clerk step still pending when the run's time budget was spent: listed, never executed (§135.11). */
+/** A clerk step still pending when the run's time budget was spent: listed, never executed (§135.25). */
 export interface DeferredStep {key: string; label: string; family: string; clerk: string | null; stage: string}
 export interface RunView {
   runId: string;
@@ -153,7 +153,7 @@ export type StepRequest =
 
 export const exhausted = (budget: Budget): boolean =>
   budget.jevCalls >= budget.maxJevCalls || budget.jevMs >= budget.maxJevMs || budget.steps >= budget.maxSteps;
-/** The run's time budget is spent (§135.11). */
+/** The run's time budget is spent (§135.25). */
 export const overRun = (budget: Budget): boolean => budget.runMs >= budget.maxRunMs;
 /** A step the kernel forces that needs no model: it still runs past the budget, because the kernel accepts nothing else next. */
 const forcedWithoutModel = (item: PendingItem | undefined): boolean => item?.candidate?.forced === true && item.kind !== 'infer';
@@ -179,10 +179,11 @@ export function next(view: RunView): StepRequest {
   const last = view.observations.at(-1), head = view.pending[0];
   // Guard 2: an LLM result is followed by direct execution or completion, never a Jev re-review.
   if (last?.kind === 'infer') return head?.kind === 'direct' ? {kind: 'direct', item: head} : {kind: 'finish', reason: `after_infer_${last.purpose}`};
-  // The run's time budget (§135.11): past it the next model step is the compose, whatever the route said. The model's
+  // The run's time budget (§135.25): past it the next model step is the compose, whatever the route said. The model's
   // own pending proposals were already run by the driver (a batch is never cut), a running step was never interrupted
-  // (this is read only between steps), and a step the kernel forces still runs when it needs no model.
-  if (overRun(view.budget) && !forcedWithoutModel(head)) {
+  // (this is read only between steps), and a step the kernel forces still runs when it needs no model. A compose
+  // already pending (the turn close's steer, §135.11, or the route's finish) is the compose: it keeps its reason.
+  if (overRun(view.budget) && !forcedWithoutModel(head) && !(head?.kind === 'infer' && head.purpose === 'compose')) {
     const item = head?.kind === 'infer' && !head.candidate ? head : undefined;
     return {kind: 'infer', purpose: 'compose', reason: 'run_budget', ...(item ? {item} : {}), deferred: deferredByBudget(view)};
   }
@@ -484,7 +485,8 @@ function applyFresh(view: RunView, fresh: Fresh): void {
     view.pending.unshift(...itemsFor(candidate, 'forced'));
 }
 
-export interface ReadResult {materials: Material[]; located?: unknown; summary: Json; calls?: number; ms?: number}
+/** `bodies`: the issued candidates' bodies the read carried (§135.20); for the Keeper and the record, never the route question. */
+export interface ReadResult {materials: Material[]; located?: unknown; summary: Json; calls?: number; ms?: number; bodies?: import('./candidate-bodies.ts').CandidateBody[]}
 export interface Fresh {context: TurnContext; candidates: Candidate[]}
 export function settleRead(view: RunView, step: number, read: ReadResult, fresh: Fresh, ms: number): TelemetryRow {
   // A read that folds Jev locate/qualification calls into itself still spends the run's Jev budget.
@@ -547,7 +549,19 @@ export type StepArtifact =
    * An executed operation. `fell` marks a Keeper batch step whose failure branch returns to the Keeper (refused, or
    * a check the kernel reports failed); `skipped` a later step of that batch the host did not run.
    */
-  | {kind: 'execute'; executed: {ok: boolean; summary: Json}; fresh?: Fresh; fell?: string; skipped?: boolean};
+  | {kind: 'execute'; executed: {ok: boolean; summary: Json}; fresh?: Fresh; fell?: string; skipped?: boolean}
+  /** §135.11: what the turn close did for a run with no delivery evidence of its own. */
+  | {kind: 'turn_close'; verdict: TurnCloseVerdict};
+
+/**
+ * §135.11. `delivered`: a delivery this run committed (the implicit narrate of a prose-only reply among them);
+ * `steer`: the steer legacy's `agent_end` would send now, carried by one more model step; `none`: nothing is owed,
+ * or the steer is spent; `unavailable`: no turn-close port answered.
+ */
+export interface TurnCloseVerdict {status: 'delivered' | 'steer' | 'none' | 'unavailable'; kind?: string; reason?: string; implicit?: boolean;
+  delivery?: 'accepted' | 'awaiting_player'; call_id?: string | null; turn?: number | null}
+/** Turn-close steers one run follows (§135.11): legacy's bound, once per turn, which one run is. */
+export const TURN_CLOSE_STEERS = 1;
 
 export interface StepPolicyOptions {
   /** Jev scope of the run when known up front; otherwise the first read step binds it. */
@@ -559,7 +573,7 @@ export interface StepPolicyOptions {
   gate?: number;
   /** Read before the first route (default true): the loop's first step is the read. */
   readFirst?: boolean;
-  /** The run's clock (§135.11). With it, each folded step stamps `budget.runMs` from `startedAt`; without it the time budget never runs out. */
+  /** The run's clock (§135.25). With it, each folded step stamps `budget.runMs` from `startedAt`; without it the time budget never runs out. */
   clock?: () => number;
   /** When the run started on `clock` (default: the clock's reading at `initial`). */
   startedAt?: number;
@@ -569,8 +583,29 @@ export interface StepPolicyOptions {
  * and the Keeper batch (`view.plan`) are optional.
  */
 export interface StepPolicyState {view: RunView; gate: number; scope?: ScopeBinding; readSet?: ReadSet; intent?: IntentBinding; requirements?: Requirements;
-  /** The run's start on the policy's clock (§135.11). */
-  startedAt?: number}
+  /** The run's start on the policy's clock (§135.25). */
+  startedAt?: number;
+  /** §135.11: the turn-close steers this run followed and the last verdict. */
+  turnClose?: {steers: number; last?: TurnCloseVerdict}}
+
+/** The artifact of a policy-origin `turn_close` operation, if this observation is one. */
+const turnCloseOf = (observation: ObservationView | undefined): TurnCloseVerdict | undefined => {
+  const artifact = observation?.kind === 'operate' && observation.origin === 'policy' ? observation.outcomes?.[0]?.artifact as StepArtifact | undefined : undefined;
+  return artifact?.kind === 'turn_close' ? artifact.verdict : undefined;
+};
+/**
+ * §135.11: the run is about to finish without delivery evidence. The turn close is asked once after every model
+ * step that answered (a failed or aborted response delivers nothing and is not steered): the latest `ok` infer
+ * has no `turn_close` after it.
+ */
+function owesTurnClose(driver: DriverView<StepPolicyState>): boolean {
+  for (let index = driver.observations.length - 1; index >= 0; index--) {
+    const observation = driver.observations[index];
+    if (turnCloseOf(observation)) return false;
+    if (observation.kind === 'infer') return observation.status === 'ok';
+  }
+  return false;
+}
 
 const unavailable = (reason: string): DecisionResult => ({batchId: '', status: 'unavailable', answers: {}, coverage: {required: [], answered: [], unknown: []}, issues: [], failure: {code: reason, retryable: false}} as unknown as DecisionResult);
 const decisionOf = (observation: ObservationView): DecisionResult => {
@@ -615,13 +650,21 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
     },
     next(driver: DriverView<StepPolicyState>): DriverStepRequest {
       if (driver.pendingProposals.length) return {kind: 'operate', proposals: driver.pendingProposals, reason: 'model_proposals'};
-      if (driver.delivery === 'accepted') return {kind: 'finish', outcome: 'delivered', reason: 'delivery_accepted'};
+      const closed = turnCloseOf(driver.lastObservation);
+      if (driver.delivery === 'accepted') return {kind: 'finish', outcome: 'delivered', reason: closed?.implicit ? 'implicit_narrate' : 'delivery_accepted'};
       if (driver.delivery === 'awaiting_player') return {kind: 'finish', outcome: 'awaiting_player', reason: 'pending_choice'};
       const state = driver.policyState.view, request = next(state), binding = bindingFor(driver.policyState);
-      if (request.kind === 'finish') return {kind: 'finish', outcome: 'delivered', reason: request.reason};
+      if (request.kind === 'finish') {
+        // §135.11: no delivery evidence yet. Ask the turn close what it did before the run ends without any.
+        if (owesTurnClose(driver)) return {kind: 'operate', reason: 'turn_close',
+          proposals: [{origin: 'policy', operation: 'turn_close', readOnly: false, label: 'close the turn'}]};
+        const last = driver.policyState.turnClose?.last;
+        return {kind: 'finish', outcome: 'delivered', reason: last && (last.status === 'none' || last.status === 'unavailable')
+          ? `turn_close_${last.reason ?? last.status}` : request.reason};
+      }
       if (request.kind === 'infer') return {kind: 'infer', purpose: request.purpose, reason: request.reason,
         request: {purpose: request.purpose, reason: request.reason,
-          // §135.11: a compose the budget chose says what it deferred and whether it replaced a fallen batch's return.
+          // §135.25: a compose the budget chose says what it deferred and whether it replaced a fallen batch's return.
           ...(request.deferred ? {budget: {budget_ms: state.budget.maxRunMs, elapsed_ms: state.budget.runMs, deferred_by_budget: request.deferred as unknown as Json,
             ...(request.item?.reason === 'batch_fallen' ? {batch_fallen: true} : {})}} : {}),
           ...(request.item?.candidate ? {candidate: request.item.candidate.key, operation: operationView(request.item.candidate),
@@ -649,6 +692,19 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
     reduce(policyState, observation, driver) {
       const view = structuredClone(policyState.view);
       const requirements = driver.pendingRequirements.length ? {requirements: {pending: [...driver.pendingRequirements]}} : {};
+      const closing = turnCloseOf(observation);
+      if (closing) {
+        // §135.11: a steer is one more model step of this run (compose), with the steer prepended; at most
+        // TURN_CLOSE_STEERS per run. A delivery or nothing owed changes nothing here: `next` finishes.
+        const steers = policyState.turnClose?.steers ?? 0, follow = closing.status === 'steer' && steers < TURN_CLOSE_STEERS;
+        view.budget.steps++;
+        observe(view, {kind: 'direct', purpose: 'turn_close', status: closing.status, ...(closing.kind || closing.reason ? {reason: closing.kind ?? closing.reason} : {}),
+          summary: closing as unknown as Json});
+        if (follow) { view.stopped = undefined; view.pending.unshift({kind: 'infer', purpose: 'compose', reason: `turn_close:${closing.kind ?? 'steer'}`}); }
+        const last: TurnCloseVerdict = closing.status === 'steer' && !follow ? {status: 'none', reason: 'run_steer_spent'} : closing;
+        stamp(view, policyState.startedAt);
+        return {...policyState, ...requirements, view, turnClose: {steers: steers + (follow ? 1 : 0), last}};
+      }
       if (observation.kind === 'operate' && observation.origin === 'model') {
         // The model's own calls: the prototype's direct model-origin execute, one per call, with the arguments the
         // model sent (read back from the infer that proposed them). The calls of one response are the Keeper's

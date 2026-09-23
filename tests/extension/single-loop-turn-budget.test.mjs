@@ -1,5 +1,5 @@
 /**
- * SL-10, the run's time budget (contract §135.11; spec ruling "A turn is under 60 seconds").
+ * SL-10, the run's time budget (contract §135.25; spec ruling "A turn is under 60 seconds").
  *
  * - Policy seam: the product policy (`createStepPolicy`) on the vendored `runDriver` with stub ports, a stub model
  *   engine and a stub clock. Past the budget the next step is the compose and the pending clerk steps are listed;
@@ -60,6 +60,8 @@ async function drive({ candidates, fresh = candidates, budgetMs = 1_000, advance
 					log.push(`model:${proposal.operation}:${proposal.params?.effects?.[0]?.to ?? ""}`);
 					return { status: "ok", toolResult: result, artifact: { kind: "execute", executed: { ok: true, summary: {} } } };
 				}
+				// §135.11: the run's own turn close, asked before a run with no delivery evidence finishes.
+				if (proposal.operation === "turn_close") { log.push("turn_close"); return { status: "ok", artifact: { kind: "turn_close", verdict: { status: "none", reason: "nothing_owed" } } }; }
 				log.push(`clerk:${proposal.params.candidate.key}`);
 				return { status: "ok", artifact: { kind: "execute", executed: { ok: true, summary: {} }, fresh: { context, candidates: [] } } };
 			},
@@ -103,13 +105,17 @@ test("the pure policy: a spent time budget makes the next step the compose and l
 	view.pending = [{ kind: "infer", purpose: "adjudicate", reason: "batch_fallen" }];
 	assert.equal(next(view).item?.reason, "batch_fallen");
 	assert.deepEqual(next(view).deferred, []);
+	// A compose already owed (the turn close's steer, §135.11) is the compose: it keeps its reason, and its steer message.
+	view.pending = [{ kind: "infer", purpose: "compose", reason: "turn_close:speech" }, { kind: "direct", purpose: "execute", candidate: move }];
+	assert.deepEqual([next(view).purpose, next(view).reason], ["compose", "turn_close:speech"]);
 });
 
 test("past the budget the route's selection is not executed: the next step is the compose, with the deferred clerk steps on it", async () => {
 	// The read is quick; the route answer lands after the budget (clock 0 -> 1.5 s against a 1 s budget) and selects the move.
 	const { log, inferSteps } = await drive({ candidates: [move], advance: { "decide:route": 1_500 },
 		decide: (batch) => route(batch, ["Go to the Globe"]), infer: () => prose("You set off.") });
-	assert.deepEqual(log, ["read", "decide:route", "infer:compose"], "no clerk write after the budget ran out");
+	assert.deepEqual(log, ["read", "decide:route", "infer:compose", "turn_close"],
+		"no clerk write after the budget ran out; the budget compose still goes through the turn close (§135.11)");
 	assert.equal(inferSteps[0].reason, "run_budget");
 });
 
@@ -118,7 +124,7 @@ test("inside the budget the same selection is executed by the clerk before the K
 		decide: (batch, count) => count === 1 ? route(batch, ["Go to the Globe"]) : route(batch, [], "finish"),
 		infer: () => prose("You arrive.") });
 	assert.deepEqual(log.slice(0, 3), ["read", "decide:route", "clerk:apply:move:globe"]);
-	assert.equal(log.at(-1), "infer:compose");
+	assert.deepEqual(log.slice(-2), ["infer:compose", "turn_close"]);
 });
 
 test("a model step that crosses the budget is not cut: its whole batch runs, then the compose", async () => {
@@ -126,7 +132,7 @@ test("a model step that crosses the budget is not cut: its whole batch runs, the
 	const batch = fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "a" }] }), fauxToolCall("apply", { effects: [{ kind: "move", to: "b" }] })], { stopReason: "toolUse" });
 	const { log, events, inferSteps } = await drive({ candidates: [move], advance: { "infer:0": 5_000 },
 		decide: (batch) => route(batch, [], "ask_llm"), infer: (index) => index === 0 ? batch : prose("Done.") });
-	assert.deepEqual(log, ["read", "decide:route", "infer:adjudicate", "model:apply:a", "model:apply:b", "infer:compose"]);
+	assert.deepEqual(log, ["read", "decide:route", "infer:adjudicate", "model:apply:a", "model:apply:b", "infer:compose", "turn_close"]);
 	assert.equal(inferSteps[0].status, "ok", "the running model step completed; nothing aborted it");
 	assert.ok(!events.some((event) => event.status === "aborted"));
 	assert.equal(inferSteps[1].reason, "run_budget");
@@ -136,7 +142,7 @@ test("a step the kernel forces still runs past the budget when it needs no model
 	// The read itself crosses the budget and issues the NPC's forced defence.
 	const { log, inferSteps } = await drive({ candidates: [defence], fresh: [defence], advance: { read: 2_000 },
 		decide: (batch) => route(batch, [], "finish"), infer: () => prose("He ducks.") });
-	assert.deepEqual(log, ["read", "clerk:resolve:combat:defend:knott", "infer:compose"]);
+	assert.deepEqual(log, ["read", "clerk:resolve:combat:defend:knott", "infer:compose", "turn_close"]);
 	assert.equal(inferSteps[0].reason, "run_budget");
 });
 

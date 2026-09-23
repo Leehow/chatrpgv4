@@ -15,9 +15,10 @@ import {spawnSync} from 'node:child_process';
 export const FIXTURES=resolve(import.meta.dirname,'fixtures');
 export const LIVE_HOME=join(homedir(),'Library/Application Support/Pipi/pipicoc/pi-coc');
 
+/** A fixture by name under fixtures/, or by a directory path (a scratch fixture; its baseline.json is optional). */
 export function readFixture(name){
-  const dir=join(FIXTURES,name);
-  return {dir,turn:JSON.parse(readFileSync(join(dir,'turn.json'),'utf8')),baseline:JSON.parse(readFileSync(join(dir,'baseline.json'),'utf8')),
+  const dir=name.includes('/')?resolve(name):join(FIXTURES,name),baseline=join(dir,'baseline.json');
+  return {dir,turn:JSON.parse(readFileSync(join(dir,'turn.json'),'utf8')),baseline:existsSync(baseline)?JSON.parse(readFileSync(baseline,'utf8')):{},
     tarball:join(dir,'workspace.tar.gz')};
 }
 

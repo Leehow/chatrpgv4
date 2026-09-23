@@ -1,0 +1,503 @@
+{
+ "run": 3,
+ "fixture": "/private/tmp/claude-501/-Users-haoli-leehow-code-chatrpgv4-wt-pi-coc-v2/c4e962a1-0de8-447d-800f-a8d28e8eb710/scratchpad/fixtures/gate-turn1",
+ "admission": "lane",
+ "keeper": "live grok-build/grok-4.7-build-fast",
+ "thinking": "low",
+ "wall_ms": 98924,
+ "status": "undelivered",
+ "reason": "prose:no_delivered_evidence",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 5430,
+   "ttfb_ms": 1065,
+   "input": 41837,
+   "cache_read": 0,
+   "cache_write": 0,
+   "output": 336,
+   "reasoning": 204,
+   "tools": [
+    "lookup",
+    "lookup"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 15706,
+   "ttfb_ms": 548,
+   "input": 10323,
+   "cache_read": 32768,
+   "cache_write": 0,
+   "output": 1781,
+   "reasoning": 435,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 4533,
+   "ttfb_ms": 792,
+   "input": 44106,
+   "cache_read": 0,
+   "cache_write": 0,
+   "output": 236,
+   "reasoning": 122,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 4,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 2337,
+   "ttfb_ms": 1418,
+   "input": 439,
+   "cache_read": 44032,
+   "cache_write": 0,
+   "output": 119,
+   "reasoning": 57,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 5,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 4079,
+   "ttfb_ms": 713,
+   "input": 303,
+   "cache_read": 44416,
+   "cache_write": 0,
+   "output": 453,
+   "reasoning": 59,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 6,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 4488,
+   "ttfb_ms": 1424,
+   "input": 665,
+   "cache_read": 44672,
+   "cache_write": 0,
+   "output": 414,
+   "reasoning": 61,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 7,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 2698,
+   "ttfb_ms": 966,
+   "input": 604,
+   "cache_read": 45312,
+   "cache_write": 0,
+   "output": 177,
+   "reasoning": 122,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 8,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 9147,
+   "ttfb_ms": 822,
+   "input": 443,
+   "cache_read": 45824,
+   "cache_write": 0,
+   "output": 661,
+   "reasoning": 437,
+   "tools": [],
+   "stop": "stop",
+   "effort": "low"
+  },
+  {
+   "step": 9,
+   "turn": 1,
+   "purpose": "adjudicate",
+   "ms": 28403,
+   "ttfb_ms": 886,
+   "input": 25985,
+   "cache_read": 16384,
+   "cache_write": 0,
+   "output": 2875,
+   "reasoning": 2262,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 10,
+   "turn": 1,
+   "purpose": "adjudicate",
+   "ms": 3531,
+   "ttfb_ms": 788,
+   "input": 21365,
+   "cache_read": 23680,
+   "cache_write": 0,
+   "output": 294,
+   "reasoning": 80,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 11,
+   "turn": 1,
+   "purpose": "adjudicate",
+   "ms": 1342,
+   "ttfb_ms": 1195,
+   "input": 561,
+   "cache_read": 44928,
+   "cache_write": 0,
+   "output": 34,
+   "reasoning": 25,
+   "tools": [
+    "look"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 12,
+   "turn": 1,
+   "purpose": "adjudicate",
+   "ms": 9773,
+   "ttfb_ms": 788,
+   "input": 1716,
+   "cache_read": 45440,
+   "cache_write": 0,
+   "output": 816,
+   "reasoning": 637,
+   "tools": [
+    "narrate"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  }
+ ],
+ "steps": {
+  "operate": 13,
+  "decide": 2,
+  "infer": 12,
+  "finish": 2
+ },
+ "llm_steps": 12,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 3,
+ "route_rows": 1,
+ "calls": [
+  {
+   "tool": "lookup",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "kind": "module",
+    "query": "knott-commission knott-keys knott-research-leads knott-macario-summary"
+   }
+  },
+  {
+   "tool": "lookup",
+   "origin": "model",
+   "ok": false,
+   "error": "needs",
+   "input": {
+    "kind": "source",
+    "source_mode": "answer",
+    "query": "Steven Knott commission",
+    "question": "What does Knott offer when the investigators accept: daily pay, keys, address, cash advance, and which research places does he name before they go to the Boston Globe?"
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": false,
+   "error": "needs",
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Steven Knott",
+      "name": "史蒂文·诺特",
+      "why": "开场已以房东史蒂文·诺特向你自我介绍"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-commission",
+      "from": "Steven Knott",
+      "how": "你当面接下他按天付费的委托。",
+      "label": "诺特的委托"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-research-leads",
+      "from": "Steven Knott",
+      "how": "你说先去《环球报》翻旧报，他把报馆、图书馆和档案馆这几条纸上的路一并指给你。",
+      "label": "诺特指的查档去处"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-keys",
+      "how": "他把钥匙、地址和预付的一天工钱一起交过来。",
+      "from": "Steven Knott",
+      "label": "房子的钥匙与预付"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-macario-summary",
+      "from": "Steven Knott",
+      "how": "他顺口说了上一户马卡里奥家怎么离开那栋房子。",
+      "label": "马卡里奥家的事"
+     },
+     {
+      "kind": "cash",
+      "delta": 20,
+      "source": "quote",
+      "with": "Steven Knott",
+      "currency": "USD",
+      "why": "诺特按天付费，先付一天的二十元。"
+     },
+     {
+      "kind": "handout",
+      "name": "Handout 1: Mr. Knott's Commission",
+      "label": "诺特先生的委托"
+     },
+     {
+      "kind": "define",
+      "name": "科比特宅钥匙",
+      "description": "一串旧钥匙，带着波士顿科比特宅的地址标签，能开那栋空宅的门。",
+      "category": "item"
+     },
+     {
+      "kind": "object",
+      "name": "科比特宅钥匙",
+      "to": "investigator",
+      "definition": "科比特宅钥匙",
+      "from": "Steven Knott",
+      "handover": "given",
+      "why": "诺特把房子钥匙交给你。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": false,
+   "error": "needs",
+   "input": {
+    "effects": [
+     {
+      "kind": "define",
+      "name": "科比特宅钥匙",
+      "description": "一串旧黄铜钥匙，系着一张写有波士顿科比特宅地址的纸签，用来开那栋空宅的门。",
+      "category": "item"
+     },
+     {
+      "kind": "object",
+      "name": "科比特宅钥匙",
+      "to": "investigator",
+      "definition": "科比特宅钥匙",
+      "from": "Steven Knott",
+      "handover": "given",
+      "why": "诺特把房子钥匙交给你。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": false,
+   "error": "needs",
+   "input": {
+    "effects": [
+     {
+      "kind": "define",
+      "name": "科比特宅钥匙",
+      "description": "一串旧黄铜钥匙，系着一张写有波士顿科比特宅地址的纸签，用来开那栋空宅的门。",
+      "category": "item"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": false,
+   "error": "idempotency_conflict",
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Steven Knott",
+      "name": "史蒂文·诺特",
+      "why": "开场已用这个名字介绍房东。"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-commission",
+      "from": "Steven Knott",
+      "how": "你应下他按天付费、查清科比特宅名声的委托。",
+      "label": "诺特的委托"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-research-leads",
+      "from": "Steven Knott",
+      "how": "诺特指你先去《环球报》剪报室，也提到中央图书馆和档案厅。",
+      "label": "查档的去处"
+     },
+     {
+      "kind": "move",
+      "to": "newspaper-morgue",
+      "travel_minutes": 25,
+      "label": "《环球报》社",
+      "via": "你按诺特指的路，离开事务所去《环球报》剪报室"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": false,
+   "error": "idempotency_conflict",
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Steven Knott",
+      "name": "史蒂文·诺特",
+      "why": "开场已当面用这个名字介绍房东。"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-commission",
+      "from": "Steven Knott",
+      "how": "你应下诺特按天付费、查清科比特宅名声的委托。",
+      "label": "诺特的委托"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-research-leads",
+      "from": "Steven Knott",
+      "how": "诺特让你按街名去《环球报》剪报室，并提到中央图书馆和档案厅。",
+      "label": "查档的去处"
+     },
+     {
+      "kind": "time",
+      "minutes": 25,
+      "why": "从诺特的事务所走到《环球报》社。"
+     },
+     {
+      "kind": "move",
+      "to": "newspaper-morgue",
+      "label": "《环球报》社"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "look",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "focus": "scene"
+   }
+  },
+  {
+   "tool": "narrate",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "text": "你对着史蒂文·诺特把来意说清楚，请他帮忙把科比特宅这些年的旧剪报调出来。\n\n{{say:托马斯·海耶斯}}「我接这单。想先把这宅子这些年的旧报道调出来看看。」{{/say}}\n\n诺特听完，眉心拧了一下。他没有起身去翻柜，只拿指节敲了敲仍搁在桌面上的那张二十元和那串黄铜钥匙。\n\n{{say:史蒂文·诺特}}「剪报不在我这儿。我是房东，不是报馆。你要旧闻，自己去《环球报》剪报室，报街名。钱和钥匙还在桌上。你拿走再走。」{{/say}}"
+   }
+  }
+ ],
+ "match": [],
+ "admissions": [
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 6,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  },
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 1,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  }
+ ],
+ "clerk": [],
+ "misses": []
+}

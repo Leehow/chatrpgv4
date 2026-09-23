@@ -1,0 +1,642 @@
+{
+ "run": 3,
+ "fixture": "/private/tmp/claude-501/-Users-haoli-leehow-code-chatrpgv4-wt-pi-coc-v2/c4e962a1-0de8-447d-800f-a8d28e8eb710/scratchpad/fixtures/gate-turn1",
+ "admission": "lane",
+ "keeper": "live grok-build/grok-4.7-build-fast",
+ "thinking": "low",
+ "wall_ms": 153109,
+ "status": "undelivered",
+ "reason": "prose:no_delivered_evidence",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 27742,
+   "ttfb_ms": 798,
+   "input": 43444,
+   "cache_read": 0,
+   "cache_write": 0,
+   "output": 2922,
+   "reasoning": 1501,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 4608,
+   "ttfb_ms": 682,
+   "input": 2241,
+   "cache_read": 43392,
+   "cache_write": 0,
+   "output": 556,
+   "reasoning": 208,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 12010,
+   "ttfb_ms": 994,
+   "input": 9393,
+   "cache_read": 43392,
+   "cache_write": 0,
+   "output": 1173,
+   "reasoning": 482,
+   "tools": [
+    "resolve",
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 4,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 18943,
+   "ttfb_ms": 1008,
+   "input": 8531,
+   "cache_read": 45440,
+   "cache_write": 0,
+   "output": 1675,
+   "reasoning": 1273,
+   "tools": [],
+   "stop": "stop",
+   "effort": "low"
+  },
+  {
+   "step": 5,
+   "turn": 1,
+   "purpose": "adjudicate",
+   "ms": 20878,
+   "ttfb_ms": 1178,
+   "input": 12667,
+   "cache_read": 32768,
+   "cache_write": 0,
+   "output": 2138,
+   "reasoning": 1677,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 6,
+   "turn": 1,
+   "purpose": "adjudicate",
+   "ms": 3129,
+   "ttfb_ms": 1344,
+   "input": 15632,
+   "cache_read": 33152,
+   "cache_write": 0,
+   "output": 177,
+   "reasoning": 39,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 7,
+   "turn": 1,
+   "purpose": "adjudicate",
+   "ms": 5048,
+   "ttfb_ms": 625,
+   "input": 49095,
+   "cache_read": 0,
+   "cache_write": 0,
+   "output": 252,
+   "reasoning": 119,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 8,
+   "turn": 1,
+   "purpose": "adjudicate",
+   "ms": 9874,
+   "ttfb_ms": 730,
+   "input": 20341,
+   "cache_read": 32768,
+   "cache_write": 0,
+   "output": 877,
+   "reasoning": 761,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 9,
+   "turn": 1,
+   "purpose": "adjudicate",
+   "ms": 7712,
+   "ttfb_ms": 588,
+   "input": 6669,
+   "cache_read": 47616,
+   "cache_write": 0,
+   "output": 811,
+   "reasoning": 496,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 10,
+   "turn": 1,
+   "purpose": "adjudicate",
+   "ms": 13313,
+   "ttfb_ms": 569,
+   "input": 55961,
+   "cache_read": 0,
+   "cache_write": 0,
+   "output": 997,
+   "reasoning": 562,
+   "tools": [],
+   "stop": "stop",
+   "effort": "low"
+  }
+ ],
+ "steps": {
+  "operate": 12,
+  "decide": 8,
+  "infer": 10,
+  "finish": 2
+ },
+ "llm_steps": 10,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 6,
+ "route_rows": 4,
+ "calls": [
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": false,
+   "error": "needs",
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Steven Knott",
+      "name": "史蒂文·诺特",
+      "why": "上一回已以房东史蒂文·诺特介绍给你。"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-commission",
+      "from": "Steven Knott",
+      "how": "你接下这单，诺特说明按天付钱、查清科比特宅为何留不住房客。",
+      "label": "诺特的委托"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-keys",
+      "from": "Steven Knott",
+      "how": "诺特交出房子钥匙、地址，并预付一天的工钱。",
+      "label": "钥匙与预付"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-research-leads",
+      "from": "Steven Knott",
+      "how": "你要先去《环球报》，诺特把报社、图书馆和档案馆指给你。",
+      "label": "查档的去处"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-macario-summary",
+      "from": "Steven Knott",
+      "how": "诺特说出上一户马卡里奥一家惊恐离开，父亲还在罗克斯伯里疗养院。",
+      "label": "马卡里奥一家"
+     },
+     {
+      "kind": "cash",
+      "delta": 20,
+      "source": "quote",
+      "with": "Steven Knott",
+      "currency": "USD",
+      "why": "诺特预付一天工钱。"
+     },
+     {
+      "kind": "define",
+      "name": "科比特宅钥匙",
+      "description": "一串旧钥匙，开波士顿科比特宅的大门。钥牙磨得发亮，钥圈上系着一张写有街道地址的纸条。"
+     },
+     {
+      "kind": "object",
+      "name": "科比特宅钥匙",
+      "to": "investigator",
+      "definition": "科比特宅钥匙",
+      "from": "Steven Knott",
+      "handover": "given",
+      "why": "诺特把房门钥匙交给你。"
+     },
+     {
+      "kind": "handout",
+      "name": "Handout 1: Mr. Knott's Commission",
+      "label": "诺特先生的委托"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Steven Knott",
+      "name": "史蒂文·诺特",
+      "why": "上一回已以房东史蒂文·诺特介绍给你。"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-commission",
+      "from": "Steven Knott",
+      "how": "你接下这单，诺特说明按天付钱、查清科比特宅为何留不住房客。",
+      "label": "诺特的委托"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-keys",
+      "from": "Steven Knott",
+      "how": "诺特交出房子钥匙、地址，并预付一天的工钱。",
+      "label": "钥匙与预付"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-research-leads",
+      "from": "Steven Knott",
+      "how": "你要先去《环球报》，诺特把报社、图书馆和档案馆指给你。",
+      "label": "查档的去处"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-macario-summary",
+      "from": "Steven Knott",
+      "how": "诺特说出上一户马卡里奥一家惊恐离开，父亲还在罗克斯伯里疗养院。",
+      "label": "马卡里奥一家"
+     },
+     {
+      "kind": "cash",
+      "delta": 20,
+      "source": "quote",
+      "with": "Steven Knott",
+      "currency": "USD",
+      "why": "诺特预付一天工钱。"
+     },
+     {
+      "kind": "handout",
+      "name": "Handout 1: Mr. Knott's Commission",
+      "label": "诺特先生的委托"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "move",
+      "to": "newspaper-morgue"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "第一次走进《环球报》城市台，向值班编辑要求查看科比特宅的旧剪报",
+     "method": "以私家侦探的身份上前打招呼，看对方第一眼怎么待你",
+     "actor": "托马斯·海耶斯",
+     "target": "Arty Wilmot",
+     "decision": "natural-npc:first-impression"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Arty Wilmot",
+      "name": "阿蒂·威尔莫特",
+      "why": "城市台值班编辑，你第一次在柜台前见到他。"
+     },
+     {
+      "kind": "time",
+      "minutes": 25,
+      "why": "从诺特的事务所走到《环球报》。"
+     },
+     {
+      "kind": "item",
+      "name": "科比特宅钥匙",
+      "to": "investigator",
+      "from": "Steven Knott",
+      "label": "科比特宅钥匙",
+      "why": "诺特交出房门钥匙。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": false,
+   "error": "idempotency_conflict",
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "请柜台后那人放行，按地址调出科比特宅这些年的旧剪报",
+     "method": "说明自己受房东之托查那栋空宅，要的是能写进租约的旧闻，不是闲人来翻闹",
+     "target": "Arty Wilmot",
+     "obligation": "globe-clippings-access",
+     "modifiers": {
+      "bonus_dice": 1,
+      "reason": "来意具体：受房东之托、按地址查旧闻，不是泛泛的闲人"
+     }
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": false,
+   "error": "idempotency_conflict",
+   "input": {
+    "action": {
+     "goal": "让城市台柜台后那人按街址调出科比特宅的旧剪报",
+     "intent": "social",
+     "method": "把房东雇他查空宅、要能写进租约的旧闻这件事说清楚，并请对方放行下楼",
+     "modifiers": {
+      "bonus_dice": 1,
+      "reason": "来意具体：受房东之托、按地址查旧闻，不是泛泛闲人"
+     },
+     "obligation": "globe-clippings-access",
+     "target": "Arty Wilmot"
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "goal": "说服《环球报》城市台把守剪报室入口的人，按科比特宅的街址取出这些年的旧剪报",
+     "intent": "social",
+     "method": "亮出受雇查空宅的来意，请他把剪报室对这件事开放",
+     "modifiers": {
+      "bonus_dice": 1,
+      "reason": "来意具体，受房东所雇，点名街址和旧闻，不是闲人乱翻"
+     },
+     "obligation": "globe-clippings-access",
+     "skill": "Fast Talk",
+     "target": "Arty Wilmot"
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "跟带路下楼的档案员打照面，看她怎么待这个刚被放行的人",
+     "method": "跟在她身后进剪报室，把来意用短话说给她听",
+     "target": "Ruth Blake",
+     "decision": "natural-npc:first-impression",
+     "actor": "托马斯·海耶斯"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Arty Wilmot",
+      "name": "阿蒂·威尔莫特",
+      "why": "他在放行时报了自己的姓，城市台的人这样称呼他"
+     },
+     {
+      "kind": "person",
+      "who": "Ruth Blake",
+      "name": "露丝·布莱克",
+      "why": "她带路下楼时自己报了名字"
+     },
+     {
+      "kind": "time",
+      "minutes": 40,
+      "why": "下到剪报室，按街址抽出科比特宅的旧夹"
+     },
+     {
+      "kind": "handout",
+      "name": "Boston Globe City Desk Copy — Held from Print (1918)",
+      "label": "环球报城市台未刊稿（一九一八）"
+     },
+     {
+      "kind": "clue",
+      "clue": "globe-unpublished-story",
+      "from": "Ruth Blake",
+      "how": "露丝按街址抽出一九一八年压下未发的特稿",
+      "label": "一九一八年未刊特稿"
+     },
+     {
+      "kind": "clue",
+      "clue": "macario-tragedy",
+      "from": "Ruth Blake",
+      "how": "同一夹剪报写明马卡里奥一家几乎立刻搬走",
+      "label": "马卡里奥一家"
+     },
+     {
+      "kind": "clue",
+      "clue": "globe-fire-cutoff",
+      "from": "Ruth Blake",
+      "how": "她边归档边说，报馆档案只到一八七八年那场火",
+      "label": "一八七八年火灾"
+     }
+    ]
+   }
+  }
+ ],
+ "match": [],
+ "admissions": [
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 8,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  },
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 2,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  },
+  {
+   "verb": "apply",
+   "origin": "policy",
+   "clerk": "declared_bookkeeping",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 1,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[1]",
+    "row": {
+     "alias": "effect:1",
+     "effect": {
+      "kind": "move",
+      "to": "newspaper-morgue"
+     },
+     "description": {
+      "kind": "move",
+      "to": "newspaper-morgue",
+      "display_name": "Boston Globe offices",
+      "unlock_when": {
+       "condition": "clue_discovered: knott-research-leads",
+       "met": true
+      },
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    }
+   }
+  },
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 12,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  },
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 38,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  }
+ ],
+ "clerk": [
+  {
+   "tool": "apply",
+   "call_id": "t1-c3",
+   "ok": true,
+   "ms": 99,
+   "clerk": "declared_bookkeeping",
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[1]",
+    "row": {
+     "alias": "effect:1",
+     "effect": {
+      "kind": "move",
+      "to": "newspaper-morgue"
+     },
+     "description": {
+      "kind": "move",
+      "to": "newspaper-morgue",
+      "display_name": "Boston Globe offices",
+      "unlock_when": {
+       "condition": "clue_discovered: knott-research-leads",
+       "met": true
+      },
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    }
+   }
+  }
+ ],
+ "misses": []
+}

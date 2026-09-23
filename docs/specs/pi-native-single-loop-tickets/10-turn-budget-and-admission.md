@@ -27,7 +27,7 @@ Spec: docs/specs/pi-native-single-loop.md (Rulings: "A turn is under 60 seconds"
 ### 2026-09-23 — the admission measurement and the threshold, before the code (worker on `claude/sl10-budget-admission-20260923`)
 
 Recorded before the fast-path code commit, as the ticket asks. The rule and the table are contract §32.11; the
-budget is §135.11.
+budget is §135.25 (renumbered from §135.11 at the merge with the prose-delivery fix, which owns §135.11).
 
 **Which writes are "bookkeeping writes".** An `apply` batch that §32.1 puts to review and whose every triggering
 kind is `move`, `clue`, `handout` or `time`. `person` is never reviewed (§32.1 lists it as non-triggering), so it
