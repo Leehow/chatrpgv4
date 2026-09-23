@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { setImmediate as drain } from "node:timers/promises";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
-import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "./pi.mjs";
 import { createLaneQueue } from "../../extensions/lanes/queue.ts";
 import { openTable, waitFor } from "./harness.mjs";
 
@@ -44,7 +44,7 @@ async function fixture(t, install) {
 		rmSync(cwd, { recursive: true, force: true });
 		assert.deepEqual(errors, []);
 	});
-	t.diagnostic(`Pi SDK ${JSON.parse(readFileSync(new URL("../../node_modules/@earendil-works/pi-coding-agent/package.json", import.meta.url))).version}`);
+	t.diagnostic(`Pi SDK ${JSON.parse(readFileSync(new URL("../../build/node_modules/@earendil-works/pi-coding-agent/package.json", import.meta.url))).version}`);
 	return { session, api };
 }
 

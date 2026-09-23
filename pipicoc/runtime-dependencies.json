@@ -62,7 +62,7 @@
     "git": "git/bin/git",
     "gitExec": "git/libexec/git-core",
     "gitTemplates": "git/share/git-core/templates",
-    "pi": "node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
+    "pi": "build/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
   },
   "requiredEntries": [
     "build/extensions/kernel/adaptation-submit.mjs",
@@ -74,6 +74,7 @@
     "build/runtime/preparation.mjs",
     "build/runtime/check.mjs",
     "build/runtime/launch.mjs",
+    "build/runtime/pi-hybrid.mjs",
     "build/runtime/source-worker.mjs",
     "build/pipicoc/onboarding-worker.mjs",
     "build/pipicoc/agent.mjs",
@@ -109,6 +110,7 @@
     "build/host/runtime/pi-ext/packages/context-fold/index.mjs"
   ],
   "buildDirectories": [
+    "node_modules",
     "kernel",
     "runtime",
     "pipicoc",

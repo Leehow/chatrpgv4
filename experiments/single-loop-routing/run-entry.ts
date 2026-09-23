@@ -9,8 +9,8 @@ import {materialize, readFixture, removeTree} from './fixture.mjs';
 import {startKernel} from './kernel.mjs';
 import {readVaultSecret} from './vault.mjs';
 import {createRealPorts} from './ports.ts';
-import {initialView, runTurn, type PendingItem, type RunView, type TelemetryRow} from './loop.ts';
-import type {Json} from './candidates.ts';
+import {initialView, type Json, type PendingItem, type RunView, type TelemetryRow} from '../../runtime/jev/step-policy.ts';
+import {runTurn} from './loop.ts';
 
 type Row = Record<string, any>;
 

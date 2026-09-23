@@ -295,6 +295,7 @@ if (app) {
       env: {...piProcessEnv, ...assets.piCommand?.env},
       authNodePath: assets.authNodePath,
       managedNodeModulesRoot: assets.managedNodeModulesRoot,
+      piModule: assets.piModule,
       cocRuntime: assets.cocRuntime,
       browserAction: (request, sessionId) => browser.toolAction(sessionId, request as any),
       browserWatch: (request, sessionId) => handleBrowserWatchEvent(request, sessionId, browser, watchCallbacks),

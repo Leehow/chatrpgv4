@@ -1,7 +1,9 @@
 // Policy tests with a stub DecisionPort and a stub executor. No network, no kernel, no model.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {next, runTurn, initialView, routeDigest, DEFAULT_BUDGET} from './loop.ts';
+// The policy is the product's (runtime/jev/step-policy.ts, SL-01); runTurn is the prototype's driver over it.
+import {next, initialView, routeDigest, DEFAULT_BUDGET} from '../../runtime/jev/step-policy.ts';
+import {runTurn} from './loop.ts';
 
 const scope = {owner: 'campaign:test', campaign: 'test', worldline: 'main', loop: 0, audience: 'keeper'};
 const context = {scene: 'office', clock: {minutes: 0}, present: ['A'], receipts: []};

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -10,10 +10,16 @@ const MODEL_REFRESH_TIMEOUT_MS = 5_000;
 export function modelRuntimeOptions() {
   return { allowModelNetwork: true, modelRefreshTimeoutMs: MODEL_REFRESH_TIMEOUT_MS };
 }
+function isPiPackage(root) {
+  try { return JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name === "@earendil-works/pi-coding-agent"; } catch { return false; }
+}
 function moduleRoot() {
   let pi = process.env.PIPIUI_PI_PATH || "";
   if (!pi) try { pi = execFileSync("which", ["pi"], { encoding: "utf8" }).trim(); } catch {}
-  const candidates = [pi && join(dirname(pi), "node_modules/@earendil-works/pi-coding-agent"), pi && join(dirname(pi), "../lib/node_modules/@earendil-works/pi-coding-agent"), join(process.env.HOME || "", ".npm-global/lib/node_modules/@earendil-works/pi-coding-agent"), "/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent", "/usr/local/lib/node_modules/@earendil-works/pi-coding-agent"].filter(Boolean);
+  // A COC host points PIPIUI_PI_PATH at the vendored Pi's own `dist/cli.js` (ADR-0006): the package
+  // that contains it is the one copy to load, before any global install.
+  const own = pi && join(dirname(pi), "..");
+  const candidates = [own && isPiPackage(own) && own, pi && join(dirname(pi), "node_modules/@earendil-works/pi-coding-agent"), pi && join(dirname(pi), "../lib/node_modules/@earendil-works/pi-coding-agent"), join(process.env.HOME || "", ".npm-global/lib/node_modules/@earendil-works/pi-coding-agent"), "/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent", "/usr/local/lib/node_modules/@earendil-works/pi-coding-agent"].filter(Boolean);
   for (const candidate of candidates) if (existsSync(join(candidate, "package.json"))) return candidate;
   throw new Error("Cannot find external @earendil-works/pi-coding-agent; install/update the pi CLI");
 }

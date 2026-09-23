@@ -1522,6 +1522,19 @@
       ]
     },
     {
+      "file": "runtime/jev/hybrid-engine.ts",
+      "symbol": "createHybridEngine",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "hybrid engine (SL-01): Jev decision port of Pi's RunDriver",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "n/a (added at SL-01)",
+      "note": "Gate: PI_COC_LOOP_ENGINE=hybrid-v1 (play) and a Jev key. The RunDriver's decide steps (route/bind) go through this adapter under a lease bound to the run's signal; the driver, not this call, owns the loop.",
+      "lines_at_0b729e8fb": []
+    },
+    {
       "file": "runtime/jev/memory-read-owner.ts",
       "symbol": "registerMemoryReadOperations.execute",
       "kind": "task-runtime",

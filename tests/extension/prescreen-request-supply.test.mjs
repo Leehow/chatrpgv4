@@ -13,7 +13,7 @@ const root=resolve(import.meta.dirname,'../..');
 await mkdir(join(root,'.tmp'),{recursive:true});
 const temp=await mkdtemp(join(root,'.tmp/prescreen-request-supply-'));
 after(()=>rm(temp,{recursive:true,force:true}));
-await build({stdin:{contents:"export * from './extensions/table/prescreen.ts'; export * from './extensions/table/prescreen-types.ts'; export * from './extensions/table/context-policy.ts'; export * from './extensions/table/context-runtime.ts'; export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts'; export {convertToLlm} from './node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js';",resolveDir:root},
+await build({stdin:{contents:"export * from './extensions/table/prescreen.ts'; export * from './extensions/table/prescreen-types.ts'; export * from './extensions/table/context-policy.ts'; export * from './extensions/table/context-runtime.ts'; export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts'; export {convertToLlm} from './build/node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js';",resolveDir:root},
   outfile:join(temp,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',logLevel:'silent'});
 const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
 

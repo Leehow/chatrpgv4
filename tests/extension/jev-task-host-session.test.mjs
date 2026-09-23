@@ -12,7 +12,7 @@ import {
 	ModelRuntime,
 	SessionManager,
 	SettingsManager,
-} from "@earendil-works/pi-coding-agent";
+} from "./pi.mjs";
 import kernelExtension from "../../extensions/kernel/index.ts";
 import { createTaskHostAdapter } from "../../runtime/jev/task-host-session.ts";
 import { FAKE_KERNEL, waitForIdle } from "./harness.mjs";

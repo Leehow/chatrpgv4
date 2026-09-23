@@ -1,0 +1,264 @@
+SL-01 stage C: the coding-agent session layer on the RunDriver, and the follow-up drain of a driven run.
+Base: 0001 applied (d0477d6b9). Apply with: git apply -p1 from the repository root.
+
+diff --git a/vendor/pi/packages/agent/src/agent.ts b/vendor/pi/packages/agent/src/agent.ts
+index 63bd8f457..2961bae11 100644
+--- a/vendor/pi/packages/agent/src/agent.ts
++++ b/vendor/pi/packages/agent/src/agent.ts
+@@ -508,6 +508,7 @@ export class Agent {
+ 		let context: AgentContext = this.createContextSnapshot();
+ 		let config: AgentLoopConfig = this.createLoopConfig();
+ 		let lastCompletedTurn: PrepareNextTurnContext | undefined;
++		let firstInfer = true;
+ 		const applyUpdate = (update: AgentLoopTurnUpdate | undefined) => {
+ 			if (!update) return;
+ 			context = update.context ?? context;
+@@ -548,7 +549,11 @@ export class Agent {
+ 				}
+ 				await emit({ type: "turn_start" });
+ 				const steering = (await config.getSteeringMessages?.()) || [];
+-				await append([...prepared, ...prepend, ...steering]);
++				// A driven run never continues after it ends, so what was queued behind the previous run
++				// (a follow-up input, a host message) is taken by the first model step of this one.
++				const followUps = firstInfer ? (await config.getFollowUpMessages?.()) || [] : [];
++				firstInfer = false;
++				await append([...prepared, ...prepend, ...steering, ...followUps]);
+ 				for (let attempt = 1; ; attempt++) {
+ 					await onAttempt(attempt);
+ 					applyUpdate(
+diff --git a/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts b/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts
+index 531f51d61..64291ea2f 100644
+--- a/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts
++++ b/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts
+@@ -62,6 +62,8 @@ export interface CreateAgentSessionFromServicesOptions {
+ 	excludeTools?: CreateAgentSessionOptions["excludeTools"];
+ 	noTools?: CreateAgentSessionOptions["noTools"];
+ 	customTools?: ToolDefinition[];
++	/** Forwarded to {@link createAgentSession}: drive runs through the RunDriver. */
++	runDriver?: CreateAgentSessionOptions["runDriver"];
+ }
+ 
+ /**
+@@ -217,5 +219,6 @@ export async function createAgentSessionFromServices(
+ 		noTools: options.noTools,
+ 		customTools: options.customTools,
+ 		sessionStartEvent: options.sessionStartEvent,
++		runDriver: options.runDriver,
+ 	});
+ }
+diff --git a/vendor/pi/packages/coding-agent/src/core/agent-session.ts b/vendor/pi/packages/coding-agent/src/core/agent-session.ts
+index 338d0e0d0..19e6b4bff 100644
+--- a/vendor/pi/packages/coding-agent/src/core/agent-session.ts
++++ b/vendor/pi/packages/coding-agent/src/core/agent-session.ts
+@@ -22,10 +22,13 @@ import type {
+ 	AgentMessage,
+ 	AgentState,
+ 	AgentTool,
++	DrivenRunResult,
+ 	PrepareNextTurnContext,
++	RunDriverPorts,
++	RunPolicy,
+ 	ThinkingLevel,
+ } from "@earendil-works/pi-agent-core";
+-import { contentText, getCurrentSystemMessage, retryDelayMs } from "@earendil-works/pi-ai";
++import { contentText, getCurrentSystemMessage, retryDelayMs, uuidv7 } from "@earendil-works/pi-ai";
+ import type {
+ 	AssistantMessage,
+ 	AuthResult,
+@@ -217,6 +220,30 @@ function withoutDeletedHeaders(headers: ProviderHeaders | undefined): Record<str
+ 		: undefined;
+ }
+ 
++/** What one driven run needs; built by the host for each input (`SessionRunDriver.prepare`). */
++export interface SessionRunPlan {
++	policy: RunPolicy<any>;
++	ports?: RunDriverPorts;
++	maxSteps?: number;
++}
++/** The input a driven run is being prepared for. */
++export interface SessionRunContext {
++	runId: string;
++	inputRevision: string;
++	rawInput: string;
++	session: AgentSession;
++}
++/**
++ * Selects the RunDriver (agent-core `runDriver`) for every run this session starts, instead of the
++ * model-first loop and its post-run `continue()` loop. The host injects the policy and ports; Pi knows
++ * nothing about them.
++ */
++export interface SessionRunDriver {
++	/** Engine name, recorded by hosts (e.g. `hybrid-v1`). */
++	engine: string;
++	prepare(context: SessionRunContext): SessionRunPlan | Promise<SessionRunPlan>;
++}
++
+ export interface AgentSessionConfig {
+ 	agent: Agent;
+ 	sessionManager: SessionManager;
+@@ -249,6 +276,8 @@ export interface AgentSessionConfig {
+ 	extensionRunnerRef?: { current?: ExtensionRunner };
+ 	/** Session start event metadata emitted when extensions bind to this runtime. */
+ 	sessionStartEvent?: SessionStartEvent;
++	/** Drive every run through the RunDriver instead of the model-first loop (see {@link SessionRunDriver}). */
++	runDriver?: SessionRunDriver;
+ }
+ 
+ export interface ExtensionBindings {
+@@ -428,6 +457,7 @@ export class AgentSession {
+ 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
+ 		this._baseToolsOverride = config.baseToolsOverride;
+ 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
++		this._runDriver = config.runDriver;
+ 
+ 		// Always subscribe to agent events for internal handling
+ 		// (session persistence, extensions, auto-compaction, retry logic)
+@@ -1465,7 +1495,75 @@ export class AgentSession {
+ 	// Prompting
+ 	// =========================================================================
+ 
++	/** The RunDriver this session's runs use, when the host selected one. */
++	private _runDriver?: SessionRunDriver;
++	private _lastDrivenRun?: DrivenRunResult;
++	/** Which run engine this session uses: the host's driver engine, or Pi's model-first loop. */
++	get runEngine(): string {
++		return this._runDriver?.engine ?? "legacy";
++	}
++	/** The result of the last driven run (RunDriver sessions only). */
++	get lastDrivenRun(): DrivenRunResult | undefined {
++		return this._lastDrivenRun;
++	}
++
++	/**
++	 * A driven run: exactly one RunDriver run for this input, awaited once. There is no post-run
++	 * `continue()` loop here -- neither the `_handlePostAgentRun` continuation (retry, overflow compaction,
++	 * messages queued by `agent_end` handlers) nor the `agent_before_settle` continuation. Retry and
++	 * overflow compaction are further provider attempts of the same infer step (`recover`); the policy,
++	 * not the session, decides whether the model is asked again.
++	 */
++	private async _runDrivenPrompt(driver: SessionRunDriver, messages: AgentMessage | AgentMessage[]): Promise<void> {
++		this._agentRunAbortRequested = false;
++		this._isAgentRunActive = true;
++		try {
++			const list = Array.isArray(messages) ? messages : [messages];
++			const rawInput = list
++				.flatMap((message) =>
++					message.role === "user" ? [typeof message.content === "string" ? message.content : contentText(message.content, "")] : [],
++				)
++				.join("\n");
++			const runId = `run-${uuidv7()}`;
++			const inputRevision = `${this.sessionId}:${this.sessionManager.getLeafId() ?? "root"}:${runId}`;
++			const plan = await driver.prepare({ runId, inputRevision, rawInput, session: this });
++			this._lastDrivenRun = await this.agent.runDriven(list, {
++				policy: plan.policy,
++				ports: plan.ports,
++				runId,
++				inputRevision,
++				maxSteps: plan.maxSteps,
++				recover: async (message) => this._recoverDrivenAttempt(message),
++			});
++			// The pre-settlement boundary still reaches extensions; a continuation it asks for is not taken.
++			if (!this._agentRunAbortRequested && this._extensionRunner.hasHandlers("agent_before_settle"))
++				await this._runBeforeSettleBoundary();
++		} finally {
++			if (this._agentRunAbortRequested) this._finishCancelledRetry();
++			this._runSystemPromptOptions = undefined;
++			this._flushPendingBashMessages();
++			this._flushPendingCustomMessages();
++			await this._emitAgentSettled();
++		}
++	}
++
++	/** A failed provider attempt of a driven infer: retry with backoff, or compact on overflow, then attempt again. */
++	private async _recoverDrivenAttempt(message: AssistantMessage): Promise<boolean> {
++		if (this._agentRunAbortRequested) return false;
++		if (this._isRetryableError(message) && (await this._prepareRetry(message))) return !this._agentRunAbortRequested;
++		if (this._agentRunAbortRequested) {
++			this._finishCancelledRetry();
++			return false;
++		}
++		if (message.stopReason === "error" && this._retryAttempt > 0) {
++			this._emit({ type: "auto_retry_end", success: false, attempt: this._retryAttempt, finalError: message.errorMessage });
++			this._retryAttempt = 0;
++		}
++		return (await this._checkCompaction(message, true, [])) && !this._agentRunAbortRequested;
++	}
++
+ 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
++		if (this._runDriver) return this._runDrivenPrompt(this._runDriver, messages);
+ 		this._agentRunAbortRequested = false;
+ 		this._isAgentRunActive = true;
+ 		try {
+diff --git a/vendor/pi/packages/coding-agent/src/core/sdk.ts b/vendor/pi/packages/coding-agent/src/core/sdk.ts
+index 2ab852514..d60925e2a 100644
+--- a/vendor/pi/packages/coding-agent/src/core/sdk.ts
++++ b/vendor/pi/packages/coding-agent/src/core/sdk.ts
+@@ -4,7 +4,7 @@ import type { ModelsSimpleStreamOptions } from "@earendil-works/pi-ai";
+ import { clampThinkingLevel, type Message, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
+ import { getAgentDir } from "../config.ts";
+ import { resolvePath } from "../utils/paths.ts";
+-import { AgentSession } from "./agent-session.ts";
++import { AgentSession, type SessionRunDriver } from "./agent-session.ts";
+ import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
+ import { CacheWarmer } from "./cache-warmer.ts";
+ import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
+@@ -87,6 +87,8 @@ export interface CreateAgentSessionOptions {
+ 	settingsManager?: SettingsManager;
+ 	/** Session start event metadata for extension runtime startup. */
+ 	sessionStartEvent?: SessionStartEvent;
++	/** Drive runs through the RunDriver with the host's policy and ports instead of the model-first loop. */
++	runDriver?: SessionRunDriver;
+ }
+ 
+ /** Result from createAgentSession */
+@@ -427,6 +429,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
+ 		excludedToolNames,
+ 		extensionRunnerRef,
+ 		sessionStartEvent: options.sessionStartEvent,
++		runDriver: options.runDriver,
+ 	});
+ 
+ 	const extensionsResult = resourceLoader.getExtensions();
+diff --git a/vendor/pi/packages/coding-agent/src/index.ts b/vendor/pi/packages/coding-agent/src/index.ts
+index 8746a894b..ab1c9a202 100644
+--- a/vendor/pi/packages/coding-agent/src/index.ts
++++ b/vendor/pi/packages/coding-agent/src/index.ts
+@@ -21,6 +21,9 @@ export {
+ 	type ParsedSkillBlock,
+ 	type PromptOptions,
+ 	parseSkillBlock,
++	type SessionRunContext,
++	type SessionRunDriver,
++	type SessionRunPlan,
+ 	type SessionStats,
+ } from "./core/agent-session.ts";
+ export { readStoredCredential } from "./core/auth-storage.ts";
+diff --git a/vendor/pi/packages/coding-agent/src/main.ts b/vendor/pi/packages/coding-agent/src/main.ts
+index 195a1127e..5664f351b 100644
+--- a/vendor/pi/packages/coding-agent/src/main.ts
++++ b/vendor/pi/packages/coding-agent/src/main.ts
+@@ -34,6 +34,7 @@ import { createProjectTrustContext } from "./cli/project-trust.ts";
+ import { selectSession } from "./cli/session-picker.ts";
+ import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
+ import { APP_NAME, ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
++import type { SessionRunDriver } from "./core/agent-session.ts";
+ import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
+ import {
+ 	type AgentSessionRuntimeDiagnostic,
+@@ -561,6 +562,8 @@ async function promptForMissingSessionCwd(
+ 
+ export interface MainOptions {
+ 	extensionFactories?: InlineExtension[];
++	/** Drive the session's runs through the RunDriver (forwarded to the session factory). */
++	runDriver?: SessionRunDriver;
+ }
+ 
+ export async function main(args: string[], options?: MainOptions) {
+@@ -829,6 +832,7 @@ export async function main(args: string[], options?: MainOptions) {
+ 			excludeTools: sessionOptions.excludeTools,
+ 			noTools: sessionOptions.noTools,
+ 			customTools: sessionOptions.customTools,
++			runDriver: options?.runDriver,
+ 		});
+ 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
+ 		if (created.session.model && cliThinkingOverride) {

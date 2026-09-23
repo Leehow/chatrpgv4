@@ -15,7 +15,7 @@ import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
-import {convertToLlm} from '@earendil-works/pi-coding-agent';
+import {convertToLlm} from './pi.mjs';
 import {openTable, waitFor, waitForIdle} from './harness.mjs';
 
 const root = resolve(import.meta.dirname, '../..'), evidence = join(root, '.coc/playtests/bounded-context-contracts');
