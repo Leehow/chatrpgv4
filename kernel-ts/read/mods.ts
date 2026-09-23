@@ -15,6 +15,7 @@ import { publicDefinition, publicUsage } from "../mods/public-definition.js";
 import {CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2} from '../mods/audit-result.js';
 import {USAGE_CAPABILITY, usageViews} from '../mods/usages.js';
 import {publicOffer} from '../mods/object-offer.js';
+import { checkDeclarationRefusals } from "../modules/obligation-shape.js";
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1", "context.workspace.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
@@ -273,13 +274,14 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     validateSetupSlots(manifest, files);
     const checks = array(manifest.contributes.checks);
     for (const check of checks) {
-        if (!plain(check) || !/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/.test(string(check.name ?? "")) || check.selection !== "maximum" || check.scope !== "actor-target" || !["regular", "hard", "extreme"].includes(check.difficulty) || !Array.isArray(check.values) || !check.values.length || !plain(check.results))
+        if (!plain(check) || !/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/.test(string(check.name ?? "")))
             invalid("Invalid contributed percentile decision");
-        for (const value of check.values)
-            if (!plain(value) || typeof value.label !== "string" || typeof value.path !== "string" || !["characteristics.", "skills."].some(prefix => value.path.startsWith(prefix)))
-                invalid("Check values must reference actor characteristics or skills");
-        if (sorted(Object.keys(check.results)).join(",") !== sorted(["critical", "extreme", "hard", "regular", "failure", "fumble"]).join(","))
-            invalid("A percentile decision must define all six results");
+        // Contract §133.3: the declaration form is shared with a module's stated obligations, and so is its validator.
+        const refused = checkDeclarationRefusals(check, { kind: "mod" });
+        if (refused.length)
+            throw new RpcError("invalid_params", `${packageLabel(manifest)}: contributed check ${check.name}: ${refused[0].message}`, {
+                details: { mod: string(manifest.id ?? "?"), version: string(manifest.version ?? "?"), check: check.name, refusals: refused },
+            });
     }
     if (new Set(checks.map(check => check.name)).size !== checks.length)
         invalid("A package cannot define the same check twice");

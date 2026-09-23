@@ -14,6 +14,8 @@ import { withOptionalExclusiveLock } from '../locks.js';
 import { nowIso } from './store.js';
 import { validSourceLanguage } from '../modules/contract.js';
 import { childPath, inside, resolvedPath } from '../modules/paths.js';
+import { obligationRefusals, statedObligations } from '../modules/obligation-shape.js';
+import { RuleTables } from '../rules/tables.js';
 export function nodePages(node: Row): number[] {
     const pages = new Set<number>();
     for (const span of array(node.evidence_span_ids)) {
@@ -482,6 +484,17 @@ async function registerStarterLocked(context: KernelContext, id: string): Promis
     let meta = existing;
     const writeMeta = async () => { meta!.updated_at = nowIso(); await writeJsonAtomic(metaFile, meta!); };
     if (!existing || existing.graph_digest !== digest) {
+        // Contract §133.3: a stated obligation is refused before any byte of the generation is written.
+        if (statedObligations(view).length) {
+            const tables = new RuleTables(context);
+            const refusals = obligationRefusals(view, {skills: Object.keys(await tables.skillsTable()),
+                characteristics: Object.keys(await tables.characteristicTable())}, {starter: true});
+            if (refusals.length)
+                throw new RpcError('invalid_params', `starter ${repr(id)} states an obligation this kernel refuses: ${refusals[0].node} ${refusals[0].path}: ${refusals[0].message}`, {
+                    fix: 'repair the requirement node in the starter graph (contract §133); every refusal is in details.refusals',
+                    details: {reason: 'obligation_invalid', module: id, refusals},
+                });
+        }
         meta = {
             id,
             title: string(view.moduleNode?.name || id),
