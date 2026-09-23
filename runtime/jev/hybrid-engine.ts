@@ -172,10 +172,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const [capsule, status, applyOptions, resolveOptions] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options')]);
     const table = readTable(capsule, status);
     run.fight = object(object(resolveOptions.context).session ?? object(capsule.where).session);
+    // §11.5.3: an NPC's turn without a standing action reads that NPC's card, which says whether a disposition is
+    // still to be inferred and carries what it is inferred from. Nothing else reads a card here.
+    const fight = run.fight, npcTurn = fight.kind === 'combat' && fight.status === 'active' && !fight.pending_defense && text(fight.turn_of)
+      && array(fight.participants).some(value => object(value).name === fight.turn_of && object(value).side !== 'investigator') && !fight.standing_action;
+    const fighter = npcTurn ? await call('table.look', {focus: 'npc', name: text(fight.turn_of)}).catch(() => ({})) : undefined;
     // The pending choice this input answers is the one open when the run began (§135.2); one opened later is the Keeper's.
     run.answering ??= [text(object(object(resolveOptions.context).pending_choice).name), text(object(object(capsule.turn).pending_choice).name)].filter(Boolean);
     return {capsule, status, table,
-      candidates: () => buildCandidates({capsule, applyOptions, resolveOptions, located: run.located, answering: run.answering}, run.rawInput)};
+      candidates: () => buildCandidates({capsule, applyOptions, resolveOptions, located: run.located, answering: run.answering, ...(fighter ? {fighter} : {})}, run.rawInput)};
   }
   const freshOf = (run: RunState) => tableReads(run).then(read => ({context: read.table.context, candidates: read.candidates()}), () => undefined);
 

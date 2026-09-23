@@ -12,6 +12,7 @@
  */
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -163,10 +164,11 @@ test("SL-07: an NPC's pending defence with a standing is a direct clerk step -- 
 	]);
 	const table = await hybridTable({
 		realKernel: true, prepareWorkspace,
-		// Jev: the NPC's own turn is its attack; every other bind is unknown (so a defence bind, were one asked, would
-		// go to the LLM); the route after the NPC's attack finishes.
+		// Jev: the NPC's own turn is its attack (since SL-08, by the disposition it infers for him once: one who fights
+		// to the end attacks); every other bind is unknown (so a defence bind, were one asked, would go to the LLM); the
+		// route after the NPC's attack finishes.
 		decide: (batch) => batch.family === BIND_FAMILY
-			? answered(batch, (question) => question.key === "decision" ? "combat:attack" : "unknown")
+			? answered(batch, (question) => question.key === "decision" ? "combat:attack" : question.key === "disposition" ? "fights_to_the_end" : "unknown")
 			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
 		// The Keeper's one step: the prose close (the player's defence is settled by §11.5.1's standing preference).
 		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "他的拳头朝你脸上砸来，你侧身闪开。" })], { stopReason: "toolUse" })],
@@ -199,6 +201,7 @@ test("SL-07: an NPC's pending defence with a standing is a direct clerk step -- 
 	assert.equal(delivered.isError, false);
 });
 
+const worldOf = (table, campaign) => JSON.parse(readFileSync(join(table.table.workspace, ".coc/campaigns", campaign, "world.json"), "utf8"));
 /** The fight SL-07's seam test opens, plus `extra` Keeper writes on turn 1 before its narrate. */
 const knottFight = (campaign, extra) => (workspace) => kernelSteps(workspace, campaign, [
 	["table.open", {}], ["table.player_input", { text: "我揍他" }],
@@ -259,6 +262,61 @@ test("SL-08: an NPC's standing hold issues no step for him; the Keeper's turn ca
 	assert.equal(note.npc_turn.npc, "steven-knott");
 	assert.deepEqual(note.npc_turn.standing_action, { action: "hold", basis: "keeper", disposition: { disposition: "fights_to_the_end", basis: "keeper" } });
 	assert.equal(calls.find((call) => call.phase === "result" && call.tool === "narrate").isError, false);
+});
+
+test("SL-08: without a disposition, Jev infers one once from his own parameters and the clerk writes it (basis inferred); then his standing attack runs", async (t) => {
+	const campaign = "test-camp";
+	const table = await hybridTable({
+		realKernel: true, prepareWorkspace: knottFight(campaign, []),
+		decide: (batch) => batch.family === BIND_FAMILY ? answered(batch, (question) => question.key === "disposition" ? "fights_to_the_end" : "unknown")
+			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "他红着眼扑上来，你侧身闪开。" })], { stopReason: "toolUse" })],
+	});
+	t.after(() => table.dispose());
+	await table.table.session.prompt("继续揍他");
+	const { events, decisions, calls } = table;
+	const telemetry = table.table.telemetry(campaign);
+
+	const asked = decisions.filter((batch) => batch.family === BIND_FAMILY);
+	assert.deepEqual(asked.map((batch) => batch.questions.map((question) => question.key)), [["disposition"]], "one Jev question: his disposition, never his action");
+	assert.ok(JSON.stringify(asked[0].state).includes("fights_then_flees") || JSON.stringify(asked[0].questions).includes("fights_then_flees"));
+	const write = calls.find((call) => call.phase === "call" && call.tool === "apply" && call.input.effects?.[0]?.disposition);
+	assert.ok(write?.id.startsWith("clerk:"), "the inferred disposition is the clerk's write");
+	const row = telemetry.find((entry) => entry.tool === "apply" && entry.origin === "policy" && entry.clerk === "disposition_inference");
+	assert.ok(row, "its tool row names the authority");
+	const written = worldOf(table, campaign).npc_disposition["steven-knott"];
+	assert.equal(written.disposition, "fights_to_the_end");
+	assert.equal(written.basis, "inferred");
+	assert.deepEqual(written.read, row.basis.row.read, "the parameters read, as the candidate named them");
+	assert.ok(written.read.length > 0);
+	const kernelRow = telemetry.find((entry) => entry.tool === "resolve" && entry.origin === "policy" && entry.basis?.standing?.action === "attack");
+	assert.deepEqual(kernelRow.basis.standing.disposition, { disposition: "fights_to_the_end", basis: "inferred" }, "the standing names the inferred disposition");
+	const attack = calls.find((call) => call.phase === "call" && call.tool === "resolve" && call.input.action?.decision === "combat:attack");
+	assert.ok(attack?.id.startsWith("clerk:"));
+	const infers = events.filter((event) => event.type === "step_start" && event.kind === "infer");
+	assert.deepEqual(infers.map((event) => event.purpose), ["compose"], "the round still closes on the compose");
+});
+
+test("SL-08: a model's apply cannot carry the host-only inference marker: the Keeper's write is basis keeper", async (t) => {
+	const campaign = "test-camp";
+	// Jev cannot tell (unknown): the Keeper completes the write, and tries to pass the marker itself.
+	const table = await hybridTable({
+		realKernel: true, prepareWorkspace: knottFight(campaign, []),
+		decide: (batch) => batch.family === BIND_FAMILY ? answered(batch, () => "unknown") : answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
+		responses: [
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "npc", name: "Steven Knott", disposition: "surrenders", why: "A landlord, not a brawler.",
+				_inferred: { read: ["agenda"] } }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "他举起双手。" })], { stopReason: "toolUse" }),
+		],
+	});
+	t.after(() => table.dispose());
+	await table.table.session.prompt("继续揍他");
+	const { events } = table;
+	const infers = events.filter((event) => event.type === "step_start" && event.kind === "infer");
+	assert.equal(infers[0].purpose, "bind", "below the gate the Keeper is asked to complete the write");
+	const world = worldOf(table, campaign);
+	assert.equal(world.npc_disposition["steven-knott"].basis, "keeper", "the marker was stripped from the model's call");
+	assert.equal(world.npc_disposition["steven-knott"].read, undefined);
 });
 
 test("a Keeper batch whose step fails returns to the Keeper at once: the rest is not run and no route question comes first", async (t) => {
