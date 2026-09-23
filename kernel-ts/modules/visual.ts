@@ -5,6 +5,8 @@ import { array, clone, entries, equal, integer, normalize, number, numeric, repr
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { startSceneCandidates } from '../write/source.js';
 import { CLAIM_KEYS, NODE_KEYS, SHARD_KEYS, VISUAL_CONTRACT_ID, validSemanticId, type ModuleContract } from './contract.js';
+import { obligationRefusals, type Refusal } from './obligation-shape.js';
+import { obligationReviewPaths, statesObligation } from './obligation-review.js';
 const object = (value: any): boolean => isJsonObject(value);
 export function reject(message: string, path = '/'): never {
     throw new RpcError('invalid_params', message, {
@@ -160,6 +162,8 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
             node.visibility = 'keeper-only';
         if (!array(vocab.visibility).includes(node.visibility))
             reject('node visibility must use the supplied vocabulary');
+        if (statesObligation(node))
+            obligationSourceLaw(node, i, seen);
         node.source_refs = references(node.source_refs, count, seen);
         defined.add(id);
     }
@@ -254,8 +258,74 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         }
         required.add(`/claims/${i}`);
     }
+    if (nodes.some(statesObligation)) {
+        checkObligations(filled, packet, contract);
+        for (const [i, node] of nodes.entries())
+            for (const path of obligationReviewPaths(node, `/nodes/${i}`))
+                required.add(path);
+    }
     filled.required_review = sorted(required);
     return filled;
+}
+
+/** Contract §134.16: an obligation refusal names its node, its JSON pointer and its stable rule. */
+function refuseObligation(refusals: Row[], extra: Row = {}): never {
+    const first = refusals[0];
+    throw new RpcError('invalid_params', `obligation ${first.node}: ${first.path}: ${first.message}`, {
+        fix: 'correct the obligation and its claims against the page it cites (contract 134): record a difficulty or skill the page does not state as difficulty_unstated or approaches_unstated, never guess one; '
+            + (Object.hasOwn(extra, 'ruleset') ? 'name each skill and characteristic exactly as details.ruleset spells it; ' : '')
+            + 'if the page states no such demand, delete the requirement node and its claims',
+        details: { reason: 'reading_failed', path: first.path, rule: first.rule, refusals, ...extra },
+    });
+}
+/** §134.16 step 1: a stated obligation's own source law, before the generic one, so the refusal carries its path and rule. */
+function obligationSourceLaw(node: Row, i: number, seen?: ReadonlySet<any>): void {
+    const refs = node.source_refs, id = string(node.node_id);
+    if (!Array.isArray(refs) || !refs.length)
+        refuseObligation([{ node: id, rule: 'obligation_unsourced', path: `/nodes/${i}/source_refs`, message: 'an obligation cites the page that states it' }]);
+    if (!seen) return;
+    const unviewed = refs.flatMap((ref: any, j: number) => object(ref) && integer(ref.page) && ![...seen].some(page => equal(page, ref.page))
+        ? [{ node: id, rule: 'obligation_unviewed_page', path: `/nodes/${i}/source_refs/${j}`, message: `physical page ${ref.page} was not actually viewed by this reader` }] : []);
+    if (unviewed.length) refuseObligation(unviewed);
+}
+/** The validator's dotted path (`properties.obligation.demand[1].values[0].path`) as JSON pointer tokens. */
+function pointerTokens(path: string): string {
+    return path.split('.').flatMap(part => {
+        const [key, ...indices] = part.split('[');
+        return [key, ...indices.map(index => index.replace(/]$/, ''))];
+    }).filter(key => key !== '').map(key => '/' + key.replace(/~/g, '~0').replace(/\//g, '~1')).join('');
+}
+/**
+ * §134.16 step 2: SO-01's validator over the graph this draft would publish into -- the known nodes and
+ * claims overlaid by the draft's, with one relation per claim as `assembleVisual` derives them.
+ */
+function checkObligations(filled: Row, packet: Row, contract: ModuleContract): void {
+    if (!contract.rules)
+        throw new Error('the draft states an obligation but the content root carries no ruleset tables to check it against');
+    const drafted = new Map<string, number>((filled.nodes as Row[]).map((node, i) => [string(node.node_id), i]));
+    const nodes = new Map<string, Row>(array(packet.known_nodes).filter(object).map(node => {
+        const { ready: _ready, ...known } = node;
+        return [string(node.node_id), known];
+    }));
+    for (const node of filled.nodes as Row[]) {
+        const known = nodes.get(node.node_id);
+        nodes.set(node.node_id, known ? { ...known, ...node, properties: { ...row(known.properties), ...row(node.properties) } } : node);
+    }
+    const claims = new Map<string, Row>(array(packet.known_claims).filter(object).map((claim, i) => [string(claim.claim_id) || `known-${i}`, claim]));
+    for (const claim of filled.claims as Row[]) claims.set(claim.claim_id, claim);
+    const kinds = array(contract.graph.relation_kinds);
+    const relations = [...claims.values()].filter(claim => kinds.includes(claim.predicate)).map(claim => ({
+        relation_id: 'rel-' + string(claim.claim_id).replace(/^claim-/, ''), relation_kind: claim.predicate,
+        from_node_id: claim.subject_id, to_node_id: row(claim.object).node_id, claim_id: claim.claim_id, properties: {},
+    }));
+    const view = new ModuleGraph(string(packet.module_id), { nodes: [...nodes.values()], claims: [...claims.values()], relations }, '', row(contract.graph.actor_dossier));
+    const refusals: Refusal[] = obligationRefusals(view, contract.rules, { starter: false });
+    if (!refusals.length) return;
+    const located = refusals.map(refusal => drafted.has(string(refusal.node))
+        ? { ...refusal, path: `/nodes/${drafted.get(string(refusal.node))}${pointerTokens(refusal.path)}` } : { ...refusal });
+    located.sort((a, b) => Number(!drafted.has(string(a.node))) - Number(!drafted.has(string(b.node))));
+    refuseObligation(located, located.some(refusal => refusal.rule === 'check_unknown_skill')
+        ? { ruleset: { skills: [...contract.rules.skills], characteristics: [...contract.rules.characteristics] } } : {});
 }
 export function checkReview(draft: Row, filled: Row, review: any, count: number, seen: ReadonlySet<number>): void {
     if (!object(review) || !Array.isArray(review.missing) || !Array.isArray(review.checked))
