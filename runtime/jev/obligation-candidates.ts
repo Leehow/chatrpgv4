@@ -89,6 +89,37 @@ function guarded(reads: ObligationReads, row: Row): {words: string[]; detail: Js
   return {words, detail};
 }
 
+/**
+ * What an obligation stands in front of, for its route question: its own guards, else (an `after` obligation, such as
+ * the archivist) the guards of the obligation it waits on, followed back through the issued list.
+ */
+function guardedFor(reads: ObligationReads, row: Row): {words: string[]; detail: Json[]} {
+  const rows = array(object(reads.applyOptions).obligations).map(object);
+  for (let at: Row | undefined = row, depth = 0; at && depth < 8; depth++) {
+    const found = guarded(reads, at);
+    if (found.detail.length) return found;
+    const after = text(object(at.trigger).after);
+    at = after ? rows.find(value => value.handle === after) : undefined;
+  }
+  return {words: [], detail: []};
+}
+/**
+ * The route question of an obligation candidate (owner ruling 2026-09-23): not "do this step now or later" -- the order
+ * of steps is the Keeper's craft -- but a fact about the input Jev can judge: is the declaration after what the
+ * obligation guards? `seeks` selects it; `not`/`unknown` leave it to the Keeper for the run (§135.26).
+ */
+function routeFact(reads: ObligationReads, row: Row): Candidate['routeFact'] | undefined {
+  const {detail} = guardedFor(reads, row);
+  if (!detail.length) return undefined;
+  const things = detail.map(value => { const item = object(value);
+    return item.clue ? `clue ${text(item.clue)}${text(item.summary) ? ` (${text(item.summary)})` : ''}` : item.exit ? `the way to ${text(item.exit)}` : text(item.person); });
+  return {target: `is the player's declared action after any of: ${things.join('; ')}?`, selects: 'seeks',
+    instructions: 'Judge one fact about the player\'s input, not an order of steps: does the declared action seek any of the things listed '
+      + '(to get it, find it, reach it or learn it)? Seeking one of them is enough. What the book demands on the way, and in what order, is not '
+      + 'this question.',
+    criteria: {seeks: 'The declared action is after at least one of the listed things.', not: 'The declared action is after something else.',
+      unknown: 'The input does not tell whether it is after any of them.'}};
+}
 /** The name of the obligation an `after` row waits on, from the same issued list. */
 function afterName(reads: ObligationReads, row: Row): string {
   const handle = text(object(row.trigger).after);
@@ -117,7 +148,7 @@ function meeting(reads: ObligationReads, row: Row, index: number): Candidate | u
     bound: {kind: 'person', who: name, name: label || name},
     unbound: [{name: 'why', required: false, vocabulary: 'open' as const}],
     detail: {demand: text(row.name), stated_by: 'the module', ...(detail.length ? {guards: detail} : {})} as Json,
-    clerk: 'stated_obligation', basis: basisOf(row, index, 'meet')};
+    clerk: 'stated_obligation', basis: basisOf(row, index, 'meet'), ...withFact(routeFact(reads, row))};
 }
 
 /** The approaches the acting investigator can take: a stated minimum the actor's issued rating misses rules one out. */
@@ -167,8 +198,9 @@ function check(reads: ObligationReads, row: Row, index: number, rawInput: string
     detail: {demand: text(row.name), stated_by: 'the module', difficulty: text(next.difficulty),
       approaches: approaches.map(value => ({skill: text(value.skill), ...(Number.isSafeInteger(value.minimum) ? {minimum: value.minimum} : {})})),
       ...(detail.length ? {guards: detail} : {})} as Json,
-    clerk: 'stated_obligation', basis: basisOf(row, index, 'check'), ...(first ? {before: first} : {})};
+    clerk: 'stated_obligation', basis: basisOf(row, index, 'check'), ...(first ? {before: first} : {}), ...withFact(routeFact(reads, row))};
 }
+const withFact = (fact: Candidate['routeFact'] | undefined): Partial<Candidate> => fact ? {routeFact: fact} : {};
 function descriptors(name: 'intent' | 'bonus' | 'penalty'): Record<string, string> {
   return Object.fromEntries(Object.entries(ORDINARY_CHOICES[name].criteria).filter(([key]) => key !== 'unknown').map(([key, value]) => [key, String(value)]));
 }

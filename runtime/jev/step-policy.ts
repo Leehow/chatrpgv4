@@ -81,6 +81,12 @@ export interface Candidate {
   before?: Candidate;
   /** Set on a carried step: the key of the candidate it was carried for, run next from the fresh read. */
   then?: string;
+  /**
+   * A fact about the player's input that selects this candidate, asked in place of the now/later question (§135.26:
+   * a stated obligation is selected when the declaration is after what it guards). `selects` is the answer that selects
+   * it; any other answer leaves the candidate to the Keeper for the rest of the run.
+   */
+  routeFact?: {target: string; instructions: string; criteria: Record<string, string>; selects: string};
 }
 export type Binding = 'none' | 'closed' | 'open';
 export function bindingOf(candidate: Candidate): Binding {
@@ -260,7 +266,8 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
   const selected: Array<{candidate: Candidate; confidence?: number}> = [];
   for (const [index, candidate] of offered.entries()) {
     const key = `need_${index + 1}`, {choice, confidence} = answerOf(result, key);
-    if (choice === 'now' && clears(result, key, 'now', confidence, gate)) selected.push({candidate, confidence});
+    const selects = candidate.routeFact?.selects ?? 'now';
+    if (choice === selects && clears(result, key, selects, confidence, gate)) selected.push({candidate, confidence});
   }
   selected.sort((a, b) => rank(a.candidate) - rank(b.candidate));
   const confidence = selected.length ? Math.min(...selected.map(entry => entry.confidence ?? 1)) : exit.confidence;
@@ -307,7 +314,11 @@ export function routeBatch(view: RunView, scope: ScopeBinding, readSet: ReadSet)
     const state = {purpose: 'route the next steps of this turn', player_input: view.rawInput,
       now: {scene: view.context.scene, clock: view.context.clock, present: view.context.present},
       done_this_turn: doneThisTurn(view), materials, candidates, policy: ROUTE_POLICY} as Json;
-    const needQuestion = (candidate: Candidate, index: number) => ({key: `need_${index + 1}`, target: `candidate_${index + 1}: ${candidate.label}`, type: 'choice' as const,
+    const needQuestion = (candidate: Candidate, index: number) => candidate.routeFact
+      // A fact about the input, not an order of steps (§135.26): the candidate's own question.
+      ? {key: `need_${index + 1}`, target: `candidate_${index + 1}: ${candidate.routeFact.target}`, type: 'choice' as const,
+        instructions: candidate.routeFact.instructions, criteria: candidate.routeFact.criteria}
+      : ({key: `need_${index + 1}`, target: `candidate_${index + 1}: ${candidate.label}`, type: 'choice' as const,
       instructions: 'Judge this one operation on its own, as the host\'s bookkeeping of what the player declared. Does the declared action, '
         + 'or its direct consequence in the current fiction, include this operation? The Keeper\'s narration and any invented detail come after '
         + 'the bookkeeping and are not this question. Other listed operations may also be included; judge only this one.',
@@ -412,6 +423,12 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
   view.budget.jevCalls++;view.budget.jevMs += ms;
   const routed = interpretRoute(view, offered, result, gate);
   view.pending.push(...routed.pending);
+  // §135.26: a candidate asked by its own fact and not selected (`not`, `unknown`, or below the gates) is the Keeper's for
+  // the rest of the run: it is not asked again on the next route.
+  if (result.status === 'complete') for (const candidate of offered) if (candidate.routeFact && !(routed.selected ?? []).includes(candidate.key)) {
+    if (!view.consumed.includes(candidate.key)) view.consumed.push(candidate.key);
+    view.candidates = view.candidates.filter(value => value.key !== candidate.key);
+  }
   observe(view, {kind: 'decide', purpose: 'route', status: result.status, choice: routed.choice, confidence: routed.confidence, reason: routed.reason});
   const answers = result.status === 'complete' ? Object.fromEntries(Object.entries(result.answers ?? {}).map(([key, value]) => [key,
     value.status === 'answered' && value.type === 'choice' ? {choice: value.choice, confidence: value.confidence ?? null, probabilities: value.probabilities ?? null} : {status: value.status}])) : null;

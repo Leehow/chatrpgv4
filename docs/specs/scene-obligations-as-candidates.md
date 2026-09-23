@@ -309,3 +309,14 @@ Not ruled, left as they are: the Keeper's unclaimed same-skill roll settles noth
 the book's check without `action.obligation` and a clerk that then rolls the claimed one make two rolls; and the replayed
 Keeper of the turn-3 fixture predates SO-02 (it never claims, and it rolls Arty's first impression, which Q2 takes off the
 clerk only). Implementation: §135.26.
+
+### 2026-09-23 — Owner ruling: an obligation is routed by a fact about the input (owner-delegated through the coordinator)
+
+After the rulings above, the replay still found the check carrying the meeting `later` at arrival 6/6. Ruled (the
+prototype's own finding applies: the order of steps is craft; facts are what Jev can judge): for an obligation
+candidate the route question is not "do this step now / later" but **"is the player's declaration after what this
+obligation guards?"** — `seeks` / `not` / `unknown`, with the guarded things named in the question. `seeks` above the
+gates determines the whole open sequence: carry the `meet` directly (under the book's name), bind and roll the check,
+then route again on the new state. `not` / `unknown` leave the obligation a Keeper-only row for the run (it is not asked
+again on every route). Implementation: §135.26.
+

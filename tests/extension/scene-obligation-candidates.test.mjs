@@ -144,7 +144,7 @@ test("at the morgue the gate's check carries its meeting in place of the roster 
 		assert.ok(!shown.includes(hidden), `Jev never sees ${hidden}`);
 });
 
-test("now on the gate's check carries its meeting directly first, under the book's name and with no LLM step, then binds and rolls the check", async (t) => {
+test("seeks on the gate's check carries its meeting directly first, under the book's name and with no LLM step, then binds and rolls the check", async (t) => {
 	const { call } = kernel(t);
 	const turn = await atMorgue(call);
 	const state = await reads(call);
@@ -153,11 +153,14 @@ test("now on the gate's check carries its meeting directly first, under the book
 	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [], readFirst: false });
 	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
 	const offered = view.candidates, index = offered.findIndex((candidate) => candidate.key === check.key);
-	const now = { status: "answered", type: "choice", choice: "now", confidence: 0.8 }, later = { ...now, choice: "later" };
+	const now = { status: "answered", type: "choice", choice: "now", confidence: 0.8 }, later = { ...now, choice: "later" }, seeks = { ...now, choice: "seeks" };
 	const result = { batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
-		answers: { ...Object.fromEntries(offered.map((_, i) => [`need_${i + 1}`, i === index ? now : later])), exit: { ...now, choice: "continue" } } };
+		answers: { ...Object.fromEntries(offered.map((_, i) => [`need_${i + 1}`, i === index ? seeks : later])), exit: { ...now, choice: "continue" } } };
 	const routed = interpretRoute(view, offered, result, 0.6);
-	assert.deepEqual(routed.selected, [check.key], "one Jev question answered now: the check");
+	assert.deepEqual(routed.selected, [check.key], "one Jev question answered seeks: the check");
+	// "now" is not an answer to a fact question: it selects nothing.
+	const nowAnswer = { ...result, answers: { ...result.answers, [`need_${index + 1}`]: now } };
+	assert.deepEqual(interpretRoute(view, offered, nowAnswer, 0.6).selected, []);
 	// The meeting runs first, directly: no Jev question for it and no LLM step for its name.
 	assert.deepEqual(routed.pending.map((item) => [item.kind, item.purpose, item.candidate.key]), [["direct", "execute", "apply:person:Arty Wilmot"]]);
 	const meeting = routed.pending[0].candidate;
@@ -218,7 +221,7 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [], readFirst: false });
 	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
 	const routed = interpretRoute(view, [check], { batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
-		answers: { need_1: { status: "answered", type: "choice", choice: "now", confidence: 0.9 }, exit: { status: "answered", type: "choice", choice: "continue", confidence: 0.9 } } }, 0.6);
+		answers: { need_1: { status: "answered", type: "choice", choice: "seeks", confidence: 0.9 }, exit: { status: "answered", type: "choice", choice: "continue", confidence: 0.9 } } }, 0.6);
 	assert.deepEqual(routed.pending.map((item) => [item.kind, item.purpose]), [["decide", "bind"]]);
 	const batch = bindBatch(view, check, scope, []);
 	assert.deepEqual(batch.questions.map((question) => question.key), ["skill", "bonus", "penalty", "intent"]);
@@ -303,6 +306,24 @@ test("no candidate for a step the Mod serves, a step the page leaves unstated, o
 	assert.deepEqual(keys(buildCandidates(hazard, INPUT)), keys(buildCandidates(state, INPUT)), "hazard data adds no candidate");
 });
 
+test("an obligation's route question is a fact about the input -- is the declaration after what it guards -- naming the guarded things", async (t) => {
+	const { call } = kernel(t);
+	await atMorgue(call);
+	const candidates = buildCandidates(await reads(call), INPUT);
+	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [], readFirst: false });
+	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
+	const { batch, offered } = routeBatch(view, scope, []);
+	const index = offered.findIndex((candidate) => candidate.family === "obligation_check");
+	const question = batch.questions[index];
+	assert.deepEqual(Object.keys(question.criteria), ["seeks", "not", "unknown"], "not now/later: the order of steps is craft");
+	assert.match(question.target, /is the player's declared action after any of: clue globe-unpublished-story \(An unpublished 1918 feature/);
+	assert.match(question.target, /clue macario-tragedy \(The Macario family/);
+	assert.match(question.instructions, /not an order of steps/);
+	for (const hidden of ["pdf", "448", "preordained", "guarded_by"]) assert.ok(!allText(question).includes(hidden));
+	// Every other candidate keeps the now/later question.
+	assert.ok(batch.questions.filter((_, i) => i !== index && i < offered.length).every((value) => Object.keys(value.criteria)[0] === "now"));
+});
+
 test("precedence: person -> mod_check -> obligation_check -> core-check -> clue/handout -> move", () => {
 	const candidate = (family, key) => ({ key, verb: family === "move" || family === "clue" || family === "person" || family === "handout" ? "apply" : "resolve", family, label: key, source: "t", bound: {}, unbound: [] });
 	const offered = [candidate("move", "m"), candidate("clue", "c"), candidate("core-check", "k"), candidate("obligation_check", "o"), candidate("mod_check", "d"), candidate("person", "p"), candidate("handout", "h")];
@@ -346,15 +367,15 @@ const metArty = (workspace) => kernelSteps(workspace, [
 function answered(batch, pick = () => undefined) {
 	const answers = {};
 	for (const question of batch.questions) {
-		const choice = pick(question) ?? (question.key === "exit" ? "continue" : Object.keys(question.criteria)[0] === "now" ? "later" : "unknown");
+		const choice = pick(question) ?? (question.key === "exit" ? "continue" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown");
 		answers[question.key] = { status: "answered", type: "choice", choice, confidence: 0.9, probabilities: { [choice]: 0.9 } };
 	}
 	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
 }
-/** Jev: the gatekeeper's check is `now`, then the route finishes; the bind takes Persuade, no dice, social. */
+/** Jev: the player seeks what the gate guards, then the route finishes; the bind takes Persuade, no dice, social. */
 const decideGate = (batch) => batch.family === BIND_FAMILY
 	? answered(batch, (question) => ({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" })[question.key])
-	: answered(batch, (question) => question.key === "exit" ? "finish" : /The book's price/.test(question.target) ? "now" : undefined);
+	: answered(batch, (question) => question.key === "exit" ? "finish" : question.criteria.seeks ? "seeks" : undefined);
 const clerkNotes = (context) => context.messages.flatMap((message) => {
 	const text = typeof message.content === "string" ? message.content : (message.content ?? []).map((block) => block.text ?? "").join("");
 	const start = text.indexOf('{"kind":"single_loop_step"');
@@ -446,4 +467,52 @@ test("a clerk step that crossed an open obligation is one obligation_open line b
 	assert.match(note.obligation_open[0], new RegExp(`^obligation ${ACCESS} is open and the clerk's step "Reveal clue x" crossed what it guards \\(receipt clue-1\\)`));
 	assert.equal(note.clerk_did[0].obligation, undefined, "a clue step is no obligation step");
 	assert.equal(note.clerk_did[1].obligation, `obligation ${ACCESS}: Charm (regular) failed, still open (book: Arty refuses.); receipt roll-1; pdf p.448`);
+});
+
+/** The run on a real Pi session over the emitted kernel, arriving at the morgue with Arty not yet met; Jev is a stub. */
+async function arrival({ fact, responses, firstExit = "finish" }) {
+	const decisions = [], requests = [], calls = [];
+	let routes = 0;
+	const probe = { name: "so04-call-probe", factory(pi) { pi.on("tool_call", (event) => { calls.push({ id: event.toolCallId, tool: event.toolName, input: structuredClone(event.input) }); }); } };
+	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch) => { decisions.push(batch); return batch.family === BIND_FAMILY
+		? answered(batch, (question) => ({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" })[question.key])
+		: (routes++, answered(batch, (question) => question.key === "exit" ? (routes === 1 ? firstExit : "finish") : question.criteria.seeks ? fact : undefined)); } } });
+	const table = await openTable({
+		realKernel: true, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: PASS },
+		prepareWorkspace: (workspace) => kernelSteps(workspace, [["table.open", {}], ["table.player_input", { text: "我去《环球报》报馆" }],
+			["table.apply", { call_id: "t1-c1", effects: [{ kind: "move", to: MORGUE }] }], ["table.narrate", { call_id: "t1-c2", text: "你到了报馆。" }]]),
+		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }, probe],
+		responses: responses.map((response) => (context) => { requests.push(context); return response; }),
+	});
+	return { table, decisions, requests, calls };
+}
+const factQuestions = (decisions) => decisions.filter((batch) => batch.family === ROUTE_FAMILY).flatMap((batch) => batch.questions.filter((question) => question.criteria.seeks));
+
+test("seeks at arrival: the meeting is carried directly under the book's name, the check is bound and rolled with its claim, and no LLM step is spent on them", async (t) => {
+	const { table, decisions, calls } = await arrival({ fact: "seeks", responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
+	t.after(() => table.dispose());
+	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
+	const clerk = calls.filter((value) => value.id.startsWith("clerk:"));
+	assert.deepEqual(clerk.slice(0, 2).map((value) => value.tool === "apply" ? value.input.effects : value.input.action.obligation),
+		[[{ kind: "person", who: "Arty Wilmot", name: "Arty Wilmot" }], ACCESS], "the meeting, then the claimed check");
+	const telemetry = table.telemetry("test-camp");
+	assert.ok(telemetry.some((row) => row.tool === "resolve" && row.origin === "policy" && row.ok && row.basis?.obligation === ACCESS));
+	const infers = telemetry.filter((row) => row.lane === "run" && row.event === "llm_bound");
+	assert.deepEqual(infers, [], "no LLM bind for the meeting or the check");
+	assert.equal(factQuestions(decisions).filter((question) => /globe-unpublished-story/.test(question.target)).length >= 1, true);
+	assert.ok(decisions.some((batch) => batch.family === BIND_FAMILY && batch.questions.some((question) => question.key === "skill")), "the check's approach was a Jev bind");
+});
+
+test("not at arrival: the obligation issues nothing and is not asked again this run", async (t) => {
+	// The first route asks for more material, so a second route follows on the same run.
+	const { table, decisions, calls } = await arrival({ fact: "not", firstExit: "read_more", responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你在报馆里转了一圈。" })], { stopReason: "toolUse" })] });
+	t.after(() => table.dispose());
+	await table.session.prompt("我在报馆里随便看看");
+	assert.ok(!calls.some((value) => value.id.startsWith("clerk:") && (value.input.action?.obligation || value.input.effects?.some((effect) => effect.who === "Arty Wilmot"))),
+		"no meeting and no claimed check by the clerk");
+	const asked = factQuestions(decisions).filter((question) => /globe-unpublished-story/.test(question.target));
+	const routes = decisions.filter((batch) => batch.family === ROUTE_FAMILY);
+	assert.equal(routes.length, 2, "a second route followed");
+	assert.equal(asked.length, 1, "asked once; not again on the next route");
+	assert.ok(!allText(routes[1]).includes(`resolve:obligation`) && !routes[1].questions.some((question) => question.criteria.seeks), "the second route does not carry it");
 });
