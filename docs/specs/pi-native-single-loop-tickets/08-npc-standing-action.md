@@ -26,6 +26,10 @@ SL-07's merged replay (experiments/single-loop-routing/RESULTS-20260923.md, "打
 - Turn-3 replay still 8/8 with ≤ 5 LLM steps.
 - `npm run build:runtime`, `npm run test:ext`, `uv run --frozen python -m pytest tests/kernel tests/play` green on the branch's baseline (record it first); legacy path untouched.
 
+## Extension (owner, 2026-09-23, "An NPC's fight behaviour follows the NPC's own parameters")
+
+The rules default is no longer "attack while hostile". It is the ruleset table `npc-combat-disposition.json` applied to the NPC's **combat disposition** (closed enum `fights_to_the_end` / `fights_then_flees` / `avoids_fighting` / `surrenders`) and the fight's state (HP fraction, outnumbered, stance). Disposition sources, in order: authored `combat.disposition` on the record; inferred once per campaign by Jev from the record's own text parameters (`agenda`, `fear`, `secret`, `relationship_to_investigators`, `voice`, natural-npc's disposition if present) as a closed-choice question, written to `world.npc_disposition[handle]` with a receipt, `basis: inferred` and the list of parameters read (below the gate: the Keeper is asked once through the existing needs path and writes it); Keeper override `apply npc {disposition, why}`. The standing action enum becomes `{attack, hold, flee}`: `attack` binds as above; `hold` and `flee` issue no attack candidate and hand the turn to the Keeper with the disposition line (the flight or surrender is narrated; the engine's NPC actions do not include flee). Every threshold lives in the table; code holds no literal. Acceptance adds: the table's rows are exercised by kernel tests (each disposition at full HP and below its threshold); a Jev-inferred disposition is a receipt that survives resume and is never inferred twice; the fight-round replay reports Knott's disposition and its basis. If the inference and the table do not fit this ticket's time, deliver the enum, the sources and the table first and leave the Jev inference as SL-09, saying so.
+
 ## Not in this ticket
 
 - Creatures' attack routines (multiple attacks per round, `attacks_per_round`) — rules-as-data RD tickets.
