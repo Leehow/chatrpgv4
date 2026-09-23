@@ -2,7 +2,7 @@
 import {strict as assert} from 'node:assert';
 import {test} from 'node:test';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
-import {writeFile} from 'node:fs/promises';
+import {mkdir, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {assistantTexts, openTable, waitForIdle} from './harness.mjs';
 import {writeDefensePreference, readDefensePreference, automaticDefense} from '../../runtime/combat-defense.ts';
@@ -11,6 +11,15 @@ const attack = {intent:'combat', goal:'Stop the caretaker', method:'Strike with 
 const results = (table, name) => table.session.messages.filter(message => message.role === 'toolResult' && message.toolName === name);
 const requests = (table, method) => table.kernelRequests().filter(entry => entry.method === method);
 const narrate = () => call('narrate', {text:'The blow glances away.'});
+// The real kernel creates the campaign directory at campaign.create; the fake kernel stores nothing,
+// and the first host telemetry row that would create it is fire-and-forget, so right after open it is
+// usually still absent. The preference is written only into an existing campaign (coc-defense.ts), so
+// the test establishes the campaign the product would already have, instead of racing that row.
+async function boundCampaign(table) {
+  const campaign = requests(table, 'table.open')[0].params.campaign;
+  await mkdir(join(table.workspace, '.coc/campaigns', campaign), {recursive: true});
+  return campaign;
+}
 
 test('needs_choice preserves candidate details and normalizes the selected decision', async t => {
   const table = await openTable({responses:[
@@ -46,7 +55,7 @@ test('missing weapon remains a needs refusal; a corrected attack uses a new iden
 for (const preference of ['dodge','fight_back']) test(`standing ${preference}: persisted authorization resolves once without ask or player input`,async t=>{
   const table=await openTable({responses:[call('resolve',{action:attack}),narrate(),fauxAssistantMessage('Done')]});
   t.after(()=>table.dispose());
-  const campaign=requests(table,'table.open')[0].params.campaign;
+  const campaign=await boundCampaign(table);
   assert.equal(await readDefensePreference(table.workspace,campaign),'dodge');
   await writeDefensePreference(table.workspace,campaign,preference);
   assert.equal(await readDefensePreference(table.workspace,campaign),preference);
@@ -70,7 +79,7 @@ for (const preference of ['dodge','fight_back']) test(`standing ${preference}: p
 test('a corrupted preference fails visibly and never permits delivery or repeats the attack',async t=>{
   const table=await openTable({responses:[call('resolve',{action:attack}),narrate(),narrate(),fauxAssistantMessage('Do not deliver')]});
   t.after(()=>table.dispose());
-  const campaign=requests(table,'table.open')[0].params.campaign;
+  const campaign=await boundCampaign(table);
   await writeFile(join(table.workspace,'.coc/campaigns',campaign,'defense-preference.json'),'{"defense":"none"}');
   await table.session.prompt('Strike the caretaker'); await waitForIdle(table.session);
   assert.equal(requests(table,'table.resolve').length,1);

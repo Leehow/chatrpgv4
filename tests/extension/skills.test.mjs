@@ -209,13 +209,36 @@ test("queued host continuations keep selection and settle exactly once", async (
 	assert.deepEqual(table.extensionErrors, []);
 });
 
-test("required choice and active session are divergence even when delivery succeeds", async (t) => {
+// §13.11: fallback includes "进入未计划选择/材料/活跃会话路径" even when the run delivers. The combat
+// defence is no longer the Keeper's `ask` (§11.5.1 "The combat choice buttons are retired for new
+// player defenses"; the host settles it once under the standing preference), so each divergence is
+// driven by the path that still produces it: the attack's active session, and a still-open closed
+// option (push) handed back with ask.
+test("an active session is divergence even when delivery succeeds", async (t) => {
 	const table = await openTable({ env: { PI_COC_SKILLS: "1" }, responses: [
 		call("resolve", { action: { actor: "Thomas Hayes", goal: "Attack", method: "Punch", intent: "combat", target: "Corbitt", weapon: "unarmed" }, using_skill: names[0] }),
-		call("ask", { kind: "mechanics", options: ["dodge", "fight_back"] }), fauxAssistantMessage(""),
+		call("narrate", { text: "Corbitt reels back." }), fauxAssistantMessage(""),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("I attack Corbitt with my bare hands.");
+	assert.equal(table.kernelRequests().filter((entry) => entry.method === "table.resolve" && entry.params._standing_defense).length, 1,
+		"the attack opened a live combat session whose investigator defence the host settled");
+	assert.equal(rows(table).length, 1);
+	assert.equal(rows(table)[0].selected, names[0]);
+	assert.equal(rows(table)[0].delivered, true);
+	assert.equal(rows(table)[0].fallback, true);
+	assert.deepEqual(rows(table)[0].refusal_classes, []);
+	assert.deepEqual(rows(table)[0].tool_names, ["resolve", "narrate"]);
+	assert.deepEqual(table.extensionErrors, []);
+});
+
+test("a required choice is divergence even when delivery succeeds", async (t) => {
+	const table = await openTable({ env: { PI_COC_SKILLS: "1" }, responses: [
+		call("resolve", { action: { goal: "Search the desk", method: "Spot Hidden", intent: "investigate" }, using_skill: names[0] }),
+		call("ask", { kind: "mechanics", text: "The drawer seems empty.", options: ["push", "accept"] }), fauxAssistantMessage(""),
+	] });
+	t.after(() => table.dispose());
+	await table.session.prompt("I search the desk.");
 	assert.equal(rows(table).length, 1);
 	assert.equal(rows(table)[0].selected, names[0]);
 	assert.equal(rows(table)[0].delivered, true);

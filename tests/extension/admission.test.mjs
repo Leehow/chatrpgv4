@@ -319,28 +319,36 @@ test("a malformed verdict is no verdict: the action is refused as unavailable, n
 });
 
 
+// §32.1 exempts a resolve that settles the closed option the player was just asked. The combat
+// defence is no longer such an option: §11.5 "调查员守方改由 §11.5 的常驻防御偏好自动结算真实待决攻击，
+// 不再 `ask` 每轮的 dodge/fight_back/none", and §11.5.1 "The combat choice buttons are retired for new
+// player defenses", so a defence ask is refused as stale before it reaches the kernel. The exemption
+// is exercised through the closed option it still covers: a push the player was offered and took.
 test("the player's answer to an ask is not a new proposal: the resolve that settles it is not reviewed", async (t) => {
 	const table = await openTable({
 		responses: [
-			// Turn 1: the Keeper hands the pending defence back with ask.
-			fauxAssistantMessage([fauxToolCall("ask", { kind: "mechanics", options: ["dodge", "fight_back"], binds: "defense" })], { stopReason: "toolUse" }),
+			// Turn 1: the Keeper hands the failed search back with a push offer.
+			fauxAssistantMessage([fauxToolCall("ask", { kind: "mechanics", text: "抽屉里什么也没有。", options: ["push", "accept"] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after ask"),
-			// Turn 2: the player answered in their own words; the Keeper settles the defence, then proposes something new.
-			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "combat", goal: "躲开这一刀", method: "侧身闪避", defense: "dodge" } })], { stopReason: "toolUse" }),
+			// Turn 2: the player answered in their own words; the Keeper settles the push, then proposes something new.
+			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "再翻一遍抽屉", method: "把抽屉整个倒出来", push: true } })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "combat", goal: "夺下那把刀", method: "扑上去抢", target: "看门人", weapon: "unarmed" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你侧身让过刀锋。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "抽屉底下压着一张纸。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
 		laneResponses: { admission: [verdict({ verdict: "authorized", grounds: "the player said they lunge for the knife" })] },
 	});
 	t.after(() => table.dispose());
-	await table.session.prompt("我先躲一下");
-	await table.session.prompt("我往旁边一闪");
+	await table.session.prompt("我翻一下抽屉");
+	await table.session.prompt("再翻一次，全倒出来");
 
+	assert.equal(kernelCalls(table, "table.ask").length, 1, "the push offer reached the player");
 	const requests = table.lanes.admission.requests();
-	assert.equal(requests.length, 1, "only the new proposal was reviewed; the answered defence was not");
+	assert.equal(requests.length, 1, "only the new proposal was reviewed; the answered push was not");
 	assert.match(requests[0], /goal="夺下那把刀"/);
-	assert.equal(kernelCalls(table, "table.resolve").length, 2, "both resolves reached the kernel");
+	const model = kernelCalls(table, "table.resolve").filter((entry) => !entry.params._standing_defense);
+	assert.equal(model.length, 2, "both of the Keeper's resolves reached the kernel");
+	assert.equal(model[0].params.action.push, true);
 	assert.deepEqual(admissionRows(table).map((row) => row.verdict), ["authorized"]);
 });
 
@@ -391,7 +399,19 @@ test("a kernel-required authored encounter move stays inside the player's admitt
 	t.after(() => table.dispose());
 	await table.session.prompt("我抡起长柄钢撬棍砸向床板上的科比特");
 
-	assert.equal(kernelCalls(table, "table.resolve").length, 2, "the refused start and same chosen retry both reach the kernel");
+	// The retried attack leaves the investigator a live pending defence (the fake kernel's caretaker
+	// swings back), which §11.5.1 settles host-side: "Only a live `combat.pending_attack` whose
+	// defender is an investigator permits automatic resolution … calls the existing `resolve` combat
+	// defense path **once**". That third resolve is the host's, carries `_standing_defense`, and is
+	// not a Keeper proposal, so it is counted apart and never reviewed.
+	const resolves = kernelCalls(table, "table.resolve");
+	const chosen = resolves.filter((entry) => !entry.params._standing_defense);
+	assert.equal(chosen.length, 2, "the refused start and same chosen retry both reach the kernel");
+	assert.deepEqual(chosen.map((entry) => entry.params.action.target), ["Walter Corbitt", "Walter Corbitt"]);
+	const standing = resolves.filter((entry) => entry.params._standing_defense);
+	assert.equal(standing.length, 1, "the live investigator defence is settled exactly once");
+	assert.equal(standing[0].params._standing_defense.attack_command_id, chosen[1].params.call_id,
+		"the standing defence answers the admitted retry, not the refused start");
 	assert.equal(kernelCalls(table, "table.apply").length, 1, "the kernel-required scene transition is not refused as a new player action");
 	assert.equal(table.lanes.admission.requests().length, 2, "the external attack and an added time cost are reviewed; the exact internal move is not");
 	assert.deepEqual(admissionRows(table).map((row) => [row.verb, row.verdict ?? row.skipped, row.reused ?? null]), [

@@ -56,9 +56,12 @@ const visibleTexts = (session) => [
 const applies = (session) => session.kernelRequests().filter((entry) => entry.method === "table.apply").length;
 const closed = (rows) => rows.some((row) => row.tool === "narrate" && row.event === "turn-closed");
 
+// The terminal ask is a closed option that still exists. A combat-defence ask does not: §11.5.1
+// "The combat choice buttons are retired for new player defenses", and the host refuses one as stale
+// before it can deliver (§11.5: investigator defence is settled by the standing preference, never `ask`).
 for (const [tool, input] of [
 	["narrate", { text: FILED }],
-	["ask", { kind: "mechanics", text: "撬棍朝你的肩膀砸下来。", options: ["dodge", "fight_back"] }],
+	["ask", { kind: "mechanics", text: "职员摇头，说这一行找不到了。", options: ["push", "accept"] }],
 ]) {
 	test(`a successful terminal ${tool} delivery ends the batch before a post-close provider call`, async (t) => {
 		const session = await openTable({

@@ -125,13 +125,18 @@ def test_an_authored_tactic_is_issued_with_basis_authored(tmp_path):
         client.close()
 
 
-def test_an_authored_word_outside_the_enum_falls_through_to_the_rules_default(tmp_path):
+def test_an_authored_word_outside_the_enum_is_refused_at_registration(tmp_path):
+    """§136.6 item 11: `combat.defense` is the registered seat of the `tactic` shape and its one validator
+    refuses a word outside the three at registration; §11.5.2's fall-through is reached only by state written
+    before §136, never by a shipped starter."""
     def authored(record):
         record["combat"] = {"defense": "parry"}
     client = RpcClient(tmp_path / "ws", content=content_with(tmp_path, authored))
     try:
-        standing, _, _ = standing_after_melee(client)
-        assert standing == {"defense": "fight_back", "basis": "rule-default"}
+        error = client.err("campaign.create", {"id": "refused-tactic", "module": "the-haunting", "pregen": "thomas-hayes",
+                                               "play_language": "zh-Hans"})
+        assert error["code"] == "invalid_params" and error["details"]["reason"] == "mechanics_invalid"
+        assert any("defense" in refusal.get("path", "") for refusal in error["details"]["refusals"]), error
     finally:
         client.close()
 
