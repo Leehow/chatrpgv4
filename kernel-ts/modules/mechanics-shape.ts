@@ -35,15 +35,25 @@ export type MechanicsRules = {
     damageBonuses: readonly string[];
 };
 
+/** One starter's legacy allowance: the keys tolerated in the container, a stat block and a weapon. */
+export type LegacyAllowance = { readonly container: readonly string[]; readonly profile: readonly string[]; readonly weapon: readonly string[] };
+const NO_ALLOWANCE: LegacyAllowance = Object.freeze({ container: [], profile: [], weapon: [] });
 /**
- * §136.1, rulings A and B: the starter-only legacy allowance. Each list shrinks as a starter migrates
- * (RD-04 the haunting, RD-08 mystery-house); a reader draft gets none of it.
+ * §136.1, rulings A and B: the legacy allowance, listed per starter (the registered module id). A starter's row is
+ * removed by the migration that removes its keys (RD-04 the haunting, RD-08 mystery-house); a starter without a
+ * row and a reader draft get none of it.
  */
-export const STARTER_LEGACY = {
-    container: ["fields_extracted", "fields_not_authored", "fields_observed", "provenance", "source_refs", "status", "subject_kind"],
-    profile: ["attacks", "attacks_per_round", "san_loss_to_see"],
-    weapon: ["note"],
-} as const;
+export const STARTER_LEGACY: Readonly<Record<string, LegacyAllowance>> = Object.freeze({
+    "mystery-house": Object.freeze({
+        container: ["fields_extracted", "fields_not_authored", "fields_observed", "provenance", "source_refs", "status", "subject_kind"],
+        profile: ["attacks", "attacks_per_round", "san_loss_to_see"],
+        weapon: ["note"],
+    }),
+});
+/** The allowance a validation run admits: the starter's own row, or none. */
+export function legacyAllowance(graph: ModuleGraph, starter: boolean): LegacyAllowance {
+    return starter && Object.hasOwn(STARTER_LEGACY, graph.moduleId) ? STARTER_LEGACY[graph.moduleId] : NO_ALLOWANCE;
+}
 const TACTIC_KINDS = ["npc", "creature"];
 const DEFENSES = ["dodge", "fight_back", "none"];
 /** The record's `combat` words: the standing defence (§11.5.2), the authored standing action and disposition (§11.5.3). */
@@ -128,7 +138,7 @@ export function carriesMechanics(graph: ModuleGraph): boolean {
 
 /**
  * §136.8: every refusal the module's stated mechanics earn. Starter registration calls it after
- * `obligationRefusals`, before a generation's bytes are written; `starter` admits the listed legacy
+ * `obligationRefusals`, before a generation's bytes are written; `starter` admits that starter's listed legacy
  * allowance and requires `evidence_span_ids` beside `source_refs`.
  */
 export function mechanicsRefusals(graph: ModuleGraph, rules: MechanicsRules, options: { starter: boolean }): Refusal[] {
@@ -139,6 +149,7 @@ export function mechanicsRefusals(graph: ModuleGraph, rules: MechanicsRules, opt
         for (const clock of array(recordOf(threat).clocks))
             if (plain(clock) && text(clock.clock_id)) clockIds.add(clock.clock_id);
     const calledChecks = checksCalledByObligations(graph);
+    const allowance = legacyAllowance(graph, options.starter), allowed = allowance.container.length > 0;
 
     for (const node of graph.nodes.values()) {
         const id = string(node.node_id), kind = string(node.node_kind), props = row(node.properties);
@@ -146,14 +157,14 @@ export function mechanicsRefusals(graph: ModuleGraph, rules: MechanicsRules, opt
         const base = hasRecord ? "properties.runtime_projection.record" : "properties";
         const refuse: Refuse = (rule, path, message) => refusals.push({ node: id, rule, path, message });
         const kindOf = (value: any, kinds: readonly string[]): boolean => typeof value === "string" && kinds.includes(string(graph.nodes.get(value)?.node_kind));
-        const shape = new ShapeChecker(refuse, rules, owner, kindOf, clockIds, options.starter);
+        const shape = new ShapeChecker(refuse, rules, owner, kindOf, clockIds, allowance);
         let sourced = false;
 
         if (Object.hasOwn(record, "mechanics")) {
             const mechanics = record.mechanics, at = `${base}.mechanics`;
             if (!plain(mechanics)) refuse("mechanics_unknown_shape", at, "mechanics is an object of shapes (contract §136.1)");
             else for (const [key, value] of Object.entries(mechanics)) {
-                if (options.starter && (STARTER_LEGACY.container as readonly string[]).includes(key)) continue;
+                if (allowance.container.includes(key)) continue;
                 const kinds = SHAPE_KINDS[key];
                 if (!kinds) {
                     refuse("mechanics_unknown_shape", `${at}.${key}`, key === "tactic"
@@ -162,8 +173,8 @@ export function mechanicsRefusals(graph: ModuleGraph, rules: MechanicsRules, opt
                     continue;
                 }
                 if (!kinds.includes(kind)) refuse("mechanics_wrong_kind", `${at}.${key}`, `${key} sits only on ${kinds.join(", ")} nodes`);
-                // A starter's lone registered stat block is cited inside the legacy container while the allowance stands.
-                if (!(options.starter && key === "profile")) sourced = true;
+                // A starter's lone registered stat block is cited inside the legacy container while its allowance row stands.
+                if (!(allowed && key === "profile")) sourced = true;
                 shape.shape(key, value, `${at}.${key}`);
                 if (key === "check" && calledChecks.has(id)) for (const called of calledChecks.get(id)!)
                     if (plain(value) && sameCheck(value, called.step))
@@ -243,7 +254,7 @@ const sameCheck = (a: Row, b: Row): boolean => valuePaths(a) !== "" && valuePath
 class ShapeChecker {
     constructor(private readonly refuse: Refuse, private readonly rules: MechanicsRules, private readonly owner: CheckOwner,
         private readonly kindOf: (value: any, kinds: readonly string[]) => boolean, private readonly clockIds: ReadonlySet<string>,
-        private readonly starter: boolean) { }
+        private readonly allowance: LegacyAllowance) { }
 
     shape(key: string, value: any, at: string): void {
         switch (key) {
@@ -429,7 +440,7 @@ class ShapeChecker {
     weapon(value: any, at: string): void {
         const keys = ["adds_damage_bonus", "base_range_yards", "book", "damage", "damage_unstated", "extends", "impale", "impale_unstated", "magazine",
             "malfunction", "name", "skill", "skill_unstated", "uses_per_round", "uses_per_round_unstated", "weapon_id",
-            ...(this.starter ? STARTER_LEGACY.weapon : [])];
+            ...this.allowance.weapon];
         if (!this.object(value, at, keys, "a weapon")) return;
         if (Object.hasOwn(value, "weapon_id") && (typeof value.weapon_id !== "string" || !SEMANTIC_ID.test(value.weapon_id)))
             this.refuse("shape_prose", `${at}.weapon_id`, "weapon_id is a kebab id");
@@ -451,7 +462,7 @@ class ShapeChecker {
     }
     private statBlock(value: any, at: string): void {
         const keys = ["armor", "armor_rule", "armor_unstated", "authority", "book", "characteristic_scale", "characteristics", "derived", "profile_kind",
-            "sanity_loss", "skills", "spells", "weapons", ...(this.starter ? STARTER_LEGACY.profile : [])];
+            "sanity_loss", "skills", "spells", "weapons", ...this.allowance.profile];
         if (!this.object(value, at, keys, "a stat block")) return;
         if (Object.hasOwn(value, "characteristics") && this.object(value.characteristics, `${at}.characteristics`, CHARACTERISTICS, "characteristics"))
             for (const key of Object.keys(value.characteristics).filter(key => CHARACTERISTICS.includes(key)))
