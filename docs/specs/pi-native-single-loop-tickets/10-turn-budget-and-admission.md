@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 Stage: SL-10 (right after SL-02's live gate; before SL-03)
 Spec: docs/specs/pi-native-single-loop.md (Rulings: "A turn is under 60 seconds", "Parameters-only steps never go to the LLM")
 
@@ -94,3 +94,157 @@ reading would allow *T* = 0, and it is not taken for the reason just given. What
 some false admissions, calibrate a new typed family on this bank (the confidences are low, not wrong in rank:
 false admissions fall from 110 to 1 between *T* = 0 and 0.8), or leave the admission latency to SL-11. The cost
 of the path as chosen is the typed attempt in front of the lane on every escalated batch (≈0.5 s).
+
+### 2026-09-23 — implemented on `claude/sl10-budget-admission-20260923`, merged with 0.9.5a at `8e017016a`
+
+**Commits.**
+
+- `f4e8285a5`: contract (then §135.11, now §135.25; and §32.11), the measurement above, and the threshold. This
+  landed before the code.
+- `f691f824a`: the run's time budget.
+- `30de32441`: the bookkeeping admission fast path.
+- `60eb83dc9`: the replay arms (`--arm before|after`) and recorded live latencies (`--latency live`).
+- `d199bca9d`: a budget compose tells the Keeper why.
+- `fbd468974`: replay workspace removal retries.
+- `d0415111f` and `d0bbceb6d`: merges of 0.9.5a. The budget became §135.25, because the prose-delivery fix owns
+  §135.11 and SL-11 owns §135.20–§135.24. The budget now sits before the turn close. The SL-00 inventory follows
+  the typed adapter into `typedAttempt`.
+- The commit that carries this comment: this comment, the status, the manifest and the replay results.
+
+**Contract.**
+
+- **§135.25, the run's time budget.** `PI_COC_TURN_BUDGET_MS` (default 45 000) is read per run.
+  - The policy stamps the elapsed time into its own state when it folds each step, so `next` stays pure.
+  - A Keeper batch and a running step are never cut. A forced step that needs no model still runs.
+  - A compose that is already owed keeps its reason: the turn close's steer, or the route's finish.
+  - Otherwise the next step is `infer(compose)`, reason `run_budget`. Its `coc-clerk` note asks the Keeper to close
+    the turn now.
+  - Pending clerk steps are listed as `deferred_by_budget`: on the compose's note, on the next run's first note
+    (`deferred_last_turn`), and in `lane: "run"` / `event: "budget"` rows. The rows carry `budget_ms`,
+    `elapsed_ms`, `elapsed_at_compose` and `decision` (`compose`, `compose_owed`, `model_batch`, `turn_close`,
+    `forced_step` or `summary`).
+  - A budget compose that ends in prose still goes through §135.11's `turn_close`.
+- **§32.11, the bookkeeping fast path.** It applies to an `apply` batch whose every triggering kind is `move`,
+  `clue`, `handout` or `time`, whatever the reviewer setting.
+  - The batch goes to the typed family first. A typed admission of every line at
+    `PI_COC_ADMISSION_FAST_MIN_CONFIDENCE` (0.87; `off` disables) stands with no lane call.
+  - Anything else escalates to the configured reviewer: a refusal on any line, a lower confidence, or any
+    non-verdict. The fast path never refuses and never admits on a failure.
+  - Every reviewed admission row carries `path: typed|lane` with `ms`. A fast-path row adds `fast_path`,
+    `fast_min_confidence`, `typed_rule` and, when it escalates, `jev_fallback` (`typed_refusal` or `low_confidence`).
+
+**Replays on the product driver, merged state, 3 runs per arm.**
+
+- `before` sets the budget out of reach and turns the fast path off (`PI_COC_TURN_BUDGET_MS=3600000`,
+  `PI_COC_ADMISSION_FAST_MIN_CONFIDENCE=off`), which is the parent's behaviour. `after` is the branch.
+- The instrument replays the live Keeper and the live admission verdicts.
+  - *instant*: both answer at once, as SL-02 reported. Wall time is Jev, the kernel and the host.
+  - *live*: each waits its recorded live time. This is the only way a replay meets the 45 s budget and shows the
+    lane's cost.
+- Jev is live. Traces are in `experiments/single-loop-routing/results/sl10-*`.
+
+| fixture | latency | arm | wall s | compose starts at s | LLM steps | baseline rows matched |
+| --- | --- | --- | --- | --- | --- | --- |
+| turn 3 | instant | before | 13.8 / 14.1 / 15.2 | 11.1 / 10.8 / 10.7 | 5 / 5 / 5 | 11/11 ×3 |
+| turn 3 | instant | after | 17.1 / 14.6 / 13.2 | 13.6 / 11.3 / 10.6 | 5 / 5 / 5 | 11/11 ×3 |
+| turn 3 | live | before | 138.3 / 136.5 / 136.0 | 122.6 / 121.0 / 120.5 | 5 / 5 / 5 | 11/11 ×3 |
+| turn 3 | live | after | 127.0 / 125.5 / 125.9 | 111.1 / 109.8 / 110.2 | 4 / 4 / 4 | 7/11 ×3 |
+| fight round | instant | before | 9.8 / 9.0 / 9.0 | 6.8 / 6.2 / 6.1 | 2 / 2 / 2 | 5/5 ×3 |
+| fight round | instant | after | 11.0 / 8.7 / 8.5 | 7.5 / 6.0 / 5.6 | 2 / 2 / 2 | 5/5 ×3 |
+| fight round | live | before | 51.4 / 49.8 / 50.5 | 35.5 / 34.9 / 35.5 | 2 / 2 / 2 | 5/5 ×3 |
+| fight round | live | after | 50.5 / 49.6 / 49.4 | 35.4 / 34.7 / 34.4 | 2 / 2 / 2 | 5/5 ×3 |
+
+The 11 baseline rows of turn 3 are SL-02's 8 live actions spelled out: the move, two people, three checks, two
+clues, the handout, the time and the narrate. All runs ended `delivered` (`implicit_narrate` on turn 3,
+`delivery_accepted` on the fight round).
+
+**Admission path per write** (typed confidence in brackets; ms is the whole review).
+
+- **Turn 3, instant, after.**
+  - The clerk's `apply move` went typed in 2 of 3 runs: 0.88 in 377 ms, 0.89 in 417 ms. In run 3 it went to the
+    lane at 0.85, under the threshold, in 613 ms.
+  - The Keeper's `apply clue, clue, handout, time` escalated to the lane each time: 0.18 / 0.25 / 0.22, with the
+    handout line typed `not_authorized`. The typed attempt cost 695–746 ms.
+  - The three `resolve`s went to the lane. They are not on the path.
+- **Turn 3, live, before.** All five reviews went to the lane: the move 2.1 s, the resolves 4.4 / 3.9 / 4.3 s,
+  the Keeper's batch 3.4 s. That is 18.0 s.
+- **Turn 3, live, after.** The move went typed 3 of 3 (0.89 / 0.90 / 0.87, 326–415 ms). The three resolves went
+  to the lane (12.6 s). The Keeper's batch was never proposed; see the budget below.
+- **Fight round, both arms.** The clerk's `resolve` attack went to the lane (live 18.3 s). The fight round has no
+  bookkeeping batch.
+
+**What the numbers say.**
+
+- **Turn 3 "still 8/8" holds on the instant replay** (11/11 rows in 3/3 runs, 5 LLM steps, as SL-02). On instant
+  replays the after arm is slower by the typed attempts (≈0.4 s on the move, ≈0.7 s on the escalated batch),
+  because the replayed lane answers in milliseconds.
+- **At live latency the budget does not keep turn 3 under 60 s.**
+  - The Keeper's third model step began at 41–43 s, inside the budget. It took 64 s, and the budget never
+    pre-empts a running step. The run crossed 45 s inside that step. The step's batch ran whole, and the next step
+    was the compose, at 110 s.
+  - What the budget took away was the Keeper's own last batch: the two clues, the handout and the time, which is
+    the payoff the player asked for. It was not in `deferred_by_budget`, which lists only clerk candidates, so the
+    next turn is not told of it.
+  - The turn went from 136–138 s to 125–127 s: −1.8 s from the typed move and the rest from the missing step.
+  - The replay answers a budget compose with the recorded delivery. That models a Keeper who obeys the note. A
+    live Keeper may still call tools, and those run.
+- **The fight round's live wall (50 s) is under the budget's reach.** Its compose starts at 35 s. The 18.3 s
+  review is a `resolve` on an investigator, which keeps the lane by the ruling.
+- **The owner's lever (1) as specified cannot bring these turns under 60 s.** The time is inside single model
+  steps (a 64 s step on turn 3) and in the `resolve` lane reviews (12.6 s on turn 3, 18.3 s on the fight round).
+  Neither is the budget's or the fast path's to cut. These are SL-11 (per-step reasoning and output) and a
+  decision on resolve admission.
+
+**Tests and mutations.**
+
+- `tests/extension/single-loop-turn-budget.test.mjs`, 6 tests:
+  - the pure policy;
+  - past the budget: no clerk write, compose, then the turn close;
+  - inside the budget: the clerk runs;
+  - a crossing model step completes and its whole two-call batch runs;
+  - a forced step still runs;
+  - at the extension seam (emitted kernel): the deferred move is on the compose note, on the next run's note and
+    in the rows.
+- `tests/extension/admission-fast-path.test.mjs`, 7 tests:
+  - the threshold setting;
+  - typed ≥ 0.87: no lane call, `path: typed`;
+  - 0.86: the lane decides and its refusal stands;
+  - a confident `not_authorized` line escalates;
+  - an `uncertain` line escalates;
+  - a `resolve` on an investigator makes no typed request;
+  - a batch with `item` makes no typed request.
+- `admission-jev.test.mjs`'s opt-in test is pinned outside the fast path (`off`).
+
+Mutations, each run against the files above and then restored from a saved copy:
+
+| mutation | result |
+| --- | --- |
+| budget ignored (`overRun` branch off) | killed: 5 of 6 budget tests fail |
+| clock never stamped (`runMs` stays 0) | killed: 4 of 6 |
+| forced-step exemption removed | killed: 1 (forced step) |
+| owed compose not passed through (a turn-close steer's reason overwritten) | killed: 1 (pure policy) |
+| fast-path threshold ignored | killed: 1 (0.86 → lane) |
+| a typed refusal line admitted | killed: 2 (refusal, uncertain) |
+| `resolve` put on the fast path | killed: 1 (resolve → no typed request) |
+
+**Counts.**
+
+- `npm run build:runtime`: exit 0 on the merged state.
+- `npm run test:ext`:
+  - Parent `dd7aebb32`: 2726/2730, run while the typed measurement loaded the machine. Three of the four failures
+    passed alone: `jev-source-domain` ×2 and the `lanes` timing race. `npc-preparation-integration`'s
+    overlap-timing test failed alone too, under concurrent pytest.
+  - Merged branch: 2779/2780. The one failure, `post-delivery-continuity` "a review that could not answer…", passes
+    10/10 alone. The coordinator's baseline for merged 0.9.5a is 2758. This branch adds 13 tests. The remaining 9
+    are 0.9.5a's own additions after that figure; I did not separately measure 0.9.5a's head.
+- `uv run --frozen python -m pytest tests/kernel tests/play`: parent 1688 passed, 1 skipped. Merged:
+  1691 passed, 1 skipped, exit 0 (the merged baseline).
+
+**Not verified.**
+
+- No live table.
+- The typed confidences come from a bank that is 92% persona-bench, with the lane as the label. The lane is not
+  ground truth.
+- The 0.87 threshold has no margin on that bank.
+- The deferral note to the next turn lives in the engine's memory, so a restart between turns loses it.
+- `kpi.py` does not yet group admission rows by `path`.

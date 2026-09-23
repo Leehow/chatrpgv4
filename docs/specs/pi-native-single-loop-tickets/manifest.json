@@ -24,7 +24,7 @@
     {"id": "SL-06", "file": "06-retire.md", "status": "needs-triage"},
     {"id": "SL-07", "file": "07-npc-standing-defense.md", "status": "ready-for-human"},
     {"id": "SL-08", "file": "08-npc-standing-action.md", "status": "ready-for-human"},
-    {"id": "SL-10", "file": "10-turn-budget-and-admission.md", "status": "ready-for-agent"},
+    {"id": "SL-10", "file": "10-turn-budget-and-admission.md", "status": "ready-for-human"},
     {"id": "SL-11", "file": "11-model-call-diet.md", "status": "ready-for-human"}
   ],
   "relatedSpecs": [
