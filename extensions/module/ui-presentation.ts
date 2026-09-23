@@ -20,9 +20,10 @@ import {
 	type PresentationCatalog, type PresentationSource, validatePresentationReferenceShape,
 } from "../../runtime/jev/presentation-references.ts";
 import {
-	PLAY_LANGUAGE_TAG, loadPlayLanguages, resolveUiWords, uiWordsCachePath, uiWordsDigest,
+	PLAY_LANGUAGE_TAG, loadPlayLanguages, resolveUiWords, shippedUiWords, uiWordsCachePath, uiWordsDigest,
 	type UiWordsCache,
 } from "../../runtime/ui-words.ts";
+import { rulesGlossary } from "../../kernel-ts/read/glossary.ts";
 import { coded } from "../ui/errors.ts";
 import { extensionContentRoot } from "../ui/words.ts";
 import type { ReaderRequest, ReaderOutcome } from "./reader.ts";
@@ -113,6 +114,32 @@ async function writeCache(path: string, cache: UiWordsCache): Promise<void> {
 }
 
 /**
+ * The two blocks of context a projection is handed beside the captions (contract §23.2). Neither is a
+ * word table written for the lane: both are data the product already carries for this tag.
+ *
+ * - `established_terms`: the rules glossary the kernel projects for this play language
+ *   (`glossaryOf` over the rules data's `localized_labels`, the same visitor `playerGlossary` uses),
+ *   as `{english term: word}`. The game's own terms -- a skill, a condition, a success level -- so a
+ *   caption that names one uses it verbatim rather than a general-language guess (`Psychology` is the
+ *   skill, not mind reading).
+ * - `established_words`: the words this build already ships for this tag, per surface and key, for
+ *   every caption still authored. A re-run keeps them unless the English source changed meaning, so a
+ *   surface does not drift wholesale from one model or one run to the next.
+ */
+export async function uiPresentationContext(contentRoot: string, tag: string, captions: readonly UiCaption[]): Promise<{
+	established_terms: Record<string, string>;
+	established_words: Record<string, Record<string, string>>;
+}> {
+	const shipped = await shippedUiWords(contentRoot, tag);
+	const established_words: Record<string, Record<string, string>> = {};
+	for (const row of captions) {
+		const word = shipped[row.surface]?.[row.key];
+		if (typeof word === "string" && word.trim()) (established_words[row.surface] ??= {})[row.key] = word;
+	}
+	return { established_terms: await rulesGlossary(contentRoot, tag), established_words };
+}
+
+/**
  * The captions for one play language, projecting them first if nothing has.
  *
  * Answers the cache when one is current, and otherwise runs the presenter and writes one. The host
@@ -150,6 +177,7 @@ export async function prepareUiWords(options: UiPresentationOptions): Promise<Ui
 		`console.log('Presentation valid');}` +
 		`catch(error){console.error(error.message);process.exitCode=1;}\n`;
 
+	const context = await uiPresentationContext(contentRoot, tag, captions);
 	let missing = uiSourceTexts(captions);
 	const catalog = issuePresentationReferences(missing, {protectSyntax:true});
 	const projected: Record<string, string> = {};
@@ -165,6 +193,8 @@ export async function prepareUiWords(options: UiPresentationOptions): Promise<Ui
 					surface: row.surface, key: row.key, source: presentationAlias(catalog, row.text),
 				})),
 				sources: current.sources,
+				established_terms: context.established_terms,
+				established_words: context.established_words,
 			}, null, 2));
 			return "Read texts.json and write one presentation-reference-v1 operation for every issued source alias to presentation.json. Choose keep when no translation is needed; otherwise generate translated text. For a protected source, return generated text pieces plus every issued token occurrence alias exactly once, ordered where the target language needs it. Never copy a source string, placeholder, notation, surface key or private coordinate into a selector field. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing."
 				+ (round > 1 ? " Read findings.json and supply exactly the source aliases it still names; accepted captions are not asked again." : "");

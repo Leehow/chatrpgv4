@@ -3135,6 +3135,34 @@ Test: `tests/extension/onboarding-worker-model.test.mjs` (the real worker bundle
 child: the setting with no model named, the setting over a caller's model, the caller's model when
 nothing is set, and the environment override over the setting).
 
+### 23.2 The presenter is handed the game's terms and the surface's words in use (2026-09-23)
+
+Projected from the English captions alone, the lane has no game in view. One whole-surface run of the
+`mechanics` surface (2026-09-22, `opencode-go/deepseek-v4.1-flash`) rendered the Psychology skill as
+读心 ("mind reading"), the surprised combat condition as 受惊 ("startled") and a Keeper's secret roll as
+守秘人已掷骰 ("the Keeper has rolled"), and reworded 39 of 106 captions that players already read.
+
+Every UI-words request (`prepareUiWords`, `texts.json`) now carries two blocks beside `captions`
+and `sources`, built by `uiPresentationContext` from data the product already has for the tag. Neither
+is a word table written for the lane, and neither is ever answered:
+
+- **`established_terms`** — the rules glossary the kernel projects for this play language:
+  `glossaryOf` (`kernel-ts/read/glossary.ts`) over the rules data's `localized_labels`, the same
+  visitor `playerGlossary` uses, read from the content root by `rulesGlossary` because this lane runs
+  with no kernel. `{english term: word}`. The instruction says: these are the established terms of
+  this game; when a caption names one, use it verbatim.
+- **`established_words`** — the words the build ships for the tag (`shippedUiWords`, i.e.
+  `content/ui/<tag>/`, complete or not), per surface and key, for every caption still authored. The
+  instruction says: keep a caption's established word unless its English source now means something
+  different; a caption with none is new and is projected consistently with its established siblings.
+
+A tag with no glossary rows and no seed gets two empty blocks. The instruction file is part of the
+UI-words digest, so this change re-projects every home cache once.
+
+Test: `tests/extension/ui-presentation-context.test.mjs` (for zh-Hans the glossary block is non-empty
+and the established-words block equals the shipped seed; an unknown tag gets empty blocks; the
+`texts.json` the lane reads carries both, with a seed gap asked fresh).
+
 ### Host decision: the identity card is a passport-style page (2026-09-11)
 
 The right sidebar keeps the investigator's identity as live HTML text on a paper
