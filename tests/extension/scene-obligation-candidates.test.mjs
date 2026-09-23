@@ -229,6 +229,10 @@ test("no candidate for a step the Mod serves, a step the page leaves unstated, o
 	assert.ok(!keys(buildCandidates(variant(state, (row) => { row.state = "blocked"; }), INPUT)).includes(GUARDED[0]));
 	assert.ok(!keys(buildCandidates(variant(state, (row) => { row.state = "settled"; }), INPUT)).includes(GUARDED[0]),
 		"while the options' own row still carries guarded_by the clue stays withheld: the kernel, not the builder, lifts a guard");
+	// A person an unsettled obligation guards is withheld: neither staged nor met by a Mod check, until the guard lifts.
+	const person = buildCandidates(variant(state, (row) => { row.trigger.guards.people = ["Ruth Blake"]; }), INPUT);
+	assert.ok(!person.some((candidate) => candidate.bound.who === "Ruth Blake" || candidate.bound.target === "Ruth Blake"), "Ruth is behind the guard");
+	assert.ok(buildCandidates(state, INPUT).some((candidate) => candidate.family === "mod_check" && candidate.bound.target === "Ruth Blake"), "control: unguarded, her Mod check is offered");
 	// Q1: hazards are the Keeper's. The scene's `on_enter` data and a module's mechanics never become candidates.
 	const hazard = { ...state, capsule: { ...state.capsule, where: { ...state.capsule.where,
 		on_enter: { san_triggers: [{ trigger: "sees the bed fly", loss: "0/1d3" }], danger_attacks: [{ attacker: "bed", skill: "Dodge" }] },
