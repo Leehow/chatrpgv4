@@ -18,6 +18,7 @@ import {preparePrescreen,prescreenEnabled,reusePrescreen} from './prescreen.ts';
 import type {PrescreenSourceRuntime} from '../../runtime/jev/prescreen-source-provider.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
+    capsuleUpdate, CAPSULE_UPDATE_TYPE,
     type ContextBinding, type Quote, type Row} from './context-policy.ts';
 
 type KernelCall = (method: string, params: Row) => Promise<unknown>;
@@ -55,6 +56,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // Contract §135.6: on the single-loop engine the run's own read step is the prescreen. It announces itself, and
     // hands over the packet it prepared for the current turn; this hook then injects that packet and runs none of its own.
     let runOwnsPrescreen=false,runPrescreen:{campaign:string;turn:number;message:Row}|undefined;
+    // Contract §135.23: the turn's first capsule and first run packet, as the first request of the input sent them.
+    let turnMaterial:{epoch:string;capsule:Row;packet?:Row}|undefined;
     pi.events.on('coc:loop-engine',value=>{runOwnsPrescreen=object(value).prescreen==='run';});
     pi.events.on('coc:run-prescreen',value=>{const packet=object(value);
         runPrescreen=typeof packet.campaign==='string'&&Number.isSafeInteger(packet.turn)&&packet.message?{campaign:packet.campaign,turn:packet.turn,message:object(packet.message)}:undefined;});
@@ -157,7 +160,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled()))) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
     });
-    pi.on('session_start', async () => {resetPreparation();sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
+    pi.on('session_start', async () => {resetPreparation();turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
         lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();prescreenDeadlineAt=0;prescreenMemo=undefined;reusablePrescreen=undefined;
         prescreenProviderBudget=preparationProviderBudget();});
     pi.on('session_shutdown', async () => {resetPreparation();sharedAdapter=undefined;pi.events.emit?.('coc:npc-preparation-owner',undefined);call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
@@ -415,36 +418,55 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // The immutable full briefing already has these fields; retain the turn-specific craft selection.
         delete view.module;
         if (view.mods) {view.mods = {...view.mods}; delete view.mods.instructions;}
+        // Contract §135.23 (single-loop engine only): a turn's request is append-only. The brief is the source's own
+        // (stable across turns, not the residue of this turn's capsule); the capsule and the run's packet stay as the
+        // turn's first request sent them; what changed since rides at the end (`coc-capsule-update`, a later run packet),
+        // so every model call of a turn, and the next turn's first call, can read the earlier prefix from cache.
+        const turnTail:Row[]=[];
+        let capsuleSent=view,runPacket:Row|undefined;
+        if(runOwnsPrescreen){
+            const epoch=inputEpoch??snapshot.key;
+            if(turnMaterial?.epoch!==epoch)turnMaterial={epoch,capsule:view};
+            capsuleSent=turnMaterial.capsule;
+            const update=capsuleUpdate(turnMaterial.capsule,view);
+            if(update)turnTail.push(customMessage(CAPSULE_UPDATE_TYPE,update));
+            const current=runPrescreen&&runPrescreen.campaign===campaign&&runPrescreen.turn===snapshot.binding.turn?runPrescreen.message:undefined;
+            if(current&&!turnMaterial.packet)turnMaterial.packet=current;
+            runPacket=turnMaterial.packet;
+            if(current&&runPacket&&String(current.content)!==String(runPacket.content))turnTail.push(current);
+        }
+        const briefSent=runOwnsPrescreen?snapshot.brief:briefForTurn(snapshot.brief,view);
+        const room=Math.max(0,budget-(turnTail.length?requestSize(turnTail):0));
         const selected = messages.map(message => {
             const actual = bindingOf(object(message.details).context);
             const sameInput = inputEpoch && object(message.details).epoch === inputEpoch;
             if (message.role !== 'custom' || message.customType !== 'coc-capsule' || !sameInput && (!actual || epochOf(actual) !== snapshot.key)) return message;
             seen = true;
-            return {...message, content: JSON.stringify(view), details: {...object(message.details), context: snapshot.binding}};
+            return {...message, content: JSON.stringify(capsuleSent), details: {...object(message.details), context: snapshot.binding}};
         })
             // The workspace is transport-only: at most one current message, injected below for this
             // request. A persisted copy from anywhere is dropped here, not projected onward.
-            .filter(message => !(message.role === 'custom' && [WORKSPACE_TYPE, PRESCREEN_TYPE].includes(message.customType)));
+            .filter(message => !(message.role === 'custom' && [WORKSPACE_TYPE, PRESCREEN_TYPE, CAPSULE_UPDATE_TYPE].includes(message.customType)));
         if (!seen && !messages.some(message => message.role === 'custom' && message.customType === 'coc-capsule')) {
             // A new opening/recovery may have only a host prompt; this ephemeral capsule is not persisted.
-            selected.push({...customMessage('coc-capsule', view), details: {coc_host: true, turn: snapshot.binding.turn, context: snapshot.binding}});
+            selected.push({...customMessage('coc-capsule', capsuleSent), details: {coc_host: true, turn: snapshot.binding.turn, context: snapshot.binding}});
         }
         let workspace=snapshot.workspaceMode==='on'?snapshot.workspace:undefined,prescreen:Row|undefined;
-        let messageBudget=budget,baseline=projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-            brief:briefForTurn(snapshot.brief,view),answering:snapshot.answering,budget,workspace});
+        let messageBudget=room,baseline=projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
+            brief:briefSent,answering:snapshot.answering,budget:room,workspace});
         // Compute the actual baseline only after system/tool/output reserves are known. Material
         // missing from this projection is not "already supplied" to the Keeper.
         try {
             const reserve=Math.min(16384,Math.floor((ctx.model?.contextWindow??65536)/4))*BYTES_PER_TOKEN;
             const totalLimit=Math.min(ceiling,(ctx.model?.contextWindow??Infinity)*BYTES_PER_TOKEN-reserve);
-            messageBudget=Math.max(0,Math.min(budget,totalLimit-systemBytes));
+            messageBudget=Math.max(0,Math.min(room,totalLimit-systemBytes-(budget-room)));
             baseline=projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-                brief:briefForTurn(snapshot.brief,view),answering:snapshot.answering,budget:messageBudget,workspace});
+                brief:briefSent,answering:snapshot.answering,budget:messageBudget,workspace});
             if(!baseline.workspaceKept)workspace=undefined;
         } catch {
             workspace=undefined;
             baseline=projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-                brief:briefForTurn(snapshot.brief,view),answering:snapshot.answering,budget:messageBudget});
+                brief:briefSent,answering:snapshot.answering,budget:messageBudget});
         }
         const supplementBudget=Math.max(0,messageBudget-requestSize(baseline.messages));
         const preparationSignal=optionalWork.signal,preparationCall=call,preparationCampaign=campaign,npcOwner=npcBridge;
@@ -476,7 +498,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
 
         if(runOwnsPrescreen){
-            if(runPrescreen&&runPrescreen.campaign===campaign&&runPrescreen.turn===snapshot.binding.turn)prescreen=runPrescreen.message;
+            prescreen=runPacket;
         }else if(prescreenEnabled()&&supplementBudget>=512&&preparationCall&&preparationCampaign&&inputEpoch){
             if(!prescreenDeadlineAt){const allowance=readJevPreselectAllowanceMs(sessionEnv);prescreenDeadlineAt=Date.now()+allowance;
                 record({lane:'prescreen',event:'allowance_started',allowance_ms:allowance});}
@@ -520,15 +542,15 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
         if(ticket!==generation||preparationSignal.aborted)return {messages:baseline.messages as typeof requestMessages};
         let result=(prescreen||npcMessage)?projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-            brief:briefForTurn(snapshot.brief,view),answering:snapshot.answering,budget:messageBudget,workspace,prescreen,npc:npcMessage}):baseline;
+            brief:briefSent,answering:snapshot.answering,budget:messageBudget,workspace,prescreen,npc:npcMessage}):baseline;
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
         const reason = result.degraded ?? (Math.ceil((requestSize(result.messages) + systemBytes) / BYTES_PER_TOKEN) > available ? 'request_window_estimate' : undefined);
         // Reserve a diagnostic only when one is needed. An optional workspace must not be
         // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
         if (reason) result = projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-            brief:briefForTurn(snapshot.brief,view),answering:snapshot.answering,
+            brief:briefSent,answering:snapshot.answering,
             budget:Math.max(0,messageBudget-requestSize([diagnostic(reason)])),workspace,prescreen,npc:npcMessage});
-        const outgoing = reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages;
+        const outgoing = [...(reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages), ...turnTail];
         const bytes = requestSize(outgoing) + systemBytes, estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
         const requestId=`prescreen:${snapshot.binding.turn}:${++providerSequence}`;
         pendingProvider=prescreen||npcMessage?{requestId,prepared:prescreen,npc:npcMessage,outgoingDigest:fingerprint(outgoing)}:undefined;
@@ -536,6 +558,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
             request_bytes: bytes, system_bytes: systemBytes, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
             ...(result.prescreenKept && prescreen ? {prescreen_bytes: requestSize([prescreen]), prescreen_injected: true} : {}),
+            ...(turnTail.length ? {tail_bytes: requestSize(turnTail), tail: turnTail.map(message => message.customType)} : {}),
             ...(result.workspaceKept && workspace ? {workspace_bytes: requestSize([workspace])} : {}),
             ...(result.workspaceKept && workspace ? {workspace_evidence_injected: JSON.parse(String(workspace.content)).evidence.length} : {}),
             ...(result.droppedTail ? {dropped_tail: result.droppedTail} : {}),
