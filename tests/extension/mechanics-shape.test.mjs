@@ -324,7 +324,7 @@ test('check_results: a result level that is not one of the six', () => refusedUn
 // ----- one dice grammar (§136.3) -----
 
 const ACCEPTED_DICE = ['1D6', '1D4+2', '1D3+1D4', '2D6+2', '1D6-1', '1D100', '10D6', '1D10+1D4+2', '3D6-2', '100D10000'];
-const REFUSED_DICE = ['1D4+2 hit points', '1D6+DB', '½DB', '1D3+½DB', '2D6 armor', '1d6', '2', '0', '1D6-1D4', '1D6 + 2', '', '101D6'];
+const REFUSED_DICE = ['1D4+2 hit points', '1D6+DB', '½DB', '1D3+½DB', '2D6 armor', '1d6', '1D6+1d4', '2', '0', '1D6-1D4', '1D6 + 2', '', '101D6'];
 
 test('every dice string the validator accepts is rolled by rollExpression and by CombatSession.rollDamageExpression', async () => {
     await accepted(graph => ACCEPTED_DICE.forEach((dice, index) => stated(graph, 'rule', `dice-${index}`, {damage: {dice}})));
