@@ -179,7 +179,9 @@ test('a generation still in flight when its markers are discarded does not reope
     await h.bridge.prepare('apply', payload);
     await game.apply(payload.effects);
   }
-  await until(() => h.entries.length === 1, 'the camera was announced in its own turn');
+  // §132 appends a card patch beside every one of these words; this test reads the §129 word itself.
+  const words = entries => entries.filter(entry => entry.customType === 'coc-object-details');
+  await until(() => words(h.entries).length === 1, 'the camera was announced in its own turn');
   await game.call('table.narrate', {call_id: game.next(), text: 'You set your things on the table.'});
   await game.call('table.player_input', {text: 'I head out.'});
   // Turn 2: the resume finds the camera ready and the lamp unfinished. The lamp is regenerated beside
@@ -199,7 +201,7 @@ test('a generation still in flight when its markers are discarded does not reope
     return {ok: true, code: 0, timedOut: false, ms: 1, stderr: '', command: []};
   }});
   await again.bridge.prepare('resolve', {campaign: 'c1'});
-  const closed = again.entries.map(entry => entry.data.objects.map(item => [item.name, item.definition]));
+  const closed = words(again.entries).map(entry => entry.data.objects.map(item => [item.name, item.definition]));
   assert.deepEqual(closed, [[[DRAFT.name, 'none'], [LAMP.name, 'none']]]);
   release();
   // The lamp's generation now finishes, after its marker is gone. The kernel no longer accepts it (the
@@ -209,5 +211,5 @@ test('a generation still in flight when its markers are discarded does not reope
   // batch settles; the pause only lets that settling finish, it is not what the assertion waits on.
   await until(() => accepted === 2, 'both attempts of the held generation were answered by acceptance');
   await new Promise(resolve => setTimeout(resolve, 200));
-  assert.deepEqual(again.entries.map(entry => entry.data.objects.map(item => [item.name, item.definition])), closed);
+  assert.deepEqual(words(again.entries).map(entry => entry.data.objects.map(item => [item.name, item.definition])), closed);
 });

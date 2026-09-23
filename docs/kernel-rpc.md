@@ -15397,6 +15397,8 @@ The zh-Hans seed's `mechanics.preparing` is the lane's own output, projected fro
 
 Tests: `Electron/packages/ui/src/coc-object-details.test.tsx` (pending row draws a waiting mark and nothing to open; the in-place redraw opens it), `Electron/packages/pi-backend/test/coc-object-details.test.ts` (live redraw under the same id; re-read merge; a lane-word redraw keeps landed details), `tests/extension/object-details-pairing.test.mjs` (real kernel row → host word → backend projection; the replayed adoption is not a second row; an unfinished registration is regenerated beside the turn under its own marker and then written; discard closes the fold; a generation in flight at discard does not reopen it), `tests/kernel/test_mods.py::test_registration_can_be_queued_past_delivery_and_completed_afterwards` and `::test_a_handed_over_object_opens_into_its_player_view_on_the_card`.
 
+§132 (2026-09-23) generalises 127.2's word: `coc-object-details` is now one writer of `coc-card-patch`, still appended beside it for one release, and the backend reads both through one resolver.
+
 ## 130. The player reads first; the continuity review reads after (2026-09-22, amends §12.8, §36.14 and §91)
 
 The continuity review of §36.14 has been a gate before publication: `narrate` and `ask` waited inside
@@ -15657,3 +15659,135 @@ on its first read, not only on a warm one. A node the table established (§14's 
 is built once per loaded graph. Profile (same table as §131): the cut was 77 ms of the 230 ms that
 remained after §131.1; a warm `table.workspace.read` now takes 150–210 ms and the index read 75 ms.
 Test: `tests/extension/graph-units-cache.test.mjs`.
+
+## 132. A card the player already has is patched, not redrawn from scratch (2026-09-23, generalises §129's word, written there as 127.2)
+
+User direction, 2026-09-23 (verbatim): 现在的 pipiui 基础设施是不是不支持回改 UI? 应该更新一下回改 UI 的能力，让这些异步加工的东西在加工结束之后回改 UI，丰富结果.
+
+§129 and §130 moved slow work off the player's path: an object's definition is generated beside the
+delivery, a usage is prefetched after the commit, the continuity review reads after the player. What
+that work produces used to reach a card the player was already looking at by exactly one road, §129.2's
+`coc-object-details`, which was hard-wired end to end: its own entry, its own per-run map in the backend
+(`cocObjectDetails`), its own list of waiting cards (`cocPendingCards`), its own redraw
+(`redrawObjectDetails`), its own fold on the history page. Every further enrichment would have needed
+all five again. This section replaces them with one word and one reader, and makes the definition lane
+and the usage prefetch its first two writers.
+
+### 132.1 The word: `coc-card-patch`
+
+A session entry (dash, not a `coc:` bus event), appended through `patchCard` (`extensions/table/card-patch.ts`),
+which never throws and returns whether it wrote:
+
+```
+{campaign, card: {id?: string, turn?: number}, patch: {…}, source: <lane name>, at: <ISO time>}
+```
+
+- `patch` is an RFC 7396 JSON merge patch over the delivery card's `details` — the object
+  `mechanicsEntry` (`Electron/packages/pi-backend/src/coc-view.ts`) hands the renderer
+  (`turn`, `mechanics`, `labels`, `marked_text`, `speech`, `play_language`, `ui`). An object merges key
+  by key, `null` deletes the key, an array (`mechanics` included) is replaced whole, and a scalar
+  replaces. An empty or non-object patch is not a patch.
+- Two keys of `details` are **addressing**, because rows live in an array a merge patch can only
+  replace whole, and a lane that finished later cannot know the whole array:
+  - `definitions: {<definition name>: {…}}` — merged onto every `item` row whose `definition_name` is
+    that name (a row §129.1 drew `pending`);
+  - `objects: {<object name>: {…}}` — merged onto every `item` row whose `name` is that name.
+
+  Each is merged with the same merge-patch rule, after all patches are applied, and neither key reaches
+  the renderer. The Keeper filter and §16.5's concealment run again over the rows a patch left.
+- `source` names the lane (`object-details`, `usage-prefetch`); `at` is when it was written. Neither
+  changes what is drawn.
+
+### 132.2 Which card: the selector
+
+A patch names its card by the first of these it carries:
+
+1. `card.id` — the `coc-mechanics` entry id. The writer knows it only if it was handed the entry; no
+   current writer is.
+2. `card.turn` — the card of that turn: the latest `coc-mechanics` entry with `data.turn` equal to it
+   read before the patch, or, when the patch was appended first, the next such entry read after it.
+   The card carries its own turn (§16.2's `noteMechanics`), so `coc-turn-anchor` (a commit anchor
+   written only by PipiCOC's timeline pack, `pipicoc/timeline.ts`, in no guaranteed order with the card)
+   is not needed and not read.
+3. neither — every card of the campaign, before or after the patch, with an `item` row the patch
+   names under `definitions` or `objects`. A patch with no selector and no names names nothing.
+
+`anchor` and any other selector key are dropped by `patchCard` and ignored by the reader. A patch for
+another campaign than the session binding's is not read. A selector that resolves to no card is
+ignored without error: nothing is drawn, nothing throws, and the next re-read reads it again.
+Definition names are unique per campaign (§129.1), so a definition-scoped patch opens exactly the rows
+that waited on it. Object names are not guaranteed unique (the row carries no instance id): two held
+objects with one name both take the patch, which is the finest key a card row offers.
+
+Patches apply to a card in the order they were read, whichever selector named them, so a later word
+wins and a `null` in a later word deletes what an earlier one opened.
+
+### 132.3 The reader: one ledger, two roads
+
+`CocCardLedger` (`coc-view.ts`) reads transcript rows in file order and answers, for a card id, the
+patches it is drawn with. It is the only resolver of §132.2 and both roads use it:
+
+- *Live.* The stream reader keeps one ledger per run (`live.cocCards`) and the recorded rows of the
+  cards this run drew (`live.cocCardRows`, the most recent 300). A card is drawn the first time with
+  every patch already read. A patch invalidates the history cache, and every card of this run it
+  changes is drawn again under its own entry id, which the transcript applies as a replacement where it
+  sits (`applyStreamEvent`). A redraw that would draw what the card already shows is not streamed
+  (`live.cocCardDrawn`), so the same word twice, or a legacy word beside its patch, costs one draw. A
+  card this run did not draw is not streamed, exactly as in §129.2; the re-read draws it patched. The
+  lane-words redraw (`startDeliveryPresentation`) draws with the same patches.
+- *Re-read.* The history page reads every row of the file into one ledger before drawing the page, so
+  a card re-read after a patch landed — on any page, however long after — is drawn patched.
+
+### 132.4 The two writers
+
+- *Definitions (§129.2).* `announceDetails` (`extensions/mods/index.ts`, signature unchanged) appends
+  `patchCard({campaign, card: {}, patch: {definitions: {<name>: {definition: "ready", object}}}, source:
+  "object-details"})`, with `object = publicDefinition(accepted draft)`, and for a dropped preparation
+  `{definition: "none", object: null}` — the `null` closes a fold an earlier word opened. The
+  definition lane cannot know which card named the object pending, so it names the definition.
+  **For one release the `coc-object-details` entry is still appended beside it**, so a backend that
+  predates this section still opens the card; this backend reads a `coc-object-details` entry as the
+  equivalent definition patch (`cardPatchOf`), so a transcript written before §132 opens as it did. Drop
+  the legacy entry, and the `objectDetailsOf` reader with it, one release after 0.9.4a.
+- *Usages (§26 "Prepared usages (prefetch)").* When `usage-prefetch` accepts a proposal that is not negative (`ok: true,
+  enabled: true, negative: false`) for an object an investigator holds directly, the Mod host appends
+  `patchCard({campaign, card: {}, patch: {objects: {<object name>: {usages: {<usage name>: publicUsage(usage)}}}},
+  source: "usage-prefetch"})`. `publicUsage` (`kernel-ts/mods/public-definition.ts`) is
+  `{name, parameters}` with only the parameters the usage's `player_view.fields` lists — the one
+  implementation the sheet's weapon row (`publicUsageWeapon`) now reads too, so the card never shows
+  what the sheet would not (no `basis`, no `description`, no unlisted parameter, no `mode`). An object
+  in the scene, with a person, or in a container shows no usage on the sheet, so it gets no patch. The
+  prefetch works from `mods.prefetch.targets`, which lists instances, not the receipts that named
+  them, so it patches by object name and the backend matches the rows (§132.2 rule 3): every card that
+  named the chair shows how it can be swung. `usages` is a map keyed by usage name, so a second usage
+  of the same object adds a line rather than replacing the first. The patch is a projection, as the
+  sheet's weapon row is: it writes no receipt, no offer-ledger entry and nothing the Keeper reads, so
+  §26's "prefetch is not a player action" is unchanged.
+
+Not converted: §38.5's `coc-review-status` is an operator status entry with no card and no backend
+reader, and §130.6 tells the player nothing about a post-delivery review; it stays as it is.
+
+### 132.5 What the renderer draws
+
+`pipicoc/mechanics.js` already draws a replaced entry in place and already opens a `definition: "ready"`
+row, so the definition lane needs nothing new there. An `item` row may now carry
+`usages: {<usage name>: {name, parameters}}`; until the card draws it (one line per usage under the
+item row: the usage name, then its parameters as the possessions box draws a weapon's), a usage patch
+reaches the card's data and is not yet visible.
+
+### 132.6 The three ends (§31)
+
+*Who writes it:* `patchCard`, called by `announceDetails` and by the usage prefetch in
+`extensions/mods/index.ts`. *Who reads it:* `CocCardLedger` and `mechanicsEntry`, on the live stream
+and on the history page. *Who acts on it:* the player, who reads the enriched card where it already sits.
+
+Tests: `tests/extension/card-patch.test.mjs` (the helper's entry and its refusals; a landed definition
+announced as a patch beside the legacy word, opening a real kernel's pending row with the player view
+only; a dropped registration closing the fold with `null`; a prefetched usage of a held object patching
+the card that named it with exactly the sheet's view, and a scene object patching nothing),
+`Electron/packages/pi-backend/test/coc-card-patch.test.ts` (merge-patch semantics; live patch streams a
+presentation under the same id with merged details; a patch by turn resolves the card, including a
+patch that arrives before its card; the re-read folds patches in file order; an unknown selector is
+ignored without error; a patch that changes nothing draws nothing), and the §129 tests unchanged in
+what they assert (`coc-object-details.test.ts`; `object-details-pairing.test.mjs` now picks the §129
+word out by its type, because a patch rides beside each one).

@@ -20,3 +20,16 @@ export function publicDefinition(definition: unknown): Row {
         parameters: Object.fromEntries(list(view.fields).map((key: string) => [key, parameters[key]])),
     };
 }
+/**
+ * What a player may read of one accepted usage (contract §132): its name and the parameters its
+ * `player_view` lists, and nothing else -- exactly what the sheet's weapon row shows for it
+ * (`publicUsageWeapon` reads it from here). The basis, the description and every parameter the view
+ * does not name stay Keeper material.
+ */
+export function publicUsage(usage: unknown): Row {
+    const value = record(usage), parameters = record(value.parameters), fields = list(record(value.player_view).fields);
+    return {
+        name: value.name ?? null,
+        parameters: Object.fromEntries(fields.filter(key => typeof key === 'string' && Object.hasOwn(parameters, key)).map(key => [key, parameters[key]])),
+    };
+}
