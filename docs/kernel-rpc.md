@@ -15265,6 +15265,8 @@ Retained evidence: campaign `game-21ac44b7-5f91-41a5-8ea7-9faf5b801a29`, turn 0.
 | `none` | — | a line; the preparation was dropped |
 | absent | — | a line, as before |
 
+The rows the Keeper did not place sit in the card's trailing slip, which starts folded (owner at the live table, 2026-09-22): its caption is a toggle carrying the row count, and while any row under it is `pending` the same waiting mark rides on that caption, so a folded slip still says details are coming. Placed rows are unaffected, and an opened slip draws each row exactly as this table says. The fold state is the card's own and survives the redraw below.
+
 `object` is the definition's `player_view` exactly as the sheet's possessions box reads it: one pure implementation, `kernel-ts/mods/public-definition.ts` `publicDefinition`, used by `publicItems` and by the card. The definition's `basis`, the traits its view does not name and every parameter it does not list stay Keeper material.
 
 Which receipts give a row:

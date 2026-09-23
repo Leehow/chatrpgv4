@@ -19,6 +19,7 @@ import {MessageView} from './Transcript'
 import {registerToolRenderer, disposeToolRenderers} from './ui-registries'
 import {applyStreamEvent, type ChatMessage} from './transcript-model'
 import {ui} from './fixtures/coc-ui-words'
+import {OpenedSlip} from './fixtures/opened-mechanics-slip'
 import enMechanics from '../../../../content/ui/en/mechanics.json'
 import enSheet from '../../../../content/ui/en/sheet.json'
 
@@ -26,7 +27,7 @@ const Card = createComponent(React)
 const EXT = 'coc-object-details-test'
 
 beforeAll(() => {
-  registerToolRenderer(EXT, {toolName: 'coc-mechanics', render: props => <Card details={props.details} />})
+  registerToolRenderer(EXT, {toolName: 'coc-mechanics', render: props => <OpenedSlip><Card details={props.details} /></OpenedSlip>})
 })
 afterAll(() => disposeToolRenderers(EXT))
 afterEach(cleanup)

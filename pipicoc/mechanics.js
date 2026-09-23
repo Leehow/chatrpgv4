@@ -41,6 +41,18 @@ const CSS = `
 .coc-mech-help{margin:8px 0 2px;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
 .coc-mech-help-toggle{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:1px solid var(--border-strong);border-radius:50%;color:var(--muted);background:var(--surface-raised);font-size:14px;font-weight:600;line-height:1;cursor:pointer}
 .coc-mech-help-toggle:hover,.coc-mech-help-toggle[aria-expanded="true"]{color:var(--text-strong);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface-raised))}
+/* The trailing slip's caption is its own toggle (the slip starts folded): the caption word, how many
+   rows are under it, and the waiting mark while any of them is still preparing its details (§129). */
+.coc-mech-list-toggle{display:flex;align-items:center;gap:6px;width:100%;margin:0;padding:2px 4px;border:0;border-radius:6px;background:transparent;color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;text-align:left;cursor:pointer}
+.coc-mech-list-toggle::before{content:"▸";flex:none;color:var(--muted);font-size:11px;letter-spacing:0;transition:transform .12s ease}
+.coc-mech-list-toggle[aria-expanded="true"]::before{transform:rotate(90deg)}
+.coc-mech-list-toggle:hover,.coc-mech-list-toggle[aria-expanded="true"]{color:var(--text-strong)}
+.coc-mech-list-toggle:hover{background:color-mix(in srgb,var(--accent) 8%,var(--surface-raised))}
+.coc-mech-list-toggle:hover::before{color:var(--accent)}
+.coc-mech-list-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.coc-mech-list-count{color:var(--muted);font-variant-numeric:tabular-nums}
+.coc-mech-list[data-open="0"]{padding-bottom:8px}
+.coc-mech-list[data-open="0"] .coc-mech-cap{padding-bottom:0}
 .coc-mech-help-fold{width:100%;max-width:560px;padding:12px 14px;border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:10px;background:var(--surface-raised);color:var(--text);font-size:13px;line-height:1.7}
 .coc-mech-help-fold h4{margin:0 0 6px;font-size:13px;font-weight:650;color:var(--text-strong)}
 .coc-mech-help-fold p{margin:0 0 4px}
@@ -79,7 +91,7 @@ const CSS = `
 .coc-mech-row{display:flex;align-items:center;gap:10px;padding:6px 2px;
   border-top:1px solid color-mix(in oklab, var(--border) 60%, transparent);
   font-size:12.5px;line-height:1.5}
-.coc-mech-cap + .coc-mech-row,.coc-mech-fam + .coc-mech-row{border-top:0}
+.coc-mech-list-body>.coc-mech-row:first-child,.coc-mech-fam + .coc-mech-row{border-top:0}
 .coc-mech-ico{flex:none;width:24px;height:24px;border-radius:8px;display:grid;place-items:center;
   color:var(--muted);background:color-mix(in oklab, var(--muted) 12%, transparent)}
 .coc-mech-ico>svg{width:13.5px;height:13.5px;display:block}
@@ -1089,6 +1101,30 @@ export function createComponent(React) {
             help.lines.map((line, index) => h("p", { key: index }, line)))
         : null);
   }
+  /**
+   * The trailing slip of this turn's mechanics, folded until the player opens it (the owner at the
+   * live table, 2026-09-22: the slip may fold away). Only the rows the Keeper did not place fold here; a
+   * row placed at its sentence (`coc-mech-here`) is drawn there as always. Folded, the caption still
+   * says the slip is there: how many rows it holds, and the waiting mark while any of them is still
+   * preparing its details (§129) -- once opened, each row draws and opens exactly as it did before.
+   * The state is this card's own: nothing is stored, and a host redraw of the same card keeps it.
+   */
+  let listSeq = 0;
+  const useBodyId = typeof React.useId === "function" ? React.useId : () => useOpenState(`coc-mech-list-${++listSeq}`)[0];
+  function MechList({ caption, count, waiting, children }) {
+    const [open, setOpen] = useOpenState(false);
+    const bodyId = useBodyId();
+    return h("section", { className: "coc-mech-list", "aria-label": caption, "data-open": open ? "1" : "0" },
+      h("h2", { className: "coc-mech-cap" },
+        h("button", { type: "button", className: "coc-mech-list-toggle", "aria-expanded": open, "aria-controls": bodyId, onClick: () => setOpen(!open) },
+          h("span", { className: "coc-mech-list-name" }, caption),
+          h("span", { className: "coc-mech-list-count" }, ` · ${count}`),
+          !open && waiting ? h(Waiting, { label: waiting }) : null)),
+      h("div", { className: "coc-mech-list-body", id: bodyId, hidden: !open }, open ? children : null));
+  }
+  /** A row still preparing its details (§129) is the one the folded caption must not hide. */
+  const preparing = (rows) => rows.some(row => row.kind === "item" && row.definition === "pending");
+
   const helpOf = (details) => {
     const help = isRecord(details.help) ? details.help : null;
     if (!help || typeof help.title !== "string" || !help.title.trim() || !Array.isArray(help.lines)) return null;
@@ -1144,8 +1180,7 @@ export function createComponent(React) {
           ? h("div", { className: "coc-mech-here", key: `row:${index}` }, renderRow(part.row, t, term, index, sheet))
           : proseBlocks(part.text, `text:${index}`, state, speaker)),
         unplaced.length
-          ? h("section", { className: "coc-mech-list", "aria-label": t("mechanics") },
-              h("h2", { className: "coc-mech-cap" }, t("mechanics")),
+          ? h(MechList, { caption: t("mechanics"), count: unplaced.length, waiting: preparing(unplaced) ? t("preparing") : "" },
               unplaced.map((row, i) => renderRow(row, t, term, `rest:${i}`, sheet)))
           : null,
         help ? h(HelpFold, { help }) : null);
@@ -1159,8 +1194,7 @@ export function createComponent(React) {
       prose ? h("div", { className: "coc-mech-prose" }, prose) : null,
       help ? h(HelpFold, { help }) : null,
       rows.length
-        ? h("section", { className: "coc-mech-list", "aria-label": t("mechanics") },
-            h("h2", { className: "coc-mech-cap" }, t("mechanics")),
+        ? h(MechList, { caption: t("mechanics"), count: rows.length, waiting: preparing(rows) ? t("preparing") : "" },
             groupRows(rows).map((group, index) => group.call && group.rows.length > 1
               // A settlement of one row needs no group chrome: the disc already wears the tone.
               ? h("div", {
