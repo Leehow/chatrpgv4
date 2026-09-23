@@ -22,7 +22,8 @@
     {"id": "SL-04", "file": "04-session-events-recovery.md", "status": "needs-triage"},
     {"id": "SL-05", "file": "05-performance-and-product.md", "status": "needs-triage"},
     {"id": "SL-06", "file": "06-retire.md", "status": "needs-triage"},
-    {"id": "SL-07", "file": "07-npc-standing-defense.md", "status": "ready-for-human"}
+    {"id": "SL-07", "file": "07-npc-standing-defense.md", "status": "ready-for-human"},
+    {"id": "SL-08", "file": "08-npc-standing-action.md", "status": "ready-for-agent"}
   ],
   "relatedSpecs": [
     {
