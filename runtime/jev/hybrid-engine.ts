@@ -46,8 +46,8 @@ import type { HostOperationContext, OperationIdentity } from '../../extensions/k
 import { buildCandidates, keeperCall } from './candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import {
-  CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, interpretRoute, ROUTE_FAMILY,
-  type Candidate, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
+  CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, interpretRoute, overRun, ROUTE_FAMILY,
+  type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
 } from './step-policy.ts';
 
 type Row = Record<string, any>;
@@ -79,6 +79,14 @@ export interface HybridEngineOptions {
   /** Telemetry sink for run events; defaults to the kernel bridge's campaign telemetry. */
   record?: (row: Record<string, unknown>) => void;
   maxSteps?: number;
+  /** The run's clock (§135.25); tests pass a stub. Defaults to `Date.now`. */
+  now?: () => number;
+}
+
+/** `PI_COC_TURN_BUDGET_MS` (contract §135.25), read per run: a positive number of milliseconds, else the default. */
+export function turnBudgetMs(env: Readonly<NodeJS.ProcessEnv>): number {
+  const value = Number(env.PI_COC_TURN_BUDGET_MS?.trim() || NaN);
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_TURN_BUDGET_MS;
 }
 
 /** The Keeper verbs whose committed result is the turn's delivery (contract: real `narrate` / `ask` only). */
@@ -169,6 +177,10 @@ interface RunState {
   lease?: TaskLease;
   /** The NPC turn whose held or fled standing the Keeper was last told (`<npc>:r<round>`). */
   noted?: string;
+  /** §135.25: the run's time budget, the start of its latest model step, and the clerk steps the budget deferred. */
+  budgetMs: number;
+  lastInferAt?: number;
+  deferred: DeferredStep[];
   /** §135.11: the turn-close steer the next model step carries (the kernel extension's own `coc-host` message). */
   steer?: Row;
 }
@@ -179,6 +191,9 @@ interface RunState {
  */
 export function createHybridEngine(options: HybridEngineOptions): {runDriver: SessionRunDriver; extension: (pi: any) => void; bridge: () => KernelBridge | undefined} {
   let bridge: KernelBridge | undefined, gateway: OperationGateway | undefined, closer: TurnClosePort | undefined, api: any;
+  const now = options.now ?? (() => Date.now());
+  /** §135.25: the clerk steps the last run's budget deferred, for the next run's first note to the Keeper (session memory). */
+  let carried: {campaign?: string; run: string; turn?: number; deferred: DeferredStep[]} | undefined;
   const jev = options.decision === null ? undefined
     : options.decision ?? (readJevApiKey(options.env) ? createDecisionAdapter({env: options.env, maxConcurrency: 4}) : undefined);
   const record = (row: Record<string, unknown>) => {
@@ -212,7 +227,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   function makePorts(run: RunState): RunDriverPorts {
     return {
       clock: {now: () => Date.now()},
-      record: {record: (event: RunEvent) => record({lane: 'run', ...event})},
+      record: {record: (event: RunEvent) => { record({lane: 'run', ...event}); if (event.type === 'run_end') budgetSummary(run); }},
       read: {
         async read(_proposal, invocation) {
           const began = Date.now();
@@ -424,9 +439,35 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     } finally { lease.close(); }
   }
 
+  /** §135.25: one `budget` summary row per run, and the deferred clerk steps carried to the next run's note. */
+  function budgetSummary(run: RunState) {
+    const elapsed = now() - run.startedAt;
+    record({lane: 'run', event: 'budget', decision: 'summary', run: run.runId, budget_ms: run.budgetMs, elapsed_ms: elapsed,
+      elapsed_at_compose: run.lastInferAt ?? null, over_budget: elapsed >= run.budgetMs, deferred_by_budget: run.deferred});
+    carried = run.deferred.length ? {campaign: bridge?.campaign, run: run.runId, ...(run.turn !== undefined ? {turn: run.turn} : {}), deferred: run.deferred} : undefined;
+  }
+
   /** The run's note to the Keeper before a model step. Nothing new to say: no message. */
   function projection(run: RunState, view: {policyState: StepPolicyState}, step: {purpose: string; reason: string; request?: unknown}, stepId: string) {
     const content: Row = {kind: 'single_loop_step', purpose: step.purpose, reason: step.reason};
+    run.lastInferAt = now() - run.startedAt;
+    // §135.25: the compose the budget chose lists the clerk steps it left undone; the next run's first note says so once.
+    const budget = object(object(step.request).budget);
+    if (step.reason === 'run_budget') {
+      run.deferred = Array.isArray(budget.deferred_by_budget) ? budget.deferred_by_budget as DeferredStep[] : [];
+      Object.assign(content, {budget: {budget_ms: budget.budget_ms ?? run.budgetMs, elapsed_ms: budget.elapsed_ms ?? null},
+        budget_note: 'The turn\'s time budget is spent: close the turn now with the prose (narrate, or ask for a pending choice) and leave '
+          + 'further bookkeeping for the next turn.',
+        ...(run.deferred.length ? {deferred_by_budget: run.deferred,
+          deferred_note: 'The clerk did not carry out these declared steps; nothing was executed for them. Narrate only what landed.'} : {})});
+    }
+    if (carried && carried.run !== run.runId && (!carried.campaign || carried.campaign === bridge?.campaign)) {
+      Object.assign(content, {deferred_last_turn: carried.deferred,
+        deferred_note: 'On the last turn the time budget ran out before the clerk carried out these declared steps; they were never executed. '
+          + 'Settle one now only if the fiction still calls for it.'});
+      record({lane: 'run', event: 'budget_carried', run: run.runId, step: stepId, from_run: carried.run, deferred_by_budget: carried.deferred});
+      carried = undefined;
+    }
     const fresh = run.clerkDid.slice(run.projected);
     run.projected = run.clerkDid.length;
     if (fresh.length) Object.assign(content, {clerk_did: fresh,
@@ -449,7 +490,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       instruction: 'The clerk chose this operation from the player\'s declared action. Call its verb once, with the bound values as given and '
         + 'the needed parameters filled in; decide nothing else in this response.'});
     const plan = view.policyState?.view?.plan;
-    if (step.reason === 'batch_fallen' && plan) Object.assign(content, {batch: plan.steps,
+    if ((step.reason === 'batch_fallen' || budget.batch_fallen === true) && plan) Object.assign(content, {batch: plan.steps,
       batch_note: 'Your last batch stopped where a step failed; the steps after it were not executed. Decide what that failure means.'});
     const messages: Row[] = [];
     if (Object.keys(content).length > 3 || fresh.length) messages.push({role: 'custom', customType: CLERK_TYPE, content: JSON.stringify(content), display: false,
@@ -459,16 +500,38 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     return messages.length ? messages as any : undefined;
   }
 
+  /**
+   * §135.25: every step the policy picks past the run's time budget is a `lane: "run"` budget row. The policy stays
+   * pure; this wrapper only reads the step it chose and the elapsed time the policy state already carries.
+   */
+  function budgetRows(run: RunState, policy: ReturnType<typeof createStepPolicy>): ReturnType<typeof createStepPolicy> {
+    return {...policy, next(driver) {
+      const request = policy.next(driver), budget = driver.policyState.view.budget;
+      if (overRun(budget) && request.kind !== 'finish') {
+        const deferred = object(object(request.kind === 'infer' ? request.request : undefined).budget).deferred_by_budget;
+        // compose: the budget chose it; compose_owed: a compose already pending (the turn close's steer, the route's finish);
+        // model_batch: the Keeper's proposals run whole; turn_close: the §135.11 close; forced_step: the kernel's forced step.
+        const decision = request.kind === 'infer' ? (request.reason === 'run_budget' ? 'compose' : 'compose_owed')
+          : request.kind === 'operate' && request.proposals.every(proposal => proposal.origin === 'model') ? 'model_batch'
+            : request.kind === 'operate' && request.proposals.some(proposal => proposal.operation === 'turn_close') ? 'turn_close' : 'forced_step';
+        record({lane: 'run', event: 'budget', decision, run: run.runId, step: `${run.runId}:s${driver.steps + 1}`, budget_ms: budget.maxRunMs, elapsed_ms: budget.runMs,
+          ...(Array.isArray(deferred) ? {deferred_by_budget: deferred} : {})});
+      }
+      return request;
+    }};
+  }
+
   const runDriver: SessionRunDriver = {
     engine: 'hybrid-v1',
     // The Jev scope comes from the run's own read step (a read artifact carries the binding), never from a read
     // outside a step; until a read has bound it, a route question carries no batch and degrades to the Keeper.
     prepare: context => {
-      const allowance = readJevPreselectAllowanceMs(options.env as NodeJS.ProcessEnv), startedAt = Date.now();
+      const allowance = readJevPreselectAllowanceMs(options.env as NodeJS.ProcessEnv), startedAt = now(), budgetMs = turnBudgetMs(options.env);
       const run: RunState = {runId: context.runId, rawInput: context.rawInput, inputRevision: context.inputRevision, session: context.session as unknown as Row,
-        startedAt, allowanceDeadline: startedAt + allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
-        identities: new Map()};
-      return {policy: createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance}}), ports: makePorts(run), maxSteps: options.maxSteps ?? 48};
+        startedAt, allowanceDeadline: Date.now() + allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
+        identities: new Map(), budgetMs, deferred: []};
+      const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt});
+      return {policy: budgetRows(run, policy), ports: makePorts(run), maxSteps: options.maxSteps ?? 48};
     },
   };
 

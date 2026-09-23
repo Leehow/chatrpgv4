@@ -693,15 +693,15 @@
     },
     {
       "file": "extensions/kernel/admission.ts",
-      "symbol": "reviewAdmissionPrimary",
+      "symbol": "typedAttempt",
       "kind": "jev-adapter",
       "callee": "createDecisionAdapter",
       "count": 1,
-      "owner": "kernel ext: action admission (contract 32.10)",
-      "path": "app-play-gated",
+      "owner": "kernel ext: action admission (contract 32.10, 32.11)",
+      "path": "app-play",
       "role": "leaf",
       "trace": "not observed (reviewer: lane)",
-      "note": "Gate: PI_COC_ADMISSION_REVIEWER=jev; falls back to the lane on every non-verdict.",
+      "note": "SL-10 (32.11): every bookkeeping apply batch (move/clue/handout/time) is typed first by default (PI_COC_ADMISSION_FAST_MIN_CONFIDENCE, 'off' disables); other reviews only with PI_COC_ADMISSION_REVIEWER=jev. Falls back to the lane on every non-verdict. Moved from reviewAdmissionPrimary at SL-10.",
       "lines_at_0b729e8fb": [
         485
       ]
