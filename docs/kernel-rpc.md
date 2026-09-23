@@ -4280,10 +4280,10 @@ named actor values, target-scoped reuse and result mappings), generated weapon,
 spell and item definitions, and typed world effects. Unknown required capabilities
 are rejected; descriptive text never stands in for an executable mechanic.
 The check declaration form a package ships in `contributes.checks[]` is shared with a
-module's stated obligations, and one validator checks both (§133.2–§133.3): a Mod check's
+module's stated obligations, and one validator checks both (§134.2–§134.3): a Mod check's
 `trigger` is now validated as the closed enum `{contact}` and is required; `selection:
 approach` and `values[].minimum` belong to the shared form but are refused for a Mod
-until the Mod resolver reads them (§133.3).
+until the Mod resolver reads them (§134.3).
 
 Current implementation decisions: `definition-created` and `ability-acquired` join
 the closed event set. Natural NPC checks may run during the opening after a real
@@ -16055,7 +16055,7 @@ ignored without error; a patch that changes nothing draws nothing), and the §12
 what they assert (`coc-object-details.test.ts`; `object-details-pairing.test.mjs` now picks the §129
 word out by its type, because a patch rides beside each one).
 
-## 133. A scene obligation the book states is a requirement node (2026-09-23, SO-01 of `docs/specs/scene-obligations-as-candidates.md`; amends §26's check declaration)
+## 134. A scene obligation the book states is a requirement node (2026-09-23, SO-01 of `docs/specs/scene-obligations-as-candidates.md`; amends §26's check declaration)
 
 A **stated obligation** is a demand the module's own text attaches to a scene: before the
 investigators get something there (access, a way onward, a person's help), the book says they
@@ -16064,9 +16064,9 @@ settles, the Mod check declaration form it shares, and the one validator that re
 malformed one. **Nothing in the kernel reads an obligation yet**: issuance, `action.obligation`
 on `resolve`, the `table.apply.options` key and the capsule row are SO-02 and will be written as
 their own section. Until then the nodes are authored data with a validator and no reader, and
-every capsule and options read is byte for byte what it was (§133.8).
+every capsule and options read is byte for byte what it was (§134.8).
 
-### 133.1 The node
+### 134.1 The node
 
 One `requirement` node per obligation (a node kind the graph contract v3 already had and nothing
 used), linked from its scene by exactly one `has-requirement` claim (an existing relation kind;
@@ -16080,13 +16080,13 @@ the demand. The obligation is `properties.obligation`, a closed object (an unkno
   trigger: {kind: "attempt", guards: {clues?: [clue node_id], exits?: [scene node_id], people?: [npc node_id]}}
          | {kind: "after", obligation: <requirement node_id>},
   who?: <npc node_id>,                            // the gatekeeper or the person to be met; seated in `scene`
-  reaction?: "preordained",                       // §133.5
+  reaction?: "preordained",                       // §134.5
   demand: [step, ...],                            // ordered, at least one
-  settles: {kind: "flag_set", flag_id: <semantic id>}   // §133.4
+  settles: {kind: "flag_set", flag_id: <semantic id>}   // §134.4
 }
 
 step = {kind: "meet", npc: <npc node_id seated in scene>}
-     | {kind: "check", ...the check declaration of §133.2}
+     | {kind: "check", ...the check declaration of §134.2}
      | {kind: "cost", book: <one Keeper-only line>}      // a stated cost is never applied by the kernel
 ```
 
@@ -16098,7 +16098,7 @@ step = {kind: "meet", npc: <npc node_id seated in scene>}
 - `who`, `reaction` and every step key are data only in this section; what the kernel and the clerk
   do with them is SO-02/SO-04.
 
-### 133.2 The check declaration form (shared with §26 `contributes.checks[]`)
+### 134.2 The check declaration form (shared with §26 `contributes.checks[]`)
 
 A check step and a Mod's contributed check are one declaration form:
 
@@ -16107,12 +16107,12 @@ A check step and a Mod's contributed check are one declaration form:
 | `scope` | `actor-target` | `actor-target` (needs `target`, an npc node) or `actor` (no `target`) |
 | `values` | non-empty list of `{path, label}` | the same, each may carry `minimum`; absent only with `approaches_unstated: true` |
 | `values[].path` | `characteristics.<X>` or `skills.<name>` | the same, and `<X>`/`<name>` must resolve in the ruleset's characteristic and skill tables by normalised-name match (`normalize`, the one name matching the repo allows) |
-| `values[].minimum` | refused (§133.3) | an integer 1–100: the rating the book states as a threshold (Credit Rating 75) |
+| `values[].minimum` | refused (§134.3) | an integer 1–100: the rating the book states as a threshold (Credit Rating 75) |
 | `selection` | `maximum` | `maximum` or `approach` (the actor takes one of `values`; which one is bound by the host or the Keeper, never picked by the clerk — SO-04); absent only with `approaches_unstated` |
 | `difficulty` | `regular` / `hard` / `extreme` | the same; absent only with `difficulty_unstated: true` |
 | `results` | exactly the six levels `critical, extreme, hard, regular, failure, fumble`, each a mapping the Mod defines | exactly the six levels, each `{settles: boolean, book?: string}` |
 | `push` | — | optional `{allowed: boolean, book?: string}` |
-| `trigger` | on the check: the string `contact`, required | on the obligation (§133.1), not on the step |
+| `trigger` | on the check: the string `contact`, required | on the obligation (§134.1), not on the step |
 
 **Accounting, not content.** A page that states no difficulty is recorded as
 `difficulty_unstated: true` instead of a guessed `regular`; a page that states no skill as
@@ -16124,7 +16124,7 @@ The kernel applies no consequence from them: ejection, route closure, damage and
 Keeper's to realise. The starter's old typed consequence (`effect: {kind: "route_closed", route_id}`)
 is therefore not carried over; its line is.
 
-### 133.3 One validator, and what it says to a Mod
+### 134.3 One validator, and what it says to a Mod
 
 `kernel-ts/modules/obligation-shape.ts` holds the validator. `checkDeclarationRefusals(check,
 owner)` is the one function for the shared form; it is called by the Mod manifest check
@@ -16138,7 +16138,7 @@ and a stable `rule`:
 | rule | refused |
 | --- | --- |
 | `obligation_unsourced` | no non-empty `source_refs`, or (starter) no non-empty `evidence_span_ids` |
-| `obligation_unknown_key` | `properties.obligation` not an object, or a key outside §133.1's object, its trigger, its guards, a step's closed key set or (obligation) a value's `{path, label, minimum}` |
+| `obligation_unknown_key` | `properties.obligation` not an object, or a key outside §134.1's object, its trigger, its guards, a step's closed key set or (obligation) a value's `{path, label, minimum}` |
 | `obligation_unresolved` | `scene`, `who`, `meet.npc`, `target`, a `guards` list or id, or `after` that is not a node of the right kind (scene, npc, npc, npc, clue/scene/npc, a requirement node stating an obligation) |
 | `obligation_unlinked` | the node is not linked by exactly one `has-requirement` claim, from `scene` |
 | `obligation_not_seated` | `who` or a `meet.npc` not seated in `scene` |
@@ -16173,7 +16173,7 @@ read as data.
 `natural-npc` 1.4.2 declares `trigger: "contact"`, `selection: maximum` and a six-level result map; it
 loads unchanged at its version and digest (Mod bytes are frozen per version).
 
-### 133.4 Settlement is a flag (data convention; the kernel behaviour is SO-02)
+### 134.4 Settlement is a flag (data convention; the kernel behaviour is SO-02)
 
 `settles: {kind: "flag_set", flag_id}` is the condition shape exits already read (§18.7,
 `conditionStatus`). The flag id is a semantic id because world flags are stored under their kebab
@@ -16183,14 +16183,14 @@ read back under a key nobody wrote, so the validator requires the stored form. O
 owner obligation. An obligation is settled when its flag is true; the Keeper waives or reopens it
 with an ordinary `apply flag` and its receipt. No new world key and no new `apply` kind exist for it.
 
-### 133.5 `reaction: "preordained"`
+### 134.5 `reaction: "preordained"`
 
 When the book states that the person's reaction roll is not used, the obligation says so. Its only
 value is `preordained`; absent means an active Mod's contact check for that pair runs as today.
 What the clerk does with it (does not settle the Mod's contact check for that pair; the Keeper
 still may) is SO-02/SO-04. The Mod's declaration is not changed by it.
 
-### 133.6 The haunting's first authored pair (owner ruling Q7) and the migration
+### 134.6 The haunting's first authored pair (owner ruling Q7) and the migration
 
 `content/starters/the-haunting/module-graph.json` carries two obligations at `scene-newspaper-morgue`:
 
@@ -16218,18 +16218,18 @@ The starter's shipped character-guidance bundles are re-stamped to the new graph
 recomputed fingerprints (the guidance text is unchanged: the opening scene and its guides did not
 move), as the 2026-09-13 map change did.
 
-### 133.7 The three ends (§31)
+### 134.7 The three ends (§31)
 
 *Who writes it:* the starter author, and (SO-03) the visual reader under independent review.
 *Who reads it:* nobody in this section — SO-02's `sceneObligations` is the first reader. *Who acts
 on it:* the clerk and the Keeper (SO-04). A writer without a reader is the defect §31 names; it is
 accepted here for one scheduled ticket only, and SO-02 is where behaviour moves.
 
-### 133.8 Tests
+### 134.8 Tests
 
 `tests/extension/obligation-shape.test.mjs`, through the real entries (`module.register` over a
 content root whose haunting graph carries the case; `mods.install` of a package derived from
-`natural-npc`): every refusal of §133.3 by its `rule`, each also shown to go green when its rule is
+`natural-npc`): every refusal of §134.3 by its `rule`, each also shown to go green when its rule is
 removed from the validator (the mutation record is in the SO-01 report); the minimal valid node, a
 `difficulty_unstated` node, an `approaches_unstated` node and `reaction: "preordained"` accepted;
 the shipped haunting registering; `natural-npc` loading at its version. The capsule,

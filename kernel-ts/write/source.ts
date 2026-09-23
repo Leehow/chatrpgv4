@@ -484,14 +484,14 @@ async function registerStarterLocked(context: KernelContext, id: string): Promis
     let meta = existing;
     const writeMeta = async () => { meta!.updated_at = nowIso(); await writeJsonAtomic(metaFile, meta!); };
     if (!existing || existing.graph_digest !== digest) {
-        // Contract §133.3: a stated obligation is refused before any byte of the generation is written.
+        // Contract §134.3: a stated obligation is refused before any byte of the generation is written.
         if (statedObligations(view).length) {
             const tables = new RuleTables(context);
             const refusals = obligationRefusals(view, {skills: Object.keys(await tables.skillsTable()),
                 characteristics: Object.keys(await tables.characteristicTable())}, {starter: true});
             if (refusals.length)
                 throw new RpcError('invalid_params', `starter ${repr(id)} states an obligation this kernel refuses: ${refusals[0].node} ${refusals[0].path}: ${refusals[0].message}`, {
-                    fix: 'repair the requirement node in the starter graph (contract §133); every refusal is in details.refusals',
+                    fix: 'repair the requirement node in the starter graph (contract §134); every refusal is in details.refusals',
                     details: {reason: 'obligation_invalid', module: id, refusals},
                 });
         }

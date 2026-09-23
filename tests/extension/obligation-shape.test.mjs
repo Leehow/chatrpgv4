@@ -1,5 +1,5 @@
 /**
- * Contract §133: a stated obligation's shape, and the one validator that refuses a malformed one.
+ * Contract §134: a stated obligation's shape, and the one validator that refuses a malformed one.
  *
  * Every case travels a real entry. A starter case writes the shipped haunting graph -- with exactly one
  * change -- into a content root and calls `module.register`, which is what `campaign.create` does; a Mod
@@ -132,7 +132,7 @@ test('a skill resolves by normalised name against the ruleset, and a characteris
     }), null);
 });
 
-// ----- the refusals of §133.3, one rule each -----
+// ----- the refusals of §134.3, one rule each -----
 
 test('obligation_unsourced: an obligation without source_refs', () => refusedUnder('obligation_unsourced', graph => { delete node(graph, ACCESS).source_refs; }));
 test('obligation_unsourced: a starter obligation without evidence spans', () => refusedUnder('obligation_unsourced', graph => { node(graph, ACCESS).evidence_span_ids = []; }));

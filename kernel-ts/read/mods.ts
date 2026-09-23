@@ -276,7 +276,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     for (const check of checks) {
         if (!plain(check) || !/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/.test(string(check.name ?? "")))
             invalid("Invalid contributed percentile decision");
-        // Contract §133.3: the declaration form is shared with a module's stated obligations, and so is its validator.
+        // Contract §134.3: the declaration form is shared with a module's stated obligations, and so is its validator.
         const refused = checkDeclarationRefusals(check, { kind: "mod" });
         if (refused.length)
             throw new RpcError("invalid_params", `${packageLabel(manifest)}: contributed check ${check.name}: ${refused[0].message}`, {

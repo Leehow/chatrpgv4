@@ -1,5 +1,5 @@
 /**
- * Contract §133: the shape of a stated obligation (a `requirement` node's `properties.obligation`)
+ * Contract §134: the shape of a stated obligation (a `requirement` node's `properties.obligation`)
  * and the check declaration form it shares with a Mod's `contributes.checks[]` (§26).
  *
  * `checkDeclarationRefusals` is the one function for the shared form: the Mod manifest check calls
@@ -22,7 +22,7 @@ const LEVELS = ["critical", "extreme", "hard", "regular", "failure", "fumble"];
 const DIFFICULTIES = ["regular", "hard", "extreme"];
 const SELECTIONS = { mod: ["maximum"], obligation: ["maximum", "approach"] } as const;
 const SCOPES = { mod: ["actor-target"], obligation: ["actor-target", "actor"] } as const;
-/** §133.3: the closed trigger enum per owner. A Mod's check carries its trigger; an obligation carries it on itself. */
+/** §134.3: the closed trigger enum per owner. A Mod's check carries its trigger; an obligation carries it on itself. */
 export const TRIGGERS = { mod: ["contact"], obligation: ["attempt", "after"] } as const;
 /** The graph contract's semantic id law; world flags are stored under exactly this form (`stageFlag`). */
 const SEMANTIC_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
@@ -34,14 +34,14 @@ const plain = (value: any): value is Row => value != null && typeof value === "o
 const text = (value: any): boolean => typeof value === "string" && Boolean(value.trim());
 const unknownKeys = (value: Row, allowed: readonly string[]): string[] => Object.keys(value).filter(key => !allowed.includes(key));
 
-/** §133.3: whether `kind` is a trigger this owner may declare. */
+/** §134.3: whether `kind` is a trigger this owner may declare. */
 export function triggerRefusal(owner: keyof typeof TRIGGERS, kind: any, path: string): Refusal | null {
     const allowed: readonly string[] = TRIGGERS[owner];
     return typeof kind === "string" && allowed.includes(kind) ? null
         : { rule: "check_trigger", path, message: `${path} must be ${allowed.join(" or ")}` };
 }
 
-/** §133.2: the check declaration form, for a Mod's contributed check or an obligation's check step. */
+/** §134.2: the check declaration form, for a Mod's contributed check or an obligation's check step. */
 export function checkDeclarationRefusals(check: any, owner: CheckOwner, at = ""): Refusal[] {
     const refusals: Refusal[] = [], obligation = owner.kind === "obligation";
     const refuse = (rule: string, key: string, message: string) => refusals.push({ rule, path: at + key, message });
@@ -113,7 +113,7 @@ function valueRefusals(value: any, owner: CheckOwner, key: string, refuse: (rule
         return;
     }
     if (Object.hasOwn(value, "minimum")) {
-        // §133.3: the Mod resolver reads no threshold, so a Mod may not declare one it would silently ignore.
+        // §134.3: the Mod resolver reads no threshold, so a Mod may not declare one it would silently ignore.
         if (!obligation)
             refuse("check_values", `${key}.minimum`, "a Mod check cannot declare a minimum; the Mod resolver reads none");
         else if (!Number.isInteger(value.minimum) || value.minimum < 1 || value.minimum > 100)
@@ -132,7 +132,7 @@ export const statedObligations = (graph: ModuleGraph): Row[] =>
     graph.kind("requirement").filter(node => Object.hasOwn(row(node.properties), "obligation"));
 
 /**
- * §133.3: every refusal the module's stated obligations earn. Starter registration calls this before
+ * §134.3: every refusal the module's stated obligations earn. Starter registration calls this before
  * a generation's bytes are written; `starter` also requires the node's `evidence_span_ids`.
  */
 export function obligationRefusals(graph: ModuleGraph, rules: { skills: readonly string[]; characteristics: readonly string[] }, options: { starter: boolean }): Refusal[] {

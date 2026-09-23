@@ -93,14 +93,14 @@ def test_reprojection_reproduces_the_committed_graph(module_id):
     assert json.loads(result.stdout)["identical"] is True
 
 
-#: Contract §133.6: the two stated obligations authored into the haunting after the old projection.
+#: Contract §134.6: the two stated obligations authored into the haunting after the old projection.
 HAUNTING_OBLIGATIONS = ["requirement-globe-archivist", "requirement-globe-clippings-access"]
 
 
 @pytest.mark.skipif(not OLD_HAUNTING.exists(), reason="the old tree's the-haunting IR is not on this machine")
 def test_the_haunting_old_projection_diff_is_only_the_new_typescript_map_metadata_and_the_morgue_obligations(tmp_path):
     graph = read_json(CONTENT_DIR / "starters" / "the-haunting" / "module-graph.json")
-    # The old script's diff is positional: an added node shifts every later row. The §133 additions are
+    # The old script's diff is positional: an added node shifts every later row. The §134 additions are
     # therefore set aside and pinned by name, so the diff below still names each remaining edit.
     assert [n["node_id"] for n in graph["nodes"] if n["node_kind"] == "requirement"] == HAUNTING_OBLIGATIONS
     assert [(c["subject_id"], c["object"]["node_id"]) for c in graph["claims"] if c["predicate"] == "has-requirement"] \
@@ -126,7 +126,7 @@ def test_the_haunting_old_projection_diff_is_only_the_new_typescript_map_metadat
             "/nodes[asset-player-corbitt-house-map]/properties/image_sources: missing in new",
             "/nodes[asset-player-corbitt-house-map]/properties/map_regions: missing in new",
             '/nodes[asset-player-corbitt-house-map]/properties/role: "player-map" -> "player-delivery"',
-            # §133.6's migration: the gate moved into the obligations; Ruth's invented roll removed (ruling Q3).
+            # §134.6's migration: the gate moved into the obligations; Ruth's invented roll removed (ruling Q3).
             f"{morgue}/affordances[0]/roll_gate: missing in old",
             f"{morgue}/affordances[1]/requires_completed_route_ids: missing in old",
             f"{morgue}/affordances[2]/requires_completed_route_ids: missing in old",
