@@ -175,8 +175,48 @@ function unitGroups(entries:readonly [string,unknown][],stub:Row,key:string):Arr
     flush();return groups;
 }
 
+/**
+ * Contract §131.3: the units of a book node are a pure function of the frozen graph it was read from,
+ * the node, the scope, the source revision and its readiness, so they are cut once per process per
+ * graph and handed back frozen. A node the table established (§14's table people) is not in `raw` and
+ * is cut on every call. `graph.raw` is the frozen object the snapshot reader keeps per file, so a
+ * republished graph is a new key and the old units go with the old object.
+ */
+const cutUnits=new WeakMap<Row,Map<string,readonly Row[]>>(),CUT_UNITS_PER_GRAPH=8192;
+const handlesOf=new WeakMap<ModuleGraph,Map<string,string>>();
+function handles(graph:ModuleGraph):Map<string,string> {
+    let names=handlesOf.get(graph);
+    if(!names){names=new Map([...graph.nodes.values()].map(value=>[string(value.node_id),graph.handle(value)]));handlesOf.set(graph,names);}
+    return names;
+}
+/** A frozen structural copy: arrays and plain objects rebuilt and frozen, every other value shared. */
+function frozenCopy<T>(value:T):T {
+    if(Array.isArray(value))return Object.freeze(value.map(frozenCopy)) as T;
+    if(value&&typeof value==='object'&&(Object.getPrototypeOf(value)===Object.prototype||Object.getPrototypeOf(value)===null))
+        return Object.freeze(Object.fromEntries(Object.entries(value as Row).map(([key,child])=>[key,frozenCopy(child)]))) as T;
+    return value;
+}
+export function forgetCutUnits(graph:ModuleGraph):void {cutUnits.delete(graph.raw);handlesOf.delete(graph);}
+
 /** Complete source-owned graph units, interleaved by the caller across entities before later units of one large entity. */
 export function graphMaterialCandidates(graph:ModuleGraph,node:Row,scope:Row,revision:string,ready:boolean):Row[] {
+    const id=string(node.node_id),cacheable=Object.isFrozen(graph.raw)&&Object.isFrozen(node)&&graph.nodes.get(id)===node&&!graph.tableNames.has(id);
+    let cut:Map<string,readonly Row[]>|undefined,cacheKey='';
+    if(cacheable){
+        cut=cutUnits.get(graph.raw);if(!cut){cut=new Map();cutUnits.set(graph.raw,cut);}
+        cacheKey=`${id}\0${revision}\0${ready?'1':'0'}\0${pythonJsonDumps(scope)}`;
+        const hit=cut.get(cacheKey);if(hit)return [...hit];
+    }
+    const result=cutGraphUnits(graph,node,scope,revision,ready);
+    if(!cut)return result;
+    // The first caller gets the same frozen rows every later caller will, so a consumer that
+    // mutates a row fails on its first read rather than only on a warm one.
+    const frozen=frozenCopy(result);
+    if(cut.size>=CUT_UNITS_PER_GRAPH)cut.clear();
+    cut.set(cacheKey,frozen);
+    return [...frozen];
+}
+function cutGraphUnits(graph:ModuleGraph,node:Row,scope:Row,revision:string,ready:boolean):Row[] {
     const handle=graph.handle(node),kind=string(node.node_kind||'module'),locator=`${kind}:${handle}`,label=graph.displayName(node),
         read={tool:'lookup',kind:'module',query:handle},refs=sourceRefsOf(node),stub={name:handle,display_name:label,kind,
             summary:string(node.summary??''),visibility:string(node.visibility??'keeper-only')},coreKey=materialKey('graph-unit',{revision,locator,unit:'identity'});
@@ -189,7 +229,7 @@ export function graphMaterialCandidates(graph:ModuleGraph,node:Row,scope:Row,rev
         result.push({...common,key,label:unitLabel,...completeMaterialBody(value,read,{projection:'graph_source_unit',unit:{kind:unit},entity_complete:false,
             required_context:dependencies.length?dependencies:[],dependencies},GRAPH_UNIT_BYTES)});};
     add('identity',label,{entity:stub});
-    const names=new Map([...graph.nodes.values()].map(value=>[string(value.node_id),graph.handle(value)])),authored=row(semanticGraphValue(recordOf(node),names));
+    const names=handles(graph),authored=row(semanticGraphValue(recordOf(node),names));
     for(const [index,group] of unitGroups(Object.entries(authored).sort(([left],[right])=>left.localeCompare(right)),stub,'authored').entries())
         add(`authored:${index}`,`${label} — ${group.name}`,group.value,[coreKey]);
     const relations=array(semanticGraphValue(graph.relationsOf(node),names));

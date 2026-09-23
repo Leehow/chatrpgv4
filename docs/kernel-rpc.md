@@ -15485,3 +15485,17 @@ Measured on the same table and process (warm, second request onward): `table.vie
 `table.look` 128 → 7 ms, `table.workspace.read` 600 → 240–290 ms. The remaining workspace cost is the
 per-field packing of §124's material units and the digests of the current turn's records, not parsing.
 Test: `tests/extension/kernel-parsed-file-cache.test.mjs`.
+
+### 131.3 A book node's units are cut once per graph
+
+`graphMaterialCandidates` (`kernel-ts/read/workspace-candidates.ts`) cuts a node's §124 material units —
+identity, the authored record packed into ≤ 4 KB groups, the relations — and every input to that cut is
+either the frozen graph object the snapshot reader keeps per file (`graph.raw`), the frozen node inside
+it, the scope, the source revision or the readiness flag. So the cut is kept per process, keyed by
+`graph.raw` identity and `(node id, revision, ready, scope)`, at most 8192 cuts per graph, and every
+caller — the first included — receives the same frozen rows; a consumer that wrote into a row would fail
+on its first read, not only on a warm one. A node the table established (§14's table people) is not in
+`raw` and is cut on every call. The per-node map from node ids to handles, rebuilt for every node before,
+is built once per loaded graph. Profile (same table as §131): the cut was 77 ms of the 230 ms that
+remained after §131.1; a warm `table.workspace.read` now takes 150–210 ms and the index read 75 ms.
+Test: `tests/extension/graph-units-cache.test.mjs`.
