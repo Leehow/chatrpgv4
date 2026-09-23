@@ -13,6 +13,7 @@
  */
 import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
 import type {Candidate, Json, Unbound} from './step-policy.ts';
+import {DICE, guardsOf, obligationCandidates, preordainedContacts} from './obligation-candidates.ts';
 
 type Row = Record<string, any>;
 export {bindingOf, type Binding, type Candidate, type Json, type Unbound} from './step-policy.ts';
@@ -224,26 +225,25 @@ function dispositionInference(actor: string, name: string, fighter: Row, relatio
     basis: {read: 'table.look', path: 'combat_disposition', row: {npc: actor, read} as Json}};
 }
 
-/**
- * The seam for scene obligations (SO-04 of `docs/specs/scene-obligations-as-candidates-tickets.md`, clerk
- * authority (e), precedence `person -> mod_check -> obligation_check -> core-check -> clue/handout -> move`,
- * `guarded_by` withheld, `reaction: "preordained"` suppressing the Mod contact check for its pair). Not
- * implemented in SL-02: the kernel's `table.apply.options.obligations` is SO-02's and the consumption is SO-04's.
- */
-export function obligationCandidates(_reads: StateReads): Candidate[] {
-  return [];
-}
+/** Scene obligations (SO-04, contract §135.11): their candidates, what they guard, and the Mod checks they preordain. */
+export {obligationCandidates} from './obligation-candidates.ts';
 
 /**
  * candidates(view): apply.options (moves and scene clues the kernel issues), the scene's handout assets, the
  * people present and not yet introduced (under the capsule's own label), the active Mods' pending contact
  * checks, the ordinary check with its closed binder, the active combat/chase session's steps, and located
- * clue/handout entities. Consumed keys are removed. While a combat or chase session runs, leaving is the
+ * clue/handout entities, and the scene obligations' next steps (§135.11: the stated meeting in place of the roster
+ * candidate, the obligation check after the Mod contact checks; what an unsettled obligation guards, and a Mod
+ * contact check the book preordains, withheld). Consumed keys are removed. While a combat or chase session runs, leaving is the
  * session's own flee/chase step, so scene moves are not offered then; the ordinary check is not offered either,
  * because the kernel hands a running session to its own resolution owner.
  */
 export function buildCandidates(reads: StateReads, rawInput: string, consumed: ReadonlySet<string> = new Set()): Candidate[] {
   const out: Candidate[] = [], seen = new Set<string>();
+  // Scene obligations (contract §135.11): an open one's next step, what the unsettled ones guard, and the Mod
+  // contact checks a preordained one takes off the clerk's hands.
+  const stated = obligationCandidates(reads, rawInput), guards = guardsOf(reads), preordained = preordainedContacts(reads);
+  const meetings = new Map(stated.filter(candidate => candidate.family === 'person').map(candidate => [String(candidate.bound.who), candidate]));
   const push = (candidate: Candidate) => {
     if (seen.has(candidate.key) || consumed.has(candidate.key)) return;
     seen.add(candidate.key); out.push(candidate);
@@ -267,6 +267,8 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     // at all, and the internal `authority` tag is not shown.
     const unlock = object(description.unlock_when);
     if (kind === 'move' && (unlock.met === false || sessionLive)) continue;
+    // A row an unsettled stated obligation guards is withheld until the kernel stops naming the guard (§135.11).
+    if (text(row.guarded_by)) continue;
     if (kind === 'move') push({key: `apply:move:${text(effect.to)}`, verb: 'apply', family: 'move', source: 'table.apply.options',
       label: `Move the party to ${text(description.display_name) || text(effect.to)}`, bound: {kind: 'move', to: text(effect.to)},
       unbound: [{name: 'travel_minutes', required: false, vocabulary: 'open'}, {name: 'label', required: false, vocabulary: 'open'},
@@ -292,7 +294,10 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   // introduced needs no staging; anyone off the roster is never a candidate. Nothing is invented: without a label
   // the name is open and only the LLM can fill it.
   for (const [index, person] of array(capsule.present).map(object).entries()) {
-    if (!text(person.name) || text(object(person.called).name)) continue;
+    if (!text(person.name) || text(object(person.called).name) || guards.people.has(text(person.name))) continue;
+    // The person the book puts here as an obligation's meeting: the stated candidate replaces this one (§135.11).
+    const meeting = meetings.get(text(person.name));
+    if (meeting) { push(meeting); continue; }
     const label = text(object(person.untold).label);
     push({key: `apply:person:${text(person.name)}`, verb: 'apply', family: 'person', source: 'capsule.present',
       label: `Put ${text(person.name)} (${text(person.role) || 'person present'}) on stage${label ? ` as "${label}"` : ' under what this table calls them'}`,
@@ -304,14 +309,16 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   for (const [index, contact] of array(object(capsule.mods).pending_contacts).map(object).entries()) {
     const decision = text(contact.decision), target = text(contact.target), actor = text(contact.actor);
     if (!decision || !target) continue;
+    // The book preordains this person's reaction (owner ruling Q2), or the person is behind an open guard: not the clerk's.
+    if (preordained.get(target)?.has(decision) || guards.people.has(target)) continue;
     push({key: `resolve:${decision}:${actor}:${target}`, verb: 'resolve', family: 'mod_check', source: 'capsule.mods.pending_contacts',
       label: `${decision} for ${actor} meeting ${target} (${text(contact.when)})`,
       bound: {decision, ...(actor ? {actor} : {}), target, goal: rawInput, method: rawInput},
       unbound: [{name: 'intent', required: true, vocabulary: 'closed', options: resolveIntents()}],
       clerk: 'mod_contact', basis: {read: 'table.capsule', path: `mods.pending_contacts[${index}]`, row: contact as Json}});
   }
-  // SO-04 seam: scene obligations join here, after the Mod contact checks (not implemented in SL-02).
-  for (const candidate of obligationCandidates(reads)) push(candidate);
+  // The obligation checks, after the Mod contact checks (precedence person -> mod_check -> obligation_check -> ...).
+  for (const candidate of stated) if (candidate.family !== 'person') push(candidate);
   // The ordinary check is always live outside a session and has a closed host binder (route + profile); the
   // specialised families are offered only as the running session's own steps (above and below), never as the
   // compiled decision list (prototype run 1 offered all 52 decisions and Jev's right answer came back at 0.53).
@@ -329,6 +336,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   // Located entities the host can apply directly by handle.
   for (const entity of reads.located ?? []) {
     const basis = {read: 'semantic-locate+workspace.read', row: {handle: entity.handle, kind: entity.kind} as Json};
+    if (entity.kind === 'clue' && guards.clues.has(entity.handle)) continue;
     if (entity.kind === 'clue') push({key: `apply:clue:${entity.handle}`, verb: 'apply', family: 'clue', source: 'semantic-locate+workspace.read',
       label: `Reveal clue ${entity.handle}: ${entity.label}`, bound: {kind: 'clue', clue: entity.handle},
       unbound: [{name: 'how', required: false, vocabulary: 'open'}, {name: 'label', required: false, vocabulary: 'open'}], clerk: 'declared_bookkeeping', basis});
@@ -351,7 +359,13 @@ export function kernelCall(candidate: Candidate, extra: Record<string, Json> = {
  */
 export function keeperCall(candidate: Candidate, extra: Record<string, Json> = {}): {tool: 'apply' | 'resolve'; args: Row} {
   if (candidate.verb === 'apply') return {tool: 'apply', args: {effects: [{...candidate.bound, ...extra}]}};
-  const {decision, actor, target, goal, method, choice, ...rest} = {...candidate.bound, ...extra} as Row;
+  const {decision, actor, target, goal, method, choice, bonus, penalty, ...rest} = {...candidate.bound, ...extra} as Row;
+  // The closed dice words of a bind (the ordinary binder's, §135.11) become the check's modifiers; a die on a social
+  // attempt carries its reason, which is the player's declaration, as the ordinary binder's does.
+  if (typeof bonus === 'string' || typeof penalty === 'string') {
+    const dice = {bonus_dice: DICE[String(bonus)] ?? 0, penalty_dice: DICE[String(penalty)] ?? 0};
+    if (dice.bonus_dice || dice.penalty_dice) rest.modifiers = {...object(rest.modifiers), ...dice, reason: typeof goal === 'string' && goal ? goal : 'the player\'s declaration'};
+  }
   // A choice answer names the option it settles: the bound closed parameter it answers with (the defence).
   const answered = choice && typeof choice === 'object' ? {choice: {...choice, ...(rest.defense !== undefined && choice.option === undefined ? {option: rest.defense} : {})}} : {};
   return {tool: 'resolve', args: {action: {...rest, decision, ...(actor ? {actor} : {}), ...(target ? {target} : {}), ...answered,

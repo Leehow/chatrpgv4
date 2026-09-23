@@ -46,10 +46,12 @@ export interface CandidateVariant {label: string; bound: Record<string, Json>; u
  * - `session_step`: a combat or chase step whose every parameter the kernel's session view issues (the
  *   "parameters-only steps never go to the LLM" ruling);
  * - `disposition_inference`: writing the combat disposition Jev inferred, once per campaign, for an NPC whose turn
- *   has come and who has none (the ruling "An NPC's fight behaviour follows the NPC's own parameters"; §11.5.3).
+ *   has come and who has none (the ruling "An NPC's fight behaviour follows the NPC's own parameters"; §11.5.3);
+ * - `stated_obligation` (e): the next step of a scene obligation the module states, as the kernel issues it
+ *   (`table.apply.options.obligations`; contract §135.11): its meeting, or its check with a closed approach binder.
  * Fetching data (d) is the read step itself, not a candidate. Everything else is the Keeper's.
  */
-export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step', 'disposition_inference'] as const;
+export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step', 'disposition_inference', 'stated_obligation'] as const;
 export type ClerkAuthority = typeof CLERK_AUTHORITY[number];
 /** A host-issued step candidate (design §5.1): what the host can perform now, and what it still needs. */
 export interface Candidate {
@@ -198,10 +200,12 @@ const clears = (result: DecisionResult | undefined, key: string, choice: string,
  * Structural precedence among operations judged needed on the same snapshot (design §11.3: writes keep
  * their order). Who is on stage is settled before anyone is met; a Mod's contact check before an ordinary
  * check; reveals after the checks that gate them; a move last, because it changes the scene the rest
- * were judged in. This ranks families the host already knows; it never reads prose.
+ * were judged in. A stated obligation's check (§135.11) comes after the Mod contact check (a meeting's first
+ * impression before its demand) and before an ordinary check. This ranks families the host already knows; it
+ * never reads prose.
  */
-const PRECEDENCE: Record<string, number> = {person: 0, mod_check: 1, 'core-check': 2, clue: 3, handout: 3, move: 4};
-const rank = (candidate: Candidate): number => PRECEDENCE[candidate.family] ?? 2;
+const PRECEDENCE: Record<string, number> = {person: 0, mod_check: 1, obligation_check: 2, 'core-check': 3, clue: 4, handout: 4, move: 5};
+const rank = (candidate: Candidate): number => PRECEDENCE[candidate.family] ?? PRECEDENCE['core-check'];
 
 /**
  * What a route answer makes determined. Also pure. The route is a fan-out (design §5.1, several needs
@@ -480,14 +484,24 @@ export function consumedByEffects(effects: Row[] | undefined): string[] {
   }
   return keys;
 }
+/** The obligation check a model-origin resolve claimed (`action.obligation`), keyed as the host mints it (§135.11). */
+export function consumedByClaim(action: Row | undefined): string[] {
+  return typeof action?.obligation === 'string' && action.obligation ? [`resolve:obligation:${action.obligation}`] : [];
+}
 
 export function settleExecute(view: RunView, step: number, item: PendingItem, executed: {ok: boolean; summary: Json}, fresh: Fresh | undefined, ms: number): TelemetryRow {
   if (item.call) {
     if (item.candidate) view.consumed.push(item.candidate.key);
     // A model-origin apply consumes the host candidates it carried out, by the same structural keys the host
     // mints (run 20 re-showed a handout the model's batch had already placed: the asset row has no receipt id).
-    if (executed.ok) for (const key of consumedByEffects(item.call.params.effects as Row[] | undefined)) if (!view.consumed.includes(key)) view.consumed.push(key);
-  } else view.consumed.push(item.candidate!.key);
+    if (executed.ok) for (const key of [...consumedByEffects(item.call.params.effects as Row[] | undefined), ...consumedByClaim(item.call.params.action as Row | undefined)])
+      if (!view.consumed.includes(key)) view.consumed.push(key);
+  } else {
+    view.consumed.push(item.candidate!.key);
+    // A clerk step that was refused is dropped for the run (its key is consumed above) and the turn goes to the Keeper
+    // (§135.11): the clerk does not route around its own refusal.
+    if (!executed.ok) view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'clerk_refused'});
+  }
   if (fresh) {
     const before = view.context.scene;
     applyFresh(view, fresh);

@@ -40,6 +40,7 @@ import { prepareKeeperSupport, prescreenEnabled } from '../../extensions/table/p
 import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev/agent/config.js';
 import type { HostOperationContext, OperationIdentity } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 import { buildCandidates, keeperCall } from './candidates.ts';
+import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import {
   CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, interpretRoute, ROUTE_FAMILY,
   type Candidate, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
@@ -120,7 +121,11 @@ function packetMaterials(message: Row | undefined): {materials: Material[]; loca
 }
 
 /** One clerk step of this turn, as the Keeper's projection lists it. */
-interface ClerkStep {step: string; operation: string; label: string; clerk?: string; call_id: string | null; status: string; receipts: string[]; basis?: Json; result?: Json}
+interface ClerkStep {step: string; operation: string; label: string; clerk?: string; call_id: string | null; status: string; receipts: string[]; basis?: Json; result?: Json;
+  /** §135.11: the obligation step this was, with its receipt and page, in one line. */
+  obligation?: string;
+  /** §135.11 (owner ruling Q5): the open obligation whose guard this step crossed, in one line. */
+  obligation_open?: string}
 
 /** Per-run state the ports share; the policy's own state stays in the driver. */
 interface RunState {
@@ -312,9 +317,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const result = object(packet.result);
     const refusal = ok ? undefined : object(result.coc_error).code ?? result.code ?? packet.status;
     const {goal: _goal, method: _method, ...shown} = object(tool === 'resolve' ? args.action : {}) as Row;
+    const obligation = obligationClerkLine(candidate, ok, result, packet.receipts), crossed = ok ? obligationCrossing(candidate, result, packet.receipts) : undefined;
     run.clerkDid.push({step: invocation.stepId, operation: tool, label: candidate.label, clerk: candidate.clerk, call_id: callId, status: packet.status,
       receipts: packet.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
-      result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null} : {effects: args.effects}) as Json});
+      result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null, ...(result.obligation ? {obligation: result.obligation} : {})} : {effects: args.effects}) as Json,
+      ...(obligation ? {obligation} : {}), ...(crossed ? {obligation_open: crossed} : {})});
     const read = await freshOf(run);
     return {status: ok ? 'ok' as const : 'refused' as const, ...(ok ? {} : {reason: String(refusal)}),
       artifact: {kind: 'execute', executed: {ok, summary: {origin: 'policy', tool, call_id: callId, status: packet.status, receipts: packet.receipts,
@@ -374,6 +381,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (fresh.length) Object.assign(content, {clerk_did: fresh,
       note: 'The host (the clerk) settled these this turn before asking you, from the kernel\'s own options. They are committed, not pending: '
         + 'narrate what happened, do not redo them, and undo one only with a real operation of your own (its own receipt and time cost).'});
+    // §135.11 (owner ruling Q5): a clerk step that crossed an open obligation's guard, one line each, beside "clerk did".
+    const crossings = fresh.map(value => value.obligation_open).filter((value): value is string => !!value);
+    if (crossings.length) content.obligation_open = crossings;
     // §11.5.3: an NPC whose standing action is `hold` or `flee` issued no step, so its turn is the Keeper's; the note
     // says so with the standing and its disposition, once per NPC turn (the kernel's own view, never re-worded).
     const fight = object(run.fight), held = object(fight.standing_action), turnKey = `${text(fight.turn_of)}:r${String(fight.round ?? '')}`;

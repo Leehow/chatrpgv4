@@ -16,6 +16,19 @@ const finish=(status:'complete'|'partial'|'unresolved'|'needs_player',needs:stri
 const choice=(key:string,instructions:string,criteria:Record<string,DecisionDescriptor>):DecisionQuestion=>({key,target:key,type:'choice',instructions,criteria});
 const answer=(result:DecisionResult|undefined,key:string):string|undefined=>{const value=result?.answers[key];return value?.status==='answered'&&value.type==='choice'?value.choice:undefined;};
 
+/**
+ * The ordinary binder's closed intent and dice-modifier questions, shared with the obligation check's closed binder
+ * (contract §135.11), so the two binders cannot ask the same choice in two wordings.
+ */
+export const ORDINARY_CHOICES={
+  intent:{instructions:'Bind the existing canonical intent to the declared ordinary action. Do not reinterpret its family to make it executable.',
+    criteria:{investigate:'An investigative, observational or technical action.',social:'An interpersonal action.',move:'An uncertain movement action or obstacle.',unknown:'No ordinary-capable intent fits the declaration.'}},
+  bonus:{instructions:'Select bonus dice supported by the declared method and established circumstances. Do not invent assistance or equipment.',
+    criteria:{none:'No established bonus.',one:'One supported advantage die.',two:'Two supported advantage dice.',unknown:'The modifier cannot be determined.'}},
+  penalty:{instructions:'Select penalty dice supported by established circumstances, independently of difficulty.',
+    criteria:{none:'No established penalty.',one:'One supported penalty die.',two:'Two supported penalty dice.',unknown:'The modifier cannot be determined.'}},
+} as const;
+
 export function validateOrdinaryResolveOptions(value:unknown):OrdinaryResolveOptions|undefined {
   if(!isPlainRecord(value)||value.version!==1||!Array.isArray(value.profiles)||!Array.isArray(value.decisions)||!isPlainRecord(value.context)
     ||typeof value.revision!=='string'||!value.revision||typeof value.world_revision!=='string'||!value.world_revision)return undefined;
@@ -40,14 +53,11 @@ export function ordinaryRouteBatch(input:{rawInput:string;goal:string;plan?:Json
         {authorized:'The player chose this concrete ordinary action and method.',unselected:'The action/method was not selected.',unknown:'The declaration is ambiguous.'}),
       choice('actor','Select the investigator who performs the declared action, not a beneficiary. An unlisted NPC or ambiguous actor is unknown.',
         {...Object.fromEntries(actors.map((name,index)=>[`actor_${index}`,name])),unknown:'No single issued investigator is bound.'}),
-      choice('intent','Bind the existing canonical intent to the declared ordinary action. Do not reinterpret its family to make it executable.',
-        {investigate:'An investigative, observational or technical action.',social:'An interpersonal action.',move:'An uncertain movement action or obstacle.',unknown:'No ordinary-capable intent fits the declaration.'}),
+      choice('intent',ORDINARY_CHOICES.intent.instructions,ORDINARY_CHOICES.intent.criteria),
       choice('difficulty','Judge the ordinary check difficulty from established circumstances, without inventing adversity or modifiers.',
         {regular:'An ordinary uncertain attempt.',hard:'Established circumstances require a hard success.',extreme:'Established circumstances require an extreme success.',unknown:'The difficulty needs missing information.'}),
-      choice('bonus','Select bonus dice supported by the declared method and established circumstances. Do not invent assistance or equipment.',
-        {none:'No established bonus.',one:'One supported advantage die.',two:'Two supported advantage dice.',unknown:'The modifier cannot be determined.'}),
-      choice('penalty','Select penalty dice supported by established circumstances, independently of difficulty.',
-        {none:'No established penalty.',one:'One supported penalty die.',two:'Two supported penalty dice.',unknown:'The modifier cannot be determined.'}),
+      choice('bonus',ORDINARY_CHOICES.bonus.instructions,ORDINARY_CHOICES.bonus.criteria),
+      choice('penalty',ORDINARY_CHOICES.penalty.instructions,ORDINARY_CHOICES.penalty.criteria),
     ]};
 }
 
