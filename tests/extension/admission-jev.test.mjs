@@ -194,9 +194,11 @@ test("with both reviewers down the review still refuses as unavailable, and a re
 	assert.ok(rows.every((row) => row.reviewer === "lane" && row.reason === "bad_output" && row.jev_fallback === "service_error"), JSON.stringify(rows));
 });
 
-test("the typed route is opt-in: by default no typed request is made", async (t) => {
+test("the typed route is opt-in: by default no typed request is made (outside the bookkeeping fast path, §32.11)", async (t) => {
 	const requests = installJev(t, uniform("authorized"));
-	const table = await openTable({ responses: newspaperTurn(), env: { EXT_JEV_APIKEY: "test-jev-key" } });
+	// A move-and-clue batch is a bookkeeping batch, which §32.11 puts to the typed reviewer first by default; with the
+	// fast path off it is the §32.10 opt-in this test pins.
+	const table = await openTable({ responses: newspaperTurn(), env: { EXT_JEV_APIKEY: "test-jev-key", PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: "off" } });
 	t.after(() => table.dispose());
 	await table.session.prompt("我去环球报的剪报室查那栋房子的旧闻");
 

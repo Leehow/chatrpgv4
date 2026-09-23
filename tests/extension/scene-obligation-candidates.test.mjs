@@ -167,6 +167,10 @@ test("now on the gate's check carries its meeting directly first, under the book
 	assert.deepEqual(args.effects, [{ kind: "person", who: "Arty Wilmot", name: "Arty Wilmot" }], "the book's name, no open parameter");
 	view.pending.push(...routed.pending);
 	assert.equal(next(view).kind, "direct");
+	// Past the run's time budget (§135.25) the carried meeting still runs: structure, no model, like a forced step.
+	const spent = structuredClone(view);
+	spent.budget.runMs = spent.budget.maxRunMs;
+	assert.deepEqual([next(spent).kind, next(spent).item?.candidate?.key], ["direct", "apply:person:Arty Wilmot"]);
 	const staged = await call("table.apply", { call_id: `t${turn}-c2`, effects: args.effects });
 	assert.ok(staged.receipts.length);
 	// The fresh read issues the check without its meeting; the policy binds it next (the several approaches: Jev).
