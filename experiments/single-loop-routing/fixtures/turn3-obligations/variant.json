@@ -7,10 +7,10 @@
   "module_id": "the-haunting",
   "status": "installed",
   "generation": 3,
-  "graph_digest": "cfc354e1a43b48da178fc208be3ee56f3bcf8f2ffadead717111dc5428060d96",
+  "graph_digest": "35f98e57182f13075a264231cc90673c68fd039b2c6bf0cd57132b45d3714573",
   "title": "The Haunting"
  },
- "starter_sha256": "cfc354e1a43b48da178fc208be3ee56f3bcf8f2ffadead717111dc5428060d96",
- "starter_commit": "e2b9520c69b3ada2a8c1bed8606cd73faaa3a5de",
+ "starter_sha256": "35f98e57182f13075a264231cc90673c68fd039b2c6bf0cd57132b45d3714573",
+ "starter_commit": "0ed72381f3f4485cb1f0ef97c1dc684717f8c489",
  "unchanged_outside_modules": 369
 }
