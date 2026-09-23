@@ -22,12 +22,13 @@ One line: `next = determined(view) ? direct : jevRoute(candidates(view) ∪ {ask
 | --- | --- |
 | `loop.ts` | the policy (`next`, `interpretRoute`, `interpretBind`, gates, guards, precedence) and the driver (`runTurn`) over injected ports; pure except through ports |
 | `loop.test.mjs` | stub-port tests of the policy: determined → direct without Jev; fan-out shape; structural order; low confidence → LLM; margin gate; `ask_llm`; repeated question → escalate; after LLM → direct/finish only; closed bind; budget exhausted |
-| `candidates.ts` | host-issued candidates from real reads (`table.capsule`, `table.apply.options`, `table.resolve.options`, located entities); what each still needs (closed / open / the ordinary-check binder) |
+| `candidates.ts` | re-exports the product's candidate builder (`runtime/jev/candidates.ts`, moved there at SL-02): host-issued candidates from real reads (`table.capsule`, `table.apply.options`, `table.resolve.options`, the session view, located entities); what each still needs (closed / open / the ordinary-check binder) |
+| `product-entry.ts` | SL-02: one replay run against the **product driver** (a real Pi session on the vendored build with `PI_COC_LOOP_ENGINE=hybrid-v1`, the product's hybrid engine, the kernel extension over the emitted kernel); the Keeper's provider and the §32 lane replay the live table's recorded answers; Jev is live |
 | `ports.ts` | real ports: Jev via the product's `DecisionPort`, the product's prescreen as the read step, the product's ordinary-check preflight as the closed binder, kernel RPC on a disposable copy |
 | `run-entry.ts` | one replay run; `--llm replay` replays the live Keeper's recorded tool calls as the LLM step (a replay of the real model, not a stand-in Keeper), minus what the host already did |
-| `run.mjs` | esbuild-bundles the entry (product modules use TS syntax Node does not strip) and runs it |
+| `run.mjs` | `--llm replay` runs `product-entry.ts` (SL-02); `--llm none` or `--driver prototype` esbuild-bundles `run-entry.ts` (the prototype's own driver) and runs it |
 | `kernel.mjs` | JSON-RPC transport to `build/kernel/rpc.mjs` |
-| `fixture.mjs`, `baseline.mjs` | build `fixtures/turn3/workspace.tar.gz` from the App's data (read-only), position it before turn 3 with the campaign's own sidecar git; extract the live Keeper's baseline from the session file |
+| `fixture.mjs`, `baseline.mjs` | build `fixtures/<name>/workspace.tar.gz` from the App's data (read-only), position it before the turn with the campaign's own sidecar git; extract the live Keeper's baseline from the session file. Fixtures: `turn3` (the haunting, turn 3) and `fight-round` (the "打斗测试" table, turn 6, "继续揍他", made at SL-02) |
 | `vault.mjs` | reads `EXT_JEV_APIKEY` from the App's encrypted secret vault into the child env; never prints it |
 | `RESULTS-20260923.md` | the runs, step traces and misses |
 
@@ -36,7 +37,9 @@ One line: `next = determined(view) ? direct : jevRoute(candidates(view) ∪ {ask
 ```
 npm run build:runtime                                   # once per worktree
 node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3
-node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 --llm replay
+node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 --llm replay            # product driver (SL-02)
+node experiments/single-loop-routing/run.mjs --fixture fight-round --runs 3 --llm replay --admission jev
+node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 --llm replay --driver prototype
 node --test experiments/single-loop-routing/loop.test.mjs
 ```
 
