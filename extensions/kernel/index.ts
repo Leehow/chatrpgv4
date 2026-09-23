@@ -31,7 +31,21 @@ import { workpadStoreRoot } from '../table/workspace/workpad-store.ts';
 import { randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
-import { learnSpeechMarks, type SpeechMarks, unwrappedQuotes } from "./unwrapped-speech.ts";
+import { learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages } from "./unwrapped-speech.ts";
+import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
+import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
+import { TaskLease } from "../../runtime/jev/task-context.ts";
+import {
+	SPEECH_ATTRIBUTION_DEFAULT_MIN_CONFIDENCE,
+	SPEECH_ATTRIBUTION_FAMILY,
+	SPEECH_ATTRIBUTION_MAX_PASSAGES,
+	type SpeechAttributionInput,
+	runSpeechAttribution,
+	speakerOptions,
+	speechAttributionBindings,
+} from "../../runtime/jev/speech-attribution-domain.ts";
+import { readJevApiKey } from "../jev/agent/config.js";
+import { speechPass } from "../../kernel-ts/write/speech-pass.ts";
 import {
 	type AdmissionContext,
 	type AdmissionDestination,
@@ -182,6 +196,13 @@ interface CampaignRow {
 	status?: string;
 	turn?: number;
 }
+
+/**
+ * A person on stage as the capsule gives them (§128.3): `name` is `present[].name`; `called` and
+ * `address` are the table's own name and form of address (§79); `untold` says the player has not been
+ * told the book's name (§103), and `label` is the epithet the table uses meanwhile.
+ */
+interface RosterPerson { name: string; called?: string; address?: string; untold: boolean; label?: string }
 
 interface TableState {
 	kernel: KernelClient;
@@ -432,8 +453,17 @@ interface TableState {
 	/** The scene underfoot as the player knows it; a `move` to it is a rename and is not reviewed. */
 	scene?: { handle?: string; label?: string };
 	present: string[];
+	/**
+	 * §128.3: the same people with the names the capsule already carries for them (`called`, `untold`),
+	 * for the attribution family's closed set and for the name its say token carries.
+	 */
+	roster: RosterPerson[];
 	/** The quotation-mark pairs this session's delivered lines were written in (§128.2), learned from `speech[]`. */
 	speechMarks: SpeechMarks;
+	/** §128.3: lines this session already delivered (`speech[]`), newest last, the attribution family's material. */
+	spokenLines: Array<{ speaker: string; text: string }>;
+	/** §128.3: what attribution did to the delivery now on its way to the kernel; joins that delivery's speech row. */
+	speechAttribution?: Record<string, unknown>;
 	prologue?: string;
 	/**
 	 * Earlier deliveries as the player saw them (the last four), the review's player-visible
@@ -628,6 +658,23 @@ function unwrappedSpeechSteer(passages: string[]): string {
 		`lines are written in outside every say token: ${shown}${more}. ${SPEECH_RULE} A quoted word, name, title, sign or ` +
 		"document text is not a line: leave it as it is. Rewrite the same turn with every spoken line wrapped and nothing " +
 		"else changed, and close with narrate. The braces never reach the player.";
+}
+
+/** §128.3: how many delivered lines the attribution family is shown as material. */
+const SPOKEN_LINES_KEPT = 12;
+/**
+ * §128.3: cap on the one attribution batch, `PI_COC_SPEECH_ATTRIBUTE_TIMEOUT_MS`. The delivery waits for
+ * it and goes out as written when it expires, so it sits well under the admission family's cap.
+ */
+const DEFAULT_SPEECH_ATTRIBUTE_TIMEOUT_MS = 2_500;
+function speechAttributeTimeoutMs(env: NodeJS.ProcessEnv): number {
+	const value = Number(env.PI_COC_SPEECH_ATTRIBUTE_TIMEOUT_MS?.trim() || NaN);
+	return Number.isFinite(value) && value > 0 ? value : DEFAULT_SPEECH_ATTRIBUTE_TIMEOUT_MS;
+}
+/** §128.3: family minimum confidence, `PI_COC_SPEECH_ATTRIBUTE_MIN_CONFIDENCE`, in (0, 1]. Uncalibrated policy. */
+function speechAttributeMinConfidence(env: NodeJS.ProcessEnv): number {
+	const value = Number(env.PI_COC_SPEECH_ATTRIBUTE_MIN_CONFIDENCE?.trim() || NaN);
+	return Number.isFinite(value) && value > 0 && value <= 1 ? value : SPEECH_ATTRIBUTION_DEFAULT_MIN_CONFIDENCE;
 }
 
 let table: TableState | undefined;
@@ -1576,6 +1623,15 @@ export default function (pi: ExtensionAPI) {
 				const name = asString((row as Record<string, unknown> | null)?.name);
 				return name ? [name] : [];
 			});
+			state.roster = view.present.flatMap((row): RosterPerson[] => {
+				const entry = (row ?? {}) as Record<string, unknown>;
+				const name = asString(entry.name);
+				if (!name) return [];
+				const called = (entry.called ?? {}) as Record<string, unknown>, untold = entry.untold as Record<string, unknown> | undefined;
+				const calledName = asString(called.name), address = asString(called.address), label = asString(untold?.label);
+				return [{ name, untold: !!untold && typeof untold === "object", ...(calledName ? { called: calledName } : {}),
+					...(address ? { address } : {}), ...(label ? { label } : {}) }];
+			});
 		}
 		const sheet = view.known?.investigator;
 		const name = asString(sheet?.name);
@@ -1655,7 +1711,96 @@ export default function (pi: ExtensionAPI) {
 			else if (asString(speaker.label)) unresolved += 1;
 		}
 		learnSpeechMarks(state.speechMarks, result.speech);
-		void record({ lane: "speech", turn, lines: result.speech.length, resolved, unresolved, present: state.present.length });
+		for (const row of result.speech) {
+			const line = row as { who?: Record<string, unknown>; text?: unknown } | null;
+			const speaker = asString(line?.who?.name) ?? asString(line?.who?.label), text = asString(line?.text);
+			if (speaker && text) state.spokenLines.push({ speaker, text });
+		}
+		state.spokenLines.splice(0, Math.max(0, state.spokenLines.length - SPOKEN_LINES_KEPT));
+		// §128.3: what the host attributed in this delivery before the kernel read it rides on the same row.
+		const attributed = state.speechAttribution;
+		state.speechAttribution = undefined;
+		void record({ lane: "speech", turn, lines: result.speech.length, resolved, unresolved, present: state.present.length, ...(attributed ?? {}) });
+	}
+
+	/**
+	 * Contract §128.3. A delivery is about to leave with passages in this table's speech marks outside
+	 * every say token (§128.2 finds them; nothing here reads a word), and the turn's one speech steer is
+	 * spent or not available. One typed Jev batch asks, per passage, who says it aloud -- over the people
+	 * on stage, the party, `not_speech` and `someone_else` -- and a confident person's passage is wrapped
+	 * in their say token, the words untouched, so the kernel's own speech path takes it from there.
+	 * Everything else stays exactly as written: low confidence, not_speech, someone_else, a failure, a
+	 * timeout, the switch `PI_COC_SPEECH_ATTRIBUTE=0`. Never a refusal, never a new word. Returns the
+	 * text the delivery carries, which is the input itself unless something was wrapped.
+	 */
+	async function attributeUnwrappedSpeech(state: TableState, text: string, signal: AbortSignal | undefined,
+		parent: TaskProviderBudget | undefined): Promise<string> {
+		state.speechAttribution = undefined;
+		if (process.env.PI_COC_SPEECH_ATTRIBUTE?.trim() === "0") return text;
+		const found = unwrappedPassages(text, state.speechMarks);
+		if (!found.passages.length) return text;
+		const began = Date.now(), counts = { attributed: 0, not_speech: 0, undecided: 0 };
+		const note = (extra: Record<string, unknown> = {}) => {
+			state.speechAttribution = { ...counts, undecided: found.passages.length - counts.attributed - counts.not_speech,
+				jev_ms: Date.now() - began, ...extra };
+		};
+		const env = process.env;
+		if (!readJevApiKey(env)) { note({ attribute_failure: "unconfigured" }); return text; }
+		const sent = found.passages.slice(0, SPEECH_ATTRIBUTION_MAX_PASSAGES);
+		// The token carries the name the kernel resolves to the same person (§40.1): the table's own name
+		// first (§79), and for a person the player has not been told about, only the table's epithet --
+		// a say token's name reaches the card's title, so the book's name never goes there (§103).
+		const presentTokens = state.roster.map((person) => person.called ?? (person.untold ? person.label : person.name));
+		const input: SpeechAttributionInput = {
+			campaign: state.campaign,
+			turn: state.turn,
+			passages: sent.map((passage) => ({ text: passage.text, ...surroundingSentences(found.text, passage) })),
+			present: state.roster.map((person) => ({ name: person.name,
+				also: [person.called, person.address, person.label].filter((value): value is string => !!value) })),
+			investigators: state.party.map((member) => ({ name: member.name, ...(member.occupation ? { occupation: member.occupation } : {}) })),
+			spoken: [...state.spokenLines, ...speechPass(found.text, (name) => ({ label: name })).speech
+				.map((row) => ({ speaker: String((row.who as { label: string }).label), text: String(row.text) }))],
+		};
+		const tokens = [...presentTokens, ...state.party.map((member) => member.name)];
+		let lease: TaskLease | undefined, accounting: ReturnType<typeof preparationBudget> | undefined;
+		let typed: Awaited<ReturnType<typeof runSpeechAttribution>> | undefined;
+		try {
+			const deadlineAt = Math.min(began + speechAttributeTimeoutMs(env), parent?.deadlineAt ?? Infinity);
+			const outer = signal ?? state.lanes.signal;
+			const bound = parent ? AbortSignal.any([outer, parent.signal]) : outer;
+			const bindings = speechAttributionBindings(input);
+			accounting = preparationBudget({
+				decision: createDecisionAdapter({ env, maxConcurrency: 4, retryPolicies: {
+					[SPEECH_ATTRIBUTION_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } }),
+				campaign: state.campaign, deadlineAt, signal: bound, ...(parent ? { parent } : {}),
+				owner: SPEECH_ATTRIBUTION_FAMILY, goal: "Attribute quoted passages of a delivery to the people present",
+			});
+			lease = new TaskLease({ owner: SPEECH_ATTRIBUTION_FAMILY, goal: "Attribute quoted passages of a delivery to the people present",
+				scope: bindings.scope, capabilities: ["decision"], readSet: bindings.readSet, signal: bound,
+				budget: { deadlineAt, remainingInputTokens: 200_000, remainingOutputTokens: 20_000, remainingCostUsd: 0.02, remainingActions: 2 } });
+			typed = await runSpeechAttribution(input, accounting.decision, lease, { minConfidence: speechAttributeMinConfidence(env) });
+		} catch {
+			typed = undefined;
+		} finally {
+			lease?.close();
+			accounting?.close();
+		}
+		if (!typed || typed.status !== "decided") {
+			note({ attribute_failure: typed?.reason ?? "speech_attribution_owner_error", ...(typed ? { jev_calls: typed.calls } : {}) });
+			return text;
+		}
+		const options = speakerOptions(input), wraps: Array<{ start: number; end: number; name: string }> = [];
+		for (const line of typed.lines) {
+			if (line.outcome === "not_speech") { counts.not_speech += 1; continue; }
+			if (line.outcome !== "attributed") continue;
+			// A person with no name the token may carry (an untold person the table has no epithet for) stays undecided.
+			const name = tokens[options.findIndex((option) => option.key === line.choice)];
+			if (!name || !sayableName(name)) continue;
+			wraps.push({ start: sent[line.passage].start, end: sent[line.passage].end, name });
+		}
+		counts.attributed = wraps.length;
+		note({ jev_calls: typed.calls });
+		return wraps.length ? wrapPassages(found.text, wraps) : text;
 	}
 
 	/** A delivery joins the player-visible window the next review reads. */
@@ -2672,6 +2817,12 @@ export default function (pi: ExtensionAPI) {
 			// proposal pays for no definition agent and reaches no transaction.
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery();
 			if (spec.name === "resolve" || spec.name === "apply") await admitAction(state, spec.name, payload, signal, providerBudget);
+			// Contract §128.3. An explicit narrate is never steered for speech (§128.2), so attribution is
+			// the only leg its unwrapped passages get; it runs before the Mod hooks so the continuity review
+			// reads the text the kernel will commit. An ask carries no attribution of its own.
+			if (spec.name === "ask") state.speechAttribution = undefined;
+			if (spec.name === "narrate" && typeof payload.text === "string")
+				payload.text = await attributeUnwrappedSpeech(state, payload.text, signal, providerBudget);
       if (mods) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
         if (spec.name === 'narrate' && state.preparationWait) payload.preparation_wait = {
@@ -3131,7 +3282,9 @@ export default function (pi: ExtensionAPI) {
 				lanes: new AbortController(),
 				party: [],
 				present: [],
+				roster: [],
 				speechMarks: new Set(),
+				spokenLines: [],
 				delivered: [],
 				recent: [],
 				admission: new Map(),
@@ -4134,12 +4287,16 @@ export default function (pi: ExtensionAPI) {
 					reason: bareOfTokens ? "no_token" : "unwrapped_quote", ...(bareOfTokens ? {} : { unwrapped: unwrapped.length }) });
 				return { message: { ...event.message, content: blocks.filter((block) => block.type !== "text") } };
 			}
+			// §128.3: past this point the steer is spent, switched off, or had nothing to ask about. Passages
+			// still left outside every token go to the attribution family; the delivery waits at most its cap
+			// and, whatever it answers, goes out with the Keeper's words unchanged.
+			const delivered = await attributeUnwrappedSpeech(state, prose, state.lanes.signal, foregroundProviderBudget?.());
 			const tool = "narrate";
 			const callId = mintCallId(state);
 			const startedAt = new Date().toISOString();
 			const began = Date.now();
 			try {
-				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: prose, implicit: true,
+				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: delivered, implicit: true,
 					...(state.preparationWait ? {preparation_wait: {kind: state.preparationWait.kind,
 						...(state.preparationWait.name ? {name: state.preparationWait.name} : {})}}
 						: state.sourceWait ? {preparation_wait: {kind: 'source',

@@ -36,9 +36,14 @@
  *                          updated_at），不给就是「库是空的」；`/coc investigator` 读它
  *                          （契约 §21.5，票 #31）。`investigator.save` 每次调用回一个
  *                          新铸的 library_id，不真的把桌上的卡写进这份名册。
+ *   FAKE_KERNEL_PRESENT    JSON array: replaces the capsule's `present` rows (contract §13.1)
+ *   FAKE_KERNEL_SAY_PASS   JSON object {"<name>": {"npc"|"investigator": id, "name"}}: narrate runs the
+ *                          kernel's own say-token repair (§40.1) over the text and resolves names through
+ *                          this map, so `speech`, `marked_text` and `rendered_text` follow the text sent
  */
 
 import { appendFileSync } from "node:fs";
+import { SAY_TOKENS, speechPass } from "../../../kernel-ts/write/speech-pass.ts";
 import { createHash } from "node:crypto";
 import { dirname, join } from 'node:path';
 import { SETUP_STEPS, SETUP_TABLE } from "./setup-steps.mjs";
@@ -270,7 +275,7 @@ function capsule(playerText) {
 			clock: { minutes: 555, elapsed: "9 小时 15 分钟", at: "1925-06-01T09:15", day_part: "上午" },
 			session: null,
 		},
-		present: [
+		present: process.env.FAKE_KERNEL_PRESENT ? JSON.parse(process.env.FAKE_KERNEL_PRESENT) : [
 			{
 				name: "看门人",
 				relationship: "陌生",
@@ -487,7 +492,13 @@ function resolve(params) {
  * Contract §40.2: the say spans a delivery marked. Only a test that asks for them gets them --
  * FAKE_KERNEL_SPEECH carries the rows as JSON -- so every other turn test keeps the result it had.
  */
-function speechRows() {
+function speechRows(text) {
+	const speakers = process.env.FAKE_KERNEL_SAY_PASS;
+	if (speakers && typeof text === "string") {
+		const known = JSON.parse(speakers);
+		const spoken = speechPass(text, (name) => known[name] ?? { label: name });
+		return { speech: spoken.speech, marked_text: spoken.text, rendered_text: spoken.text.replace(SAY_TOKENS, "") };
+	}
 	const raw = process.env.FAKE_KERNEL_SPEECH;
 	if (!raw) return {};
 	try {
@@ -1023,7 +1034,7 @@ function handle(method, params) {
 				result: {
 					rendered_text: process.env.FAKE_KERNEL_EMPTY_RENDER === "1" ? "" : params.text,
 					mechanics,
-					...speechRows(),
+					...speechRows(params.text),
 					turn: closed,
 					receipt: `turn:${closed}`,
 					commit: "abc1234",

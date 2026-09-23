@@ -7997,6 +7997,8 @@ A spoken line is written as `{{say:<name>}}…{{/say}}`. The open token carries 
 
 **Repairs, never refusals** (§34.14's rule extends to this token). No nesting: an open before a close closes the previous span at the new open. An open with no close closes at the end of its paragraph (the next blank line or the end of the text). A close with no open is removed. A mechanics marker inside a span is moved to immediately after the span's close. `rendered_text` is stripped of both kinds of token; no brace reaches the player.
 
+Marking stays the Keeper's duty, enforced by the prompt, the verifier's `unmarked_speech` finding, telemetry and the one host steer of §40.5/§128.2 -- never by refusal. Since §128.3 (2026-09-23) a passage still left outside every token once that steer is spent or not available is attributed **host-side** before the kernel reads the delivery: a typed Jev decision over the people present and the party chooses the speaker, and the host wraps the passage in that person's token with the words untouched. That is a repair on the host's side of the call, model-decided and never a refusal; the kernel's repair and resolution above are unchanged and read the wrapped text like any other.
+
 **Resolution is by name, deterministic, kernel-side.** In order: someone in the turn's `present[]` (`ModuleGraph.nameKeys`, normalised, the way `resolve` matches); an investigator of the party by name; any NPC of the graph when exactly one matches. No match, or more than one, and the name stays a **label**. No fuzzy matching, no character-overlap heuristics, no word list deciding what kind of person a label denotes.
 
 ### 40.2 Delivery outputs (`narrate`, `ask`)
@@ -8009,7 +8011,7 @@ A spoken line is written as `{{say:<name>}}…{{/say}}`. The open token carries 
 
 ### 40.3 Adoption
 
-- **Telemetry.** One `coc-telemetry` row per delivery, written by the kernel extension: `{lane: "speech", turn, lines, resolved, unresolved, present}` (spans, spans that resolved to a person, spans left as labels, people in `present[]`). This is what "mandatory" is measured against, per model.
+- **Telemetry.** One `coc-telemetry` row per delivery, written by the kernel extension: `{lane: "speech", turn, lines, resolved, unresolved, present}` (spans, spans that resolved to a person, spans left as labels, people in `present[]`). This is what "mandatory" is measured against, per model. A delivery the host attributed (§128.3) adds `attributed`, `not_speech`, `undecided`, `jev_ms` and, on failure, `attribute_failure` to the same row; `lines` then counts the wrapped passages too, so `lines - attributed` is what the Keeper wrapped.
 - **NPC ledger.** `npc_ledger[id].spoke = {turns, last_turn}` updated at commit from `speech[]`; `present[].history.last_spoke_turn` shows it.
 - **Journal (§17.10).** `journal.job` packets carry `speech: [{name, text}]` (resolved NPC spans only); the recordable set (`collectNamed`) adds every resolved NPC speaker. The `npcs.journal` projection rows carry `id` (the handle) so the sheet panel can paint the legend swatch. The journal stays a paraphrase.
 - **Verifier.** A fifth finding kind, `unmarked_speech`: a spoken line in the delivered prose outside any say span. Accepted by `table.warn` like the other four; a warning, never a refusal.
@@ -15244,11 +15246,67 @@ pair counts nesting; an unclosed mark reports nothing; mechanics markers are ign
   speaks.
 - Not changed: an explicit `narrate` is not steered or refused for speech (§40.1 ruling: mandatory marking is
   enforced by the prompt, the verifier finding and telemetry, never by refusal). Its lines are covered by
-  §128.1 and by the verifier's `unmarked_speech`. The kernel's token repair (§40.1) is unchanged.
+  §128.1, by the verifier's `unmarked_speech` and, since §128.3, by host-side attribution. The kernel's token
+  repair (§40.1) is unchanged.
 
 Tests: `tests/extension/unwrapped-speech.test.mjs` (the real turn-1 text, learned pairs, straight/curly/
 guillemet marks, nesting, unclosed, excerpts), `tests/extension/turn.test.mjs` (partial draft steered once,
 marks-free spans not steered, pairs learned from an earlier delivery, the opening).
+
+### 128.3 What the steer leaves is attributed by a typed decision, then wrapped (2026-09-23, amends §40.1, §40.3)
+
+Evidence: installed build `67a281c3e`, project `jev-gui-20260922`, campaign
+`game-9456da03-779d-4dc3-acc2-ebf4bb7c06b9`, KP `grok-4.7-build-fast`. Turn 1 wrapped Knott's lines (`lines: 5,
+resolved: 5`). Turn 2 ended on prose with no token, the §40.5 steer fired (`reason: "no_token"`), and the Keeper
+answered with a `lookup` and an **explicit** `narrate` that still carried no token, Knott's two lines in 「」
+outside any span. An explicit narrate is never steered (§128.2), so it landed `lines: 0` and the product owner
+read the lines unformatted. The second table in a row with this shape: after one steer, a Keeper that answers
+with an explicit narrate gets through unformatted every time.
+
+**The rule.** When a delivery -- an explicit `narrate`, or the host's implicit close -- is about to be sent to the
+kernel with passages §128.2 finds (this table's learned speech marks, outside every say span, the outer one of
+nested passages), and the steer is not going to run for it (spent this turn, switched off, a delivery already
+tried this turn, or an explicit narrate, which is never steered), the host asks one typed Jev batch who says
+each passage aloud:
+
+- **Closed set, host-issued**, per passage: `npc:<n>` for each person in the capsule's `present[]`, `investigator:<n>`
+  for each investigator of the party, `not_speech` (a quoted title, name, word or sign, a document's text, a
+  thought, reported speech) and `someone_else` (said aloud by a person on neither list). Keys are aliases; the
+  descriptors carry the names the host already holds (`present[].name`, `called.name`, `called.address`,
+  `untold.label`; the sheet's name and occupation). Family `speech-attribution` v1,
+  `runtime/jev/speech-attribution-domain.ts`.
+- **Material, and nothing more**: each passage with up to two sentences before and after it (Unicode sentence
+  boundaries, tokens stripped), the roster, and the last twelve lines this session delivered (`speech[]`) plus
+  the draft's own wrapped lines. No other prose.
+- **Policy.** Per passage one Choice; a person at or above the family confidence (0.9, uncalibrated,
+  `PI_COC_SPEECH_ATTRIBUTE_MIN_CONFIDENCE`) is `attributed`; `not_speech` is counted as such; low confidence and
+  `someone_else` are `undecided`. An unissued key or an incomplete result is a fallback for the whole batch.
+  At most eight passages per delivery; the rest are undecided.
+- **Wrap.** An attributed passage is wrapped `{{say:<name>}}…{{/say}}` in the repaired draft, the words and marks
+  untouched, where `<name>` is what the kernel's §40.1 resolution maps back to the same person: `called.name`
+  when the table has one, else `present[].name` -- except for a person the player has not been told about
+  (§103), who is wrapped only under `untold.label`, and left as written when there is none (the token's name
+  reaches the card's title). An investigator is wrapped under the sheet's name. The kernel then repairs,
+  resolves, colours and records the line exactly as if the Keeper had written the token (§40.1–§40.4); §113's
+  repeat rule reads it like any other line.
+- **Bounds.** One batch per delivery through the shared decision adapter (no retry) inside a
+  `preparationBudget` owner under the foreground provider budget; the delivery waits at most
+  `PI_COC_SPEECH_ATTRIBUTE_TIMEOUT_MS` (2500 ms). On any failure, timeout, missing Jev credential or
+  `PI_COC_SPEECH_ATTRIBUTE=0` (the control arm) the delivery goes out byte for byte as it would have.
+- **Never** a refusal, a steer, a new word, a changed word, a speaker the host did not issue, or a table of marks,
+  names or languages. The steer remains the first leg wherever it runs.
+- **Telemetry** joins the delivery's §40.3 row: `attributed`, `not_speech`, `undecided`, `jev_ms`, `jev_calls`, and
+  `attribute_failure` (`unconfigured`, the adapter's failure code, or the domain's fallback reason) when no
+  decision was read. A row without these fields is a delivery with nothing left outside a token, or the control
+  arm.
+
+Tests: `tests/extension/speech-attribution.test.mjs` (the live turn-2 text after the steer, both lines wrapped
+and resolved to `steven-knott` with the rendered words unchanged; a nested title never asked about on its own
+and a standalone title left by `not_speech`; low confidence; `someone_else`; an unavailable and a throwing
+transport; no credential; the control arm; an untold person; the steer still first on an implicit draft; the
+steer switched off), `tests/extension/jev-speech-attribution-domain.test.mjs` (closed set, state, packing, typed
+outcomes, fallbacks, bounds), `tests/extension/unwrapped-speech.test.mjs` (offsets into the repair, wrapping,
+surrounding sentences).
 
 ## 129. An object's details never hold the card (2026-09-22, amends §16.2 and §26 "Preparation progress")
 

@@ -5,7 +5,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { learnSpeechMarks, marksOf, unwrappedQuotes } from "../../extensions/kernel/unwrapped-speech.ts";
+import { learnSpeechMarks, marksOf, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages } from "../../extensions/kernel/unwrapped-speech.ts";
 
 test("the real turn: the investigator's line was wrapped, Knott's two replies were not", () => {
 	// game-21ac44b7-5f91-41a5-8ea7-9faf5b801a29 turn 1, abridged; the quoted word 「接」 is reported
@@ -49,4 +49,29 @@ test("a long passage is quoted back as an excerpt", () => {
 	const [excerpt] = unwrappedQuotes(`{{say:甲}}「是。」{{/say}}${long}`);
 	assert.equal([...excerpt].length, 40);
 	assert.ok(excerpt.endsWith("…"));
+});
+
+test("§128.3: passages carry their place in the repaired draft, and wrapping them changes no word", () => {
+	const draft = "{{say:甲}}「是。」{{/say}}\n\n他看了看表。「坐吧。」{{check:x}}他说「好{{check:y}}的」。";
+	const { text, passages } = unwrappedPassages(draft);
+	assert.equal(text, draft, "an already well-formed draft is its own repair");
+	assert.deepEqual(passages.map(({ start, end }) => text.slice(start, end)), ["「坐吧。」", "「好{{check:y}}的」"]);
+	assert.deepEqual(passages.map((row) => row.text), ["「坐吧。」", "「好{{check:y}}的」"], "the passage as written, marker and all");
+	const wrapped = wrapPassages(text, passages.map((row) => ({ ...row, name: "乙" })));
+	assert.equal(wrapped, "{{say:甲}}「是。」{{/say}}\n\n他看了看表。{{say:乙}}「坐吧。」{{/say}}{{check:x}}他说{{say:乙}}「好{{check:y}}的」{{/say}}。");
+	assert.deepEqual(unwrappedPassages(wrapped).passages, [], "nothing is left outside once wrapped");
+	// A name the token cannot carry is skipped, never written.
+	assert.equal(wrapPassages(text, [{ ...passages[0], name: "a}}b" }]), text);
+	// A span left open is closed where the kernel closes it, and offsets are into that repair.
+	const open = unwrappedPassages("{{say:甲}}「是。」\n\n他说「不」。");
+	assert.equal(open.text, "{{say:甲}}「是。」{{/say}}\n\n他说「不」。");
+	assert.deepEqual(open.passages.map(({ start, end }) => open.text.slice(start, end)), ["「不」"]);
+});
+
+test("§128.3: the sentences around a passage, tokens stripped, the last two before and the first two after", () => {
+	const text = "第一句。第二句。{{handout:h}}第三句。「你好。」{{say:甲}}「嗯。」{{/say}}他走了。又一句。";
+	const start = text.indexOf("「你好。」");
+	const around = surroundingSentences(text, { start, end: start + "「你好。」".length });
+	assert.equal(around.before, "第二句。第三句。");
+	assert.equal(around.after, "「嗯。」他走了。");
 });
