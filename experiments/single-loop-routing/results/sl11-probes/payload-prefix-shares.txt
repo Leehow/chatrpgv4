@@ -1,0 +1,24 @@
+## before-turn3-low
+  run1 t0->t0 diverge@4/7 shared 64%
+  run2 t0->t0 diverge@4/7 shared 65%
+  run3 t0->t0 diverge@7/7 shared 100%; t0->t0 diverge@4/10 shared 60%; t0->t0 diverge@4/13 shared 59%
+## after-turn3-low
+  run1 t0->t0 diverge@7/7 shared 100%; t0->t0 diverge@12/13 shared 90%; t0->t0 diverge@15/16 shared 90%; t0->t0 diverge@18/19 shared 91%; t0->t0 diverge@21/22 shared 89%
+  run2 t0->t0 diverge@7/7 shared 100%
+  run3 t0->t0 diverge@7/7 shared 100%; t0->t0 diverge@10/10 shared 100%; t0->t0 diverge@13/14 shared 98%
+## before-fight-low
+  run1 t0->t0 diverge@4/7 shared 65%; t0->t0 diverge@11/11 shared 100%; t0->t0 diverge@15/15 shared 100%; t0->t0 diverge@18/18 shared 100%; t0->t0 diverge@4/22 shared 59%
+  run2 
+  run3 t0->t0 diverge@4/7 shared 65%; t0->t0 diverge@4/11 shared 62%; t0->t0 diverge@4/14 shared 61%
+## after-fight-low
+  run1 t0->t0 diverge@7/7 shared 100%; t0->t0 diverge@11/12 shared 96%; t0->t0 diverge@15/16 shared 96%; t0->t0 diverge@18/19 shared 95%
+  run2 t0->t0 diverge@7/7 shared 100%; t0->t0 diverge@11/12 shared 96%; t0->t0 diverge@15/16 shared 96%; t0->t0 diverge@18/19 shared 95%
+  run3 t0->t0 diverge@7/7 shared 100%; t0->t0 diverge@11/12 shared 96%; t0->t0 diverge@15/16 shared 96%; t0->t0 diverge@18/19 shared 95%
+## before-gate2-low
+  run1 t0->t0 diverge@6/6 shared 100%; t0->t0 diverge@4/10 shared 60%; t0->t0 diverge@13/13 shared 100%; t0->t0 diverge@4/16 shared 58%; t0->t0 diverge@4/20 shared 57%; t0->t0 diverge@4/23 shared 55%; t0->t1 diverge@1/26 shared 22%; t1->t1 diverge@1/6 shared 27%; t1->t1 diverge@10/10 shared 100%; t1->t1 diverge@14/14 shared 100%; t1->t1 diverge@4/18 shared 61%
+  run2 t0->t0 diverge@4/6 shared 68%; t0->t0 diverge@4/12 shared 63%; t0->t0 diverge@4/15 shared 59%; t0->t0 diverge@4/20 shared 57%; t0->t1 diverge@1/23 shared 23%; t1->t1 diverge@1/6 shared 28%; t1->t1 diverge@10/10 shared 100%; t1->t1 diverge@14/14 shared 100%; t1->t1 diverge@4/18 shared 62%; t1->t1 diverge@21/21 shared 100%
+  run3 t0->t0 diverge@4/6 shared 68%; t0->t0 diverge@12/12 shared 100%; t0->t0 diverge@16/16 shared 100%; t0->t0 diverge@20/20 shared 100%; t0->t0 diverge@24/24 shared 100%; t0->t0 diverge@28/28 shared 100%; t0->t0 diverge@32/32 shared 100%; t0->t1 diverge@1/36 shared 24%; t1->t1 diverge@1/6 shared 28%; t1->t1 diverge@10/10 shared 100%; t1->t1 diverge@14/14 shared 100%
+## after-gate2-low
+  run1 t0->t0 diverge@6/6 shared 100%; t0->t0 diverge@9/11 shared 84%; t0->t0 diverge@15/17 shared 84%; t0->t0 diverge@18/20 shared 85%; t0->t1 diverge@2/23 shared 47%; t1->t1 diverge@6/6 shared 100%; t1->t1 diverge@10/11 shared 95%; t1->t1 diverge@14/15 shared 95%; t1->t1 diverge@17/18 shared 95%
+  run2 t0->t0 diverge@6/6 shared 100%; t0->t0 diverge@9/11 shared 84%; t0->t0 diverge@14/16 shared 85%; t0->t0 diverge@17/19 shared 85%; t0->t0 diverge@21/23 shared 85%; t0->t1 diverge@2/26 shared 45%; t1->t1 diverge@6/6 shared 100%; t1->t1 diverge@10/11 shared 94%
+  run3 t0->t0 diverge@6/6 shared 100%; t0->t0 diverge@10/11 shared 99%; t0->t0 diverge@14/16 shared 85%; t0->t1 diverge@2/21 shared 46%; t1->t1 diverge@6/6 shared 100%; t1->t1 diverge@10/11 shared 95%; t1->t1 diverge@14/15 shared 95%; t1->t1 diverge@17/18 shared 87%; t1->t1 diverge@20/21 shared 88%

@@ -17116,6 +17116,190 @@ brings nothing twice ends `undelivered` with the §38 notice, and no steer is qu
 turn with no tool call is floor-steered once, and a second leg that brings nothing delivers the dropped draft. The
 legacy suites run unchanged; the SL-00 inventory counts `agent_end`'s one remaining `sendHost` site.
 
+### 135.20 The read hands the Keeper the bodies of what it issued (2026-09-23, SL-11 scope 1; the model-call diet)
+
+SL-11 takes §135.20–§135.24. §135.11 onward belongs to the SL-02 follow-ups in flight on the same base (§135.11 is
+the prose-delivery fix's), and §-numbers are stable ids (§133's rule), so these keep their numbers whatever lands
+in between. The spec's ruling "A turn is under 60 seconds" binds them. Only §135.21 reaches the legacy engine.
+
+**Evidence.** On the SL-02 live gate (session `d33d44c1`, campaign `game-b5367f88`, turn 1), three of the seven
+Keeper calls were reads. Call 1 was a `lookup kind=module` on three clue handles plus "Handout 1", and a
+`lookup kind=source` for Knott's terms. Call 2 was `look focus=clues`. Call 4 was `look focus=npc` on Arty Wilmot,
+right after the Keeper's own move. Each one asked for something the run's read step had already issued as a
+candidate.
+
+**The rule.** The read step (§135.6) reads a body for every issued candidate of the families clue, handout, person
+and move (§135.2's closed kinds). It uses the same kernel reads the Keeper's own calls make
+(`runtime/jev/candidate-bodies.ts`):
+
+| family | body | reads |
+| --- | --- | --- |
+| clue | the capsule's `known.clues_here` row plus the graph entity | `table.lookup {kind: module, query: <handle>, expected_kind: clue}` |
+| handout | the graph entity | `table.lookup {kind: module, query: <name>, expected_kind: handout}` |
+| person | the Keeper view of that person | `table.look {focus: npc, name}` |
+| move | the destination's graph entity, and `people_there`: each person the book puts there (its `present-in` relations) as `look` answers for them (name, called, role, untold, wants) | `table.lookup {kind: module, query: <scene>, expected_kind: scene}` plus one `table.look` per person |
+
+The reads run one per candidate, in parallel. A many-handle query is not used, because the kernel's module lookup
+matches by search first and answers at most eight entities, so one handle could go missing.
+
+- **Budgets.** One body is bounded like a capsule section: 1 KiB (§13.1's 1 KB-class sections;
+  `CANDIDATE_BODY_BYTES`). All bodies of one read share 8 KiB (`CANDIDATE_BODIES_BYTES`), half the run packet's
+  16 KiB, and the budget serves clue, handout, person, then move.
+- **Cutting is always marked.** A body is cut by dropping the kernel row's trailing fields first (identity and
+  dossier come first in every row), then by clipping long strings. The cut is recorded as `truncated: true` and
+  `omitted_fields: [...]`. A body that does not fit the whole budget, could not be read, or was not found is
+  listed in `omitted` with `budget`, `read_failed` or `not_found`. Nothing is dropped silently.
+- **Where the bodies go.**
+  - The read artifact carries them as `read.bodies`: each with its host key, family, name, the kernel reads it came
+    from, and the body.
+  - The Keeper gets them in the run's packet (`coc:run-prescreen`) as `issued: {head, bodies:
+    [{family, name, body, truncated?, omitted_fields?}], omitted?}`. The host keys and read lists stay off it.
+  - When the prescreen prepared no packet, the bodies go in a packet of their own (`{kind: "issued_bodies"}`), in
+    the same slot, under the same byte rules.
+  - The `head` says what they are and that they are current as of this read, so do not look or lookup them again.
+  - They are not in Jev's route question: routing inputs are unchanged.
+- **Telemetry.** The `lane: "run"`, `event: "read"` row adds `bodies: {count, bytes, reads, ms, truncated,
+  omitted}`.
+
+**Three ends (§31).** *Writer:* the read step, once per read (the first read and each read after a scene change).
+*Reader:* the context hook injects the packet into the Keeper's request (§135.6 and §135.23). *Actor:* the Keeper,
+who does not repeat the call. The cost is counted per call on the replays in the SL-11 ticket's Comments.
+
+**Measured on the gate table's own state** (a byte copy of `game-b5367f88` before turn 1, on the emitted kernel,
+with the builder and the bodies exactly as the read step runs them; script and output under the ticket's Comments):
+
+- **Call 1, the module lookup.** The recorded mixed query returned `not_found`. The same material asked one
+  handle at a time is 100% in the turn-start bodies: knott-keys, knott-commission, knott-research-leads and
+  Handout 1, 25/25 strings.
+- **Call 1, the source lookup.** It was refused, because the starter has no source document. The terms it asked
+  for ($20 a day, the keys, the address) are in the knott-keys and knott-commission bodies.
+- **Call 2, look clues.** 13/14 strings. The fourteenth is a clue's name, which the body entry carries as `name`.
+- **Call 4, look npc Arty.** This came after the Keeper's own move. The read after that scene change carries
+  Arty's and Ruth's person bodies. They hold the whole dossier the Keeper wanted (untold, role, wants, fears,
+  hides, voice, keeper note). The 10 strings not carried are `social_role` and combat fields, cut to 1 KiB and
+  named in `omitted_fields`. The appearance the Keeper was looking for exists in neither.
+
+All three read calls of the turn were covered. Whether the Keeper then skips them is the live replays' question.
+
+### 135.21 A tool argument that explains a write is one sentence (2026-09-23, SL-11 scope 2; both engines)
+
+Every `how` (clue) and every `why` of an `apply` effect declares `maxLength: 200` (`SENTENCE_MAX`,
+`extensions/kernel/tools.ts`). Its description adds "one sentence, at most 200 characters". 200 is the workpad's
+one-sentence ceiling (§19.2). Length is counted in code points, as JSON Schema's `maxLength` counts it.
+
+A call over the ceiling is refused before anything runs:
+
+```
+invalid_params: apply: effects[1].why (320 characters) is longer than one sentence of 200 characters
+retryable: false
+next: change_input
+fix: Shorten effects[1].why to one sentence of at most 200 characters and send the same call again; nothing in this call was written. What does not fit in one sentence belongs in the narration, not in the argument.
+```
+
+- `code_detail` is `argument_too_long`, and `details.fields` lists each field with its length and the maximum.
+- For the Keeper's own call, the tool registration's `prepareArguments` raises it, before Pi's schema check.
+  That check's own `maxLength` message carries no fix. Like any schema refusal it is an immediate tool error:
+  no `tool_call` or `tool_result` hook sees it, and so it is off the refusal budget (§34.12).
+- For a policy-origin call, the canonical dispatcher (§135.4) returns it as a `refused` packet with `coc_error`.
+- Nothing is ever cut to fit.
+
+**This is the one legacy-visible change of SL-11.** It applies to both `PI_COC_LOOP_ENGINE` values: the tool
+descriptions and the refusal are the same seven verbs on both engines. Nothing else in §135.20–§135.24 reaches the
+legacy engine.
+
+**Measured, and the ticket's premise corrected.** Every `how`/`why` in the App's 47 play sessions (354 arguments,
+Chinese) and the source tree's 297 sessions (250, mostly English) was measured. The longest is 99 characters. The
+Chinese p99 is 53. So 200 refuses none of them, and the ceiling is a guard, not a saving. The gate's 2,586-token
+call 3 was one batch of nine effects. Its `how`/`why` were 13–30 characters each. The tokens were 1,322 of
+reasoning plus about 1,260 of arguments for nine effects, not paragraph-long arguments.
+
+### 135.22 Why the Keeper split one batch into one call per effect, and the cause fixed (2026-09-23, SL-11 scope 2)
+
+On the gate turn the Keeper did batch: call 3 was nine effects. The calls that followed are what split. The
+Keeper's own reasoning (session `d33d44c1`, messages at 14:26:49 and 14:26:55) gives the reasons:
+
+- **Call 4, look npc Arty.** "I don't have their appearance from the capsule. I should look at NPCs for appearance
+  before naming them." The move in call 3 was the Keeper's own. Who the book puts at the morgue, and what they are
+  like, reached it only in the move's result.
+- **Call 5, apply person.** It named Arty after that look.
+- **Call 6, resolve first impression.** Four reasoning tokens: "First impression resolve."
+
+On the turn-3 fixture's live Keeper (legacy engine) the move was also alone in its call. The person and the
+first-impression check followed in one call, and Persuade and Ruth each followed the dice they depended on.
+
+**What splits a batch.**
+
+1. **Information that only a result reveals.** The destination's people are the case here. This is a
+   host-supplyable fact, and the cause of the split. The fix is structural: the move candidate's body carries
+   `people_there` (§135.20), and a person candidate carries that person's look. The Keeper can then name and
+   stage someone, and answer the Mod's contact check, in the same response as the move.
+2. **A dependency on dice.** Persuade after the first impression, and Ruth after Arty relents. These are the
+   Keeper's to batch or not. §135.5's failure branch already stops a batch at a failed check.
+
+The prompt's wording is not changed. A turn's split is a missing fact, not missing advice.
+
+### 135.23 A turn's request is append-only on the single-loop engine (2026-09-23, SL-11 scope 4)
+
+**Evidence.** The provider payloads of a two-turn live replay of the gate turn (`--then`, the product driver) were
+recorded item by item: kind, bytes and digest.
+
+- `instructions` is empty. Item 0 (the system prompt) and the tools are byte-stable, so §128.1's
+  `context_with_system` changes nothing here.
+- Item 1 is the context brief. It changed at every turn start: 43,811 bytes on the new turn's first call against
+  42,947 before and after. `briefForTurn` sends only the part of the full style the current capsule lacks. A fresh
+  turn's capsule carries a smaller style than the rehydrated capsule every later request uses, so the residue
+  flips. The first call of a turn therefore read only the system prompt from cache: 16,384 of about 43K tokens in
+  3/3 base runs, the gate's 17,536.
+- Item 4 is the turn capsule. It is re-rendered from a rehydrated capsule after every state-changing call, so
+  within a turn the cache stopped there: 32–34K of 43–48K.
+- The prescreen's placement was not the break. It sits after the capsule, and in the base faux replay's request
+  shapes the run's packet did not change within the turn. It is still per-turn material in front of the turn's
+  traffic, and a read after a scene change can replace it, so it is handled like the capsule.
+
+**The rule (hybrid-v1 only; `extensions/table/context-runtime.ts`, `context-policy.ts`).**
+
+- **The brief is the source's own.** It is the full module, style and Mod instructions, stable while the source is
+  (`briefKey`), not a residue of this turn's capsule. The turn-selected style still rides in the capsule.
+- **The capsule stays as the turn's first request sent it,** for the whole input epoch.
+- **What changed rides at the end of the request.** After a write, the capsule sections whose value differs from
+  that first capsule go at the end as one transport-only `coc-capsule-update` message (`CAPSULE_UPDATE_TYPE`):
+  `{kind: "capsule_update", head, sections: {<key>: <current value>}, removed?}`. Its head says these values
+  replace the ones above and every other section is unchanged.
+- **The run's packet stays in its slot.** The first packet of the epoch keeps its place; a later packet (a read
+  after a scene change) goes at the end.
+- **The end costs budget.** It counts against the request budget before the projection, and the context request
+  row adds `tail_bytes` and `tail`. A `coc-capsule-update` is closed noise to the projection (§19.2), like a
+  stale capsule.
+
+Every model call of a turn therefore shares its predecessor's whole prompt as a prefix, and the next turn's first
+call shares the system prompt, the Mod instructions and the brief. History, the new capsule and the new packet
+follow. The legacy engine renders the capsule and the brief exactly as before.
+
+**Test.** `tests/extension/single-loop-model-call-diet.test.mjs` runs on the emitted kernel with the faux provider,
+whose `cacheRead` is the prefix a prompt shares with the one before it. A run's second call reads the first call's
+whole prompt from cache. The capsule is not rewritten in place; the change is at the end. The next turn's first
+call shares everything through the brief.
+
+### 135.24 The Keeper's reasoning level is chosen from a measured table (2026-09-23, SL-11 scope 3)
+
+**What the API accepts.** Probed directly against the Grok Build Responses API (`grok-4.7-build-fast`, the App's
+own credential, two passes each):
+
+- `reasoning.effort` accepts `low`, `medium`, `high` and `xhigh`.
+- `minimal` is accepted and served as `low` (the response echoes `low`).
+- `none` is refused: "This model does not support `reasoning_effort` value `none`". `off` and `max` are
+  refused as invalid.
+- **Omitting the field serves `high`.** A "thinking off" that leaves reasoning out of the request would raise the
+  level, not remove it.
+- The account catalog (`grok-build-models.json`) lists the same four levels. Pi therefore clamps `off` and
+  `minimal` to `low` on this model. `extensions/thinking-schedule`'s follow-up `off` request lands on `low`, and
+  changes nothing at the table's default.
+- There is no thinking-off option for this model.
+
+The per-level replay table (turn 3 and the fight round on the product driver, with a live Keeper: tokens and
+seconds per call, and actions against the recorded ones) is in the SL-11 ticket's Comments. **The default is not
+changed:** the table stays `low` until the owner picks from that table.
+
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 
 A **mechanical shape** is a typed value from one closed catalog that states a rule the module prints: a

@@ -5,7 +5,7 @@ import type { AgentToolUpdateCallback, AgentSession, ExtensionContext, ToolCallE
 import { ContractError, isPlainRecord, type Json, type ObservationPacket, type OperationProposal } from '../../runtime/jev/contracts.ts';
 import type { TaskLease } from '../../runtime/jev/task-context.ts';
 import { awaitOrYield } from '../../runtime/jev/task-outcome.ts';
-import { COC_TOOLS, type CocToolSpec } from './tools.ts';
+import { argumentLimitRefusal, COC_TOOLS, type CocToolSpec } from './tools.ts';
 import {runOwnedSourcePreparation} from '../../runtime/jev/source-preparation.ts';
 import {createTaskProviderBudget, type TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 
@@ -325,6 +325,9 @@ export function createCanonicalOperationDispatcher(stages?: Stages) {
         live();
         await context.validateCurrent(structuredClone(operation));
         live();
+        // Contract §135.21: the same one-sentence ceiling as a model's call, with the same refusal and fix.
+        const tooLong = argumentLimitRefusal(spec.name, operation.args);
+        if (tooLong) return packet(operation, 'refused', { coc_error: tooLong });
         const args = validateToolArguments({ name: spec.name, description: spec.description, parameters: closedSchema(spec.parameters) },
           { type: 'toolCall', id: operation.id, name: spec.name, arguments: structuredClone(operation.args) }) as Record<string, unknown>;
         frames.set(operation.id, frame);

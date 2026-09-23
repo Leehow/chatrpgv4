@@ -1,0 +1,602 @@
+{
+ "run": 1,
+ "fixture": "/private/tmp/claude-501/-Users-haoli-leehow-code-chatrpgv4-wt-pi-coc-v2/c4e962a1-0de8-447d-800f-a8d28e8eb710/scratchpad/fixtures/gate-turn1",
+ "admission": "lane",
+ "keeper": "live grok-build/grok-4.7-build-fast",
+ "thinking": "low",
+ "wall_ms": 158071,
+ "status": "undelivered",
+ "reason": "prose:no_delivered_evidence",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 19172,
+   "ttfb_ms": 1558,
+   "input": 43445,
+   "cache_read": 0,
+   "cache_write": 0,
+   "output": 2044,
+   "reasoning": 952,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 6025,
+   "ttfb_ms": 894,
+   "input": 8772,
+   "cache_read": 43392,
+   "cache_write": 0,
+   "output": 541,
+   "reasoning": 402,
+   "tools": [
+    "lookup",
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 4567,
+   "ttfb_ms": 947,
+   "input": 52952,
+   "cache_read": 0,
+   "cache_write": 0,
+   "output": 176,
+   "reasoning": 125,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 4,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 60572,
+   "ttfb_ms": 829,
+   "input": 20467,
+   "cache_read": 32768,
+   "cache_write": 0,
+   "output": 357,
+   "reasoning": 106,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 5,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 11970,
+   "ttfb_ms": 591,
+   "input": 53739,
+   "cache_read": 0,
+   "cache_write": 0,
+   "output": 806,
+   "reasoning": 402,
+   "tools": [],
+   "stop": "stop",
+   "effort": "low"
+  },
+  {
+   "step": 6,
+   "turn": 1,
+   "purpose": "compose",
+   "ms": 5197,
+   "ttfb_ms": 1184,
+   "input": 12888,
+   "cache_read": 32768,
+   "cache_write": 0,
+   "output": 419,
+   "reasoning": 175,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 7,
+   "turn": 1,
+   "purpose": "adjudicate",
+   "ms": 2195,
+   "ttfb_ms": 874,
+   "input": 14307,
+   "cache_read": 33152,
+   "cache_write": 0,
+   "output": 125,
+   "reasoning": 37,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 8,
+   "turn": 1,
+   "purpose": "adjudicate",
+   "ms": 2444,
+   "ttfb_ms": 807,
+   "input": 14577,
+   "cache_read": 33152,
+   "cache_write": 0,
+   "output": 155,
+   "reasoning": 39,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 9,
+   "turn": 1,
+   "purpose": "compose",
+   "ms": 8059,
+   "ttfb_ms": 567,
+   "input": 2322,
+   "cache_read": 45952,
+   "cache_write": 0,
+   "output": 681,
+   "reasoning": 631,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 10,
+   "turn": 1,
+   "purpose": "compose",
+   "ms": 3784,
+   "ttfb_ms": 1005,
+   "input": 3066,
+   "cache_read": 45952,
+   "cache_write": 0,
+   "output": 164,
+   "reasoning": 22,
+   "tools": [
+    "narrate"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  }
+ ],
+ "steps": {
+  "operate": 12,
+  "decide": 4,
+  "infer": 10,
+  "finish": 2
+ },
+ "llm_steps": 10,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "compose",
+  "adjudicate",
+  "adjudicate",
+  "compose",
+  "compose"
+ ],
+ "jev_calls": 11,
+ "route_rows": 4,
+ "calls": [
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Steven Knott",
+      "name": "史蒂文·诺特",
+      "why": "开场他已以房东身份自报姓名。"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-commission",
+      "from": "Steven Knott",
+      "label": "诺特的委托",
+      "how": "你当面接下这份按天计费的委托。"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-research-leads",
+      "from": "Steven Knott",
+      "label": "诺特指的查档去处",
+      "how": "你说要先去《环球报》，他把该查的报纸、图书馆和档案馆一并点出来。"
+     },
+     {
+      "kind": "clue",
+      "clue": "knott-keys",
+      "from": "Steven Knott",
+      "label": "房钥匙与定金",
+      "how": "他把钥匙、地址和一天的定金交到你手里。"
+     },
+     {
+      "kind": "cash",
+      "delta": 20,
+      "source": "quote",
+      "with": "Steven Knott",
+      "currency": "USD",
+      "why": "诺特按约预付一天的调查费。"
+     },
+     {
+      "kind": "item",
+      "name": "科比特宅钥匙",
+      "from": "Steven Knott",
+      "label": "科比特宅钥匙",
+      "why": "诺特把继承来的房门钥匙交给你。"
+     },
+     {
+      "kind": "handout",
+      "name": "Handout 1: Mr. Knott's Commission",
+      "label": "诺特先生的委托说明"
+     },
+     {
+      "kind": "time",
+      "minutes": 40,
+      "why": "从诺特的事务所走到《环球报》社。"
+     },
+     {
+      "kind": "move",
+      "to": "newspaper-morgue",
+      "label": "《环球报》社"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "lookup",
+   "origin": "model",
+   "ok": false,
+   "error": "needs",
+   "input": {
+    "kind": "source",
+    "source_mode": "answer",
+    "query": "Handout 1: Mr. Knott's Commission",
+    "question": "What address, daily fee, and research directions does Knott give with the commission?"
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Arty Wilmot",
+      "name": "阿蒂·威尔莫特",
+      "why": "编辑室里有人拦住来客，同事这样称呼他。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "在编辑室柜台前向阿蒂·威尔莫特要求查科比特宅的旧报道",
+     "method": "亮出私家侦探执照，说明受房东委托要查旧闻",
+     "target": "Arty Wilmot",
+     "decision": "natural-npc:first-impression"
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": false,
+   "error": "idempotency_conflict",
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "请阿蒂帮忙调出科比特宅这些年的旧剪报",
+     "method": "说明受房东委托查旧宅的来意，请他放行进入剪报室",
+     "target": "Arty Wilmot",
+     "skill": "Persuade",
+     "obligation": "globe-clippings-access"
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": false,
+   "error": "idempotency_conflict",
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "请阿蒂调出科比特宅旧剪报并放行进剪报室",
+     "method": "把房东委托和宅子门牌说清楚，请他准许调档",
+     "target": "Arty Wilmot",
+     "skill": "Persuade",
+     "obligation": "globe-clippings-access"
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "说服阿蒂开放剪报室并调出科比特宅的旧档",
+     "method": "出示房东诺特的便条和委托，说明要查的是门牌对应的旧报道",
+     "target": "Arty Wilmot",
+     "obligation": "globe-clippings-access",
+     "skill": "Persuade",
+     "modifiers": {
+      "bonus_dice": 1,
+      "reason": "诺特的便条和门牌写在纸上，阿蒂看得见这份委托"
+     }
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Arty Wilmot",
+      "name": "阿蒂·威尔莫特",
+      "why": "同事当面叫他阿蒂，柜台后的人就是他"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "narrate",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "text": "你把诺特的便条摊在柜台上，说明房东按天雇你，要查科比特宅这些年的旧报道。{{check:persuade}}阿蒂·威尔莫特把绿眼罩往上推了一指，看完门牌，用指甲把便条推回来。\n\n{{say:阿蒂·威尔莫特}}「纸我看过了。这不是公共阅览室。没有法院的条子，我不开地下室的门。」{{/say}}\n\n他的手掌挡住通往地下室的门缝。排字机还在后头响，没有人过来领你下去。"
+   }
+  }
+ ],
+ "match": [],
+ "admissions": [
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 4,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  },
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 64,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null
+  }
+ ],
+ "clerk": [],
+ "misses": [
+  {
+   "turn": 1,
+   "lane": "route",
+   "purpose": "route",
+   "run": "run-01a0cedb-e4f2-73a7-ab39-e6f02023b605",
+   "step": "run-01a0cedb-e4f2-73a7-ab39-e6f02023b605:s6",
+   "status": "complete",
+   "ms": 675,
+   "offered": [
+    "apply:clue:globe-unpublished-story",
+    "apply:clue:macario-tragedy",
+    "apply:clue:globe-fire-cutoff",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:corbitt-house-ground",
+    "apply:move:commission-briefing",
+    "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+    "apply:person:Arty Wilmot",
+    "apply:person:Ruth Blake",
+    "resolve:natural-npc:first-impression:托马斯·海耶斯:Arty Wilmot",
+    "resolve:natural-npc:first-impression:托马斯·海耶斯:Ruth Blake",
+    "resolve:core-check:ordinary-check"
+   ],
+   "selected": [],
+   "exit": "ask_llm",
+   "reason": "low_confidence",
+   "answers": {
+    "need_1": {
+     "choice": "later",
+     "confidence": 0.89,
+     "probabilities": {
+      "unknown": 0.01,
+      "now": 0.06,
+      "later": 0.93
+     }
+    },
+    "need_2": {
+     "choice": "later",
+     "confidence": 0.89,
+     "probabilities": {
+      "unknown": 0.02,
+      "now": 0.06,
+      "later": 0.92
+     }
+    },
+    "need_3": {
+     "choice": "later",
+     "confidence": 0.81,
+     "probabilities": {
+      "unknown": 0.02,
+      "later": 0.87,
+      "now": 0.11
+     }
+    },
+    "need_4": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "now": 0,
+      "later": 1
+     }
+    },
+    "need_5": {
+     "choice": "later",
+     "confidence": 0.98,
+     "probabilities": {
+      "unknown": 0,
+      "now": 0.01,
+      "later": 0.99
+     }
+    },
+    "need_6": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "later": 1,
+      "now": 0
+     }
+    },
+    "need_7": {
+     "choice": "later",
+     "confidence": 0.92,
+     "probabilities": {
+      "unknown": 0.01,
+      "now": 0.05,
+      "later": 0.94
+     }
+    },
+    "need_8": {
+     "choice": "later",
+     "confidence": 0.98,
+     "probabilities": {
+      "unknown": 0,
+      "now": 0.01,
+      "later": 0.99
+     }
+    },
+    "need_9": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "now": 0,
+      "later": 1
+     }
+    },
+    "need_10": {
+     "choice": "later",
+     "confidence": 0.94,
+     "probabilities": {
+      "unknown": 0.01,
+      "now": 0.03,
+      "later": 0.96
+     }
+    },
+    "need_11": {
+     "choice": "later",
+     "confidence": 0.67,
+     "probabilities": {
+      "unknown": 0.02,
+      "now": 0.2,
+      "later": 0.78
+     }
+    },
+    "need_12": {
+     "choice": "later",
+     "confidence": 0.79,
+     "probabilities": {
+      "unknown": 0.01,
+      "now": 0.13,
+      "later": 0.86
+     }
+    },
+    "need_13": {
+     "choice": "later",
+     "confidence": 0.93,
+     "probabilities": {
+      "unknown": 0.03,
+      "now": 0.02,
+      "later": 0.95
+     }
+    },
+    "need_14": {
+     "choice": "later",
+     "confidence": 0.9,
+     "probabilities": {
+      "unknown": 0.03,
+      "now": 0.04,
+      "later": 0.9299999999999999
+     }
+    },
+    "need_15": {
+     "choice": "later",
+     "confidence": 0.97,
+     "probabilities": {
+      "unknown": 0.01,
+      "now": 0.01,
+      "later": 0.98
+     }
+    },
+    "exit": {
+     "choice": "ask_llm",
+     "confidence": 0.24,
+     "probabilities": {
+      "continue": 0.23,
+      "ask_llm": 0.43,
+      "finish": 0.04,
+      "read_more": 0.3
+     }
+    }
+   },
+   "run_id": "d1224b72-0a6c-4684-99c1-946281dfab53"
+  }
+ ]
+}

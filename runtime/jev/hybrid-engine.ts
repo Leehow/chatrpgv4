@@ -39,11 +39,12 @@ import { TaskLease } from './task-context.ts';
 import { JEV_MODEL } from './question-packing.ts';
 import { preparationProviderBudget } from './preparation-budget.ts';
 import { prepareCheckPreflight } from './check-preflight.ts';
-import { bindingOf, CLERK_TYPE, type ContextBinding } from '../../extensions/table/context-policy.ts';
+import { bindingOf, CLERK_TYPE, customMessage, PRESCREEN_TYPE, type ContextBinding } from '../../extensions/table/context-policy.ts';
 import { prepareKeeperSupport, prescreenEnabled } from '../../extensions/table/prescreen.ts';
 import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev/agent/config.js';
 import type { HostOperationContext, OperationIdentity } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 import { buildCandidates, keeperCall } from './candidates.ts';
+import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import {
   CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, interpretRoute, ROUTE_FAMILY,
   type Candidate, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
@@ -126,6 +127,19 @@ function packetMaterials(message: Row | undefined): {materials: Material[]; loca
     .map(material => ({handle: text(material.handle), label: text(material.label) || text(material.name) || text(material.handle),
       kind: text(object(material.entity).kind) || text(material.entity_kind) || 'entity'}));
   return {materials, located};
+}
+
+/**
+ * The run's packet with the issued candidates' bodies (§135.20): added to the prescreen's packet as `issued`, or a
+ * packet of their own in the same slot when no prescreen packet was prepared. Nothing to add: the packet unchanged.
+ */
+export function withIssuedBodies(packet: Row | undefined, issued: CandidateBodies | undefined): Row | undefined {
+  const section = issued ? issuedSection(issued) : undefined;
+  if (!section) return packet;
+  if (!packet) return customMessage(PRESCREEN_TYPE, {kind: 'issued_bodies', issued: section});
+  let content: Row;
+  try { content = object(JSON.parse(String(packet.content))); } catch { return packet; }
+  return {...packet, content: JSON.stringify({...content, issued: section})};
 }
 
 /** One clerk step of this turn, as the Keeper's projection lists it. */
@@ -213,7 +227,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           }
           // The product prescreen, inside the run: the first read and the read after a scene change. Its allowance is
           // the run's Jev budget (§135.6), so a re-read gets what the earlier steps left.
-          let materials: Material[] = [], calls = 0, prescreen: Row = {status: 'not_run'};
+          let materials: Material[] = [], calls = 0, prescreen: Row = {status: 'not_run'}, packet: Row | undefined;
           const remaining = run.allowanceDeadline - Date.now();
           if (jev && prescreenEnabled(options.env as NodeJS.ProcessEnv) && table.binding && remaining > 0 && bridge?.call && bridge.campaign) {
             const events: Row[] = [];
@@ -232,15 +246,23 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
               jev_calls: calls, ms: Date.now() - began, materials: materials.length, supplied: prepared?.supplied ?? null,
               stop_reason: prepared?.stop_reason ?? null, locate: prepared?.locate ?? null, located: found.located.length,
               fallback: events.find(event => event.event === 'fallback')?.reason ?? null};
-            if (message) api?.events?.emit?.('coc:run-prescreen', {campaign: bridge.campaign, turn: table.binding.turn, run: run.runId, message});
+            packet = message ? object(message) : undefined;
           }
           // Candidates are built after the locate, so a located clue or handout is among them.
           const fresh = {context: table.context, candidates: candidates()};
+          // §135.20: the bodies of the issued candidates, which the Keeper would otherwise look or lookup, ride on the read
+          // artifact and reach the Keeper in the run's packet (a packet of their own when the prescreen did not run).
+          const issued = await readCandidateBodies({candidates: fresh.candidates, capsule, call}).catch(() => undefined);
+          packet = withIssuedBodies(packet, issued);
+          if (packet && table.binding && bridge?.campaign)
+            api?.events?.emit?.('coc:run-prescreen', {campaign: bridge.campaign, turn: table.binding.turn, run: run.runId, message: packet});
           const ms = Date.now() - began;
           record({lane: 'run', event: 'read', run: run.runId, stepId: invocation.stepId, ms, scene: table.context.scene,
-            candidates: fresh.candidates.map(candidate => candidate.key), prescreen});
+            candidates: fresh.candidates.map(candidate => candidate.key), prescreen,
+            ...(issued ? {bodies: {count: issued.bodies.length, bytes: issued.bytes, reads: issued.reads, ms: issued.ms,
+              truncated: issued.bodies.filter(entry => entry.truncated).length, omitted: issued.omitted.map(entry => `${entry.key}:${entry.reason}`)}} : {})});
           const artifact: StepArtifact = {kind: 'read',
-            read: {materials, summary: prescreen as Json,
+            read: {materials, summary: prescreen as Json, bodies: issued?.bodies ?? [],
               calls, ms: prescreen.status === 'not_run' ? 0 : ms},
             fresh, ...(bindingArtifact ? {binding: bindingArtifact} : {})};
           return {status: 'ok', artifact};

@@ -1,0 +1,1355 @@
+[
+ {
+  "run": 1,
+  "fixture": "fight-round",
+  "admission": "lane",
+  "keeper": "live grok-build/grok-4.7-build-fast",
+  "thinking": "high",
+  "wall_ms": 71130,
+  "status": "delivered",
+  "reason": "delivery_accepted",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "bind",
+    "ms": 10151,
+    "ttfb_ms": 1123,
+    "input": 45453,
+    "cache_read": 1152,
+    "cache_write": 0,
+    "output": 1083,
+    "reasoning": 970,
+    "tools": [
+     "apply"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 14771,
+    "ttfb_ms": 947,
+    "input": 2429,
+    "cache_read": 46592,
+    "cache_write": 0,
+    "output": 1552,
+    "reasoning": 1258,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 3,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 29677,
+    "ttfb_ms": 618,
+    "input": 5525,
+    "cache_read": 46592,
+    "cache_write": 0,
+    "output": 3535,
+    "reasoning": 3164,
+    "tools": [
+     "narrate"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   }
+  ],
+  "steps": {
+   "operate": 6,
+   "decide": 4,
+   "infer": 3,
+   "finish": 1
+  },
+  "llm_steps": 3,
+  "llm_purposes": [
+   "bind",
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 11,
+  "route_rows": 4,
+  "calls": [
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "weapon": "unarmed",
+      "decision": "combat:attack",
+      "target": "steven-knott",
+      "goal": "继续揍他",
+      "method": "继续揍他"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "defense": "dodge",
+      "decision": "combat:defend",
+      "actor": "steven-knott",
+      "goal": "combat:defend",
+      "method": "combat:defend"
+     }
+    }
+   },
+   {
+    "tool": "apply",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "npc",
+       "name": "steven-knott",
+       "disposition": "fights_then_flees",
+       "why": "Inferred once for this campaign from Steven Knott's own parameters: agenda, fear, secret, voice, relationship_to_investigators, first_impression."
+      }
+     ]
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "flee",
+      "goal": "伤得已经没法再打，冲出办公室离开大牛皮",
+      "method": "擦着嘴角的血，撞开大牛皮往门口冲",
+      "actor": "steven-knott",
+      "target": "investigator",
+      "stakes": "冲不出去就还得留在打斗里，被继续打"
+     }
+    }
+   },
+   {
+    "tool": "narrate",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "text": "拳头又抡出去。这一下失了准头，从他太阳穴边上掠过去，你自己的身子跟着冲到桌沿，手掌拍在桌面上，才把人撑住。他往后一缩，肩胛撞上抽屉，脚也没站稳，可你的拳头到底没挨着他。\n\n他趁你撑着桌面，空着的那只手朝你脸上抡过来。你肩一沉让开。{{check:fighting-brawl-2}}指节擦过外套肩线，打空了。{{check:dodge-2}}\n\n他退到门边，钥匙仍攥在胸前，血顺着下巴滴进领口。他侧过脸朝门外喊。\n\n{{say:史蒂文·诺特}}来人！这屋里有人打我！{{/say}}"
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "resolve combat:attack vs Steven Knott",
+    "matched": true,
+    "origin": "policy"
+   },
+   {
+    "baseline": "resolve combat:defend vs investigator",
+    "matched": true,
+    "origin": "policy",
+    "defense": "dodge"
+   },
+   {
+    "baseline": "resolve combat:attack vs investigator",
+    "matched": false
+   },
+   {
+    "baseline": "ask",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "ask",
+    "matched": true,
+    "origin": "model"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "resolve",
+    "origin": "policy",
+    "clerk": "session_step",
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 3,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "investigator",
+      "targets": [
+       "steven-knott"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "resolve",
+    "call_id": "t6-c1",
+    "ok": true,
+    "ms": 475,
+    "clerk": "session_step",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "investigator",
+      "targets": [
+       "steven-knott"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "call_id": "t6-c2",
+    "ok": true,
+    "ms": 506,
+    "clerk": "session_step",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.pending_defense",
+     "row": {
+      "for": "npc",
+      "actor": "steven-knott",
+      "attack_command_id": "t6-c1",
+      "revision": 9,
+      "attacker": "investigator",
+      "options": [
+       "dodge",
+       "fight_back",
+       "none"
+      ],
+      "standing": {
+       "defense": "dodge",
+       "basis": "rule-default"
+      }
+     },
+     "standing": {
+      "defense": "dodge",
+      "basis": "rule-default"
+     }
+    }
+   }
+  ],
+  "misses": [
+   {
+    "turn": 6,
+    "lane": "route",
+    "purpose": "route",
+    "run": "run-01a0cee1-6415-7060-9a01-20b8e14a3cd4",
+    "step": "run-01a0cee1-6415-7060-9a01-20b8e14a3cd4:s8",
+    "status": "complete",
+    "ms": 663,
+    "offered": [],
+    "selected": [],
+    "exit": "ask_llm",
+    "reason": "low_confidence",
+    "answers": {
+     "exit": {
+      "choice": "ask_llm",
+      "confidence": 0.35,
+      "probabilities": {
+       "continue": 0.15,
+       "ask_llm": 0.51,
+       "read_more": 0.01,
+       "finish": 0.33
+      }
+     }
+    },
+    "run_id": "1e69569e-38b3-484c-b0de-93ffcef2d1fb"
+   },
+   {
+    "turn": 6,
+    "lane": "route",
+    "purpose": "route",
+    "run": "run-01a0cee1-6415-7060-9a01-20b8e14a3cd4",
+    "step": "run-01a0cee1-6415-7060-9a01-20b8e14a3cd4:s11",
+    "status": "complete",
+    "ms": 844,
+    "offered": [
+     "resolve:combat:maneuver:investigator",
+     "resolve:combat:flee:investigator",
+     "resolve:combat:end:investigator"
+    ],
+    "selected": [],
+    "exit": "finish",
+    "reason": "low_confidence",
+    "answers": {
+     "need_1": {
+      "choice": "later",
+      "confidence": 0.26,
+      "probabilities": {
+       "later": 0.51,
+       "now": 0.48,
+       "unknown": 0.01
+      }
+     },
+     "need_2": {
+      "choice": "later",
+      "confidence": 0.55,
+      "probabilities": {
+       "later": 0.7,
+       "now": 0.29,
+       "unknown": 0.01
+      }
+     },
+     "need_3": {
+      "choice": "later",
+      "confidence": 0.8,
+      "probabilities": {
+       "later": 0.86,
+       "now": 0.13,
+       "unknown": 0.01
+      }
+     },
+     "exit": {
+      "choice": "finish",
+      "confidence": 0.34,
+      "probabilities": {
+       "finish": 0.5,
+       "ask_llm": 0.31,
+       "read_more": 0.01,
+       "continue": 0.18
+      }
+     }
+    },
+    "run_id": "1e69569e-38b3-484c-b0de-93ffcef2d1fb"
+   }
+  ]
+ },
+ {
+  "run": 2,
+  "fixture": "fight-round",
+  "admission": "lane",
+  "keeper": "live grok-build/grok-4.7-build-fast",
+  "thinking": "high",
+  "wall_ms": 139696,
+  "status": "delivered",
+  "reason": "delivery_accepted",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "bind",
+    "ms": 16754,
+    "ttfb_ms": 1480,
+    "input": 45437,
+    "cache_read": 1152,
+    "cache_write": 0,
+    "output": 1524,
+    "reasoning": 1407,
+    "tools": [
+     "apply"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 11943,
+    "ttfb_ms": 975,
+    "input": 2978,
+    "cache_read": 46464,
+    "cache_write": 0,
+    "output": 1295,
+    "reasoning": 1271,
+    "tools": [
+     "look",
+     "lookup"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 3,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 3082,
+    "ttfb_ms": 1233,
+    "input": 5644,
+    "cache_read": 46464,
+    "cache_write": 0,
+    "output": 283,
+    "reasoning": 259,
+    "tools": [
+     "lookup"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 4,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 24712,
+    "ttfb_ms": 548,
+    "input": 5361,
+    "cache_read": 48256,
+    "cache_write": 0,
+    "output": 2373,
+    "reasoning": 2146,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 5,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 12241,
+    "ttfb_ms": 1017,
+    "input": 7755,
+    "cache_read": 48256,
+    "cache_write": 0,
+    "output": 1493,
+    "reasoning": 1405,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 6,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 21469,
+    "ttfb_ms": 1218,
+    "input": 56912,
+    "cache_read": 1152,
+    "cache_write": 0,
+    "output": 1783,
+    "reasoning": 1737,
+    "tools": [
+     "apply"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 7,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 37181,
+    "ttfb_ms": 606,
+    "input": 60814,
+    "cache_read": 1152,
+    "cache_write": 0,
+    "output": 3604,
+    "reasoning": 3442,
+    "tools": [
+     "narrate"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   }
+  ],
+  "steps": {
+   "operate": 10,
+   "decide": 5,
+   "infer": 7,
+   "finish": 1
+  },
+  "llm_steps": 7,
+  "llm_purposes": [
+   "bind",
+   "adjudicate",
+   "adjudicate",
+   "adjudicate",
+   "adjudicate",
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 7,
+  "route_rows": 5,
+  "calls": [
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "weapon": "unarmed",
+      "decision": "combat:attack",
+      "target": "steven-knott",
+      "goal": "继续揍他",
+      "method": "继续揍他"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "defense": "dodge",
+      "decision": "combat:defend",
+      "actor": "steven-knott",
+      "goal": "combat:defend",
+      "method": "combat:defend"
+     }
+    }
+   },
+   {
+    "tool": "apply",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "npc",
+       "name": "steven-knott",
+       "disposition": "fights_then_flees",
+       "why": "Inferred once for this campaign from Steven Knott's own parameters: agenda, fear, secret, voice, relationship_to_investigators, first_impression."
+      }
+     ]
+    }
+   },
+   {
+    "tool": "look",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "focus": "session"
+    }
+   },
+   {
+    "tool": "lookup",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "kind": "rule",
+     "query": "combat flee from melee"
+    }
+   },
+   {
+    "tool": "lookup",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "kind": "rule",
+     "query": "rule:coc7:combat:escape-close-combat"
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": false,
+    "error": "needs",
+    "input": {
+     "action": {
+      "intent": "flee",
+      "goal": "他冲出事务所，脱开这场打斗",
+      "method": "攒着钥匙挤开对方，朝开着的门冲出去",
+      "target": "investigator",
+      "actor": "steven-knott",
+      "decision": "combat:flee",
+      "stakes": "跑不掉就还留在近战里"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "goal": "趁这一拳落空，冲出事务所，脱离近战",
+      "method": "攥着钥匙从敞开的门口冲出去呼救",
+      "target": "investigator",
+      "actor": "steven-knott",
+      "decision": "combat:end",
+      "outcome": "fled",
+      "stakes": "他离开这间事务所，钥匙仍在他手里"
+     }
+    }
+   },
+   {
+    "tool": "apply",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "npc",
+       "name": "steven-knott",
+       "to": "away",
+       "why": "这一拳落空后，他攥着钥匙冲出事务所。"
+      }
+     ]
+    }
+   },
+   {
+    "tool": "narrate",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "text": "你再抡出一拳。脚绊在椅腿上，人往前一栽，拳头从他肩头擦过去，砸在抽屉边上。他也没让开，只是肩膀一缩，这一下谁也没挨着谁。\n\n他不跟你打了。钥匙攥在胸前，血顺着下巴滴到衬衫上，人从你身边挤过去，拉开门。{{session:combat}}\n\n{{say:史蒂文·诺特}}「来人！这儿打人了！」{{/say}}\n\n门在他身后撞上。走廊里脚步乱响，钥匙碰在一起。事务所里只剩下你，桌边那摊血，还有你手里那一天的工钱。"
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "resolve combat:attack vs Steven Knott",
+    "matched": true,
+    "origin": "policy"
+   },
+   {
+    "baseline": "resolve combat:defend vs investigator",
+    "matched": true,
+    "origin": "policy",
+    "defense": "dodge"
+   },
+   {
+    "baseline": "resolve combat:attack vs investigator",
+    "matched": false
+   },
+   {
+    "baseline": "ask",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "ask",
+    "matched": true,
+    "origin": "model"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "resolve",
+    "origin": "policy",
+    "clerk": "session_step",
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 90,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "investigator",
+      "targets": [
+       "steven-knott"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "resolve",
+    "call_id": "t6-c1",
+    "ok": true,
+    "ms": 772,
+    "clerk": "session_step",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "investigator",
+      "targets": [
+       "steven-knott"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "call_id": "t6-c2",
+    "ok": true,
+    "ms": 629,
+    "clerk": "session_step",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.pending_defense",
+     "row": {
+      "for": "npc",
+      "actor": "steven-knott",
+      "attack_command_id": "t6-c1",
+      "revision": 9,
+      "attacker": "investigator",
+      "options": [
+       "dodge",
+       "fight_back",
+       "none"
+      ],
+      "standing": {
+       "defense": "dodge",
+       "basis": "rule-default"
+      }
+     },
+     "standing": {
+      "defense": "dodge",
+      "basis": "rule-default"
+     }
+    }
+   }
+  ],
+  "misses": [
+   {
+    "turn": 6,
+    "lane": "route",
+    "purpose": "route",
+    "run": "run-01a0cee2-7e01-7060-9a01-20bdf068facd",
+    "step": "run-01a0cee2-7e01-7060-9a01-20bdf068facd:s17",
+    "status": "complete",
+    "ms": 623,
+    "offered": [
+     "apply:move:newspaper-morgue",
+     "apply:move:central-library",
+     "apply:move:hall-of-records",
+     "apply:move:neighborhood-gossip",
+     "apply:move:previous-tenants",
+     "apply:move:corbitt-house-ground",
+     "resolve:core-check:ordinary-check"
+    ],
+    "selected": [],
+    "exit": "finish",
+    "reason": "low_confidence",
+    "answers": {
+     "need_1": {
+      "choice": "later",
+      "confidence": 0.99,
+      "probabilities": {
+       "unknown": 0,
+       "later": 1,
+       "now": 0
+      }
+     },
+     "need_2": {
+      "choice": "later",
+      "confidence": 0.99,
+      "probabilities": {
+       "unknown": 0,
+       "later": 1,
+       "now": 0
+      }
+     },
+     "need_3": {
+      "choice": "later",
+      "confidence": 0.99,
+      "probabilities": {
+       "unknown": 0,
+       "later": 1,
+       "now": 0
+      }
+     },
+     "need_4": {
+      "choice": "later",
+      "confidence": 0.99,
+      "probabilities": {
+       "unknown": 0,
+       "later": 1,
+       "now": 0
+      }
+     },
+     "need_5": {
+      "choice": "later",
+      "confidence": 0.99,
+      "probabilities": {
+       "unknown": 0,
+       "later": 0.99,
+       "now": 0.01
+      }
+     },
+     "need_6": {
+      "choice": "later",
+      "confidence": 0.99,
+      "probabilities": {
+       "unknown": 0,
+       "later": 1,
+       "now": 0
+      }
+     },
+     "need_7": {
+      "choice": "later",
+      "confidence": 0.85,
+      "probabilities": {
+       "unknown": 0.01,
+       "later": 0.9,
+       "now": 0.09
+      }
+     },
+     "exit": {
+      "choice": "finish",
+      "confidence": 0.39,
+      "probabilities": {
+       "read_more": 0.01,
+       "finish": 0.54,
+       "ask_llm": 0.36,
+       "continue": 0.09
+      }
+     }
+    },
+    "run_id": "24ae9ed0-349c-4b7a-875b-fb2b5037965a"
+   },
+   {
+    "turn": 6,
+    "lane": "route",
+    "purpose": "route",
+    "run": "run-01a0cee2-7e01-7060-9a01-20bdf068facd",
+    "step": "run-01a0cee2-7e01-7060-9a01-20bdf068facd:s20",
+    "status": "complete",
+    "ms": 632,
+    "offered": [
+     "apply:move:newspaper-morgue",
+     "apply:move:central-library",
+     "apply:move:hall-of-records",
+     "apply:move:neighborhood-gossip",
+     "apply:move:previous-tenants",
+     "apply:move:corbitt-house-ground",
+     "resolve:core-check:ordinary-check"
+    ],
+    "selected": [],
+    "exit": "ask_llm",
+    "reason": "low_confidence",
+    "answers": {
+     "need_1": {
+      "choice": "later",
+      "confidence": 0.99,
+      "probabilities": {
+       "later": 1,
+       "unknown": 0,
+       "now": 0
+      }
+     },
+     "need_2": {
+      "choice": "later",
+      "confidence": 0.99,
+      "probabilities": {
+       "later": 1,
+       "unknown": 0,
+       "now": 0
+      }
+     },
+     "need_3": {
+      "choice": "later",
+      "confidence": 0.99,
+      "probabilities": {
+       "later": 1,
+       "unknown": 0,
+       "now": 0
+      }
+     },
+     "need_4": {
+      "choice": "later",
+      "confidence": 0.99,
+      "probabilities": {
+       "later": 1,
+       "unknown": 0,
+       "now": 0
+      }
+     },
+     "need_5": {
+      "choice": "later",
+      "confidence": 0.99,
+      "probabilities": {
+       "later": 1,
+       "unknown": 0,
+       "now": 0
+      }
+     },
+     "need_6": {
+      "choice": "later",
+      "confidence": 0.99,
+      "probabilities": {
+       "later": 1,
+       "unknown": 0,
+       "now": 0
+      }
+     },
+     "need_7": {
+      "choice": "later",
+      "confidence": 0.81,
+      "probabilities": {
+       "later": 0.87,
+       "unknown": 0.01,
+       "now": 0.12
+      }
+     },
+     "exit": {
+      "choice": "ask_llm",
+      "confidence": 0.3,
+      "probabilities": {
+       "read_more": 0.01,
+       "ask_llm": 0.47,
+       "finish": 0.42,
+       "continue": 0.1
+      }
+     }
+    },
+    "run_id": "24ae9ed0-349c-4b7a-875b-fb2b5037965a"
+   }
+  ]
+ },
+ {
+  "run": 3,
+  "fixture": "fight-round",
+  "admission": "lane",
+  "keeper": "live grok-build/grok-4.7-build-fast",
+  "thinking": "high",
+  "wall_ms": 133728,
+  "status": "undelivered",
+  "reason": "prose:no_delivered_evidence",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "bind",
+    "ms": 15265,
+    "ttfb_ms": 1174,
+    "input": 45435,
+    "cache_read": 1152,
+    "cache_write": 0,
+    "output": 1390,
+    "reasoning": 1285,
+    "tools": [
+     "apply"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 31827,
+    "ttfb_ms": 843,
+    "input": 2854,
+    "cache_read": 46464,
+    "cache_write": 0,
+    "output": 3226,
+    "reasoning": 3110,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 3,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 6644,
+    "ttfb_ms": 769,
+    "input": 6214,
+    "cache_read": 46464,
+    "cache_write": 0,
+    "output": 642,
+    "reasoning": 614,
+    "tools": [
+     "lookup",
+     "look"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 4,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 3744,
+    "ttfb_ms": 924,
+    "input": 5950,
+    "cache_read": 48128,
+    "cache_write": 0,
+    "output": 276,
+    "reasoning": 252,
+    "tools": [
+     "lookup"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 5,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 7086,
+    "ttfb_ms": 778,
+    "input": 7452,
+    "cache_read": 48128,
+    "cache_write": 0,
+    "output": 650,
+    "reasoning": 579,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 6,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 4282,
+    "ttfb_ms": 881,
+    "input": 3553,
+    "cache_read": 52864,
+    "cache_write": 0,
+    "output": 138,
+    "reasoning": 72,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": "high"
+   },
+   {
+    "step": 7,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": 56185,
+    "ttfb_ms": 813,
+    "input": 4593,
+    "cache_read": 52864,
+    "cache_write": 0,
+    "output": 5350,
+    "reasoning": 5212,
+    "tools": [],
+    "stop": "stop",
+    "effort": "high"
+   }
+  ],
+  "steps": {
+   "operate": 9,
+   "decide": 4,
+   "infer": 7,
+   "finish": 1
+  },
+  "llm_steps": 7,
+  "llm_purposes": [
+   "bind",
+   "adjudicate",
+   "adjudicate",
+   "adjudicate",
+   "adjudicate",
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 6,
+  "route_rows": 4,
+  "calls": [
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "weapon": "unarmed",
+      "decision": "combat:attack",
+      "target": "steven-knott",
+      "goal": "继续揍他",
+      "method": "继续揍他"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "defense": "dodge",
+      "decision": "combat:defend",
+      "actor": "steven-knott",
+      "goal": "combat:defend",
+      "method": "combat:defend"
+     }
+    }
+   },
+   {
+    "tool": "apply",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "npc",
+       "name": "steven-knott",
+       "disposition": "fights_then_flees",
+       "why": "Inferred once for this campaign from Steven Knott's own parameters: agenda, fear, secret, voice, relationship_to_investigators, first_impression."
+      }
+     ]
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": false,
+    "error": "needs",
+    "input": {
+     "action": {
+      "intent": "flee",
+      "goal": "Break out of the fight and get through the office door before another blow lands",
+      "method": "He shoves off the drawer and runs for the door, keys still clenched in his fist, shouting for someone outside",
+      "target": "investigator",
+      "actor": "steven-knott",
+      "decision": "combat:flee"
+     }
+    }
+   },
+   {
+    "tool": "lookup",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "kind": "rule",
+     "query": "combat:maneuver flee disengage"
+    }
+   },
+   {
+    "tool": "look",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "focus": "session"
+    }
+   },
+   {
+    "tool": "lookup",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "kind": "rule",
+     "query": "rule:coc7:combat:escape-close-combat"
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": false,
+    "error": "needs",
+    "input": {
+     "action": {
+      "intent": "combat",
+      "goal": "Break contact and reach the office door",
+      "method": "He shoves off the drawer and lunges for the door, the keys still clenched in his fist",
+      "target": "investigator",
+      "actor": "steven-knott",
+      "decision": "combat:maneuver"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "combat",
+      "goal": "escape",
+      "method": "He shoves off the drawer and lunges for the office door, the keys still clenched in his fist",
+      "target": "investigator",
+      "actor": "steven-knott",
+      "decision": "combat:maneuver"
+     }
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "resolve combat:attack vs Steven Knott",
+    "matched": true,
+    "origin": "policy"
+   },
+   {
+    "baseline": "resolve combat:defend vs investigator",
+    "matched": true,
+    "origin": "policy",
+    "defense": "dodge"
+   },
+   {
+    "baseline": "resolve combat:attack vs investigator",
+    "matched": false
+   },
+   {
+    "baseline": "ask",
+    "matched": false
+   },
+   {
+    "baseline": "ask",
+    "matched": false
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "resolve",
+    "origin": "policy",
+    "clerk": "session_step",
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 1,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "investigator",
+      "targets": [
+       "steven-knott"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "resolve",
+    "call_id": "t6-c1",
+    "ok": true,
+    "ms": 201,
+    "clerk": "session_step",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.actions[0]",
+     "row": {
+      "decision": "combat:attack",
+      "actor": "investigator",
+      "targets": [
+       "steven-knott"
+      ],
+      "weapons": [
+       "unarmed"
+      ]
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "call_id": "t6-c2",
+    "ok": true,
+    "ms": 249,
+    "clerk": "session_step",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "context.session.pending_defense",
+     "row": {
+      "for": "npc",
+      "actor": "steven-knott",
+      "attack_command_id": "t6-c1",
+      "revision": 9,
+      "attacker": "investigator",
+      "options": [
+       "dodge",
+       "fight_back",
+       "none"
+      ],
+      "standing": {
+       "defense": "dodge",
+       "basis": "rule-default"
+      }
+     },
+     "standing": {
+      "defense": "dodge",
+      "basis": "rule-default"
+     }
+    }
+   }
+  ],
+  "misses": [
+   {
+    "turn": 6,
+    "lane": "route",
+    "purpose": "route",
+    "run": "run-01a0cee4-a75e-7060-9a01-20c17efbee72",
+    "step": "run-01a0cee4-a75e-7060-9a01-20c17efbee72:s8",
+    "status": "complete",
+    "ms": 655,
+    "offered": [],
+    "selected": [],
+    "exit": "ask_llm",
+    "reason": "low_confidence",
+    "answers": {
+     "exit": {
+      "choice": "ask_llm",
+      "confidence": 0.31,
+      "probabilities": {
+       "finish": 0.34,
+       "read_more": 0.01,
+       "continue": 0.17,
+       "ask_llm": 0.48
+      }
+     }
+    },
+    "run_id": "f92efdf7-2701-44c9-a757-8b90a59fa050"
+   }
+  ]
+ }
+]
