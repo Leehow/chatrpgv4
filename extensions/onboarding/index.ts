@@ -41,6 +41,47 @@ function errorText(error: unknown): string {
 	return (error instanceof Error ? error.message : String(error)).slice(0, 400);
 }
 
+/**
+ * Why setup is blocked for the rest of this turn. Three failures block, and they are not one
+ * condition: a guidance preparation that failed inside `create-campaign`, one that failed at the
+ * start of a later turn, and a `mods.context` read that failed at the start of a turn. Contract
+ * §23.4 has a failed guidance review "block setup and suppress invented fallback prose", so the
+ * two guidance causes drop the assistant's text; §26 has a failed `mods.context` "block the turn
+ * with a notice rather than silently running the core policy", and the Keeper's own explanation
+ * of that notice stays on screen. The flag carries the cause so the refusal, the notice and the
+ * text rule each read it, never a string.
+ */
+type SetupBlockKind = 'guidance_at_create_campaign' | 'guidance_at_turn_start' | 'package_context';
+interface SetupBlock {
+	kind: SetupBlockKind;
+	/** The kernel's or the preparer's error code, when it had one. */
+	code?: string;
+	detail: string;
+	/** The player has already been told this turn (turn-start causes notify as they block). */
+	noticed: boolean;
+}
+
+/** A failed guidance review keeps the Keeper's prose off the screen (§23.4); a failed package read does not (§26). */
+function setupBlockHidesText(block: SetupBlock): boolean {
+	return block.kind !== 'package_context';
+}
+
+/** The refusal every `setup` call gets while the turn is blocked: the actual cause and the fix that matches it. */
+function setupBlockRefusal(block: SetupBlock): Record<string, unknown> {
+	const why = block.code ? `${block.code}: ${block.detail}` : block.detail;
+	let error: string;
+	if (block.kind === 'package_context') {
+		error = `The setup package context could not be read (mods.context: ${why}). Setup is blocked until it is restored: fix or disable the package the error names in the Mods panel, then wait for a new player input, which reads the context again; do not draft or continue setup on the core policy alone.`;
+	} else {
+		const when = block.kind === 'guidance_at_create_campaign' ? 'when create-campaign ran' : 'at the start of this turn';
+		const fix = block.code === 'guidance_not_ready'
+			? 'A new player input will not repair it: the starter\'s bundled guidance is missing or stale and only the offline bundle builder replaces it. Tell the player setup cannot continue on this starter.'
+			: 'Wait for a new player input, which retries the preparation.';
+		error = `Module guidance could not be prepared ${when} (${why}). ${fix} Do not invent a setup scene or create a card.`;
+	}
+	return { ok: false, code: 'setup_blocked', blocked_by: block.kind, ...(block.code ? { cause: block.code } : {}), error };
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -99,7 +140,7 @@ export default function (pi: ExtensionAPI) {
   let inputKey = "";
   let inputOrdinal=0;
   let inputCatalog:SetupInputCatalog|undefined;
-  let guidanceBlocked = false;
+  let setupBlock: SetupBlock | undefined;
   let guidancePending: Promise<Guidance | undefined> | undefined;
   // Contract §26 Guided Creation: the package's slots, the kernel's notes and the cap; the move is computed, never remembered.
   let setupSlots: SetupSlot[] = [];
@@ -220,16 +261,7 @@ export default function (pi: ExtensionAPI) {
 			steps = rows;
 			tableSources = declaredSources(result);
 			stepsError = undefined;
-			for (const done of Array.isArray(result.completed) ? result.completed : []) {
-				const id = asString(done);
-				if (!id) continue;
-				completed.add(id);
-				// A resumed setup that already took one investigator lane keeps that axis settled.
-				const row = rows.find((step) => step.id === id);
-				if (row?.investigatorSource && row.receipt && axisProducts(rows).has(row.receipt)) {
-					investigatorSource ??= row.investigatorSource;
-				}
-			}
+			absorbCompleted(rows, result.completed);
 			const carried = asRecord(result.state);
 			for (const [key, value] of Object.entries(carried)) {
 				if (context[key] === undefined) context[key] = value;
@@ -242,6 +274,34 @@ export default function (pi: ExtensionAPI) {
 			sourceKind = asString(carried.source_kind) ?? asString(carriedSource.kind) ?? sourceKind;
 		} catch (error) {
 			stepsError = `setup.steps did not come back: ${errorCode(error) ?? "internal"}: ${errorText(error)}`;
+		}
+	}
+
+	/** Book the steps the kernel reports done. The kernel's list only ever adds: a booked step is never un-booked here. */
+	function absorbCompleted(rows: Step[], done: unknown): void {
+		for (const entry of Array.isArray(done) ? done : []) {
+			const id = asString(entry);
+			if (!id) continue;
+			completed.add(id);
+			// A resumed setup that already took one investigator lane keeps that axis settled.
+			const row = rows.find((step) => step.id === id);
+			if (row?.investigatorSource && row.receipt && axisProducts(rows).has(row.receipt)) {
+				investigatorSource ??= row.investigatorSource;
+			}
+		}
+	}
+
+	/**
+	 * The card's button confirms and completes on a cold kernel (§98) while this process may still be
+	 * running, so once a card exists the steps booked at session start are no longer the kernel's
+	 * truth. Read them again before a turn decides what setup still owes.
+	 */
+	async function refreshCompleted(): Promise<void> {
+		if (!steps || !bridge || !context.campaign || draftRevision === undefined || completed.has("complete")) return;
+		try {
+			absorbCompleted(steps, asRecord(await bridge.call("setup.steps", { campaign: context.campaign })).completed);
+		} catch {
+			/* an unreadable snapshot leaves the booked steps as they were; the turn goes on as before */
 		}
 	}
 
@@ -549,7 +609,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function execute(raw: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if(guidanceBlocked)return {ok:false,error:"Guidance review did not pass. Wait for a new player input to retry; do not invent a setup scene or create a card."};
+    if(setupBlock)return setupBlockRefusal(setupBlock);
 		await ensureSteps();
 		if (!steps) {
 			return { ok: false, error: stepsError ?? "The setup table is not in hand yet." };
@@ -635,7 +695,7 @@ export default function (pi: ExtensionAPI) {
       try {
         const guidance=await ensureGuidance();
         if(guidance)outcome.character_guidance=guidance;
-      } catch(error) {guidanceBlocked=true;return {ok:false,code:'guidance_failed',message:errorText(error)};}
+      } catch(error) {setupBlock={kind:'guidance_at_create_campaign',code:errorCode(error),detail:errorText(error),noticed:false};return {ok:false,code:'guidance_failed',message:errorText(error)};}
     }
 		const next = nextStep(steps, state());
 		if (!next) await finish();
@@ -731,19 +791,24 @@ export default function (pi: ExtensionAPI) {
 	});
 
   pi.on('message_end', event=>{
-    if(guidanceBlocked && event.message.role==='assistant')return {message:{...event.message,content:event.message.content.filter((part:any)=>part.type!=='text')}};
+    // Only a guidance failure suppresses the Keeper's text (§23.4's "invented fallback prose"); a
+    // failed package read blocks with a notice (§26) and the Keeper may explain it to the player.
+    if(setupBlock && setupBlockHidesText(setupBlock) && event.message.role==='assistant')return {message:{...event.message,content:event.message.content.filter((part:any)=>part.type!=='text')}};
   });
 	// ---- Lifecycle --------------------------------------------------------
   pi.on('before_agent_start',async(event)=>{
-    lastPlayerInput=event.prompt;inputKey=randomUUID();guidanceBlocked=false;
+    lastPlayerInput=event.prompt;inputKey=randomUUID();setupBlock=undefined;
     await ensureSteps();freezeInputSources(event.prompt);
     const inputPrompt='\n\nSetup input source selection (setup-input-reference-v1): profile.name selects {source,range?:{first,last}} or proposes {generated:newName}. Omit unchanged names when revising. pending_action selects only an actual player request; no generated form or copied string is permitted. This catalog covers user text fields only, not image or attached-file content. Unit aliases are inclusive grapheme endpoints, never character offsets. Coverage omissions mean missing input is unavailable, not absent; preserve an existing draft name and ask for a repeated request when its source is needed. Never copy epochs, digests or message IDs.\n'+JSON.stringify(inputCatalog!.public);
     // The frontend's confirm button commits the draft and completes setup on a cold kernel before
-    // it sends its ordinary closing sentence (§98). A fresh setup process therefore resumes with
-    // `complete` already booked and no world yet: asking `mods.context` at that point takes the
-    // play-only branch and fails because `table.open` has not created the world. Finish the existing
-    // handoff first; the agent only owes the short prologue close, and agent_end will let the wrapper
-    // replace this setup child with the play child.
+    // it sends its ordinary closing sentence (§98). A fresh setup process resumes with `complete`
+    // already booked; a live one learns it here from the kernel. Either way there is no world yet:
+    // asking `mods.context` at that point takes the play-only branch and fails because `table.open`
+    // has not created the world, and that failure used to block the turn as a guidance failure and
+    // strand the table (installed build e1b4176d3, 2026-09-23). Finish the existing handoff first;
+    // the agent only owes the short prologue close, and agent_end will let the wrapper replace this
+    // setup child with the play child.
+    await refreshCompleted();
     if(completed.has('complete')) {
       await finish();
       return {systemPrompt:event.systemPrompt+'\nSetup is already complete. Do not call setup or continue character creation. Close the prologue briefly; the host will open the table.'};
@@ -754,10 +819,10 @@ export default function (pi: ExtensionAPI) {
     // Guidance is prepared by the create-campaign step itself and, on later turns, only once that step has run.
     try {guidance=completed.has('create-campaign')||characterGuidance?await ensureGuidance():undefined;}
     catch(error) {
-      guidanceBlocked=true;
       // What the player is told is the campaign's sentence; the English message the preparation
       // threw stays in it as the detail, which is what a log and a bug report need (contract §23).
       const detail=errorText(error);
+      setupBlock={kind:'guidance_at_turn_start',code:errorCode(error),detail,noticed:true};
       try {ctx?.ui.notify((await speaking()).line('setup_guidance_failed',{detail}),'error');}
       catch {ctx?.ui.notify(detail,'error');}
       return {systemPrompt:event.systemPrompt+'\nModule guidance is unavailable. Do not invent a prologue, create an investigator or continue setup.'};
@@ -781,8 +846,8 @@ export default function (pi: ExtensionAPI) {
           setupPackages+='\n\n'+renderBrief(setupSlots,setupNotes,guidedCap);
         }
       } catch(error) {
-        guidanceBlocked=true;
         const detail=errorText(error);
+        setupBlock={kind:'package_context',code:errorCode(error),detail,noticed:true};
         try {ctx?.ui.notify((await speaking()).line('setup_packages_failed',{detail}),'error');}
         catch {ctx?.ui.notify(detail,'error');}
         return {systemPrompt:event.systemPrompt+'\nThe setup package context is unavailable. Do not draft or continue setup until it is restored.'};
@@ -883,9 +948,22 @@ export default function (pi: ExtensionAPI) {
 
 	// After the last step, wait for this run to say the handoff out loud before exiting (contract §14.4: the process exits and prints the command that opens the table).
 	pi.on("agent_end", async () => {
-    if(guidanceBlocked){
-      try {ctx?.ui.notify((await speaking()).word('setup_guidance_review_failed'),'error');}
-      catch {/* an unreadable content root must not swallow the agent_end handler */}
+    if(setupBlock){
+      // A turn-start cause was announced as it blocked; the create-campaign cause is announced
+      // here, once, in the words of its own failure: a review that needs another preparation
+      // (`preparation_failed`) or anything else with its detail. The package cause is never
+      // named as a guidance review, because it is not one.
+      if(!setupBlock.noticed){
+        const block=setupBlock;
+        block.noticed=true;
+        try {
+          const words=await speaking();
+          ctx?.ui.notify(block.kind==='package_context' ? words.line('setup_packages_failed',{detail:block.detail})
+            : block.code==='preparation_failed' ? words.word('setup_guidance_review_failed')
+            : words.line('setup_guidance_failed',{detail:block.detail}),'error');
+        }
+        catch {/* an unreadable content root must not swallow the agent_end handler */}
+      }
       return;
     }
     if(characterGuidance && bridge && context.campaign && !prologueRecorded && !handoff) {
