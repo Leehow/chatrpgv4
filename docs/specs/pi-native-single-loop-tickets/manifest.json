@@ -21,12 +21,21 @@
     {"id": "SL-03", "file": "03-operations-and-delivery.md", "status": "needs-triage"},
     {"id": "SL-04", "file": "04-session-events-recovery.md", "status": "needs-triage"},
     {"id": "SL-05", "file": "05-performance-and-product.md", "status": "needs-triage"},
-    {"id": "SL-06", "file": "06-retire.md", "status": "needs-triage"}
+    {"id": "SL-06", "file": "06-retire.md", "status": "needs-triage"},
+    {"id": "SL-07", "file": "07-npc-standing-defense.md", "status": "ready-for-agent"}
   ],
   "relatedSpecs": [
-    {"spec": "docs/specs/scene-obligations-as-candidates.md",
-     "tickets": "docs/specs/scene-obligations-as-candidates-tickets.md",
-     "scheduledUnder": "SL-02",
-     "ticketStatus": {"SO-01": "ready-for-agent", "SO-02": "ready-for-agent", "SO-03": "ready-for-agent", "SO-04": "ready-for-agent after SL-02 policy", "SO-05": "needs-triage"}}
+    {
+      "spec": "docs/specs/scene-obligations-as-candidates.md",
+      "tickets": "docs/specs/scene-obligations-as-candidates-tickets.md",
+      "scheduledUnder": "SL-02",
+      "ticketStatus": {
+        "SO-01": "ready-for-agent",
+        "SO-02": "ready-for-agent",
+        "SO-03": "ready-for-agent",
+        "SO-04": "ready-for-agent after SL-02 policy",
+        "SO-05": "needs-triage"
+      }
+    }
   ]
 }
