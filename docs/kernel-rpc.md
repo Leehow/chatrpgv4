@@ -18280,6 +18280,6 @@ input, never edited by hand: `read-graph` (the central library's entity view gai
 `library` search gains the new rule node and loses the five `time_profile`s) and `rules-records` (the `rule` catalog's
 digest, after the playtest keys left `rule-index.json`). Goldens (capsule,
 `table.apply.options`, `table.resolve.options`, module and scene lookups, `look focus=scene`, 46 scenes of the four
-starters, each in a fresh seeded campaign) against the parent `566dca9da`, and again after 0.9.5a was merged in, against `3a9bf2dc7` and `8e017016a`: `mystery-house`, `voice-bench` and
+starters, each in a fresh seeded campaign) against the parent `566dca9da`, and again after 0.9.5a was merged in, against `3a9bf2dc7`, `8e017016a` and `2c4582c4a`: `mystery-house`, `voice-bench` and
 `the-haunting-rulebook` byte-identical; the haunting's differences are listed row by row in the RD-04 record
 (`docs/specs/rules-as-data-tickets.md`, Comments).
