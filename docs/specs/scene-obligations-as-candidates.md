@@ -193,7 +193,7 @@ One kernel function, `sceneObligations(graph, world, scene)` (beside `whereSecti
 
 ### D6. Consumption by the single loop (after SL-02)
 
-- **Candidates.** For each obligation with state `open`: a `meet` step becomes the person candidate for that person, marked as stated (label: "The book puts <person> here, <who role>, before <what they guard>") — it replaces the unmarked roster candidate for the same person rather than adding a second; a `check` step becomes an `obligation_check` candidate (label: the demand and what it guards, no page, no kernel tags). Candidates with `guarded_by` an open obligation are withheld, the same hygiene as an exit whose `unlock_when.met` is false. A `blocked` obligation issues nothing.
+- **Candidates.** For each obligation with state `open`: a `meet` step becomes the person candidate for that person, marked as stated (label: "The book puts <person> here, <who role>, before <what they guard>") — it replaces the unmarked roster candidate for the same person rather than adding a second; a `check` step becomes an `obligation_check` candidate (label: the demand and what it guards, no page, no kernel tags). *Amended by the owner's rulings of 2026-09-23 (Comments):* a stated meeting is data — it is staged under the table's own label if the kernel issued one, else under the person's record name, with no LLM step; and a meeting the book puts before a check is carried by that check — `now` on the check runs the meeting directly first, then binds and rolls the check — while a meeting-only obligation stays a routed candidate. Candidates with `guarded_by` an open obligation are withheld, the same hygiene as an exit whose `unlock_when.met` is false. A `blocked` obligation issues nothing.
 - **Precedence.** `person → mod_check → obligation_check → core-check → clue/handout → move`. The obligation check sits after the Mod contact check (a meeting's first impression comes before its demand, as at the table) and before an ordinary check.
 - **Clerk authority (e), added to the ruling's (a)–(d):** the next step of a stated obligation, when Jev answers `now` above the gates. A `meet` step is (a)-shaped bookkeeping. A `check` step binds its approach: one available approach → bound; several → `decide(bind)` over the closed approaches (and the ordinary binder's closed dice-modifier choice); below the gates → `infer(bind)`, the Keeper fills it. The clerk never picks among approaches on its own, and never rolls an obligation whose next step lacks a stated difficulty (D7).
 - **Stop at the decision boundary.** Settling a gate releases what it guards; it does not carry the player past what they declared. A released reveal is carried out only when Jev judges it `now` against the player's declaration, like any reveal.
@@ -290,3 +290,22 @@ A good test drives the real entry and asserts what the kernel issued, what recei
 - **Q7. First authored sample — the morgue pair only** (clippings access and the archivist). The police, Dooley, basement-stairs and Hall-of-Records rows are SO-05, after SO-04's replay meets Q6.
 
 ## Comments
+
+### 2026-09-23 — Owner rulings on SO-04's open points (owner-delegated through the coordinator)
+
+SO-04's replay (`experiments/single-loop-routing/RESULTS-20260923.md`) did not meet Q6: each stated meeting was an LLM
+step (§135.2's open name, no table label at turn 3), and Jev answered the meeting `later` in 26/26 runs. Ruled:
+
+1. **A stated meeting is data, not an open name.** For an obligation's `meet` step the person is named by the book (the
+   NPC record's `name`, and the record's role if the starter carries one), so §135.2's open-name rule does not apply:
+   the clerk stages the stated person with the record's name (the capsule's `untold.label` if the kernel already issued
+   one, else the record's name), no LLM step. §135.2 carries the exception; D6 above is amended.
+2. **`now` on the check carries the meeting.** The check step implies its `meet` predecessor: when Jev answers `now` for
+   the `obligation_check` above the gates, the loop carries the `meet` step directly first (no separate Jev question, no
+   `later` to ask), then binds and rolls the check. A `meet`-only obligation (the archivist) stays a routed candidate.
+   To make the check available while the meeting is owed, the kernel's issued row gains `then` (§134.9).
+
+Not ruled, left as they are: the Keeper's unclaimed same-skill roll settles nothing (D4 stands), so a Keeper that rolls
+the book's check without `action.obligation` and a clerk that then rolls the claimed one make two rolls; and the replayed
+Keeper of the turn-3 fixture predates SO-02 (it never claims, and it rolls Arty's first impression, which Q2 takes off the
+clerk only). Implementation: §135.26.

@@ -1,0 +1,13 @@
+{
+ "campaign": "game-9456da03-779d-4dc3-acc2-ebf4bb7c06b9",
+ "module": "the-haunting",
+ "turn": 3,
+ "commit_before": "4891552",
+ "commit_after": "c11eac6",
+ "player_input": "“行，先去报馆。”我拿上帽子出门，直接去《环球报》剪报室，找认识的老同行帮忙翻科比特宅这些年的旧报道。",
+ "session": {
+  "directory": "%2FUsers%2Fhaoli%2Fleehow%2Fplaytests%2Fjev-gui-20260922",
+  "file": "2026-09-23T02-21-40-198Z_703d4d3a-41a5-4bc7-a7d3-ffbff2d66554.jsonl",
+  "user_message_at": "2026-09-23T03:07:47.720Z"
+ }
+}

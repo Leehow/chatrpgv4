@@ -46,10 +46,12 @@ export interface CandidateVariant {label: string; bound: Record<string, Json>; u
  * - `session_step`: a combat or chase step whose every parameter the kernel's session view issues (the
  *   "parameters-only steps never go to the LLM" ruling);
  * - `disposition_inference`: writing the combat disposition Jev inferred, once per campaign, for an NPC whose turn
- *   has come and who has none (the ruling "An NPC's fight behaviour follows the NPC's own parameters"; §11.5.3).
+ *   has come and who has none (the ruling "An NPC's fight behaviour follows the NPC's own parameters"; §11.5.3);
+ * - `stated_obligation` (e): the next step of a scene obligation the module states, as the kernel issues it
+ *   (`table.apply.options.obligations`; contract §135.26): its meeting, or its check with a closed approach binder.
  * Fetching data (d) is the read step itself, not a candidate. Everything else is the Keeper's.
  */
-export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step', 'disposition_inference'] as const;
+export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step', 'disposition_inference', 'stated_obligation'] as const;
 export type ClerkAuthority = typeof CLERK_AUTHORITY[number];
 /** A host-issued step candidate (design §5.1): what the host can perform now, and what it still needs. */
 export interface Candidate {
@@ -72,6 +74,13 @@ export interface Candidate {
   forced?: boolean;
   /** A closed choice among issued actions (an NPC's turn): the bound `decision` selects the variant that then runs. */
   variants?: Record<string, CandidateVariant>;
+  /**
+   * A step the kernel requires first that this candidate carries (§135.26: the meeting a stated check implies). Selecting
+   * this candidate runs `before` directly, then this candidate as the fresh read re-issues it. Never shown to Jev.
+   */
+  before?: Candidate;
+  /** Set on a carried step: the key of the candidate it was carried for, run next from the fresh read. */
+  then?: string;
 }
 export type Binding = 'none' | 'closed' | 'open';
 export function bindingOf(candidate: Candidate): Binding {
@@ -155,8 +164,13 @@ export const exhausted = (budget: Budget): boolean =>
   budget.jevCalls >= budget.maxJevCalls || budget.jevMs >= budget.maxJevMs || budget.steps >= budget.maxSteps;
 /** The run's time budget is spent (§135.25). */
 export const overRun = (budget: Budget): boolean => budget.runMs >= budget.maxRunMs;
-/** A step the kernel forces that needs no model: it still runs past the budget, because the kernel accepts nothing else next. */
-const forcedWithoutModel = (item: PendingItem | undefined): boolean => item?.candidate?.forced === true && item.kind !== 'infer';
+/**
+ * A step the kernel forces that needs no model: it still runs past the budget, because the kernel accepts nothing else
+ * next. A step carried for a check Jev already judged `now` (§135.26: the meeting the book puts before it) is the same:
+ * it is structure, needs no model, and runs directly; the check it hands on to is judged against the budget as usual.
+ */
+const forcedWithoutModel = (item: PendingItem | undefined): boolean =>
+  (item?.candidate?.forced === true || (item?.kind === 'direct' && !!item.candidate?.then)) && item.kind !== 'infer';
 /** The clerk steps the budget leaves unexecuted: every pending item carrying a host candidate, once per candidate. */
 export function deferredByBudget(view: Pick<RunView, 'pending'>): DeferredStep[] {
   const out: DeferredStep[] = [];
@@ -225,10 +239,12 @@ const clears = (result: DecisionResult | undefined, key: string, choice: string,
  * Structural precedence among operations judged needed on the same snapshot (design §11.3: writes keep
  * their order). Who is on stage is settled before anyone is met; a Mod's contact check before an ordinary
  * check; reveals after the checks that gate them; a move last, because it changes the scene the rest
- * were judged in. This ranks families the host already knows; it never reads prose.
+ * were judged in. A stated obligation's check (§135.26) comes after the Mod contact check (a meeting's first
+ * impression before its demand) and before an ordinary check. This ranks families the host already knows; it
+ * never reads prose.
  */
-const PRECEDENCE: Record<string, number> = {person: 0, mod_check: 1, 'core-check': 2, clue: 3, handout: 3, move: 4};
-const rank = (candidate: Candidate): number => PRECEDENCE[candidate.family] ?? 2;
+const PRECEDENCE: Record<string, number> = {person: 0, mod_check: 1, obligation_check: 2, 'core-check': 3, clue: 4, handout: 4, move: 5};
+const rank = (candidate: Candidate): number => PRECEDENCE[candidate.family] ?? PRECEDENCE['core-check'];
 
 /**
  * What a route answer makes determined. Also pure. The route is a fan-out (design §5.1, several needs
@@ -466,6 +482,8 @@ export function settleLlmProposal(view: RunView, step: number, item: PendingItem
 
 /** The items that carry one candidate: direct when bound, a Jev bind when closed, an LLM bind when open. */
 export function itemsFor(candidate: Candidate, reason?: string): PendingItem[] {
+  // A carried step runs first; the candidate it was carried for follows from the fresh read (settleExecute).
+  if (candidate.before) return itemsFor({...candidate.before, then: candidate.key}, reason);
   const binding = bindingOf(candidate);
   return binding === 'none' ? [{kind: 'direct', purpose: 'execute', candidate, ...(reason ? {reason} : {})}]
     : binding === 'closed' ? [{kind: 'decide', purpose: 'bind', candidate, ...(reason ? {reason} : {})}]
@@ -508,20 +526,33 @@ export function consumedByEffects(effects: Row[] | undefined): string[] {
   }
   return keys;
 }
+/** The obligation check a model-origin resolve claimed (`action.obligation`), keyed as the host mints it (§135.26). */
+export function consumedByClaim(action: Row | undefined): string[] {
+  return typeof action?.obligation === 'string' && action.obligation ? [`resolve:obligation:${action.obligation}`] : [];
+}
 
 export function settleExecute(view: RunView, step: number, item: PendingItem, executed: {ok: boolean; summary: Json}, fresh: Fresh | undefined, ms: number): TelemetryRow {
   if (item.call) {
     if (item.candidate) view.consumed.push(item.candidate.key);
     // A model-origin apply consumes the host candidates it carried out, by the same structural keys the host
     // mints (run 20 re-showed a handout the model's batch had already placed: the asset row has no receipt id).
-    if (executed.ok) for (const key of consumedByEffects(item.call.params.effects as Row[] | undefined)) if (!view.consumed.includes(key)) view.consumed.push(key);
-  } else view.consumed.push(item.candidate!.key);
+    if (executed.ok) for (const key of [...consumedByEffects(item.call.params.effects as Row[] | undefined), ...consumedByClaim(item.call.params.action as Row | undefined)])
+      if (!view.consumed.includes(key)) view.consumed.push(key);
+  } else {
+    view.consumed.push(item.candidate!.key);
+    // A clerk step that was refused is dropped for the run (its key is consumed above) and the turn goes to the Keeper
+    // (§135.26): the clerk does not route around its own refusal.
+    if (!executed.ok) view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'clerk_refused'});
+  }
   if (fresh) {
     const before = view.context.scene;
     applyFresh(view, fresh);
     // A scene change invalidates the material the route was judged on (runs 11-13: the people at the morgue
     // were judged against the office's material). The next step reads the new scene before any route.
     if (executed.ok && fresh.context.scene !== before) { view.located = false; view.pending.unshift({kind: 'direct', purpose: 'read'}); }
+    // §135.26: a carried step that landed hands on to the candidate it was carried for, as the fresh read issues it now.
+    const follow = executed.ok && !item.call && item.candidate?.then ? view.candidates.find(value => value.key === item.candidate!.then) : undefined;
+    if (follow) view.pending.unshift(...itemsFor(follow));
   }
   if (item.call) {
     observe(view, {kind: 'direct', purpose: 'execute', status: executed.ok ? 'ok' : 'refused', choice: item.call.label, summary: {...(executed.summary as Row), params: item.call.params} as Json});

@@ -3302,6 +3302,16 @@ export default function (pi: ExtensionAPI) {
 		const state = table;
 		const key = state?.callKeys.get(event.toolCallId);
 		const last = `${String(details.coc_error.code ?? "error")}: ${String(details.coc_error.message ?? "")}`.slice(0, 160);
+		// §135.26: a clerk (policy-origin) refusal is the clerk's. The run drops that candidate and hands the turn to the
+		// Keeper; it is recorded on the clerk's side and never struck against the Keeper's budget or resend guard (§67).
+		const clerk = dispatcher.hostOrigin(event.toolCallId);
+		if (clerk?.origin === "policy") {
+			const inner = (details.coc_error as { details?: Record<string, unknown> }).details ?? {};
+			await record({ lane: "refusals", turn: state?.turn ?? null, tool: event.toolName, origin: "policy", run: clerk.run, step: clerk.step,
+				...(clerk.clerk ? { clerk: clerk.clerk } : {}), reason: "clerk_refusal", counted: false, code: String(details.coc_error.code ?? "error"),
+				...(typeof inner.reason === "string" ? { refusal: inner.reason } : {}), last });
+			return { isError: true };
+		}
 		if (state && key) {
 			const previous = state.rejected.get(key);
 			state.rejected.set(key, { count: (previous?.count ?? 0) + 1, last });
@@ -4140,9 +4150,12 @@ export default function (pi: ExtensionAPI) {
 			// strike from this gate is a refusal on a turn with no door, so narrate and ask are struck
 			// here like any other write.
 			const round = state.callRounds.get(event.toolCallId) ?? state.roundTrips;
-			const { count, tripped } = strikeRefusalClass(state, name, `${name}\u0000turn_state\u0000${state.state}`,
-				`turn_state: ${TURN_CLOSED_REASON}`.slice(0, 160), round, true);
-			if (tripped) await record({ lane: "refusals", turn: state.turn, tool: name, count, reason: "class_limit", last: `turn_state: ${state.state}` });
+			// §135.26: a clerk call refused here is the clerk's, never a strike on the Keeper's budget.
+			if (dispatcher.hostOrigin(event.toolCallId)?.origin !== "policy") {
+				const { count, tripped } = strikeRefusalClass(state, name, `${name}\u0000turn_state\u0000${state.state}`,
+					`turn_state: ${TURN_CLOSED_REASON}`.slice(0, 160), round, true);
+				if (tripped) await record({ lane: "refusals", turn: state.turn, tool: name, count, reason: "class_limit", last: `turn_state: ${state.state}` });
+			}
 			if (blocked >= RUNAWAY_ABORT_AT) {
 				await record({ lane: "runaway", turn: state.turn, blocked, aborted: true });
 				// The cut reaches message_end as `stopReason: "error"` like any dead call, and only the host
@@ -4258,9 +4271,12 @@ export default function (pi: ExtensionAPI) {
 			// Keeper could be told "wait for the player" forever inside its own turn.
 			const round = state.callRounds.get(event.toolCallId) ?? state.roundTrips;
 			// The opening's doors are the `openingNarrate` exemption above, so a narrate or ask that
-			// reaches this line is not one of them and is struck like any other write (§77).
-			const { count, tripped } = strikeRefusalClass(state, name, `${name}\u0000turn_state\u0000${state.state}`, `turn_state: ${reason}`.slice(0, 160), round, true);
-			if (tripped) await record({ lane: "refusals", turn: state.turn, tool: name, count, reason: "class_limit", last: `turn_state: ${state.state}` });
+			// reaches this line is not one of them and is struck like any other write (§77) -- by the Keeper;
+			// a clerk call refused here is the clerk's (§135.26).
+			if (dispatcher.hostOrigin(event.toolCallId)?.origin !== "policy") {
+				const { count, tripped } = strikeRefusalClass(state, name, `${name}\u0000turn_state\u0000${state.state}`, `turn_state: ${reason}`.slice(0, 160), round, true);
+				if (tripped) await record({ lane: "refusals", turn: state.turn, tool: name, count, reason: "class_limit", last: `turn_state: ${state.state}` });
+			}
 			return { block: true, reason: state.exhausted.get(name) ?? reason };
 		}
 		if (name === "ask" && !input.binds && state.pendingChoice?.for === "player" && state.pendingChoice.name) {

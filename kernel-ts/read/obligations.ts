@@ -183,6 +183,13 @@ export function sceneObligations(graph: ModuleGraph, world: Row, scene: Row | nu
         const next = state === "open" ? nextStep(graph, world, node) : null;
         if (next)
             result.next = stepView(graph, next, modChecks);
+        // §135.26 (owner ruling, 2026-09-23): the check a meeting leads to, so the clerk can carry the meeting when the
+        // check is judged `now`. Only while the next step is a meeting; its shape is `next`'s for a check.
+        if (next?.kind === "meet") {
+            const demand = steps(node), then = demand.slice(demand.indexOf(next) + 1).find(step => step.kind === "check");
+            if (then)
+                result.then = stepView(graph, then, modChecks);
+        }
         if (ob.reaction === "preordained") {
             result.reaction = "preordained";
             const contact = modChecks.filter(({ check }) => check.trigger === "contact" && check.scope === "actor-target")

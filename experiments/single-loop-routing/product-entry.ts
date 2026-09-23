@@ -146,15 +146,21 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
       const key = operation.verb === 'apply' ? effectKey(bound) : resolveKey(bound);
       for (const call of calls) {
         if (!call.ok) continue;
+        // The note asks for the verb "with the bound values as given and the needed parameters filled in" (§135.4): the
+        // recorded call supplies what the live Keeper filled in, and the bound values ride on it as given (SO-04: an
+        // obligation check's `action.obligation`, which the live Keeper never had to send).
         if (operation.verb === 'apply' && call.name === 'apply') {
           const effect = array(call.arguments.effects).find((value: Row) => effectKey(value) === key);
-          if (effect && !done.has(key!)) { const item = {name: 'apply', arguments: {effects: [effect]}}; record(item); return answer([item], 'bind', call.message); }
+          if (effect && !done.has(key!)) { const item = {name: 'apply', arguments: {effects: [{...effect, ...bound}]}}; record(item); return answer([item], 'bind', call.message); }
         }
         // A resolve binds by its decision and who acts or is acted on (a defence names its actor, an attack its target).
         const action = object(call.arguments.action), norm = (value: unknown) => String(value ?? '').toLowerCase().replace(/\s+/g, '-');
         if (operation.verb === 'resolve' && call.name === 'resolve' && action.decision === bound.decision
           && (norm(action.actor) === norm(bound.actor) && !!bound.actor || norm(action.target) === norm(bound.target) && !!bound.target)
-          && !done.has(resolveKey(action))) { record(call); return answer([call], 'bind', call.message); }
+          && !done.has(resolveKey(action))) {
+          const item = {name: 'resolve', arguments: {...call.arguments, action: {...action, ...bound}}};
+          record(item); return answer([item], 'bind', call.message);
+        }
       }
       log({replay: 'bind:not_recorded', key});
     }
@@ -173,28 +179,49 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
 }
 
 /**
- * The admission lane as a replay of the live table's verdicts, per verb, in order. An `apply` review is paired with the
- * recorded review of the live batch whose effect kinds match the proposal's lines (SL-10: when the typed fast path
- * settles the clerk's move, the Keeper's later batch must not take the move's recorded verdict and time). With
- * `latency` (SL-10) each answer waits the live review's recorded time.
+ * The admission lane as a replay of the live table's verdicts. Each live review is paired with the live call it judged
+ * (the i-th review of a verb with the i-th reviewed call of that verb the live kernel took). A review is answered with
+ * the verdict of the live call it names -- the call's decision or skill and its target for a resolve, an effect's
+ * target for an apply, read as strings in the review request -- preferring a live review not yet replayed (SO-04: the
+ * clerk's claimed Persuade is a review the live table never had, and in order it took the verdict meant for the next
+ * call); else, for an apply, the unreplayed live review whose effect kinds match the proposal's lines (SL-10: when the
+ * typed fast path settles the clerk's move, the Keeper's later batch must not take the move's recorded verdict and
+ * time); else the next unreplayed review of the verb; else the last one replayed for that verb. With `latency` (SL-10)
+ * each answer waits the live review's recorded time.
  */
 function admissionReplay(baseline: Row, log: (row: Row) => void, latency = false, liveKeeper = false) {
-  const queue: Record<string, Row[]> = {apply: [], resolve: []};
-  for (const row of array(baseline.admissions)) if (queue[row.verb]) queue[row.verb].push(row);
-  // The live reviewed applies in order: those carrying a §32.1 triggering kind (admission.ts's TRIGGER_KINDS).
+  // The live reviewed applies: those carrying a §32.1 triggering kind (admission.ts's TRIGGER_KINDS).
   const trigger = new Set(['move', 'clue', 'time', 'cash', 'item', 'handout', 'map', 'object', 'usage']);
-  const reviewedKinds = liveCalls(baseline).filter(call => call.name === 'apply' && call.ok && array(call.arguments.effects).some((effect: Row) => trigger.has(effect.kind)))
-    .map(call => [...new Set(array(call.arguments.effects).map((effect: Row) => String(effect.kind)))].sort().join('+'));
-  queue.apply.forEach((row, index) => { row.kinds = reviewedKinds[index] ?? null; });
+  const calls = liveCalls(baseline).filter(call => call.ok);
+  const reviewable = (call: Row): boolean => call.name === 'resolve' || array(call.arguments.effects).some((effect: Row) => trigger.has(effect.kind));
+  const records: Record<string, Array<Row & {names: string[]; kinds: string | null; used: boolean}>> = {apply: [], resolve: []};
+  const byVerb: Record<string, Row[]> = {apply: calls.filter(call => call.name === 'apply' && reviewable(call)), resolve: calls.filter(call => call.name === 'resolve')};
+  const cursor: Record<string, number> = {apply: 0, resolve: 0};
+  for (const row of array(baseline.admissions)) {
+    const verb = row.verb, list = byVerb[verb];
+    if (!list) continue;
+    const call = list[cursor[verb]++];
+    const action = object(call?.arguments.action), effects = array(call?.arguments.effects);
+    const names = verb === 'resolve' ? [String(action.decision ?? action.skill ?? ''), String(action.target ?? '')].filter(Boolean)
+      : effects.map((effect: Row) => String(effect.to ?? effect.clue ?? effect.name ?? '')).filter(Boolean);
+    records[verb].push({...row, names, kinds: verb === 'apply' && call ? [...new Set(effects.map((effect: Row) => String(effect.kind)))].sort().join('+') : null, used: false});
+  }
+  const last: Record<string, Row | undefined> = {};
   return async (context: Row): Promise<Row> => {
     const request = JSON.stringify(context.messages ?? []);
     const verb = request.includes('resolve (roll the dice') ? 'resolve' : 'apply';
+    const list = records[verb];
     // The proposal lines are the host's own machine lines ("- apply <kind>: ..."), so their kinds are read off them.
     const proposed = request.slice(request.lastIndexOf('[The Keeper now proposes]'));
     const kinds = [...new Set([...proposed.matchAll(/- apply ([a-z_]+):/g)].map(match => match[1]))].sort().join('+');
-    const at = verb === 'apply' ? Math.max(0, queue.apply.findIndex(row => row.kinds === kinds)) : 0;
-    const next = queue[verb].splice(at, 1)[0];
-    log({admission_replay: verb, kinds: verb === 'apply' ? kinds : undefined, verdict: next?.verdict ?? null, live_ms: next?.ms ?? null});
+    const names = (record: Row & {names: string[]}) => record.names.length > 0 && (verb === 'resolve' ? record.names.every(name => request.includes(name)) : record.names.some(name => request.includes(name)));
+    let next = list.find(record => !record.used && names(record)), pairing = 'identity';
+    if (!next && verb === 'apply') { next = list.find(record => !record.used && record.kinds === kinds); pairing = 'kinds'; }
+    if (!next) { next = list.find(record => names(record)); pairing = 'identity_reused'; }
+    if (!next) { next = list.find(record => !record.used); pairing = 'order'; }
+    if (!next) { next = last[verb] as typeof next; pairing = 'reuse_last'; }
+    if (next) { next.used = true; last[verb] = next; }
+    log({admission_replay: verb, kinds: verb === 'apply' ? kinds : undefined, pairing: next ? pairing : null, verdict: next?.verdict ?? null, live_ms: next?.ms ?? null});
     if (latency) await sleep(Number(next?.ms ?? 0));
     // A live Keeper's writes are not the recorded ones, in number or order. Admission is not what a live run measures
     // (SL-10 measures it); every recorded verdict of both fixtures is authorized/entailed, so an unrecorded review is
@@ -222,6 +249,8 @@ export interface ProductRunOptions {
   latency?: boolean;
   /** Player inputs for the turns after the fixture's own, in the same session (cross-turn cache measurement). */
   then?: string[];
+  /** SO-04: `COC_KERNEL_SEED` for the kernel subprocess, recorded in the summary. */
+  seed?: string;
 }
 
 /**
@@ -240,7 +269,7 @@ function liveKeeperHome(workspace: string, agentDir: string): void {
 }
 
 export interface ProductRunSummary {
-  run: number; fixture: string; admission: string; keeper: string; thinking: string; arm: string; latency: boolean; wall_ms: number; status: string | null; reason: string | null;
+  run: number; fixture: string; admission: string; keeper: string; thinking: string; arm: string; latency: boolean; seed: string | null; wall_ms: number; status: string | null; reason: string | null;
   budget: Row | null;
   model_calls: ModelCall[];
   steps: Record<string, number>; llm_steps: number; llm_purposes: string[]; jev_calls: number; route_rows: number;
@@ -301,6 +330,9 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
     PI_COC_VERIFIER_MODEL: 'verifier/v1', PI_COC_MEMORY_MODEL: 'memory/m1', PI_COC_ADMISSION_MODEL: 'admission/a1',
     PI_COC_ADMISSION_REVIEWER: admission, PI_COC_JEV_PRESELECT: '1', PI_GROK_BUILD_IMAGE_TOOLS: '0',
     PI_COC_TURN_BUDGET_MS: arm === 'before' ? '3600000' : undefined, PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: arm === 'before' ? 'off' : undefined,
+    // SO-04: the kernel's dice are seeded (the kernel subprocess inherits this), so a passing and a failing roll are
+    // both reproducible; the seed is recorded in the summary.
+    COC_KERNEL_SEED: options.seed,
   });
   const trace: Row[] = [], log = (row: Row) => trace.push({at: new Date().toISOString(), ...row});
   const calls: Row[] = [];
@@ -350,7 +382,10 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
           pi.on('after_provider_response', () => { headersAt = Date.now(); });
           pi.on('tool_call', (event: Row) => { pending.set(event.toolCallId, {tool: event.toolName, id: event.toolCallId, origin: String(event.toolCallId).startsWith('clerk:') ? 'policy' : 'model', input: structuredClone(event.input)}); });
           pi.on('tool_result', (event: Row) => { const call = pending.get(event.toolCallId); if (!call) return; pending.delete(event.toolCallId);
-            calls.push({...call, ok: !event.isError && !object(event.details).coc_error, error: object(object(event.details).coc_error).code ?? null}); });
+            const details = object(event.details);
+            calls.push({...call, ok: !event.isError && !details.coc_error, error: object(details.coc_error).code ?? null,
+              ...(details.obligation ? {obligation: details.obligation} : {}), ...(details.obligation_open ? {obligation_open: details.obligation_open} : {}),
+              ...(object(details.outcome).passed !== undefined ? {passed: object(details.outcome).passed, level: object(details.outcome).level ?? null} : {})}); });
         }},
         {name: 'coc-hybrid-engine', factory: engine.extension},
       ]});
@@ -401,10 +436,12 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
   const budgetRow = own.filter(row => row.lane === 'run' && row.event === 'budget' && row.decision === 'summary').at(-1) ?? null;
   const clerk = own.filter(row => row.origin === 'policy' && row.tool).map(row => ({tool: row.tool, call_id: row.call_id, ok: row.ok, ms: row.ms, clerk: row.clerk, basis: row.basis}));
   const misses = routeRows.filter(row => ['low_confidence', 'jev_unavailable', 'jev_no_answer', 'repeated_question'].includes(String(row.reason)));
-  const summary: ProductRunSummary = {run, fixture: name, admission, keeper: live ? `live ${liveProvider}/${liveModel}` : 'replay', thinking, arm, latency, wall_ms: wall, budget: budgetRow,
+  const summary: ProductRunSummary = {run, fixture: name, admission, keeper: live ? `live ${liveProvider}/${liveModel}` : 'replay', thinking, arm, latency, seed: options.seed ?? null, wall_ms: wall, budget: budgetRow,
     status: end?.status ?? null, reason: end?.reason ?? null, model_calls: modelCalls,
     steps: stepCounts, llm_steps: llmPurposes.length, llm_purposes: llmPurposes, jev_calls: jevCalls, route_rows: routeRows.length,
-    calls: calls.map(call => ({tool: call.tool, origin: call.origin, ok: call.ok, error: call.error, input: call.input})), match: matchBaseline(baseline, calls),
+    calls: calls.map(call => ({tool: call.tool, origin: call.origin, ok: call.ok, error: call.error, input: call.input,
+      ...(call.obligation ? {obligation: call.obligation} : {}), ...(call.obligation_open ? {obligation_open: call.obligation_open} : {}),
+      ...(call.passed !== undefined ? {passed: call.passed, level: call.level} : {})})), match: matchBaseline(baseline, calls),
     admissions, clerk, misses};
   mkdirSync(outDir, {recursive: true});
   writeFileSync(join(outDir, `run${run}.trace.jsonl`), [...trace.map(row => ({lane: 'replay', ...row})), ...events.map(row => ({lane: 'event', ...row})), ...own].map(row => JSON.stringify(row)).join('\n') + '\n');
@@ -418,17 +455,18 @@ export async function main(argv: string[]): Promise<void> {
   const arm = arg('--arm', 'after') as 'before' | 'after', latency = arg('--latency', 'none') === 'live';
   const keeper = arg('--keeper', 'replay') as 'replay' | 'live', thinking = argv.includes('--thinking') ? arg('--thinking', 'low') : undefined;
   const model = argv.includes('--model') ? arg('--model', '') : undefined;
+  const seed = argv.includes('--seed') ? arg('--seed', '') : undefined;
   const then = argv.flatMap((value, index) => value === '--then' ? [argv[index + 1]] : []);
   const outDir = arg('--out', join(REPO, 'experiments/single-loop-routing/results', `${new Date().toISOString().replace(/[:.]/g, '-')}-product-${name.split('/').filter(Boolean).at(-1)}-${admission}${keeper === 'live' ? `-live-${thinking ?? 'low'}` : ''}`));
   const summaries: ProductRunSummary[] = [];
   for (let run = 1; run <= runs; run++) {
-    const summary = await productReplayOnce(name, run, outDir, admission, {keeper, arm, latency, ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {})});
+    const summary = await productReplayOnce(name, run, outDir, admission, {keeper, arm, latency, ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {}), ...(seed ? {seed} : {})});
     summaries.push(summary);
-    console.log(JSON.stringify({run, fixture: name, admission, keeper: summary.keeper, thinking: summary.thinking, arm, latency, wall_ms: summary.wall_ms,
+    console.log(JSON.stringify({run, fixture: name, admission, keeper: summary.keeper, thinking: summary.thinking, arm, latency, seed: summary.seed, wall_ms: summary.wall_ms,
       budget: summary.budget ? {elapsed_at_compose: summary.budget.elapsed_at_compose, over: summary.budget.over_budget, deferred: array(summary.budget.deferred_by_budget).map((value: Row) => value.key)} : null,
       model_calls: summary.model_calls.map(call => `${call.purpose ?? '?'} ${call.ms ?? '?'}ms in ${call.input}+${call.cache_read}c out ${call.output}/r${call.reasoning ?? '?'} [${call.tools.join(',')}]`), status: summary.status, reason: summary.reason, steps: summary.steps,
       llm_steps: summary.llm_steps, llm_purposes: summary.llm_purposes, jev_calls: summary.jev_calls, route_rows: summary.route_rows,
-      executed: summary.calls.map(call => `${call.origin === 'policy' ? 'H' : 'M'}:${call.tool}${call.ok ? '' : `!${call.error}`}`),
+      executed: summary.calls.map(call => `${call.origin === 'policy' ? 'H' : 'M'}:${call.tool}${call.ok ? '' : `!${call.error}`}${call.obligation ? `[${call.obligation.handle}:${call.obligation.settled ? 'settled' : 'open'}]` : ''}`),
       match: summary.match.map(row => `${row.baseline}: ${row.matched === null ? 'n/a' : row.matched ? `yes(${row.origin})` : 'NO'}`),
       admissions: summary.admissions.map(row => `${row.origin}/${row.verb}:${row.skipped ?? row.verdict}${row.path ? `@${row.path}` : row.reviewer ? `@${row.reviewer}` : ''}${row.ms !== null ? ` ${row.ms}ms` : ''}${row.jev_confidence ?? row.confidence ? ` c=${row.jev_confidence ?? row.confidence}` : ''}`)}));
   }

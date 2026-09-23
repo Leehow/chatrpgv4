@@ -8,7 +8,9 @@
  * - a person: `table.look focus=npc` for that person;
  * - a move: the destination's graph entity and who the book puts there (its `present-in` relations), each person as
  *   `table.look focus=npc` answers for them. This is the fact whose absence split a turn into one call per effect:
- *   the Keeper learns who is at the destination only from the move's result (SL-11 scope 2).
+ *   the Keeper learns who is at the destination only from the move's result (SL-11 scope 2);
+ * - a stated obligation's check (§135.26): the demand and what it guards, from the `table.apply.options.obligations`
+ *   row the candidate was built from -- never the page, which stays in the row's `source` on the host side.
  *
  * Nothing is classified: the families are the candidate builder's closed kinds (§135.2) and every value is a kernel
  * row. Each body is bounded like a capsule section (§13.1: 1 KB-class sections), the whole set by
@@ -28,7 +30,7 @@ export const CANDIDATE_BODY_BYTES = 1024;
 /** All bodies of one read: half the run's prescreen packet (16 KB), so the packet and its bodies fit one request slot. */
 export const CANDIDATE_BODIES_BYTES = 8 * 1024;
 /** The candidate families that carry a body, in the order the budget serves them (closed kinds of §135.2). */
-export const BODY_FAMILIES: readonly string[] = Object.freeze(['clue', 'handout', 'person', 'move']);
+export const BODY_FAMILIES: readonly string[] = Object.freeze(['clue', 'handout', 'person', 'obligation_check', 'move']);
 
 export interface CandidateBody {
   /** The candidate's host key (`apply:clue:<handle>`); host-side only, the Keeper sees family and name. */
@@ -86,6 +88,21 @@ function graphRow(entity: Row): Row {
   const {name: _name, kind: _kind, visibility: _visibility, ...rest} = entity;
   return rest;
 }
+/**
+ * A stated obligation as its check candidate's body (§135.26): its demand, who stands in the way, the next step and what
+ * it guards (the guarded clues' summaries the candidate already carries). The page (`source`), the Mod bookkeeping and
+ * the book's consequence lines are not in it.
+ */
+function obligationBody(row: Row, candidate: Candidate): Row {
+  // A meeting the check carries (§135.26) is named first; the step shown is the check.
+  const carried = object(row.next).kind === 'meet' && object(row.then).kind === 'check';
+  const next = carried ? object(row.then) : object(row.next), guards = array(object(candidate.detail).guards);
+  return {demand: text(row.name), ...(text(row.who) ? {who: text(row.who)} : {}), state: text(row.state),
+    ...(carried ? {first: `meet ${text(object(row.next).person)}`} : {}),
+    next: {kind: text(next.kind), ...(text(next.target) ? {target: text(next.target)} : {}), ...(next.selection ? {selection: next.selection} : {}),
+      ...(Array.isArray(next.approaches) ? {approaches: next.approaches} : {}), ...(next.difficulty ? {difficulty: next.difficulty} : {})},
+    ...(guards.length ? {guards} : {}), ...(row.reaction === 'preordained' && text(row.who) ? {reaction: `the book skips ${text(row.who)}'s reaction roll`} : {})};
+}
 /** A person as the destination list shows them: who they are and how the table may call them. */
 function personLine(look: Row, handle: string): Row {
   return {name: text(look.name) || handle, ...(look.called ? {called: look.called} : {}), ...(look.role ? {role: look.role} : {}),
@@ -107,7 +124,7 @@ export async function readCandidateBodies(input: {candidates: readonly Candidate
     .map(candidate => {
       const bound = object(candidate.bound);
       const name = candidate.family === 'clue' ? text(bound.clue) : candidate.family === 'move' ? text(bound.to)
-        : candidate.family === 'person' ? text(bound.who) : text(bound.name);
+        : candidate.family === 'person' ? text(bound.who) : candidate.family === 'obligation_check' ? text(bound.obligation) : text(bound.name);
       return {candidate, name};
     }).filter(item => item.name)
     .sort((a, b) => BODY_FAMILIES.indexOf(a.candidate.family) - BODY_FAMILIES.indexOf(b.candidate.family));
@@ -117,6 +134,8 @@ export async function readCandidateBodies(input: {candidates: readonly Candidate
   // many-handle query by search first, so a batch could miss one), one look per person; all in parallel.
   const expected: Readonly<Record<string, string>> = {clue: 'clue', move: 'scene', handout: 'handout'};
   const answers = await Promise.all(wanted.map(async item => {
+    // An obligation's body is the issued row the candidate carries: no second read.
+    if (item.candidate.family === 'obligation_check') return {params: {section: 'obligations'} as Row, answer: undefined};
     const params = item.candidate.family === 'person' ? {focus: 'npc', name: item.name} : {kind: 'module', query: item.name, expected_kind: expected[item.candidate.family]};
     return {params, answer: await read(item.candidate.family === 'person' ? 'table.look' : 'table.lookup', params)};
   }));
@@ -137,7 +156,12 @@ export async function readCandidateBodies(input: {candidates: readonly Candidate
     const {params, answer} = answers[index], method = candidate.family === 'person' ? 'table.look' : 'table.lookup';
     const entities = array(answer?.entities).map(object);
     let body: Row | undefined, from: CandidateBody['read'] = [{method, params}];
-    if (candidate.family === 'clue') {
+    if (candidate.family === 'obligation_check') {
+      const row = object(object(candidate.basis).row);
+      if (!text(row.handle)) { skip('not_found'); continue; }
+      body = obligationBody(row, candidate);
+      from = [{method: 'table.apply.options', params: {section: 'obligations'}}];
+    } else if (candidate.family === 'clue') {
       const entity = entityOf(entities, name, 'clue'), row = clueRows.get(name);
       if (!answer && !row) { skip('read_failed'); continue; }
       if (!entity && !row) { skip('not_found'); continue; }
@@ -176,7 +200,7 @@ export async function readCandidateBodies(input: {candidates: readonly Candidate
 /** What the Keeper is told about the bodies (Keeper-only, system language). */
 export const ISSUED_BODIES_HEAD = 'The bodies of what can be done here this turn, read from the kernel before you were asked: each '
   + 'undiscovered clue, handout, person not yet introduced and exit (with who the book puts at that destination), as look and lookup '
-  + 'return them. They are current as of this read; do not look or lookup them again. A body marked truncated is cut to its budget: '
+  + 'return them, and a stated obligation\'s check (the demand and what it guards). They are current as of this read; do not look or lookup them again. A body marked truncated is cut to its budget: '
   + 'look it up only for a field it omits. Keeper-only material, never player text.';
 
 /** One body as the Keeper reads it: family, name and body; the host key and read list stay on the artifact. */
