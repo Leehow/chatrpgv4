@@ -21,7 +21,7 @@ import { sceneLabel } from '../read/capsule.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
 import { playLanguages, playLanguageOf } from '../read/languages.js';
 import { modContext, kernelGaps, readModCatalog } from '../read/mods.js';
-import { array, entries, values, row, clone, number, string, truth, repr, chars, words, equal, type Row } from '../read/values.js';
+import { array, entries, values, row, clone, number, string, truth, repr, chars, words, equal, integer, type Row } from '../read/values.js';
 import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError, parseCallId } from './store.js';
 import { checked, commit, CommitFailed } from './history.js';
 import { registerStarter } from './source.js';
@@ -31,7 +31,7 @@ import { loadModuleContract, validSourceLanguage } from '../modules/contract.js'
 import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
 import { asciiSlug, facts, publicContext, directorAdoption, offerLedger } from './text.js';
 import { deliveryText, deliveryRecord } from './delivery.js';
-import { speakerResolver, repeatedLine } from './speech.js';
+import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
 import {eventOf} from '../worldline/index.js';
@@ -120,13 +120,27 @@ export interface WriteContributions {
     };
 }
 
-/** §113 D: a person does not repeat. Refused before any audit, naming the line and the turn it was said. */
-async function refuseRepeatedLine(snapshot: CampaignSnapshot, campaign: CampaignWriter, speech: unknown): Promise<void> {
+/**
+ * The `speech[]` rows (text order) whose say token the host wrote, not the Keeper (§128.3): a delivery
+ * parameter only the host sets. Anything that is not a distinct in-range ordinal is ignored -- a hint,
+ * like the token itself, never a reason to refuse.
+ */
+function hostAttributed(params: Row, speech: unknown): Set<number> {
+    const count = array(speech).length, value = params.host_attributed;
+    return new Set(Array.isArray(value) ? value.filter(index => integer(index) && number(index) >= 0 && number(index) < count).map(index => number(index)) : []);
+}
+/**
+ * §113 D: a person does not repeat. A line the Keeper wrapped is refused before any audit, naming the
+ * line and the turn it was said. A line the host wrapped (§128.3) is never refused: its repeats are
+ * returned, and the delivery carries them as findings instead.
+ */
+async function refuseRepeatedLine(snapshot: CampaignSnapshot, campaign: CampaignWriter, speech: unknown,
+    host: ReadonlySet<number> = new Set()): Promise<Row[]> {
     const lines = array(speech);
-    if (!lines.length) return;
+    if (!lines.length) return [];
     const records = snapshot.records.length ? snapshot.records : await campaign.records();
-    const repeat = repeatedLine(lines, records);
-    if (!repeat) return;
+    const repeat = repeatedLine(lines, records, 12, index => !host.has(index));
+    if (!repeat) return host.size ? repeatedLines(lines, records, 12, index => host.has(index)) : [];
     throw new RpcError('needs', `${string(repeat.name)} already said this at this table (turn ${string(repeat.earlier_turn)}): ${string(repeat.line)}`, {
         fix: 'This person does not repeat. When the same point comes back they move: give a little, refuse harder, or change the subject. Rewrite only that line and deliver again; everything else stands.',
         details: { reason: 'repeated_line', ...repeat },
@@ -942,7 +956,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         await validateMods(snapshot.world);
         const text = required(params, 'text')!, receipts = [...array(turn.receipts)];
         const { placed, ...delivery } = deliveryText(text, receipts, speakerResolver(module.graph, snapshot.world, snapshot.party)), rendered = delivery.rendered_text;
-        await refuseRepeatedLine(snapshot, campaign, delivery.speech);
+        const hostRepeats = await refuseRepeatedLine(snapshot, campaign, delivery.speech, hostAttributed(params, delivery.speech));
         const language = await playLanguageOf(context, snapshot.meta);
         // Nothing is read out of the prose. Figures travel as the mechanics projection and the
         // frontend draws them (2026-09-09 user decision, contract section 16.3); whether the words
@@ -967,7 +981,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             facts: factLists,
             extraction: {
                 job_id: `extract:${campaign.id}:t${n}`
-            }
+            },
+            ...(hostRepeats.length ? { repeated_lines: {
+                lines: hostRepeats.map(repeat => ({ name: repeat.name, line: repeat.line, earlier_turn: repeat.earlier_turn })),
+                note: 'the host wrapped these lines (§128.3) and they repeat what the same person already said; delivered, not refused, and recorded as a finding for the next turn'
+            } } : {})
         };
         const before = clone(turn), transcriptSize = await fileSize(campaign.path('transcript.jsonl')), eventsSize = await fileSize(campaign.path('events.jsonl'));
         const recordPath = campaign.path(campaign.recordName(n)), hadRecord = await context.snapshots.pathExists(recordPath);
@@ -979,7 +997,14 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             closed_how: truth(params.implicit) ? 'implicit' : 'explicit',
             facts: factLists,
             director_adoption: await adoption(campaign, module, turn, world, 'narrate'),
-            worldline: turn.worldline ?? null
+            worldline: turn.worldline ?? null,
+            // §128.3: a repeat inside a line the host wrapped is a finding on the delivery, the same
+            // `warnings` rows the verifier's `unmarked_speech` lands in, never a refusal.
+            ...(hostRepeats.length ? { warnings: hostRepeats.map(repeat => ({ lane: 'speech', kind: 'repeated_line',
+                quote: chars(string(repeat.line), 120),
+                why: chars(`${string(repeat.name)} already said this at turn ${string(repeat.earlier_turn)}; the host wrapped the line, so it was delivered, not refused`, 200),
+                fix: 'Already delivered: do not rewrite it. When the same point comes back, this person moves: give a little, refuse harder, or change the subject.',
+                at: nowIso() })) } : {})
         };
         await campaign.writeTurnRecord(record);
         await updateNpcLedger(campaign, module.graph, record);

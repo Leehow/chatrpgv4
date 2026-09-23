@@ -89,7 +89,11 @@ function longestSharedRun(a: string, b: string): string {
  * marks and punctuation neither hide a repeat nor make one. Twelve characters is a clause in any
  * script the table plays in; a greeting or a name alone is shorter than that and never matches.
  */
-export function repeatedLine(speech: Row[], records: Row[], minimum = 12): Row | null {
+export function repeatedLine(speech: Row[], records: Row[], minimum = 12, include: (index: number) => boolean = () => true): Row | null {
+    return repeatedLines(speech, records, minimum, include)[0] ?? null;
+}
+/** Every line of this delivery that `include` admits and that repeats the same person, in text order (§113 D, §128.3). */
+export function repeatedLines(speech: Row[], records: Row[], minimum = 12, include: (index: number) => boolean = () => true): Row[] {
     const said = new Map<string, Array<{ turn: number; text: string; chars: string }>>();
     for (const record of records)
         for (const line of array(record.speech)) {
@@ -98,14 +102,18 @@ export function repeatedLine(speech: Row[], records: Row[], minimum = 12): Row |
             if (!said.has(npc)) said.set(npc, []);
             said.get(npc)!.push({ turn: Number(record.turn) || 0, text, chars: spokenChars(text) });
         }
-    for (const line of speech) {
+    const found: Row[] = [];
+    for (const [index, line] of speech.entries()) {
+        if (!include(index)) continue;
         const who = row(row(line).who), npc = string(who.npc || ''), chars = spokenChars(row(line).text);
         if (!npc || chars.length < minimum) continue;
         for (const earlier of said.get(npc) ?? []) {
             const shared = longestSharedRun(chars, earlier.chars);
-            if (shared.length >= minimum)
-                return { npc, name: string(who.name || npc), line: string(row(line).text), earlier_turn: earlier.turn, earlier_line: earlier.text, shared };
+            if (shared.length >= minimum) {
+                found.push({ npc, name: string(who.name || npc), line: string(row(line).text), earlier_turn: earlier.turn, earlier_line: earlier.text, shared });
+                break;
+            }
         }
     }
-    return null;
+    return found;
 }

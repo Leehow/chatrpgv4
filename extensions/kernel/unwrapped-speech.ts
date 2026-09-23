@@ -152,6 +152,18 @@ export function wrapPassages(text: string, wraps: Array<{ start: number; end: nu
 	return out;
 }
 
+/**
+ * Which rows of the delivery's `speech[]` the wraps become (§128.3): the kernel lists spans in text
+ * order, one per open token of a repaired draft, so a wrap's ordinal is the number of open tokens --
+ * the Keeper's and the host's -- that start before it. The kernel reads these to tell a line the host
+ * wrapped from one the Keeper wrote.
+ */
+export function wrappedOrdinals(text: string, wraps: Array<{ start: number; name: string }>): number[] {
+	const opens = [...text.matchAll(/\{\{say:[^}\n]*\}\}/g)].map((match) => ({ at: match.index ?? 0, host: false }));
+	const placed = wraps.filter((wrap) => sayableName(wrap.name)).map((wrap) => ({ at: wrap.start, host: true }));
+	return [...opens, ...placed].sort((a, b) => a.at - b.at).flatMap((row, index) => (row.host ? [index] : []));
+}
+
 const SENTENCES = new Intl.Segmenter(undefined, { granularity: "sentence" });
 /**
  * The sentences around a passage, as the reader of the delivery reads them (tokens stripped): up to
