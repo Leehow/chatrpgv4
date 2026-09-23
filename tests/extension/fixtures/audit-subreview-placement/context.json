@@ -1,0 +1,496 @@
+{
+  "current_input": "“接。不过先说清楚——这房子到底出过什么事？之前住过谁，怎么走的？”我描出笔记本，准备记。",
+  "clock": {
+    "minutes": 0,
+    "elapsed": "0 h 0 min",
+    "at": "1920-10-12T10:00",
+    "day_part": "morning"
+  },
+  "scene": {
+    "handle": "commission-briefing",
+    "name": "Knott's Office",
+    "question": "Will the investigators accept Knott's commission and choose where to dig first?"
+  },
+  "intelligibility_review": {
+    "requires_review": true,
+    "definition": "Judge whether every candidate sentence and spoken line is naturally understandable in the play language without restoring omitted grammatical relations. This is not literary style scoring."
+  },
+  "player_address_review": {
+    "requires_review": true,
+    "actors": [
+      {
+        "name": "沈默"
+      }
+    ],
+    "definition": "Player-facing narration addresses player-controlled investigators in second person. Natural subject omission is allowed; narrator-side character names or third-person pronouns are not. NPC dialogue and reported speech may refer to them as the fiction requires."
+  },
+  "scene_commitment": {
+    "requires_review": true,
+    "active": {
+      "handle": "commission-briefing",
+      "name": "Knott's Office",
+      "summary": "Knott's Office"
+    },
+    "moves": [],
+    "definition": "active_scene is the persistent gameplay locus, not a physical coordinate.",
+    "promotion_test": "A distinct place needs a scene and move only when it becomes the ongoing locus for subsequent player action or durable location-bound state. Spatial wording, scale and motion do not decide this."
+  },
+  "present": [
+    {
+      "name": "Steven Knott"
+    }
+  ],
+  "receipts": [
+    {
+      "kind": "definition",
+      "name": "记事本",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "记事本",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "钢笔",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "钢笔",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "旧相机",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "旧相机",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "胶卷",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "胶卷",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "clue",
+      "clue": "knott-commission",
+      "label": "诺特的委托",
+      "summary": "Landlord Steven Knott pays $20/day to examine the Corbitt House, understand the Macario tragedy, and restore the property's name.",
+      "how": "沈默接下诺特已经说清的按天佣金，去查清房子为什么留不住人。",
+      "from": "steven-knott"
+    },
+    {
+      "kind": "clue",
+      "clue": "knott-macario-summary",
+      "label": "马卡里奥一家",
+      "summary": "Knott says the Macario family fled after a frightening breakdown and that the father now remains at Roxbury Sanitarium.",
+      "how": "沈默问房子里出过什么事、之前住过谁、人怎么走的，诺特讲了马卡里奥一家的事。",
+      "from": "steven-knott"
+    },
+    {
+      "kind": "clue",
+      "clue": "knott-research-leads",
+      "label": "查档的去处",
+      "summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper trails before they rush the house.",
+      "how": "诺特说自己只知道这些，更早的住户得去报馆、图书馆和档案馆查。",
+      "from": "steven-knott"
+    },
+    {
+      "kind": "clue",
+      "clue": "knott-keys",
+      "label": "钥匙与预付",
+      "summary": "Knott hands over the house keys, the address, and $20 cash in advance.",
+      "how": "沈默接了差事，诺特交出钥匙、地址和一天的预付。",
+      "from": "steven-knott"
+    },
+    {
+      "kind": "cash",
+      "delta": 20,
+      "before": 9,
+      "after": 29
+    },
+    {
+      "kind": "handout",
+      "handout": "the-haunting-handout-1-knott-commission",
+      "label": "诺特先生的委托",
+      "summary": "The commission, payment, keys, address, and suggested research routes.",
+      "name": "Handout 1: Mr. Knott's Commission",
+      "visibility": "player-safe"
+    },
+    {
+      "kind": "definition",
+      "name": "科比特宅钥匙",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "item",
+      "label": "科比特宅钥匙",
+      "from": "史蒂文·诺特",
+      "name": "科比特宅钥匙",
+      "handover": "given"
+    }
+  ],
+  "actors": [
+    {
+      "name": "沈默",
+      "equipment": [
+        "街上穿的深色西装",
+        "怀表",
+        "记者证",
+        {
+          "name": "记事本",
+          "quantity": 1,
+          "object_id": "object-item-1",
+          "description": "一本记者随身带的小号硬皮记事本，深色布面封面，书脊磨得发白。内页是浅米色的横格纸，前几页被撕过一角，其余还是空白，随时可以写字；封底内侧有一道折痕，能夹住车票或纸条。"
+        },
+        {
+          "name": "钢笔",
+          "quantity": 1,
+          "object_id": "object-item-2",
+          "description": "我的钢笔：黑色硬橡胶笔身，金属笔夹，金尖，拉杆上墨。笔里墨水是满的，走到哪儿都能掏出来签字、记笔记。"
+        },
+        {
+          "name": "旧相机",
+          "quantity": 1,
+          "object_id": "object-item-3",
+          "description": "你的旧相机。一九二〇年代的便携折叠款，跑新闻时揣在西装口袋里正好。金属机身包着黑皮，边角已经磨白；用的时候把皮腔拉开、支起前组，对准了再按快门。镜头有点划痕，但还清楚。它自己不会出照片——拍不拍得到，得靠你的手艺、光，还有当天的运气。胶卷是另外带的。"
+        },
+        {
+          "name": "胶卷",
+          "quantity": 1,
+          "object_id": "object-item-4",
+          "description": "一卷120规格的黑白胶卷，用防光纸筒卷着，是给那台旧相机配的。装进相机大概能拍八张，每拍一张就少一张；拍完一卷就没了，得换新的。"
+        },
+        {
+          "name": "科比特宅钥匙",
+          "quantity": 1,
+          "object_id": "object-item-5",
+          "description": "一串旧钥匙，两把铁质门钥串在一个发暗的铁环上：一把开科比特宅的大门，一把开后门。钥齿被反复插拔磨得发亮，齿形却还完整，能咬住锁芯。钥匙柄上没有刻字，环上只系着一小截发黑的麻绳，是房东随手做的记号，好让人一眼认出这是哪一串。"
+        }
+      ],
+      "cash": "29 USD",
+      "weapons": []
+    }
+  ],
+  "objects": {
+    "queued_registrations": [],
+    "definitions": [
+      {
+        "name": "记事本",
+        "category": "item",
+        "document": {
+          "presentation": "notebook",
+          "has_text": false
+        }
+      },
+      {
+        "name": "钢笔",
+        "category": "item",
+        "document": null
+      },
+      {
+        "name": "旧相机",
+        "category": "item",
+        "document": null
+      },
+      {
+        "name": "胶卷",
+        "category": "item",
+        "document": null
+      },
+      {
+        "name": "科比特宅钥匙",
+        "category": "item",
+        "document": null
+      }
+    ],
+    "instances": [
+      {
+        "name": "记事本",
+        "owner": "沈默",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "记事本",
+        "document": {
+          "presentation": "notebook",
+          "text": "",
+          "truncated": false
+        }
+      },
+      {
+        "name": "钢笔",
+        "owner": "沈默",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "钢笔",
+        "document": null
+      },
+      {
+        "name": "旧相机",
+        "owner": "沈默",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "旧相机",
+        "document": null
+      },
+      {
+        "name": "胶卷",
+        "owner": "沈默",
+        "state": {
+          "ammo": null,
+          "charges": 8,
+          "condition": "intact"
+        },
+        "definition": "胶卷",
+        "document": null
+      },
+      {
+        "name": "科比特宅钥匙",
+        "owner": "沈默",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "科比特宅钥匙",
+        "document": null
+      }
+    ]
+  },
+  "equipment_without_instances": [
+    {
+      "owner": "沈默",
+      "name": "街上穿的深色西装",
+      "row": "街上穿的深色西装"
+    },
+    {
+      "owner": "沈默",
+      "name": "怀表",
+      "row": "怀表"
+    },
+    {
+      "owner": "沈默",
+      "name": "记者证",
+      "row": "记者证"
+    }
+  ],
+  "corrections": [],
+  "memory": [
+    {
+      "kind": "promise",
+      "subject": "Steven Knott",
+      "statement": "只要沈默接下这桩差事，诺特就按天付二十块，并交给他钥匙和地址。",
+      "turn": 0,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report",
+      "fulfillment": {
+        "status": "open",
+        "terms": []
+      }
+    },
+    {
+      "kind": "knowledge",
+      "subject": "Steven Knott",
+      "statement": "诺特雇人查宅，是要弄清房客为什么住不久，好把房子的名声洗干净，让人肯再住进去。",
+      "turn": 0,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "world_event",
+      "subject": "world",
+      "statement": "在诺特的办公室里，房东史蒂文·诺特向沈默提出按天雇他调查那栋老宅。",
+      "turn": 0,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    }
+  ],
+  "recent_history": [
+    {
+      "turn": 0,
+      "player_text": "",
+      "input_truncated": false,
+      "text": "纸页和墨水还摊在桌上。你坐在房东史蒂文·诺特对面：他刚继承一栋老宅，按天雇人，要弄清房客为什么住不久，好把名声洗干净，让人肯再住进去。他上下看了你一眼，眉头松开，把帽子又往椅背上推了推。\n\n「记者。好。我要的不是来听鬼故事的人。房子空着，租客进门没几天就走。我按天给二十块，外加钥匙和地址。你接不接？」",
+      "truncated": false
+    }
+  ],
+  "source_facts": [
+    {
+      "name": "knott-commission",
+      "summary": "Landlord Steven Knott pays $20/day to examine the Corbitt House, understand the Macario tragedy, and restore the property's name.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "knott-research-leads",
+      "summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper trails before they rush the house.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "knott-macario-summary",
+      "summary": "Knott says the Macario family fled after a frightening breakdown and that the father now remains at Roxbury Sanitarium.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "knott-keys",
+      "summary": "Knott hands over the house keys, the address, and $20 cash in advance.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "knott-macario-summary",
+      "summary": "Knott says the Macario family fled after a frightening breakdown and that the father now remains at Roxbury Sanitarium.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "knott-research-leads",
+      "summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper trails before they rush the house.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "knott-keys",
+      "summary": "Knott hands over the house keys, the address, and $20 cash in advance.",
+      "disclosure": "acquired"
+    }
+  ],
+  "connections": {
+    "promises": [
+      {
+        "kind": "promise",
+        "subject": "Steven Knott",
+        "statement": "只要沈默接下这桩差事，诺特就按天付二十块，并交给他钥匙和地址。",
+        "turn": 0,
+        "authority": "conversation_report",
+        "fulfillment": {
+          "status": "open",
+          "terms": []
+        }
+      }
+    ],
+    "anchors": [
+      "knott-keys",
+      "knott-research-leads",
+      "knott-macario-summary",
+      "knott-commission",
+      "commission-briefing",
+      "steven-knott"
+    ],
+    "connections": [
+      {
+        "name": "commission-and-research-frame",
+        "claim": "Knott hired them to clear the house's name; research before entry is wise but not mandatory.",
+        "disclosure": "keeper_only_synthesis",
+        "evidence": [
+          {
+            "name": "knott-macario-summary",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Knott says the Macario family fled after a frightening breakdown and that the father now remains at ",
+            "turns": []
+          },
+          {
+            "name": "knott-commission",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Landlord Steven Knott pays $20/day to examine the Corbitt House, understand the Macario tragedy, and",
+            "turns": []
+          },
+          {
+            "name": "knott-research-leads",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper tr",
+            "turns": []
+          }
+        ],
+        "acquired_total": 4,
+        "truncated": true
+      },
+      {
+        "name": "corbitt-buried-in-basement",
+        "claim": "Walter Corbitt's body was interred in the house basement per his will; his mind still haunts from there.",
+        "disclosure": "keeper_only_synthesis",
+        "evidence": [
+          {
+            "name": "basement-burial-lawsuit",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "An 1866 obituary notes a lawsuit to stop Corbitt being buried in his own basement as his will requir",
+            "turns": []
+          },
+          {
+            "name": "will-executor-chapel",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "Corbitt's will executor was Pastor Michael Thomas of the Chapel of Contemplation — a church later cl",
+            "turns": []
+          }
+        ],
+        "acquired_total": 0,
+        "truncated": true
+      },
+      {
+        "name": "corbitt-house-documentary-history",
+        "claim": "Central Library records establish the house's construction, Corbitt's long and hostile tenure, and the unresolved litigation over his burial.",
+        "disclosure": "keeper_only_synthesis",
+        "evidence": [
+          {
+            "name": "house-built-1835",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "In 1835, a prosperous merchant built the house, immediately fell ill, and sold it to Walter Corbitt,",
+            "turns": []
+          },
+          {
+            "name": "neighbor-lawsuit-1852",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "In 1852, Corbitt's neighbors sued to force him out because of his strange habits and inauspicious de",
+            "turns": []
+          }
+        ],
+        "acquired_total": 0,
+        "truncated": true
+      }
+    ],
+    "hypotheses": [],
+    "truncated": true
+  },
+  "coverage": {
+    "history_total": 1,
+    "history_previews": 1,
+    "memory_total": 3,
+    "correction_total": 0,
+    "full_evidence_files": [
+      "original.json",
+      "effective.json",
+      "world.json",
+      "current.json",
+      "history.json",
+      "handouts.json",
+      "notes.json",
+      "memory.json"
+    ],
+    "note": "Equipment without an instance is not necessarily missing mechanics: ordinary decorative gear needs no executable definition. Previews are not complete evidence; read the relevant retained file if a decision depends on omitted history or text. Compatible new fiction is not a contradiction merely because the book does not state it."
+  }
+}

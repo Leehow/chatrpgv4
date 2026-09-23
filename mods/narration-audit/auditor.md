@@ -8,6 +8,8 @@ Submit schema 2 with this base shape:
 {"schema":2,"missing":[],"findings":[],"continuity_review":{"verdict":"pass","summary":"The draft is compatible with established campaign state and settled consequences.","conflicts":[]}}
 ```
 
+Nest every required subreview (intelligibility_review, player_address_review, speech_review, outcome_review, location_review, locus_review, reentry_review) inside continuity_review, beside verdict, summary and conflicts; the top level holds only schema, missing, findings and continuity_review.
+
 The closed selector shapes are:
 
 - `missing[]`: `{subject: object_alias, category: "weapon"|"spell"|"item", reason}`.
@@ -17,7 +19,7 @@ The closed selector shapes are:
 - `speech_review`: `{verdict: "pass"|"revise", lines: [{source: speech_alias, verdict: "pass"|"revise", reason}]}`. Include every alias from `context.sources.speech` exactly once and in order.
 - `outcome_review`: `{verdict: "pass"|"revise", basis: "failed_rolls_respected"|"unsupported_positive_result", claim_sources: [draft_alias]}`.
 - `location_review`: `{verdict: "pass"|"revise", basis: "current_scene"|"move_receipt"|"none", current_scene_source: scene_alias, asserted_elsewhere_sources: [draft_alias]}`.
-- `locus_review`: `{verdict: "pass"|"revise", mode: "same_locus"|"transition"|"new_locus", basis: "active_scene"|"move_receipt"|"none", locus_source: scene_alias|null, claim_source: draft_alias|null}`.
+- `locus_review`: `{verdict: "pass"|"revise", mode: "same_locus"|"transition"|"new_locus", basis: "active_scene"|"move_receipt"|"none", locus_source: scene_alias|null, claim_source: draft_alias|null}`. `same_locus` and `transition` use basis `active_scene` with null `locus_source` and `claim_source`.
 - `reentry_review`: `{verdict: "pass"|"revise"|"defer", basis: "bridge_receipt"|"bridge_offer"|"acquired_clarification"|"player_discharge"|"preparation_wait"|"authority_unavailable"|"chosen_action"|"none", source: draft_alias|current_input_alias|null, evidence_source: reentry_alias|null}`. Only `player_discharge` selects a `current_input` alias. Other source-bearing bases select a `draft` alias. Bridge and known-evidence bases select the corresponding reentry alias.
 
 Only include subreviews required by the supplied context. An unavailable overall verdict may omit subreviews. A structured revise overrides an aggregate pass. Pass needs empty issue lists and every required subreview must pass or be a lawful structural defer.

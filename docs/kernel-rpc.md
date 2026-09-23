@@ -14888,6 +14888,8 @@ Version 5 preserves the planner's separate semantic subquestions across the memo
 
 ### T14 audit source-selector compatibility
 
+> **Amended by §130.8 (2026-09-23).** Subreviews live inside `continuity_review`; one shared sentence states it to the reviewer, and a subreview submitted beside `continuity_review` is moved into place rather than refused.
+
 The next closed family is `audit.continuity.v2`, activated only by a newly versioned narration-audit package. It keeps the existing tool-enabled reviewer, review count, semantic predicates, repair allowance and delivery gate. The kernel pins an occurrence catalog over the candidate draft, current player input, ordered normalized say spans, allowed retained evidence strings, offered objects/scenes and causal-reentry evidence. Model-visible entries carry only semantic aliases and exact values. Private SourceRefs bind their original field/range, scope and revision; aliases never re-anchor by substring search.
 
 A v2 reviewer selects `claim_source`, `evidence_sources`, `source`, `claim_sources`, `locus_source`, `evidence_source` and `missing[].subject` instead of copying claims, evidence quotes, every spoken line, scene names, clue/relation pairs or object names. Speech selection must cover each issued occurrence exactly once in its original order. Generated reasons, findings, fixes and summaries remain reviewer-owned. A v2 alias is mutually exclusive with its v1 copied field; missing/foreign/wrong-family/reordered/duplicate/stale selections refuse as targeted format errors. No adverse review is discarded or converted to pass.
@@ -15441,6 +15443,68 @@ Two costs are named rather than hidden. The kernel answers one request at a time
 And deferred-registration completion stays in front of `narrate` because it writes state; it is a kernel
 `apply` of definitions already accepted, except in the rare case an earlier session died before a queued
 definition's creator finished, when `resume` runs that creator in the foreground (§36 fallback, unchanged).
+
+### 130.8 Where a schema 2 subreview lives, and a misplaced one is moved (2026-09-23, amends T14)
+
+Evidence: on the installed build `67a281c3e` (narration-audit 1.2.30, lane model
+`opencode-go/deepseek-v4.1-flash`) every continuity review of a new table — turns 0, 1 and 2, three of
+three — ended `continuity_review_unavailable` with "The audit artifact still has invalid fields after its
+targeted repair", so `coc-review-status` read *unreviewed* on every turn and the post-delivery review of
+this section never reviewed anything. The retained job (`.coc/mods/jobs/e7b8b8e2…/`) holds both
+submissions. The first was a complete, sensible report — `schema: 2`, one `missing` object, no findings,
+a `continuity_review` pass — with `intelligibility_review`, `player_address_review`, `speech_review` (five
+per-line verdicts) and `locus_review` placed **beside** `continuity_review`. It was refused four times with
+`Unexpected field; copied v1 fields are not permitted in schema 2`, a message that names no destination.
+The one repair moved all four inside `continuity_review`, and was then refused for two errors the first
+refusal had never shown, because a shape error stops materialization before the shared semantic
+validator runs: `locus_review` `same_locus` with a non-null `locus_source`, and a `pass` beside a
+`missing` object. The repair allowance was spent; the job ended unavailable.
+
+**The placement.** Subreviews are fields of `continuity_review`, beside `verdict`, `summary` and
+`conflicts`; the top level holds only `schema`, `missing`, `findings` and `continuity_review`. That is what
+T14 already required ("resolves v2 selections into the existing canonical v1-shaped accepted artifact"),
+what §36.14's 1.2.26 decision named (`continuity_review.intelligibility_review`), and what the validator
+enforced. What disagreed was the wording the reviewer read: the schema 2 brief said "{schema, missing,
+findings, continuity_review:{…}} plus only the required subreviews", which reads as siblings; the
+`submit_audit` description and `auditor.md` did not say at all.
+
+**One sentence, three readers.** `AUDIT_SUBREVIEW_PLACEMENT` (`kernel-ts/mods/audit-references.ts`) is the
+placement sentence, built from the same `AUDIT_SUBREVIEWS` / `AUDIT_TOP_LEVEL` lists the validator checks.
+The schema 2 brief (`extensions/mods/index.ts`) and the `submit_audit` `result` description
+(`extensions/mods/audit-submit.ts`) interpolate it; narration-audit **1.2.31** carries it verbatim in
+`auditor.md`, so changing the sentence requires re-issuing the package. The brief also now states the two
+validator rules the retained repair broke: pass needs empty `missing`, `findings` and `conflicts`; and
+`same_locus`/`transition` use basis `active_scene` with null `locus_source` and `claim_source`.
+
+**Normalization, not refusal.** Placement is not review content. `placeAuditSubreviews` runs first inside
+`materializeAuditReferences`, so `submit_audit` and `mods.accept` read the same way:
+
+- a subreview at the top level that is absent from `continuity_review` is moved there;
+- a top-level copy deep-equal to the one already nested is dropped;
+- a top-level copy that differs from the nested one is refused at `/<name>`, naming
+  `/continuity_review/<name>` — choosing between two different reviews would be judging.
+
+The retained `result.json` stays the raw submission as written; replay and the tamper check re-run the
+same deterministic placement. Schema 1 is unchanged. Nothing about what is refused changes: a moved
+subreview is then checked exactly as a nested one, so v1 copied fields (`quote`, `claim`, `evidence`,
+`claims`, `locus`, `current_scene`, `asserted_elsewhere`, `name`, `clue`, `relation`) stay refused
+wherever they appear, as do unknown fields and schema-less v1 artifacts. `location_review` remains a
+valid schema 2 subreview with selector fields, and the shared validator still refuses it where
+`scene_commitment` requires `locus_review`.
+
+**A refusal names where the field belongs.** A subreview at the wrong depth is told
+`schema 2 places <name> at /continuity_review/<name>`; a v1 copied field whose selector exists in the same
+object is told the selector's path (`…/intelligibility_review/quote` → `…/intelligibility_review/source`);
+any other unexpected field is told the complete set of fields its object takes.
+
+*Three ends (§31).* Writer: the private reviewer through `submit_audit`. Reader: `materializeAuditReferences`
+in both `submit_audit` and `mods.accept`. Actor: the §130.4 `table.warn` rows the accepted verdict becomes.
+
+Not done: a shape error still hides the semantic errors behind it (the repair sees them one stage at a
+time), and the unavailable status keeps only its reason, not the last error list. Live re-validation needs
+a repackaged App. Tests: `tests/extension/audit-subreview-placement.test.mjs` (the two retained submissions
+as fixtures under `tests/extension/fixtures/audit-subreview-placement/`) and the real-kernel accept case in
+`tests/extension/jev-audit-references.test.mjs`.
 
 ## 131. A file parses once per process; a copy is a copy (2026-09-22)
 
