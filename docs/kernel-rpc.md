@@ -702,7 +702,12 @@ committed `npc-ledger.json` with the open turn's receipts folded onto a copy by 
 (`npc-stance.json`): the investigator's attack on him earlier in this turn already makes him `hostile`
 (`combat_target_score`), as it will in the ledger when the turn closes. Receipts of a turn that has closed
 (`asked`, `awaiting_player`) are already in the committed ledger and are not folded twice. A person without a
-ledger row stands at the table's `initial_score`. Nothing is written: this is a read.
+ledger row stands at the table's `initial_score`. Nothing is written: this is a read. A ledger that cannot be read
+is not an empty one: the table's reading is withheld (no rules-default standing; an override or an authored word is
+still issued), and the failure is not cached, so every other reader of the ledger still sees it. The session view
+is synchronous, so a snapshot loaded while a fight is active (`preload`, view or all) loads the two tables and the
+ledger beside the combat snapshot; a result built on a snapshot loaded before its own call opened the fight carries
+no `standing_action`, and the next read does.
 
 **The combat defence names who was attacked.** §17.8's "the receipts say who" stamps a roll receipt's `npc` from
 the action's `target`. A combat defence (§11.5) is its own `resolve` whose action names the defender as `actor`
@@ -713,7 +718,8 @@ still not stamped). Found while writing this section; fixed with it, because the
 it.
 
 **The NPC card.** `look focus=npc` carries, beside §11.5.2's `combat_tactic`, `combat_disposition: {disposition,
-basis}` and `combat_standing: {action, basis}`. Without a disposition, `combat_disposition` is `{disposition: null,
+basis}` and `combat_standing: {action, basis}` (not `combat_action`, which is the public mechanics row's attack/defence
+label, §16.2). Without a disposition, `combat_disposition` is `{disposition: null,
 basis: null, options, material}`: the inference's input (below). `combat_standing` is the live Keeper
 override or the authored word, otherwise `{action: null, basis: "rule-default"}`, because the table reads the
 fight's state and the card is not a fight. Both are Keeper-only, like `combat_tactic`: no player projection

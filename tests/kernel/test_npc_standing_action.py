@@ -367,3 +367,14 @@ def test_an_inferred_write_over_the_books_disposition_is_refused(tmp_path):
         assert "material" not in client.table("look", focus="npc", name="Walter Corbitt")["combat_disposition"], "nothing to infer: the book says it"
     finally:
         client.close()
+
+
+def test_an_unreadable_ledger_withholds_the_tables_reading_and_never_guesses_a_stance(tmp_path):
+    client = client_with(tmp_path, {"disposition": "fights_to_the_end"})
+    try:
+        corbitts_turn(client)
+        assert standing(client)["basis"] == "rule-default"
+        (campaign_dir(client.workspace) / "npc-ledger.json").write_text("{broken-json", encoding="utf-8")
+        assert standing(client) is None, "the table reads the stance; an unreadable ledger is not an empty one"
+    finally:
+        client.close()

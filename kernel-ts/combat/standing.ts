@@ -79,7 +79,7 @@ export interface Disposition { disposition: string; basis: DispositionBasis }
 export type ActionBasis = 'authored' | 'rule-default' | 'keeper';
 export interface StandingAction { action: string; basis: ActionBasis; disposition?: Disposition; read?: Row }
 /** The fight's state for one NPC, as the table reads it. */
-export interface FightState { hp_fraction: number; outnumbered: boolean; stance: string | null }
+export interface FightState { hp_fraction: number; outnumbered: boolean; stance: string | null }  // stance null: unreadable
 /** The two tables a standing action reads: the stance ledger's (§17.3) and the combat disposition table. */
 export interface StandingTables { stance: Row; disposition: Row }
 
@@ -189,7 +189,8 @@ export function standingAction(graph: ModuleGraph, world: Row, handle: string, c
     if (keeper) return attackable(keeper) ? { action: keeper, basis: 'keeper', ...(disposition ? { disposition } : {}) } : null;
     const authored = authoredAction(graph, handle);
     if (authored) return attackable(authored) ? { action: authored, basis: 'authored', ...(disposition ? { disposition } : {}) } : null;
-    if (!disposition) return null;
+    // The table reads the stance; without one (an unreadable ledger) its reading is withheld, never guessed.
+    if (!disposition || fight.state.stance === null) return null;
     const action = tableAction(table, disposition.disposition, fight.state);
     return attackable(action) ? { action: action!, basis: 'rule-default', disposition, read: { ...fight.state } } : null;
 }

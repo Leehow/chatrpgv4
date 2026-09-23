@@ -24,6 +24,8 @@ export class CampaignSnapshot {
     records: Row[] = [];
     /** The stance and combat-disposition tables an NPC's standing action reads (§11.5.3); loaded by `preload`. */
     standingTables: StandingTables | null = null;
+    /** The stance ledger failed to read while a fight was loaded; the standing action's table reading is withheld. */
+    ledgerUnreadable = false;
     constructor(readonly context: KernelContext, readonly id: string) {
         this.dir = join(context.campaignsRoot, id);
     }
@@ -65,14 +67,19 @@ export class CampaignSnapshot {
         }
         if (mode !== "people") {
             await Promise.all(saves.map(path => this.optional(join("save", path))));
-            // §11.5.3: the session view reads an NPC's standing action off the stance ledger and two ruleset tables.
-            // It is synchronous, so what it reads is loaded here, beside the combat snapshot it reads with.
-            this.standingTables ??= await standingTables(this.context);
-            try {
-                await this.optional("npc-ledger.json");
-            }
-            catch {
-                this.jsonFiles.set("npc-ledger.json", null);
+            // §11.5.3: during a fight the session view reads an NPC's standing action off the stance ledger and two
+            // ruleset tables. It is synchronous, so what it reads is loaded here, beside the combat snapshot. A ledger
+            // that cannot be read is not cached as empty (other readers must still see the failure); the view then
+            // withholds the table's reading, which needs the stance.
+            if (this.saved("combat.json")?.status === "active") {
+                this.standingTables ??= await standingTables(this.context);
+                if (!this.jsonFiles.has("npc-ledger.json"))
+                    try {
+                        await this.optional("npc-ledger.json");
+                    }
+                    catch {
+                        this.ledgerUnreadable = true;
+                    }
             }
         }
         if (mode === "view")

@@ -114,8 +114,8 @@ export class SessionView {
             return null;
         const participants = array(snapshot.participants), me = row(participants.find(p => string(p.actor_id) === actor)), hpMax = number(me.hp_max);
         const allies = participants.filter(p => p.side === me.side && able(p)).length, opponents = participants.filter(p => p.side !== me.side && able(p)).length;
-        const state = { hp_fraction: hpMax > 0 ? number(me.hp_current) / hpMax : 0, outnumbered: opponents > allies,
-            stance: stanceNow(this.graph, row(this.campaign.jsonFiles.get("npc-ledger.json")), tables.stance, this.campaign.turn, actor) };
+        const stance = this.campaign.ledgerUnreadable ? null : stanceNow(this.graph, row(this.campaign.jsonFiles.get("npc-ledger.json")), tables.stance, this.campaign.turn, actor);
+        const state = { hp_fraction: hpMax > 0 ? number(me.hp_current) / hpMax : 0, outnumbered: opponents > allies, stance };
         return standingAction(this.graph, this.world, actor, snapshot, { canAct: able(me), hasTarget: this.combatTargets(snapshot, actor).length > 0, state }, tables.disposition);
     }
     combatView(snapshot = this.combat): Row | null {

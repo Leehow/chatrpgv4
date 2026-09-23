@@ -127,7 +127,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const word=effect[field];
         if(typeof word!=='string'||!words.includes(word))unsupported(`npc.${field}`,word,[...words],`npc.${field} ${repr(word)} is not one of the closed words`);
         if(!why)throw new RpcError('invalid_params',`npc.${field} needs a why`,{fix:field==='action'?'say in one sentence what in the fiction makes this person attack, or hold back this round':'say in one sentence what about this person makes them fight that way',details:{field:'npc.why'}});
-        const key=field==='action'?'npc_action':'npc_disposition',written=world[key]??={};
+        const written=field==='action'?world.npc_action??={}:world.npc_disposition??={};
         const previous=typeof row(written[handle])[field]==='string'?row(written[handle])[field]:null;
         let scope:Row={};
         // §11.5.3 source 2: a disposition Jev inferred for the clerk arrives with the host-only `_inferred` marker (the
