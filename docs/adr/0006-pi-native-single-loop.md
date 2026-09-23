@@ -105,3 +105,10 @@ Two facts decide how the source is held:
   (it brings the shared packages and third-party modules the vendored build resolves) but nothing starts or
   imports it. The extension test seam imports Pi through `tests/extension/pi.mjs`, so the suite runs on the
   vendored build.
+- **SL-01 stages B–C (2026-09-23).** The series holds `0001-agent-core-run-driver.patch` (the RunDriver, `Agent.runDriven`,
+  run events in `AgentEvent`, export keywords in `agent-loop.ts`) and `0002-session-run-driver.patch` (`SessionRunDriver`
+  through the SDK, session services and `main`; the driven prompt that takes neither `continue()` site). Every other
+  upstream file is untouched and still emits the published JavaScript. The product selects the driver with
+  `PI_COC_LOOP_ENGINE=hybrid-v1` (`runtime/launch.ts` → `build/runtime/pi-hybrid.mjs`); `legacy` runs the same vendored
+  build through its unchanged model-first loop (decision 4's control arm inside one install is a build of the base
+  commit, as stated above).
