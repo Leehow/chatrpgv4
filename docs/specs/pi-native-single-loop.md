@@ -114,6 +114,26 @@ interpretRoute: selected = needs answered now that clear a gate, ordered person 
 
 **Lanes keep the fast model.** Every quick lane resolves through the fast-model setting (§37.10.1); the loop's review step uses it.
 
+## Rulings (owner, 2026-09-23, after the design interview)
+
+These settle every contested branch of the design tree and bind SL-01 onward.
+
+**Authority.** The Keeper is the boss; Jev and the host are the clerk. The clerk does bookkeeping, fetching and execution; planning, the choice between improvising and following the book, and every word the player reads are the Keeper's. The clerk does the player's declared bookkeeping *before* the Keeper is called and commits it at once — no "pending confirmation" receipt state. A clerk mistake is never silently undone: the Keeper reconciles it in the fiction, or reverses it explicitly with a real operation (its own receipt, its own time cost). The capsule lists the clerk's steps of this turn separately ("clerk did"), so the Keeper knows which steps it did not decide.
+
+**The clerk's authority without asking the boss:** (a) declared bookkeeping the kernel already issues — a move to an available exit, revealing a located clue, showing a handout, staging a person who is on the roster under the table's own label; (b) a contact check a Mod declares (first impression); (c) an ordinary check the player declared, when the player named the skill or the action maps to exactly one skill — the clerk binds route and profile and rolls; an ambiguous one ("我查查这地方") goes to the boss; (d) fetching data. Boss only: anyone off the roster, any check the player did not declare, consequences (damage, sanity, cash beyond the declared), pending choices, narration. Jev never routes to `ask`: it may judge `needs_player`; the wording is the Keeper's.
+
+**Batches.** The Keeper may hand the clerk a multi-step batch with order and one success/failure branch per step; the clerk runs it to the end and returns; a branch that falls outside the batch returns to the Keeper. No richer conditions. A single Keeper response may both propose operations and end in prose: tool calls make it an adjudication, prose alone makes it the compose.
+
+**Engine.** Pi is changed directly (treated as forked) through a vendored source snapshot (`vendor/pi/`, ADR-0006), frozen at 0.87.0 until SL-04; upgrades only for product needs, one person, with the patch-replay checklist. The patch surface is minimal (the agent-core loop, the two `continue()` sites in `agent-session`, and the pi-backend in-process copy), everything else through ports; ADR-0006 records why each patched site could not be a port. Play mode only in the first release; legacy is the control arm and is deleted at SL-06; a driver failure ends the turn with a service notice and never downgrades the table; Jev absent or unanswering degrades every decide to an infer inside the same engine. The Jev dependency is accepted as a single point for now. Gates start fixed, every distribution is retained, calibration after SL-05's paired runs. Whether a fully-bound, kernel-issued, Jev-selected operation still needs §32 admission is decided by measurement, not by ruling (SL-02 research item).
+
+**Player experience.** One delivery per turn; the clerk's steps draw as cards as they land; the Keeper's prose streams to the player as raw text while it is generated and is replaced in place by the formatted card when the delivery closes (a visible flicker is accepted; the owner prefers a UI rewrite over waiting for a whole block). Compose keeps the full capsule; the prose quality problem is a separate track.
+
+**Scene data.** Only obligations the module states in its own text (a gatekeeper's check, a forced meeting) become host-issuable candidates; "what usually happens" stays the Keeper's improvisation. That spec is written in parallel and implemented after SL-02.
+
+**Evidence.** The turn-3 replay is the regression run for every change; a live table (real Keeper, human player, one turn at a time) is the stage gate at SL-02 and SL-05.
+
+**Constraints SL-00 surfaced that SL-01 must handle:** `_handlePostAgentRun` has two `continue()` sites (one after `agent_before_settle`); `prepareRequest` runs before every request and `finishTurn` returning `continue` buys a request; pi-backend loads its own in-process `pi-coding-agent` (one patched copy must reach it); pi-backend's 120 s turn watchdog counts only model-message and tool-end activity, so host/Jev steps must report activity; seven `pi.sendMessage` sites rely on being sent while idle.
+
 ## Testing Decisions
 
 A good test drives the real seam and asserts observable behaviour: which step ran, what the kernel received, what receipts exist, what the player was shown — never internal call order or private state.

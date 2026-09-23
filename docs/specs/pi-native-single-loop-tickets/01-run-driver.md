@@ -18,6 +18,14 @@ Implement StepRequest, RunView, the RunDriver and the injected ports in Pi agent
 - The product's launch selects `hybrid-v1` or `legacy` by `PI_COC_LOOP_ENGINE`; the startup record carries the engine, protocol version, Pi base and patch digest.
 - A test DecisionPort (stub) drives a real read-only operation and then one real model output through the real provider path.
 
+## Rulings that bind this ticket (spec, "Rulings")
+
+- Pi 0.87.0 vendored under `vendor/pi/` per ADR-0006 (source recovered from the packages' `.js.map`, verified byte for byte against upstream tag `v0.87.0`); one patched build reaches both the session runtime and pi-backend's in-process copy; stock and patched agent-core never both load.
+- Stop both `continue()` sites in `_handlePostAgentRun` on the hybrid path; account for `prepareRequest` and `finishTurn`.
+- The driver reports activity to pi-backend's turn watchdog during host and Jev steps.
+- Run/step events carry the clerk's steps so the UI can draw cards as they land; the compose step streams raw prose (the UI's replacement-by-card is SL-02's).
+- Play mode only; `PI_COC_LOOP_ENGINE=legacy` unchanged as the control arm.
+
 ## Acceptance (design §13 SL-01 gate + SL-A01/A02/A05/A08/A09)
 
 - A policy-origin read executes before the first LLM response; `TaskRuntime.#run` is never called on the hybrid path; events are complete; abort during a Jev/tool wait revokes at once; no fabricated assistant message, usage or tool result; no `agent.continue()` second loop.
