@@ -1,0 +1,369 @@
+{
+ "summary": {
+  "run": 1,
+  "wall_ms": 5987,
+  "steps": 6,
+  "counts": {
+   "direct": 3,
+   "decide": 2,
+   "infer": 1,
+   "finish": 1
+  },
+  "jev_calls": 17,
+  "jev_ms": 4928,
+  "stopped": {
+   "reason": "ask_llm",
+   "purpose": "adjudicate"
+  },
+  "executed": [
+   {
+    "step": 3,
+    "candidate": "apply:move:newspaper-morgue",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.apply",
+     "call_id": "t3-c1",
+     "receipts": [
+      "move:newspaper-morgue-t3-c1"
+     ]
+    },
+    "origin": "host"
+   }
+  ],
+  "route_choices": [
+   {
+    "step": 2,
+    "choice": "apply:move:newspaper-morgue",
+    "confidence": 0.78,
+    "reason": "selected_1",
+    "offered": 8,
+    "ms": 362
+   },
+   {
+    "step": 5,
+    "choice": "ask_llm",
+    "confidence": 0.85,
+    "reason": "ask_llm",
+    "offered": 15,
+    "ms": 389
+   }
+  ],
+  "misses": [],
+  "match": [
+   {
+    "baseline": "move → newspaper-morgue",
+    "matched": true
+   },
+   {
+    "baseline": "person Arty Wilmot",
+    "matched": false
+   },
+   {
+    "baseline": "resolve natural-npc:first-impression vs Arty Wilmot",
+    "matched": false
+   },
+   {
+    "baseline": "resolve ordinary Persuade vs Arty Wilmot",
+    "matched": false
+   },
+   {
+    "baseline": "person Ruth Blake",
+    "matched": false
+   },
+   {
+    "baseline": "resolve natural-npc:first-impression vs Ruth Blake",
+    "matched": false
+   },
+   {
+    "baseline": "clue globe-unpublished-story",
+    "matched": false
+   },
+   {
+    "baseline": "clue macario-tragedy",
+    "matched": false
+   },
+   {
+    "baseline": "handout Boston Globe City Desk Copy — Held from Print (1918)",
+    "matched": false
+   },
+   {
+    "baseline": "time 40",
+    "matched": null,
+    "note": "time is narration bookkeeping; not routed by the prototype"
+   },
+   {
+    "baseline": "narrate",
+    "matched": false
+   }
+  ]
+ },
+ "observations": [
+  {
+   "step": 1,
+   "kind": "direct",
+   "purpose": "read",
+   "status": "ok",
+   "summary": {
+    "jev_calls": 7,
+    "ms": 1930,
+    "materials": 4,
+    "supplied": 4,
+    "stop_reason": "sufficient",
+    "locate": {
+     "status": "judged",
+     "reused": false,
+     "cards": 271,
+     "batches": 5,
+     "failed_batches": 0,
+     "judged": 271,
+     "unjudged": 0,
+     "located": 24,
+     "located_rules": 7,
+     "seed": 4,
+     "top": [
+      {
+       "family": "entity",
+       "handle": "newspaper-morgue",
+       "noul": 0.96
+      },
+      {
+       "family": "entity",
+       "handle": "globe-fire-cutoff",
+       "noul": 0.91
+      },
+      {
+       "family": "entity",
+       "handle": "basement-burial-lawsuit",
+       "noul": 0.86
+      },
+      {
+       "family": "entity",
+       "handle": "globe-unpublished-story",
+       "noul": 0.86
+      },
+      {
+       "family": "entity",
+       "handle": "ruth-blake",
+       "noul": 0.85
+      },
+      {
+       "family": "entity",
+       "handle": "central-library",
+       "noul": 0.83
+      }
+     ],
+     "ms": 1085,
+     "seeded": 4
+    },
+    "packet_keys": [
+     "schema_version",
+     "kind",
+     "turn",
+     "request",
+     "authority",
+     "complete",
+     "parameters",
+     "materials",
+     "gaps",
+     "assessment",
+     "retrieval",
+     "check",
+     "coverage",
+     "note"
+    ],
+    "first_material_keys": [
+     "alias",
+     "kind",
+     "label",
+     "authority",
+     "content",
+     "coverage",
+     "read",
+     "provenance"
+    ],
+    "located": 0,
+    "fallback": null
+   }
+  },
+  {
+   "step": 2,
+   "kind": "decide",
+   "purpose": "route",
+   "status": "complete",
+   "choice": "apply:move:newspaper-morgue",
+   "confidence": 0.78,
+   "reason": "selected_1"
+  },
+  {
+   "step": 3,
+   "kind": "direct",
+   "purpose": "execute",
+   "status": "ok",
+   "choice": "apply:move:newspaper-morgue",
+   "summary": {
+    "method": "table.apply",
+    "call_id": "t3-c1",
+    "receipts": [
+     "move:newspaper-morgue-t3-c1"
+    ]
+   }
+  },
+  {
+   "step": 4,
+   "kind": "direct",
+   "purpose": "read",
+   "status": "ok",
+   "summary": {
+    "jev_calls": 8,
+    "ms": 2247,
+    "materials": 6,
+    "supplied": 6,
+    "stop_reason": "sufficient",
+    "locate": {
+     "status": "judged",
+     "reused": false,
+     "cards": 271,
+     "batches": 5,
+     "failed_batches": 0,
+     "judged": 271,
+     "unjudged": 0,
+     "located": 24,
+     "located_rules": 6,
+     "seed": 4,
+     "top": [
+      {
+       "family": "entity",
+       "handle": "newspaper-morgue",
+       "noul": 0.96
+      },
+      {
+       "family": "entity",
+       "handle": "globe-fire-cutoff",
+       "noul": 0.9
+      },
+      {
+       "family": "entity",
+       "handle": "arty-wilmot",
+       "noul": 0.89
+      },
+      {
+       "family": "entity",
+       "handle": "globe-unpublished-story",
+       "noul": 0.88
+      },
+      {
+       "family": "entity",
+       "handle": "basement-burial-lawsuit",
+       "noul": 0.86
+      },
+      {
+       "family": "entity",
+       "handle": "ruth-blake",
+       "noul": 0.86
+      }
+     ],
+     "ms": 722,
+     "seeded": 4
+    },
+    "packet_keys": [
+     "schema_version",
+     "kind",
+     "turn",
+     "request",
+     "authority",
+     "complete",
+     "parameters",
+     "materials",
+     "gaps",
+     "assessment",
+     "retrieval",
+     "check",
+     "coverage",
+     "note"
+    ],
+    "first_material_keys": [
+     "alias",
+     "kind",
+     "label",
+     "authority",
+     "content",
+     "coverage",
+     "read",
+     "provenance"
+    ],
+    "located": 0,
+    "fallback": null
+   }
+  },
+  {
+   "step": 5,
+   "kind": "decide",
+   "purpose": "route",
+   "status": "complete",
+   "choice": "ask_llm",
+   "confidence": 0.85,
+   "reason": "ask_llm"
+  },
+  {
+   "step": 6,
+   "kind": "infer",
+   "purpose": "adjudicate",
+   "status": "recorded",
+   "reason": "ask_llm",
+   "summary": {
+    "purpose": "adjudicate",
+    "context_projection_bytes": 12801,
+    "would_have_called": true
+   }
+  }
+ ],
+ "final_context": {
+  "scene": "newspaper-morgue",
+  "clock": {
+   "minutes": 0,
+   "elapsed": "0 h 0 min",
+   "at": "1920-10-12T10:00",
+   "day_part": "morning"
+  },
+  "present": [
+   "Arty Wilmot",
+   "Ruth Blake"
+  ],
+  "receipts": [
+   "move:newspaper-morgue-t3-c1"
+  ]
+ },
+ "materials": [
+  {
+   "key": "graph_entity:Paper trail of accidents — still deniable.",
+   "kind": "graph_entity",
+   "label": "Paper trail of accidents — still deniable."
+  },
+  {
+   "key": "graph_entity:Paper trail of accidents — still deniable. — horror_stage,note,scene_id,tension_target",
+   "kind": "graph_entity",
+   "label": "Paper trail of accidents — still deniable. — horror_stage,note,scene_id,tension_target"
+  },
+  {
+   "key": "graph_entity:newspaper-morgue",
+   "kind": "graph_entity",
+   "label": "newspaper-morgue"
+  },
+  {
+   "key": "graph_entity:newspaper-morgue — affordances,allowed_improvisation,available_clues,destination_access",
+   "kind": "graph_entity",
+   "label": "newspaper-morgue — affordances,allowed_improvisation,available_clues,destination_access"
+  },
+  {
+   "key": "npc:Arty Wilmot",
+   "kind": "npc",
+   "label": "Arty Wilmot"
+  },
+  {
+   "key": "rule_clause:Positive inclination grants agreement without a roll; neutrality leaves difficulty unchanged; strong opposition raises one or two levels; a substantive supporting case lowers one level",
+   "kind": "rule_clause",
+   "label": "Positive inclination grants agreement without a roll; neutrality leaves difficulty unchanged; strong opposition raises one or two levels; a substantive supporting case lowers one level"
+  }
+ ]
+}

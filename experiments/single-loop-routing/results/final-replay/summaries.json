@@ -1,0 +1,1257 @@
+[
+ {
+  "run": 1,
+  "wall_ms": 8983,
+  "steps": 20,
+  "counts": {
+   "direct": 9,
+   "decide": 6,
+   "infer": 5,
+   "finish": 1
+  },
+  "jev_calls": 21,
+  "jev_ms": 6939,
+  "stopped": {
+   "reason": "replay_exhausted",
+   "purpose": "compose"
+  },
+  "executed": [
+   {
+    "step": 3,
+    "candidate": "apply:move:newspaper-morgue",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.apply",
+     "call_id": "t3-c1",
+     "receipts": [
+      "move:newspaper-morgue-t3-c1"
+     ]
+    },
+    "origin": "host"
+   },
+   {
+    "step": 7,
+    "candidate": "apply(person)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.apply",
+     "call_id": "t3-c2",
+     "receipts": [
+      "person:arty-wilmot-t3-c2"
+     ],
+     "params": {
+      "effects": [
+       {
+        "kind": "person",
+        "who": "Arty Wilmot",
+        "name": "城市版编辑",
+        "why": "沈默进报馆时先看见坐在城市版桌后拦着剪报室的人，名字还没报出来。"
+       }
+      ]
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 8,
+    "candidate": "resolve(natural-npc:first-impression  vs Arty Wilmot)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.resolve",
+     "call_id": "t3-c3",
+     "receipts": [
+      "roll:mod-natural-npc-t3-c3"
+     ],
+     "outcome": {
+      "kind": "check",
+      "target": 60,
+      "base_target": 60,
+      "difficulty": "regular",
+      "required_level": "regular",
+      "threshold": 60,
+      "required_target": 60,
+      "effective_target": 60,
+      "achieved_level": "hard",
+      "passed": true,
+      "success": true,
+      "surplus_levels": 1,
+      "level": "hard",
+      "outcome": "hard",
+      "roll": 19,
+      "bonus": 0,
+      "penalty": 0,
+      "unmodified_roll": 19,
+      "tens_values": [],
+      "units": null,
+      "rule_refs": [
+       "percentile-check",
+       "success-levels",
+       "difficulty-levels",
+       "half-fifth-values"
+      ],
+      "skill": "Appearance",
+      "actor": "沈默",
+      "target_npc": "Arty Wilmot",
+      "impression": {
+       "reaction": "favorable",
+       "disposition": "helpful"
+      },
+      "attribute_snapshot": {
+       "Appearance": 60,
+       "Credit Rating": 9
+      }
+     },
+     "params": {
+      "action": {
+       "intent": "social",
+       "goal": "第一次见到报馆城市版编辑时留下印象",
+       "method": "拿着帽子走进报馆，寻找能帮忙翻剪报的人",
+       "target": "Arty Wilmot",
+       "decision": "natural-npc:first-impression",
+       "actor": "沈默"
+      }
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 11,
+    "candidate": "resolve( Persuade vs Arty Wilmot)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.resolve",
+     "call_id": "t3-c4",
+     "receipts": [
+      "roll:persuade-t3-c4"
+     ],
+     "outcome": {
+      "kind": "social",
+      "npc": "arty-wilmot",
+      "approach": "persuade",
+      "approach_skill": "Persuade",
+      "feasibility": "roll",
+      "base_difficulty": "regular",
+      "final_difficulty": "hard",
+      "motive": {
+       "direction": "oppose",
+       "intensity": 1,
+       "evidence_refs": [
+        "npc_agenda:arty-wilmot",
+        "npc_secret:arty-wilmot"
+       ]
+      },
+      "leverage_delta": 0,
+      "skill": "Persuade",
+      "target": 70,
+      "difficulty": "hard",
+      "threshold": 35,
+      "roll": 22,
+      "level": "hard",
+      "passed": true,
+      "bonus": 1,
+      "penalty": 0
+     },
+     "params": {
+      "action": {
+       "intent": "social",
+       "goal": "说服城市版编辑让自己进地下室剪报室，按科比特宅的地址翻近年旧报道",
+       "method": "以同行记者的身份说明要查一栋房子的旧新闻，不是来闲逛",
+       "target": "Arty Wilmot",
+       "skill": "Persuade",
+       "stakes": "他拒绝放人进剪报室",
+       "motive": {
+        "direction": "oppose",
+        "intensity": 1
+       },
+       "modifiers": {
+        "bonus_dice": 1,
+        "reason": "初见印象对他有利，而且来者是带着具体地址来查稿的记者，不是普通读者"
+       }
+      }
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 14,
+    "candidate": "apply(person)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.apply",
+     "call_id": "t3-c5",
+     "receipts": [
+      "person:ruth-blake-t3-c5"
+     ],
+     "params": {
+      "effects": [
+       {
+        "kind": "person",
+        "who": "Ruth Blake",
+        "name": "剪报室的女档案员",
+        "why": "编辑松口后，楼下剪报室出来接人的是她，名字还没介绍。"
+       }
+      ]
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 15,
+    "candidate": "resolve(natural-npc:first-impression  vs Ruth Blake)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.resolve",
+     "call_id": "t3-c6",
+     "receipts": [
+      "roll:mod-natural-npc-t3-c6"
+     ],
+     "outcome": {
+      "kind": "check",
+      "target": 60,
+      "base_target": 60,
+      "difficulty": "regular",
+      "required_level": "regular",
+      "threshold": 60,
+      "required_target": 60,
+      "effective_target": 60,
+      "achieved_level": "failure",
+      "passed": false,
+      "success": false,
+      "surplus_levels": 0,
+      "level": "failure",
+      "outcome": "failure",
+      "roll": 83,
+      "bonus": 0,
+      "penalty": 0,
+      "unmodified_roll": 83,
+      "tens_values": [],
+      "units": null,
+      "rule_refs": [
+       "percentile-check",
+       "success-levels",
+       "difficulty-levels",
+       "half-fifth-values"
+      ],
+      "skill": "Appearance",
+      "actor": "沈默",
+      "target_npc": "Ruth Blake",
+      "impression": {
+       "reaction": "guarded",
+       "disposition": "neutral"
+      },
+      "attribute_snapshot": {
+       "Appearance": 60,
+       "Credit Rating": 9
+      }
+     },
+     "params": {
+      "action": {
+       "intent": "social",
+       "goal": "第一次和剪报室女档案员打交道时的印象",
+       "method": "跟着她下到地下室翻按地址归档的旧剪报",
+       "target": "Ruth Blake",
+       "decision": "natural-npc:first-impression",
+       "actor": "沈默"
+      }
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 18,
+    "candidate": "apply(clue,clue,handout,time)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.apply",
+     "call_id": "t3-c7",
+     "receipts": [
+      "clue:globe-unpublished-story-t3",
+      "clue:macario-tragedy-t3",
+      "handout:globe-unpublished-1918-t3",
+      "time:t3-c7"
+     ],
+     "params": {
+      "effects": [
+       {
+        "kind": "clue",
+        "clue": "globe-unpublished-story",
+        "how": "在剪报室按科比特宅的街名地址翻出一九一八年未刊发的长稿",
+        "label": "未刊发的一九一八年长稿"
+       },
+       {
+        "kind": "clue",
+        "clue": "macario-tragedy",
+        "how": "同一叠剪报里写着马卡里奥一家一九一八年几乎刚搬进去就离开",
+        "label": "马卡里奥一家的旧闻"
+       },
+       {
+        "kind": "handout",
+        "name": "Boston Globe City Desk Copy — Held from Print (1918)",
+        "label": "《环球报》城市版未刊稿（一九一八年）"
+       },
+       {
+        "kind": "time",
+        "minutes": 40,
+        "why": "从事务所走到报馆，再在地下室按地址翻剪报"
+       }
+      ]
+     }
+    },
+    "origin": "model"
+   }
+  ],
+  "route_choices": [
+   {
+    "step": 2,
+    "choice": "apply:move:newspaper-morgue",
+    "confidence": 0.64,
+    "reason": "selected_1",
+    "offered": 8,
+    "ms": 350
+   },
+   {
+    "step": 5,
+    "choice": "ask_llm",
+    "confidence": 0.8,
+    "reason": "ask_llm",
+    "offered": 15,
+    "ms": 374
+   },
+   {
+    "step": 9,
+    "choice": "ask_llm",
+    "confidence": 0.69,
+    "reason": "ask_llm",
+    "offered": 13,
+    "ms": 402
+   },
+   {
+    "step": 12,
+    "choice": "ask_llm",
+    "confidence": 0.43,
+    "reason": "ask_llm",
+    "offered": 13,
+    "ms": 396
+   },
+   {
+    "step": 16,
+    "choice": "ask_llm",
+    "confidence": 0.47,
+    "reason": "ask_llm",
+    "offered": 11,
+    "ms": 491
+   },
+   {
+    "step": 19,
+    "choice": "finish",
+    "confidence": 0.31,
+    "reason": "low_confidence",
+    "offered": 8,
+    "ms": 363
+   }
+  ],
+  "misses": [
+   {
+    "step": 19,
+    "kind": "decide",
+    "purpose": "route",
+    "reason": "low_confidence",
+    "choice": "finish",
+    "confidence": 0.31
+   },
+   {
+    "step": 20,
+    "kind": "infer",
+    "purpose": "adjudicate",
+    "reason": "low_confidence",
+    "choice": null,
+    "confidence": null
+   }
+  ],
+  "match": [
+   {
+    "baseline": "move → newspaper-morgue",
+    "matched": true
+   },
+   {
+    "baseline": "person Arty Wilmot",
+    "matched": true
+   },
+   {
+    "baseline": "resolve natural-npc:first-impression vs Arty Wilmot",
+    "matched": true
+   },
+   {
+    "baseline": "resolve ordinary Persuade vs Arty Wilmot",
+    "matched": true
+   },
+   {
+    "baseline": "person Ruth Blake",
+    "matched": true
+   },
+   {
+    "baseline": "resolve natural-npc:first-impression vs Ruth Blake",
+    "matched": true
+   },
+   {
+    "baseline": "clue globe-unpublished-story",
+    "matched": true
+   },
+   {
+    "baseline": "clue macario-tragedy",
+    "matched": true
+   },
+   {
+    "baseline": "handout Boston Globe City Desk Copy — Held from Print (1918)",
+    "matched": true
+   },
+   {
+    "baseline": "time 40",
+    "matched": null,
+    "note": "time is narration bookkeeping; not routed by the prototype"
+   },
+   {
+    "baseline": "narrate",
+    "matched": true
+   }
+  ]
+ },
+ {
+  "run": 2,
+  "wall_ms": 7049,
+  "steps": 20,
+  "counts": {
+   "direct": 9,
+   "decide": 6,
+   "infer": 5,
+   "finish": 1
+  },
+  "jev_calls": 11,
+  "jev_ms": 5042,
+  "stopped": {
+   "reason": "replay_exhausted",
+   "purpose": "compose"
+  },
+  "executed": [
+   {
+    "step": 3,
+    "candidate": "apply:move:newspaper-morgue",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.apply",
+     "call_id": "t3-c1",
+     "receipts": [
+      "move:newspaper-morgue-t3-c1"
+     ]
+    },
+    "origin": "host"
+   },
+   {
+    "step": 7,
+    "candidate": "apply(person)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.apply",
+     "call_id": "t3-c2",
+     "receipts": [
+      "person:arty-wilmot-t3-c2"
+     ],
+     "params": {
+      "effects": [
+       {
+        "kind": "person",
+        "who": "Arty Wilmot",
+        "name": "城市版编辑",
+        "why": "沈默进报馆时先看见坐在城市版桌后拦着剪报室的人，名字还没报出来。"
+       }
+      ]
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 8,
+    "candidate": "resolve(natural-npc:first-impression  vs Arty Wilmot)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.resolve",
+     "call_id": "t3-c3",
+     "receipts": [
+      "roll:mod-natural-npc-t3-c3"
+     ],
+     "outcome": {
+      "kind": "check",
+      "target": 60,
+      "base_target": 60,
+      "difficulty": "regular",
+      "required_level": "regular",
+      "threshold": 60,
+      "required_target": 60,
+      "effective_target": 60,
+      "achieved_level": "hard",
+      "passed": true,
+      "success": true,
+      "surplus_levels": 1,
+      "level": "hard",
+      "outcome": "hard",
+      "roll": 19,
+      "bonus": 0,
+      "penalty": 0,
+      "unmodified_roll": 19,
+      "tens_values": [],
+      "units": null,
+      "rule_refs": [
+       "percentile-check",
+       "success-levels",
+       "difficulty-levels",
+       "half-fifth-values"
+      ],
+      "skill": "Appearance",
+      "actor": "沈默",
+      "target_npc": "Arty Wilmot",
+      "impression": {
+       "reaction": "favorable",
+       "disposition": "helpful"
+      },
+      "attribute_snapshot": {
+       "Appearance": 60,
+       "Credit Rating": 9
+      }
+     },
+     "params": {
+      "action": {
+       "intent": "social",
+       "goal": "第一次见到报馆城市版编辑时留下印象",
+       "method": "拿着帽子走进报馆，寻找能帮忙翻剪报的人",
+       "target": "Arty Wilmot",
+       "decision": "natural-npc:first-impression",
+       "actor": "沈默"
+      }
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 11,
+    "candidate": "resolve( Persuade vs Arty Wilmot)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.resolve",
+     "call_id": "t3-c4",
+     "receipts": [
+      "roll:persuade-t3-c4"
+     ],
+     "outcome": {
+      "kind": "social",
+      "npc": "arty-wilmot",
+      "approach": "persuade",
+      "approach_skill": "Persuade",
+      "feasibility": "roll",
+      "base_difficulty": "regular",
+      "final_difficulty": "hard",
+      "motive": {
+       "direction": "oppose",
+       "intensity": 1,
+       "evidence_refs": [
+        "npc_agenda:arty-wilmot",
+        "npc_secret:arty-wilmot"
+       ]
+      },
+      "leverage_delta": 0,
+      "skill": "Persuade",
+      "target": 70,
+      "difficulty": "hard",
+      "threshold": 35,
+      "roll": 22,
+      "level": "hard",
+      "passed": true,
+      "bonus": 1,
+      "penalty": 0
+     },
+     "params": {
+      "action": {
+       "intent": "social",
+       "goal": "说服城市版编辑让自己进地下室剪报室，按科比特宅的地址翻近年旧报道",
+       "method": "以同行记者的身份说明要查一栋房子的旧新闻，不是来闲逛",
+       "target": "Arty Wilmot",
+       "skill": "Persuade",
+       "stakes": "他拒绝放人进剪报室",
+       "motive": {
+        "direction": "oppose",
+        "intensity": 1
+       },
+       "modifiers": {
+        "bonus_dice": 1,
+        "reason": "初见印象对他有利，而且来者是带着具体地址来查稿的记者，不是普通读者"
+       }
+      }
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 14,
+    "candidate": "apply(person)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.apply",
+     "call_id": "t3-c5",
+     "receipts": [
+      "person:ruth-blake-t3-c5"
+     ],
+     "params": {
+      "effects": [
+       {
+        "kind": "person",
+        "who": "Ruth Blake",
+        "name": "剪报室的女档案员",
+        "why": "编辑松口后，楼下剪报室出来接人的是她，名字还没介绍。"
+       }
+      ]
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 15,
+    "candidate": "resolve(natural-npc:first-impression  vs Ruth Blake)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.resolve",
+     "call_id": "t3-c6",
+     "receipts": [
+      "roll:mod-natural-npc-t3-c6"
+     ],
+     "outcome": {
+      "kind": "check",
+      "target": 60,
+      "base_target": 60,
+      "difficulty": "regular",
+      "required_level": "regular",
+      "threshold": 60,
+      "required_target": 60,
+      "effective_target": 60,
+      "achieved_level": "failure",
+      "passed": false,
+      "success": false,
+      "surplus_levels": 0,
+      "level": "failure",
+      "outcome": "failure",
+      "roll": 83,
+      "bonus": 0,
+      "penalty": 0,
+      "unmodified_roll": 83,
+      "tens_values": [],
+      "units": null,
+      "rule_refs": [
+       "percentile-check",
+       "success-levels",
+       "difficulty-levels",
+       "half-fifth-values"
+      ],
+      "skill": "Appearance",
+      "actor": "沈默",
+      "target_npc": "Ruth Blake",
+      "impression": {
+       "reaction": "guarded",
+       "disposition": "neutral"
+      },
+      "attribute_snapshot": {
+       "Appearance": 60,
+       "Credit Rating": 9
+      }
+     },
+     "params": {
+      "action": {
+       "intent": "social",
+       "goal": "第一次和剪报室女档案员打交道时的印象",
+       "method": "跟着她下到地下室翻按地址归档的旧剪报",
+       "target": "Ruth Blake",
+       "decision": "natural-npc:first-impression",
+       "actor": "沈默"
+      }
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 18,
+    "candidate": "apply(clue,clue,handout,time)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.apply",
+     "call_id": "t3-c7",
+     "receipts": [
+      "clue:globe-unpublished-story-t3",
+      "clue:macario-tragedy-t3",
+      "handout:globe-unpublished-1918-t3",
+      "time:t3-c7"
+     ],
+     "params": {
+      "effects": [
+       {
+        "kind": "clue",
+        "clue": "globe-unpublished-story",
+        "how": "在剪报室按科比特宅的街名地址翻出一九一八年未刊发的长稿",
+        "label": "未刊发的一九一八年长稿"
+       },
+       {
+        "kind": "clue",
+        "clue": "macario-tragedy",
+        "how": "同一叠剪报里写着马卡里奥一家一九一八年几乎刚搬进去就离开",
+        "label": "马卡里奥一家的旧闻"
+       },
+       {
+        "kind": "handout",
+        "name": "Boston Globe City Desk Copy — Held from Print (1918)",
+        "label": "《环球报》城市版未刊稿（一九一八年）"
+       },
+       {
+        "kind": "time",
+        "minutes": 40,
+        "why": "从事务所走到报馆，再在地下室按地址翻剪报"
+       }
+      ]
+     }
+    },
+    "origin": "model"
+   }
+  ],
+  "route_choices": [
+   {
+    "step": 2,
+    "choice": "apply:move:newspaper-morgue",
+    "confidence": 0.68,
+    "reason": "selected_1",
+    "offered": 8,
+    "ms": 400
+   },
+   {
+    "step": 5,
+    "choice": "ask_llm",
+    "confidence": 0.83,
+    "reason": "ask_llm",
+    "offered": 15,
+    "ms": 383
+   },
+   {
+    "step": 9,
+    "choice": "ask_llm",
+    "confidence": 0.68,
+    "reason": "ask_llm",
+    "offered": 13,
+    "ms": 364
+   },
+   {
+    "step": 12,
+    "choice": "ask_llm",
+    "confidence": 0.46,
+    "reason": "ask_llm",
+    "offered": 13,
+    "ms": 355
+   },
+   {
+    "step": 16,
+    "choice": "ask_llm",
+    "confidence": 0.41,
+    "reason": "ask_llm",
+    "offered": 11,
+    "ms": 409
+   },
+   {
+    "step": 19,
+    "choice": "finish",
+    "confidence": 0.32,
+    "reason": "low_confidence",
+    "offered": 8,
+    "ms": 401
+   }
+  ],
+  "misses": [
+   {
+    "step": 19,
+    "kind": "decide",
+    "purpose": "route",
+    "reason": "low_confidence",
+    "choice": "finish",
+    "confidence": 0.32
+   },
+   {
+    "step": 20,
+    "kind": "infer",
+    "purpose": "adjudicate",
+    "reason": "low_confidence",
+    "choice": null,
+    "confidence": null
+   }
+  ],
+  "match": [
+   {
+    "baseline": "move → newspaper-morgue",
+    "matched": true
+   },
+   {
+    "baseline": "person Arty Wilmot",
+    "matched": true
+   },
+   {
+    "baseline": "resolve natural-npc:first-impression vs Arty Wilmot",
+    "matched": true
+   },
+   {
+    "baseline": "resolve ordinary Persuade vs Arty Wilmot",
+    "matched": true
+   },
+   {
+    "baseline": "person Ruth Blake",
+    "matched": true
+   },
+   {
+    "baseline": "resolve natural-npc:first-impression vs Ruth Blake",
+    "matched": true
+   },
+   {
+    "baseline": "clue globe-unpublished-story",
+    "matched": true
+   },
+   {
+    "baseline": "clue macario-tragedy",
+    "matched": true
+   },
+   {
+    "baseline": "handout Boston Globe City Desk Copy — Held from Print (1918)",
+    "matched": true
+   },
+   {
+    "baseline": "time 40",
+    "matched": null,
+    "note": "time is narration bookkeeping; not routed by the prototype"
+   },
+   {
+    "baseline": "narrate",
+    "matched": true
+   }
+  ]
+ },
+ {
+  "run": 3,
+  "wall_ms": 6154,
+  "steps": 20,
+  "counts": {
+   "direct": 9,
+   "decide": 6,
+   "infer": 5,
+   "finish": 1
+  },
+  "jev_calls": 10,
+  "jev_ms": 4130,
+  "stopped": {
+   "reason": "compose",
+   "purpose": "compose"
+  },
+  "executed": [
+   {
+    "step": 3,
+    "candidate": "apply:move:newspaper-morgue",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.apply",
+     "call_id": "t3-c1",
+     "receipts": [
+      "move:newspaper-morgue-t3-c1"
+     ]
+    },
+    "origin": "host"
+   },
+   {
+    "step": 7,
+    "candidate": "apply(person)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.apply",
+     "call_id": "t3-c2",
+     "receipts": [
+      "person:arty-wilmot-t3-c2"
+     ],
+     "params": {
+      "effects": [
+       {
+        "kind": "person",
+        "who": "Arty Wilmot",
+        "name": "城市版编辑",
+        "why": "沈默进报馆时先看见坐在城市版桌后拦着剪报室的人，名字还没报出来。"
+       }
+      ]
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 8,
+    "candidate": "resolve(natural-npc:first-impression  vs Arty Wilmot)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.resolve",
+     "call_id": "t3-c3",
+     "receipts": [
+      "roll:mod-natural-npc-t3-c3"
+     ],
+     "outcome": {
+      "kind": "check",
+      "target": 60,
+      "base_target": 60,
+      "difficulty": "regular",
+      "required_level": "regular",
+      "threshold": 60,
+      "required_target": 60,
+      "effective_target": 60,
+      "achieved_level": "hard",
+      "passed": true,
+      "success": true,
+      "surplus_levels": 1,
+      "level": "hard",
+      "outcome": "hard",
+      "roll": 19,
+      "bonus": 0,
+      "penalty": 0,
+      "unmodified_roll": 19,
+      "tens_values": [],
+      "units": null,
+      "rule_refs": [
+       "percentile-check",
+       "success-levels",
+       "difficulty-levels",
+       "half-fifth-values"
+      ],
+      "skill": "Appearance",
+      "actor": "沈默",
+      "target_npc": "Arty Wilmot",
+      "impression": {
+       "reaction": "favorable",
+       "disposition": "helpful"
+      },
+      "attribute_snapshot": {
+       "Appearance": 60,
+       "Credit Rating": 9
+      }
+     },
+     "params": {
+      "action": {
+       "intent": "social",
+       "goal": "第一次见到报馆城市版编辑时留下印象",
+       "method": "拿着帽子走进报馆，寻找能帮忙翻剪报的人",
+       "target": "Arty Wilmot",
+       "decision": "natural-npc:first-impression",
+       "actor": "沈默"
+      }
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 11,
+    "candidate": "resolve( Persuade vs Arty Wilmot)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.resolve",
+     "call_id": "t3-c4",
+     "receipts": [
+      "roll:persuade-t3-c4"
+     ],
+     "outcome": {
+      "kind": "social",
+      "npc": "arty-wilmot",
+      "approach": "persuade",
+      "approach_skill": "Persuade",
+      "feasibility": "roll",
+      "base_difficulty": "regular",
+      "final_difficulty": "hard",
+      "motive": {
+       "direction": "oppose",
+       "intensity": 1,
+       "evidence_refs": [
+        "npc_agenda:arty-wilmot",
+        "npc_secret:arty-wilmot"
+       ]
+      },
+      "leverage_delta": 0,
+      "skill": "Persuade",
+      "target": 70,
+      "difficulty": "hard",
+      "threshold": 35,
+      "roll": 22,
+      "level": "hard",
+      "passed": true,
+      "bonus": 1,
+      "penalty": 0
+     },
+     "params": {
+      "action": {
+       "intent": "social",
+       "goal": "说服城市版编辑让自己进地下室剪报室，按科比特宅的地址翻近年旧报道",
+       "method": "以同行记者的身份说明要查一栋房子的旧新闻，不是来闲逛",
+       "target": "Arty Wilmot",
+       "skill": "Persuade",
+       "stakes": "他拒绝放人进剪报室",
+       "motive": {
+        "direction": "oppose",
+        "intensity": 1
+       },
+       "modifiers": {
+        "bonus_dice": 1,
+        "reason": "初见印象对他有利，而且来者是带着具体地址来查稿的记者，不是普通读者"
+       }
+      }
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 14,
+    "candidate": "apply(person)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.apply",
+     "call_id": "t3-c5",
+     "receipts": [
+      "person:ruth-blake-t3-c5"
+     ],
+     "params": {
+      "effects": [
+       {
+        "kind": "person",
+        "who": "Ruth Blake",
+        "name": "剪报室的女档案员",
+        "why": "编辑松口后，楼下剪报室出来接人的是她，名字还没介绍。"
+       }
+      ]
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 15,
+    "candidate": "resolve(natural-npc:first-impression  vs Ruth Blake)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.resolve",
+     "call_id": "t3-c6",
+     "receipts": [
+      "roll:mod-natural-npc-t3-c6"
+     ],
+     "outcome": {
+      "kind": "check",
+      "target": 60,
+      "base_target": 60,
+      "difficulty": "regular",
+      "required_level": "regular",
+      "threshold": 60,
+      "required_target": 60,
+      "effective_target": 60,
+      "achieved_level": "failure",
+      "passed": false,
+      "success": false,
+      "surplus_levels": 0,
+      "level": "failure",
+      "outcome": "failure",
+      "roll": 83,
+      "bonus": 0,
+      "penalty": 0,
+      "unmodified_roll": 83,
+      "tens_values": [],
+      "units": null,
+      "rule_refs": [
+       "percentile-check",
+       "success-levels",
+       "difficulty-levels",
+       "half-fifth-values"
+      ],
+      "skill": "Appearance",
+      "actor": "沈默",
+      "target_npc": "Ruth Blake",
+      "impression": {
+       "reaction": "guarded",
+       "disposition": "neutral"
+      },
+      "attribute_snapshot": {
+       "Appearance": 60,
+       "Credit Rating": 9
+      }
+     },
+     "params": {
+      "action": {
+       "intent": "social",
+       "goal": "第一次和剪报室女档案员打交道时的印象",
+       "method": "跟着她下到地下室翻按地址归档的旧剪报",
+       "target": "Ruth Blake",
+       "decision": "natural-npc:first-impression",
+       "actor": "沈默"
+      }
+     }
+    },
+    "origin": "model"
+   },
+   {
+    "step": 18,
+    "candidate": "apply(clue,clue,handout,time)",
+    "status": "ok",
+    "extra": null,
+    "summary": {
+     "method": "table.apply",
+     "call_id": "t3-c7",
+     "receipts": [
+      "clue:globe-unpublished-story-t3",
+      "clue:macario-tragedy-t3",
+      "handout:globe-unpublished-1918-t3",
+      "time:t3-c7"
+     ],
+     "params": {
+      "effects": [
+       {
+        "kind": "clue",
+        "clue": "globe-unpublished-story",
+        "how": "在剪报室按科比特宅的街名地址翻出一九一八年未刊发的长稿",
+        "label": "未刊发的一九一八年长稿"
+       },
+       {
+        "kind": "clue",
+        "clue": "macario-tragedy",
+        "how": "同一叠剪报里写着马卡里奥一家一九一八年几乎刚搬进去就离开",
+        "label": "马卡里奥一家的旧闻"
+       },
+       {
+        "kind": "handout",
+        "name": "Boston Globe City Desk Copy — Held from Print (1918)",
+        "label": "《环球报》城市版未刊稿（一九一八年）"
+       },
+       {
+        "kind": "time",
+        "minutes": 40,
+        "why": "从事务所走到报馆，再在地下室按地址翻剪报"
+       }
+      ]
+     }
+    },
+    "origin": "model"
+   }
+  ],
+  "route_choices": [
+   {
+    "step": 2,
+    "choice": "apply:move:newspaper-morgue",
+    "confidence": 0.74,
+    "reason": "selected_1",
+    "offered": 8,
+    "ms": 316
+   },
+   {
+    "step": 5,
+    "choice": "ask_llm",
+    "confidence": 0.77,
+    "reason": "ask_llm",
+    "offered": 15,
+    "ms": 363
+   },
+   {
+    "step": 9,
+    "choice": "ask_llm",
+    "confidence": 0.59,
+    "reason": "ask_llm",
+    "offered": 13,
+    "ms": 338
+   },
+   {
+    "step": 12,
+    "choice": "ask_llm",
+    "confidence": 0.36,
+    "reason": "ask_llm",
+    "offered": 13,
+    "ms": 479
+   },
+   {
+    "step": 16,
+    "choice": "ask_llm",
+    "confidence": 0.37,
+    "reason": "ask_llm",
+    "offered": 11,
+    "ms": 465
+   },
+   {
+    "step": 19,
+    "choice": "finish",
+    "confidence": 0.36,
+    "reason": "finish",
+    "offered": 8,
+    "ms": 397
+   }
+  ],
+  "misses": [],
+  "match": [
+   {
+    "baseline": "move → newspaper-morgue",
+    "matched": true
+   },
+   {
+    "baseline": "person Arty Wilmot",
+    "matched": true
+   },
+   {
+    "baseline": "resolve natural-npc:first-impression vs Arty Wilmot",
+    "matched": true
+   },
+   {
+    "baseline": "resolve ordinary Persuade vs Arty Wilmot",
+    "matched": true
+   },
+   {
+    "baseline": "person Ruth Blake",
+    "matched": true
+   },
+   {
+    "baseline": "resolve natural-npc:first-impression vs Ruth Blake",
+    "matched": true
+   },
+   {
+    "baseline": "clue globe-unpublished-story",
+    "matched": true
+   },
+   {
+    "baseline": "clue macario-tragedy",
+    "matched": true
+   },
+   {
+    "baseline": "handout Boston Globe City Desk Copy — Held from Print (1918)",
+    "matched": true
+   },
+   {
+    "baseline": "time 40",
+    "matched": null,
+    "note": "time is narration bookkeeping; not routed by the prototype"
+   },
+   {
+    "baseline": "narrate",
+    "matched": true
+   }
+  ]
+ }
+]
