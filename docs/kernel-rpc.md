@@ -17518,6 +17518,17 @@ holds it; `buildCandidates` calls it. Nothing is read from `on_enter`, a module'
   the player's declaration, as the ordinary binder's template does (§113). No candidate is issued for a step with
   `served_by` (the Mod contact candidate is its candidate, §134.13), `approaches_unstated` or `difficulty_unstated`
   (the Keeper's, §134.2), a target not in `context.present`, or no approach the actor can take.
+- **The route question is a fact about the input** (owner ruling 2026-09-23, the prototype's finding that the order of
+  steps is craft and facts are what Jev can judge). An obligation candidate (the check, carrying its meeting or not, and
+  a meeting-only obligation's stated meeting) is not asked "now / later": it carries `routeFact`, and its `need_N`
+  question is "is the player's declared action after any of: <what the obligation guards>?" with the answers `seeks` /
+  `not` / `unknown`. The guarded things are named with the clues' summaries, the exits' names and the people; an
+  `after` obligation (the archivist) names what the obligation it waits on guards. `seeks` above the gates selects it,
+  and the whole open sequence is then structure: the carried meeting directly (the book's name), the check bound and
+  rolled with its claim, then a route on the new state. `not`, `unknown` or an answer below the gates leaves the
+  obligation a Keeper-only row for the rest of the run: its candidate is consumed there and not asked again (no
+  `later` on every route). `now` is not an answer to it. An obligation that guards nothing issues no fact question and
+  keeps the now/later question.
 - **`blocked`, `settled` and `waived` obligations issue nothing.**
 - **Guards are withheld from the clerk.** An options row that carries `guarded_by` is not a candidate; nor is a located
   clue, a roster person, or a Mod contact check against a person, that an unsettled (`open` or `blocked`) obligation's

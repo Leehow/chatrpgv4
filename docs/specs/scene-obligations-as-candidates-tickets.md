@@ -266,3 +266,30 @@ replay pre-registered in `58d5a36e6`, scored in `bcbe07267`.
 Not ruled, left as they are (the coordinator's note): the Keeper's unclaimed same-skill roll settles nothing (D4
 stands), so the double Persuade remains in the replay; the replayed Keeper predates SO-02. Still owed: the live-table
 gate (SL-02/SL-05), not delegable.
+
+### 2026-09-23 — SO-04 with the obligation routed by a fact about the input
+
+Ruling recorded in the spec's Comments ("is the player's declaration after what this obligation guards?"). Implemented in
+`1511b1601` (`Candidate.routeFact`; `routeBatch` asks it in place of now/later; `interpretRoute` selects on `seeks`;
+`settleRoute` leaves an unselected obligation to the Keeper for the run; the builder names the guarded clues with their
+summaries, and an `after` obligation names what the obligation it waits on guards) and `467d81a28`; §135.26 records it.
+Pre-registered in `fad63b88c`, scored in `6da66c50a`.
+
+- Verified: `tests/extension/scene-obligation-candidates.test.mjs`, 13 cases — the question's shape from the real read
+  (`seeks`/`not`/`unknown`, the guarded clues named, no page), and through the hybrid engine with a stub Jev port:
+  `seeks` → the clerk's meeting under "Arty Wilmot" then the claimed check, no LLM bind; `not` → nothing issued and not
+  asked on the second route. 27 of 27 mutations killed, including M23 "question asks now/later again", M24 "a
+  not-answered obligation asked again on the next route" and M25 "an after-obligation names nothing".
+- The replay on `turn3-obligations` (RD-04 digest `35f98e57…4573`), 3 runs per seed: `seeks` was the answer at arrival
+  6/6 (0.61–0.69 vs `not` 0.25–0.36) and selected in 5/6 (by the margin rule; one run cleared neither gate and became
+  Keeper-only); the meeting was carried 5/6 under the book's name; the check was rolled with the claim in 5/5, but after
+  Jev answered the approach `unknown` (0.76–0.80), so the Keeper filled it (an LLM bind); one Persuade per run, 11/11 live
+  rows; **5 LLM steps on every passing roll — the ≤ 3 line is not met**: the bind, then the replayed (pre-SO-02) Keeper's
+  recorded messages the clerk did not cover (Arty's first impression, whose failed roll ends that batch; Ruth, whose
+  `seeks` was 0.20–0.33, with her first impression; the clues, handout and time), then the close. The morgue's guards
+  name the two clues only; the handout is a scene asset no obligation guards, so the question does not name it.
+- Suites on this state (0.9.5a `0e9496761` included, unchanged since): `npm run build:runtime` ok, `npm run test:ext`
+  2806/2806, pytest `tests/kernel tests/play` 1699 passed, 1 skipped.
+
+Still owed: the live-table gate (SL-02/SL-05), not delegable.
+
