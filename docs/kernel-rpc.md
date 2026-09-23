@@ -17533,4 +17533,6 @@ stated hazard through `module.read.finish` on the emitted kernel only when every
 a worded dice string and an unviewed citation there with their paths and rules. The frozen-oracle suite
 `tests/extension/ts-kernel-modules.test.mjs` now checks drafts with the contract `loadModuleContract` returns (the
 one publication loads; its hand-built contract carried no ruleset names) and asserts one post-freeze change without
-touching the oracle's bytes: a profile integer beyond the largest exact integer is `shape_prose`.
+touching the oracle's bytes: a profile integer beyond the largest exact integer is `shape_prose`. `tests/kernel/test_npc_layer.py`'s
+legacy-fixture walk no longer carries that fixture's book-language skill names into a drafted profile: a reader's
+profile names skills as the ruleset does, and that test walks dossier claims, not numbers.
