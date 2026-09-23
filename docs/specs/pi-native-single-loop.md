@@ -128,7 +128,7 @@ These settle every contested branch of the design tree and bind SL-01 onward.
 
 **Player experience.** One delivery per turn; the clerk's steps draw as cards as they land; the Keeper's prose streams to the player as raw text while it is generated and is replaced in place by the formatted card when the delivery closes (a visible flicker is accepted; the owner prefers a UI rewrite over waiting for a whole block). Compose keeps the full capsule; the prose quality problem is a separate track.
 
-**Scene data.** Only obligations the module states in its own text (a gatekeeper's check, a forced meeting) become host-issuable candidates; "what usually happens" stays the Keeper's improvisation. That spec is written in parallel and implemented after SL-02.
+**Scene data.** Only obligations the module states in its own text (a gatekeeper's check, a forced meeting) become host-issuable candidates; "what usually happens" stays the Keeper's improvisation. That spec is `docs/specs/scene-obligations-as-candidates.md` (accepted 2026-09-23 with rulings Q1–Q7: hazards boss-only; a stated `reaction: "preordained"` wins over the Mod for the clerk; unstated starter gates removed; costs Keeper-applied; `obligation_open` as information; ≤ 3 LLM steps on a passing morgue roll; the morgue pair first). Its tickets are scheduled inside SL-02.
 
 **Evidence.** The turn-3 replay is the regression run for every change; a live table (real Keeper, human player, one turn at a time) is the stage gate at SL-02 and SL-05.
 

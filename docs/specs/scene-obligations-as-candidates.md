@@ -1,10 +1,10 @@
 # Scene obligations as host-issuable candidates
 
-Status: **ready-for-human** (the owner reviews this spec before any implementation; tickets in `scene-obligations-as-candidates-tickets.md` stay `needs-triage` until then).
+Status: **ready-for-agent** (owner reviewed 2026-09-23 and answered Q1–Q7, recorded under "Owner rulings" below; the tickets in `scene-obligations-as-candidates-tickets.md` are scheduled inside the single-loop plan's SL-02 stage).
 Branch: `0.9.5a` (written on `claude/scene-obligations-spec-20260923` from `d29fba981`).
 Parent spec: `docs/specs/pi-native-single-loop.md` — this is the item its Out of Scope names ("Making the Mods and Director declare gatekeeper checks and scene obligations as candidates"), its user story 41, and its ruling **Scene data**.
 Prototype this spec is bound to: `docs/specs/single-loop-step-routing.md` and `experiments/single-loop-routing/RESULTS-20260923.md` ("Misses and risks", first bullet).
-Order: implementation starts after SL-02 of the single-loop plan is accepted, except the data and kernel tickets, which do not depend on the loop (see the tickets file).
+Order (owner, 2026-09-23): the whole change is scheduled under SL-02 of the single-loop plan. SO-01/SO-02/SO-03 do not depend on the loop and run as SL-02 workers; SO-04 is the loop side and lands with SL-02's policy migration; SL-02's acceptance gains the morgue replay line (Rulings Q6).
 
 ## Why this spec exists (recorded verbatim)
 
@@ -162,13 +162,14 @@ Why this shape and not another:
 - **The starter's typed `roll_gate` is the input, not a second copy.** Authoring the haunting moves `persuade-arty.roll_gate` into the requirement node and deletes it there, replaces the morgue's `requires_completed_route_ids` and `npc_presence_requirements` by the two requirement nodes' `guards`/`after`, and removes `befriend-ruth.roll_gate` (Q3). `mystery-house` keeps its copies of the same fields untouched (it has no obligations; it is the "starter without obligations" control) — their zero-consumer status is recorded in Further Notes, not fixed here.
 - **`guards` names graph nodes** (clues, exits by destination scene, people), never affordance ids: affordances exist only in starter scene records, and a PDF book has none.
 - **`who` names the gatekeeper or the person to be met.** It must be seated in the scene (`present-in` or the scene's `npc_ids`); an obligation cannot stage someone the book does not put there.
+- **`reaction: "preordained"` (optional, Q2 ruling).** When the book states that the person's reaction roll is not used, the obligation says so and the clerk does not settle an active Mod's contact check for that pair (`natural-npc`'s first impression for Arty); the Mod's declaration stays, the Keeper may still resolve it. The only value is `preordained`; absent means the Mod's check runs as today.
 
 ### D4. Settlement
 
 - **State is a flag.** `settles` is `{kind: "flag_set", flag_id}` — the condition shape `describeCondition`/`conditionStatus` already read for exits (§18.7). An obligation is `settled` when the flag is true, `open` otherwise; `waived` is a settled flag whose receipt came from a Keeper `apply flag` with a reason. Its `after` dependents and the guards it holds release when the flag is true.
 - **A check that names the obligation settles it.** `resolve` accepts an optional `action.obligation: <handle>` (the handle the kernel issued). The kernel checks that the obligation is open, in the active scene, that its next step is a `check`, that `skill` is one of its `values` (for `selection: maximum` it takes the higher, ties as the Mod path does), that the difficulty is the stated one, and that the target is present — then runs the **ordinary check** (so push, Luck and continuations behave exactly as today). When the result level `settles`, the same transaction sets the flag and the receipt carries `obligation: {handle, settled: true}`; otherwise the result carries `obligation: {handle, settled: false, book: "<the level's book line>"}` for the Keeper. The kernel applies no consequence: route closure, ejection, damage are the Keeper's to realise (ruling: consequences are boss-only).
 - **A `meet` step is settled by existing receipts.** The person is present in the active scene and has been introduced (an `npc`/`person` receipt); nothing new is written.
-- **The Keeper leaves the book with `apply flag`.** Setting the flag with a `why` waives the obligation; clearing it reopens one the clerk settled. Both are ordinary receipts with their own time cost (none unless the Keeper adds one). The kernel never refuses `apply move`, `apply clue`, `apply person` or `resolve` because an obligation is open; a result that crosses an open obligation's guard carries `obligation_open: <handle>` as information (Q5).
+- **The Keeper leaves the book with `apply flag`.** Setting the flag with a `why` waives the obligation; clearing it reopens one the clerk settled. Both are ordinary receipts with their own time cost (none unless the Keeper adds one). The kernel never refuses `apply move`, `apply clue`, `apply person` or `resolve` because an obligation is open; a result that crosses an open obligation's guard carries `obligation_open: <handle>` as information, never as a refusal, and the capsule's clerk list shows the same fact as one line beside "clerk did" (Q5 ruling).
 - **A `resolve` without `action.obligation` does not settle anything,** even when it is the same skill against the same person. Settlement follows the operation that claims it, never an inference from a similar-looking receipt.
 
 ### D5. Issuance
@@ -212,6 +213,7 @@ One kernel function, `sceneObligations(graph, world, scene)` (beside `whereSecti
 - a `requirement` with `properties.obligation` and no `source_refs` (starters: also no `evidence_span_ids`); a PDF source ref to a page the reader did not view (existing law);
 - `scene`, `who`, `meet.npc`, `target`, `guards.*`, `after` that do not resolve to a node of the right kind; `who`/`meet.npc` not seated in the scene (`present-in` or `npc_ids`);
 - a `values[].path` outside `characteristics.` / `skills.`, or a skill name that does not resolve in the ruleset's skill catalogue by normalised-name match (the one name matching the repo allows); a prose string in any typed slot;
+- `reaction` present with a value other than `preordained`;
 - `selection` outside `{maximum, approach}`, `difficulty` outside `{regular, hard, extreme}` (or absent without `difficulty_unstated`), `results` without exactly the six levels, a `trigger.kind` outside `{attempt, after}` (Mods: `contact`), an `after` cycle, an `attempt` with empty `guards`;
 - `settles` that is not `{kind: "flag_set", flag_id}` with a semantic flag id, or a flag id another obligation already settles;
 - an obligation whose `check` repeats a guarded clue's own gate (same clue, a single identical skill, same difficulty): one check, one owner — the author either keeps the clue gate or moves it into the obligation and deletes it from the clue.
@@ -221,16 +223,16 @@ One kernel function, `sceneObligations(graph, world, scene)` (beside `whereSecti
 - Anything without a source reference, however plausible ("an editor would want a reason").
 - Keeper-improvised encounters and their demands: the live Keeper's decision to stage Ruth, the "old colleague" the player invokes, the bonus die it earned. The book states the gate; the fiction around it is the Keeper's.
 - "What usually happens": pressure moves, `allowed_improvisation`, tone, the dramatic question, beats, NPC agendas, fears, secrets and voices. These are the Keeper's toolkit; putting them in the candidate list would be the menu the parent spec forbids ("the loop never replaces craft with a menu").
-- Checks the player did not declare and that are not the price of something they declared: hazards (the chapel floor, the bed attack, the floating knife), sanity on sight. Boss-only under the current ruling (Q1).
+- Checks the player did not declare and that are not the price of something they declared: hazards (the chapel floor, the bed attack, the floating knife), sanity on sight. Boss-only (Q1 ruling: a check is host-issuable only as the stated price of something the player declared; hazards stay the Keeper's, including their dice).
 - Consequences: damage, Sanity, cash, ejection, route closure. The book's lines travel to the Keeper; the Keeper applies them.
 - Grants (Knott's advance and keys) and elapsed-time contacts (Knott pressing after a day): stated, but neither is a demand the investigators meet; out of this spec.
-- Starter data the book does not state (Ruth's `befriend-ruth` gate): not an obligation even though it is typed (Q3).
+- Starter data the book does not state (Ruth's `befriend-ruth` gate): not an obligation even though it is typed; it is removed in SO-01 (Q3 ruling).
 
 ### D9. Interaction with existing rules
 
 - **§32 action admission.** An obligation-origin `resolve` is a policy-origin operation on an investigator; §32.1 does not exempt it today. Whether a fully bound, kernel-issued, Jev-selected operation still needs §32 admission is the SL-02 research item, decided by measurement; this spec grants no exemption. The operation's invocation context carries `basis: obligation <handle>`, so SL-02's measurement can report obligation checks as their own row. Risk to measure: the reviewer judges consent from the player's words, and "get an old colleague to help me" may not read as consent to *persuade the editor*.
 - **The Director.** Obligations are not beats and the Director reads none of them: no new signal, no new scoring rule, no second reveal list. The only shared surface is the gate string (D5), which keeps one owner.
-- **Mods.** One declaration form (D3). The Mod validator starts validating `trigger` (today it is shipped and read by nobody; `natural-npc`'s `contact` stays valid, its bytes do not change). When an active Mod's check has the identical recipe (same value set, `selection`, `difficulty`) for the same actor–target pair as an obligation's `check` step — Dooley — the obligation step is served by the Mod's frozen result and issues no candidate of its own; the comparison is structural. The book's "reaction not used" for Arty against `natural-npc`'s first impression is Q2.
+- **Mods.** One declaration form (D3). The Mod validator starts validating `trigger` (today it is shipped and read by nobody; `natural-npc`'s `contact` stays valid, its bytes do not change). When an active Mod's check has the identical recipe (same value set, `selection`, `difficulty`) for the same actor–target pair as an obligation's `check` step — Dooley — the obligation step is served by the Mod's frozen result and issues no candidate of its own; the comparison is structural. The book's "reaction not used" for Arty is declared by `reaction: "preordained"` on the obligation (D3), and the module's statement wins over the Mod for the clerk (Q2 ruling).
 - **Refusal budget.** Clerk-origin refusals are not the Keeper's (D6). The Keeper's own refused `resolve` with `action.obligation` counts like any refusal of its class.
 - **The Keeper prompt.** Told through the capsule (`obligations[kind=scene]`, "clerk did") and one base-prompt sentence (D6). No per-scene prompt text.
 - **Adaptation (§36).** An adapted scene `based_on` a scene with obligations does not inherit them (the 2026-09-15 lobby copy of the morgue lost its affordance and presence requirement the same way). Obligations stay on the authored scene; §36's `same_place` refusal already sends that case back to the authored scene.
@@ -257,9 +259,9 @@ A good test drives the real entry and asserts what the kernel issued, what recei
 
 ## Out of Scope
 
-- Hazards and checks the player did not declare (the chapel floor, the bed attack, the floating knife, sanity on sight) as clerk-settleable candidates — pending Q1.
+- Hazards and checks the player did not declare (the chapel floor, the bed attack, the floating knife, sanity on sight) as clerk-settleable candidates — ruled boss-only (Q1).
 - Grants on acceptance (Knott's advance and keys) and elapsed-time contacts (Knott pressing after a day); the `arrival` trigger.
-- Costs applied by the clerk — pending Q4; costs are carried and shown.
+- Costs applied by the clerk — ruled out (Q4); a stated cost is carried as a Keeper-only book line and the Keeper advances the clock.
 - A kernel refusal of any Keeper operation because an obligation is open.
 - Fixing `mystery-house`'s copies of `roll_gate`, `requires_completed_route_ids` and `npc_presence_requirements`, the starter's other zero-consumer typed fields (`on_enter.*`, the chapel's `optional_rules`), and the gate mismatch on `clue-rusted-basement-dagger` beyond what the first cut touches.
 - Backfilling obligations into existing PDF-built modules, or into the committed twin.
@@ -277,14 +279,14 @@ A good test drives the real entry and asserts what the kernel issued, what recei
 
 **Contract.** When implemented, the shape lands as a new `docs/kernel-rpc.md` section (the next free number at landing; it amends §6/§13.2 for the capsule row, §32.5 for the gate string, §26 for the Mod `trigger`, and adds the `table.apply.options` key and `resolve`'s `action.obligation`). Contract first, then code.
 
-### Questions for the owner (answer before implementation)
+### Owner rulings (2026-09-23; the questions below were answered "all as recommended")
 
-- **Q1. Hazards.** The ruling makes "any check the player did not declare" boss-only, and the scene-data ruling makes a module-stated demand host-issuable. This spec resolves the overlap by making a check host-issuable only when it is the stated price of something the player declared (a gate on an `attempt`); involuntary hazards stay the Keeper's. Keep that line, or also let the clerk roll a hazard's stated check (the Keeper still applying the damage)?
-- **Q2. Book against Mod.** The book says Arty's APP/Credit Rating reaction is not used; `natural-npc` rolls a first impression at every first contact. Should a stated obligation be able to declare that its person's reaction is preordained, so the clerk does not settle the Mod's contact check for that pair (the Keeper still may), or does the enabled Mod win?
-- **Q3. Starter data the book does not state.** `befriend-ruth` carries a typed Regular gate that Ruth's own record and the twin contradict. Remove it (this spec's default), or keep it as starter-authored design and let it become an obligation?
-- **Q4. Costs.** The library's "half a day" per attempt is stated without minutes. Should an obligation be able to carry a stated cost the clerk applies (and if so, who converts "half a day" into minutes, with what source), or do costs stay Keeper-applied lines (this spec's default)?
-- **Q5. Crossing an open gate.** When the Keeper reveals or moves past an open obligation, the kernel accepts and returns `obligation_open` as information. Is that the right signal, or should it be silent (the capsule already shows the obligation open)?
-- **Q6. Replay pass line.** The pre-registered target is ≤ 3 LLM steps on a passing roll (2 when Jev binds the approach). Accept that as the acceptance line for the obligation tickets, or set a different one before the run?
-- **Q7. Scope of the first authored sample.** Five obligations plus the Hall of Records' Law route if its difficulty is on the page. Author all of them in the data ticket, or only the morgue pair first (the replay needs only those)?
+- **Q1. Hazards — boss-only.** A check is host-issuable only when it is the stated price of something the player declared (a gate on an `attempt`). Involuntary hazards (the chapel floor, the bed attack, the floating knife, sanity on sight) stay the Keeper's, dice included. D8 stands.
+- **Q2. Book against Mod — the book wins for the clerk.** An obligation may declare `reaction: "preordained"` (D3); then the clerk does not settle the active Mod's contact check for that pair. The Mod's declaration is unchanged and the Keeper may still resolve it. Arty carries it; Dooley does not (the book states his reaction roll, and the Mod-recipe identity rule in D9 serves it).
+- **Q3. `befriend-ruth.roll_gate` — removed** in SO-01. Ruth's record and the twin state no roll; starter data the book does not state is not an obligation.
+- **Q4. Costs — Keeper-applied.** No minutes are invented from "half a day". A stated cost travels as a Keeper-only `book` line; the Keeper advances the clock with its own `apply time`.
+- **Q5. Crossing an open gate — `obligation_open` stays**, as information: the result carries it, the kernel never refuses, and the capsule's clerk list shows the crossing as one line beside "clerk did".
+- **Q6. Replay pass line — accepted:** ≤ 3 LLM steps on a passing roll at the morgue (2 when Jev binds the approach), down from 5; a failing roll is recorded as the Keeper improvising past the book and is neither a pass nor a failure of the saving. This line is added to SL-02's acceptance.
+- **Q7. First authored sample — the morgue pair only** (clippings access and the archivist). The police, Dooley, basement-stairs and Hall-of-Records rows are SO-05, after SO-04's replay meets Q6.
 
 ## Comments
