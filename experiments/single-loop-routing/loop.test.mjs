@@ -141,3 +141,34 @@ test('an exhausted Jev budget hands the close to the LLM', async () => {
   assert.equal(calls.length, 0);
   assert.equal(telemetry[0].reason, 'jev_budget');
 });
+
+// SL-02: structure selects a step the kernel forces (an NPC's pending defence), and a closed choice among the
+// actions the kernel issues runs the chosen one with its own parameters.
+const forcedDefence = {key: 'resolve:combat:defend:knott:tom:r2', verb: 'resolve', family: 'combat', label: 'Knott defends', source: 'stub', forced: true,
+  bound: {decision: 'combat:defend', actor: 'knott', defense: 'dodge'}, unbound: []};
+const npcTurn = {key: 'resolve:combat:turn:knott:r2', verb: 'resolve', family: 'combat', label: 'Knott acts', source: 'stub', forced: true,
+  bound: {actor: 'knott'}, unbound: [{name: 'decision', required: true, vocabulary: 'closed', options: ['combat:attack', 'combat:maneuver']}],
+  variants: {'combat:attack': {label: 'Knott attacks Tom', bound: {decision: 'combat:attack', actor: 'knott', target: 'tom'}, unbound: []},
+    'combat:maneuver': {label: 'Knott manoeuvres', bound: {decision: 'combat:maneuver', actor: 'knott'}, unbound: [{name: 'goal', required: true, vocabulary: 'open'}]}}};
+
+test('a step the kernel forces runs before any route question, without asking Jev', async () => {
+  let reads = 0;
+  const {calls, ports: stub} = ports([batch => answer(batch, {exit: 'finish'})], {
+    async refresh(current) { reads++; return {context: current.context, candidates: reads === 1 ? [forcedDefence, bound] : [bound].filter(value => !current.consumed.includes(value.key))}; },
+  });
+  const {telemetry} = await runTurn(stub, {...initialView({runId: 'r', rawInput: 'hit him', context, candidates: []})});
+  assert.deepEqual(telemetry.slice(0, 3).map(row => [row.kind, row.purpose, row.choice]), [['direct', 'read', null], ['direct', 'execute', forcedDefence.key], ['decide', 'route', 'finish']]);
+  assert.equal(calls.length, 1, 'Jev was asked only the route question after the forced step');
+});
+
+test('a closed choice among issued actions runs the chosen action with its own parameters', async () => {
+  const executed = [];
+  let reads = 0;
+  const {ports: stub} = ports([batch => answer(batch, {decision: 'combat:attack'}), batch => answer(batch, {exit: 'finish'})], {
+    async refresh(current) { reads++; return {context: current.context, candidates: reads === 1 ? [npcTurn] : []}; },
+    async execute(candidate) { executed.push(candidate); return {ok: true, summary: {executed: candidate.key}}; },
+  });
+  const {telemetry} = await runTurn(stub, initialView({runId: 'r', rawInput: 'hit him', context, candidates: []}));
+  assert.deepEqual(telemetry.slice(0, 3).map(row => [row.kind, row.purpose]), [['direct', 'read'], ['decide', 'bind'], ['direct', 'execute']]);
+  assert.deepEqual(executed.map(candidate => [candidate.key, candidate.bound.decision, candidate.bound.target]), [[npcTurn.key, 'combat:attack', 'tom']]);
+});
