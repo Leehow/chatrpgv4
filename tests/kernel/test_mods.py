@@ -771,57 +771,6 @@ def test_registration_can_be_queued_past_delivery_and_completed_afterwards(kerne
     # The row is accounted for, so neither the Keeper nor the audit is asked for it a second time.
     assert target not in [e["name"] for e in kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]]
 
-
-def test_plain_item_identity_lands_now_and_ready_definition_adopts_only_the_same_acquisition(kernel):
-    open_turn(kernel)
-    define = {"kind":"define", "name":"House key definition", "category":"item", "description":"An ordinary iron house key."}
-    transfer = {"kind":"object", "name":"House key", "definition":define["name"], "to":"Thomas Hayes",
-                "from":"Steven Knott", "handover":"given", "why":"Knott hands over the key."}
-    plan = kernel.ok("mods.identity.plan", {"campaign":CAMPAIGN, "define":define, "object":transfer})
-    assert plan["eligible"] is True and plan["accepted"] is False
-    result = kernel.table("apply", call_id="t1-c1", effects=[
-        {**define, "_queued":plan["job"], "_provenance":{"mod":plan["mod"], "digest":plan["digest"]}, "_identity_defer":True},
-        {**transfer, "_identity_defer":True}])
-    assert any(receipt.startswith("item:") for receipt in result["receipts"])
-    sheet = read_json(campaign_dir(kernel.workspace) / "party" / "thomas-hayes.json")
-    pending = next(item for item in sheet["equipment"] if isinstance(item, dict) and item.get("name") == "House key")
-    assert pending["from"] == "Steven Knott" and pending["pending_definition"].startswith("item:")
-    world = read_json(campaign_dir(kernel.workspace) / "world.json")
-    assert not world.get("objects", {}).get("definitions") and not world.get("objects", {}).get("instances")
-
-    Path(plan["cwd"], "result.json").write_text(json.dumps({"name":define["name"], "category":"item", "description":define["description"],
-        "basis":"The request establishes only an ordinary iron key; no executable use is asserted.",
-        "parameters":{"charges":None, "effects":[]}, "player_view":{"description":"一把普通的铁制房门钥匙。", "fields":[]}}))
-    kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":plan["job"]})
-    assert kernel.ok("mods.queued", {"campaign":CAMPAIGN}) == {"effects":[],"unfinished":[]}
-    narrate(kernel, "t1-c2", "诺特把钥匙交到你手里。")
-    kernel.table("player_input", text="我把钥匙收进口袋。")
-    assert kernel.ok("mods.queued", {"campaign":CAMPAIGN})["optional_ready"] == 1
-    ready = kernel.ok("mods.queued", {"campaign":CAMPAIGN, "publish_optional":True})
-    assert [effect["kind"] for effect in ready["effects"]] == ["define", "object"]
-    kernel.table("apply", call_id="t2-c1", effects=ready["effects"])
-    look = kernel.table("look", focus="object", name="House key")
-    assert look["definition"]["name"] == define["name"] and look["instance"]["owner"] == sheet["name"]
-    assert sum(receipt["kind"] == "item" and receipt.get("name") == "House key" for receipt in kernel.table("status")["receipts"]) == 1
-
-
-def test_pending_identity_removed_before_creator_completion_is_never_resurrected(kernel):
-    open_turn(kernel)
-    define = {"kind":"define", "name":"Pending key definition", "description":"An ordinary pending key."}
-    transfer = {"kind":"object", "name":"Pending key", "definition":define["name"], "to":"Thomas Hayes", "why":"A key is handed over."}
-    plan = kernel.ok("mods.identity.plan", {"campaign":CAMPAIGN, "define":define, "object":transfer})
-    kernel.table("apply", call_id="t1-c1", effects=[
-        {**define, "_queued":plan["job"], "_provenance":{"mod":plan["mod"], "digest":plan["digest"]}, "_identity_defer":True},
-        {**transfer, "_identity_defer":True}])
-    kernel.table("apply", call_id="t1-c2", effects=[{"kind":"item", "name":"Pending key", "quantity":-1, "why":"The key is returned."}])
-    Path(plan["cwd"], "result.json").write_text(json.dumps({"name":define["name"], "category":"item", "description":define["description"],
-        "basis":"Ordinary key fixture.", "parameters":{"charges":None,"effects":[]}, "player_view":{"description":"一把钥匙。","fields":[]}}))
-    kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":plan["job"]})
-    narrate(kernel, "t1-c3", "钥匙已经交还。")
-    kernel.table("player_input", text="继续。")
-    assert kernel.ok("mods.queued", {"campaign":CAMPAIGN, "publish_optional":True}) == {"effects":[],"unfinished":[]}
-    assert kernel.table_err("look", focus="object", name="Pending key")["code"] == "unknown_entity"
-
     Path(job["cwd"], "result.json").write_text(json.dumps({**draft, "basis":"Fixture basis for the deferred kit.",
         "parameters":{"charges":None, "effects":[]}, "player_view":{"description":"一套夹具装备。", "fields":[]}}))
     kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":job["job"]})
@@ -846,6 +795,65 @@ def test_pending_identity_removed_before_creator_completion_is_never_resurrected
     # The marker stops standing in for a definition that is now real, and the row stays out of the gap list.
     assert kernel.ok("mods.queued", {"campaign":CAMPAIGN}) == {"effects":[], "unfinished":[]}
     assert target not in [e["name"] for e in kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]]
+
+
+def test_plain_item_identity_lands_now_and_ready_definition_adopts_only_the_same_acquisition(kernel):
+    open_turn(kernel)
+    define = {"kind":"define", "name":"House key definition", "category":"item", "description":"An ordinary iron house key."}
+    transfer = {"kind":"object", "name":"House key", "definition":define["name"], "to":"Thomas Hayes",
+                "from":"Steven Knott", "handover":"given", "why":"Knott hands over the key."}
+    plan = kernel.ok("mods.identity.plan", {"campaign":CAMPAIGN, "define":define, "object":transfer})
+    assert plan["eligible"] is True and plan["accepted"] is False
+    result = kernel.table("apply", call_id="t1-c1", effects=[
+        {**define, "_queued":plan["job"], "_provenance":{"mod":plan["mod"], "digest":plan["digest"]}, "_identity_defer":True},
+        {**transfer, "_identity_defer":True}])
+    assert any(receipt.startswith("item:") for receipt in result["receipts"])
+    sheet = read_json(campaign_dir(kernel.workspace) / "party" / "thomas-hayes.json")
+    pending = next(item for item in sheet["equipment"] if isinstance(item, dict) and item.get("name") == "House key")
+    assert pending["from"] == "Steven Knott" and pending["pending_definition"].startswith("item:")
+    world = read_json(campaign_dir(kernel.workspace) / "world.json")
+    assert not world.get("objects", {}).get("definitions") and not world.get("objects", {}).get("instances")
+
+    Path(plan["cwd"], "result.json").write_text(json.dumps({"name":define["name"], "category":"item", "description":define["description"],
+        "basis":"The request establishes only an ordinary iron key; no executable use is asserted.",
+        "parameters":{"charges":None, "effects":[]}, "player_view":{"description":"一把普通的铁制房门钥匙。", "fields":[]}}))
+    kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":plan["job"]})
+    assert kernel.ok("mods.queued", {"campaign":CAMPAIGN}) == {"effects":[],"unfinished":[]}
+    # `table.status` reads the open turn's receipts; the handover is this turn's one item receipt.
+    handed = [receipt for receipt in kernel.table("status")["receipts"] if receipt["kind"] == "item" and receipt.get("name") == "House key"]
+    assert [receipt.get("pending_definition") for receipt in handed] == [True]
+    narrate(kernel, "t1-c2", "诺特把钥匙交到你手里。")
+    kernel.table("player_input", text="我把钥匙收进口袋。")
+    assert kernel.ok("mods.queued", {"campaign":CAMPAIGN})["optional_ready"] == 1
+    ready = kernel.ok("mods.queued", {"campaign":CAMPAIGN, "publish_optional":True})
+    assert [effect["kind"] for effect in ready["effects"]] == ["define", "object"]
+    kernel.table("apply", call_id="t2-c1", effects=ready["effects"])
+    look = kernel.table("look", focus="object", name="House key")
+    assert look["definition"]["name"] == define["name"] and look["instance"]["owner"] == sheet["name"]
+    # Contract §126.3: the promotion is the queued adoption and the original handover is never replayed, so the
+    # acquisition keeps the one item receipt of turn 1 and turn 2 carries only the resumed adoption.
+    promoted = kernel.table("status")["receipts"]
+    assert not [receipt for receipt in promoted if receipt["kind"] == "item"]
+    assert [(receipt["name"], receipt.get("adopted"), receipt.get("resumed")) for receipt in promoted if receipt["id"].startswith("definition:adopt-")] == \
+        [("House key", "House key", True)]
+
+
+def test_pending_identity_removed_before_creator_completion_is_never_resurrected(kernel):
+    open_turn(kernel)
+    define = {"kind":"define", "name":"Pending key definition", "description":"An ordinary pending key."}
+    transfer = {"kind":"object", "name":"Pending key", "definition":define["name"], "to":"Thomas Hayes", "why":"A key is handed over."}
+    plan = kernel.ok("mods.identity.plan", {"campaign":CAMPAIGN, "define":define, "object":transfer})
+    kernel.table("apply", call_id="t1-c1", effects=[
+        {**define, "_queued":plan["job"], "_provenance":{"mod":plan["mod"], "digest":plan["digest"]}, "_identity_defer":True},
+        {**transfer, "_identity_defer":True}])
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind":"item", "name":"Pending key", "quantity":-1, "why":"The key is returned."}])
+    Path(plan["cwd"], "result.json").write_text(json.dumps({"name":define["name"], "category":"item", "description":define["description"],
+        "basis":"Ordinary key fixture.", "parameters":{"charges":None,"effects":[]}, "player_view":{"description":"一把钥匙。","fields":[]}}))
+    kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":plan["job"]})
+    narrate(kernel, "t1-c3", "钥匙已经交还。")
+    kernel.table("player_input", text="继续。")
+    assert kernel.ok("mods.queued", {"campaign":CAMPAIGN, "publish_optional":True}) == {"effects":[],"unfinished":[]}
+    assert kernel.table_err("look", focus="object", name="Pending key")["code"] == "unknown_entity"
 
 
 def test_a_placement_beside_a_queued_definition_stands_on_a_placeholder_until_the_resume_replaces_it(kernel):
@@ -918,7 +926,7 @@ def test_a_usage_batch_can_take_the_registration_behind_a_placeholder_in_the_sam
         {"kind":"object", "name":"Borrowed sidearm", "definition":draft["name"], "to":"Thomas Hayes", "why":"Fixture placement."}])
     # Only the registration behind the named object, and only once its parameters exist.
     assert kernel.ok("mods.queued", {"campaign":CAMPAIGN, "now":True, "objects":["Borrowed sidearm"]}) == \
-        {"effects":[], "unfinished":[{**request}]}
+        {"effects":[], "unfinished":[{**request, "job":job["job"]}]}
     Path(job["cwd"], "result.json").write_text(json.dumps(draft))
     kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":job["job"]})
     ready = kernel.ok("mods.queued", {"campaign":CAMPAIGN, "now":True, "objects":["Borrowed sidearm"]})
