@@ -16115,7 +16115,8 @@ malformed one. SO-01 (§134.1–§134.8) wrote the shape and the validator and n
 (2026-09-23) adds the kernel behaviour as §134.9–§134.15: issuance by `sceneObligations`, the
 `table.apply.options` key, the capsule row, the gate string, `action.obligation` on `resolve`, waiving
 through `apply flag`, the Mod-recipe identity and the offer ledger. A module that states no obligation
-reads byte for byte what it read before SO-02 (§134.15).
+reads byte for byte what it read before SO-02 (§134.15). SO-03 (2026-09-23) adds §134.16: the visual
+reader writes obligations from a PDF book, and the draft check runs the validator on them.
 
 ### 134.1 The node
 
@@ -16470,3 +16471,78 @@ scene-obligations.test.mjs` covers the Mod-recipe identity and `reaction: "preor
 content root. The capsule, `table.apply.options` and `table.resolve.options` of `mystery-house`,
 `voice-bench` and `the-haunting-rulebook`, walked scene by scene, are byte-identical to goldens recorded
 on the parent commit `64f486601`; on the haunting only the morgue changes.
+
+### 134.16 The visual reader writes obligations; the draft check refuses a malformed one (SO-03)
+
+A PDF book states its obligations the way a starter does (§134.1), through the same reader and the same
+independent review as every other mechanical statement (§22). Nothing here reads rule prose: a rule
+node's `"skills": "Charm (friendliness), …"` stays prose for the Keeper, and an obligation exists only
+because the reader wrote one from the page. There is no count gate (a book may state none) and no
+backfill (§22: an existing module gains an obligation only through a detail request that asks for it,
+additively reviewed). The committed twin `the-haunting-rulebook` is not rebuilt; it stays the "PDF-built
+module with no obligations" control of §134.15.
+
+**The reader's instruction** (`content/setup/visual-reader.md`, Read phase, one paragraph, English and
+book-neutral): when a page states that a place demands a meeting or a check before the investigators get
+something there, the reader also writes a `requirement` node in the §134.1 shape, a `has-requirement`
+claim from the scene, and a `calls-for-check` claim from the requirement to the rule node that keeps the
+book's wording; it lists every obligation field in `critical`; it records `difficulty_unstated` /
+`approaches_unstated` instead of filling a value; it writes `reaction: "preordained"` only when the page
+states that the person's reaction roll is not used. Value paths name the ruleset's own skill and
+characteristic names (§134.2), not the page's translation of them.
+
+**The draft check** (`checkDraft` in `kernel-ts/modules/visual.ts`, behind both the offline
+`coc-read-check` the reader runs and publication in `modules/reading.ts`) runs only when the draft
+defines at least one `requirement` node carrying `properties.obligation`; a draft that defines none
+returns byte for byte what it returned before SO-03.
+
+1. *The source law first, per obligation node, before the generic reference law.* No non-empty
+   `source_refs` list is `obligation_unsourced` at `/nodes/<i>/source_refs`; a reference to a physical
+   page this reader did not view is `obligation_unviewed_page` at `/nodes/<i>/source_refs/<j>`. The
+   viewed-page half runs where the generic law runs — at publication, which knows the host's page
+   observations; the offline check has none and the reader's `submit_reading` enforces the same law
+   through `required_view_pages`. Removing either rule leaves the generic law refusing the same draft,
+   without the node's path or a rule.
+2. *Then the one validator* (§134.3) — `obligationRefusals(view, rules, {starter: false})` — over a view
+   of the graph the draft would publish into: `packet.known_nodes` overlaid by the draft's nodes (a
+   draft node's `properties` over the known node's), `packet.known_claims` overlaid by the draft's
+   claims by `claim_id`, and one relation per claim, as `assembleVisual` derives them. `rules` are the
+   ruleset's skill and characteristic names, loaded with the module contract (`loadModuleContract`
+   reads `skills.json` `skills` and `characteristic-dice.json` `characteristics`, the tables starter
+   registration reads). A starter's `evidence_span_ids` are not required of a PDF book.
+3. *A refusal* is `invalid_params` with `details: {reason: "reading_failed", path, rule, refusals}`:
+   `refusals` lists every `{node, rule, path, message}`, `path` a JSON pointer into the draft when the
+   node is the draft's (the validator's dotted path turned into pointer tokens), else the validator's
+   path on the known node; the top-level `path` and `rule` are the first refusal's, draft nodes first.
+   A `check_unknown_skill` refusal also carries `details.ruleset: {skills, characteristics}` — the
+   names the check resolves against, so the reader can name the rule the page means without a
+   hand-written mapping (the precedent is §34.15's `details.weapons`). A `fix` is executed literally
+   (§34.7), so it says only: correct
+   the requirement node against the page it cites; record an unstated value as unstated, never guess
+   one; if the page states no such demand, delete the node and its claims.
+4. *Required review.* Every field of every draft obligation is added to `required_review`, whether or
+   not the reader listed it in `critical`: each key of `properties.obligation` other than `demand`
+   (`/nodes/<i>/properties/obligation/<key>`), and each key other than `kind` of each demand step
+   (`…/demand/<k>/<key>`). Numbers (`minimum`) keep entering through `numericPaths`. The pointers come
+   from one function, `obligationReviewPaths` (`kernel-ts/modules/obligation-review.ts`), which the
+   extension's `reviewUnits` (`extensions/module/reader-review.ts`) also calls, so the reviewer units
+   and the publication gate cannot disagree about what must be supported.
+
+**The review prompt** (`content/setup/visual-reader.md`, Verify phase) names obligation fields as
+mechanical statements to check against the page image: where the demand stands and what it guards, who
+imposes it, each step, the skills and any minimum, the selection, the difficulty or its recorded
+absence, each result level's `settles` and `book`, the push, every cost, a preordained reaction, and
+what `settles` grants. An unstated value recorded as unstated is supported; a filled one is
+contradicted.
+
+*Three ends (§31):* writer — the reader under independent review; reader — publication carries the node
+and its claims unchanged into the module graph (`assembleVisual`), where `sceneObligations` (§134.9)
+reads them; actor — the Keeper and the clerk as §134.14 says.
+
+*Tests* (`tests/extension/obligation-reader.test.mjs`, through `checkDraft` with the loaded contract and
+through `checkSourceDraft`, the offline entry): an obligation without `source_refs`, citing an unviewed
+page, with a prose skill string, or with a person not seated in the scene is refused with its path and
+rule; a valid obligation whose fields are not in `critical` gets them in `required_review`, and
+`reviewUnits` assigns the same pointers; a draft with no obligation returns the same bytes as the parent
+commit. Each refusal is shown to go away when its rule is removed (the mutation record is in the SO-03
+report).
