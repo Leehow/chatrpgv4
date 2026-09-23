@@ -62,7 +62,7 @@ function derived() {
         ]},
         damage: {dice: '1D6', book: 'A fall onto the flagstones.'},
     });
-    stated(graph, 'rule', 'library-research', {
+    stated(graph, 'rule', 'archive-search', {
         check: {scope: 'actor', values: [{path: 'skills.Library Use', label: 'Library Use'}, {path: 'skills.Credit Rating', label: 'Credit Rating', minimum: 30}],
             selection: 'approach', difficulty_unstated: true, results: {regular: {effects: [{kind: 'flag', flag_id: 'records-found', value: true}]}}},
         sanity_loss: {success: '0', failure: '1D4'},
@@ -80,7 +80,7 @@ function derived() {
         sanity_loss: {success: '0', failure: '1D6'}}}, {name: 'Cellar hound'});
     graph.nodes.push({node_id: 'ending-house-cleansed', node_kind: 'ending', name: 'House cleansed', visibility: 'keeper-only', aliases: [], summary: 'The house is quiet.',
         evidence_span_ids: [SPAN], properties: {}, source_refs: [SOURCE]});
-    for (const id of ['rule-cellar-stairs', 'rule-library-research', 'object-meat-cleaver', 'spell-veil-of-thorns', 'tome-thorn-grimoire'])
+    for (const id of ['rule-cellar-stairs', 'rule-archive-search', 'object-meat-cleaver', 'spell-veil-of-thorns', 'tome-thorn-grimoire'])
         link(graph, START, 'uses-rule', id);
     link(graph, CONCLUSION, 'uses-rule', 'rule-victory-reward');
     link(graph, 'ending-house-cleansed', 'uses-rule', 'rule-victory-reward');
@@ -122,7 +122,7 @@ after(() => opened.runtime.close());
 
 const EXPECTED = {
     'cellar-stairs': 'hazard (Keeper triggers; stated on reaching basement-rites): [0] Luck regular, on failure step 1; [1] Jump hard, on failure damage 1D6 and as written, push allowed: damage 1D4+2 | damage 1D6',
-    'library-research': 'check: Library Use / Credit Rating (min 30) (by approach) difficulty unstated, on regular flag records-found true | SAN loss 0/1D4 | time 240 minutes | cost MP chosen by the spender per cast',
+    'archive-search': 'check: Library Use / Credit Rating (min 30) (by approach) difficulty unstated, on regular flag records-found true | SAN loss 0/1D4 | time 240 minutes | cost MP chosen by the spender per cast',
     'meat-cleaver': 'weapon meat-cleaver: Fighting (Brawl), 1D6, 1/round, impales, +DB',
     'Veil of Thorns': 'spell: MP 3, SAN 1D4, casting 1 round, lasts unstated, hp loss 1D6',
     'thorn-grimoire': 'tome: in Language (Other) (Latin), initial reading at least 3 hours, Cthulhu Mythos +2 initial, SAN loss 1/1D6, spells veil-of-thorns',
@@ -131,7 +131,7 @@ const EXPECTED = {
 test('mechanicsOf returns the typed shapes of a node, and nothing else under mechanics', () => {
     const graph = new api.ModuleGraph('the-haunting', GRAPH, 'digest', {});
     const node = id => graph.nodes.get(id);
-    assert.deepEqual(graph.mechanicsOf(node('rule-library-research')), GRAPH.nodes.find(n => n.node_id === 'rule-library-research').properties.mechanics);
+    assert.deepEqual(graph.mechanicsOf(node('rule-archive-search')), GRAPH.nodes.find(n => n.node_id === 'rule-archive-search').properties.mechanics);
     assert.deepEqual(Object.keys(graph.mechanicsOf(node('rule-cellar-stairs'))), ['hazard', 'damage']);
     assert.equal(graph.mechanicsOf(node('creature-cellar-hound')).profile.derived.HP, 10);
     // The starters' legacy provenance keys beside `profile` are not shapes.
@@ -195,12 +195,13 @@ test('the module lookup\'s endings carry the reward shapes of the rules a conclu
     const endings = (await opened.call('table.lookup', {kind: 'secret', scope: 'module'})).endings;
     const reward = {rule: 'victory-reward', sanity: '1D6', cash: 30, currency: 'dollars', when: {kind: 'flag_set', flag_id: 'corbitt-destroyed'}};
     const conclusion = endings.find(row => row.scene === 'corbitt-confrontation');
-    assert.deepEqual(conclusion.rewards, [reward]);
-    assert.equal(conclusion.sanity_reward, '1D6', 'the contract\'s own reward stays until RD-04 migrates it');
+    // Since RD-04 the shipped haunting states its own reward there (§136.26), read first, in relation order.
+    const shippedReward = {rule: 'victory-rewards', sanity: '1D6'};
+    assert.deepEqual(conclusion.rewards, [shippedReward, reward]);
+    assert.equal(conclusion.sanity_reward, null, 'RD-04 moved the contract\'s own reward into rule-victory-rewards');
     assert.deepEqual(endings.find(row => row.ending), {ending: 'house-cleansed', rewards: [reward]});
-    // Without shapes the rows are exactly as before.
     const shipped = new api.ModuleGraph('the-haunting', SHIPPED, 'digest', {});
-    assert.deepEqual(shipped.statedRewards(shipped.nodes.get(CONCLUSION)), []);
+    assert.deepEqual(shipped.statedRewards(shipped.nodes.get(CONCLUSION)), [shippedReward]);
 });
 
 test('the threat pressure row says where the book advances its clock', async () => {

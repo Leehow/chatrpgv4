@@ -17641,9 +17641,10 @@ the ordinary default. The tome's 50 is `read_without_roll_at`, information that 
 it is not a `minimum` and nothing refuses a lower reader.
 
 **Weapon prose.** Spec D9 moves a weapon's prose to the node's `summary`; the coordinator's ruling (2026-09-23) made
-that conditional on every golden outside the D9 scenes staying byte-identical. Corbitt's and the rat pack's
-`summary` is read by the opening capsule's module roster and the scene's `present[]`, so the prose rides as each
-weapon's `book` line instead (§136.6 shape 10 admits one), and the summaries are unchanged.
+that conditional on every golden outside the D9 scenes staying byte-identical. It does not: a node's `summary` is the
+line of the module roster every early capsule carries (§ "the `module` section"), and with the prose there the
+roster rows of Corbitt and the rat pack changed in `commission-briefing`'s capsule and every other scene's first
+input. So the prose rides as each weapon's `book` line (§136.6 shape 10 admits one), and the summaries are unchanged.
 
 **The guidance bundles.** The graph digest moved, so `character-guidance/en.json` and `zh-Hans.json` are re-stamped to
 the new digest and to the fingerprints `guidanceFingerprint` recomputes (their text is unchanged: the opening scene
@@ -17655,8 +17656,8 @@ and its guides did not move), as §134.6 did.
 the book when the ending is a `conclusion` (`action.ending` absent or `conclusion`; §11.1's `ending` is the ending's
 kind, not a node) and the active scene links, by `uses-rule`, exactly one rule whose `reward` states `sanity` as
 dice and whose `when` gate, if any, holds: that dice string is the expression. The result carries
-`stated: {rule: <handle>, scenario_san_reward_expr}` and the call's first receipt `basis: {rule: <handle>}`. The
-stored call parameters stay the Keeper's own. Anything else is exactly today's end-session: the Keeper's own
+`stated: {rule: <handle>, scenario_san_reward_expr}`, and each Sanity `delta` receipt the settlement writes carries
+`basis: {rule: <handle>}` (the offer ledger's taken mark, §136.24). The stored call parameters stay the Keeper's own. Anything else is exactly today's end-session: the Keeper's own
 expression wins (spec P8); a `tpk`, `retreat` or `cliffhanger` ending, a scene without a stated reward, an
 `_unstated` reward, or two rewards bind nothing, and the omitted expression still means "the source declares none".
 Whether the investigators earned the ending stays the Keeper's call: the reward's `book` line carries the book's
@@ -17675,7 +17676,14 @@ the bound `damage 1D6` and writes no hit point; `apply damage {stated: chapel-fl
 `tests/extension/haunting-shapes.test.mjs`, through `module.register`: the shipped graph walked for every key §136.26
 removed (none remains anywhere; the affordance and clue keys only at the SO-05 rows); every migrated node's exact
 citations; the haunting refused when a removed key is written back (the allowance is `mystery-house`'s only) or a
-migrated node's page ref is dropped; `mystery-house` still registering with its allowance. Goldens (capsule,
+migrated node's page ref is dropped; `mystery-house` still registering with its allowance.
+`tests/kernel/test_starters.py` compares the chain in two links, because the old projection script's diff stops at
+40 differences: the old projection against the pre-RD-04 graph (`566dca9da`, the §134.6 list unchanged), and that graph
+against the shipped one, every difference pinned by path. Two frozen oracle captures read the haunting's bytes and were
+recaptured from the retired reference implementation (`.cache/python-oracle`, `PI_COC_REFREEZE_ORACLE=1`) on the new
+input, never edited by hand: `read-graph` (the central library's entity view gains its `uses-rule` relation; the
+`library` search gains the new rule node and loses the five `time_profile`s) and `rules-records` (the `rule` catalog's
+digest, after the playtest keys left `rule-index.json`). Goldens (capsule,
 `table.apply.options`, `table.resolve.options`, module and scene lookups, `look focus=scene`, 46 scenes of the four
 starters, each in a fresh seeded campaign) against the parent `566dca9da`: `mystery-house`, `voice-bench` and
 `the-haunting-rulebook` byte-identical; the haunting's differences are listed row by row in the RD-04 record

@@ -38,6 +38,8 @@ await build({stdin: {contents:
 const api = await import(pathToFileURL(join(bundleDir, 'api.mjs')).href);
 
 const SHIPPED = JSON.parse(await readFile(join(content, 'starters/the-haunting/module-graph.json'), 'utf8'));
+// Since RD-04 the haunting carries no legacy key; mystery-house is the one starter with an allowance row (§136.1).
+const MYSTERY = JSON.parse(await readFile(join(content, 'starters/mystery-house/module-graph.json'), 'utf8'));
 const SOURCE = {source_id: 'pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting', pdf_index: 452};
 const SPAN = 'span-page-447-anchor-1';
 
@@ -49,16 +51,21 @@ async function kernelOver(contentRoot) {
     return {home, runtime, call: (method, params = {}) => runtime.handlers[method](params)};
 }
 
-/** A content root that is the shipped one except for the haunting's graph, which `mutate` edits. */
-async function contentWith(mutate) {
+/** A content root that is the shipped one except for one starter's graph (the haunting's by default), which `mutate` edits. */
+async function contentWith(mutate, id = 'the-haunting') {
     const dir = await mkdtemp(join(scratch, 'content-'));
     for (const name of await readdir(content))
         if (name !== 'starters') await symlink(join(content, name), join(dir, name));
-    const starter = join(dir, 'starters', 'the-haunting'), shipped = join(content, 'starters', 'the-haunting');
+    for (const other of await readdir(join(content, 'starters')))
+        if (other !== id) {
+            await mkdir(join(dir, 'starters'), {recursive: true});
+            await symlink(join(content, 'starters', other), join(dir, 'starters', other));
+        }
+    const starter = join(dir, 'starters', id), shipped = join(content, 'starters', id);
     await mkdir(starter, {recursive: true});
     for (const name of await readdir(shipped))
         if (name !== 'module-graph.json') await symlink(join(shipped, name), join(starter, name));
-    const graph = structuredClone(SHIPPED);
+    const graph = structuredClone(id === 'the-haunting' ? SHIPPED : JSON.parse(await readFile(join(shipped, 'module-graph.json'), 'utf8')));
     mutate(graph);
     await writeFile(join(starter, 'module-graph.json'), JSON.stringify(graph, null, 2));
     return dir;
@@ -76,10 +83,10 @@ function stated(graph, kind, id, mechanics, extra = {}) {
 }
 
 /** Registers the mutated starter; null when it registered, else its refusals `{node, path, rule}`. */
-async function register(mutate) {
-    const {runtime, call} = await kernelOver(await contentWith(mutate));
+async function register(mutate, id = 'the-haunting') {
+    const {runtime, call} = await kernelOver(await contentWith(mutate, id));
     try {
-        await call('module.register', {module_id: 'the-haunting'});
+        await call('module.register', {module_id: id});
         return null;
     } catch (error) {
         assert.equal(error.code, 'invalid_params', error.message);
@@ -87,12 +94,12 @@ async function register(mutate) {
         return error.details.refusals;
     } finally { await runtime.close(); }
 }
-async function accepted(mutate) {
-    const refusals = await register(mutate);
+async function accepted(mutate, id) {
+    const refusals = await register(mutate, id);
     assert.equal(refusals, null, `expected acceptance, got ${JSON.stringify(refusals)}`);
 }
-async function refusedUnder(rule, mutate) {
-    const refusals = await register(mutate);
+async function refusedUnder(rule, mutate, id) {
+    const refusals = await register(mutate, id);
     assert.ok(refusals, `expected a ${rule} refusal, but the starter registered`);
     assert.ok(refusals.some(refusal => refusal.rule === rule), `expected ${rule}, got ${JSON.stringify(refusals)}`);
     return refusals;
@@ -103,19 +110,21 @@ const CHECK = () => ({scope: 'actor', values: [{path: 'skills.Library Use', labe
 
 // ----- the shipped starters and the accepted shapes -----
 
-test('every shipped starter registers unchanged, and the haunting copy with its legacy allowance does too', async () => {
+test('every shipped starter registers unchanged, and mystery-house with its legacy allowance does too', async () => {
     const {runtime, call} = await kernelOver(content);
     try {
         for (const id of ['the-haunting', 'mystery-house', 'voice-bench', 'the-haunting-rulebook'])
             assert.equal((await call('module.register', {module_id: id})).status, 'installed', id);
     } finally { await runtime.close(); }
     await accepted(() => {});
-    // The allowance is what the curated starters carry today, and nothing more.
-    const container = record(SHIPPED, 'npc-walter-corbitt').mechanics;
+    await accepted(() => {}, 'mystery-house');
+    // The allowance is what mystery-house carries today, and nothing more (§136.1); the haunting carries none of it.
+    const container = MYSTERY.nodes.find(n => n.node_id === 'npc-calvin-crowe').properties.runtime_projection.record.mechanics;
     assert.deepEqual(Object.keys(container).filter(key => key !== 'profile').sort(),
         ['fields_extracted', 'fields_not_authored', 'fields_observed', 'provenance', 'source_refs', 'status', 'subject_kind']);
     assert.ok(['attacks', 'attacks_per_round', 'san_loss_to_see'].every(key => Object.hasOwn(container.profile, key)));
     assert.ok(container.profile.weapons.every(weapon => Object.hasOwn(weapon, 'note') && Object.hasOwn(weapon, 'weapon_id')));
+    assert.deepEqual(Object.keys(record(SHIPPED, 'npc-walter-corbitt').mechanics), ['profile']);
 });
 
 test('the minimal node of every one of the fifteen shapes is accepted', async () => {
@@ -201,18 +210,22 @@ test('mechanics_unknown_shape: a book key invented under mechanics', () => refus
 test('mechanics_unknown_shape: mechanics.tactic is not a seat; combat.defense is (ruling D)', () => refusedUnder('mechanics_unknown_shape', graph => {
     record(graph, 'npc-walter-corbitt').mechanics.tactic = {defense: 'dodge'};
 }));
-test('mechanics_unknown_shape: the container allowance is the starters\', and a reader draft gets none', async () => {
-    // No real entry runs the draft check until RD-05, so this is the one direct call: the same graph as a
-    // starter registers, and as a draft (starter: false) is refused for every allowance key it carries.
-    const graph = new api.ModuleGraph('the-haunting', structuredClone(SHIPPED), 'digest', {});
-    const rules = {skills: ['Dodge', 'Intimidate', 'Listen', 'Sleight of Hand', 'Stealth', 'Cthulhu Mythos'], groups: {Fighting: {specializations: {Brawl: 25}}},
-        characteristics: ['STR', 'CON', 'SIZ', 'DEX', 'APP', 'INT', 'POW', 'EDU'], weapons: ['claws', 'knife_medium'], damageBonuses: ['-1', '+1D4']};
-    assert.deepEqual(api.mechanicsRefusals(graph, rules, {starter: true}), []);
-    const draft = api.mechanicsRefusals(graph, rules, {starter: false});
-    assert.ok(draft.some(refusal => refusal.rule === 'mechanics_unknown_shape' && refusal.path.endsWith('mechanics.provenance')));
-    assert.ok(draft.some(refusal => refusal.rule === 'shape_unknown_key' && refusal.path.endsWith('profile.attacks')));
-    assert.ok(draft.some(refusal => refusal.rule === 'shape_unknown_key' && refusal.path.endsWith('weapons[0].note')));
-    assert.ok(draft.some(refusal => refusal.rule === 'mechanics_unsourced' && refusal.node === 'npc-rat-pack'));
+test('mechanics_unknown_shape: the container allowance is its starter\'s own, and a reader draft gets none', async () => {
+    // No real entry runs the draft check until RD-05, so this is the one direct call: mystery-house as a starter
+    // registers with its row of the allowance; the same graph as a draft (starter: false), or as a starter that has
+    // no row, is refused for every allowance key it carries (§136.1, per starter since RD-04).
+    const rules = {skills: Object.keys(JSON.parse(await readFile(join(content, 'rulesets/coc7/rules-json/skills.json'), 'utf8')).skills),
+        groups: JSON.parse(await readFile(join(content, 'rulesets/coc7/rules-json/skills.json'), 'utf8')).specialization_groups,
+        characteristics: ['STR', 'CON', 'SIZ', 'DEX', 'APP', 'INT', 'POW', 'EDU'], weapons: ['claws', 'knife_medium'], damageBonuses: ['-1', '0', '+1D4']};
+    const mystery = new api.ModuleGraph('mystery-house', structuredClone(MYSTERY), 'digest', {});
+    assert.deepEqual(api.mechanicsRefusals(mystery, rules, {starter: true}), []);
+    for (const refused of [api.mechanicsRefusals(mystery, rules, {starter: false}),
+        api.mechanicsRefusals(new api.ModuleGraph('the-haunting', structuredClone(MYSTERY), 'digest', {}), rules, {starter: true})]) {
+        assert.ok(refused.some(refusal => refusal.rule === 'mechanics_unknown_shape' && refusal.path.endsWith('mechanics.provenance')));
+        assert.ok(refused.some(refusal => refusal.rule === 'shape_unknown_key' && refusal.path.endsWith('profile.attacks')));
+        assert.ok(refused.some(refusal => refusal.rule === 'shape_unknown_key' && refusal.path.endsWith('weapons[0].note')));
+        assert.ok(refused.some(refusal => refusal.rule === 'mechanics_unsourced' && refusal.node === 'npc-rat-swarm'));
+    }
 });
 test('mechanics_wrong_kind: a damage shape on a person', () => refusedUnder('mechanics_wrong_kind', graph => {
     record(graph, 'npc-walter-corbitt').mechanics.damage = {dice: '1D6'};
@@ -227,7 +240,10 @@ test('mechanics_unsourced: a starter rule without evidence spans', () => refused
     stated(graph, 'rule', 'fall', {damage: {dice: '1D6'}}, {evidence_span_ids: []});
 }));
 test('mechanics_unsourced: a starter stat block that states more than its registered profile', () => refusedUnder('mechanics_unsourced', graph => {
-    record(graph, 'npc-rat-pack').combat = {defense: 'dodge'};
+    graph.nodes.find(n => n.node_id === 'npc-rat-swarm').properties.runtime_projection.record.combat = {defense: 'dodge'};
+}, 'mystery-house'));
+test('mechanics_unsourced: a stat block of a starter without an allowance row is held to its own citation', () => refusedUnder('mechanics_unsourced', graph => {
+    node(graph, 'npc-rat-pack').source_refs = [];
 }));
 test('shape_unknown_key: a severity preset the damage shape does not have', () => refusedUnder('shape_unknown_key', graph => {
     stated(graph, 'rule', 'fall', {damage: {dice: '1D6', severity: 'severe'}});
