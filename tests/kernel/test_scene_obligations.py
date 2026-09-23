@@ -118,6 +118,9 @@ def test_the_morgue_issues_the_gate_open_and_the_archivist_blocked(morgue):
     assert list(issued) == [ACCESS, ARCHIVIST]
     access, archivist = issued[ACCESS], issued[ARCHIVIST]
     assert access["state"] == "open" and access["next"] == {"kind": "meet", "person": "Arty Wilmot"}
+    # §135.26: the check the meeting leads to, so the clerk can carry the meeting when the check is judged `now`.
+    assert access["then"] == {"kind": "check", "target": "Arty Wilmot", "selection": "approach",
+                              "approaches": [{"skill": name} for name in APPROACHES], "difficulty": "regular"}
     assert access["who"] == "Arty Wilmot" and access["trigger"] == {"kind": "attempt", "guards": {"clues": ["globe-unpublished-story", "macario-tragedy"]}}
     assert access["book"] == {"failure": FAILURE_LINE, "fumble": access["book"]["fumble"], "push": PUSH_LINE}
     assert access["source"] == [{"page": 448, "anchor": "Arty Wilmot"}]
@@ -146,6 +149,7 @@ def test_meeting_arty_makes_the_check_the_next_step(morgue):
     assert access["state"] == "open"
     assert access["next"] == {"kind": "check", "target": "Arty Wilmot", "selection": "approach",
                               "approaches": [{"skill": name} for name in APPROACHES], "difficulty": "regular"}
+    assert "then" not in access, "a check that is itself next leads nowhere further"
     assert "resolve with action.obligation" in scene_rows(client)[ACCESS]["cue"]
     assert_capsule_agrees(client)
 

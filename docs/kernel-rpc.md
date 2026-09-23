@@ -16622,6 +16622,7 @@ and the active Mods' check declarations. One row:
  next?: {kind: "meet", person: <name>}
       | {kind: "check", target?: <name>, selection?, approaches?: [{skill, minimum?}], approaches_unstated?: true,
          difficulty?, difficulty_unstated?: true, served_by?: {mod, check}},
+ then?: <the check step after a `next` meeting, in `next`'s check shape>,   // §135.26
  reaction?: "preordained", mod_contact?: [{mod, check, clerk: false}],
  book?: {failure?, fumble?, push?, cost?: [line]},          // Keeper-only lines
  source: [{page, anchor?}]}                                   // audit; the loop never shows it to Jev
@@ -16648,7 +16649,9 @@ and the active Mods' check declarations. One row:
   are met, and its flag stays the Keeper's to waive with. This is the one state not read from the flag;
   the spec left the case open and this is the decision (2026-09-23).
 - **`next`** is given on an `open` row only: the first `meet` step not met, else the first `check`
-  step. A `cost` step is never a next step; its line is in `book.cost` (owner ruling Q4: the kernel
+  step. **`then`** (2026-09-23, SO-04, §135.26) is given only while `next` is a meeting that a `check` step follows: that
+  check, in the shape `next` has for a check, so the clerk can carry the meeting when the check is judged `now`. The
+  capsule row does not show it. A `cost` step is never a next step; its line is in `book.cost` (owner ruling Q4: the kernel
   applies no cost). A check whose page states no difficulty or no skill carries
   `difficulty_unstated`/`approaches_unstated` in place of the value (§134.2) — the Keeper's, never the
   clerk's.
@@ -16890,7 +16893,10 @@ located, and nothing else. It never classifies text.
   is in `table.apply.options.context.handouts_shown` is not offered either. A handout already handed over is
   consumed by world state, never by its words;
 - people in `capsule.present` without `called`, staged under the capsule's own `untold.label`. Without a label
-  the name is an open parameter, and only the LLM fills it. Anyone off the roster is never a candidate;
+  the name is an open parameter, and only the LLM fills it. Anyone off the roster is never a candidate. **Exception
+  (owner ruling 2026-09-23, SO-04, §135.26):** a scene obligation's `meet` step is data — the book names the person — so a
+  stated meeting is staged under `untold.label` when the kernel issued one, else under the person's record `name`, with no
+  LLM step;
 - the active Mods' `pending_contacts`;
 - the ordinary check (`core-check:ordinary-check`) with its closed route/profile binder (`check-preflight`),
   offered only outside a running session;
@@ -17309,13 +17315,21 @@ Keeper's capsule compacts, so the clerk's view and the Keeper's cannot disagree.
 holds it; `buildCandidates` calls it. Nothing is read from `on_enter`, a module's mechanics or any prose, so a hazard
 (owner ruling Q1) is never a candidate.
 
-- **An `open` obligation whose `next` is a `meet`** issues the *stated meeting*: the person candidate for that person,
-  under the roster candidate's own key (`apply:person:<name>`), which it replaces — never a second candidate. Only a
-  person on the roster (`capsule.present`, not yet `called`) gets one. Its label says the book puts the person in the
-  way of the demand and what it guards ("The book puts Arty Wilmot (gatekeeper) here in the way of "Access to the Globe
-  clippings": whoever is after clue globe-unpublished-story or clue macario-tragedy meets Arty Wilmot first; …"; an
-  `after` meeting says which demand it follows); its `detail` carries the demand and the guarded clues' summaries. Its name binds exactly as the roster's (§135.2): the table's
-  own `untold.label`, else an open parameter only the LLM fills. The obligation does not supply a name.
+- **The stated meeting is data, not an open name** (owner ruling 2026-09-23, amending §135.2 and spec D6). It is the
+  person candidate for that person under the roster candidate's own key (`apply:person:<name>`), which it replaces —
+  never a second candidate. Only a person on the roster (`capsule.present`, not yet `called`) gets one. Its name is the
+  table's own `untold.label` when the kernel issued one, else the person's record `name` (the book names who stands
+  there), so it binds with no LLM step. Its label says the book puts the person in the way of the demand and what it
+  guards ("The book puts Arty Wilmot (gatekeeper) here in the way of "Access to the Globe clippings": whoever is after
+  clue globe-unpublished-story or clue macario-tragedy meets Arty Wilmot first; …"; an `after` meeting says which demand
+  it follows); its `detail` carries the demand and the guarded clues' summaries.
+- **A meeting before a check is carried by the check** (owner ruling 2026-09-23). While `next` is a meeting and the
+  row's `then` names the check it leads to (§134.9), the builder issues the `obligation_check` candidate built from
+  `then`, carrying the meeting as `before` (never shown to Jev); the meeting is not routed on its own and the roster
+  candidate is not offered. `now` on that check runs the meeting directly first (`itemsFor`: a carried step first, marked
+  with `then: <check key>`), and when it lands the policy takes the check as the fresh read issues it and binds and rolls it
+  (`settleExecute`) — no separate Jev question for the meeting. A `meet`-only obligation (the archivist) stays a routed
+  stated-meeting candidate, and so does a meeting whose check the clerk may not roll (served by a Mod, or unstated).
 - **An `open` obligation whose `next` is a `check`** issues an `obligation_check` candidate, key
   `resolve:obligation:<handle>`, verb `resolve`, bound `{obligation: <handle>, target?, actor?}`. Its closed binder:
   the approaches the actor can take (a stated `minimum` above the actor's issued rating in `table.resolve.options`
@@ -17339,7 +17353,7 @@ holds it; `buildCandidates` calls it. Nothing is read from `on_enter`, a module'
   declaration and the capsule's `pending_contacts` are unchanged, and the Keeper may still resolve it.
 - **Precedence** among steps judged `now` together: `person → mod_check → obligation_check → core-check → clue/handout
   → move` (`PRECEDENCE` in `runtime/jev/step-policy.ts`; an unranked family ranks with `core-check`).
-- **Authority and basis.** Both candidates carry clerk authority `stated_obligation` (§135.3) and `basis: {read:
+- **Authority and basis.** Both kinds (and a carried meeting) carry clerk authority `stated_obligation` (§135.3) and `basis: {read:
   "table.apply.options", path: "obligations[<i>]", row, obligation: <handle>, step: "meet" | "check"}`, which the
   tool row and every `lane: "admission"` row of the call carry (§135.7), so the §32 research reports obligation steps as
   their own row. The resolve carries `action.obligation`; it passes §32 like any policy-origin operation (§135.10).
@@ -17353,7 +17367,8 @@ holds it; `buildCandidates` calls it. Nothing is read from `on_enter`, a module'
 - **Body (§135.20).** The read's candidate bodies give the obligation check one: the demand, who stands in the way, the
   next step (target, selection, approaches, difficulty), what it guards (the guarded clues' summaries) and a preordained
   reaction in words, read from the issued row with no second kernel read — never the page, the Mod bookkeeping or the
-  book's consequence lines. The stated meeting is a `person` candidate and gets that family's body.
+  book's consequence lines; a check that carries its meeting names it first (`first: "meet <person>"`). The stated
+  meeting is a `person` candidate and gets that family's body.
 - **A model-origin resolve that claims an obligation** consumes `resolve:obligation:<handle>` for the run, as a
   model-origin apply consumes the keys it carried out (§135.5).
 - **Clerk refusals.** A refused clerk step (admission, `not_here`, a stale binding, the gateway) is dropped for the run
