@@ -57,7 +57,7 @@ Depends on: SO-01 merged.
 
 ## SO-03 — Reader extraction and review
 
-Status: ready-for-agent
+Status: ready-for-human (implemented 2026-09-23 on `claude/so03-reader-obligations-20260923`; awaiting review and merge, see Comments)
 Depends on: SO-01 merged.
 
 **What.** One paragraph in `content/setup/visual-reader.md` (spec D7): when the page states that a place demands a meeting or a check before the investigators get something there, write a `requirement` node in the D3 shape with a `has-requirement` claim from the scene and a `calls-for-check` claim to the rule node holding the book's wording; list every obligation field in `critical`; record `difficulty_unstated` / `approaches_unstated` instead of filling a value. The draft checker in `kernel-ts/modules/visual.ts` runs the SO-01 validator; numeric fields keep entering `required_review` through `numericPaths`. The review prompt names obligation fields as mechanical statements to check against the page image. No parsing of rule prose, no count gate, no automatic backfill.
@@ -122,3 +122,33 @@ tests (`5f28ac325`). `8a9340d0e` (test-only repair of the three `test_mods.py` f
   1 skipped, 3 failed (the three `test_mods.py` cases, pre-existing), and after the cherry-pick `test_mods.py` 42/42.
 - Not verified: any live table (the SL-02/SL-05 gate) and the loop's consumption (SO-04).
 
+### 2026-09-23 — SO-03 implemented (reader extraction and review)
+
+Branch `claude/so03-reader-obligations-20260923`, built on `cafd5fbaa` (0.9.5a + SO-01 + SO-02). Contract §134.16
+written first (`c12cb908d`), then the reader paragraph, the review paragraph, the draft check and the reviewer units
+(`a7f770e14`), then the tests (`52acf0aa6`).
+
+- Where it lives: `checkDraft` in `kernel-ts/modules/visual.ts` (the source law `obligationSourceLaw` before the
+  generic `references`, then `checkObligations` running `obligationRefusals` over the known graph overlaid by the
+  draft); the ruleset names on `ModuleContract.rules`, loaded by `loadModuleContract` through `RuleTables`;
+  `obligationReviewPaths` in `kernel-ts/modules/obligation-review.ts`, called by the draft check and by `reviewUnits`
+  (`extensions/module/reader-review.ts`); the Read-phase and Verify-phase paragraphs in `content/setup/visual-reader.md`.
+- Decisions the spec left open, recorded in §134.16: the unviewed-page law has its own rule
+  (`obligation_unviewed_page`) and runs where the generic law runs (publication; the reader's `submit_reading` enforces it
+  through `required_view_pages`); a `check_unknown_skill` refusal carries `details.ruleset` so a reader of a book in another
+  language can name the ruleset's skill without a hand-written mapping; every obligation field enters `required_review`
+  whether or not `critical` lists it, and the reviewer units assign the same pointers from the same function.
+- Verified: `tests/extension/obligation-reader.test.mjs` (10 cases, through `checkDraft` with the loaded contract and
+  through `checkSourceDraft`); 9 mutations (each refusal rule, the validator call, the review paths in the kernel and in
+  `reviewUnits`, the ruleset details), each killed. A draft without an obligation returns the parent's bytes (golden
+  recorded on `cafd5fbaa`, `tests/extension/fixtures/obligation-reader-parent.json`). One real detail read (the product's
+  `ReadingService`, grok-build/grok-4.7-build-fast low, reader + checker + independent reviewers + publication) on a scratch
+  copy of the Keeper Rulebook with focus "The Boston Globe newspaper morgue" published a reviewed
+  `requirement-get-past-arty-wilmot` (pages 448–449; Charm/Intimidate/Persuade/Fast Talk, `approach`, regular,
+  `reaction: preordained`, `has-requirement` from the Globe scene, `calls-for-check` to the rule node). The first review
+  round contradicted the obligation's `push` line against page 449 (a pointer the reader had not listed in `critical`);
+  the repair round published. Evidence stays in the scratch workspace, not the repository. `npm run test:ext` 2636/2636
+  (parent 2626/2626); pytest `tests/kernel tests/play` 1625 passed, 1 skipped.
+- Not verified: an owner-chosen book and pages (the haunting's own pages were used); the Keeper or clerk consuming a
+  PDF-published obligation at a table (SO-04 and the live gate); the reader's guards chose the Globe-to-morgue exit rather
+  than the clippings clues the starter guards, which is the reader's reading of the page, not checked against the starter.
