@@ -223,6 +223,53 @@ describe('RemoteBrowserApp', () => {
     expect(sockets.length).toBe(1)
   })
 
+  it('returning to a replaced tab does not re-claim and evict the browser in use', async () => {
+    const sockets: FakeSocket[] = []
+    const pending: Array<() => void> = []
+    let claims = 0
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/claim')) {
+        claims += 1
+        return new Response(null, { status: 204 })
+      }
+      if (url.includes(`/pair/${pairID}`)) return new Response('', { status: 200 })
+      throw new Error(url)
+    })
+    render(
+      <RemoteBrowserApp
+        location={{ protocol: 'http:', host: 'relay.test', pathname: `/pair/${pairID}`, hash: `#${secret}` }}
+        historyReplace={vi.fn()}
+        fetch={fetchImpl as unknown as typeof fetch}
+        socket={() => {
+          const socket = new FakeSocket()
+          sockets.push(socket)
+          return socket as any
+        }}
+        schedule={(fn) => {
+          pending.push(fn)
+          return pending.length
+        }}
+        cancel={vi.fn()}
+      />,
+    )
+    await waitFor(() => expect(sockets.length).toBe(1))
+    sockets[0].emit('open')
+    await waitFor(() => expect(document.querySelector('.pipiui-shell')).toBeTruthy())
+    sockets[0].emit('message', { data: JSON.stringify({ v: 2, type: 'replaced' }) })
+    sockets[0].emit('close', { code: 4001, reason: 'replaced' })
+    await waitFor(() => expect(screen.getByText('已在别处打开')).toBeTruthy())
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    window.dispatchEvent(new Event('pageshow'))
+    for (const fn of pending.splice(0)) fn()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(claims).toBe(1)
+    expect(sockets.length).toBe(1)
+    expect(screen.getByRole('button', { name: '重新接管' })).toBeTruthy()
+  })
+
   it('shows expired copy when reclaim returns 404', async () => {
     render(
       <RemoteBrowserApp
