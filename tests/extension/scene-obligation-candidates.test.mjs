@@ -97,7 +97,7 @@ test("at the morgue the stated meeting replaces the roster candidate, the archiv
 	assert.equal(arty[0].clerk, "stated_obligation");
 	assert.ok(CLERK_AUTHORITY.includes("stated_obligation"));
 	assert.deepEqual([arty[0].basis.read, arty[0].basis.path, arty[0].basis.obligation, arty[0].basis.step], ["table.apply.options", "obligations[0]", ACCESS, "meet"]);
-	assert.match(arty[0].label, /^The book puts Arty Wilmot \(gatekeeper\) here as the first step of "Access to the Globe clippings", before clue globe-unpublished-story and clue macario-tragedy/);
+	assert.match(arty[0].label, /^The book puts Arty Wilmot \(gatekeeper\) here in the way of "Access to the Globe clippings": whoever is after clue globe-unpublished-story or clue macario-tragedy meets Arty Wilmot first; /);
 	// Its name binds as the roster's: without the table's own label, only the LLM can write it.
 	assert.equal(bindingOf(arty[0]), "open");
 	assert.deepEqual(arty[0].detail.guards.map((guard) => guard.clue), ["globe-unpublished-story", "macario-tragedy"]);
@@ -146,7 +146,7 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	assert.deepEqual([check.basis.obligation, check.basis.step], [ACCESS, "check"]);
 	assert.deepEqual([check.bound.obligation, check.bound.target], [ACCESS, "Arty Wilmot"]);
 	assert.equal(check.bound.skill, undefined, "four approaches: the clerk never picks one");
-	assert.match(check.label, /^The book's price of "Access to the Globe clippings": a regular Persuade, Intimidate, Charm or Fast Talk check against Arty Wilmot, before clue globe-unpublished-story and clue macario-tragedy$/);
+	assert.match(check.label, /^The book's price of "Access to the Globe clippings": a regular Persuade, Intimidate, Charm or Fast Talk check against Arty Wilmot before anyone gets clue globe-unpublished-story or clue macario-tragedy$/);
 	// Several approaches: one closed Jev bind over the approaches, the ordinary binder's dice words and the intent.
 	assert.equal(bindingOf(check), "closed");
 	assert.deepEqual(check.unbound.map((value) => [value.name, value.options]),
@@ -187,6 +187,7 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	const ruth = after.filter((candidate) => candidate.family === "person" && candidate.bound.who === "Ruth Blake");
 	assert.equal(ruth.length, 1);
 	assert.deepEqual([ruth[0].clerk, ruth[0].basis.obligation, ruth[0].basis.step], ["stated_obligation", ARCHIVIST, "meet"], "the archivist, open now, states her meeting");
+	assert.match(ruth[0].label, /^The book puts Ruth Blake \(helpful_staff\) here for "The Globe archivist" once "Access to the Globe clippings" is settled: Ruth Blake is met next; /);
 });
 
 test("the approach binder: one available approach is bound, a stated minimum the actor misses rules one out, maximum leaves the skill to the kernel", async (t) => {

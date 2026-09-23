@@ -86,6 +86,11 @@ function guarded(reads: ObligationReads, row: Row): {words: string[]; detail: Js
   return {words, detail};
 }
 
+/** The name of the obligation an `after` row waits on, from the same issued list. */
+function afterName(reads: ObligationReads, row: Row): string {
+  const handle = text(object(row.trigger).after);
+  return handle ? text(array(object(reads.applyOptions).obligations).map(object).find(value => value.handle === handle)?.name) || handle : '';
+}
 const basisOf = (row: Row, index: number, step: 'meet' | 'check'): Json =>
   ({read: 'table.apply.options', path: `obligations[${index}]`, row: row as Json, obligation: text(row.handle), step});
 
@@ -97,10 +102,11 @@ function meeting(reads: ObligationReads, row: Row, index: number): Candidate | u
   // Only someone on the roster and not yet introduced: anyone else is the Keeper's to stage.
   if (at < 0 || text(object(present[at].called).name)) return undefined;
   const person = present[at], label = text(object(person.untold).label), role = text(person.role);
-  const {words, detail} = guarded(reads, row);
+  const {words, detail} = guarded(reads, row), after = afterName(reads, row);
+  const where = words.length ? `in the way of "${text(row.name)}": whoever is after ${listed(words, 'or')} meets ${name} first`
+    : after ? `for "${text(row.name)}" once "${after}" is settled: ${name} is met next` : `for "${text(row.name)}": ${name} is met first`;
   return {key: `apply:person:${name}`, verb: 'apply', family: 'person', source: 'table.apply.options',
-    label: `The book puts ${name}${role ? ` (${role})` : ''} here as the first step of "${text(row.name)}"${words.length ? `, before ${listed(words, 'and')}` : ''}; `
-      + `put them on stage${label ? ` as "${label}"` : ' under what this table calls them'}`,
+    label: `The book puts ${name}${role ? ` (${role})` : ''} here ${where}; put them on stage${label ? ` as "${label}"` : ' under what this table calls them'}`,
     bound: {kind: 'person', who: name, ...(label ? {name: label} : {})},
     unbound: [...(label ? [] : [{name: 'name', required: true, vocabulary: 'open' as const}]), {name: 'why', required: false, vocabulary: 'open' as const}],
     detail: {demand: text(row.name), stated_by: 'the module', ...(detail.length ? {guards: detail} : {})} as Json,
@@ -147,7 +153,7 @@ function check(reads: ObligationReads, row: Row, index: number, rawInput: string
   const how = approach ? listed(skills, 'or') : `the higher of ${listed(skills, 'and')}`;
   return {key: `resolve:obligation:${text(row.handle)}`, verb: 'resolve', family: 'obligation_check', source: 'table.apply.options',
     label: `The book's price of "${text(row.name)}": a ${text(next.difficulty)} ${how} check${target ? ` against ${target}` : ''}`
-      + `${words.length ? `, before ${listed(words, 'and')}` : ''}`,
+      + `${words.length ? ` before anyone gets ${listed(words, 'or')}` : ''}`,
     bound: {obligation: text(row.handle), ...(target ? {target} : {}), ...(actor ? {actor} : {}), ...(approach && skills.length === 1 ? {skill: skills[0]} : {}),
       goal: rawInput, method: rawInput},
     unbound,

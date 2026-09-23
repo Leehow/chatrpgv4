@@ -16993,10 +16993,10 @@ holds it; `buildCandidates` calls it. Nothing is read from `on_enter`, a module'
 
 - **An `open` obligation whose `next` is a `meet`** issues the *stated meeting*: the person candidate for that person,
   under the roster candidate's own key (`apply:person:<name>`), which it replaces — never a second candidate. Only a
-  person on the roster (`capsule.present`, not yet `called`) gets one. Its label says the book puts the person here as
-  the first step of the demand and what it guards ("The book puts Arty Wilmot (gatekeeper) here as the first step of
-  "Access to the Globe clippings", before clue globe-unpublished-story and clue macario-tragedy; …"); its `detail`
-  carries the demand and the guarded clues' summaries. Its name binds exactly as the roster's (§135.2): the table's
+  person on the roster (`capsule.present`, not yet `called`) gets one. Its label says the book puts the person in the
+  way of the demand and what it guards ("The book puts Arty Wilmot (gatekeeper) here in the way of "Access to the Globe
+  clippings": whoever is after clue globe-unpublished-story or clue macario-tragedy meets Arty Wilmot first; …"; an
+  `after` meeting says which demand it follows); its `detail` carries the demand and the guarded clues' summaries. Its name binds exactly as the roster's (§135.2): the table's
   own `untold.label`, else an open parameter only the LLM fills. The obligation does not supply a name.
 - **An `open` obligation whose `next` is a `check`** issues an `obligation_check` candidate, key
   `resolve:obligation:<handle>`, verb `resolve`, bound `{obligation: <handle>, target?, actor?}`. Its closed binder:
