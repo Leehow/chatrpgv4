@@ -17569,4 +17569,5 @@ decisions; a push continuing the rule; `sanity:check` with `action.rule`; `time`
 a stated hazard in the scene crossed by an unrelated `resolve` and `apply` that land exactly as without it; the offer
 ledger's `stated:` rows and `kpi.py`'s count. `tests/extension/stated-operations.test.mjs` covers the tool schema and
 the fake kernel. Every shipped starter's capsule, `table.apply.options`, `table.resolve.options`, module and scene
-lookups and `look focus=scene`, walked scene by scene, are byte-identical to the parent commit `172b80065`.
+lookups and `look focus=scene`, walked scene by scene, are byte-identical to the parent commit `172b80065`, and again after 0.9.5a
+(SL-08) was merged in, to `e1b4176d3`.
