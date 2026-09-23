@@ -1,3 +1,7 @@
+# 1.2.31
+
+- States where schema 2 subreviews live: inside `continuity_review`, beside `verdict`, `summary` and `conflicts`, never beside `continuity_review` itself. The sentence is the host's shared placement constant, so the package, the reviewer brief and the `submit_audit` description say it identically. It also states that `same_locus` and `transition` use basis `active_scene` with null `locus_source` and `claim_source`. On 1.2.30 (installed build 67a281c3e, 2026-09-23) every post-delivery review of a new table ended unavailable: the reviewer placed the subreviews at the top level, spent its one repair on that, and the nested resubmission still carried a non-null `locus_source` and a pass beside a missing object. The host now moves a top-level subreview into place instead of refusing it (contract §130.8).
+
 # 1.2.29
 
 - Makes every `speech_review.lines[]` row explain why the copied line is naturally clear or which grammatical relation is missing. The production prompt now also says retained delivered prose is continuity evidence rather than a style/voice authority. This follows the retained 1.2.28 false pass where the reviewer copied a line containing `这一床不睁` exactly and still marked it pass with no linguistic judgment.

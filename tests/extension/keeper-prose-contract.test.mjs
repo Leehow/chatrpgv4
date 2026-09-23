@@ -20,7 +20,7 @@ test('compressed context supplies facts but never the player-facing sentence pat
 test('the existing pre-delivery audit revises unintelligible prose without grading literary taste', async () => {
   const manifest = JSON.parse(await readFile(new URL('../../mods/narration-audit/mod.json', import.meta.url), 'utf8'));
   const auditor = await readFile(new URL('../../mods/narration-audit/auditor.md', import.meta.url), 'utf8');
-  assert.equal(manifest.version, '1.2.30');
+  assert.equal(manifest.version, '1.2.31');
   assert.equal(manifest.state_version, 1);
   assert.ok(manifest.requires.includes('audit.continuity.v2'));
   assert.ok(!manifest.requires.includes('audit.continuity.v1'));

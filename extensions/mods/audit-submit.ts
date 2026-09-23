@@ -3,7 +3,7 @@ import {readFileSync, writeFileSync, renameSync} from 'node:fs';
 import {join, basename} from 'node:path';
 import {Type} from 'typebox';
 import {continuityArtifactErrors, normalizeContinuityArtifact} from '../../kernel-ts/mods/audit-result.ts';
-import {auditReferenceIssues, buildAuditReferences, materializeAuditReferences} from '../../kernel-ts/mods/audit-references.ts';
+import {AUDIT_SUBREVIEW_PLACEMENT, auditReferenceIssues, buildAuditReferences, materializeAuditReferences} from '../../kernel-ts/mods/audit-references.ts';
 import {auditEvidenceView} from './audit-evidence.ts';
 
 export default function auditSubmit(pi: any) {
@@ -65,8 +65,8 @@ export default function auditSubmit(pi: any) {
         name: 'submit_audit', label: 'Submit continuity review', executionMode: 'sequential',
         description: 'Submit the review directly as result, or omit it to validate result.json. Successful validation ends this audit immediately. Invalid fields are returned together for one targeted repair; do not rewrite the Keeper candidate or recheck unrelated evidence.',
         parameters: Type.Object({result: Type.Optional(Type.Any({description: schema === 2
-            ? 'Schema 2 review object. Use only issued aliases for subject, claim_source, evidence_sources, source, claim_sources, scene sources and reentry evidence_source. Generated summary, reasons and fixes remain ordinary English.'
-            : 'Review object: {missing:[], findings:[], continuity_review:{verdict:"pass"|"revise"|"unavailable",summary:string,conflicts:[]}} plus the exact required intelligibility_review, player_address_review, candidate-dependent speech_review and conditional locus_review, outcome_review and reentry_review objects. Only material conflicts need {claim,reason,evidence:[{file,quote}]}. Pass needs empty issue lists.'}))}),
+            ? `Schema 2 review object. ${AUDIT_SUBREVIEW_PLACEMENT} Use only issued aliases for subject, claim_source, evidence_sources, source, claim_sources, scene sources and reentry evidence_source. Generated summary, reasons and fixes remain ordinary English. Pass needs empty issue lists.`
+            : 'Review object: {missing:[], findings:[], continuity_review:{verdict:"pass"|"revise"|"unavailable",summary:string,conflicts:[]}} with the exact required intelligibility_review, player_address_review, candidate-dependent speech_review and conditional locus_review, outcome_review and reentry_review objects nested inside continuity_review. Only material conflicts need {claim,reason,evidence:[{file,quote}]}. Pass needs empty issue lists.'}))}),
         async execute(_id: string, params: any) {
             let result: any, files: Record<string, any> = {};
             try {
