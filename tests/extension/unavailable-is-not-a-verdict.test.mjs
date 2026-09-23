@@ -206,7 +206,7 @@ test('a lane that keeps not answering reaches the operator once, and never the p
     assert.equal(statuses.length, 1, JSON.stringify(statuses));
     assert.equal(statuses[0].status, 'unreviewed');
     assert.equal(statuses[0].streak, 2);
-    assert.match(statuses[0].fix, /Lane model/);
+    assert.match(statuses[0].fix, /Fast model/);
     assert.equal(customMessages(session.session, 'coc-delivery').filter(message => message.details?.review_unavailable).length, 0,
         'the player’s turns arrived; a table that plays is not a notice');
 });

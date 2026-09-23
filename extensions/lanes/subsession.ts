@@ -13,9 +13,7 @@ import {boundProviderRequest, independentProviderBudget, type TaskProviderBudget
 import { parseJsonWithRepair } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { LANE_SETTINGS_FILE, laneChoiceOf } from "../../runtime/tasks.ts";
+import { LANE_THINKING_DEFAULT as FAST_THINKING_DEFAULT, readFastModelChoiceSync, resolveFastModel, resolveFastThinking, type FastModelSource } from "../../runtime/fast-model.ts";
 import { agentHomeOf } from "../ui/hints.ts";
 
 /**
@@ -37,19 +35,17 @@ export function parseModelRef(raw: string): { provider: string; id: string } | u
 	return { provider: trimmed.slice(0, slash), id: trimmed.slice(slash + 1) };
 }
 
-/**
- * The lane-model setting the host's panel writes (`ext.coc-keeper.laneModel`), read from the agent
- * home at the moment a lane runs, the same way the `mod` children read it (contract §37.10). Any
- * shape that is not a settings document is simply no choice.
- */
-function laneSetting(ctx: ExtensionContext): string | undefined {
-	try { return laneChoiceOf(JSON.parse(readFileSync(join(agentHomeOf(ctx.cwd), LANE_SETTINGS_FILE), "utf8"))).model; }
-	catch { return undefined; }
+/** The fast-model choice in this session's agent home; a context with no home to read is no choice. */
+function fastChoice(ctx: ExtensionContext | undefined) {
+	try { return ctx ? readFastModelChoiceSync(agentHomeOf(ctx.cwd)) : {}; }
+	catch { return {}; }
 }
 
 /**
- * The lane model (contract §12.5, §12.8, §109.3). Highest first: the environment variable the lane
- * is named by, then the host's lane-model setting, then the table's own model.
+ * The fast model (contract §37.10.1, §109.3). Highest first: the environment variable the lane is
+ * named by, then the host's fast-model setting (`ext.coc-keeper.laneModel`, read from the agent home
+ * at the moment the lane runs, through the one reader in `runtime/fast-model.ts`), then the table's
+ * own model.
  *
  * Until §109 the setting reached only the `mod` children; every zero-tool lane -- admission,
  * verifier, memory, journal, voice -- followed the table unless an operator set its variable by
@@ -58,25 +54,44 @@ function laneSetting(ctx: ExtensionContext): string | undefined {
  * across the week of 2026-09-11, against 2.4 s and 16 s on the fast model the setting could have
  * named. A named model runs as written or the lane says which part of the name is unavailable,
  * exactly as for the variable: a setting is an operator's choice too.
+ *
+ * `source` says which of the three it was, so a caller that hands the model on to a `mod` child can
+ * mark an operator's per-lane choice as pinned (`ReaderRequest.pinnedModel`).
  */
 export function resolveLaneModel(
 	ctx: ExtensionContext,
 	envName: string,
-): { ok: true; model: NonNullable<ExtensionContext["model"]> } | { ok: false; detail: string } {
+): { ok: true; model: NonNullable<ExtensionContext["model"]>; source: FastModelSource } | { ok: false; detail: string } {
 	const env = process.env[envName]?.trim();
-	const setting = env ? undefined : laneSetting(ctx);
-	const raw = env || setting;
+	const resolved = resolveFastModel({ override: env, choice: env ? {} : fastChoice(ctx) });
+	const raw = resolved.model;
 	if (!raw) {
 		const current = ctx.model;
 		if (!current) return { ok: false, detail: `${envName} is unset and the current session has no model` };
-		return { ok: true, model: current };
+		return { ok: true, model: current, source: "table" };
 	}
-	const named = env ? `${envName}=${raw}` : `the lane-model setting ${raw}`;
+	const named = env ? `${envName}=${raw}` : `the fast-model setting ${raw}`;
 	const ref = parseModelRef(raw);
 	if (!ref) return { ok: false, detail: `${named} is not provider/model` };
 	const found = ctx.modelRegistry.find(ref.provider, ref.id);
 	if (!found) return { ok: false, detail: `${named} is not in the model registry` };
-	return { ok: true, model: found };
+	return { ok: true, model: found, source: resolved.source };
+}
+
+/**
+ * The fast model and effort for a lane that runs as a tool-enabled child rather than a completion
+ * (`runtime.runTask`), as the `provider/model` string the child is launched with.
+ *
+ * Same precedence as `resolveLaneModel` -- the lane's variable, the fast-model setting, the table --
+ * but no registry lookup: the runtime refuses a child model it cannot run, by name, before launch
+ * (`ensureChildRunnableModel`). The effort is the setting's or the lane's own level, never the
+ * table's (§37.11). `table` is the Keeper's model label, or nothing when the session has none.
+ */
+export function fastLaneChoice(ctx: ExtensionContext | undefined, envName: string, table?: string): { model?: string; thinking: string; source: FastModelSource } {
+	const env = process.env[envName]?.trim();
+	const choice = fastChoice(ctx);
+	const resolved = resolveFastModel({ override: env, choice: env ? {} : choice, table });
+	return { ...resolved, thinking: resolveFastThinking({ choice }) };
 }
 
 export function modelLabel(model: { provider: string; id: string }): string {
@@ -144,7 +159,7 @@ const REQUEST_ID_HEADERS: readonly string[] = ["x-request-id", "request-id"];
 /**
  * The reasoning effort a lane round runs at, `PI_COC_LANE_THINKING`.
  *
- * The same value, for the same reason, as `LANE_THINKING_DEFAULT` in runtime/tasks.ts (contract
+ * The same value, for the same reason, as `LANE_THINKING_DEFAULT` in runtime/fast-model.ts (contract
  * §37.11): a lane has a fixed wall-clock budget its caller enforces, and the table's own effort is
  * a Keeper-quality choice with no relation to it, so a lane inherits neither the table's level nor
  * the provider's. `low` rather than `off` or `minimal` because it is the one level every authorized
@@ -154,7 +169,7 @@ const REQUEST_ID_HEADERS: readonly string[] = ["x-request-id", "request-id"];
  * Read per call: one process loads this file several times, and the operator may change it under a
  * running table.
  */
-const LANE_THINKING_DEFAULT: ThinkingLevel = "low";
+const LANE_THINKING_DEFAULT = FAST_THINKING_DEFAULT as ThinkingLevel;
 const LANE_THINKING_LEVELS: ReadonlySet<string> = new Set(["minimal", "low", "medium", "high", "xhigh", "max"]);
 
 export function laneThinkingLevel(): ThinkingLevel {

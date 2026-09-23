@@ -996,6 +996,12 @@ export function abandonmentStillCoversTheSilence(live: {
 export const TURN_WATCHDOG_TIMEOUT_MS = 120_000;
 export const TURN_WATCHDOG_CHECK_INTERVAL_MS = 30_000;
 const COC_WATCHDOG_RECOVERY_ENV = "PI_COC_WATCHDOG_RECOVERY";
+/**
+ * The effort a fast lane runs at when nobody has chosen one (contract §37.11): `LANE_THINKING_DEFAULT`
+ * in `runtime/fast-model.ts`, copied because this package does not import the runtime's sources;
+ * `tests/extension/fast-model-resolution.test.mjs` pins the two together.
+ */
+const COC_LANE_THINKING_DEFAULT = "low";
 function cocWatchdogRecoveryPath(sessionPath: string): string {
   return `${sessionPath}.coc-watchdog-recovery.json`;
 }
@@ -6145,7 +6151,7 @@ export class PiHostBackend implements HostBackend {
         await host.presentation({
           campaign: binding.campaign, revision, play_language: binding.play_language,
           ...(isRecord(data.labels) ? {labels: data.labels} : {}),
-          model: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel});
+          ...await this.cocFastLane(state)});
       } catch (error) {
         console.warn(`[pipicoc] draft card revision ${revision} never reached the table: ${error instanceof Error ? error.message : String(error)}`);
         return;
@@ -6195,7 +6201,7 @@ export class PiHostBackend implements HostBackend {
           this.cocOnboarding = host;
           const state = await this.getModelState(sessionId);
           await host.presentation({campaign: binding.campaign, play_language: binding.play_language, [lane]: true,
-            model: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel});
+            ...await this.cocFastLane(state)});
           this.cocLaneJobs.delete(key);
           landed = true;
         } catch {
@@ -9226,16 +9232,16 @@ export class PiHostBackend implements HostBackend {
    * absent semantic (the rulebook standard) survives only on the CLI setup path, which passes nothing.
    */
   /**
-   * The model the Keeper's background lanes run on. They followed the table's own model, and a slow
-   * one is paid by the player: one audit on record spent fifty of its fifty-eight seconds inside a
-   * single model turn, and nothing those lanes write ever reaches the table.
+   * The fast model: the one quick model every lane that has to be quick runs on (contract §37.10.1).
+   * The lanes followed the table's own model, and a slow one is paid by the player: one audit on
+   * record spent fifty of its fifty-eight seconds inside a single model turn, and nothing those lanes
+   * write is the Keeper's prose. The stored key keeps its pre-rename name so existing choices survive.
    *
-   * A live session no longer asks this: the lane reads the setting itself when it starts a child
-   * (`runtime/tasks.ts`), because a spawn environment freezes the choice for the life of the session
-   * and this one has to be changeable under a running table. What remains here is the host's own
-   * cold path -- the document-presentation lane it runs outside any session -- where reading the
-   * setting at call time is already live. An explicit environment variable still wins: that is the
-   * operator's override, and it is the only thing `PI_COC_MOD_MODEL` should ever mean.
+   * A live session does not ask this: its lanes read the setting themselves when they start
+   * (`runtime/fast-model.ts`), because a spawn environment freezes the choice for the life of the
+   * session and this one has to be changeable under a running table. What remains here is the host's
+   * own cold path -- the projections it runs outside any session -- where reading the setting at call
+   * time is already live.
    */
   private async cocLaneModel(): Promise<string | undefined> {
     const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
@@ -9244,18 +9250,34 @@ export class PiHostBackend implements HostBackend {
     return model || undefined;
   }
   /**
-   * The reasoning effort those same lanes run at. Choosing the lane's model without choosing its effort
-   * only half-separates it from the table: the lane still rode the Keeper's own chip, so a table set to
-   * `high` ran its continuity review at `high` too, and one such review spent its entire forty-second
-   * budget inside a first thinking stream it never finished — the turn was then refused and the player
-   * was shown nothing. Absent means the lane keeps following the table, which is the old behaviour.
-   * Like the model above, a live session reads this itself; this is the cold path's copy.
+   * The reasoning effort the fast model runs at. Choosing the lane's model without choosing its effort
+   * only half-separates it from the table: a table set to `high` ran its continuity review at `high`
+   * too, and one such review spent its entire forty-second budget inside a first thinking stream it
+   * never finished. Absent is the lane's own level (`COC_LANE_THINKING_DEFAULT`), never the table's
+   * (§37.11). Like the model above, a live session reads this itself; this is the cold path's copy.
    */
   private async cocLaneThinking(): Promise<string | undefined> {
     const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
     const value = values["ext.coc-keeper.laneThinking"];
     const level = isRecord(value) && typeof value.level === "string" ? value.level.trim() : "";
     return level || undefined;
+  }
+  /**
+   * The model and effort a lane this host starts itself runs on (contract §37.10.1): the operator's
+   * own override when the lane has one, then the fast-model setting, then the table's model; the
+   * effort is the override, then the setting, then the lane's own level -- never the table's (§37.11).
+   *
+   * These are the projections that put the table's words into the player's language (the character
+   * card, the sheet's lanes, a delivery's words) and a document's presentation. They used to run on
+   * the table's model and effort: a projection the player waits on, under a presentation deadline,
+   * riding the Keeper's `high`. Module preparation (`onboarding`) is not one of them -- it reads the
+   * book's page images and stays on the table's vision model.
+   */
+  private async cocFastLane(state: ModelState, override: {model?: string; thinking?: string} = {}): Promise<{model: string; thinking: string}> {
+    return {
+      model: override.model || await this.cocLaneModel() || `${state.model.provider}/${state.model.id}`,
+      thinking: override.thinking || await this.cocLaneThinking() || COC_LANE_THINKING_DEFAULT,
+    };
   }
   private async cocDifficultySetting(): Promise<Record<string, unknown> | undefined> {
     const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
@@ -9554,8 +9576,7 @@ export class PiHostBackend implements HostBackend {
           const state = await this.getModelState(sid);
           const host = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
           const reading = host.documentPresentationStatus({campaign:context.campaign,actor:data.actor,name:data.name,version:data.version,play_language:data.play_language,
-            model:this.env.PI_COC_MOD_MODEL?.trim() || await this.cocLaneModel() || `${state.model.provider}/${state.model.id}`,
-            thinking:this.env.PI_COC_MOD_THINKING?.trim() || await this.cocLaneThinking() || state.thinkingLevel});
+            ...await this.cocFastLane(state,{model:this.env.PI_COC_MOD_MODEL?.trim(),thinking:this.env.PI_COC_MOD_THINKING?.trim()})});
           data = reading.pending ? reading : {...data,display_name:reading.display_name,text:reading.text,original:reading.original};
         }
         if (method.startsWith("mods.document.") && data?.editor?.renderer === "paper") {
@@ -9621,8 +9642,8 @@ export class PiHostBackend implements HostBackend {
       if(method==='draft-presentation') {
         const repo=resolve(this.managedNodeModulesRoot,'..');
         this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:binding.home,agentDir:this.sharedProfileDir,env:this.env});
-        const state=await this.getModelState(sid);
-        try {return {ok:true,data:this.cocOnboarding.presentationStatus({campaign:binding.campaign,revision:Number(revision),play_language:binding.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})};}
+        const lane=await this.cocFastLane(await this.getModelState(sid));
+        try {return {ok:true,data:this.cocOnboarding.presentationStatus({campaign:binding.campaign,revision:Number(revision),play_language:binding.play_language,...lane})};}
         catch(error){return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error));}
       }
       try {return {ok:true,data:await readColdSheet(join(this.managedNodeModulesRoot,'..'),binding,Number(revision),this.env,this.cocRuntime)};}
@@ -9872,7 +9893,7 @@ export class PiHostBackend implements HostBackend {
                 if(!this.cocSheetPresentationJobs.has(key)) {
                   this.cocSheetPresentationJobs.set(key,{status:'pending'});
                   const refresh=()=>emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context.campaign}}});
-                  void this.getModelState(sessionId).then(state=>this.cocOnboarding!.presentation({campaign:context.campaign,revision,play_language:context.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})).then(()=>{
+                  void this.getModelState(sessionId).then(async state=>this.cocOnboarding!.presentation({campaign:context.campaign,revision,play_language:context.play_language,...await this.cocFastLane(state)})).then(()=>{
                     this.cocSheetPresentationJobs.delete(key);refresh();
                   },()=>{this.cocSheetPresentationJobs.set(key,{status:'failed'});refresh();});
                 }
@@ -9897,7 +9918,7 @@ export class PiHostBackend implements HostBackend {
                 const repo=resolve(this.managedNodeModulesRoot,'..');
                 this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
                 const state=await this.getModelState(sessionId);
-                const projection=await this.cocOnboarding.presentation({campaign:context.campaign,play_language:context.play_language,standing:true,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel});
+                const projection=await this.cocOnboarding.presentation({campaign:context.campaign,play_language:context.play_language,standing:true,...await this.cocFastLane(state)});
                 names=projection.texts;
               } catch { /* Keep readable card data; the next sheet read retries missing names. */ }
             }
@@ -10002,7 +10023,7 @@ export class PiHostBackend implements HostBackend {
             this.cocLaneJobs.set(key,{status:'pending'});
             this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
             const refresh=()=>emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context.campaign}}});
-            void this.getModelState(sessionId).then(state=>this.cocOnboarding!.presentation({campaign:context.campaign,play_language:context.play_language,[lane]:true,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})).then(()=>{
+            void this.getModelState(sessionId).then(async state=>this.cocOnboarding!.presentation({campaign:context.campaign,play_language:context.play_language,[lane]:true,...await this.cocFastLane(state)})).then(()=>{
               // The live reader answers from a held copy of these lanes, so a lane that
               // lands here must replace it too, or the next delivery draws the words this
               // run has just finished replacing.

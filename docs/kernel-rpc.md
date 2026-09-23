@@ -760,7 +760,7 @@ superseded, not alternative compatibility modes.
 - `committed`：本回合已提交的事实，每条一句 play_language，确定性地从收据与世界状态生成：第一句是玩家原文（`玩家声明：<原文>`，校验车道据此判断哪些自愿行为是玩家自己声明的）；每条 `roll` 一句（谁、什么检定、过没过）、`move` 一句、`clue` 一句、`delta` 一句（资源 前 → 后）、`session` 一句、`time` 一句，再加「地点：<display_name>」与「在场：<名字>」。
 - `keeper_only`：本场景尚未发现的线索（名字与摘要）、在场 NPC 的 `agenda` 与 `secret`、模组级秘密里与本场景相关的条目；总量 ≤ 2KB，超出按项裁剪。
 
-校验车道在 kernel 扩展内：交付完成后（`message_end` 替换之后）用 Pi SDK 起零工具内存会话，模型由 `PI_COC_VERIFIER_MODEL`（`provider/model`）指定，缺省与桌子同模型；输入是正文（`rendered_text`）、`facts.committed`、`facts.keeper_only`（三者都是系统语言英文，正文除外），要求只返回 JSON：
+校验车道在 kernel 扩展内：交付完成后（`message_end` 替换之后）用 Pi SDK 起零工具内存会话，模型由 `PI_COC_VERIFIER_MODEL`（`provider/model`）指定，缺省为快模型设置、再缺省与桌子同模型（§109.3、§37.10.1）；输入是正文（`rendered_text`）、`facts.committed`、`facts.keeper_only`（三者都是系统语言英文，正文除外），要求只返回 JSON：
 
 ```
 {"findings": [{"kind": "reveal"|"uncommitted_state"|"player_agency", "quote": "<正文里的原句，≤ 120 字>", "why": "<≤ 200 字>", "clue": "<揭示的是哪条未发现线索，只在 reveal 上，见 §51.3>"}]}
@@ -791,7 +791,7 @@ anchors amend the historical default below; current authority fields remain thos
 ### 12.8 扩展侧职责（切片 2）
 
 - kernel 扩展：`narrate` 成功后在总线上发 `coc:turn-committed {campaign, turn, commit, job_id, facts, rendered_text}`；交付替换完成后自己跑校验车道并 `table.warn`。车道出错只写遥测（`lane: verifier, ok: false`），不催守秘人，不阻塞。**§130（2026-09-22）**：连续性复核缺省同样改在交付之后跑，结论经 `table.warn`（`lane: "continuity-review"`）落到该回合记录并进下一回合胶囊。
-- memory 扩展（`extensions/memory`）：订阅 `coc:turn-committed`，`memory.job` → 零工具子会话（模型 `PI_COC_MEMORY_MODEL`，缺省与桌子同模型）→ `memory.submit`；失败一次重试，再失败 `memory.fail`。同一时刻只跑一个任务，后来的排队；进程退出时未完成的任务留给下次 `memory.job` 缺省派发。
+- memory 扩展（`extensions/memory`）：订阅 `coc:turn-committed`，`memory.job` → 零工具子会话（模型 `PI_COC_MEMORY_MODEL`，缺省为快模型设置、再缺省与桌子同模型，§37.10.1）→ `memory.submit`；失败一次重试，再失败 `memory.fail`。同一时刻只跑一个任务，后来的排队；进程退出时未完成的任务留给下次 `memory.job` 缺省派发。
 - 两条车道的 RPC（`memory.job`、`memory.submit`、`memory.fail`、`table.warn`）不带 `call_id`、不看回合状态；结果按 `turn` 落到对应回合记录，晚到也收。memory 扩展派任务时给显式 `turn`（刚提交的那一回合）；`memory.job` 的缺省派发只在重开进程后补漏时用。
 - 补抽（#20）：memory 扩展在 `session_start`（桥就位后）用 `memory.job` 的缺省派发补抽尚未完成任务且不在 backlog 里的回合，每次会话至多 `PI_COC_MEMORY_BACKFILL`（缺省 5）个，仍是一次一个、不阻塞回合、先让位给刚提交的回合；遥测行带 `backfill: true`；缺省派发回 `job_id: null` 时不写遥测行（那是常态，不是事件）。
 - 内核子进程一个会话只有一个（§1），memory 扩展没有自己的客户端：kernel 扩展在 `session_start` 于总线 `coc:kernel-bridge` 发布一个 `call(method, params)` 闭包，`session_shutdown` 时收回；memory 扩展只经它调内核。
@@ -1705,7 +1705,7 @@ An `apply npc` skill pin fills missing source material; it cannot contradict an 
 
 **提交** `journal.submit`，params `{"campaign", "job_id", "entries": [{"name", "description"?, "exchange"?, "label"?, "named"?: true}]}`（`label` 与 `named` 见 §103）。校验与 `memory.submit` 同一家：未知字段、机器键、`recordable` 之外的名字、同名歧义都报 `invalid_params`（`details.index` 指到那一条，`fix` 列出 `recordable`）；整批要么全落要么全不落；同任务同内容重放幂等，内容不同报 `idempotency_conflict`。合并是确定性的：新名字建条目（`first_seen_turn` = 任务回合）；`last_seen_turn` 推进、`seen_count` 每回合至多 +1；给了 `description` 就整段替换（车道自己决定何时改写，内核不比diff）；给了 `exchange` 就追加 `{"turn", "scene", "summary"}`。成功发 **`journal-written`** 事件（`{"job_id", "turn", "entries": n}`，§12.1 的枚举因此再加一类）。失败与 `journal.fail {"campaign", "job_id", "reason", "detail"}` 写 `npc-journal/backlog.jsonl`，形状与重派法则同 §12.3 的 backlog。任务文件 `npc-journal/jobs/<job_id>.json` 整文件原子写。
 
-**车道接线**（§12.8 同一家，**第四条零工具模型车道**——产出是 ≤ 6 条短 JSON，与记忆/校验/行动准入同构，2026-09-12 用户明文授权这一条，不推广）：`extensions/npc-journal` 订阅 `coc:turn-committed`，`journal.job`（显式 `turn`）→ `runLane` 零工具补全（模型 `PI_COC_NPCJOURNAL_MODEL`，缺省与桌子同模型；`subsession: "journal"` 的四行遥测照旧）→ `journal.submit`；失败一次重试，再失败 `journal.fail`。同一时刻只跑一个任务，后来的排队；`session_start` 补抽 ≤ `PI_COC_NPCJOURNAL_BACKFILL`（缺省 5）个回合；经 `coc:kernel-bridge` 调内核，不另开客户端；永不阻塞 `narrate`。提交成功后 announce 一次 sheet 刷新（与 ui-words 车道同一个 `sheet-changed` 通道），面板由此自己重读。
+**车道接线**（§12.8 同一家，**第四条零工具模型车道**——产出是 ≤ 6 条短 JSON，与记忆/校验/行动准入同构，2026-09-12 用户明文授权这一条，不推广）：`extensions/npc-journal` 订阅 `coc:turn-committed`，`journal.job`（显式 `turn`）→ `runLane` 零工具补全（模型 `PI_COC_NPCJOURNAL_MODEL`，缺省为快模型设置、再缺省与桌子同模型，§37.10.1；`subsession: "journal"` 的四行遥测照旧）→ `journal.submit`；失败一次重试，再失败 `journal.fail`。同一时刻只跑一个任务，后来的排队；`session_start` 补抽 ≤ `PI_COC_NPCJOURNAL_BACKFILL`（缺省 5）个回合；经 `coc:kernel-bridge` 调内核，不另开客户端；永不阻塞 `narrate`。提交成功后 announce 一次 sheet 刷新（与 ui-words 车道同一个 `sheet-changed` 通道），面板由此自己重读。
 
 **投影**（本节修订 §23 的 read-only sheet 形状）：`table.view` 加
 
@@ -7265,6 +7265,42 @@ name into a spawn environment again (`tests/extension/coc-lane-model.test.mjs`),
 does nothing at all while a stale variable is still there to win. §38.5's escalation text and the
 settings section's own line now say what the reader does — change it and send again — instead of
 asking for a restart the product no longer needs.
+
+#### 37.10.1 It is the fast model, and every lane that has to be quick runs on it (2026-09-23)
+
+**The product owner's ruling (2026-09-23), verbatim:** 「那就不要什么审查模型，就是快模型，然后所有需要快的都用这个快模型就行」— there is no "review model"; the setting is the **fast model**, and everything that has to be fast uses it.
+
+**What was wrong with the old name.** The panel was titled 审查模型 ("review model") with the subtitle 后台车道与审查, and its lead named two lanes: an item's parameters and the audit of an unpublished draft. By then §109.3 had already moved admission, the verifier, memory, the journal and voices onto the same setting, and other lanes that the player waits on -- the character-card and sheet projections, adaptations -- still rode the table's model and effort. A setting whose name describes a quarter of what it governs is read as governing only that quarter.
+
+**The setting.** Title *Fast model*, hint *Every lane that has to be quick*. The English source is `content/ui/en/lane-model.json`; the `zh-Hans` seed was produced by the presenter lane (§23), never written by hand: `onboarding-worker presentation {"ui":true}` over a scratch home whose agent files link read-only to the installed App's, on the App's own current fast-model setting (`opencode-go/deepseek-v4.1-flash`, effort `off`; the child's requests record `reasoning_effort: "low"`, the DeepSeek clamp of §37.11), with the three settings surfaces (`difficulty`, `hints`, `lane-model`) in one request and only `lane-model` harvested. The whole catalog (542 captions) in one request does not fit that model's output (`stopReason: "length"` on both rounds), which is why the request was the settings surfaces rather than everything -- see the note at the end. **"Follow the table" is unchanged**: the unchosen row makes every such lane run on the Keeper's own model. **The storage keys are unchanged** (`ext.coc-keeper.laneModel` / `ext.coc-keeper.laneThinking`), so every settings document already written keeps its choice.
+
+**The sidebar entry names itself.** Its label and hint used to be hand-written Chinese in two places -- the manifest's `settingsSections[].title` (审查模型) and the host's `SETTINGS_NAV_HINTS` table (后台车道与审查) -- which is exactly the per-language table §23 forbids. A controlled settings entry may now export `sectionCaptions(api)`; the host's loader asks it once after loading the entry (bounded by a short wait) and uses its `label`, `hint` and `description`, keeping the manifest's title when there is no answer. `pipicoc/settings-lane-model.js` answers from `section_title`, `section_hint` and `section_description` in the same `lane-model` surface as its body, so the entry follows the play language like every other caption; the manifest keeps an English fallback and the host's hint table no longer has a row for this section.
+
+**One reader.** `runtime/fast-model.ts` is the only reader of the setting: `fastModelChoiceOf` (a parsed document), `readFastModelChoice` / `readFastModelChoiceSync` (the agent home, at the moment of asking), `resolveFastModel` and `resolveFastThinking`. `runtime/tasks.ts` (the `mod` children), `extensions/lanes/subsession.ts` (`resolveLaneModel` for the zero-tool lanes, `fastLaneChoice` for a lane that runs as a tool-enabled child) and the kernel extension take it from there; the onboarding worker can import it the same way. The Electron host's cold path keeps reading the same keys through its own settings store (`cocLaneModel` / `cocLaneThinking`, which the panel writes) and resolves them in one helper, `cocFastLane`. Read at task time everywhere; nothing is written into a spawn environment (§37.10).
+
+**Precedence, for every lane below.** Model: the lane's own environment variable (the operator's override), then the fast-model setting, then the table's model. Effort, for a lane that is a child process: the operator's variable where one exists, then the setting, then `LANE_THINKING_DEFAULT` -- never the table's (§37.11). A zero-tool lane's effort stays `PI_COC_LANE_THINKING` → `low` (§109.3; the setting's `off` has no faithful meaning on a completion whose absent level is the provider's ceiling). A caller whose model is already an operator's per-lane override hands it to a `mod` child as `pinnedModel`, and the runtime then lets neither the setting nor the general `PI_COC_MOD_MODEL` outrank it: before this, `PI_COC_VOICE_MODEL` and `PI_COC_NPC_MODEL` were silently replaced by the setting the moment one existed, because a `mod` task re-resolved its model without knowing it had been chosen.
+
+| lane | operator override | before | after |
+| --- | --- | --- | --- |
+| Mod children: item parameters, continuity review, usage and its prefetch, source review | `PI_COC_MOD_MODEL` | env → setting → table (§37.10) | unchanged |
+| document presentation (in session: `mod` child; cold: host) | `PI_COC_MOD_MODEL` | env → setting → table; cold effort fell back to the table's | env → setting → table; effort env → setting → `low` |
+| UI words (in session: `mod` child; cold: the host's projection) | -- | setting → table in session; cold path passed no model | unchanged here; the onboarding worker's own default is a separate change |
+| map words | -- | ran setting → table, but its telemetry row named the table's model | same resolution; the row names the model that ran |
+| admission, verifier, memory, journal | `PI_COC_ADMISSION_MODEL`, `PI_COC_VERIFIER_MODEL`, `PI_COC_MEMORY_MODEL`, `PI_COC_NPCJOURNAL_MODEL` | env → setting → table (§109.3) | unchanged (contract text for the latter three no longer says "table") |
+| NPC voice (judge + tool-enabled writer) | `PI_COC_VOICE_MODEL` | judge env → setting → table; writer's env lost to the setting | both env → setting → table |
+| NPC personality/responses author | `PI_COC_NPC_MODEL` | env lost to the setting | env → setting → table |
+| adaptation creator and reviewer (§36.2) | `PI_COC_ADAPTATION_MODEL` | env → table, table's effort | env → setting → table; effort setting → `low` |
+| card, standing, possessions, languages, clues, journal, identity, rules and handout projections (host) | -- | table's model and effort | setting → table; effort setting → `low` |
+
+The voice lane's outage notice told the operator to set `PI_COC_NPCVOICE_MODEL`, a name nothing reads; it now names `PI_COC_VOICE_MODEL`. Operator `fix` texts (review outage, admission outage, lane outage) name the setting by its new title, *Fast model*, and say it is read the next time the lane runs.
+
+**Deliberately on their own axis.** *Module build and preparation* -- the section reader (`PI_COC_BUILD_MODEL`, §22 and the reader wiring above: "缺省与桌子同模型"), character guidance and the opening -- read the book's page images, require a vision model (`model_without_images` refuses otherwise) and produce the only authored truth the table has; they stay on the table's model. *The image model* and *rerank* have their own settings. *Jev* (speech attribution, prescreens) has its own API and credentials. *The `skills` row* is not a lane: it measures the Keeper's own run, so it is the Keeper's model by definition.
+
+**Three ends (§31).** *Writer:* the settings panel, through the host's extension-settings write. *Reader:* `runtime/fast-model.ts` at every lane start (and `cocFastLane` on the host's cold path). *Actor:* each lane above, whose telemetry row carries the `model` it ran on (`lane-call` rows, `mod-agent` rows from the child's own `--model`, `map-words`, `voice`, `adaptation`'s `run-model-N.json`), so a table can be audited from its own files.
+
+**Acceptance.** `tests/extension/fast-model-resolution.test.mjs`: for each re-pointed lane, with its variable unset and the setting present the request names the setting's model; with the variable set the variable wins (including over `PI_COC_MOD_MODEL` and the setting for a pinned `mod` child); with neither, the table's model; the host's effort default is pinned to the runtime's. `tests/extension/coc-lane-model.test.mjs`: the section's nav captions are authored keys and `sectionCaptions` answers from the surface. `Electron/packages/ui/src/settings-section-captions.test.ts` checks that an entry names its own nav label, hint and header line and that a failing answer keeps the manifest's title.
+
+**Left open.** The presenter lane projects every authored caption in one request; on the App's current fast model that request cannot be written in one message (`stopReason: "length"`, retained in the first scratch attempt). A shipped seed hides this for `zh-Hans`, but a new play language would fail its first projection on this model. That is the §23 lane's own shape, not this section's, and is recorded here so it is not rediscovered as a model fault.
 
 ### 37.11 The lane's reasoning effort has its own default, and never the table's (2026-09-14)
 

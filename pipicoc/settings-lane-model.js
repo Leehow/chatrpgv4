@@ -1,11 +1,14 @@
 /**
- * The COC Keeper extension's lane-model settings section.
+ * The COC Keeper extension's fast-model settings section (contract §37.10.1).
  *
- * The Keeper's background lanes -- the child that writes an item's parameters, and the one that
- * audits an unpublished draft -- followed whatever model the table was set to, and a slow one
- * costs the player the turn: one audit on record spent fifty of its fifty-eight seconds inside a
- * single model turn. `PI_COC_MOD_MODEL` could already redirect them, but an environment variable
- * is a setting nobody can see, so this is the same choice where the other model choices live.
+ * Product owner's ruling, 2026-09-23: this is not a "review model" -- it is the fast model, and
+ * everything that has to be fast uses it. One quick model for all of the Keeper's background work:
+ * an item's parameters, continuity reviews, journals, memory, the verifier, voices, the projected
+ * words of the interface and the cards, adaptations, and prefetched usages. Nothing those lanes write
+ * is the Keeper's prose, and a slow one costs the player the turn: one audit on record spent fifty of
+ * its fifty-eight seconds inside a single model turn. "Follow the table" is the unchosen row: every
+ * such lane then runs on the Keeper's own model, as before. The stored keys keep their pre-rename
+ * names (`ext.coc-keeper.laneModel` / `ext.coc-keeper.laneThinking`) so existing choices survive.
  *
  * Plain ESM with no imports, on purpose: the renderer imports this file as a module and calls
  * `createComponent(React)` with its own React instance, the same shape as settings-difficulty.js.
@@ -13,7 +16,9 @@
  * THE CHROME IS DATA TOO (contract §23). This file keeps no word table: the words arrive from the
  * host's `ui-words` answer (`ui.words['lane-model']`, read from content/ui/<tag>/lane-model.json),
  * and a key the surface lacks renders as the key, because an identifier is a visible gap and
- * another language's word is a silent one.
+ * another language's word is a silent one. The sidebar entry's own name comes from the same surface
+ * (`sectionCaptions`), so the settings list says "fast model" in the player's language rather than
+ * a caption written by hand into the manifest.
  */
 
 export const SETTINGS_EXTENSION = "coc-keeper";
@@ -31,7 +36,7 @@ export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhig
 
 /**
  * What the lanes run at when nothing is chosen here (contract §37.11). The runtime owns this value
- * (`LANE_THINKING_DEFAULT` in `runtime/tasks.ts`); the copy exists so the panel can show what the
+ * (`LANE_THINKING_DEFAULT` in `runtime/fast-model.ts`); the copy exists so the panel can show what the
  * unchosen row actually does, and `tests/extension/coc-lane-model.test.mjs` pins the two together.
  *
  * The unchosen row used to mean "follow the table", and that is the configuration that killed two
@@ -50,6 +55,22 @@ function word(ui, key) {
   return typeof value === "string" ? value : key;
 }
 
+/**
+ * The sidebar entry's name, hint and header line, from the same surface as the section's own words.
+ *
+ * The host's loader asks a settings section for these once it has loaded the entry; without an answer
+ * it keeps the manifest's English title. Nothing here names a language: the host answers `ui-words` in
+ * the table's default play language and a projected tag arrives the same way every other caption does.
+ */
+export async function sectionCaptions(api) {
+  if (!api || typeof api.invoke !== "function") return undefined;
+  const answer = await api.invoke("ui-words", {}).catch(() => undefined);
+  const ui = answer && answer.ok && answer.data ? answer.data.ui : undefined;
+  if (!ui) return undefined;
+  const t = (key) => word(ui, key);
+  return { label: t("section_title"), hint: t("section_hint"), description: t("section_description") };
+}
+
 /** `provider/id`, which is what the runtime hands the child; anything else is not a choice. */
 export function modelReference(setting) {
   return setting && typeof setting === "object" && typeof setting.model === "string" && setting.model.trim()
@@ -66,7 +87,7 @@ export function createComponent(React) {
   const h = React.createElement;
   const { useEffect, useRef, useState } = React;
 
-  return function LaneModelSection(props) {
+  return function FastModelSection(props) {
     const api = props.api ?? {};
     const host = props.ctx && props.ctx.host;
     const visibility = props.ctx && props.ctx.visibility;
