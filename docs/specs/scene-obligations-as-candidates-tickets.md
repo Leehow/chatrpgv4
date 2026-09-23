@@ -41,7 +41,7 @@ Depends on: nothing open (rulings Q2, Q3, Q7 recorded in the spec).
 
 ## SO-02 — Kernel issuance and settlement
 
-Status: ready-for-agent
+Status: ready-for-human (implemented 2026-09-23 on `claude/so02-kernel-obligations-20260923`; awaiting review and merge, see Comments)
 Depends on: SO-01 merged.
 
 **What.** `sceneObligations(graph, world, scene)` beside `whereSection` in `kernel-ts/read/` (spec D5): state (`open`/`blocked`/`settled`/`waived`), next step, guards, Keeper-only book lines, source. Seats: `table.apply.options.obligations` (complete, same `revision`/`world_revision`), `guarded_by` on guarded effect candidates, capsule `obligations[kind: "scene"]` within the existing 1 KB budget, the obligation's name appended to a guarded clue's gate in `clueGate`. `resolve` accepts `action.obligation` and settles through the ordinary check (spec D4): validation of openness, scene, step, approach, difficulty, presence; the flag in the same transaction; `obligation: {handle, settled, book?}` on the receipt/result; no consequence applied. A result that crosses an open guard carries `obligation_open` and the capsule's clerk list shows it as one line (ruling Q5); the kernel never refuses. Costs are never applied by the kernel on an obligation's behalf (ruling Q4). An obligation with `reaction: "preordained"` marks the Mod contact check for that pair as not clerk-settleable in the issued row (ruling Q2). The Mod-recipe identity rule (spec D9): an obligation check with the same recipe as an active Mod check for the same pair is served by the Mod's frozen result. Offer ledger: `obligation:<handle>`, taken when the flag is set. Tool description for `resolve` gains the optional field; the base Keeper prompt gains the one sentence in spec D6 (English).
@@ -95,3 +95,30 @@ Depends on: SO-04's replay meeting the Q6 line.
 **Acceptance.** SO-01's validator cases and goldens; the police and neighbourhood scenes' capsule and options rows; every other starter byte-identical; `test:ext` and pytest green.
 
 ## Comments
+
+### 2026-09-23 — SO-02 implemented (kernel issuance and settlement)
+
+Branch `claude/so02-kernel-obligations-20260923`, built on SO-01's `64f486601`. Contract §134.9–§134.15 written first
+(`2e7a44004`), then the kernel (`457433a0c`, `e86219534`), the tool field and the prompt sentence (`d7708a79c`), the
+tests (`5f28ac325`). `8a9340d0e` (test-only repair of the three `test_mods.py` failures, from 0.9.5a) is cherry-picked.
+
+- Where it lives: `sceneObligations`, `openGuards`, `clueGuards`, `capsuleRow` in `kernel-ts/read/obligations.ts`;
+  the options seat in `kernel-ts/runtime/apply-operation.ts`; the capsule rows in `kernel-ts/read/assemble.ts`; the
+  gate string in `clueGate` (`kernel-ts/read/director.ts`); the `resolve` binding in `kernel-ts/resolve/obligation.ts`
+  wired from `kernel-ts/resolve/index.ts`; crossing on `apply` in `kernel-ts/apply/index.ts`; the offer ledger in
+  `offerLedger` (`kernel-ts/write/text.ts`, fed the closing world from `kernel-ts/write/index.ts`).
+- Decisions the spec left open, recorded in §134: a meeting is met when the person sits in the scene and
+  `world.person_labels` holds them (what `apply person` writes; the loop prototype's "introduced"); an obligation made only
+  of meetings (the archivist) reads `settled` once they are met, with no flag written (nothing can claim it); a push or
+  Luck spend continues the claim of the check receipt it continues; `guarded_by` and the gate string hold for `open` and
+  `blocked` alike; `page` is the 1-based PDF page. The capsule's "clerk did" line for a crossing is SO-04's (the kernel
+  carries `obligation_open` on the receipt and the result).
+- Verified: the morgue sequence (`tests/kernel/test_scene_obligations.py`, 11 cases, seeded); the Mod-recipe identity and
+  preordained reaction over a derived content root (`tests/extension/scene-obligations.test.mjs`, 4 cases); 16 mutations
+  of the settlement, guards, state, claim, push, waiver, crossing, meeting, ledger, capsule, refusal and Mod identity, each
+  killed. `mystery-house`, `voice-bench` and `the-haunting-rulebook`: capsule, `table.apply.options` and
+  `table.resolve.options`, walked scene by scene, byte-identical to goldens recorded on `64f486601` (same content path);
+  the haunting differs only at the morgue. `npm run test:ext` 2606/2606; pytest `tests/kernel tests/play` 1622 passed,
+  1 skipped, 3 failed (the three `test_mods.py` cases, pre-existing), and after the cherry-pick `test_mods.py` 42/42.
+- Not verified: any live table (the SL-02/SL-05 gate) and the loop's consumption (SO-04).
+
