@@ -359,21 +359,21 @@ function overlayGraph(filled: Row | null, packet: Row, contract: ModuleContract,
     return new ModuleGraph(string(packet.module_id), { nodes: [...nodes.values()], claims: [...claims.values()], relations }, '', row(contract.graph.actor_dossier));
 }
 
-/** Contract §136.20: an actor's numbers outside `mechanics.profile` do not reach the rules engine. */
+/**
+ * Contract §136.20: an actor's numbers outside `mechanics.profile` do not reach the rules engine. The standalone
+ * dictionary refusal is §22's, unchanged in its bytes and now also on creatures; a loose characteristic number is
+ * refused with its path and rule.
+ */
 function actorNumbersLaw(props: Row, i: number, contract: ModuleContract): void {
-    const refuse = (path: string, message: string): never => {
-        throw new RpcError('invalid_params', message, {
-            fix: "move the actor's printed numbers into properties.mechanics.profile (characteristics, derived, skills) and delete the loose copy; do not recalculate them",
-            details: { reason: 'reading_failed', path, rule: 'profile_outside_seat' },
-        });
-    };
     if (['stats', 'skills', 'characteristics', 'derived'].some(key => object(props[key])) && !object(row(props.mechanics).profile))
-        refuse(`/nodes/${i}/properties`, 'put authored NPC numbers in properties.mechanics.profile (characteristics, derived, skills); a standalone stats dictionary does not reach the rules engine');
+        reject('put authored NPC numbers in properties.mechanics.profile (characteristics, derived, skills); a standalone stats dictionary does not reach the rules engine', `/nodes/${i}/properties`);
     const names = array(contract.rules?.characteristics).map(normalize);
     const flat = Object.keys(props).find(key => numeric(props[key]) && names.includes(normalize(key)));
     if (flat !== undefined)
-        refuse(`/nodes/${i}/properties/${flat.replace(/~/g, '~0').replace(/\//g, '~1')}`,
-            `the characteristic ${repr(flat)} is a number beside the stat block; put it in properties.mechanics.profile.characteristics, where the rules engine reads it`);
+        throw new RpcError('invalid_params', `the characteristic ${repr(flat)} is a number beside the stat block; put it in properties.mechanics.profile.characteristics, where the rules engine reads it`, {
+            fix: "move the actor's printed numbers into properties.mechanics.profile (characteristics, derived, skills) and delete the loose copy; do not recalculate them",
+            details: { reason: 'reading_failed', path: `/nodes/${i}/properties/${flat.replace(/~/g, '~0').replace(/\//g, '~1')}`, rule: 'profile_outside_seat' },
+        });
 }
 /** §136.20 step 1: a node stating a shape cites pages this reader viewed, refused with its path and rule before the generic law. */
 function mechanicsSourceLaw(node: Row, i: number, seen?: ReadonlySet<any>): void {

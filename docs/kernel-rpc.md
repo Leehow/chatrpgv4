@@ -17292,9 +17292,9 @@ digit, that it sits on the node that states it, each step's order and effects, a
    `mechanics.profile` is refused at `/nodes/<i>/properties` (the check that stood since §22, now also on
    creatures), and a flat property whose key is one of the ruleset's characteristic names (`contract.rules.characteristics`,
    the keys of `characteristic-dice.json`, normalised-name match) holding a number — the twin's `STR: 90` — is
-   refused at `/nodes/<i>/properties/<key>`, whether or not a profile is present. Both carry
-   `details.rule: "profile_outside_seat"` and a fix that says to move the printed numbers into
-   `mechanics.profile` without recalculating them.
+   refused at `/nodes/<i>/properties/<key>`, whether or not a profile is present. The dictionary refusal keeps
+   its bytes (no `rule`, the generic fix); the loose number carries `details.rule: "profile_outside_seat"` and a
+   fix that says to move the printed numbers into `mechanics.profile` without recalculating them.
 2. *The source law first, per node that states a shape* (`statesMechanics`: its record view carries
    `mechanics` or `combat`), before the generic reference law so the refusal carries its path and rule: no
    non-empty `source_refs` list is `mechanics_unsourced` at `/nodes/<i>/source_refs`; a reference to a physical
@@ -17358,4 +17358,9 @@ refusal does not refuse a draft. `tests/extension/fixtures/mechanics-reader-pare
 `172b80065` in a throwaway detached worktree, holds drafts without shapes (and one NPC profile of numbers) through
 `checkDraft` and the offline check: the branch returns the same bytes. Each rule is shown to go green when it is
 removed, the review paths dropped fails the required-review case, and `reviewUnits` ignoring shapes fails the
-units-match case (the mutation record is in the RD-05 report).
+units-match case (the mutation record is in the RD-05 report). `tests/kernel/test_mechanics_reader.py` publishes a
+stated hazard through `module.read.finish` on the emitted kernel only when every shape leaf is reviewed, and refuses
+a worded dice string and an unviewed citation there with their paths and rules. The frozen-oracle suite
+`tests/extension/ts-kernel-modules.test.mjs` now checks drafts with the contract `loadModuleContract` returns (the
+one publication loads; its hand-built contract carried no ruleset names) and asserts one post-freeze change without
+touching the oracle's bytes: a profile integer beyond the largest exact integer is `shape_prose`.

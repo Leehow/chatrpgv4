@@ -226,9 +226,8 @@ test('a flat STR: 90 on an NPC or a creature is refused at its path', () => {
     // A standalone stats dictionary on a creature, as on an NPC before.
     const dict = stated();
     dict.nodes[GHOUL].properties = {stats: {STR: 80}};
-    const refused = refusal(dict);
-    assert.equal(refused.rule, 'profile_outside_seat');
-    assert.equal(refused.path, `/nodes/${GHOUL}/properties`);
+    assert.throws(() => api.checkDraft(parsed(dict), structuredClone(packet), contract, SEEN),
+        error => error.code === 'invalid_params' && error.details.path === `/nodes/${GHOUL}/properties` && /standalone stats dictionary/.test(error.message));
 });
 
 test("a published node's own refusal does not refuse a draft that adds to it", () => {
