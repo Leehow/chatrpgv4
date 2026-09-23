@@ -108,23 +108,58 @@ test("boss only: nobody off the roster, no rule family without its session, no e
 	assert.deepEqual(candidates, [], "an introduced person, a map, a cash debit, damage, a gated move, and every non-ordinary rule family: none of them is the clerk's");
 });
 
-test("an NPC's pending defence is forced: several options are a Jev bind, one option runs directly, Jev's unknown goes to the LLM", async (t) => {
+test("SL-07: an NPC's pending defence carries the kernel's standing, so it is bound and runs directly -- never a decide, never an infer", async (t) => {
 	const { call } = kernel(t);
 	await fight(call);
 	const state = await reads(call);
-	assert.equal(state.resolveOptions.context.session.pending_defense.for, "npc");
+	const pending = state.resolveOptions.context.session.pending_defense;
+	assert.equal(pending.for, "npc");
+	assert.deepEqual(pending.options, ["dodge", "fight_back", "none"], "the options stay as issued");
+	assert.equal(pending.standing.basis, "rule-default");
+	assert.ok(pending.options.includes(pending.standing.defense));
 	const candidates = buildCandidates(state, "我揍他");
 	const defend = candidates.find((candidate) => candidate.forced);
 	assert.equal(defend.bound.decision, "combat:defend");
 	assert.equal(defend.bound.actor, "steven-knott");
-	assert.deepEqual(defend.unbound.map((value) => [value.name, value.vocabulary, value.options]), [["defense", "closed", ["dodge", "fight_back", "none"]]]);
+	assert.equal(defend.bound.defense, pending.standing.defense);
+	assert.deepEqual(defend.unbound, []);
+	assert.equal(bindingOf(defend), "none");
+	assert.equal(defend.clerk, "session_step");
+	// The clerk basis names the standing and its basis; the kernel row is the one it came from.
 	assert.equal(defend.basis.path, "context.session.pending_defense");
+	assert.deepEqual(defend.basis.standing, pending.standing);
 	assert.equal(candidates.filter((candidate) => candidate.family === "move").length, 0, "no scene move while the fight runs");
-	// Folded into a run, structure puts it first: no route question is asked for it.
+	// Folded into a run, structure puts it first and it is direct: no route question, no bind question, no LLM.
+	const view = initialView({ runId: "r", rawInput: "我揍他", context, candidates: [], readFirst: false });
+	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
+	assert.deepEqual([view.pending[0].kind, view.pending[0].purpose, view.pending[0].candidate.key], ["direct", "execute", defend.key]);
+	assert.equal(next(view).kind, "direct");
+	const { tool, args } = keeperCall(defend);
+	assert.equal(tool, "resolve");
+	assert.deepEqual({ ...args.action, goal: undefined, method: undefined },
+		{ intent: "combat", decision: "combat:defend", actor: "steven-knott", defense: pending.standing.defense, goal: undefined, method: undefined });
+	// A standing whose word the kernel did not issue is not trusted: the closed choice stays.
+	const odd = buildCandidates({ ...state, resolveOptions: { ...state.resolveOptions, context: { ...state.resolveOptions.context,
+		session: { ...state.resolveOptions.context.session, pending_defense: { ...pending, standing: { defense: "parry", basis: "keeper" } } } } } }, "我揍他");
+	assert.equal(bindingOf(odd.find((candidate) => candidate.forced)), "closed");
+});
+
+test("an NPC's pending defence without a standing keeps the closed choice: several options are a Jev bind, one runs directly, Jev's unknown goes to the LLM", async (t) => {
+	const { call } = kernel(t);
+	await fight(call);
+	const live = await reads(call);
+	// A kernel that predates §11.5.2 issues no standing.
+	const { standing: _standing, ...unstanding } = live.resolveOptions.context.session.pending_defense;
+	const state = { ...live, resolveOptions: { ...live.resolveOptions, context: { ...live.resolveOptions.context,
+		session: { ...live.resolveOptions.context.session, pending_defense: unstanding } } } };
+	const candidates = buildCandidates(state, "我揍他");
+	const defend = candidates.find((candidate) => candidate.forced);
+	assert.equal(defend.bound.decision, "combat:defend");
+	assert.deepEqual(defend.unbound.map((value) => [value.name, value.vocabulary, value.options]), [["defense", "closed", ["dodge", "fight_back", "none"]]]);
+	assert.equal(defend.basis.standing, undefined);
 	const view = initialView({ runId: "r", rawInput: "我揍他", context, candidates: [], readFirst: false });
 	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
 	assert.deepEqual([view.pending[0].kind, view.pending[0].purpose, view.pending[0].candidate.key], ["decide", "bind", defend.key]);
-	assert.equal(next(view).kind, "decide");
 	// The bind question carries each option's rule meaning and the fight as the kernel shows it.
 	const batch = bindBatch(view, defend, scope, []);
 	assert.match(batch.questions[0].criteria.fight_back, /Fighting/);
@@ -135,14 +170,32 @@ test("an NPC's pending defence is forced: several options are a Jev bind, one op
 	assert.deepEqual(interpretBind(defend, batch, answer("unknown"), 0.6).pending.map((item) => [item.kind, item.purpose]), [["infer", "bind"], ["direct", "llm_proposal"]]);
 	// One legal option: bound at build time, run directly.
 	const single = buildCandidates({ ...state, resolveOptions: { ...state.resolveOptions, context: { ...state.resolveOptions.context,
-		session: { ...state.resolveOptions.context.session, pending_defense: { ...state.resolveOptions.context.session.pending_defense, options: ["dodge"] } } } } }, "我揍他");
+		session: { ...state.resolveOptions.context.session, pending_defense: { ...unstanding, options: ["dodge"] } } } } }, "我揍他");
 	const one = single.find((candidate) => candidate.forced);
 	assert.equal(one.bound.defense, "dodge");
 	assert.equal(bindingOf(one), "none");
-	// The bound candidate is the Keeper's own verb: resolve with the kernel's parameters and nothing invented.
-	const { tool, args } = keeperCall(one);
-	assert.equal(tool, "resolve");
-	assert.deepEqual({ ...args.action, goal: undefined, method: undefined }, { intent: "combat", decision: "combat:defend", actor: "steven-knott", defense: "dodge", goal: undefined, method: undefined });
+});
+
+test("SL-07: a handout already handed over is never a candidate again -- by the world's handouts_shown, not by its words", async (t) => {
+	const { call } = kernel(t);
+	await call("table.open");
+	const opened = await call("table.player_input", { text: "我看看那封信" });
+	const before = await reads(call);
+	const handout = buildCandidates(before, "我看看那封信").find((candidate) => candidate.family === "handout");
+	assert.ok(handout, "the opening scene's handout is offered before it is shown");
+	const asset = before.capsule.where.assets.find((row) => row.kind === "handout" && row.name === handout.bound.name);
+	await call("table.apply", { call_id: `t${opened.turn}-c1`, effects: [{ kind: "handout", name: asset.name }] });
+	const after = await reads(call);
+	const [shown] = after.applyOptions.context.handouts_shown;
+	assert.ok(shown, "the kernel issues the handed-over handout as world state");
+	const again = buildCandidates(after, "我看看那封信");
+	assert.equal(again.filter((candidate) => candidate.family === "handout").length, 0, "the scene asset is not offered again");
+	// Located by the read under its handle, it is not offered either.
+	const located = buildCandidates({ ...after, located: [{ handle: shown, label: asset.name, kind: "handout" }] }, "我看看那封信");
+	assert.equal(located.filter((candidate) => candidate.family === "handout").length, 0, "nor as a located entity");
+	// The same row with its world state withheld would be offered: the state is what consumes it, not the name.
+	const unmarked = { ...after, capsule: { ...after.capsule, where: { ...after.capsule.where, assets: after.capsule.where.assets.map(({ shown: _s, ...row }) => row) } } };
+	assert.equal(buildCandidates(unmarked, "我看看那封信").filter((candidate) => candidate.family === "handout").length, 1);
 });
 
 test("an NPC's own turn is a closed bind over the actions the kernel issues it; the chosen action keeps its own parameters", async (t) => {

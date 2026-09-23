@@ -69,9 +69,10 @@ const DEFENSE_OPTIONS: Readonly<Record<string, string>> = Object.freeze({
  * consequences of the resolve that causes them, so they are never candidates. A sanity bout is a consequence
  * (boss only): it issues nothing here.
  *
- * Three shapes. An NPC's pending defence is forced (the kernel accepts nothing else next) and its option is a Jev
- * bind. An NPC's own turn is forced too -- the initiative order says it acts now -- and which of its issued actions
- * it takes is a closed Jev bind over those actions (`variants`); a Jev "unknown" hands the choice to the Keeper. The
+ * Three shapes. An NPC's pending defence is forced (the kernel accepts nothing else next) and its option is the
+ * standing defence the kernel issues with it (§11.5.2), so it runs directly; only a pending defence without a
+ * standing falls back to a Jev bind over the options. An NPC's own turn is forced too -- the initiative order says
+ * it acts now -- and which of its issued actions it takes is a closed Jev bind over those actions (`variants`); a Jev "unknown" hands the choice to the Keeper. The
  * investigator's turn offers each issued action to the route question, keyed without the round, so the action the
  * player declared is carried out once per turn.
  */
@@ -96,8 +97,12 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
     // The player's defence is a choice handed to the player with `ask`; the clerk binds it only when this input
     // answers a choice that was already open, never one that opened during this run.
     const answered = pending.for === 'player' && answering.length > 0 && answering.includes(text(pendingChoice.name));
+    // An NPC's standing defence (contract §11.5.2) is data the kernel issues: it binds the defence, so the step is
+    // direct -- no Jev question and no LLM. Without one (a kernel that predates it) the closed choice stays.
+    const standing = pending.for === 'npc' ? object(pending.standing) : {};
+    const stands = options.includes(text(standing.defense)) && ['authored', 'rule-default', 'keeper'].includes(text(standing.basis));
     if (actor && options.length && (pending.for === 'npc' || answered)) {
-      const defense = closedParameter('defense', options);
+      const defense = stands ? {bound: text(standing.defense) as Json} as {bound?: Json; unbound?: Unbound} : closedParameter('defense', options);
       if (defense.unbound) defense.unbound.descriptions = Object.fromEntries(options.map(option => [option, DEFENSE_OPTIONS[option] ?? option]));
       out.push({key: `resolve:combat:defend:${actor}:${attacker}:r${round}`, verb: 'resolve', family: 'combat', source: 'table.resolve.options',
         label: `${label(actor)} defends against ${label(attacker)}'s attack`,
@@ -106,7 +111,8 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
           // The player's answer settles the choice it answers (kernel `bindChoice`: the pending name or its binds).
           ...(answered ? {choice: {pending: text(pendingChoice.name)}} : {})},
         unbound: defense.unbound ? [defense.unbound] : [], detail: situation,
-        clerk: 'session_step', forced: true, basis: {read: 'table.resolve.options', path: 'context.session.pending_defense', row: pending as Json}});
+        clerk: 'session_step', forced: true, basis: {read: 'table.resolve.options', path: 'context.session.pending_defense', row: pending as Json,
+          ...(stands ? {standing: {defense: text(standing.defense), basis: text(standing.basis)}} : {})}});
     }
     return out;
   }
@@ -217,8 +223,10 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
       detail: {...(description.gate !== undefined && description.gate !== null ? {gate: description.gate} : {}), ...(text(description.delivery_kind) ? {delivery_kind: text(description.delivery_kind)} : {})} as Json,
       clerk: 'declared_bookkeeping', basis});
   }
-  // Handout assets the current scene carries.
-  for (const [index, asset] of array(where.assets).map(object).entries()) if (asset.kind === 'handout' && text(asset.name))
+  // Handout assets the current scene carries, less the ones already handed over: consumed by world state (the
+  // kernel's `shown`, from `handouts_shown`), never by their words.
+  const shown = new Set(strings(object(object(reads.applyOptions).context).handouts_shown));
+  for (const [index, asset] of array(where.assets).map(object).entries()) if (asset.kind === 'handout' && text(asset.name) && asset.shown !== true)
     push({key: `apply:handout:${text(asset.name)}`, verb: 'apply', family: 'handout', source: 'capsule.where.assets',
       label: `Show the player handout "${text(asset.name)}"`, bound: {kind: 'handout', name: text(asset.name)},
       unbound: [{name: 'label', required: false, vocabulary: 'open'}], clerk: 'declared_bookkeeping',
@@ -268,7 +276,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     if (entity.kind === 'clue') push({key: `apply:clue:${entity.handle}`, verb: 'apply', family: 'clue', source: 'semantic-locate+workspace.read',
       label: `Reveal clue ${entity.handle}: ${entity.label}`, bound: {kind: 'clue', clue: entity.handle},
       unbound: [{name: 'how', required: false, vocabulary: 'open'}, {name: 'label', required: false, vocabulary: 'open'}], clerk: 'declared_bookkeeping', basis});
-    else if (entity.kind === 'handout') push({key: `apply:handout:${entity.label}`, verb: 'apply', family: 'handout', source: 'semantic-locate+workspace.read',
+    else if (entity.kind === 'handout' && !shown.has(entity.handle)) push({key: `apply:handout:${entity.label}`, verb: 'apply', family: 'handout', source: 'semantic-locate+workspace.read',
       label: `Show the player handout "${entity.label}"`, bound: {kind: 'handout', name: entity.label},
       unbound: [{name: 'label', required: false, vocabulary: 'open'}], clerk: 'declared_bookkeeping', basis});
   }
