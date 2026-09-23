@@ -24,9 +24,16 @@ import type { DomainEvent, TurnTransaction } from '../transactions.js';
 import { ORDINARY } from './bindings.js';
 
 const NONE_INTENTS = new Set(['idle', 'meta', 'stuck', 'ambiguous']);
-const refuse = (code: ErrorCode, reason: string, message: string, extra: { fix?: string; details?: Row } = {}): never => {
-    throw new RpcError(code, message, { ...(extra.fix ? { fix: extra.fix } : {}), details: { field: 'action.obligation', reason, ...extra.details } });
+/** Who claims the roll: the action field it came in and the prefix of its refusal reasons (§134.11, §136.20). */
+export interface CheckOwner {
+    readonly field: string;
+    readonly prefix: string;
+    readonly handle: string;
+}
+const refuseFor = (field: string) => (code: ErrorCode, reason: string, message: string, extra: { fix?: string; details?: Row } = {}): never => {
+    throw new RpcError(code, message, { ...(extra.fix ? { fix: extra.fix } : {}), details: { field, reason, ...extra.details } });
 };
+const refuse = refuseFor('action.obligation');
 
 /** A bound claim: which obligation, its node, and (for a fresh check) the step it rolls. */
 export interface ObligationClaim {
@@ -77,29 +84,47 @@ export async function bindObligation(input: {
     if (action.decision != null && !(served ? [served.check.name] : ordinary).includes(string(action.decision)))
         refuse('invalid_params', 'obligation_decision', `${handle} settles through ${served ? served.check.name : 'the ordinary check'}, not ${repr(action.decision)}`, {
             fix: 'leave action.decision out; the kernel binds the check the obligation states' });
+    const owner: CheckOwner = { field: 'action.obligation', prefix: 'obligation', handle };
+    const bound = await bindCheckStep({ tables, graph, world, transaction, action, intent, check, owner, scene: scene!, served: !!served });
+    bound.decision = served ? served.check.name : 'core-check:ordinary-check';
+    return { claim: { handle, node: node!, step: check }, action: bound };
+}
+
+/**
+ * The binding a stated check step makes of the Keeper's action, shared by an obligation's check (§134.11) and a
+ * rule's (§136.20): the step's target present in the scene (a different one named is refused), the stated
+ * difficulty (the Keeper's own when it is unstated), and the skill -- the named approach for `approach`, the
+ * actor's highest value among the approaches meeting their minimums for `maximum` (ties to the first declared, the
+ * Mod path's own rule). A step a Mod check serves (§134.13) binds its target and difficulty only. Reasons are
+ * `<prefix>_target`, `<prefix>_difficulty`, `<prefix>_skill`, `<prefix>_minimum`.
+ */
+export async function bindCheckStep(input: {
+    tables: RuleTables; graph: ModuleGraph; world: Row; transaction: TurnTransaction; action: Row; intent: string;
+    check: Row; owner: CheckOwner; scene: Row; served?: boolean;
+}): Promise<Row> {
+    const { tables, graph, world, transaction, action, intent, check, owner, scene } = input, handle = owner.handle;
+    const deny = refuseFor(owner.field), reason = (name: string) => `${owner.prefix}_${name}`;
     // The target: the step's person, present in the active scene; a different one named is refused.
     let target: Row | null = null;
     if (typeof check.target === 'string' && graph.nodes.has(check.target)) {
         target = graph.nodes.get(check.target)!;
-        if (row(world.npc_presence)[graph.handle(target)] !== graph.handle(scene!))
-            refuse('not_here', 'obligation_target', `${graph.displayName(target)} is not in this scene, so ${handle} has no one to roll against`, {
-                fix: `apply {kind: "npc", name: ${repr(graph.displayName(target))}, to: "here"} first, or leave action.obligation out` });
-        if (typeof action.target === 'string' && action.target.trim() && graph.find(action.target, ['npc'])?.node_id !== target.node_id)
-            refuse('invalid_params', 'obligation_target', `${handle} is a check against ${graph.displayName(target)}, not ${repr(action.target)}`, {
-                fix: 'leave action.target out or name the person the obligation states' });
+        if (row(world.npc_presence)[graph.handle(target)] !== graph.handle(scene))
+            deny('not_here', reason('target'), `${graph.displayName(target)} is not in this scene, so ${handle} has no one to roll against`, {
+                fix: `apply {kind: "npc", name: ${repr(graph.displayName(target))}, to: "here"} first, or leave ${owner.field} out` });
+        if (typeof action.target === 'string' && action.target.trim() && graph.actor(action.target)?.node_id !== target.node_id)
+            deny('invalid_params', reason('target'), `${handle} is a check against ${graph.displayName(target)}, not ${repr(action.target)}`, {
+                fix: `leave action.target out or name the person the ${owner.prefix} states` });
     }
     const stated = check.difficulty_unstated === true ? null : string(check.difficulty);
     const declared = row(action.modifiers).difficulty;
     if (stated && declared != null && declared !== stated)
-        refuse('invalid_params', 'obligation_difficulty', `${handle} states a ${stated} check, not ${repr(declared)}`, {
+        deny('invalid_params', reason('difficulty'), `${handle} states a ${stated} check, not ${repr(declared)}`, {
             fix: `leave modifiers.difficulty out or say ${stated}; bonus and penalty dice are still yours` });
     const bound: Row = { ...action, ...(target ? { target: graph.displayName(target) } : {}) };
-    if (served) {
-        bound.decision = served.check.name;
+    if (input.served) {
         delete bound.skill;
-        return { claim: { handle, node: node!, step: check }, action: bound };
+        return bound;
     }
-    bound.decision = 'core-check:ordinary-check';
     if (check.approaches_unstated !== true) {
         const party = await transaction.campaign.party() as Row[], sheet = selectActor(party, action.actor);
         const resolver = await SkillResolver.create(tables, sheet);
@@ -111,16 +136,16 @@ export async function bindObligation(input: {
         let chosen: { name: string; minimum: number | null } | undefined;
         if (check.selection === 'approach') {
             if (typeof action.skill !== 'string' || !action.skill.trim())
-                refuse('needs', 'obligation_skill', `${handle} is won by one of ${approaches.map(value => value.name).join(', ')}; say which one the investigator takes`, {
+                deny('needs', reason('skill'), `${handle} is won by one of ${approaches.map(value => value.name).join(', ')}; say which one the investigator takes`, {
                     fix: 'set action.skill to one of details.needs.options', details: { needs: { field: 'skill', options: approaches.map(value => value.name) } } });
             const named = resolver.resolveExplicit(action.skill) ?? action.skill;
             chosen = approaches.find(value => normalize(value.name) === normalize(named));
             if (!chosen)
-                refuse('invalid_params', 'obligation_skill', `${repr(action.skill)} is not one of the approaches ${handle} allows`, {
-                    fix: `take one of ${approaches.map(value => value.name).join(', ')}, or leave action.obligation out to improvise another way`,
+                deny('invalid_params', reason('skill'), `${repr(action.skill)} is not one of the approaches ${handle} allows`, {
+                    fix: `take one of ${approaches.map(value => value.name).join(', ')}, or leave ${owner.field} out to improvise another way`,
                     details: { options: approaches.map(value => value.name) } });
             if (chosen!.minimum != null && rating(chosen!.name) < chosen!.minimum)
-                refuse('invalid_params', 'obligation_minimum', `${chosen!.name} ${rating(chosen!.name)} is below the ${chosen!.minimum} ${handle} states`, {
+                deny('invalid_params', reason('minimum'), `${chosen!.name} ${rating(chosen!.name)} is below the ${chosen!.minimum} ${handle} states`, {
                     fix: 'take another approach', details: { skill: chosen!.name, minimum: chosen!.minimum } });
         }
         else {
@@ -129,7 +154,7 @@ export async function bindObligation(input: {
                 if (!chosen || rating(value.name) > rating(chosen.name))
                     chosen = value;
             if (!chosen)
-                refuse('invalid_params', 'obligation_minimum', `no approach of ${handle} meets its stated minimum`, { fix: 'leave action.obligation out to improvise another way' });
+                deny('invalid_params', reason('minimum'), `no approach of ${handle} meets its stated minimum`, { fix: `leave ${owner.field} out to improvise another way` });
         }
         bound.skill = chosen!.name;
     }
@@ -140,7 +165,7 @@ export async function bindObligation(input: {
             modifiers.reason = 'stated by the module';
         bound.modifiers = modifiers;
     }
-    return { claim: { handle, node: node!, step: check }, action: bound };
+    return bound;
 }
 
 /**

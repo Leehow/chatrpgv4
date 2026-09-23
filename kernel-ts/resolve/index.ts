@@ -23,6 +23,7 @@ import type {ModResolveInput,ModResolveResult} from '../mods/resolve.js';
 import type {FixedFamilies} from './families.js';
 import {trackResolveReceipts} from '../runtime/receipt-advance.js';
 import { bindObligation, continuedClaim, crossedByTarget, settleClaim, type ObligationClaim } from './obligation.js';
+import { bindRule, continuedRule, settleRule, type RuleClaim } from './rule.js';
 import { latestCheckReceipt as latestCheck } from './context.js';
 export { CheckArithmetic, rollExpression, resourceDelta } from './arithmetic.js';
 export { SettleContext, continuableCheck, latestCheckReceipt, recordSkillTicks, skillTickEligible } from './context.js';
@@ -215,6 +216,19 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             // Contract §134.11: a claimed obligation is validated and bound before anything reads the action;
             // the stored call parameters stay the Keeper's own.
             let claim: ObligationClaim | null = null;
+            // Contract §136.20: a named stated rule is bound the same way, through the same check binder. The
+            // opposed binding travels on a host-only key the Keeper's own action never carries.
+            let ruleClaim: RuleClaim | null = null;
+            if (action.step != null && action.rule == null)
+                throw new RpcError('invalid_params', 'action.step names a step of the hazard action.rule names', {
+                    fix: 'name the hazard in action.rule too, or leave action.step out', details: { field: 'action.step', reason: 'rule_step' } });
+            if (action.rule != null) {
+                ({ claim: ruleClaim, action } = await bindRule({ tables, graph, world: transaction.world, transaction, action, intent }));
+            }
+            else if (Object.hasOwn(action, '_stated_opposing')) {
+                action = { ...action };
+                delete action._stated_opposing;
+            }
             if (action.obligation != null) {
                 ({ claim, action } = await bindObligation({ kernel, tables, graph, world: transaction.world, transaction, action, intent }));
             }
@@ -322,7 +336,9 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             // §134.11: a push or a Luck spend continues the claim of the check receipt it continues, and only that.
             if (truth(action.push) || action.luck != null) {
                 const source = latestCheck(context);
-                claim = continuedClaim(graph, claim, source ? [...context.allReceipts()].find(receipt => receipt.id === source[0]) ?? null : null);
+                const sourceReceipt = source ? [...context.allReceipts()].find(receipt => receipt.id === source[0]) ?? null : null;
+                claim = continuedClaim(graph, claim, sourceReceipt);
+                ruleClaim = continuedRule(graph, ruleClaim, sourceReceipt);
             }
             const pipeline = new ResolvePipeline(context, resolver, rollModifiers, actor.npcInSession, contributions);
             const settled = await pipeline.run(beforeExecute);
@@ -330,6 +346,9 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                 return noneResult(settled.note);
             const level = row(settled.outcome).level, pushed = truth(row(settled.outcome).pushed) || truth(action.push);
             const { result, events } = resolveResult(context, settled);
+            // §136.21: what the level reached states, bound and handed back; nothing of it is applied.
+            if (ruleClaim)
+                settleRule({ graph, claim: ruleClaim, outcome: row(settled.outcome), receipts: context.receipts, result, pushed, pushable: level === 'failure' && !pushed && action.luck == null });
             if (claim) {
                 const flagged = await settleClaim({ graph, transaction, claim, level, receipts: context.receipts, result, pushable: level === 'failure' && !pushed && action.luck == null });
                 if (flagged)

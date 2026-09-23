@@ -515,6 +515,14 @@ export class ModuleGraph {
     }
     /** The scene's assets; a handout already handed over says so (`shown`, from the world's `handouts_shown`; §135.2). */
     sceneAssets(scene: Row, shown: readonly unknown[] = []): Row[] {
+        return this.sceneAssetNodes(scene).map(node => ({
+            name: this.displayName(node),
+            kind: node.node_kind,
+            ...(node.node_kind === "handout" && shown.includes(this.handle(node)) ? { shown: true } : {})
+        }));
+    }
+    /** The nodes behind `sceneAssets`: what the scene, or the place it occurs at, depicts or holds (never a clue). */
+    sceneAssetNodes(scene: Row): Row[] {
         const links = [...(this.incoming.get(scene.node_id) ?? [])],
             seen = new Set<string>(),
             result: Row[] = [];
@@ -526,11 +534,7 @@ export class ModuleGraph {
             if (!["depicts", "discoverable-at", "located-in"].includes(rel.relation_kind) || !node || node.node_kind === "clue" || seen.has(node.node_id))
                 continue;
             seen.add(node.node_id);
-            result.push({
-                name: this.displayName(node),
-                kind: node.node_kind,
-                ...(node.node_kind === "handout" && shown.includes(this.handle(node)) ? { shown: true } : {})
-            });
+            result.push(node);
         }
         return result;
     }
