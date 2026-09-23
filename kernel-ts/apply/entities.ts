@@ -14,6 +14,7 @@ import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
 import {archetypeIds,rollArchetypeProfile} from './archetype.js';
 import {VALID_CONDITIONS} from '../combat/engine.js';
+import {DEFENSE_WORDS} from '../combat/standing.js';
 import {incapacitatedBy} from '../healing/conditions.js';
 import {npcProfileOf} from '../resolve/context.js';
 import type {ApplyContext} from './index.js';
@@ -94,7 +95,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     const {node,established}=personOfEffect(context,effect,string(required(effect,'name')),why);
     const handle=graph.handle(node),{to,stance,dead}=effect;
     if(effect.reunion!=null){
-        if(['to','stance','dead','skill','archetype','conditions'].some(key=>effect[key]!=null))
+        if(['to','stance','dead','skill','archetype','conditions','defense'].some(key=>effect[key]!=null))
             throw new RpcError('invalid_params','Reunion continuity is separate from mechanical or positional NPC effects');
         const meta=await context.campaign.readCampaign(),worldline=string(meta.active_worldline||'main');
         const scope={worldline,loop:number(row(row(meta.worldlines)[worldline]).loop)};
@@ -103,6 +104,18 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         return {receipt:{id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,
             name:graph.displayName(node),reunion,why,visibility:'keeper',at:nowIso()},
             event:reunion.reused?null:{type:'npc-changed',data:{npc:handle,reunion}}};
+    }
+    // §11.5.2: the Keeper's override of this person's standing defence. Its own variant, like conditions: one
+    // closed word and the reason, an ordinary keeper-side receipt, and the world key the session view reads.
+    if(effect.defense!=null){
+        const combined=['to','stance','dead','skill','archetype','conditions'].filter(key=>effect[key]!=null);
+        if(combined.length)throw new RpcError('invalid_params','npc.defense is its own state-changing effect',{fix:'put the standing defence and the other npc change in two effects in the same atomic batch',details:{field:'npc.defense',conflicts:combined}});
+        if(typeof effect.defense!=='string'||!DEFENSE_WORDS.includes(effect.defense))unsupported('npc.defense',effect.defense,[...DEFENSE_WORDS],`npc.defense ${repr(effect.defense)} is not a defence`);
+        if(!why)throw new RpcError('invalid_params','npc.defense needs a why',{fix:'say in one sentence what in the fiction changed how this person defends',details:{field:'npc.why'}});
+        const tactics=world.npc_defense??={},previous=typeof row(tactics[handle]).defense==='string'?row(tactics[handle]).defense:null;
+        tactics[handle]={defense:effect.defense,why,turn:number(context.turn.turn)};
+        const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),defense:effect.defense,previous,...(established?{established:'table'}:{}),why,visibility:'keeper',at:nowIso()};
+        return {receipt,event:{type:'npc-changed',data:{npc:handle,defense:effect.defense,why}}};
     }
     if(effect.conditions!=null){
         const combined=['to','stance','dead','skill','archetype'].filter(key=>effect[key]!=null);

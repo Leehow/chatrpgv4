@@ -3,6 +3,7 @@ import { ModuleGraph, recordOf } from "./module-graph.js";
 import { CampaignSnapshot } from "./campaign.js";
 import { entries, array, row, number, truth, string, integer, type Row } from "./values.js";
 import { OUT_OF_FIGHT_CONDITIONS } from "../healing/conditions.js";
+import { standingDefense, type Standing } from "../combat/standing.js";
 export const active = (snapshot: Row | null): boolean => snapshot?.status === "active";
 export const boutActive = (snapshot: Row | null): boolean => truth(snapshot?.bout_active);
 export function defenseOptions(pending: Row): string[] {
@@ -85,11 +86,23 @@ export class SessionView {
         });
         return actions;
     }
+    /**
+     * The standing defence of an NPC defender against the pending attack (contract §11.5.2): the Keeper's override,
+     * else the authored tactic, else the rules default from the snapshot's own numbers for that defender.
+     */
+    npcStanding(snapshot: Row, pending: Row): Standing | null {
+        const defender = string(pending.target_actor_id);
+        if (this.isInvestigator(defender))
+            return null;
+        const participant = row(array(snapshot.participants).find(p => string(p.actor_id) === defender));
+        return standingDefense(this.graph, this.world, defender, participant, defenseOptions(pending), pending.resolution_hint === "firearm_attack");
+    }
     combatView(snapshot = this.combat): Row | null {
         if (!snapshot)
             return null;
         const pending = snapshot.pending_attack,
-            defender = string(row(pending).target_actor_id);
+            defender = string(row(pending).target_actor_id),
+            standing = pending && typeof pending === "object" ? this.npcStanding(snapshot, pending) : null;
         return {
             kind: "combat",
             status: active(snapshot) ? "active" : "ended",
@@ -100,7 +113,8 @@ export class SessionView {
                 for: this.isInvestigator(defender) ? "player" : "npc",
                 actor: defender,
                 attacker: string(pending.actor_id),
-                options: defenseOptions(pending)
+                options: defenseOptions(pending),
+                ...(standing ? { standing } : {})
             } : null,
             participants: array(snapshot.participants).map(p => ({
                 name: string(p.actor_id),

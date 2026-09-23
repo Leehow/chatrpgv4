@@ -58,7 +58,9 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
         session = attack["session"]
         assert session["kind"] == "combat" and session["status"] == "active" and session["round"] == 1
         assert session["turn_of"] == INVESTIGATOR
-        assert session["pending_defense"] == {"for": "npc", "actor": CORBITT, "attacker": INVESTIGATOR, "options": ["dodge", "none"]}
+        # §11.5.2: an NPC defender's standing -- Fighting 50 >= Dodge 17 says fight back, which a firearm reads as dodge.
+        assert session["pending_defense"] == {"for": "npc", "actor": CORBITT, "attacker": INVESTIGATOR, "options": ["dodge", "none"],
+                                              "standing": {"defense": "dodge", "basis": "rule-default"}}
         assert [p["name"] for p in session["participants"]] == [INVESTIGATOR, CORBITT]
         corbitt = session["participants"][1]
         assert corbitt["hp"] == 16 and corbitt["armor"] >= 2  # Flesh Ward (2D6) from the scene's authored operation

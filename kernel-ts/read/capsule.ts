@@ -9,6 +9,7 @@ import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memory
 import {personalityView} from '../npc/material.js';
 import {npcRelationships,npcRecentSpeech,npcCommitments} from '../npc/perspective.js';
 import {reunionView} from '../npc/reunion.js';
+import {cardTactic} from '../combat/standing.js';
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /**
  * The one name this table uses for a place, by its handle: the campaign label the Keeper gave it,
@@ -197,7 +198,7 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         }),
         affordances,
         keeper_notes: notes,
-        assets: graph.sceneAssets(scene),
+        assets: graph.sceneAssets(scene, array(world.handouts_shown)),
         places: graph.scenePlaces(scene),
         rules: graph.sceneRules(scene),
         endings: graph.sceneEndings(scene),
@@ -487,6 +488,8 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
             availability: record.availability ?? null,
             mechanics: record.mechanics ?? null
         });
+    // §11.5.2: how this person defends when attacked, and why that word (Keeper-only: this card is the Keeper's).
+    view.combat_tactic = cardTactic(graph, world, node);
     const authored = graph.entityView(node).properties;
     if (truth(authored))
         view.properties = authored;

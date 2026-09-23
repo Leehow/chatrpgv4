@@ -34,6 +34,8 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
             world_revision:taskWorldRevision(campaign.world,campaign.party,campaign.turn.receipts,campaign.turn.pending_choice),
             context:{scene:graph.displayName(scene),pending_choice:session.pendingChoice()||campaign.turn.pending_choice||null,
                 session:session.activeSession(),present:npcsPresent(graph,campaign.world,scene).map(node=>graph.displayName(node)),
+                // §135.2: the handouts already handed over, as world state, so no reader offers one again by its words.
+                handouts_shown:array(campaign.world.handouts_shown).filter(value=>typeof value==='string'),
                 current_receipts:array(campaign.turn.receipts).map(receipt=>Object.fromEntries(
                     ['kind','actor_label','skill','level','passed','outcome','clue','to','from','quantity','delta','currency','before','after']
                         .filter(key=>Object.hasOwn(receipt,key)).map(key=>[key,receipt[key]]))),
