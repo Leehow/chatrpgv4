@@ -1,5 +1,5 @@
 /**
- * RD-04 (contract §136.26): the haunting states its mechanics as shapes, on the nodes that state them, and nothing
+ * RD-04 (contract §136.28): the haunting states its mechanics as shapes, on the nodes that state them, and nothing
  * the migration moved stays typed and unread.
  *
  * The shipped graph is read as bytes and walked; the registration cases write it -- with exactly the change the case
@@ -103,7 +103,7 @@ const PLACED = {
     'npc-walter-corbitt': {shapes: ['profile'], from: [],
         refs: [ref(446, 'Walter Corbitt'), ref(459, 'Walter Corbitt, Undead Fiend'), ref(456, 'Using a Fighting Maneuver to Grab the Knife')],
         spans: ['span-page-446-anchor-7']},
-    // No span of the starter is on page 457; the node cites the span its neighbours cite for the basement (§136.26).
+    // No span of the starter is on page 457; the node cites the span its neighbours cite for the basement (§136.28).
     'npc-rat-pack': {shapes: ['profile'], from: [], refs: [ref(457, 'RAT PACK')], spans: ['span-page-455-anchor-2']},
 };
 

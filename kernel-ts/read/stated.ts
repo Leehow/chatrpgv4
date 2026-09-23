@@ -181,7 +181,7 @@ export function statedNode(graph: ModuleGraph, name: any): Row | null {
 }
 
 /**
- * Contract §136.27: the Sanity reward the book states for a `conclusion` ending at the active scene -- exactly one rule the
+ * Contract §136.29: the Sanity reward the book states for a `conclusion` ending at the active scene -- exactly one rule the
  * scene links by `uses-rule` whose `reward` states `sanity` as dice and whose `when` gate, if any, holds. Null otherwise
  * (another ending kind, no stated reward, an unstated one, or two), and the omitted expression keeps today's meaning.
  */

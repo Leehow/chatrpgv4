@@ -1,4 +1,4 @@
-"""RD-04: the haunting states its mechanics as shapes (contract §136.26-§136.28, §52.6).
+"""RD-04: the haunting states its mechanics as shapes (contract §136.28-§136.30, §52.6).
 
 Every case drives the emitted kernel over RPC on a fresh campaign of the **shipped** haunting -- no derived graph --
 walks to the scene the way a table does (one move a turn), and asserts what the kernel returned, which receipts exist

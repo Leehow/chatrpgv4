@@ -4724,10 +4724,10 @@
                   },
                   {
                     "weapon_id": "floating-knife",
-                    "extends": "knife_medium",
-                    "name": "Floating magical dagger",
+                    "skill_unstated": true,
                     "damage": "1D4+2",
                     "uses_per_round": 1,
+                    "impale": true,
                     "adds_damage_bonus": false,
                     "book": "Rolled as 1D100 against Corbitt's POW, opposed by the target's Dodge; an Extreme success impales for 6+1D4+2. Costs 1 Magic point per round, which covers all the knife's actions that round."
                   }
@@ -21049,7 +21049,7 @@
       "known_by_ids": [],
       "validity": null,
       "confidence": 1,
-      "reason": "Authored mechanical shape (contract section 136.26)."
+      "reason": "Authored mechanical shape (contract section 136.28)."
     },
     {
       "claim_id": "claim-uses-rule-chapel-of-contemplation-ruins-chapel-floor-collapse",
@@ -21067,7 +21067,7 @@
       "known_by_ids": [],
       "validity": null,
       "confidence": 1,
-      "reason": "Authored mechanical shape (contract section 136.26)."
+      "reason": "Authored mechanical shape (contract section 136.28)."
     },
     {
       "claim_id": "claim-uses-rule-corbitt-confrontation-victory-rewards",
@@ -21085,7 +21085,7 @@
       "known_by_ids": [],
       "validity": null,
       "confidence": 1,
-      "reason": "Authored mechanical shape (contract section 136.26)."
+      "reason": "Authored mechanical shape (contract section 136.28)."
     },
     {
       "claim_id": "claim-uses-rule-hall-of-records-library-research",
@@ -21103,7 +21103,7 @@
       "known_by_ids": [],
       "validity": null,
       "confidence": 1,
-      "reason": "Authored mechanical shape (contract section 136.26)."
+      "reason": "Authored mechanical shape (contract section 136.28)."
     },
     {
       "claim_id": "claim-uses-rule-upper-floor-bedroom-bed-attack",
@@ -21121,7 +21121,7 @@
       "known_by_ids": [],
       "validity": null,
       "confidence": 1,
-      "reason": "Authored mechanical shape (contract section 136.26)."
+      "reason": "Authored mechanical shape (contract section 136.28)."
     },
     {
       "claim_id": "claim-variant-of-255",

@@ -195,7 +195,7 @@ test('the module lookup\'s endings carry the reward shapes of the rules a conclu
     const endings = (await opened.call('table.lookup', {kind: 'secret', scope: 'module'})).endings;
     const reward = {rule: 'victory-reward', sanity: '1D6', cash: 30, currency: 'dollars', when: {kind: 'flag_set', flag_id: 'corbitt-destroyed'}};
     const conclusion = endings.find(row => row.scene === 'corbitt-confrontation');
-    // Since RD-04 the shipped haunting states its own reward there (§136.26), read first, in relation order.
+    // Since RD-04 the shipped haunting states its own reward there (§136.28), read first, in relation order.
     const shippedReward = {rule: 'victory-rewards', sanity: '1D6'};
     assert.deepEqual(conclusion.rewards, [shippedReward, reward]);
     assert.equal(conclusion.sanity_reward, null, 'RD-04 moved the contract\'s own reward into rule-victory-rewards');

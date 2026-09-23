@@ -233,7 +233,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             if (action.obligation != null) {
                 ({ claim, action } = await bindObligation({ kernel, tables, graph, world: transaction.world, transaction, action, intent }));
             }
-            // Contract §136.27: a conclusion ended without an expression takes the reward the scene's book states.
+            // Contract §136.29: a conclusion ended without an expression takes the reward the scene's book states.
             let endingReward: { rule: string; expression: string } | null = null;
             if (string(action.decision).replace(/^decision:coc7:/, '') === 'development:end-session' && action.scenario_san_reward_expr == null) {
                 endingReward = statedEndingReward(graph, transaction.world, action.ending);

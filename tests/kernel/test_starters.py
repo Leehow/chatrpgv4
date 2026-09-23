@@ -95,7 +95,7 @@ def test_reprojection_reproduces_the_committed_graph(module_id):
 
 #: Contract §134.6: the two stated obligations authored into the haunting after the old projection.
 HAUNTING_OBLIGATIONS = ["requirement-globe-archivist", "requirement-globe-clippings-access"]
-#: Contract §136.26: the haunting's graph before RD-04 migrated it to shapes. The old script's diff stops after 40
+#: Contract §136.28: the haunting's graph before RD-04 migrated it to shapes. The old script's diff stops after 40
 #: differences, so the chain is compared in two links: the old projection against this graph (below), and this graph
 #: against the shipped one, whose every difference is pinned by the next test.
 PRE_RD04 = "566dca9da"
@@ -177,7 +177,7 @@ def _paths(before, after, path=""):
         yield f"{path}: changed"
 
 
-#: Contract §136.26, as the graph shows it: every difference RD-04 made to the haunting, and nothing else.
+#: Contract §136.28, as the graph shows it: every difference RD-04 made to the haunting, and nothing else.
 RD04_CHANGES = sorted(
     [f"/claims[claim-uses-rule-{scene}-{rule}]: added" for scene, rule in [
         ("central-library", "library-research"), ("chapel-of-contemplation-ruins", "chapel-floor-collapse"),
