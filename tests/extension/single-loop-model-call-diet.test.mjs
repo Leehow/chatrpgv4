@@ -15,7 +15,10 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { openTable } from "./harness.mjs";
+import { TaskLease } from "../../runtime/jev/task-context.ts";
+import { operationCapability } from "../../extensions/kernel/canonical-operation-dispatcher.ts";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { CANDIDATE_BODIES_BYTES, CANDIDATE_BODY_BYTES, fitBody, readCandidateBodies } from "../../runtime/jev/candidate-bodies.ts";
 import { argumentLimitRefusal, COC_TOOLS, SENTENCE_MAX } from "../../extensions/kernel/tools.ts";
@@ -183,6 +186,36 @@ for (const engine of ["legacy", "hybrid-v1"]) {
 	});
 }
 
+test("§135.21 for a policy-origin call: the canonical dispatcher refuses the over-long why with the same fix, before the kernel", async (t) => {
+	let gateway, observation;
+	const why = "x".repeat(SENTENCE_MAX + 5);
+	const probe = { name: "dispatch-probe", factory(pi) {
+		pi.events.on("coc:operation-dispatcher", (value) => { gateway = value; });
+		pi.registerTool({ name: "host_dispatch_test", label: "dispatch", description: "test-only gateway caller", parameters: Type.Object({}), executionMode: "sequential",
+			async execute() {
+				const scope = { owner: "sl11-test", campaign: "test-camp", worldline: "main", loop: 0, audience: "keeper" };
+				const owner = new TaskLease({ owner: "sl11-test", goal: "one clerk write", scope, capabilities: ["apply"],
+					budget: { deadlineAt: Date.now() + 60_000, remainingInputTokens: 100_000, remainingOutputTokens: 16_384, remainingCostUsd: 1, remainingActions: 20 },
+					readSet: [{ kind: "world", resource: "test-camp", revision: "w1" }] });
+				const args = { effects: [{ kind: "time", minutes: 5, why }] };
+				observation = await gateway.dispatch({ id: "clerk:op1", taskId: owner.context.id, operation: "apply", args, capability: operationCapability("apply", args),
+					scope: owner.context.scope, readSet: owner.context.readSet, basis: [] },
+					{ session: table.session, task: owner, journal: { load: async () => undefined, save: async () => {} }, validateCurrent: async () => {},
+						recover: async () => ({ status: "absent", activeTurn: 1 }), trace: () => {} });
+				return { content: [{ type: "text", text: "{}" }], details: {} };
+			} });
+		pi.on("session_start", () => pi.setActiveTools([...pi.getActiveTools(), "host_dispatch_test"]));
+	} };
+	const table = await openTable({ extraExtensions: [probe], responses: [fauxAssistantMessage([fauxToolCall("host_dispatch_test", {})], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "好。" })], { stopReason: "toolUse" }), fauxAssistantMessage("好。")] });
+	t.after(() => table.dispose());
+	await table.session.prompt("好");
+	assert.equal(observation.status, "refused");
+	assert.equal(observation.result.coc_error.code_detail, "argument_too_long");
+	assert.match(observation.result.coc_error.fix, /^Shorten effects\[0\]\.why/);
+	assert.ok(!table.kernelRequests().some((request) => request.method === "table.apply"), "the kernel received no write");
+});
+
 /** One kernel request list on the workspace, through the emitted kernel's own RPC (puts the table in a state). */
 function kernelSteps(workspace, campaign, requests) {
 	const input = requests.map((request, index) => JSON.stringify({ id: String(index), method: request[0], params: { campaign, ...request[1] } })).join("\n");
@@ -234,6 +267,38 @@ test("§135.23: on the single-loop engine a run's second call reads the first ca
 	assert.deepEqual(requests[2].messages.slice(0, index + 1).map(messageText), requests[1].messages.slice(0, index + 1).map(messageText));
 	assert.ok(nextTurn.cacheRead >= Math.ceil(requests[2].messages.slice(0, index + 1).map((message) => `${message.role}:${messageText(message)}`).join("\n\n").length / 4));
 });
+
+for (const engine of ["hybrid-v1", "legacy"]) {
+	test(`§135.23 on the ${engine} engine: ${engine === "legacy" ? "the brief is still the residue of the request's capsule (legacy unchanged)" : "the brief is the source's own, the same message across turns"}`, async (t) => {
+		// A later turn's capsule holds less style than the rehydrated one (§13.6): the brief kept from the last turn
+		// meets this turn's smaller capsule on the new turn's first request.
+		const hybrid = engine === "hybrid-v1" ? createHybridEngine({ env: process.env, decision: null }) : undefined, requests = [];
+		const reply = (message) => (context) => { requests.push(context); return message; };
+		const tail = hybrid ? [] : [fauxAssistantMessage("你还在等。")];
+		const table = await openTable({
+			env: { FAKE_KERNEL_WORKSPACE: "1", FAKE_KERNEL_STYLE_BUDGET: "1", FAKE_KERNEL_PRESENT: "[]", PI_COC_JEV_PRESELECT: "1", EXT_JEV_APIKEY: "test-key",
+				...(hybrid ? { PI_COC_LOOP_ENGINE: "hybrid-v1" } : {}) },
+			...(hybrid ? { runDriver: hybrid.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: hybrid.extension }] } : {}),
+			// Turn 1 closes on the Keeper's prose (the host's implicit narrate, as on the gate table), so no write result
+			// resets the brief before turn 2.
+			responses: [reply(fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "They waited." }] })], { stopReason: "toolUse" })),
+				reply(fauxAssistantMessage("时间过去了。")),
+				reply(fauxAssistantMessage([fauxToolCall("narrate", { text: "你还在等。" })], { stopReason: "toolUse" })), ...tail],
+		});
+		t.after(() => table.dispose());
+		await table.session.prompt("我等着");
+		await table.session.prompt("我继续等");
+		assert.equal(requests.length, 3);
+		const brief = (context) => context.messages.map(messageText).find((text) => text.includes('"kind":"context_brief"'));
+		assert.ok(brief(requests[1]) && brief(requests[2]));
+		// Legacy is unchanged: its brief carries only the style the request's capsule lacks (here the capsule has it all).
+		if (engine === "legacy") assert.doesNotMatch(brief(requests[2]), /observable-first/, "legacy still sends the residue");
+		else {
+			assert.equal(brief(requests[2]), brief(requests[1]), "the next turn's first request shares the brief");
+			assert.match(brief(requests[2]), /observable-first/, "the brief carries the source's whole style");
+		}
+	});
+}
 
 test("§135.23: the capsule update names only the sections that changed, and nothing when none did", () => {
 	assert.equal(capsuleUpdate({ turn: { state: "open" }, where: { scene: "a" } }, { turn: { state: "open" }, where: { scene: "a" } }), undefined);
