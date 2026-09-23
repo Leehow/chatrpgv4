@@ -5,9 +5,10 @@ import { RpcError } from "../errors.js";
 import { REGISTERED_CONDITION_PATHS } from "../capabilities.js";
 import { compareUnicode, jsonDigest } from "../json.js";
 import { CampaignSnapshot } from "./campaign.js";
-import { ModuleGraph, recordOf } from "./module-graph.js";
+import { ModuleGraph } from "./module-graph.js";
+import { bookSpellSources } from "../magic/facts.js";
 import { SessionView } from "./session-view.js";
-import { entries, values, array, row, number, integer, numeric, truth, string, equal, repr, type Row } from "./values.js";
+import { entries, values, array, row, number, integer, numeric, string, equal, repr, type Row } from "./values.js";
 const PATHS = new Set(REGISTERED_CONDITION_PATHS);
 export function semanticName(value: any): string {
     const parts = string(value).split(":");
@@ -216,12 +217,7 @@ export class RuleObservations {
         }
         for (const [owner, abilities] of entries(row(row(world.objects).abilities)))
             sources[`person:${owner}`] = [...array(sources[`person:${owner}`]), ...Object.keys(row(abilities))];
-        for (const [kind, prefix] of [["tome", "tome"], ["creature", "entity"]])
-            for (const node of graph.kind(kind)) {
-                const spells = truth(row(node.properties).spells) ? node.properties.spells : recordOf(node).spells;
-                if (Array.isArray(spells) && spells.length)
-                    sources[`${prefix}:${graph.handle(node)}`] = spells.filter(s => typeof s === "string");
-            }
+        Object.assign(sources, bookSpellSources(graph));
         for (const sheet of campaign.party) {
             const id = string(sheet.id),
                 healing = campaign.healing(id),

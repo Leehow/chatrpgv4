@@ -17141,16 +17141,16 @@ The grammar. Shapes are joined by ` | ` in catalog order (`profile`, `check`, `h
 | `hazard` | `hazard (Keeper triggers[; stated on entry | ; stated on reaching <guards>][; when <gate>])` then `: [0] <check>; [1] <check> …` for its steps and `; <effects>` for its no-roll effects |
 | `damage` | `damage <dice>` |
 | `sanity_loss` | `SAN loss <s>/<f>` |
-| `time_cost` (`<time>`) | `<amount> <unit>s` (`1 hour`, `240 minutes`, `1D6 days`), `at least …` for `minimum`; `time unstated` |
+| `time_cost` | `time <time>`; `<time>` is `<amount> <unit>s` (`1 hour`, `240 minutes`, `1D6 days`), `at least …` for `minimum`, or `unstated` (so a spell's unstated duration reads `lasts unstated`) |
 | `resource_cost` (`<cost>`) | `<amount> <MP|POW|SAN|Luck|HP>`, or `<resource> chosen by the spender`, or `<resource> unstated`; ` per <use|round|cast>` |
-| `weapon` | `weapon <weapon_id, else extends>: extends <id>, <skill>, <damage>, <n>/round, impales, +DB, <n> yd, magazine <n>, malfunction <n>` (each part only when stated) |
+| `weapon` | `weapon <weapon_id, else the node's handle, the id §136.15 gives it>: extends <id>, <skill>, <damage>, <n>/round, impales, +DB, <n> yd, magazine <n>, malfunction <n>` (each part only when stated), then `<slot> unstated` for each unstated needed slot |
 | `spell` | `spell: MP <amount|chosen|unstated>, SAN <amount|unstated>[, POW <amount>], casting <time>[, lasts <time>][, <hp|san|mp> <gain|loss> <amount>…]` |
 | `tome` | `tome: in <language>, read <check>, no roll at <n>+, initial reading <time>, full study <time>, Cthulhu Mythos +<n> initial, +<n> full, mythos rating <n>, SAN loss <s>/<f>, max SAN -<n>, spells <handles>` (each part only when stated) |
 | `reward` | `reward: SAN <dice|unstated>[, cash <n>[ <currency>]][, when <gate>]` |
 | `profile` | `stat block: <n> characteristics, <n> skills, <n> weapons[, SAN loss <s>/<f>]` |
 
-A gate renders as `describeCondition` renders an exit's `unlock_when` (`clue_discovered: <clue>`, `flag_set:
-<flag>[ = <value>]`, `always`). The line is information: it neither issues an option nor narrows one, and a
+A gate renders from its typed keys in the words an exit's `unlock_when` uses (`always`, `clue_discovered: <clue
+handle>`, `flag_set: <flag>[ = True|False]`), never through `describeCondition`'s JSON fallback. The line is information: it neither issues an option nor narrows one, and a
 stated hazard stays the Keeper's to trigger (spec P6). The offer ledger's `stated:<handle>` kind is RD-03's
 (spec D6.4), with the operation it counts.
 

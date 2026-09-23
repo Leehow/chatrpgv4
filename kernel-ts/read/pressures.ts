@@ -91,16 +91,32 @@ export function clockSegment(world: Row, threatHandle: string, clock: Row): numb
         live = row(row(row(world.threat_clocks)[threatHandle]))[id];
     return Math.trunc(number(live ?? clock.current_segments ?? 0));
 }
+/**
+ * Contract §136.18: the events the book advances a threat's clocks on (`clocks[].advances_on`), one line per clock.
+ * Information for the Keeper's `apply threat`; nothing here moves a clock.
+ */
+export function bookAdvances(graph: ModuleGraph, record: Row): string | null {
+    const lines = array(record.clocks).flatMap(clock => {
+        const scenes = array(row(clock).advances_on).flatMap(entry => {
+            const scene = row(entry).kind === "enter" && typeof entry.scene === "string" ? graph.nodes.get(entry.scene) : undefined;
+            return scene?.node_kind === "scene" ? [graph.handle(scene)] : [];
+        });
+        return scenes.length ? [`${string(row(clock).clock_id || "?")}: the book advances it on entering ${scenes.join(", ")}`] : [];
+    });
+    return lines.length ? lines.join("; ") : null;
+}
 export function threatPressures(graph: ModuleGraph, world: Row, scene: Row, present: Row[]): Row[] {
     const moves = array(recordOf(scene).pressure_moves).map(string);
     return relatedThreats(graph, scene, present).flatMap(threat => {
         const record = recordOf(threat);
         const clock = array(record.clocks).find(c => c && typeof c === "object" && !Array.isArray(c));
+        const advances = bookAdvances(graph, record);
         return [{
                 kind: "threat",
                 name: graph.handle(threat),
                 state: clock ? `${clockSegment(world, graph.handle(threat), row(clock))}/${string(clock.segments ?? "?")}` : `no clock; ${array(record.dangers).length} danger(s)`,
-                ...(moves.length ? { cue: moves.join("; ") } : {})
+                ...(moves.length ? { cue: moves.join("; ") } : {}),
+                ...(advances ? { advances } : {})
             }];
     });
 }

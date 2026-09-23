@@ -10,7 +10,29 @@ export class NpcProfileError extends Error {
     override name = 'NpcProfileError';
 }
 const intMap = (value: any): Row => Object.fromEntries(entries(value).filter(([, item]) => integer(item)).map(([key, item]) => [key, number(item)]));
-export const npcProfile = (_graph: ModuleGraph, node: Row): Row | null => isJsonObject(row(recordOf(node).mechanics).profile) ? recordOf(node).mechanics.profile : null;
+export const npcProfile = (graph: ModuleGraph, node: Row): Row | null => graph.mechanicsOf(node).profile ?? null;
+/**
+ * Contract §136.12: a weapon shape (§136.6 shape 10) as the engine's catalog row. The shape spells the Mod
+ * definition's parameters (`impale`, an integer `uses_per_round`); the engine reads `impales` and a string. `book`
+ * and every `_unstated` twin are dropped -- an unstated slot is simply not there for the engine -- and every other
+ * key is kept as written, so a shipped profile's weapons project to themselves. `id` fills a missing `weapon_id`.
+ */
+export function engineWeapon(shape: Row, id: string | null = null): Row {
+    const entry: Row = {};
+    for (const [key, value] of entries(shape)) {
+        if (key === 'book' || key.endsWith('_unstated'))
+            continue;
+        if (key === 'impale')
+            entry.impales = value;
+        else if (key === 'uses_per_round' && integer(value))
+            entry.uses_per_round = String(value);
+        else
+            entry[key] = value;
+    }
+    if (id !== null && !truth(entry.weapon_id))
+        entry.weapon_id = id;
+    return entry;
+}
 export function investigatorWeapons(sheet: Row): Row[] {
     const weapons = array(sheet.weapons).filter(weapon => isJsonObject(weapon) && truth(weapon.weapon_id)).map(clone);
     if (!weapons.some(weapon => weapon.weapon_id === 'unarmed'))
@@ -117,10 +139,20 @@ export async function npcCombatParticipant(tables: RuleTables, handle: string, p
         magic_points: number(profile.current_mp ?? derived.MP ?? Math.floor(number(characteristics.POW) / 5)), armor: number(profile.armor || 0), armor_rule: profile.armor_rule ?? null,
         weapons, conditions: array(profile.conditions).map(string), mov: number(derived.MOV ?? 8) };
 }
+/**
+ * The module's weapons, in order: the ruleset table named after the module, then the graph's weapon shapes
+ * (`mechanics.weapon` of object and artifact nodes, contract §136.15; a shape without a `weapon_id` takes its
+ * node's handle, so an `extends` never overwrites the rulebook entry it extends), then the caller's extras.
+ */
 export async function moduleWeapons(tables: RuleTables, graph: ModuleGraph, extra: Row[] = []): Promise<Row[]> {
     const result: Row[] = [];
     if (await tables.exists(graph.moduleId))
         result.push(...array(row(await tables.load(graph.moduleId)).weapons).filter(weapon => isJsonObject(weapon) && truth(weapon.weapon_id)).map(clone));
+    for (const node of graph.nodes.values()) {
+        const weapon = graph.mechanicsOf(node).weapon;
+        if (weapon)
+            result.push(engineWeapon(clone(weapon), graph.handle(node)));
+    }
     result.push(...extra.filter(weapon => isJsonObject(weapon) && truth(weapon.weapon_id)).map(clone));
     return result;
 }

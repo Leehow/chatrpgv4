@@ -1,5 +1,5 @@
 /** Combat, chase and sanity views read saved snapshots without loading an engine writer. */
-import { ModuleGraph, recordOf } from "./module-graph.js";
+import { ModuleGraph } from "./module-graph.js";
 import { CampaignSnapshot } from "./campaign.js";
 import { entries, array, row, number, truth, string, integer, type Row } from "./values.js";
 import { OUT_OF_FIGHT_CONDITIONS } from "../healing/conditions.js";
@@ -365,11 +365,11 @@ export class SessionView {
         const ready = !active(this.chase) && this.party.length > 0 && entries(row(this.world.npc_presence)).some(([name, at]) => {
             if (at !== this.world.active_scene)
                 return false;
-            const node = this.graph.find(name, ["npc"]);
+            const node = this.graph.actor(name);
             if (!node)
                 return false;
             // The book's numbers, or a profile the table pinned from a rulebook archetype (contract §34.10).
-            const profile = row(recordOf(node).mechanics).profile ?? row(this.world.npc_profiles)[name];
+            const profile = this.graph.mechanicsOf(node).profile ?? row(this.world.npc_profiles)[name];
             return !!profile && typeof profile === "object" && !Array.isArray(profile);
         });
         const gain = this.campaign.saved(`sanity-gain-pending/${id}.json`);

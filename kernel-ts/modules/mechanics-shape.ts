@@ -20,6 +20,7 @@ import { recordOf, type ModuleGraph } from "../read/module-graph.js";
 import { array, integer, normalize, number, row, string, type Row } from "../read/values.js";
 import { validateSanLossExpression } from "../sanity/expression.js";
 import { checkDeclarationRefusals, type CheckOwner, type Refusal } from "./obligation-shape.js";
+import { SHAPE_KINDS } from "./mechanics-catalog.js";
 
 /** The ruleset's closed tables a shape's names and references resolve against. */
 export type MechanicsRules = {
@@ -33,20 +34,6 @@ export type MechanicsRules = {
     damageBonuses: readonly string[];
 };
 
-/** §136.1: each container shape and the node kinds it may sit on. */
-const SHAPE_KINDS: Record<string, readonly string[]> = {
-    profile: ["npc", "creature"],
-    check: ["rule", "hazard"],
-    hazard: ["rule", "hazard"],
-    damage: ["rule", "hazard"],
-    sanity_loss: ["rule", "hazard", "object", "artifact"],
-    time_cost: ["rule", "hazard"],
-    resource_cost: ["rule", "hazard", "object", "artifact"],
-    weapon: ["object", "artifact"],
-    spell: ["spell"],
-    tome: ["tome"],
-    reward: ["rule"],
-};
 /**
  * §136.1, rulings A and B: the starter-only legacy allowance. Each list shrinks as a starter migrates
  * (RD-04 the haunting, RD-08 mystery-house); a reader draft gets none of it.

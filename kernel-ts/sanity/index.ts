@@ -161,6 +161,11 @@ export const executeSanity: SettlementExecutor = async (context, args, plan) => 
     throw new RpcError('not_implemented', `Sanity capability ${string(capability)} is not implemented`);
 };
 
+/** A typed `sanity_loss` shape (§136.6 shape 3) as the check's pair; null unless both halves are stated strings. */
+export function statedSanLoss(shape: any): [string, string] | null {
+    if (!isJsonObject(shape) || typeof shape.success !== 'string' || typeof shape.failure !== 'string') return null;
+    return [shape.success, shape.failure];
+}
 export function createSanityFamily(): FixedFamilyBinding {
     return Object.freeze<FixedFamilyBinding>({
         matches(ref, capability) { const suffix = ref.startsWith(PREFIX) ? ref.slice(PREFIX.length) : ''; const entry = Object.hasOwn(COMMANDS, suffix) ? COMMANDS[suffix] : undefined; return !!entry && (capability === null || capability === entry[1]); },
@@ -174,7 +179,9 @@ export function createSanityFamily(): FixedFamilyBinding {
                 let loss = truth(action.san_loss) ? parseSanLoss(action.san_loss) : null;
                 if (!loss && targets.npc) {
                     const profile = row(context.npcProfile(context.graph.handle(targets.npc)));
-                    for (const key of ['san_loss', 'san_loss_to_see', 'sanity_loss']) { loss = parseSanLoss(profile[key]); if (loss) break; }
+                    // The typed shape first (contract §136.13): both halves stated, or it is the Keeper's to complete.
+                    loss = statedSanLoss(profile.sanity_loss);
+                    if (!loss) for (const key of ['san_loss', 'san_loss_to_see', 'sanity_loss']) { loss = parseSanLoss(profile[key]); if (loss) break; }
                 }
                 if (!loss) throw new RpcError('needs', 'the SAN check needs its loss expression (success/failure)', {
                     fix: 'set action.san_loss like 0/1D6, or target an NPC whose profile states one', details: { needs: { field: 'san_loss', options: ['0/1', '0/1D3', '0/1D6', '1/1D6', '1/1D8', '1/1D10'] } } });

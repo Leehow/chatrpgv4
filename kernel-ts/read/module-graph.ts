@@ -1,7 +1,8 @@
 /** Read-only authored graph; names and projections never change the source. */
 import { RpcError } from "../errors.js";
-import { canonicalJson, compareUnicode } from "../json.js";
+import { canonicalJson, compareUnicode, isJsonObject } from "../json.js";
 import { entries, values, array, row, truth, string, repr, integer, normalize, normalizeText, kebab, stripPrefix, sorted, similarity, words, chars, pick, type Row } from "./values.js";
+import { SHAPE_KINDS } from "../modules/mechanics-catalog.js";
 export const TEMPLATE_NOTE = "the book's pregenerated investigator, not at this table; the table's investigators are in the capsule's known.investigator";
 const EXIT_KINDS = ["route-to", "play-precedes", "may-lead-to", "alternative-to", "hands-off-to"];
 const CHARACTERISTICS = new Set(["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK", "SAN"]);
@@ -510,7 +511,7 @@ export class ModuleGraph {
         return [...new Set([...array(recordOf(scene).available_clues), ...(this.incoming.get(scene.node_id) ?? []).filter(r => r.relation_kind === "discoverable-at").map(r => r.from_node_id)].filter(id => this.nodes.get(id)?.node_kind === "clue"))];
     }
     sceneNpcIds(scene: Row): string[] {
-        return [...new Set([...(this.incoming.get(scene.node_id) ?? []).filter(r => r.relation_kind === "present-in").map(r => r.from_node_id), ...array(recordOf(scene).npc_ids)].filter(id => this.nodes.get(id)?.node_kind === "npc"))];
+        return [...new Set([...(this.incoming.get(scene.node_id) ?? []).filter(r => r.relation_kind === "present-in").map(r => r.from_node_id), ...array(recordOf(scene).npc_ids)].filter(id => this.isActor(this.nodes.get(id))))];
     }
     /** The scene's assets; a handout already handed over says so (`shown`, from the world's `handouts_shown`; §135.2). */
     sceneAssets(scene: Row, shown: readonly unknown[] = []): Row[] {
@@ -533,7 +534,7 @@ export class ModuleGraph {
         }
         return result;
     }
-    private listedNodes(ids: string[]): Row[] {
+    private listedNodes(ids: string[], extra: (node: Row) => Row = () => ({})): Row[] {
         const seen = new Set<string>(),
             result: Row[] = [];
         for (const id of ids) {
@@ -545,7 +546,8 @@ export class ModuleGraph {
                 name = this.displayName(node);
             result.push({
                 name,
-                ...(line && line !== name ? { line } : {})
+                ...(line && line !== name ? { line } : {}),
+                ...extra(node)
             });
         }
         return result;
@@ -553,8 +555,67 @@ export class ModuleGraph {
     scenePlaces(scene: Row): Row[] {
         return this.listedNodes((this.out.get(scene.node_id) ?? []).filter(r => r.relation_kind === "occurs-at").flatMap(r => (this.incoming.get(r.to_node_id) ?? []).filter(inner => inner.relation_kind === "located-in").map(inner => inner.from_node_id)));
     }
-    sceneRules(scene: Row): Row[] {
-        return this.listedNodes((this.out.get(scene.node_id) ?? []).filter(r => r.relation_kind === "uses-rule").map(r => r.to_node_id));
+    /** The scene's `uses-rule` rows; `extra` adds the keys a caller projects from each node (the capsule's `mech`, §136.11). */
+    sceneRules(scene: Row, extra?: (node: Row) => Row): Row[] {
+        return this.listedNodes(this.ruleNodes(scene).map(node => node.node_id), extra);
+    }
+    /** The nodes a node links by `uses-rule`, in relation order. */
+    ruleNodes(node: Row): Row[] {
+        return (this.out.get(node.node_id) ?? []).filter(r => r.relation_kind === "uses-rule").map(r => this.nodes.get(r.to_node_id)).filter((target): target is Row => !!target);
+    }
+    /**
+     * Contract §136.17: the `reward` shapes of the rule nodes a conclusion scene or an ending links by `uses-rule`,
+     * each as `{rule, ...the typed reward}` without its `book` line.
+     */
+    statedRewards(node: Row): Row[] {
+        const seen = new Set<string>();
+        return this.ruleNodes(node).flatMap(rule => {
+            const reward = this.mechanicsOf(rule).reward;
+            if (!reward || seen.has(rule.node_id))
+                return [];
+            seen.add(rule.node_id);
+            const { book: _book, ...typed } = reward;
+            return [{ rule: this.handle(rule), ...typed }];
+        });
+    }
+    /**
+     * Contract §136.10: the node's mechanical shapes -- the only reader of `mechanics`. Each key of the record's
+     * container that the catalog seats on this node's kind and whose value is an object; nothing else (the
+     * starters' legacy provenance keys, an unknown key, a shape on the wrong kind). A `spell` node without a typed
+     * `mechanics.spell` answers its flat `cost_*` properties as its spell: the registered seat's legacy form,
+     * bridged here and nowhere else, as `clueProfile` bridges the clue gate.
+     */
+    mechanicsOf(node: Row | null | undefined): Row {
+        if (!node)
+            return {};
+        const container = row(recordOf(node).mechanics), kind = string(node.node_kind), shapes: Row = {};
+        for (const [key, value] of entries(container))
+            if (Object.hasOwn(SHAPE_KINDS, key) && SHAPE_KINDS[key].includes(kind) && isJsonObject(value))
+                shapes[key] = value;
+        if (kind === "spell" && !shapes.spell) {
+            const flat = pick(row(node.properties), ["cost_mp", "cost_sanity", "cost_pow"]);
+            if (Object.keys(flat).length)
+                shapes.spell = flat;
+        }
+        return shapes;
+    }
+    /**
+     * Contract §136.12: a body the engine acts with or against -- an `npc`, or a `creature` that states a stat
+     * block. A creature without one is scenery to the engine, exactly as before shapes existed.
+     */
+    isActor(node: Row | null | undefined): boolean {
+        if (!node)
+            return false;
+        const profile = node.node_kind === "creature" ? this.mechanicsOf(node).profile : null;
+        return node.node_kind === "npc" || !!profile;
+    }
+    /** The actor of that name: the `npc` first, so a creature never shadows a person of the same handle. */
+    actor(name: string): Row | null {
+        const person = this.find(name, ["npc"]);
+        if (person)
+            return person;
+        const creature = this.find(name, ["creature"]);
+        return creature && this.isActor(creature) ? creature : null;
     }
     threatClock(threat: Row, clockId: string): Row | null {
         return array(recordOf(threat).clocks).map(row).find(clock => [clock.clock_id, clock.id, clock.name].some(value => typeof value === "string" && normalize(value) === normalize(clockId))) ?? null;
@@ -579,7 +640,7 @@ export class ModuleGraph {
     }
     actorProfile(node: Row): Row {
         const props = row(node.properties),
-            nested = row(row(recordOf(node).mechanics).profile),
+            nested = row(this.mechanicsOf(node).profile),
             characteristics: Row = {},
             skills: Row = {},
             flat: Row = {};
