@@ -834,7 +834,10 @@ export default function modsExtension(pi: ExtensionAPI): void {
           }
         } else {
           const defines = effects.filter((effect: Record<string, any>) => effect?.kind === "define");
-          const identities=await deferOrdinaryIdentities(payload.campaign,effects),remaining=defines.filter(effect=>!identities.has(effect));
+          // 0.9.5a merge: §126.3's optional-identity path (`deferOrdinaryIdentities`) and §129.4's placeholder
+          // path both defer a define beside its placement; the batch takes §129.4, which shipped and is
+          // validated end to end. §126.3's helper stays callable for its own tests until that spec is retired.
+          const remaining=defines;
           const later = remaining.filter(effect => !definedInTurn(effect, effects));
           const plan = later.length ? await defer(payload.campaign, later, signal) : {now: [], jobs: []};
           const now = remaining.filter(effect => definedInTurn(effect, effects) || plan.now.includes(later.indexOf(effect)));

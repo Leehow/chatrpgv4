@@ -15322,6 +15322,13 @@ An eligible queued definition plus transfer atomically creates an ordinary inven
 
 An unfinished or failed optional creator must not be synchronously retried merely because `narrate`, an unrelated action or the next player input invokes queue reconciliation. Reconciliation publishes ready work and resumes eligible optional work in its background owner. A genuinely requested execution may join the existing job through the ordinary preparation gate. Removal, transfer, quantity/basis changes, cancellation, restart and same-name replacement must not let a late result resurrect or adopt a different acquisition; revalidation covers the claimed item, not unrelated world changes. Preserve failure evidence and a usable pending state. A complete player turn, including delivery, must remain unblocked while a test-held optional creator has not finished.
 
+**0.9.5a merge note (2026-09-23).** §129.4 landed on the same day from the table-loop branch and defers *every*
+`define` in any batch shape through a queued registration and a placeholder definition for the placement.
+On 0.9.5a a define + placement batch therefore takes §129.4, not this section's optional-identity plan:
+`deferOrdinaryIdentities` is no longer called from the apply hook (its `mods.identity.plan` operation and its
+own tests remain until this section is retired or re-scoped to what §129.4 does not cover). The optional
+creator bookkeeping in `mods.queued` and the safe-boundary resume are kept and run beside the turn (§129).
+
 ### 126.4 Audit submission matches the existing validated protocol
 
 The observed live audit spent its only format repair on misplaced subreviews, then failed because a same-locus result supplied a locus where the existing protocol requires null. The private `submit_audit` tool schema and pinned instruction must express the same nesting and closed mode/field choices as the existing schema-2 validator. Required subreviews belong inside `continuity_review`; same-locus/transition null rules must be explicit. Host-owned source aliases remain references, not copied prose. Keep all reference, required-review, semantic finding and live-freshness checks; do not normalize a conflicting semantic judgment into pass, drop a required subreview, increase the repair allowance or treat unreviewed delivery as success. This is a producer/validator contract repair, not a new audit policy.

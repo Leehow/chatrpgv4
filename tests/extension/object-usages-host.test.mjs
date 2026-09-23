@@ -58,17 +58,21 @@ async function harness(t, options = {}) {
   return {bridge, home, operations, tasks, checks, jobs};
 }
 
-test('plain investigator item identity and delivery do not await the optional definition creator',async t=>{
+// 0.9.5a: the mixed batch is deferred by §129.4 (queued registration, placeholder for the placement, generation
+// beside the turn), which supersedes §126.3's optional-identity path for this shape; the intent is the same:
+// neither the apply nor the delivery waits for the definition creator.
+test('plain investigator item identity and delivery do not await the definition creator (§129.4)',async t=>{
   const started=latch(),finish=latch(),h=await harness(t,{identityEligible:true,auditEnabled:false,
     async run(){started.release();await finish.promise;return{ok:true};}}),define={kind:'define',name:'House key definition',description:'An ordinary house key.'},
     object={kind:'object',name:'House key',definition:'House key definition',to:'Thomas Hayes',from:'Steven Knott',handover:'given',why:'Knott hands it over.'},
     payload={campaign:'test-campaign',effects:[{kind:'clue',clue:'keys'},define,object,{kind:'move',to:'archive'}]};
   await h.bridge.prepare('apply',payload);await started.promise;
-  assert.equal(define._identity_defer,true);assert.equal(object._identity_defer,true);assert.equal(typeof define._queued,'string');
+  assert.equal(typeof define._queued,'string','the define is queued, not generated inside the call');assert.equal(define._definition,undefined);
   let delivered=false;await h.bridge.prepare('narrate',{campaign:'test-campaign',text:'The investigator pockets the key and leaves.'}).then(()=>{delivered=true;});
-  assert.equal(delivered,true,'narration preparation must not join the held optional creator');
-  assert(h.operations.includes('mods.identity.plan'));assert.equal(h.operations.filter(value=>value==='run').length,1);
-  finish.release();await waitFor(()=>h.operations.includes('mods.accept'),{label:'optional definition acceptance'});
+  assert.equal(delivered,true,'narration preparation must not join the held creator');
+  assert(!h.operations.includes('mods.identity.plan'),'§126.3 identity planning is not the path for this batch');
+  assert.equal(h.operations.filter(value=>value==='run').length,1);
+  finish.release();await waitFor(()=>h.operations.includes('mods.accept'),{label:'deferred definition acceptance'});
   assert(h.operations.includes('mods.accept'));
 });
 
