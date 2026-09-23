@@ -660,16 +660,20 @@ the table:
 
 1. **Authored** (`basis: "authored"`): the record's `combat.disposition`, when the book states how the person
    fights. Validated by §136 like `combat.defense`.
-2. **Inferred** (`basis: "inferred"`): once per campaign by Jev, from the NPC's own text parameters. **Not in
-   SL-08:** SL-09 carries it (see "The inference seam" below). Until then an NPC without an authored or Keeper
-   disposition has none, so no rules-default standing: the Keeper decides its action, as before this section.
+2. **Inferred** (`basis: "inferred"`): once per campaign by Jev, from the NPC's own text parameters (see "The
+   inference" below). The Keeper's override still replaces it; the book's word, when there is one, is never
+   inferred over.
 3. **Keeper override** (`basis: "keeper"`): `apply npc {name, disposition, why}` (its own variant; `why`
    required). It stands until the Keeper writes again.
 
+Read in this order: a Keeper override, else the authored word, else the inferred one. Without any the NPC has no
+disposition, so no rules-default standing: the Keeper decides its action, as before this section.
+
 Both overrides write world state beside §11.5.2's: `world.npc_action[<handle>] = {action, why, turn}` (plus
-`combat_id` and `round` for `hold`) and `world.npc_disposition[<handle>] = {disposition, why, turn}`, and each
-mints the ordinary `npc` receipt (`npc:<slug>-t<n>-c<k>`) with the word, `previous` (the word it replaced, or
-`null`), `why`, the `hold`'s `combat_id`/`round`, and `visibility: "keeper"`; the event is `npc-changed` with
+`combat_id` and `round` for `hold`) and `world.npc_disposition[<handle>] = {disposition, why, turn, basis}`
+(`basis` `"keeper"`, or `"inferred"` with `read`, below), and each mints the ordinary `npc` receipt
+(`npc:<slug>-t<n>-c<k>`) with the word, `previous` (the word it replaced, or `null`), `why`, the `hold`'s
+`combat_id`/`round`, a disposition's `basis` (and `read`), and `visibility: "keeper"`; the event is `npc-changed` with
 `{npc, action | disposition, why}`. Each stands alone in its effect: combining it with `to`, `stance`, `dead`,
 `skill`, `archetype`, `conditions`, `defense`, `reunion` or the other of the two is refused as `invalid_params`
 (two effects in one batch). An `npc` batch is bookkeeping to §32.1. The overrides are world state: they commit
@@ -708,12 +712,14 @@ still not stamped). Found while writing this section; fixed with it, because the
 it.
 
 **The NPC card.** `look focus=npc` carries, beside §11.5.2's `combat_tactic`, `combat_disposition: {disposition,
-basis}` (`{disposition: null, basis: null}` without one) and `combat_action: {action, basis}`: the live Keeper
+basis}` and `combat_action: {action, basis}`. Without a disposition, `combat_disposition` is `{disposition: null,
+basis: null, options, material}`: the inference's input (below). `combat_action` is the live Keeper
 override or the authored word, otherwise `{action: null, basis: "rule-default"}`, because the table reads the
 fight's state and the card is not a fight. Both are Keeper-only, like `combat_tactic`: no player projection
 carries them, and the overrides' receipts are `visibility: "keeper"`.
 
-**Who acts on it.** The single-loop clerk (§135.2), on an NPC's own turn: with `standing_action.action = attack`
+**Who acts on it.** The single-loop clerk (§135.2), on an NPC's own turn: without a disposition, first the
+inference (below); with `standing_action.action = attack`
 the `combat:attack` step is `forced` and bound, `direct` when the kernel issues exactly one legal target and one
 weapon, a Jev `decide(bind)` over the kernel's closed `targets` / `weapons` lists when it issues several (Jev
 binds the parameters, never the action). `hold` and `flee` issue no attack candidate and no other step for that
@@ -723,15 +729,27 @@ closed bind over the issued actions). The candidate's `basis` adds `standing: {a
 which the tool and admission rows of §135.7 carry. On the legacy engine the Keeper reads the standing on the
 session view and acts on it unless the fiction says otherwise, which it then writes as an override.
 
-**The inference seam (SL-09).** The ruling's second disposition source: when an NPC's turn comes and it has no
-authored or Keeper disposition, Jev is asked once per campaign, through the run's decision port, one closed-choice
-question: the four dispositions (each with its table `description`) plus `unknown`, over the NPC's own text
-parameters as material (`agenda`, `fear`, `secret`, `relationship_to_investigators`, `voice`, and natural-npc's
-first-impression disposition when one was settled). An answer at or above the gate is written to
-`world.npc_disposition[handle]` with a receipt, `basis: "inferred"` and the list of parameters read, through a
-host-only marker the extension strips from model calls; below the gate the Keeper is asked once, through the
-operation-completion path (`infer(bind)`), and writes it as an override. An NPC is never inferred twice. SL-08
-issues none of this: without it, `basis: "inferred"` never appears.
+**The inference.** The ruling's second disposition source, run by the single-loop clerk under its own authority
+(`disposition_inference`, §135.3). When an NPC's turn comes without a standing action, the run reads that NPC's
+card (`look focus=npc`, the one card read the run makes). A card whose `combat_disposition.disposition` and
+`combat_action.action` are both `null` carries the inference's input: `options`, the four words with the table's
+own `description` of each, and `material`, the person's own text parameters under the contract's actor-dossier
+profile keys (`module-graph-contract-v3.json` `actor_dossier.profile_keys`: `agenda`, `fear`, `secret`, `voice`,
+`relationship_to_investigators`), those the book states. The candidate builder adds the first impression an active
+Mod settled for this person (`capsule.mods.relationships[].impression`, natural-npc's reaction and disposition),
+matched by the table's name for them. The inference is a `forced` candidate `apply npc {name, disposition, why}`
+whose `disposition` is a closed bind: one Jev question through the run's decision port, the four words (criteria:
+the table's descriptions) plus `unknown`, judged from the material alone; the host writes `why` ("Inferred once for
+this campaign from <name>'s own parameters: <keys>."). An answer that clears the gate is the clerk's write: the
+kernel extension adds the host-only marker `_inferred: {read: [<keys>]}` to that one effect (it deletes the marker
+from every other call, the model's included), and the kernel writes the disposition with `basis: "inferred"` and
+`read`. Below the gate, or on `unknown`, the Keeper is asked to complete the same write (`infer(bind)`, the
+operation-completion path), and what it writes is its override (`basis: "keeper"`). **Never inferred twice:** the
+kernel refuses an inferred write, whole, when the person already has a written disposition or an authored one
+(`invalid_params`, `details.reason: "disposition_already_set"`), and the card stops issuing the input once one
+exists. The next read issues the standing action from it. One known limit: when the Keeper, asked below the gate,
+writes nothing, the next turn of that NPC asks Jev again; nothing records a question that was asked and not
+answered.
 
 Tests: `tests/kernel/test_npc_standing_action.py` (emitted kernel), `tests/extension/mechanics-shape.test.mjs`,
 `tests/extension/single-loop-candidates.test.mjs`, `tests/extension/single-loop-domain-policy.test.mjs`.
@@ -16818,9 +16836,11 @@ located, and nothing else. It never classifies text.
   that predates §11.5.2) keeps the closed Jev bind over its options. **SL-08 (§11.5.3):** on an NPC's own turn a
   `standing_action` of `attack` makes the issued `combat:attack` the forced step, bound to the one target and the
   one weapon (`direct`) or a Jev bind over the kernel's `targets` / `weapons` when there are several; `hold` and
-  `flee` issue no step for that NPC, and the run's note to the Keeper carries `npc_turn`; a standing the builder
-  cannot trust, or none, keeps the closed Jev bind over the issued actions. Its `basis` adds `standing: {action,
-  basis, disposition?}`;
+  `flee` issue no step for that NPC, and the run's note to the Keeper carries `npc_turn`. Without a standing
+  because the NPC has no combat disposition, the run reads its card and the forced step is the disposition's
+  inference (a closed Jev bind, authority `disposition_inference`, §135.3); a standing the builder cannot trust, or
+  none otherwise, keeps the closed Jev bind over the issued actions. Its `basis` adds `standing: {action, basis,
+  disposition?}`;
 - located clue and handout entities.
 
 While a combat or chase session runs, scene moves are not offered: leaving is the session's own `combat:flee`
@@ -16843,7 +16863,10 @@ withheld, `reaction: "preordained"`) join there in SO-04, not in SL-02.
 - `mod_contact` (b): a contact check an active Mod declares;
 - `declared_check` (c): the ordinary check, when the binder settles its route and profile. An ambiguous
   action ("I look around this place") comes back `unknown` from the binder and goes to the Keeper;
-- `session_step`: a session step whose parameters the kernel issued (the parameters-only ruling).
+- `session_step`: a session step whose parameters the kernel issued (the parameters-only ruling);
+- `disposition_inference` (the ruling "An NPC's fight behaviour follows the NPC's own parameters", §11.5.3): writing
+  the combat disposition Jev inferred, once per campaign, for an NPC whose turn has come and who has none. The
+  write carries the host-only `_inferred` marker; below the gate it is the Keeper's.
 
 Ruling (d), fetching data, is the read step itself. The run executes a policy-origin write only for a candidate
 whose `clerk` is in this list. Anything else is refused with `not_clerk_authority` before it reaches the kernel.
