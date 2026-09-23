@@ -3,8 +3,9 @@
  * and the check declaration form it shares with a Mod's `contributes.checks[]` (§26).
  *
  * `checkDeclarationRefusals` is the one function for the shared form: the Mod manifest check calls
- * it with owner `mod`, and `obligationRefusals` calls it for every check step with owner
- * `obligation`. Refusals are data -- `{rule, path, message}` -- so every caller decides how to throw,
+ * it with owner `mod`, `obligationRefusals` calls it for every check step with owner `obligation`,
+ * and `mechanicsRefusals` (contract §136, `mechanics-shape.ts`) calls it with owner `rule` for a
+ * module's stated check, every hazard step and a tome's read check. Refusals are data -- `{rule, path, message}` -- so every caller decides how to throw,
  * and a test names the rule, never the wording.
  *
  * Accounting, not content: nothing here requires a value the page may not state. An unstated
@@ -15,13 +16,20 @@ import type { ModuleGraph } from "../read/module-graph.js";
 import { array, normalize, row, sorted, string, type Row } from "../read/values.js";
 
 export type Refusal = { rule: string; path: string; message: string; node?: string };
-/** Who declared the check. An obligation's names resolve against the ruleset's tables. */
-export type CheckOwner = { kind: "mod" } | { kind: "obligation"; skills: readonly string[]; characteristics: readonly string[] };
+/**
+ * Who declared the check. An obligation's names resolve against the ruleset's skill and characteristic
+ * keys; a rule's (§136.4) through the resolver its caller builds from the same tables.
+ */
+export type CheckOwner = { kind: "mod" }
+    | { kind: "obligation"; skills: readonly string[]; characteristics: readonly string[] }
+    | { kind: "rule"; resolves: (group: "skills" | "characteristics", name: string) => boolean };
 
 const LEVELS = ["critical", "extreme", "hard", "regular", "failure", "fumble"];
 const DIFFICULTIES = ["regular", "hard", "extreme"];
-const SELECTIONS = { mod: ["maximum"], obligation: ["maximum", "approach"] } as const;
-const SCOPES = { mod: ["actor-target"], obligation: ["actor-target", "actor"] } as const;
+const SELECTIONS = { mod: ["maximum"], obligation: ["maximum", "approach"], rule: ["maximum", "approach"] } as const;
+const SCOPES = { mod: ["actor-target"], obligation: ["actor-target", "actor"], rule: ["actor", "actor-target", "opposed"] } as const;
+/** §136.6 shape 1: the closed keys of a check the module states as a mechanical shape. */
+export const RULE_CHECK_KEYS = ["approaches_unstated", "book", "difficulty", "difficulty_unstated", "opposing", "push", "results", "scope", "selection", "target", "values"];
 /** §134.3: the closed trigger enum per owner. A Mod's check carries its trigger; an obligation carries it on itself. */
 export const TRIGGERS = { mod: ["contact"], obligation: ["attempt", "after"] } as const;
 /** The graph contract's semantic id law; world flags are stored under exactly this form (`stageFlag`). */
@@ -43,7 +51,7 @@ export function triggerRefusal(owner: keyof typeof TRIGGERS, kind: any, path: st
 
 /** §134.2: the check declaration form, for a Mod's contributed check or an obligation's check step. */
 export function checkDeclarationRefusals(check: any, owner: CheckOwner, at = ""): Refusal[] {
-    const refusals: Refusal[] = [], obligation = owner.kind === "obligation";
+    const refusals: Refusal[] = [], obligation = owner.kind === "obligation", rule = owner.kind === "rule";
     const refuse = (rule: string, key: string, message: string) => refusals.push({ rule, path: at + key, message });
     if (!plain(check)) {
         refuse("check_values", "", "a check declaration must be an object");
@@ -53,14 +61,35 @@ export function checkDeclarationRefusals(check: any, owner: CheckOwner, at = "")
         const trigger = triggerRefusal("mod", check.trigger, at + "trigger");
         if (trigger) refusals.push(trigger);
     }
+    if (rule) {
+        for (const key of unknownKeys(check, RULE_CHECK_KEYS))
+            refuse("shape_unknown_key", key, `a stated check carries only ${RULE_CHECK_KEYS.join(", ")}`);
+        if (Object.hasOwn(check, "book") && !text(check.book)) refuse("shape_prose", "book", "book is one non-empty line");
+    }
     const scopes: readonly string[] = SCOPES[owner.kind];
     if (!scopes.includes(check.scope))
         refuse("check_scope", "scope", `scope must be ${scopes.join(" or ")}`);
     else if (obligation && (check.scope === "actor-target") !== Object.hasOwn(check, "target"))
         refuse("check_scope", "target", "an actor-target check names its target and an actor check names none");
+    else if (rule && (check.scope === "actor-target" && !Object.hasOwn(check, "target") || check.scope === "actor" && Object.hasOwn(check, "target")))
+        refuse("check_scope", "target", "an actor-target check names its target, an actor check names none");
+    if (rule && scopes.includes(check.scope) && (check.scope === "opposed") !== Object.hasOwn(check, "opposing"))
+        refuse("check_scope", "opposing", "an opposed check states its opposing side, and only an opposed check does");
+    else if (rule && Object.hasOwn(check, "opposing")) {
+        const opposing = check.opposing;
+        if (!plain(opposing)) refuse("check_scope", "opposing", "opposing is {values, selection: \"maximum\"}");
+        else {
+            for (const key of unknownKeys(opposing, ["selection", "values"]))
+                refuse("shape_unknown_key", `opposing.${key}`, "opposing carries only values and selection");
+            if (opposing.selection !== "maximum") refuse("check_selection", "opposing.selection", "the opposing side's selection is maximum");
+            if (!Array.isArray(opposing.values) || !opposing.values.length)
+                refuse("check_values", "opposing.values", "values must be a non-empty list of {path, label}");
+            else opposing.values.forEach((value: any, index: number) => valueRefusals(value, owner, `opposing.values[${index}]`, refuse));
+        }
+    }
     // Accounting, not content: an unstated skill or difficulty is recorded, never filled.
     const unstated = (key: string): boolean => {
-        if (!obligation || !Object.hasOwn(check, key)) return false;
+        if (!(obligation || rule) || !Object.hasOwn(check, key)) return false;
         if (check[key] !== true) refuse(key === "difficulty_unstated" ? "check_difficulty" : "check_values", key, `${key} is true or absent`);
         return check[key] === true;
     };
@@ -81,6 +110,24 @@ export function checkDeclarationRefusals(check: any, owner: CheckOwner, at = "")
         refuse("check_difficulty", "difficulty", difficultyUnstated ? "a check whose difficulty is unstated has no difficulty"
             : `difficulty must be ${DIFFICULTIES.join(", ")} (or absent with difficulty_unstated)`);
     const results = check.results;
+    if (rule) {
+        // §136.7: a rule states only the levels the book states, each {effects?, book?}; the caller checks the effects.
+        if (Object.hasOwn(check, "results")) {
+            if (!plain(results) || unknownKeys(results, LEVELS).length)
+                refuse("check_results", "results", `results names only levels among ${LEVELS.join(", ")}`);
+            else for (const [level, entry] of Object.entries(results))
+                if (!plain(entry) || unknownKeys(entry, ["book", "effects"]).length || (Object.hasOwn(entry, "effects") && !Array.isArray(entry.effects))
+                    || (Object.hasOwn(entry, "book") && !text(entry.book)))
+                    refuse("check_results", `results.${level}`, "a stated check's result level is {effects?: [effect], book?: one line}");
+        }
+        if (Object.hasOwn(check, "push")) {
+            const push = check.push;
+            if (!plain(push) || unknownKeys(push, ["allowed", "book", "effects"]).length || typeof push.allowed !== "boolean"
+                || (Object.hasOwn(push, "effects") && !Array.isArray(push.effects)) || (Object.hasOwn(push, "book") && !text(push.book)))
+                refuse("check_results", "push", "push is {allowed: boolean, effects?: [effect], book?: one line}");
+        }
+        return refusals;
+    }
     if (!plain(results) || sorted(Object.keys(results)).join(",") !== sorted(LEVELS).join(","))
         refuse("check_results", "results", `results must define exactly ${LEVELS.join(", ")}`);
     else if (obligation)
@@ -105,8 +152,8 @@ function valueRefusals(value: any, owner: CheckOwner, key: string, refuse: (rule
         return;
     }
     const obligation = owner.kind === "obligation";
-    if (obligation && unknownKeys(value, VALUE_KEYS).length)
-        refuse("obligation_unknown_key", key, `a value carries only ${VALUE_KEYS.join(", ")}`);
+    if (owner.kind !== "mod" && unknownKeys(value, VALUE_KEYS).length)
+        refuse(obligation ? "obligation_unknown_key" : "shape_unknown_key", key, `a value carries only ${VALUE_KEYS.join(", ")}`);
     const dot = value.path.indexOf("."), group = value.path.slice(0, dot), name = value.path.slice(dot + 1);
     if (dot < 0 || !["characteristics", "skills"].includes(group) || !name.trim()) {
         refuse("check_values", `${key}.path`, "a value path is characteristics.<name> or skills.<name>");
@@ -114,7 +161,7 @@ function valueRefusals(value: any, owner: CheckOwner, key: string, refuse: (rule
     }
     if (Object.hasOwn(value, "minimum")) {
         // §134.3: the Mod resolver reads no threshold, so a Mod may not declare one it would silently ignore.
-        if (!obligation)
+        if (owner.kind === "mod")
             refuse("check_values", `${key}.minimum`, "a Mod check cannot declare a minimum; the Mod resolver reads none");
         else if (!Number.isInteger(value.minimum) || value.minimum < 1 || value.minimum > 100)
             refuse("check_values", `${key}.minimum`, "minimum is an integer from 1 to 100");
@@ -123,7 +170,8 @@ function valueRefusals(value: any, owner: CheckOwner, key: string, refuse: (rule
         const table = group === "skills" ? owner.skills : owner.characteristics;
         if (!table.some(entry => normalize(entry) === normalize(name)))
             refuse("check_unknown_skill", `${key}.path`, `${repr(name)} is not a ${group === "skills" ? "skill" : "characteristic"} of the ruleset`);
-    }
+    } else if (owner.kind === "rule" && !owner.resolves(group as "skills" | "characteristics", name))
+        refuse("shape_unknown_skill", `${key}.path`, `${repr(name)} is not a ${group === "skills" ? "skill" : "characteristic"} of the ruleset (contract §136.4)`);
 }
 const repr = (value: string): string => JSON.stringify(value);
 

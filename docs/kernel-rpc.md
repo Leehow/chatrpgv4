@@ -4296,6 +4296,8 @@ module's stated obligations, and one validator checks both (§134.2–§134.3): 
 `trigger` is now validated as the closed enum `{contact}` and is required; `selection:
 approach` and `values[].minimum` belong to the shared form but are refused for a Mod
 until the Mod resolver reads them (§134.3).
+The same form has a third owner, `rule`, for the mechanical shapes a module states (§136.7):
+a Mod check is validated exactly as before.
 
 Current implementation decisions: `definition-created` and `ability-acquired` join
 the closed event set. Natural NPC checks may run during the opening after a real
@@ -16186,6 +16188,9 @@ The kernel applies no consequence from them: ejection, route closure, damage and
 Keeper's to realise. The starter's old typed consequence (`effect: {kind: "route_closed", route_id}`)
 is therefore not carried over; its line is.
 
+The form has a third owner, `rule`, beside `mod` and `obligation`: the check a module states as a
+mechanical shape (§136.7 gives its column).
+
 ### 134.3 One validator, and what it says to a Mod
 
 `kernel-ts/modules/obligation-shape.ts` holds the validator. `checkDeclarationRefusals(check,
@@ -16226,6 +16231,12 @@ build**: the Mod resolver (`kernel-ts/mods/resolve.ts`) takes the maximum over e
 no threshold, so accepting either would run a different check than the one declared. A Mod gains them
 when that resolver reads them. A package is not bound to a ruleset, so a Mod's skill names are not
 resolved at install; they are read at settlement as §28.1 door 3 says.
+
+**Third owner (2026-09-23, §136.7).** `checkDeclarationRefusals` also takes the owner `rule`, for a
+`mechanics.check`, a `hazard` step or a tome's `read_check` (§136): scope `{actor, actor-target, opposed}`,
+selection `{maximum, approach}`, any subset of the six result levels, each `{effects?, book?}`, and names
+resolved per §136.4. The Mod and obligation owners are unchanged, and `mechanicsRefusals` (§136.8) runs after
+`obligationRefusals` at starter registration.
 
 Not in this validator: the visual reader's "a PDF source ref to a page the reader did not view" law
 (it has no page-view record at starter registration; SO-03 runs it in the draft check), and any
@@ -16717,3 +16728,280 @@ Whether a fully-bound, kernel-issued, Jev-selected operation still needs §32 ad
 typed admission (or none) is enough for policy-origin operations. The rows of §135.7 carry the measurement. The
 numbers from the SL-02 replays are recorded in `docs/specs/pi-native-single-loop-tickets/02-domain-policy.md`
 under Comments. Until the owner decides, a policy-origin write passes §32 exactly as a model-origin one does.
+
+## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
+
+A **mechanical shape** is a typed value from one closed catalog that states a rule the module prints: a
+check, a die, a quantity, a condition, an actor's numbers. It fixes *how much*, never *who decides
+whether*. The curated starters, the visual PDF reader (RD-05) and, where a Mod states a check, Mod
+declarations use the same shapes and the same validator. This section is the catalog (spec D4) and the
+refusal rules (spec D5) with the implementation rulings A–D of 2026-09-23 (spec, Comments). **RD-01 adds
+no reader:** no capsule row, option, lookup or engine path reads a shape yet (RD-02 is the first reader,
+RD-03 the operations `action.rule` and `stated`). A writer without a reader is the §31 defect; it is
+accepted here for one scheduled ticket, as §134.7 was. No shipped starter authors a shape yet, so every
+read of every starter is unchanged.
+
+### 136.1 The container and the registered seats
+
+One seat per statement: `mechanics.<shape>` of the stating node's record view (`recordOf(node)`:
+`properties.runtime_projection.record` when the node has one, otherwise `properties`). The container is
+closed; a node carries at most one shape of each name, and each name may sit only on the node kinds of its
+row:
+
+| key | shape | node kinds |
+| --- | --- | --- |
+| `profile` | `stat_block` (the existing seat, registered) | `npc`, `creature` |
+| `check` | `check` | `rule`, `hazard` |
+| `hazard` | `hazard` | `rule`, `hazard` |
+| `damage` | `damage` | `rule`, `hazard` |
+| `sanity_loss` | `sanity_loss` | `rule`, `hazard`, `object`, `artifact` |
+| `time_cost` | `time_cost` | `rule`, `hazard` |
+| `resource_cost` | `resource_cost` | `rule`, `hazard`, `object`, `artifact` |
+| `weapon` | `weapon` | `object`, `artifact` |
+| `spell` | `spell` | `spell` |
+| `tome` | `tome` | `tome` |
+| `reward` | `reward` | `rule` |
+
+**Registered seats outside the container** (landed and read; the catalog names them and nothing moves):
+
+| shape | seat | validated by |
+| --- | --- | --- |
+| `obligation` | a `requirement` node's `properties.obligation` (§134.1) | `obligationRefusals` (§134.3), unchanged |
+| clue gate (`check`) | a clue's canonical `delivery_kind`/`skill`/`difficulty` (`clueProfile`) | not validated here; read by `shape_duplicate` |
+| `gate` | a route's `when` (and the legacy `unlock_when`/`conditions` the exit reader accepts) | not validated on routes (landed data, some of it legacy); validated wherever a container shape embeds one (`hazard.when`, `reward.when`) |
+| `clock` | a `threat` record's `clocks[]` (`clock_id`, `segments`, `on_tick_visible`, `on_full`, as read today) | only the new optional key `advances_on` |
+| `tactic` | an `npc` or `creature` record's `combat.defense` (ruling D) | its closed enum |
+
+**`tactic` has one seat (ruling D).** It is SL-07's key: the record's `combat.defense`, one of `dodge`,
+`fight_back`, `none` (branch `claude/sl07-npc-standing-defense-20260923`, §11.5.2 there, which owns the reader
+`pending_defense.standing`, basis `authored`). There is no `mechanics.tactic` key: one is refused as an
+unknown shape. RD-09 only confirms the registration once SL-07 lands.
+
+**Legacy allowance (rulings A and B), starters only, listed by name and shrinking.** On a curated starter
+(registration through `registerStarter`) the validator tolerates exactly these keys, which carry no shape and
+are read by nothing; RD-04 (the haunting) and RD-08 (`mystery-house`) remove them, and each removal shrinks
+the list in the same change. A reader draft (RD-05) gets no allowance.
+
+| where | keys |
+| --- | --- |
+| the container `mechanics` | `status`, `subject_kind`, `source_refs`, `provenance`, `fields_observed`, `fields_extracted`, `fields_not_authored` |
+| `profile` (`stat_block`) | `attacks`, `attacks_per_round`, `san_loss_to_see` |
+| a `weapon` (in `profile.weapons[]` or `mechanics.weapon`) | `note` (RD-04 moves it to the node's `summary`) |
+
+While the allowance stands, a starter's registered `profile` seat is not held to `mechanics_unsourced`
+(below): the curated starters cite their stat blocks inside the container's legacy `source_refs`, which is
+itself on the allowance, and two of the four carriers have no node-level citation at all
+(`the-haunting` `npc-rat-pack`; `mystery-house` `npc-calvin-crowe`, `npc-rat-swarm`). The migration that
+removes the legacy `source_refs` moves the citation to the node. Every other shape on a starter is held to
+the rule in full.
+
+### 136.2 Accounting, not content: `_unstated`
+
+Every slot a page may leave out has a twin `<slot>_unstated: true`. When the shape's form **needs** the
+slot, exactly one of the two is present; when the slot is optional, the twin is admitted and never
+required. Both present is refused; neither present for a needed slot is refused (the author or reader says
+which: stated, or not stated). A twin is `true` or absent. The validator never refuses a missing shape,
+never counts shapes and never judges a value's plausibility. A step whose value is unstated is the
+Keeper's to complete (`basis: keeper`), never the clerk's — §134.2's rule for `difficulty_unstated` and
+`approaches_unstated`, generalised. The needed slots are listed per shape in §136.6.
+
+### 136.3 One dice grammar for authored data
+
+An authored dice string is valid when `definitionExpression` (`kernel-ts/mods/definition.ts:30`) accepts it
+— `(NdM|N)([+-](NdM|N))*`, at most 80 characters, dice count ≤ 100, faces ≥ 1, every number ≤ 10000, and
+outside `damage` no negative minimum — **and** it is written in that function's canonical (uppercase) form,
+has at least one `NdM` term and subtracts no `NdM` term. The three narrowings are what makes every accepted
+string one that both rollers of authored dice read: `rollExpression` (`kernel-ts/resolve/arithmetic.ts:30`,
+behind `apply damage` and every Mod effect) refuses an expression without a die, and
+`CombatSession.rollDamageExpression` (`kernel-ts/combat/engine.ts`) is case-sensitive and refuses a
+subtracted die. The rollers are not changed (owner ruling Q5); a bare quantity is written as an integer in
+the slots that admit `<int|DICE>`. `tests/extension/mechanics-shape.test.mjs` rolls every accepted string
+through both.
+
+- **A Sanity half** (`sanity_loss.success`/`.failure`, a tome's `sanity_cost`, a `stat_block.sanity_loss`) is
+  a string: `"0"`, which the sanity engine skips (`kernel-ts/sanity/index.ts:182`), or a string both
+  `definitionExpression` and `validateSanLossExpression` (`kernel-ts/sanity/expression.ts:31`: a positive
+  constant or `NdM(+K)`) accept, in canonical form. A constant is legal here because the sanity engine rolls
+  its halves itself.
+- **No damage bonus inside a string** (`1D6+DB`, `½DB`, `+ damage bonus` are refused): a weapon says
+  `adds_damage_bonus: true`; an actor's `derived.DB` is one of the ruleset's damage-bonus values
+  (`damage-bonus-build.json`: the rows' `damage_bonus`, and `+<n>D6` for the extrapolated rows
+  `damageBonusBuild` computes).
+- **No units or words** (`1D4+2 hit points`, `2D6 armor`): the unit is the shape, the words are `book`.
+- The engine's other dice readers (`rollChaseDice`, `rollMagicDice`, `resolveMpCost`, `parseDiceExpression`,
+  `creationRoll`, `reconstructDamageRoll`, `parseSanLoss`) read the Keeper's actions and the ruleset's own
+  tables, not shapes, and are unchanged (Q5).
+
+### 136.4 Names
+
+Node references are graph node ids of the kinds named. A characteristic resolves against the ruleset's
+characteristic table (`characteristic-dice.json`: `STR` … `EDU`, `Luck`) by normalised-name match (`normalize`,
+`kernel-ts/read/values.ts:100`). **A skill (ruling C)** resolves when its normalised name equals
+
+- a key of the ruleset's skill table (`skills.json` `skills`), or
+- a key of its specialization-group table (`skills.json` `specialization_groups`; `Fighting` is one), or
+- `<Group> (<Specialization>)` whose group part is a group key. For a group whose own key carries a
+  parenthesis the literal form is `Language (Other) (Latin)`; the kernel's existing nested spelling of the
+  same identity, `Language (Other: Latin)` (`specializationName`, `kernel-ts/rules/skills.ts:44`), is
+  accepted too. When the ruleset **enumerates** the group's members (`specializations` is a list or an
+  object: Art and Craft, Firearms, Fighting, Pilot, Science), the specialization must be one of them — the
+  set the kernel's settlement-time `specializationIdentity` admits, so the validator never accepts a name
+  settlement would refuse. When it does not (`specializations` null or a description, or `open: true`:
+  `Language (Other)`, `Language (Own)`, `Survival`), the group is **open** and the specialization part is a
+  name, not classified: it resolves at settlement by normalised-name match against the actor's own sheet,
+  and an actor without it uses the group's base value, as the rules already do.
+
+Both tables are the ruleset's closed keys; nothing here is a word list over text. The obligation owner of
+§134.3 keeps its own resolution (skill and characteristic keys) unchanged.
+
+### 136.5 Effects: the closed consequence vocabulary
+
+Where a shape states what follows (a check's result level or push, a hazard with no roll), it lists effects.
+An effect is `{kind, ...}` with exactly the fields below; each is the argument of one existing verb, and
+**an effect is never applied by being read** (spec P6). RD-01 validates them; nothing reads them yet.
+
+| `kind` | fields | executed only by |
+| --- | --- | --- |
+| `damage` | the `damage` shape's keys | the Keeper's `apply damage` |
+| `sanity_loss` | the `sanity_loss` shape's keys | the Keeper's `resolve` `sanity:check` |
+| `time` | the `time_cost` shape's keys | the Keeper's `apply time` |
+| `cost` | the `resource_cost` shape's keys | the engine inside a cast or combat operation; otherwise the Keeper |
+| `flag` | `flag_id` (the §134.4 semantic id), `value` (boolean) | the Keeper's `apply flag`; the clerk only as an obligation's settlement |
+| `clock` | `clock_id` (a clock of a `threat` record of the module), `ticks` (integer ≥ 1) | the Keeper's `apply threat` |
+| `next_step` | `step` (integer): inside a `hazard`'s `steps` only, pointing to a later step | the operation that ran the step before it (RD-03) |
+| `book` | `line` (one English line) | the Keeper, in the fiction |
+
+An effect kind is added only with its writer. Conditions, ejection, a lost possession have no writer verb:
+they are `book` lines.
+
+### 136.6 The shapes
+
+Common to every shape: an object with closed keys (an unknown key is refused), one optional `book` (one
+non-empty line, system language), numbers are numbers, enums are closed, dice per §136.3, names per §136.4,
+`_unstated` per §136.2. `int` below is an integer ≥ 0 unless noted.
+
+1. **`check`** — a stated roll: the §134.2 declaration form with the third owner `rule` (§136.7):
+   `{scope: "actor" | "actor-target" | "opposed", target?: <npc|creature id>, values: [{path, label, minimum?}]
+   | approaches_unstated: true, selection: "maximum" | "approach", opposing?: {values: [{path, label}],
+   selection: "maximum"}, difficulty: "regular" | "hard" | "extreme" | difficulty_unstated: true, results?:
+   {<critical|extreme|hard|regular|failure|fumble>: {effects?: [effect], book?}}, push?: {allowed: boolean,
+   effects?: [effect], book?}, book?}`. Needed: `values` (or `approaches_unstated`, then no `selection`),
+   `difficulty`. `target` is required for `actor-target`, optional for `opposed`, absent for `actor`;
+   `opposing` is present exactly for `opposed`. `results` is any subset of the six levels.
+2. **`damage`** — hit points lost to something other than an attack: `{dice: DICE | dice_unstated: true,
+   book?}`. Needed: `dice`.
+3. **`sanity_loss`** — `{success: SAN | success_unstated: true, failure: SAN | failure_unstated: true, book?}`.
+   Needed: both halves.
+4. **`time_cost`** — `{amount: int | DICE, unit: "round" | "minute" | "hour" | "day" | "week", minimum?: true,
+   book?} | {amount_unstated: true, book?}`. Needed: `amount`; a stated amount needs its `unit`, an unstated one
+   has neither `unit` nor `minimum`. A span with no count of a unit ("each half-day") is `amount_unstated`
+   with the span as `book` (owner ruling Q3).
+5. **`resource_cost`** — `{resource: "mp" | "pow" | "san" | "luck" | "hp", amount: int | DICE |
+   amount_unstated: true | chosen: true, per?: "use" | "round" | "cast", book?}`. Needed: `resource`, and exactly
+   one of `amount`, `amount_unstated`, `chosen` (the book lets the spender choose, as Flesh Ward's "variable
+   magic points"; no number is invented).
+6. **`gate`** — `{kind: "always"} | {kind: "clue_discovered", clue_id: <clue id>} | {kind: "flag_set",
+   flag_id: <semantic id>, value?: boolean}`: exactly the objects `conditionStatus` reads. A bare string and
+   the text-search fallback are not authorable. Embedded as `when` in `hazard` and `reward`.
+7. **`hazard`** — a danger the book states and the Keeper triggers: `{trigger: {kind: "keeper"} | {kind:
+   "enter"} | {kind: "attempt", guards: {clues?: [clue id], exits?: [scene id], people?: [npc|creature id]}},
+   when?: gate, steps?: [check], effects?: [effect], book?}`. Needed: `trigger`; an `attempt` guards at least one
+   id. Each step is a `check` of owner `rule`; a step's result may carry `{kind: "next_step", step}` naming a
+   later step. Never a candidate for the clerk (spec D8).
+8. **`obligation`** — registered, §134; unchanged.
+9. **`stat_block`** (seat `mechanics.profile`) — `{characteristics?: {STR, CON, SIZ, DEX, APP, INT, POW, EDU:
+   int}, derived?: {HP, MP, MOV, Build, SAN: integer (any sign); DB: a ruleset damage-bonus value}, skills?:
+   {<skill name>: int}, weapons?: [weapon], armor?: int | armor_unstated: true, armor_rule?:
+   "degrades_1_per_damage", spells?: [<spell name or spell node id>], sanity_loss?: sanity_loss, profile_kind?,
+   characteristic_scale?, authority? (the provenance strings the starters write), book?}` plus the starter
+   allowance of §136.1. Nothing is needed: `npcCombatParticipant` supplies its own defaults, and the
+   `_unstated` twin of `armor` is admitted, not required.
+10. **`weapon`** — `{weapon_id?: <kebab id>, extends?: <weapons.json id>, name?, skill, damage, uses_per_round,
+    impale, adds_damage_bonus?, base_range_yards?, magazine?, malfunction?, book?}`. `weapon_id` is the engine's
+    identity key (`kernel-ts/combat/catalog.ts:48`, ruling B). With `extends` every other key is an override
+    and nothing is needed; without it `skill`, `damage` (DICE; `damage` rules of §136.3), `uses_per_round`
+    (integer 1–100) and `impale` (boolean) are needed, each with its `_unstated` twin. `adds_damage_bonus` is a
+    boolean, `base_range_yards` a number 0–100000, `magazine` an integer 1–1000, `malfunction` an integer
+    1–100, as `validateDefinition` has them. Seats: `stat_block.weapons[]`, `mechanics.weapon` of an object or
+    artifact.
+11. **`tactic`** — registered at `combat.defense` (§136.1): `{defense: "dodge" | "fight_back" | "none"}`; the
+    record's `combat` carries only `defense`.
+12. **`spell`** — `{cost_mp: int | DICE | cost_mp_unstated: true | cost_mp_chosen: true, cost_sanity: int |
+    DICE | cost_sanity_unstated: true, cost_pow?: int | DICE (twin admitted), casting_time: time_cost,
+    duration?: time_cost, effects?: [{kind: "hp" | "san" | "mp", amount: int | DICE, direction: "gain" |
+    "loss"}], book?}`: the Mod definition's spell parameters and effects. Needed: `cost_mp` (one of three),
+    `cost_sanity`, `casting_time` (its own `amount_unstated` records a page that gives none).
+13. **`tome`** — `{language?: "skills.<name>", read_check?: check, read_without_roll_at?: int, initial_reading:
+    time_cost, full_study?: time_cost, cthulhu_mythos_initial?: int, cthulhu_mythos_full?: int, mythos_rating?:
+    int, sanity_cost?: sanity_loss, max_sanity_reduction?: int, spells?: [spell id], book?}`, with an admitted
+    `_unstated` twin for every optional slot. Needed: `initial_reading`.
+14. **`reward`** — `{sanity?: DICE | sanity_unstated: true, cash?: number ≥ 0, currency?: <a unit label, one
+    token>, when?: gate, book?}` on a `rule` node.
+15. **`clock`** — registered at a `threat` record's `clocks[]`; its one new optional key is `advances_on:
+    [{kind: "enter", scene: <scene id>}]`, a non-empty list.
+
+### 136.7 The check declaration form gains the owner `rule` (amends §134.2–§134.3 and §26)
+
+`checkDeclarationRefusals(check, owner)` (`kernel-ts/modules/obligation-shape.ts`) is still the one function
+for the check form. Its owners and what differs between them:
+
+| | Mod (§26) | obligation (§134) | rule (§136) |
+| --- | --- | --- | --- |
+| `scope` | `actor-target` | `actor-target`, `actor` | `actor`, `actor-target`, `opposed` |
+| `selection` | `maximum` | `maximum`, `approach` | `maximum`, `approach` |
+| `values[].minimum` | refused | admitted | admitted |
+| `approaches_unstated` / `difficulty_unstated` | refused | admitted | admitted |
+| names resolve | at settlement (§28.1) | skill and characteristic keys | §136.4 |
+| `results` | exactly six levels, the Mod's own mappings | exactly six, `{settles, book?}` | any subset of the six, `{effects?, book?}` |
+| `push` | — | `{allowed, book?}` | `{allowed, effects?, book?}` |
+| `trigger` | on the check, `contact` | on the obligation | none (a hazard's trigger is on the hazard) |
+| `opposing` | — | — | exactly with `opposed`: `{values, selection: "maximum"}` |
+
+Its callers: the Mod manifest check (`manifestFrom`, owner `mod`, unchanged), `obligationRefusals` (owner
+`obligation`, unchanged), and `mechanicsRefusals` (owner `rule`) for `mechanics.check`, every `hazard` step and
+a tome's `read_check`. The `check_*` rules of §134.3 keep their codes for every owner.
+
+### 136.8 One validator: `mechanicsRefusals`
+
+`kernel-ts/modules/mechanics-shape.ts` holds `mechanicsRefusals(graph, rules, {starter})`, beside
+`obligation-shape.ts`. `rules` carries the ruleset's skill keys, specialization groups, characteristic keys,
+`weapons.json` ids and damage-bonus values. It is called by starter registration (`registerStarterLocked`,
+`kernel-ts/write/source.ts`), after `obligationRefusals` and before any byte of a new generation is written;
+a refusal throws `invalid_params` with `details: {reason: "mechanics_invalid", module, refusals}`. RD-05 adds the
+reader's draft check as its second caller (over the overlay graph, with `starter: false`); the Mod manifest
+check shares only the check form (§136.7). Refusals are data, `{rule, path, message, node}`, the path dotted
+from the node (`properties.runtime_projection.record.mechanics.hazard.steps[0].difficulty`); a test names the
+rule, never the wording.
+
+| rule | refused |
+| --- | --- |
+| `mechanics_unknown_shape` | a key under `mechanics` outside §136.1 (on a starter, outside §136.1 and its container allowance), `mechanics.tactic` included; `mechanics` not an object |
+| `mechanics_wrong_kind` | a shape on a node kind outside its §136.1 row; `combat.defense` on a kind other than `npc`/`creature`; `advances_on` on a record that is not a `threat`'s clock |
+| `mechanics_unsourced` | a node carrying a shape (a container shape, `combat.defense`, `advances_on`) without a non-empty `source_refs` list of objects, or on a starter without a non-empty `evidence_span_ids` list of strings; except a starter's lone registered `profile` while the allowance stands (§136.1). The reader's "a ref to a page the reader did not view" law is RD-05's |
+| `shape_unknown_key` | a key outside the shape's closed set (the starter allowance aside), in a shape, a weapon, a check (owner `rule`) or its value, an effect, a trigger, a gate, a guard map |
+| `shape_prose` | a value of the wrong type where the shape needs a number, an integer, a boolean, an enum value or an id: a string in a number slot, a word outside a closed enum, a non-kebab `weapon_id`, a twin that is not `true` |
+| `shape_dice` | a dice slot outside §136.3, or a Sanity half outside its rule |
+| `shape_unstated` | a value and its `_unstated` twin both present, or neither for a needed slot (§136.6); a stated `time_cost` amount without its `unit`, or an unstated one with `unit`/`minimum` |
+| `shape_unresolved` | a reference that is not a node of the right kind (a check's `target`, a guard, a gate's `clue_id`, a tome's or clock's reference, an effect's `clock_id`), an `extends` that is not a `weapons.json` id, a `DB` outside the ruleset's values, an `attempt` that guards nothing |
+| `shape_unknown_skill` | a skill or characteristic that does not resolve per §136.4 (a stat block's skill names, a weapon's `skill`, a tome's `language`, a check's value paths) |
+| `shape_effect` | an effect kind outside §136.5; `next_step` outside a hazard's steps, or pointing to the same, an earlier or a missing step |
+| `shape_duplicate` | one check with two owners: a `hazard` whose `attempt` guards a clue and one of whose steps states a single skill with the difficulty of that clue's own gate (`clueProfile`); or a node carrying `mechanics.check` that a `requirement` node's stated obligation calls by a `calls-for-check` claim, when the two checks have the same value paths, selection and difficulty (§134.3's `obligation_repeats_clue_gate`, generalised) |
+| `check_*` | §134.3's check rules for the owner `rule` (§136.7): `check_scope` (also `opposing` present without `opposed` or missing with it), `check_selection`, `check_values`, `check_difficulty`, `check_results` |
+
+Never refused: a node without shapes, a module with none, an implausible number, a shape whose `summary`
+disagrees with it (the reviewer judges that against the page image, not code).
+
+### 136.9 Tests (RD-01)
+
+`tests/extension/mechanics-shape.test.mjs`, through the real entries — `module.register` over a content root
+whose haunting graph carries the case (the shipped graph with exactly one change), and `mods.install` of a
+package derived from `natural-npc` (Mod bytes are frozen per version; the shipped package is never edited):
+one refusal per rule of §136.8 by its `rule`, each shown to go green when its rule is removed from the
+validator (the mutation record is in the RD-01 report); the minimal node of every one of the fifteen shapes
+and an `_unstated` variant of every needed slot accepted; `combat.defense` accepted as `tactic` and
+`mechanics.tactic` refused; the dice table (`1D4+2 hit points`, `1D6+DB`, `½DB`, `2D6 armor`, `1d6`, `2`,
+`1D6-1D4` refused with `shape_dice`; every accepted string rolled by `rollExpression` and
+`CombatSession.rollDamageExpression`); the starter allowance accepted on a starter; `natural-npc` loading at
+its version and digest. Every shipped starter registers unchanged, and the capsule, `table.apply.options` and
+`table.resolve.options` of every starter, walked scene by scene, are byte-identical to the parent commit
+`7709b5ded`.
