@@ -23,7 +23,11 @@
  * - projection: before each model step, one `coc-clerk` message: what the clerk did this turn (committed, with
  *   receipts and the kernel row each came from), the operation the Keeper is asked to complete, or the batch step
  *   that returned to it;
- * - record: every run/step event as a `lane: "run"` telemetry row of the campaign.
+ * - record: every run/step event as a `lane: "run"` telemetry row of the campaign;
+ * - turn close (§135.11): before a run with no delivery evidence finishes, the policy's `turn_close` operation asks the
+ *   kernel extension's turn-close port (`coc:turn-close`) what the turn close did. A delivery this run committed (the
+ *   implicit narrate of a prose-only reply) is the run's evidence; a steer legacy's `agent_end` would send is prepended
+ *   to one more model step of the same run, as the same `coc-host` message.
  */
 import type { RunDriverPorts, RunEvent } from '@earendil-works/pi-agent-core';
 import type { SessionRunDriver } from '@earendil-works/pi-coding-agent';
@@ -56,6 +60,11 @@ export interface KernelBridge {
   campaign?: string;
   call?: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   record?: (row: Record<string, unknown>) => void;
+}
+/** The kernel extension's turn-close port (`coc:turn-close`, contract §135.11). */
+export interface TurnClosePort {
+  campaign?: string;
+  verdict(): Record<string, unknown> | Promise<Record<string, unknown>>;
 }
 /** The kernel extension's canonical operation gateway (`coc:operation-dispatcher`). */
 export interface OperationGateway {
@@ -146,6 +155,8 @@ interface RunState {
   lease?: TaskLease;
   /** The NPC turn whose held or fled standing the Keeper was last told (`<npc>:r<round>`). */
   noted?: string;
+  /** §135.11: the turn-close steer the next model step carries (the kernel extension's own `coc-host` message). */
+  steer?: Row;
 }
 
 /**
@@ -153,7 +164,7 @@ interface RunState {
  * bridge and the operation gateway (both go onto the bus at session_start, after the driver was created).
  */
 export function createHybridEngine(options: HybridEngineOptions): {runDriver: SessionRunDriver; extension: (pi: any) => void; bridge: () => KernelBridge | undefined} {
-  let bridge: KernelBridge | undefined, gateway: OperationGateway | undefined, api: any;
+  let bridge: KernelBridge | undefined, gateway: OperationGateway | undefined, closer: TurnClosePort | undefined, api: any;
   const jev = options.decision === null ? undefined
     : options.decision ?? (readJevApiKey(options.env) ? createDecisionAdapter({env: options.env, maxConcurrency: 4}) : undefined);
   const record = (row: Record<string, unknown>) => {
@@ -240,6 +251,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           if (proposal.origin === 'model' && invocation.executeModelTool) return modelStep(run, proposal, invocation.executeModelTool);
           if (proposal.operation === 'llm_proposal') return {status: 'ok', artifact: {kind: 'execute', executed: {ok: true, summary: {slot: 'llm_proposal'}}}};
           if (proposal.operation === 'execute') return clerkStep(run, object(proposal.params), invocation);
+          if (proposal.operation === 'turn_close') return turnCloseStep(run);
           return {status: 'refused', reason: 'unknown_policy_operation', artifact: {kind: 'execute', executed: {ok: false, summary: {refused: 'unknown_policy_operation'}}}};
         },
       },
@@ -321,6 +333,30 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         clerk: candidate.clerk ?? null, basis: candidate.basis ?? null, ...(ok ? {} : {refusal: String(refusal)})} as Json}, ...(read ? {fresh: read} : {})}};
   }
 
+  /**
+   * §135.11: what the turn close did. The kernel extension's verdict is the evidence of a delivery this run committed
+   * (the implicit narrate of a prose-only reply), or the steer the Keeper is owed, or why nothing is owed.
+   */
+  async function turnCloseStep(run: RunState) {
+    const done = (status: 'ok' | 'unavailable', verdict: Row, delivery?: 'accepted' | 'awaiting_player') =>
+      ({status, ...(delivery ? {delivery} : {}), ...(status === 'unavailable' ? {reason: 'turn_close_unavailable'} : {}),
+        artifact: {kind: 'turn_close', verdict} as StepArtifact});
+    if (!closer) return done('unavailable', {status: 'unavailable', reason: 'no_turn_close_port'});
+    let verdict: Row;
+    try { verdict = object(await closer.verdict()); } catch (error) {
+      return done('unavailable', {status: 'unavailable', reason: String((error as Error)?.message ?? error).slice(0, 200)});
+    }
+    if (verdict.status === 'delivered') {
+      const delivery = verdict.delivery === 'awaiting_player' ? 'awaiting_player' as const : 'accepted' as const;
+      return done('ok', {status: 'delivered', delivery, implicit: verdict.implicit === true, call_id: verdict.call_id ?? null, turn: verdict.turn ?? null}, delivery);
+    }
+    if (verdict.status === 'steer' && verdict.message && typeof verdict.message === 'object') {
+      run.steer = object(verdict.message);
+      return done('ok', {status: 'steer', kind: text(verdict.kind) || 'steer'});
+    }
+    return done('ok', {status: 'none', reason: text(verdict.reason) || 'nothing_owed'});
+  }
+
   /** Jev's decisions: route and closed bind through the DecisionPort, the ordinary check through its binder. */
   async function decide(run: RunState, request: {runId: string; stepId: string; purpose: string; question: unknown; signal: AbortSignal}) {
     const question = object(request.question);
@@ -393,9 +429,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const plan = view.policyState?.view?.plan;
     if (step.reason === 'batch_fallen' && plan) Object.assign(content, {batch: plan.steps,
       batch_note: 'Your last batch stopped where a step failed; the steps after it were not executed. Decide what that failure means.'});
-    if (Object.keys(content).length <= 3 && !fresh.length) return undefined;
-    return [{role: 'custom', customType: CLERK_TYPE, content: JSON.stringify(content), display: false,
-      details: {coc_host: true, run: run.runId, step: stepId, ...(run.turn !== undefined ? {turn: run.turn} : {})}, timestamp: Date.now()}] as any;
+    const messages: Row[] = [];
+    if (Object.keys(content).length > 3 || fresh.length) messages.push({role: 'custom', customType: CLERK_TYPE, content: JSON.stringify(content), display: false,
+      details: {coc_host: true, run: run.runId, step: stepId, ...(run.turn !== undefined ? {turn: run.turn} : {})}, timestamp: Date.now()});
+    // §135.11: the turn-close steer, last, as the same `coc-host` message legacy's `agent_end` sends.
+    if (run.steer && step.reason.startsWith('turn_close:')) { messages.push({role: 'custom', ...run.steer, timestamp: Date.now()}); run.steer = undefined; }
+    return messages.length ? messages as any : undefined;
   }
 
   const runDriver: SessionRunDriver = {
@@ -415,6 +454,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     api = pi;
     pi.events.on('coc:kernel-bridge', (data: KernelBridge) => { bridge = data?.call ? data : undefined; });
     pi.events.on('coc:operation-dispatcher', (data: OperationGateway) => { gateway = data && typeof data.dispatch === 'function' ? data : undefined; });
+    pi.events.on('coc:turn-close', (data: TurnClosePort) => { closer = data && typeof data.verdict === 'function' ? data : undefined; });
     // The run owns the prescreen on this engine (§135.6); the context hook injects what the run prepared.
     const announce = () => { pi.events.emit('coc:loop-engine', {engine: 'hybrid-v1', prescreen: 'run'}); };
     announce();

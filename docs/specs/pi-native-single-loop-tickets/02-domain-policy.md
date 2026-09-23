@@ -191,3 +191,69 @@ the Keeper's refusal budget. Today a clerk refusal is struck like any other.
 
 **Scratch left behind.** None in the worktree. The instrument's workspaces are removed per run. The scored traces
 are committed under `experiments/single-loop-routing/results/sl02-*`.
+
+### 2026-09-23 — live-gate finding: the hybrid run did not own the turn close (fixed on `claude/hybrid-prose-delivery-20260923`)
+
+**What the player saw.** On the installed `e1b4176d3`, campaign `game-b5367f88` (the-haunting, zh-Hans, Keeper
+grok-4.7-build-fast low), the input asking Arty for the Corbitt clippings showed "3 steps · Thinking · resolve"
+and then the §38 notice "no delivered result". Nothing reached the player.
+
+**What the evidence says (session file and telemetry, read-only).**
+
+- Turn 2 (the failed turn): the Keeper called `resolve` (Persuade 34 against 10, failed). The failure branch
+  returned to the Keeper (`batch_fallen`). The provider's answer was `blocks: ["thinking", "text"]`: the Keeper
+  had written the refusal. Two people were present and the draft carried no say token. So `message_end` dropped
+  the text for the §40 speech steer (`lane: "speech"`, `steered: true`, `reason: "no_token"`), and the persisted
+  assistant message kept only its thinking. Legacy would now steer once from `agent_end` and continue the run. On
+  hybrid, `agent_end` fires after `runDriver` has returned, so the steer was only queued for the next input, the
+  run ended `undelivered, prose:no_delivered_evidence`, and the notice went out. The prose was lost, not missing.
+- Turn 1 (the declared move): the Keeper made its calls and then wrote prose with its lines wrapped. The kernel
+  extension closed the turn with the implicit narrate (`narrate` rows `implicit: true`, `turn-closed`), and the
+  player read it. The run did not see that narrate and logged `undelivered`: the logging gap SL-01 and SL-02
+  recorded.
+
+**The fix (contract §135.11, amending §135.9).**
+
+- The implicit narrate stays where legacy has it, in the kernel extension's `message_end`, inside the driven
+  infer step's own stream. It has to replace the draft before the message is committed (§34.14). A later driver
+  step could only narrate a draft already on the transcript, and that would be a second delivery path.
+- Before the run finishes without delivery evidence, the step policy runs one policy-origin `turn_close`
+  operation. It asks the kernel extension's new `coc:turn-close` port for its verdict:
+  - `delivered`: a narrate or ask committed this run, and the implicit narrate cites its own `call_id`. That is
+    the run's evidence, and the run ends `delivered` with reason `implicit_narrate`.
+  - `steer`: the steer legacy's `agent_end` sends, picked by the same `takeTurnCloseSteer` and spent once per turn.
+    The policy runs one more `infer(compose)` with that `coc-host` message prepended.
+  - `none`: the run ends `undelivered` with reason `turn_close_<reason>`.
+- On the driven engine, `agent_end` no longer sends a steer, so no stale nudge reaches the next input.
+- The kernel's steer is not a `finishTurn` continue (no product extension returns one), so `turn_boundary_continue`
+  was not the channel. The policy acts on the port's verdict instead.
+
+**Verified.** Unless noted, these runs are on the merged state (0.9.5a `a9ffec252` merged in).
+
+- `tests/extension/single-loop-turn-close.test.mjs`, 6 cases (hybrid seam, fake kernel):
+  - a text-only last step: `delivered` with reason `implicit_narrate`, a `table.narrate` with `implicit: true`
+    carrying the prose, and the evidence's `call_id` equal to it;
+  - a step that called `narrate` itself: unchanged (steps `operate, decide, infer, operate, finish`, no
+    `turn_close`);
+  - live turn 2's shape (a failed check, then a bare draft with a person present): speech-steered once inside the
+    same run, then delivered;
+  - a thinking-only step after a failed check: steered once ("turn not closed"), then delivered;
+  - a prose-only turn with no tool call: floor-steered once, and the second leg's nothing delivers the dropped
+    draft;
+  - nothing twice: `undelivered` with reason `turn_close_steer_spent`, the §38 notice, and no steer queued.
+- Mutations, each run against the new file. All four were killed:
+  - no `turn_close` step: 5 of 6 fail;
+  - the verdict hides the implicit delivery: 3 of 6 fail;
+  - the implicit narrate dropped on the driven engine: 3 of 6 fail;
+  - the policy ignores the steer: 4 of 6 fail.
+- `npm run build:runtime`: ok.
+- `npm run test:ext`: 2753/2753 on the merged state. Before the merge, 2734 (2728 + 6); one run under a load
+  average of 75–130 had timing failures that pass alone.
+- `uv run --frozen python -m pytest tests/kernel tests/play`: 1691 passed, 1 skipped on the merged state (1676 passed, 1 skipped before the merge).
+- The SL-00 inventory recounts `agent_end`'s `sendHost` from 5 to 1 (legacy only).
+
+**Not verified.**
+
+- No live table. The owner's gate re-runs it.
+- The `agent_end` guard (no steer after a driven run) is covered only where the run's `turn_close` already spent
+  the steer. A driven run that ends on a failed or aborted model step (no `turn_close`) is not exercised.

@@ -17036,12 +17036,85 @@ although the table delivered. The compose step's raw-prose streaming with in-pla
 and the UI's. SO-04 owns the obligation candidates (§135.2), and with them the rule that clerk-origin refusals
 stay off the Keeper's refusal budget (§67). Until then a clerk refusal is struck like any other.
 
+Amended 2026-09-23 by §135.11: delivery evidence for the implicit narrate, and the turn-close steer, are no
+longer left to SL-03. §135.11 settles both for the driven run.
+
 ### 135.10 The §32 research item (decided by measurement, not by ruling)
 
 Whether a fully-bound, kernel-issued, Jev-selected operation still needs §32 admission, or whether §32.10's
 typed admission (or none) is enough for policy-origin operations. The rows of §135.7 carry the measurement. The
 numbers from the SL-02 replays are recorded in `docs/specs/pi-native-single-loop-tickets/02-domain-policy.md`
 under Comments. Until the owner decides, a policy-origin write passes §32 exactly as a model-origin one does.
+
+### 135.11 The driven run owns the turn close: the implicit narrate is delivery evidence, and the turn-close steer is one more model step (2026-09-23, SL-02 live-gate finding; amends §135.9)
+
+**The finding.** On the installed `e1b4176d3`, campaign `game-b5367f88`, two turns in a row ended with
+`run_end undelivered, prose:no_delivered_evidence`. On turn 1 the Keeper made its calls and then wrote its prose
+without calling `narrate`. The kernel extension closed the turn with the implicit narrate, as under legacy, and the
+player read the prose. The run did not see the implicit narrate and logged `undelivered`. On turn 2 the Keeper
+called `resolve` (Persuade failed) and then wrote prose with two people present and no say token. The kernel
+extension dropped that draft for the §40 speech steer (`lane: "speech"`, `reason: "no_token"`), so the persisted
+assistant message kept only its thinking. Legacy would now steer once and continue the run. On hybrid,
+`agent_end` runs after the run has ended, so the steer was queued for the next input's first model step, and
+the player got the §38 "no delivered result" notice for a turn whose Keeper had written the scene.
+
+**Where the implicit narrate happens (unchanged).** In the kernel extension's `message_end` hook, inside the
+driven `infer` step's own stream. It is the same code, with the same receipts, the same turn close, the same
+`coc-mechanics` card and the same replacement of the draft by the rendered text, as under legacy. It stays there
+because it has to act before the message is committed: the draft is replaced in place, and a draft that never
+went through `narrate` must not reach the transcript or the screen (§34.14). A later step could only narrate a
+draft that had already been committed, and that would be a second delivery path. The driver does not narrate. It
+asks what the turn close did.
+
+**The `turn_close` operation.** When the step policy (`createStepPolicy`) would finish a run that has no delivery
+evidence and no pending model proposals, it first runs one policy-origin operation, `turn_close`. The hybrid
+engine answers it from the kernel extension's turn-close port. The port goes onto the bus at table open as
+`coc:turn-close` (`{campaign, verdict()}`) and is withdrawn at shutdown, like `coc:operation-dispatcher`.
+`verdict()` answers one of three:
+
+- `{status: "delivered", delivery, call_id, turn, implicit}`: a `narrate` or `ask` committed in this run
+  (`closedThisRun`). For a prose-only reply this is the implicit narrate: `implicit: true`, and `call_id` is the
+  implicit narrate's own. The operation's outcome carries `delivery` (`accepted` for a narrate,
+  `awaiting_player` for an ask), so the driver's delivery evidence is that committed result. The run ends
+  `delivered` with reason `implicit_narrate` (or `delivery_accepted` when the delivery was not implicit).
+- `{status: "steer", kind, text, message}`: the steer legacy's `agent_end` would send at this point. The same
+  function picks it (`takeTurnCloseSteer`), in the same order: preparation wait, reading wait, the kernel's
+  delivery fix (the refused implicit narrate's repair, the floor steer of §34 and the speech steer of §40 among
+  them), the pending choice, and "this turn is not closed yet". It is spent the same way (`steeredThisTurn`, once
+  per turn). `message` is the same `coc-host` message `sendHost` builds (`display: false`,
+  `details.kind` = the steer's kind). The policy's next step is one `infer(compose)` with reason
+  `turn_close:<kind>`, and the projection prepends that message to it. The message is persisted like any other.
+  The Keeper's answer goes through the same `message_end`: prose is closed by the implicit narrate, and a second
+  leg that brings nothing falls back to the draft the floor or speech steer dropped. Or the Keeper calls its own
+  verbs, and those run as any model proposals do.
+- `{status: "none", reason}`: nothing is owed or the steer is spent (`steer_spent`, `turn_not_open`,
+  `review_unavailable`, `run_abandoned`, `no_table`). The run finishes, and without evidence it is `undelivered`
+  with reason `turn_close_<reason>:no_delivered_evidence`.
+
+A port that is absent or throws answers `unavailable` (finish reason `turn_close_<cause>`, e.g.
+`turn_close_no_turn_close_port`), and the run finishes as before. The verdict is recorded as a `lane: "turn"`,
+`event: "turn_close"` row (`status`, `kind` or `reason`, and `implicit` with `call_id` for an implicit narrate). **The bound is legacy's.**
+The extension spends its steer once per turn. The policy also follows at most one `turn_close` steer per run, so a
+port that answered `steer` twice still costs one more model step and no more (the second answer finishes the run
+with `turn_close_run_steer_spent`). `undelivered` is now reserved for
+a run whose Keeper produced nothing deliverable even after that one steer (tool calls only, or thinking only,
+twice), or whose close was withheld by §38 or §94. The §38 notice at `agent_settled` is unchanged. It is never
+sent over prose that existed: prose that reached `message_end` is either delivered by the implicit narrate or
+steered once and then delivered from the dropped draft.
+
+**`agent_end` on the driven engine.** `agent_end` sends no turn-close steer after a driven run. The run has ended
+by then, and a steer sent from there only reaches the next input's first model step as a stale nudge (SL-01
+recorded this). The run's `turn_close` is the only taker. The engine is known from `coc:loop-engine`
+(`engine: "hybrid-v1"`). Everything else in `agent_end` is unchanged: the host placement of a rendered delivery,
+the verifier, the §34.17, §78 and §38.11 notices and the paused-review notice. On the legacy engine, `agent_end`
+picks its steer through `takeTurnCloseSteer` and sends it exactly as before.
+
+Tests: `tests/extension/single-loop-turn-close.test.mjs` (hybrid seam, fake kernel). A text-only last step ends
+`delivered` on the implicit narrate's receipt, with the prose in the delivery. A step that called `narrate` is
+unchanged. A thinking-only step after a failed check is steered once and then delivered. A run whose Keeper
+brings nothing twice ends `undelivered` with the §38 notice, and no steer is queued for the next input. A prose-only
+turn with no tool call is floor-steered once, and a second leg that brings nothing delivers the dropped draft. The
+legacy suites run unchanged; the SL-00 inventory counts `agent_end`'s one remaining `sendHost` site.
 
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 
