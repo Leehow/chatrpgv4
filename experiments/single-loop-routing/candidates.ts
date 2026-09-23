@@ -6,24 +6,9 @@
 import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
 
 type Row = Record<string, any>;
-export type Json = null | boolean | number | string | Json[] | {[key: string]: Json};
-
-/** closed: the host can issue the complete vocabulary; open: only a language model can produce the value. */
-export interface Unbound {name: string; required: boolean; vocabulary: 'closed' | 'open'; options?: string[]; binder?: 'ordinary-resolve'}
-export interface Candidate {
-  /** Host identity, stable while the state it came from is unchanged. Never sent to the model. */
-  key: string;
-  verb: 'apply' | 'resolve';
-  family: string;
-  /** Model-visible semantic description. */
-  label: string;
-  /** The kernel read that issued this candidate. */
-  source: string;
-  bound: Record<string, Json>;
-  unbound: Unbound[];
-  detail?: Json;
-}
-export type Binding = 'none' | 'closed' | 'open';
+// The candidate shape and its binding rule are policy types; they live with the policy in the product.
+import {bindingOf, type Binding, type Candidate, type Json, type Unbound} from '../../runtime/jev/step-policy.ts';
+export {bindingOf, type Binding, type Candidate, type Json, type Unbound};
 
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
 const array = (value: unknown): any[] => Array.isArray(value) ? value : [];
@@ -34,12 +19,6 @@ export function resolveIntents(): string[] {
   const tool = COC_TOOLS.find(value => value.name === 'resolve');
   const intent = object(object(object(object(tool?.parameters).properties).action).properties).intent;
   return array(intent?.enum).filter((value): value is string => typeof value === 'string');
-}
-
-export function bindingOf(candidate: Candidate): Binding {
-  const required = candidate.unbound.filter(value => value.required);
-  if (!required.length) return 'none';
-  return required.every(value => value.vocabulary === 'closed') ? 'closed' : 'open';
 }
 
 export interface StateReads {

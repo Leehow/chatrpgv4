@@ -34,6 +34,7 @@ import { createProjectTrustContext } from "./cli/project-trust.ts";
 import { selectSession } from "./cli/session-picker.ts";
 import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
 import { APP_NAME, ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
+import type { SessionRunDriver } from "./core/agent-session.ts";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
 import {
 	type AgentSessionRuntimeDiagnostic,
@@ -561,6 +562,8 @@ async function promptForMissingSessionCwd(
 
 export interface MainOptions {
 	extensionFactories?: InlineExtension[];
+	/** Drive the session's runs through the RunDriver (forwarded to the session factory). */
+	runDriver?: SessionRunDriver;
 }
 
 export async function main(args: string[], options?: MainOptions) {
@@ -829,6 +832,7 @@ export async function main(args: string[], options?: MainOptions) {
 			excludeTools: sessionOptions.excludeTools,
 			noTools: sessionOptions.noTools,
 			customTools: sessionOptions.customTools,
+			runDriver: options?.runDriver,
 		});
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
 		if (created.session.model && cliThinkingOverride) {

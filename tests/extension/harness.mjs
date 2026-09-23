@@ -239,6 +239,12 @@ export async function openTable({
 	 * checkpoint Pi 0.87 writes, so the session resumes on it exactly as the installed App does.
 	 */
 	priorSystemPrompt,
+	/**
+	 * Pi's RunDriver for this session (`PI_COC_LOOP_ENGINE=hybrid-v1`, single-loop SL-01): the session's
+	 * runs go through the vendored agent-core driver with this policy and these ports. Absent, the
+	 * session runs the legacy model-first loop, as every other test here does.
+	 */
+	runDriver,
 } = {}) {
 	const workspace = mkdtempSync(join(retainAt ?? tmpdir(), "pi-coc-ext-"));
 	const requestLog = join(workspace, "kernel-requests.jsonl");
@@ -360,6 +366,7 @@ export async function openTable({
 		resourceLoader,
 		sessionManager,
 		settingsManager,
+		...(runDriver ? { runDriver } : {}),
 	});
 
 	// session_start（也就是开桌）是 bindExtensions 发出来的，运行模式各自负责。

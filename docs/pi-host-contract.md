@@ -13,6 +13,18 @@ PDF 视觉阅读已按 [visual-pdf-reader.md](specs/visual-pdf-reader.md) 与 [�
 我们不 fork Pi，也不打补丁。这份文件写清 pi-coc 依赖 Pi 的哪些接口与行为、我们在哪里绕过了它的限制、想请上游改什么，以及 Pi 升版时怎么核对。Pi 升级 = 改一个版本号，然后按第 7 节走一遍。
 
 > Superseded for the single-loop engine by [ADR-0006](adr/0006-pi-native-single-loop.md) (Proposed): Pi is consumed from a vendored source snapshot (`vendor/pi/`, upstream `v0.87.0`) plus a reviewed patch series, and an upgrade means rebasing that series.
+>
+> **Since SL-01 (2026-09-23) the product runs the vendored build**: `npm run build:runtime` compiles `vendor/pi` into
+> `build/node_modules/@earendil-works/{pi-agent-core,pi-coding-agent}`, and every Pi the product starts or imports is
+> that copy — the Keeper and every reader/Mod child start `build/node_modules/@earendil-works/pi-coding-agent/dist/cli.js`
+> (`runtimeEntrypoints().pi`, `deployment.pi`), pi-backend imports its `dist/index.js` in-process
+> (`PiBackendOptions.piModule`). The installed `@earendil-works/pi-coding-agent` stays a dependency (it brings `pi-ai`,
+> `pi-tui` and the third-party modules) but is never started. Patches: `vendor/pi/PATCHES.md`.
+> `PI_COC_LOOP_ENGINE=hybrid-v1` (play only; default `legacy`) starts the same arguments through
+> `build/runtime/pi-hybrid.mjs`, which runs Pi's own `main` with a `SessionRunDriver` (`runtime/jev/hybrid-engine.ts`):
+> each input is one RunDriver run, with no post-run `continue()`, and the session emits run/step/operation events
+> (`run_start` … `run_end`) beside the unchanged message events. The campaign's `lane: "startup"` telemetry row names
+> the engine, loop protocol, Pi base and patch-series digest.
 
 Current target: `@earendil-works/pi-coding-agent` 0.87.0. The root `dependencies` and lockfile pin the production runtime; `peerDependencies: "*"` declare the extension-facing Pi packages. The production manifest, Electron backend dependency/lockfile, and managed-runtime version must agree. The 2026-09-22 source upgrade passed the checks recorded in section 7. The installed App remains on its previously packaged version until a separately requested package/install.
 

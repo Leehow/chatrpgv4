@@ -327,3 +327,42 @@ test("bin/pi-coc：不写 setup 就是开桌，模式是 play", (t) => {
 	assert.equal(run.args[3], join(root, "prompts", "keeper.md"), "开桌用守秘人提示");
 	assert.equal(run.args[5], "coc-camp-d", "开桌的会话 id 跟建卡分开");
 });
+
+/**
+ * PI_COC_LOOP_ENGINE (single-loop SL-01): hybrid-v1 starts the same Pi arguments through the hybrid
+ * entry (the vendored Pi's main plus the RunDriver); unset or legacy starts the vendored CLI as before;
+ * setup always runs legacy; any other value is refused. The child is told the engine it runs.
+ */
+function withHybridEntry(root) {
+	mkdirSync(join(root, "build/runtime"), { recursive: true });
+	// Same logger as the Pi stub, as an ES module (the entry is .mjs); it names itself so the test sees which entry ran.
+	writeFileSync(join(root, "build/runtime/pi-hybrid.mjs"), `import fs from 'node:fs';
+fs.writeFileSync(process.env.PI_STUB_LOG, ['entry=pi-hybrid','engine='+(process.env.PI_COC_LOOP_ENGINE??'<unset>'),'mode='+(process.env.PI_COC_MODE??'<unset>'),
+ ...process.argv.slice(2).map(arg=>'arg='+arg)].join('\\n')+'\\n');\n`);
+	const stub = join(root, VENDORED_PI);
+	writeFileSync(stub, readFileSync(stub, "utf8").replace("'cwd='+process.cwd(),", "'entry=pi','engine='+(process.env.PI_COC_LOOP_ENGINE??'<unset>'),'cwd='+process.cwd(),"));
+	return root;
+}
+
+test("PI_COC_LOOP_ENGINE: hybrid-v1 starts the hybrid entry with the legacy arguments; unset and legacy start the vendored CLI", (t) => {
+	const root = withHybridEntry(fakeRepo());
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const legacy = runLauncher(root, ["--campaign", "camp-e"]);
+	const explicit = runLauncher(root, ["--campaign", "camp-e"], { PI_COC_LOOP_ENGINE: "legacy" });
+	const hybrid = runLauncher(root, ["--campaign", "camp-e"], { PI_COC_LOOP_ENGINE: "hybrid-v1" });
+	assert.equal(legacy.value("entry"), "pi");
+	assert.equal(legacy.value("engine"), "legacy");
+	assert.equal(explicit.value("entry"), "pi");
+	assert.equal(hybrid.value("entry"), "pi-hybrid");
+	assert.equal(hybrid.value("engine"), "hybrid-v1");
+	assert.deepEqual(hybrid.args, legacy.args, "the engine changes the entry, not a single Pi argument");
+});
+
+test("PI_COC_LOOP_ENGINE: setup always runs legacy, and an unknown engine is refused", (t) => {
+	const root = withHybridEntry(fakeRepo());
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const setup = runLauncher(root, ["setup", "--campaign", "camp-f"], { PI_COC_LOOP_ENGINE: "hybrid-v1" });
+	assert.equal(setup.value("entry"), "pi");
+	assert.equal(setup.value("engine"), "legacy");
+	assert.throws(() => runLauncher(root, ["--campaign", "camp-f"], { PI_COC_LOOP_ENGINE: "hybrid-v2" }), /PI_COC_LOOP_ENGINE must be one of legacy, hybrid-v1/);
+});

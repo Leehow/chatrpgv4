@@ -508,6 +508,7 @@ export class Agent {
 		let context: AgentContext = this.createContextSnapshot();
 		let config: AgentLoopConfig = this.createLoopConfig();
 		let lastCompletedTurn: PrepareNextTurnContext | undefined;
+		let firstInfer = true;
 		const applyUpdate = (update: AgentLoopTurnUpdate | undefined) => {
 			if (!update) return;
 			context = update.context ?? context;
@@ -548,7 +549,11 @@ export class Agent {
 				}
 				await emit({ type: "turn_start" });
 				const steering = (await config.getSteeringMessages?.()) || [];
-				await append([...prepared, ...prepend, ...steering]);
+				// A driven run never continues after it ends, so what was queued behind the previous run
+				// (a follow-up input, a host message) is taken by the first model step of this one.
+				const followUps = firstInfer ? (await config.getFollowUpMessages?.()) || [] : [];
+				firstInfer = false;
+				await append([...prepared, ...prepend, ...steering, ...followUps]);
 				for (let attempt = 1; ; attempt++) {
 					await onAttempt(attempt);
 					applyUpdate(

@@ -22,10 +22,13 @@ import type {
 	AgentMessage,
 	AgentState,
 	AgentTool,
+	DrivenRunResult,
 	PrepareNextTurnContext,
+	RunDriverPorts,
+	RunPolicy,
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
-import { contentText, getCurrentSystemMessage, retryDelayMs } from "@earendil-works/pi-ai";
+import { contentText, getCurrentSystemMessage, retryDelayMs, uuidv7 } from "@earendil-works/pi-ai";
 import type {
 	AssistantMessage,
 	AuthResult,
@@ -217,6 +220,30 @@ function withoutDeletedHeaders(headers: ProviderHeaders | undefined): Record<str
 		: undefined;
 }
 
+/** What one driven run needs; built by the host for each input (`SessionRunDriver.prepare`). */
+export interface SessionRunPlan {
+	policy: RunPolicy<any>;
+	ports?: RunDriverPorts;
+	maxSteps?: number;
+}
+/** The input a driven run is being prepared for. */
+export interface SessionRunContext {
+	runId: string;
+	inputRevision: string;
+	rawInput: string;
+	session: AgentSession;
+}
+/**
+ * Selects the RunDriver (agent-core `runDriver`) for every run this session starts, instead of the
+ * model-first loop and its post-run `continue()` loop. The host injects the policy and ports; Pi knows
+ * nothing about them.
+ */
+export interface SessionRunDriver {
+	/** Engine name, recorded by hosts (e.g. `hybrid-v1`). */
+	engine: string;
+	prepare(context: SessionRunContext): SessionRunPlan | Promise<SessionRunPlan>;
+}
+
 export interface AgentSessionConfig {
 	agent: Agent;
 	sessionManager: SessionManager;
@@ -249,6 +276,8 @@ export interface AgentSessionConfig {
 	extensionRunnerRef?: { current?: ExtensionRunner };
 	/** Session start event metadata emitted when extensions bind to this runtime. */
 	sessionStartEvent?: SessionStartEvent;
+	/** Drive every run through the RunDriver instead of the model-first loop (see {@link SessionRunDriver}). */
+	runDriver?: SessionRunDriver;
 }
 
 export interface ExtensionBindings {
@@ -428,6 +457,7 @@ export class AgentSession {
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
+		this._runDriver = config.runDriver;
 
 		// Always subscribe to agent events for internal handling
 		// (session persistence, extensions, auto-compaction, retry logic)
@@ -1465,7 +1495,75 @@ export class AgentSession {
 	// Prompting
 	// =========================================================================
 
+	/** The RunDriver this session's runs use, when the host selected one. */
+	private _runDriver?: SessionRunDriver;
+	private _lastDrivenRun?: DrivenRunResult;
+	/** Which run engine this session uses: the host's driver engine, or Pi's model-first loop. */
+	get runEngine(): string {
+		return this._runDriver?.engine ?? "legacy";
+	}
+	/** The result of the last driven run (RunDriver sessions only). */
+	get lastDrivenRun(): DrivenRunResult | undefined {
+		return this._lastDrivenRun;
+	}
+
+	/**
+	 * A driven run: exactly one RunDriver run for this input, awaited once. There is no post-run
+	 * `continue()` loop here -- neither the `_handlePostAgentRun` continuation (retry, overflow compaction,
+	 * messages queued by `agent_end` handlers) nor the `agent_before_settle` continuation. Retry and
+	 * overflow compaction are further provider attempts of the same infer step (`recover`); the policy,
+	 * not the session, decides whether the model is asked again.
+	 */
+	private async _runDrivenPrompt(driver: SessionRunDriver, messages: AgentMessage | AgentMessage[]): Promise<void> {
+		this._agentRunAbortRequested = false;
+		this._isAgentRunActive = true;
+		try {
+			const list = Array.isArray(messages) ? messages : [messages];
+			const rawInput = list
+				.flatMap((message) =>
+					message.role === "user" ? [typeof message.content === "string" ? message.content : contentText(message.content, "")] : [],
+				)
+				.join("\n");
+			const runId = `run-${uuidv7()}`;
+			const inputRevision = `${this.sessionId}:${this.sessionManager.getLeafId() ?? "root"}:${runId}`;
+			const plan = await driver.prepare({ runId, inputRevision, rawInput, session: this });
+			this._lastDrivenRun = await this.agent.runDriven(list, {
+				policy: plan.policy,
+				ports: plan.ports,
+				runId,
+				inputRevision,
+				maxSteps: plan.maxSteps,
+				recover: async (message) => this._recoverDrivenAttempt(message),
+			});
+			// The pre-settlement boundary still reaches extensions; a continuation it asks for is not taken.
+			if (!this._agentRunAbortRequested && this._extensionRunner.hasHandlers("agent_before_settle"))
+				await this._runBeforeSettleBoundary();
+		} finally {
+			if (this._agentRunAbortRequested) this._finishCancelledRetry();
+			this._runSystemPromptOptions = undefined;
+			this._flushPendingBashMessages();
+			this._flushPendingCustomMessages();
+			await this._emitAgentSettled();
+		}
+	}
+
+	/** A failed provider attempt of a driven infer: retry with backoff, or compact on overflow, then attempt again. */
+	private async _recoverDrivenAttempt(message: AssistantMessage): Promise<boolean> {
+		if (this._agentRunAbortRequested) return false;
+		if (this._isRetryableError(message) && (await this._prepareRetry(message))) return !this._agentRunAbortRequested;
+		if (this._agentRunAbortRequested) {
+			this._finishCancelledRetry();
+			return false;
+		}
+		if (message.stopReason === "error" && this._retryAttempt > 0) {
+			this._emit({ type: "auto_retry_end", success: false, attempt: this._retryAttempt, finalError: message.errorMessage });
+			this._retryAttempt = 0;
+		}
+		return (await this._checkCompaction(message, true, [])) && !this._agentRunAbortRequested;
+	}
+
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
+		if (this._runDriver) return this._runDrivenPrompt(this._runDriver, messages);
 		this._agentRunAbortRequested = false;
 		this._isAgentRunActive = true;
 		try {

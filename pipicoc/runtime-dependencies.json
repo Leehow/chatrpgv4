@@ -74,6 +74,7 @@
     "build/runtime/preparation.mjs",
     "build/runtime/check.mjs",
     "build/runtime/launch.mjs",
+    "build/runtime/pi-hybrid.mjs",
     "build/runtime/source-worker.mjs",
     "build/pipicoc/onboarding-worker.mjs",
     "build/pipicoc/agent.mjs",

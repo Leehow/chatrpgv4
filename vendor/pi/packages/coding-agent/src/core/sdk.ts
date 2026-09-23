@@ -4,7 +4,7 @@ import type { ModelsSimpleStreamOptions } from "@earendil-works/pi-ai";
 import { clampThinkingLevel, type Message, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
-import { AgentSession } from "./agent-session.ts";
+import { AgentSession, type SessionRunDriver } from "./agent-session.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { CacheWarmer } from "./cache-warmer.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
@@ -87,6 +87,8 @@ export interface CreateAgentSessionOptions {
 	settingsManager?: SettingsManager;
 	/** Session start event metadata for extension runtime startup. */
 	sessionStartEvent?: SessionStartEvent;
+	/** Drive runs through the RunDriver with the host's policy and ports instead of the model-first loop. */
+	runDriver?: SessionRunDriver;
 }
 
 /** Result from createAgentSession */
@@ -427,6 +429,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		excludedToolNames,
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
+		runDriver: options.runDriver,
 	});
 
 	const extensionsResult = resourceLoader.getExtensions();

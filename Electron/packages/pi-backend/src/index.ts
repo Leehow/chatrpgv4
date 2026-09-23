@@ -999,6 +999,16 @@ export function abandonmentStillCoversTheSilence(live: {
 }
 /** Main-turn watchdog: turnActive with no event for this long is wedged. */
 export const TURN_WATCHDOG_TIMEOUT_MS = 120_000;
+/**
+ * Run/step events of Pi's RunDriver (`PI_COC_LOOP_ENGINE=hybrid-v1`, vendored agent-core). A driven run
+ * spends host and Jev steps before the first model message, so these count as turn activity exactly as a
+ * streamed token or a finished tool does; without them the watchdog would abort a working run whose
+ * clerk steps took longer than TURN_WATCHDOG_TIMEOUT_MS.
+ */
+export const RUN_ACTIVITY_EVENTS: ReadonlySet<string> = new Set([
+  "run_start", "run_end", "step_start", "step_attempt", "step_end", "scope_enter", "scope_exit",
+  "operation_prepared", "operation_settled", "delivery_accepted",
+]);
 export const TURN_WATCHDOG_CHECK_INTERVAL_MS = 30_000;
 const COC_WATCHDOG_RECOVERY_ENV = "PI_COC_WATCHDOG_RECOVERY";
 /**
@@ -6587,6 +6597,8 @@ export class PiHostBackend implements HostBackend {
       // Compaction reports null tokens/percent until the next assistant usage;
       // refresh so the pill drops the stale number instead of showing 316k/200k.
       void this.pushSessionStats(id);
+    } else if (RUN_ACTIVITY_EVENTS.has(e.type)) {
+      this.touchTurnActivity(live);
     } else if (e.type === "queue_update") {
       // Follow-up list only. Emitting status:streaming here reopened a settled
       // composer as 生成中 with no turn — the UI treats streaming as "busy now".
