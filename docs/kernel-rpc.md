@@ -17095,6 +17095,10 @@ elapsed time in its own state (`budget.runMs`), stamped from the engine's clock 
 - otherwise the next step is `infer(compose)` with reason `run_budget`, whatever the route said: no route
   question, no read, no clerk write, no `infer(bind)`. A pending `adjudicate` (a fallen batch, `ask_llm`) is
   consumed by that compose; the compose is the same Keeper request, and a fallen batch's note still travels.
+  Because a compose and an adjudication are the same request to the model, the compose's `coc-clerk` note says
+  why (`budget: {budget_ms, elapsed_ms}` and a note: the budget is spent, close the turn now with the prose and
+  leave further bookkeeping for the next turn). The Keeper is still the boss: a tool call in that response runs
+  as a batch like any other, and the step after it is again the compose.
 
 **Deferred candidates.** The clerk steps still pending when the budget is spent (pending items that carry a host
 candidate and are not run under the rule above) are **deferred by budget**: nothing was executed for them. They

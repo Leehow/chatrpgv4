@@ -395,11 +395,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     run.lastInferAt = now() - run.startedAt;
     // §135.11: the compose the budget chose lists the clerk steps it left undone; the next run's first note says so once.
     const budget = object(object(step.request).budget);
-    if (Array.isArray(budget.deferred_by_budget) && budget.deferred_by_budget.length) {
-      run.deferred = budget.deferred_by_budget as DeferredStep[];
-      Object.assign(content, {deferred_by_budget: run.deferred,
-        budget_note: 'The turn\'s time budget ran out before the clerk carried out these declared steps; nothing was executed for them. '
-          + 'Narrate only what landed. The player can take them up again, or you can settle one yourself on a later step.'});
+    if (step.reason === 'run_budget') {
+      run.deferred = Array.isArray(budget.deferred_by_budget) ? budget.deferred_by_budget as DeferredStep[] : [];
+      Object.assign(content, {budget: {budget_ms: budget.budget_ms ?? run.budgetMs, elapsed_ms: budget.elapsed_ms ?? null},
+        budget_note: 'The turn\'s time budget is spent: close the turn now with the prose (narrate, or ask for a pending choice) and leave '
+          + 'further bookkeeping for the next turn.',
+        ...(run.deferred.length ? {deferred_by_budget: run.deferred,
+          deferred_note: 'The clerk did not carry out these declared steps; nothing was executed for them. Narrate only what landed.'} : {})});
     }
     if (carried && carried.run !== run.runId && (!carried.campaign || carried.campaign === bridge?.campaign)) {
       Object.assign(content, {deferred_last_turn: carried.deferred,

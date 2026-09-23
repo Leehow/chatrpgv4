@@ -190,7 +190,9 @@ test("at the extension seam a move routed after the budget is deferred: not exec
 	assert.equal(note.purpose, "compose");
 	assert.equal(note.reason, "run_budget");
 	assert.deepEqual(note.deferred_by_budget.map((value) => value.key), ["apply:move:newspaper-morgue"]);
-	assert.match(note.budget_note, /nothing was executed/);
+	assert.match(note.budget_note, /close the turn now/);
+	assert.match(note.deferred_note, /nothing was executed/);
+	assert.equal(note.budget.budget_ms, 45_000);
 	const rows = table.telemetry(campaign).filter((row) => row.lane === "run" && row.event === "budget");
 	const decided = rows.find((row) => row.decision === "compose");
 	assert.equal(decided.budget_ms, 45_000);
