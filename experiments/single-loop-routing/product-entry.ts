@@ -108,6 +108,12 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
   };
   const delivery = (): Row => {
     const recorded = [...calls].reverse().find(call => (call.name === 'narrate' || call.name === 'ask') && call.ok);
+    // §11.5.1 (2026-09-23): a combat defence is no longer an ask -- the host settles the investigator's defence by
+    // the campaign preference and refuses a defence ask as stale_choice. A recorded defence ask (every option a
+    // §11.9 defence word) is replayed as the narrate of the same text, which is what the Keeper is told to send.
+    const defenceAsk = recorded?.name === 'ask' && array(recorded.arguments.options).length > 0
+      && array(recorded.arguments.options).every((option: unknown) => ['dodge', 'fight_back', 'none'].includes(String(option)));
+    if (recorded && defenceAsk) return answer([{name: 'narrate', arguments: {text: String(recorded.arguments.text ?? delivered ?? '')}}], 'compose:recorded_defence_ask_as_narrate');
     if (recorded) return answer([recorded], 'compose:recorded_delivery');
     log({replay: 'compose:delivered_text'});
     return fauxAssistantMessage(delivered ?? '', {stopReason: 'stop'});
