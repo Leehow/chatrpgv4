@@ -14056,6 +14056,29 @@ model follows it:
   and `custom_skills`; a changed trade without a new `occupation_skills` list rebuilds the list from
   the trade's printed entries around nothing (the old list's skills keep their interest points).
 - `setup.catalog` reaches the host as `draft-catalog`, so the edit control can offer every trade.
+### §98 addendum 3 — the button's completion reaches a setup process that is still running (2026-09-23)
+
+The Host paragraph above has the host confirm and complete cold and then send one sentence "so the
+setup model closes the prologue and the launcher moves to play". A setup process that is restarted
+reads `complete` from `setup.steps` at session start (302e2dd31). One that is still running does
+not: it keeps the steps it booked itself, so on the installed build `e1b4176d3` it treated the
+sentence as a setup turn, asked `mods.context` (which refuses a `ready_for_table` campaign that has
+no world yet with `campaign_not_ready`), took that refusal as the setup block, answered the Keeper's
+`confirm-investigator` with "Guidance review did not pass", and ended the run with no handoff; the
+child never exited, so play was never launched and the App sat on its loading line. No guidance
+review ran on that turn: the block was the package-context read failing.
+
+The rule: **once a card exists, the setup process reads `setup.steps` again before each turn and books
+whatever the kernel reports done** (it only adds; nothing is un-booked). With `complete` booked the
+turn takes the existing already-complete path: the handoff is finished, the model is told not to call
+`setup`, and `agent_end` exits so the wrapper launches play. A snapshot that cannot be read leaves the
+turn as it was.
+
+Case: `tests/extension/setup.test.mjs` "a live setup process learns the card button's cold completion
+from the kernel and hands off (§98)", on the real kernel: the live process revises the card, a cold
+kernel confirms and completes it, and the button's sentence must end in `coc-setup-exit` with no
+guidance refusal. It dies when `before_agent_start` stops calling `refreshCompleted`.
+
 ## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
 
 §97 was built from M-MAIN turn 109 but its fixture omitted the one property the live object had:
