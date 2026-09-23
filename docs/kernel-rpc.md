@@ -9660,6 +9660,24 @@ an occupation's specialization reaching the card),
 `tests/extension/impossible-check.test.mjs` (§45's guard, now written the way §52
 makes the Keeper write it: `Pilot (Boat)`, the skill the module actually named).
 
+### 52.6 A card's short spelling of a nested group's member (2026-09-23, RD-04; amends 52.1)
+
+A group whose own key carries a parenthesis (`Language (Other)`) keeps the nested form of 52.1
+(`Language (Other: Latin)`), and contract §136.4 also admits the literal `Language (Other) (Latin)` in a
+module's stated check. Cards do not write either: the haunting's `eleanor-reed` carries
+`"Language (Latin)": 40`, which is how the rulebook's sheet prints a language the investigator took. Neither
+nested spelling resolved to that row, so a book's stated Latin check (the Liber Ivonis, §136.26) was refused as
+an unknown skill against an investigator who reads Latin at 40.
+
+`SkillResolver.resolveExplicit` therefore tries one more reading after the three of 52.1, at settlement, against
+the actor's own card: when the phrase is a declared group key whose key carries a parenthesis, followed by a
+member -- `Language (Other: Latin)` and `Language (Other) (Latin)` normalise to the same words -- and the card
+carries a row spelled `<the group key's leading name> (<member>)` (`Language (Latin)`), that row is the skill.
+The group key is the ruleset's own (`skills.json` `specialization_groups`), the member is the book's word, and
+the row is the card's; nothing is a list, and a phrase whose group part is no declared group key (`Lore (Other:
+Latin)`) is not read this way. A card without such a row resolves exactly as before (52.2's `needs`): this
+reading moves no base chance and adds no row.
+
 ## 53. A delivery the player already read keeps the keeper's side of the transcript (2026-09-16)
 
 A custom message can come from either side of the table. The host writes the keeper's
@@ -16990,7 +17008,7 @@ whether*. The curated starters, the visual PDF reader (RD-05) and, where a Mod s
 declarations use the same shapes and the same validator. This section is the catalog (spec D4) and the
 refusal rules (spec D5) with the implementation rulings A–D of 2026-09-23 (spec, Comments). **RD-01 adds
 no reader:** no capsule row, option, lookup or engine path reads a shape yet (RD-02 is the first reader,
-RD-03 the operations `action.rule` and `stated`). **RD-02 adds the readers** (§136.10–§136.19) and **RD-03 the operations** (§136.20–§136.25); the sentences of this
+RD-03 the operations `action.rule` and `stated`). **RD-02 adds the readers** (§136.10–§136.19), **RD-03 the operations** (§136.20–§136.25) and **RD-04 migrates the haunting** (§136.26–§136.28); the sentences of this
 preamble describe RD-01's state and are kept as its record. A writer without a reader is the §31 defect; it is
 accepted here for one scheduled ticket, as §134.7 was. No shipped starter authors a shape yet, so every
 read of every starter is unchanged.
@@ -17032,23 +17050,27 @@ row:
 `pending_defense.standing`, basis `authored`). There is no `mechanics.tactic` key: one is refused as an
 unknown shape. RD-09 only confirms the registration once SL-07 lands.
 
-**Legacy allowance (rulings A and B), starters only, listed by name and shrinking.** On a curated starter
-(registration through `registerStarter`) the validator tolerates exactly these keys, which carry no shape and
-are read by nothing; RD-04 (the haunting) and RD-08 (`mystery-house`) remove them, and each removal shrinks
-the list in the same change. A reader draft (RD-05) gets no allowance.
+**Legacy allowance (rulings A and B), per starter, listed by name and shrinking.** On a curated starter
+(registration through `registerStarter`) the validator tolerates exactly the keys listed **for that starter**
+(the registered module id), which carry no shape and are read by nothing; each migration removes a starter's
+row in the same change. A starter without a row, and a reader draft (RD-05), get no allowance. RD-04
+(2026-09-23, §136.26) migrated the haunting and removed its row; after it the table is:
 
-| where | keys |
-| --- | --- |
-| the container `mechanics` | `status`, `subject_kind`, `source_refs`, `provenance`, `fields_observed`, `fields_extracted`, `fields_not_authored` |
-| `profile` (`stat_block`) | `attacks`, `attacks_per_round`, `san_loss_to_see` |
-| a `weapon` (in `profile.weapons[]` or `mechanics.weapon`) | `note` (RD-04 moves it to the node's `summary`) |
+| starter | where | keys |
+| --- | --- | --- |
+| `mystery-house` | the container `mechanics` | `status`, `subject_kind`, `source_refs`, `provenance`, `fields_observed`, `fields_extracted`, `fields_not_authored` |
+| `mystery-house` | `profile` (`stat_block`) | `attacks`, `attacks_per_round`, `san_loss_to_see` |
+| `mystery-house` | a `weapon` (in `profile.weapons[]` or `mechanics.weapon`) | `note` |
 
-While the allowance stands, a starter's registered `profile` seat is not held to `mechanics_unsourced`
-(below): the curated starters cite their stat blocks inside the container's legacy `source_refs`, which is
-itself on the allowance, and two of the four carriers have no node-level citation at all
-(`the-haunting` `npc-rat-pack`; `mystery-house` `npc-calvin-crowe`, `npc-rat-swarm`). The migration that
-removes the legacy `source_refs` moves the citation to the node. Every other shape on a starter is held to
-the rule in full.
+`the-haunting` has no row: every one of those keys is gone from it (§136.26), so any of them written back is
+refused (`mechanics_unknown_shape` in the container, `shape_unknown_key` in a stat block or a weapon). RD-08
+removes `mystery-house`'s row, and the table is then empty.
+
+While a starter's row stands, its registered `profile` seat is not held to `mechanics_unsourced` (below): the
+curated starters cite their stat blocks inside the container's legacy `source_refs`, which is itself on the
+allowance, and `mystery-house`'s two carriers (`npc-calvin-crowe`, `npc-rat-swarm`) have no node-level
+citation at all. The migration that removes the legacy `source_refs` moves the citation to the node (the
+haunting's did: §136.26). A starter without a row is held to the rule in full, its stat blocks included.
 
 ### 136.2 Accounting, not content: `_unstated`
 
@@ -17108,6 +17130,13 @@ characteristic table (`characteristic-dice.json`: `STR` … `EDU`, `Luck`) by no
 
 Both tables are the ruleset's closed keys; nothing here is a word list over text. The obligation owner of
 §134.3 keeps its own resolution (skill and characteristic keys) unchanged.
+
+**At settlement (RD-04, 2026-09-23).** The validator admits the two spellings above and nothing else;
+`Language (Latin)` is refused, because `Language` is no group key. The actor's card, though, writes the short
+form the rulebook's sheet prints (`"Language (Latin)": 40`). The skill resolver reads a nested group's member
+against that card (§52.6): `Language (Other: Latin)` and `Language (Other) (Latin)` settle on the card's
+`Language (Latin)` row, found through the ruleset's own group key and the card's own row, never a word list. A
+card without the row resolves as before.
 
 ### 136.5 Effects: the closed consequence vocabulary
 
@@ -17233,9 +17262,9 @@ rule, never the wording.
 
 | rule | refused |
 | --- | --- |
-| `mechanics_unknown_shape` | a key under `mechanics` outside §136.1 (on a starter, outside §136.1 and its container allowance), `mechanics.tactic` included; `mechanics` not an object |
+| `mechanics_unknown_shape` | a key under `mechanics` outside §136.1 (on a starter, outside §136.1 and that starter's container allowance), `mechanics.tactic` included; `mechanics` not an object |
 | `mechanics_wrong_kind` | a shape on a node kind outside its §136.1 row; `combat` (`defense`, `action`, `disposition`) on a kind other than `npc`/`creature`; `advances_on` on a record that is not a `threat`'s clock |
-| `mechanics_unsourced` | a node carrying a shape (a container shape, `combat`, `advances_on`) without a non-empty `source_refs` list of objects, or on a starter without a non-empty `evidence_span_ids` list of strings; except a starter's lone registered `profile` while the allowance stands (§136.1). The reader's "a ref to a page the reader did not view" law is RD-05's |
+| `mechanics_unsourced` | a node carrying a shape (a container shape, `combat`, `advances_on`) without a non-empty `source_refs` list of objects, or on a starter without a non-empty `evidence_span_ids` list of strings; except a starter's lone registered `profile` while that starter's allowance row stands (§136.1). The reader's "a ref to a page the reader did not view" law is RD-05's |
 | `shape_unknown_key` | a key outside the shape's closed set (the starter allowance aside), in a shape, a weapon, a check (owner `rule`) or its value, an effect, a trigger, a gate, a guard map |
 | `shape_prose` | a value of the wrong type where the shape needs a number, an integer, a boolean, an enum value or an id: a string in a number slot, a word outside a closed enum, a non-kebab `weapon_id`, a twin that is not `true` |
 | `shape_dice` | a dice slot outside §136.3, or a Sanity half outside its rule |
@@ -17395,7 +17424,8 @@ typed reward}` (`sanity` or `sanity_unstated`, `cash`, `currency`, `when`; `book
 scene's row (a scene with a `conclusion_contract`, as before) gains `rewards` when it has any; an `ending` node
 that links a reward gets its own row `{ending: <handle>, rewards}`. A row without rewards is exactly as before;
 the contract's own `sanity_reward` stays where it is until RD-04 migrates it. The development binder reading the
-ending's reward, and `apply cash` with `stated`, are RD-03/RD-04's.
+ending's reward, and `apply cash` with `stated`, are RD-03/RD-04's (RD-03 landed `apply cash`; RD-04 migrated the
+haunting's `sanity_reward` and added the development binder, §136.27).
 
 ### 136.18 `clock.advances_on`: the threat pressure row (spec D4.5 shape 15, D6.2)
 
@@ -17571,3 +17601,82 @@ ledger's `stated:` rows and `kpi.py`'s count. `tests/extension/stated-operations
 the fake kernel. Every shipped starter's capsule, `table.apply.options`, `table.resolve.options`, module and scene
 lookups and `look focus=scene`, walked scene by scene, are byte-identical to the parent commit `172b80065`, and again after 0.9.5a
 (SL-08) was merged in, to `e1b4176d3`.
+
+### 136.26 The haunting migrates to shapes (RD-04, spec D9, owner rulings Q3 and Q4)
+
+`content/starters/the-haunting/module-graph.json` states its mechanics as shapes (§136.6) on the nodes that
+state them, and the typed-but-unread fields that held them are deleted. Every new or changed node cites the
+pages its neighbouring nodes already cite (the node whose record held the statement, or the node that states the
+same thing); the starter ships no page images, so these are the curated starter's existing citations, not a
+fresh reading of the page (the §134.6 precedent). No page is added that the starter did not cite before.
+
+| was (typed, read by nothing) | now | node | cited as (pdf index, span) | reader |
+| --- | --- | --- | --- | --- |
+| `scene-upper-floor-bedroom.rec.on_enter.san_triggers[bed-moves]` (1 / `1D4`) and the side table's `bed_attack_damage` (`1D6+2`, precondition "failed Dodge after Spot Hidden") | `hazard` {keeper; step 0 Spot Hidden, failure or fumble → step 1; step 1 Dodge, failure or fumble → `damage 1D6+2`; target selection as `book`} and `sanity_loss {success "1", failure "1D4"}` | new `rule-bed-attack`, `uses-rule` from the bedroom | 454 "Bed Attack", `span-page-454-anchor-1` (the bedroom's) | `mech` line; `action.rule`/`action.step`; `stated`; `sanity:check` with `action.rule` |
+| `scene-corbitt-confrontation.rec.on_enter.san_triggers[see-corbitt-body]` (1 / `1D8`) and the profile's prose `san_loss_to_see` | `profile.sanity_loss {success "1", failure "1D8"}` | `npc-walter-corbitt` | 459 "Walter Corbitt, Undead Fiend" (moved from the container's legacy `source_refs`), `span-page-446-anchor-7` (his own) | `sanity:check` on Corbitt (§136.13), no regex |
+| `scene-corbitt-confrontation.rec.on_enter.danger_attacks`, `threat-corbitt-haunting.rec.dangers[].attack_profiles` | deleted: they repeat the profile's weapons and the combat operation | — | — | — |
+| `scene-basement-rites.rec.on_enter.clock_ticks[corbitt-awareness]` | `clocks[corbitt-awareness].advances_on: [{kind: enter, scene: scene-basement-rites}]` | `threat-corbitt-haunting` | 446 "He haunts the place", `span-page-446-anchor-3` (its own) | the threat pressure row (§136.18); `apply threat {stated}` |
+| chapel `rec.optional_rules.weakened_floor` (`push_runtime_status` included) and the affordance `descend-ruined-chapel-cellar.authored_operation` (`environmental_hazard`) | `hazard` {keeper; step 0 Luck, failure or fumble → step 1; step 1 Jump, failure or fumble → `damage 1D6`, push allowed with its `book` line (a failed push loses or breaks a possession); the ten-foot fall as `book`} | new `rule-chapel-floor-collapse`, `uses-rule` from the chapel | 451 "Call for Luck rolls" (the `optional_rules` citation, page 440), `span-page-451-anchor-4` (the chapel's) | `mech` line; `action.rule`/`action.step`; `stated` |
+| chapel `rec.optional_rules.liber_ivonis_initial_read`, the affordance `study-liber-ivonis.authored_operation` (`mythos_tome_study`) and its `skills [Read Latin]` | `tome` {`language: skills.Language (Other: Latin)`, `read_check` Language (Other: Latin) with `difficulty_unstated`, `read_without_roll_at: 50`, `initial_reading {3 hour, minimum}`, `cthulhu_mythos_initial: 2`, `max_sanity_reduction: 2`} | `tome-liber-ivonis` (`properties.mechanics`) | 451 (its own) and 451 "minimum of three hours" (the `optional_rules` citation), `span-page-451-anchor-2` (the clue `clue-liber-ivonis-tome`, which states the tome) | entity view; `action.rule` naming the tome (here through its `discoverable-at` link to the chapel) |
+| central library ×4 and Hall of Records ×1 affordance `time_profile {elapsed, library_research, delta_minutes: 240}` | `time_cost {amount 240, unit minute}` with "each attempt takes half a day" as `book` (Q4: the starter's number stands; Q3 would have made a bare "half a day" `amount_unstated`) | new `rule-library-research`, `uses-rule` from both scenes | 448 "The Central Library", `span-page-448-anchor-6`; 449 "Hall of Records", `span-page-449-anchor-2` (the two scenes') | `mech` line; `apply time {stated}` |
+| `scene-corbitt-confrontation.rec.conclusion_contract.sanity_reward {die 1D6, rule_ref}` and the side table's `conclusion_sanity_reward` | `reward {sanity "1D6"}` with the book's condition as `book`; the contract keeps `conclusion_id`, `requires_combat_outcome`, `player_visible_outcome` and `session_ending` (read) | new `rule-victory-rewards`, `uses-rule` from the confrontation | 456 "Corbitt's Hiding Place", `span-page-456-anchor-1` (the confrontation's) | module lookup `endings[].rewards` (§136.17); `development:end-session` (§136.27) |
+| Corbitt's profile `attacks[]`, `attacks_per_round`, weapon `note`; `floating-dagger` (profile) vs `floating-knife` (the combat operation and the side table) | weapon shapes under one id: `claws` {extends `claws`, `damage 1D3`, 1/round, `adds_damage_bonus`}, `floating-knife` {extends `knife_medium`, `damage 1D4+2`, 1/round, no damage bonus}; the prose as each weapon's `book` | `npc-walter-corbitt` | as above, plus 456 "Using a Fighting Maneuver to Grab the Knife" (moved from the container) | combat (the engine's catalog row plus the profile's overrides, §136.12) |
+| the rat pack's `attacks[]`, `attacks_per_round` | weapon shapes: `claws` {extends `claws`, `damage 1D3`, 1/round}; `overwhelm` {skill Fighting, `damage 2D6`, 1/round, `impale_unstated`, the bonus die as `book`} | `npc-rat-pack` | 457 "RAT PACK" (moved from the container's legacy `source_refs`), `span-page-455-anchor-2` — **the neighbours' span**: no span of the starter is on page 457, so the node cites the span its neighbours `creature-rat-pack` and `asset-rat-pack` cite for the basement where the pack nests | combat |
+| the container's `status`, `subject_kind`, `source_refs`, `provenance`, `fields_observed`, `fields_extracted`, `fields_not_authored` on both stat blocks | deleted; the citations moved to the nodes (above) | `npc-walter-corbitt`, `npc-rat-pack` | — | — |
+| affordance `skills[]` where an owner holds the check: `persuade-arty`, `befriend-ruth` (the morgue obligations), `search-under-chapel-cabinet` (the Spot Hidden gates of the journal and the tome clues), `study-liber-ivonis` (the tome's read check) | deleted | — | — | — |
+| conclusion `clues[].affordance` where an owner holds the check: `clue-basement-burial-lawsuit`, `clue-will-executor-chapel` (their Library Use gates), `clue-globe-unpublished-story` (the clippings obligation guards it), `clue-corbitt-diaries` (its gate, `environmental`, owns how it is found) | deleted | — | — | — |
+| the side table `the-haunting.json` `rules`: `playtest_roll`, `playtest_die_rolls`, `playtest_summary_result`, `playtest_total`, and the same four in the eight `module.haunting.*` rows of `rule-index.json` | deleted (Q4: playtest artefacts are not rules); the rest of the table (its `weapons`, the rows, `magic_point_cost_in_playtest`, which is the combat operation's `cost: 2`) is RD-07's | — | — | — |
+| `scene-corbitt-confrontation.rules_operation` | unchanged (read, tested, §102) | — | — | — |
+
+**Kept, and why (SO-05's rows).** The police scene's `use-law-contact-for-raid-file.skills`,
+`petition-for-raid-file.skills` and its `skill_minimums {Credit Rating: 75}`, `clue-police-raid-chapel`'s
+conclusion `affordance`, and the Hall of Records' `ask-clerk-redirect.sets_flags` stay typed: SO-05 authors the
+police gate and the Law route as obligations, and this migration does not author them twice. They are the only
+affordance `skills`, `skill_minimums`, `sets_flags` and clue `affordance` keys left in the haunting, and a test pins
+exactly that set.
+
+**Difficulty.** The starter states no difficulty for the Spot Hidden, Dodge, Luck, Jump or Latin rolls, so each step
+records `difficulty_unstated: true` (§136.2): the Keeper's own difficulty completes it, and without one the check is
+the ordinary default. The tome's 50 is `read_without_roll_at`, information that a reader at 50 or more needs no roll;
+it is not a `minimum` and nothing refuses a lower reader.
+
+**Weapon prose.** Spec D9 moves a weapon's prose to the node's `summary`; the coordinator's ruling (2026-09-23) made
+that conditional on every golden outside the D9 scenes staying byte-identical. Corbitt's and the rat pack's
+`summary` is read by the opening capsule's module roster and the scene's `present[]`, so the prose rides as each
+weapon's `book` line instead (§136.6 shape 10 admits one), and the summaries are unchanged.
+
+**The guidance bundles.** The graph digest moved, so `character-guidance/en.json` and `zh-Hans.json` are re-stamped to
+the new digest and to the fingerprints `guidanceFingerprint` recomputes (their text is unchanged: the opening scene
+and its guides did not move), as §134.6 did.
+
+### 136.27 `development:end-session` binds the stated reward (RD-04, spec D4.5 shape 14)
+
+`resolve` with `decision: development:end-session` and no `action.scenario_san_reward_expr` takes the expression from
+the book when the ending is a `conclusion` (`action.ending` absent or `conclusion`; §11.1's `ending` is the ending's
+kind, not a node) and the active scene links, by `uses-rule`, exactly one rule whose `reward` states `sanity` as
+dice and whose `when` gate, if any, holds: that dice string is the expression. The result carries
+`stated: {rule: <handle>, scenario_san_reward_expr}` and the call's first receipt `basis: {rule: <handle>}`. The
+stored call parameters stay the Keeper's own. Anything else is exactly today's end-session: the Keeper's own
+expression wins (spec P8); a `tpk`, `retreat` or `cliffhanger` ending, a scene without a stated reward, an
+`_unstated` reward, or two rewards bind nothing, and the omitted expression still means "the source declares none".
+Whether the investigators earned the ending stays the Keeper's call: the reward's `book` line carries the book's
+condition ("if Corbitt is conquered and destroyed"), and the contract's `requires_combat_outcome` is unchanged.
+
+### 136.28 Tests (RD-04)
+
+`tests/kernel/test_haunting_shapes.py`, over the emitted kernel on a fresh campaign of the shipped haunting (seeded
+per sequence): the chapel's `where.rules` row carries its `mech` line; `resolve` with `action.rule:
+chapel-floor-collapse` binds Luck, a failure returns `next_step: 1`, `action.step: 1` binds Jump, a failure returns
+the bound `damage 1D6` and writes no hit point; `apply damage {stated: chapel-floor-collapse}` rolls `1D6` with
+`basis: "stated"`; `sanity:check` targeting Corbitt with no `san_loss` rolls `1/1D8` from the typed profile;
+`development:end-session` without an expression at the confrontation settles with `1D6` and `stated`, and with a
+`retreat` ending binds nothing; the Liber Ivonis read check (`eleanor-reed`) binds `Language (Latin)` at 40 through
+§52.6, and a phrase whose group part is no group key is refused as before.
+`tests/extension/haunting-shapes.test.mjs`, through `module.register`: the shipped graph walked for every key §136.26
+removed (none remains anywhere; the affordance and clue keys only at the SO-05 rows); every migrated node's exact
+citations; the haunting refused when a removed key is written back (the allowance is `mystery-house`'s only) or a
+migrated node's page ref is dropped; `mystery-house` still registering with its allowance. Goldens (capsule,
+`table.apply.options`, `table.resolve.options`, module and scene lookups, `look focus=scene`, 46 scenes of the four
+starters, each in a fresh seeded campaign) against the parent `566dca9da`: `mystery-house`, `voice-bench` and
+`the-haunting-rulebook` byte-identical; the haunting's differences are listed row by row in the RD-04 record
+(`docs/specs/rules-as-data-tickets.md`, Comments).
