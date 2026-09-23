@@ -93,14 +93,32 @@ def test_reprojection_reproduces_the_committed_graph(module_id):
     assert json.loads(result.stdout)["identical"] is True
 
 
+#: Contract §133.6: the two stated obligations authored into the haunting after the old projection.
+HAUNTING_OBLIGATIONS = ["requirement-globe-archivist", "requirement-globe-clippings-access"]
+
+
 @pytest.mark.skipif(not OLD_HAUNTING.exists(), reason="the old tree's the-haunting IR is not on this machine")
-def test_the_haunting_old_projection_diff_is_only_the_new_typescript_map_metadata():
+def test_the_haunting_old_projection_diff_is_only_the_new_typescript_map_metadata_and_the_morgue_obligations(tmp_path):
+    graph = read_json(CONTENT_DIR / "starters" / "the-haunting" / "module-graph.json")
+    # The old script's diff is positional: an added node shifts every later row. The §133 additions are
+    # therefore set aside and pinned by name, so the diff below still names each remaining edit.
+    assert [n["node_id"] for n in graph["nodes"] if n["node_kind"] == "requirement"] == HAUNTING_OBLIGATIONS
+    assert [(c["subject_id"], c["object"]["node_id"]) for c in graph["claims"] if c["predicate"] == "has-requirement"] \
+        == [("scene-newspaper-morgue", node) for node in HAUNTING_OBLIGATIONS]
+    assert [r["claim_id"] for r in graph["relations"] if r["relation_kind"] == "has-requirement"] \
+        == [f"claim-has-requirement-{node.removeprefix('requirement-')}" for node in HAUNTING_OBLIGATIONS]
+    graph["nodes"] = [n for n in graph["nodes"] if n["node_kind"] != "requirement"]
+    graph["claims"] = [c for c in graph["claims"] if c["predicate"] != "has-requirement"]
+    graph["relations"] = [r for r in graph["relations"] if r["relation_kind"] != "has-requirement"]
+    without = tmp_path / "module-graph.json"
+    without.write_text(json.dumps(graph, ensure_ascii=False, indent=2))
     result = run_script("diff", "--starter-dir", str(OLD_HAUNTING),
-                        "--against", str(CONTENT_DIR / "starters" / "the-haunting" / "module-graph.json"),
+                        "--against", str(without),
                         "--module-summary", "A source-bound 1920s Boston investigation of the Corbitt House.",
                         "--source-document-id", "source-document-keeper-rulebook-40th-the-haunting",
                         "--source-document-name", "Keeper Rulebook 40th Anniversary - The Haunting")
     assert result.returncode == 1, result.stdout + result.stderr
+    morgue = "/nodes[scene-newspaper-morgue]/properties/runtime_projection/record"
     assert json.loads(result.stdout) == {
         "identical": False,
         "differences": [
@@ -108,6 +126,12 @@ def test_the_haunting_old_projection_diff_is_only_the_new_typescript_map_metadat
             "/nodes[asset-player-corbitt-house-map]/properties/image_sources: missing in new",
             "/nodes[asset-player-corbitt-house-map]/properties/map_regions: missing in new",
             '/nodes[asset-player-corbitt-house-map]/properties/role: "player-map" -> "player-delivery"',
+            # §133.6's migration: the gate moved into the obligations; Ruth's invented roll removed (ruling Q3).
+            f"{morgue}/affordances[0]/roll_gate: missing in old",
+            f"{morgue}/affordances[1]/requires_completed_route_ids: missing in old",
+            f"{morgue}/affordances[2]/requires_completed_route_ids: missing in old",
+            f"{morgue}/affordances[2]/roll_gate: missing in old",
+            f"{morgue}/npc_presence_requirements: missing in old",
         ],
     }
 
