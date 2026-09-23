@@ -105,7 +105,10 @@ test("SL-01 gate: a policy-origin read and a Jev decision run before one real mo
 	// The Jev decision was the step policy's route question, over the real binding, under a lease the run owns.
 	assert.equal(decisions.length, 1);
 	assert.equal(decisions[0].batch.family, ROUTE_FAMILY);
-	assert.deepEqual(decisions[0].batch.questions.map((question) => question.key), ["exit"], "no host candidates in SL-01: the exit alone");
+	// SL-02: the route asks one need per host-issued candidate plus the exit. The fake kernel's capsule has one person
+	// present and not yet introduced (and no apply/resolve options), so there is exactly one candidate: staging him.
+	assert.deepEqual(decisions[0].batch.questions.map((question) => question.key), ["need_1", "exit"]);
+	assert.match(decisions[0].batch.questions[0].target, /看门人/);
 
 	// One real model output through the real provider path, and its tool call executed once, paired.
 	assert.equal(log.filter((row) => row.kind === "provider_request").length, 1);
