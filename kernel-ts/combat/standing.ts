@@ -35,7 +35,7 @@ export function keeperDefense(world: Row, handle: string): string | null {
 }
 /** The book's tactic for this person: the record's `combat.defense`, when it is a defence word (source 1). */
 export function authoredDefense(graph: ModuleGraph, handle: string): string | null {
-    const node = graph.find(handle, ['npc']);
+    const node = graph.actor(handle);
     return node ? word(row(recordOf(node).combat).defense) : null;
 }
 /**
@@ -62,7 +62,7 @@ export function cardTactic(graph: ModuleGraph, world: Row, node: Row): Standing 
     if (keeper) return { defense: keeper, basis: 'keeper' };
     const authored = word(row(recordOf(node).combat).defense);
     if (authored) return { defense: authored, basis: 'authored' };
-    const book = row(recordOf(node).mechanics).profile, pinned = row(world.npc_profiles)[handle];
+    const book = graph.mechanicsOf(node).profile, pinned = row(world.npc_profiles)[handle];
     const profile = isJsonObject(book) ? book : isJsonObject(pinned) ? pinned : null;
     if (!profile) return { defense: null, basis: 'rule-default' };
     const skills = npcDefenceSkills(profile);
@@ -129,7 +129,7 @@ export function tableAction(table: Row, disposition: string, state: FightState):
  * entry the person stands at the table's initial score. Nothing is written.
  */
 export function stanceNow(graph: ModuleGraph, ledger: Row, table: Row, turn: Row, handle: string): string | null {
-    const node = graph.find(handle, ['npc']);
+    const node = graph.actor(handle);
     if (!node) return null;
     let entry = row(ledger[node.node_id]);
     if (['open', 'acting'].includes(string(turn.state)) && array(turn.receipts).length) {
@@ -145,7 +145,7 @@ export function stanceNow(graph: ModuleGraph, ledger: Row, table: Row, turn: Row
 
 /** The record's authored combat disposition (`combat.disposition`), when it is one of the four words. */
 export function authoredDisposition(graph: ModuleGraph, handle: string): string | null {
-    const node = graph.find(handle, ['npc']), word = node ? string(row(recordOf(node).combat).disposition) : '';
+    const node = graph.actor(handle), word = node ? string(row(recordOf(node).combat).disposition) : '';
     return DISPOSITION_WORDS.includes(word) ? word : null;
 }
 /**
@@ -173,7 +173,7 @@ export function keeperAction(world: Row, handle: string, combat: Row | null): st
 }
 /** The record's authored standing action (`combat.action`, enum `{attack}`). */
 export function authoredAction(graph: ModuleGraph, handle: string): string | null {
-    const node = graph.find(handle, ['npc']), word = node ? string(row(recordOf(node).combat).action) : '';
+    const node = graph.actor(handle), word = node ? string(row(recordOf(node).combat).action) : '';
     return AUTHORED_ACTION_WORDS.includes(word) ? word : null;
 }
 /**

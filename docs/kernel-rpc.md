@@ -702,7 +702,10 @@ committed `npc-ledger.json` with the open turn's receipts folded onto a copy by 
 (`npc-stance.json`): the investigator's attack on him earlier in this turn already makes him `hostile`
 (`combat_target_score`), as it will in the ledger when the turn closes. Receipts of a turn that has closed
 (`asked`, `awaiting_player`) are already in the committed ledger and are not folded twice. A person without a
-ledger row stands at the table's `initial_score`. Nothing is written: this is a read. A ledger that cannot be read
+ledger row stands at the table's `initial_score`, and so does a creature actor (§136.12): the ledger folds only
+`npc` nodes, so a creature is never `hostile` by the ledger, and a disposition row that reads the stance treats it
+as not hostile. The NPC card is `npc`-only, so a creature's disposition is not inferred (no card to read); its
+authored or Keeper-written disposition is read. Nothing is written: this is a read. A ledger that cannot be read
 is not an empty one: the table's reading is withheld (no rules-default standing; an override or an authored word is
 still issued), and the failure is not cached, so every other reader of the ledger still sees it. The session view
 is synchronous, so a snapshot loaded while a fight is active (`preload`, view or all) loads the two tables and the
@@ -1140,6 +1143,8 @@ acceptance remain pending until their dedicated checks are recorded.
 | obligations | `promise` | 记忆候选里 `kind: promise` 且未关闭的（13.5 新增种类） |
 | obligations | `note` | `apply note` 里未关闭的连续性欠账（§18.2 写着，13.2 的来源表此前漏了） |
 | obligations | `scene` | 当前场景的 stated obligation（模组图 `requirement` 节点，§134）：`sceneObligations` 投影的每一行，`{kind, name: <handle>, who?, state, cue}`，排在 `continuation` 之后、`quest` 之前（§134.10） |
+| pressures | `threat`, key `advances` | the threat record's `clocks[].advances_on` (§136.18): one line per clock the book advances on an event, `<clock_id>: the book advances it on entering <scene>`; information for the Keeper's `apply threat`, never a write |
+| where | `rules[].mech` | the `uses-rule` row's node's mechanical shapes, read by `ModuleGraph.mechanicsOf` (§136.10) and rendered by code into one English line (§136.11); absent when the node states none, so a module without shapes reads byte for byte as before |
 
 ### 13.3 Director：三层打分，图是唯一的数
 
@@ -16984,7 +16989,8 @@ whether*. The curated starters, the visual PDF reader (RD-05) and, where a Mod s
 declarations use the same shapes and the same validator. This section is the catalog (spec D4) and the
 refusal rules (spec D5) with the implementation rulings A–D of 2026-09-23 (spec, Comments). **RD-01 adds
 no reader:** no capsule row, option, lookup or engine path reads a shape yet (RD-02 is the first reader,
-RD-03 the operations `action.rule` and `stated`). A writer without a reader is the §31 defect; it is
+RD-03 the operations `action.rule` and `stated`). **RD-02 adds the readers** (§136.10–§136.19); the sentences of this preamble describe RD-01's state and
+are kept as its record. A writer without a reader is the §31 defect; it is
 accepted here for one scheduled ticket, as §134.7 was. No shipped starter authors a shape yet, so every
 read of every starter is unchanged.
 
@@ -17256,3 +17262,162 @@ and an `_unstated` variant of every needed slot accepted; `combat.defense` accep
 its version and digest. Every shipped starter registers unchanged, and the capsule, `table.apply.options` and
 `table.resolve.options` of every starter, walked scene by scene, are byte-identical to the parent commit
 `7709b5ded`.
+
+### 136.10 One reader: `ModuleGraph.mechanicsOf` (RD-02, spec D6.1)
+
+`ModuleGraph.mechanicsOf(node)` (`kernel-ts/read/module-graph.ts`) is the only function that reads a node's
+`mechanics`. It returns an object keyed by catalog name holding the node's shapes: every key of
+`recordOf(node).mechanics` that §136.1 names **for that node's kind**, whose value is an object. The starter
+legacy keys of the container, an unknown key, a shape on a kind outside its row and a non-object value are not
+returned: a starter never registers with them (§136.8), and a module the validator has not seen (a PDF build
+before RD-05) is read no further than its typed seats. The table of which shape sits on which kinds is one
+import-free list (`kernel-ts/modules/mechanics-catalog.ts`) read by both the validator and this reader.
+
+**The spell bridge** (spec D4.5 shape 12). A `spell` node without `mechanics.spell` whose own `properties`
+carry any of the flat keys `cost_mp`, `cost_sanity`, `cost_pow` answers those keys, exactly as authored, as its
+`spell`. This is the registered seat's legacy form, owned here as `clueProfile` owns the clue bridge; no shipped
+module carries it today. A typed `mechanics.spell` wins over the flat keys.
+
+Every other former reader of `mechanics` goes through it: `actorProfile` (roll values), `npcProfileOf` (the
+engine's profile), the NPC card's standing (`cardTactic`), the chase-ready fact and the archetype-pin refusal of
+`apply npc`. The registered seats outside the container (`combat.defense`, `combat.action`, `combat.disposition`, a threat clock's `advances_on`, the
+obligation, the clue gate, a route's `when`) are read where they sit, as before. `kernel-ts/modules/visual.ts`
+reads a *draft*, not a graph, and is RD-05's.
+
+### 136.11 The capsule's `mech` line (spec D6.1)
+
+`where.rules[]` (the `uses-rule` rows of §13.1, `ModuleGraph.sceneRules`) gains `mech` on a row whose node has at
+least one shape: one English line rendered by code (`kernel-ts/read/mech-line.ts`, `mechLine`) from the typed
+values `mechanicsOf` returns. A row whose node states none has no `mech` key, so a module without shapes reads
+byte for byte as before. `look focus=scene` and every other non-compact `whereSection` reader carry the full
+line; the capsule (compact) cuts it to 160 characters and marks the row `mech_truncated: true` and
+`where.truncated: true`, exactly as `line` and `truncated`.
+
+**Nothing of the line is prose copied from the module.** Neither `summary`, `name`, a shape's `book` nor an
+effect's `line` is read: a `book` effect renders as the fixed words `as written` (the row's `line` is the book's
+wording). Every slot renders from its type — an integer as its digits, a dice string only when §136.3 accepts it,
+an enum only when it is one of its closed values, a node reference as that node's handle, a skill path as the
+name after `skills.`/`characteristics.`; a slot that fails its type (a module the validator has not seen) renders
+as `?`, never as its text. An `_unstated` twin renders as `unstated`.
+
+The grammar. Shapes are joined by ` | ` in catalog order (`profile`, `check`, `hazard`, `damage`, `sanity_loss`,
+`time_cost`, `resource_cost`, `weapon`, `spell`, `tome`, `reward`):
+
+| shape | renders as |
+| --- | --- |
+| `check` | `check: <check>` |
+| `<check>` | the values (`A` alone; `A or B` for `maximum`; `A / B (by approach)` for `approach`; `approach unstated`), each with `(min <n>)` for a `minimum`; then the difficulty (`regular`, `hard`, `extreme`, `difficulty unstated`); `against <target>` for `actor-target`; `opposed by <values>` for `opposed`; `, on <level> <effects>` for each stated level in the order critical, extreme, hard, regular, failure, fumble; `, no push` or `, push allowed` (`: <effects>` when the push states them) |
+| effects | joined by ` and `: `damage <dice>`, `SAN loss <s>/<f>`, `time <time>`, `cost <cost>`, `flag <id> <true|false>`, `clock <id> +<ticks>`, `step <n>` (the hazard step index `action.step` will take, RD-03), `as written` |
+| `hazard` | `hazard (Keeper triggers[; stated on entry | ; stated on reaching <guards>][; when <gate>])` then `: [0] <check>; [1] <check> …` for its steps and `; <effects>` for its no-roll effects |
+| `damage` | `damage <dice>` |
+| `sanity_loss` | `SAN loss <s>/<f>` |
+| `time_cost` | `time <time>`; `<time>` is `<amount> <unit>s` (`1 hour`, `240 minutes`, `1D6 days`), `at least …` for `minimum`, or `unstated` (so a spell's unstated duration reads `lasts unstated`) |
+| `resource_cost` (`<cost>`) | `<amount> <MP|POW|SAN|Luck|HP>`, or `<resource> chosen by the spender`, or `<resource> unstated`; ` per <use|round|cast>` |
+| `weapon` | `weapon <weapon_id, else the node's handle, the id §136.15 gives it>: extends <id>, <skill>, <damage>, <n>/round, impales, +DB, <n> yd, magazine <n>, malfunction <n>` (each part only when stated), then `<slot> unstated` for each unstated needed slot |
+| `spell` | `spell: MP <amount|chosen|unstated>, SAN <amount|unstated>[, POW <amount>], casting <time>[, lasts <time>][, <hp|san|mp> <gain|loss> <amount>…]` |
+| `tome` | `tome: in <language>, read <check>, no roll at <n>+, initial reading <time>, full study <time>, Cthulhu Mythos +<n> initial, +<n> full, mythos rating <n>, SAN loss <s>/<f>, max SAN -<n>, spells <handles>` (each part only when stated) |
+| `reward` | `reward: SAN <dice|unstated>[, cash <n>[ <currency>]][, when <gate>]` |
+| `profile` | `stat block: <n> characteristics, <n> skills, <n> weapons[, SAN loss <s>/<f>]` |
+
+A gate renders from its typed keys in the words an exit's `unlock_when` uses (`always`, `clue_discovered: <clue
+handle>`, `flag_set: <flag>[ = True|False]`), never through `describeCondition`'s JSON fallback. The line is information: it neither issues an option nor narrows one, and a
+stated hazard stays the Keeper's to trigger (spec P6). The offer ledger's `stated:<handle>` kind is RD-03's
+(spec D6.4), with the operation it counts.
+
+### 136.12 An actor's `stat_block`: `npc` and `creature` (spec D4.5 shape 9, D6.2)
+
+`npcProfileOf` (`kernel-ts/resolve/context.ts`) reads the book's profile through `mechanicsOf(node).profile`, of an
+`npc` node **or of a `creature` node**. The engine's actor is `ModuleGraph.actor(name)`: the `npc` of that name,
+else a `creature` of that name that carries a stat block. A person is found first, so a creature never shadows
+an `npc` of the same handle (the haunting has `npc-rat-pack` and `creature-rat-pack`), and a creature without a
+stat block is not an actor, so every shipped module reads exactly as before (behaviour moves only with data).
+The actor lookup replaces the `npc`-only lookup on the paths that act with or against a body: the resolve target
+(`npcTarget`), the acting NPC (`actor:`), the combat and chase opponents present (`presentOpponents`), the
+settle context's `npcNode`, the standing defence (`authoredDefense`), the standing action's authored word, authored
+disposition and stance read (§11.5.3: `authoredAction`, `authoredDisposition`, `stanceNow`), the chase-ready fact, and the scene's
+people (`sceneNpcIds`, which seeds `world.npc_presence` at campaign creation from `present-in`, and
+`npcsPresent`, which lists them in the capsule's `present[]`). `apply npc` finds a creature actor by name before
+it would establish a new table person under that name.
+
+**Weapons.** A stat block's `weapons[]` are weapon shapes (§136.6 shape 10); `npcProfileOf` projects each onto
+the engine's catalog row (`engineWeapon`, `kernel-ts/combat/profiles.ts`): `impale` becomes the engine's
+`impales`, an integer `uses_per_round` its string, `book` and every `_unstated` twin are dropped, and every other
+key, the starter's legacy `note` included, is kept as written. A shipped profile's weapons (`weapon_id`,
+`extends`, `name`, `note`) project to themselves. `npcCombatParticipant` is otherwise unchanged: it supplies its
+own defaults for everything the block leaves out.
+
+### 136.13 An actor's `sanity_loss`: `sanity:check` (spec D4.5 shape 3, D6.2)
+
+`sanity:check` with a target actor and no `action.san_loss` reads the actor's typed `profile.sanity_loss` first:
+when both halves are stated it is the check's `"<success>/<failure>"`, built from the two strings, never searched
+for in a sentence. A half recorded `_unstated` is the Keeper's to complete, so the typed read yields nothing and
+the check falls through, unchanged, to the legacy keys (`san_loss`, `san_loss_to_see`, `sanity_loss` as a
+string, through `parseSanLoss`) and then to `needs`. `action.san_loss` still wins over both: the Keeper's own
+amount (spec P8). `action.rule` naming a rule's `sanity_loss` is RD-03's.
+
+### 136.14 `spell`: `moduleSpellRecords` (spec D4.5 shape 12, D6.2)
+
+`moduleSpellRecords` (`kernel-ts/rules/catalog.ts`) prices a module spell from `mechanicsOf(node).spell` (typed,
+else the flat-key bridge of §136.10). `module_authored.costs.fields` holds each of `cost_mp`, `cost_sanity`,
+`cost_pow` the shape states (an integer or a dice string, which the cast engine's `resolveMpCost`,
+`resolveSanityCost` and `resolvePowCost` already read); `costs.missing` lists `cost_mp`/`cost_sanity` when the
+shape does not state them — absent, `_unstated`, or for `cost_mp` `cost_mp_chosen` — and `costs.authored` is
+true exactly when nothing is missing. A spell with a missing cost stays unpriced: the cast refuses with
+`UnpricedSpellError`, because a missing cost is not a zero cost and the spender's choice is not a number the
+engine may invent. `costs.chosen: ["cost_mp"]` is added when the book lets the caster choose, so the refusal
+the Keeper sees can be read against it. The flat-key bridge produces exactly the fields and missing list the
+function produced before.
+
+### 136.15 `weapon`: `moduleWeapons` (spec D4.5 shape 10, D6.2)
+
+`moduleWeapons` (`kernel-ts/combat/profiles.ts`) lists, in order, the ruleset table named after the module (the
+haunting's `the-haunting.json`, unchanged until RD-07), then **the graph's weapon shapes** — `mechanics.weapon` of
+every `object` and `artifact` node, in graph order, projected by `engineWeapon` — then the caller's extras. A graph
+weapon without a `weapon_id` takes its node's handle as its id (the machine fills what it can derive), so an
+`extends` never overwrites the rulebook entry it extends. `resolveModuleWeapons` merges them onto the rulebook
+catalog as before; the combat session and `apply`'s weapon catalog both read the result.
+
+### 136.16 `tome`: `magicLearningSources` (spec D4.5 shape 13, D6.2)
+
+A tome node's learning source (`tome:<handle>`) lists its legacy `spells` array (names, as before) and then the
+spells `mechanics.tome.spells` names (spell node ids), each as that spell node's name — the name
+`moduleSpellRecords` gives the same spell, so the source and the catalog agree. One function
+(`bookSpellSources`, `kernel-ts/magic/facts.ts`) builds the tome and creature sources for both readers of them:
+the learn-spell binder and the rule layer's `magic.learn.sources` fact (`kernel-ts/read/rule-facts.ts`), which
+had its own copy.
+
+### 136.17 `reward`: the module lookup's `endings[]` (spec D4.5 shape 14, D6.2)
+
+`lookup kind=secret scope=module` `endings[]` reads the `reward` shapes of the rule nodes a conclusion scene or an
+`ending` node links by `uses-rule`, through `ModuleGraph.statedRewards(node)`: each is `{rule: <handle>, ...the
+typed reward}` (`sanity` or `sanity_unstated`, `cash`, `currency`, `when`; `book` is not carried). A conclusion
+scene's row (a scene with a `conclusion_contract`, as before) gains `rewards` when it has any; an `ending` node
+that links a reward gets its own row `{ending: <handle>, rewards}`. A row without rewards is exactly as before;
+the contract's own `sanity_reward` stays where it is until RD-04 migrates it. The development binder reading the
+ending's reward, and `apply cash` with `stated`, are RD-03/RD-04's.
+
+### 136.18 `clock.advances_on`: the threat pressure row (spec D4.5 shape 15, D6.2)
+
+The capsule's `pressures` row of a threat (`threatPressures`, `kernel-ts/read/pressures.ts`) gains `advances`
+when any of the threat's clocks carries `advances_on`: one line per such clock, joined by `; `,
+`<clock_id>: the book advances it on entering <scene handle>[, <scene handle>]`. It is information: the clock
+still moves only through the Keeper's `apply threat` (§30.9), which answers §32.5's open question — the book's
+tick is not an automatic write.
+
+### 136.19 The three ends and the tests (RD-02)
+
+The writer of every shape is the starter author (and, after RD-05, the reader under review); the readers are
+§136.10–§136.18; the actor is the Keeper through the `mech` line, the capsule's `present[]`, the combat and
+sanity paths and the lookups. No world-state key is added (the §31.1 seam test is unchanged); `advances` and
+`mech` are projections of the graph.
+
+`tests/extension/mechanics-readers.test.mjs` registers a derived haunting content root carrying one node of every
+container shape plus a typed tome, reward, clock `advances_on`, creature stat block and spell, and asserts through
+the real entries (`campaign.create`, `table.capsule`, `table.look`, `table.lookup`) what each reader returns: the
+`mech` line of every shape exactly, its compact cut, its absence on a row without shapes, the ending rewards, the
+pressure line, the graph weapons in the combat catalog, and a structural guard that no kernel file but
+`module-graph.ts` reads `.mechanics` of a record. `tests/kernel/test_mechanics_readers.py`, over the emitted
+kernel, fights a creature with a stat block, rolls a typed `sanity_loss` without `action.san_loss`, and learns and
+casts a module spell priced by `mechanics.spell` from a tome that names it in `mechanics.tome.spells`. Every
+shipped starter's capsule, `table.apply.options`, `table.resolve.options`, module and scene lookups and `look
+focus=scene`, walked scene by scene, are byte-identical to the parent commit `fb4ddbb50`.

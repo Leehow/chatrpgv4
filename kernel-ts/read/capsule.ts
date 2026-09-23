@@ -10,6 +10,7 @@ import {personalityView} from '../npc/material.js';
 import {npcRelationships,npcRecentSpeech,npcCommitments} from '../npc/perspective.js';
 import {reunionView} from '../npc/reunion.js';
 import {cardAction,cardTactic} from '../combat/standing.js';
+import {mechRow} from './mech-line.js';
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /**
  * The one name this table uses for a place, by its handle: the campaign label the Keeper gave it,
@@ -200,7 +201,7 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         keeper_notes: notes,
         assets: graph.sceneAssets(scene, array(world.handouts_shown)),
         places: graph.scenePlaces(scene),
-        rules: graph.sceneRules(scene),
+        rules: graph.sceneRules(scene, mechRow(graph)),
         endings: graph.sceneEndings(scene),
         material: material(scene.node_id)
     };
@@ -210,12 +211,19 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
                 where.truncated = true;
                 where[key] = where[key].slice(0, limit);
             }
-            for (const entry of where[key])
+            for (const entry of where[key]) {
                 if (length(entry.line || "") > size) {
                     entry.line = chars(entry.line, size);
                     entry.truncated = true;
                     where.truncated = true;
                 }
+                // The rule row's mech line (contract §136.11) is cut the same way, and says so on its own key.
+                if (typeof entry.mech === "string" && length(entry.mech) > size) {
+                    entry.mech = chars(entry.mech, size);
+                    entry.mech_truncated = true;
+                    where.truncated = true;
+                }
+            }
         }
     return where;
 }
@@ -223,7 +231,7 @@ export function npcsPresent(graph: ModuleGraph, world: Row, scene: Row): Row[] {
     return entries(row(world.npc_presence)).flatMap(([handle, at]) => {
         if (at !== graph.handle(scene))
             return [];
-        const node = graph.find(handle, ["npc"]);
+        const node = graph.actor(handle);
         return node ? [node] : [];
     });
 }

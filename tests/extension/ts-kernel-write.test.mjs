@@ -140,7 +140,7 @@ test('combat and chase use the same current-scene NPC query without mixing their
   const here={node_id:'npc-here'},there={node_id:'npc-there'},profile={hp_current:10};
   const world={active_scene:'study',npc_presence:{here:'study',unknown:'study',there:'hall'}};
   const context=Object.assign(Object.create(api.SettleContext.prototype),{
-    transaction:{world},module:{graph:{find:handle=>({here,there}[handle]??null)}},
+    transaction:{world},module:{graph:{find:handle=>({here,there}[handle]??null),actor:handle=>({here,there}[handle]??null)}},
     npcProfile:handle=>handle==='here'?profile:null,
   });
   assert.deepEqual(api.presentOpponents(context),[['here',here,profile]]);

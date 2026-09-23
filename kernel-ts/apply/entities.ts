@@ -81,6 +81,9 @@ function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|n
     catch(error){
         // A pin, an ambiguity, or a name the book has something to say about: the graph's own answer
         // stands, with the candidates it minted. Only a name it is silent on reaches the table.
+        // A creature that states a stat block is the book's body, not a new person (contract §136.12).
+        const creature=graph.actor(name);
+        if(creature)return{node:creature,established:false};
         if(effect.skill!=null||effect.archetype!=null||effect.conditions!=null||effect.reunion!=null||graph.candidates(name,['npc']).length)throw error;
     }
     const trimmed=name.trim(),people=array(world.table_people??=[]);
@@ -185,7 +188,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     let profile:Row|null=null;const archetype=effect.archetype??null;
     if(archetype!=null){
         if(typeof archetype!=='string'||!archetype.trim())throw new RpcError('invalid_params','npc.archetype must name a rulebook NPC stat archetype',{fix:'one of details.options',details:{field:'npc.archetype',options:await archetypeIds(context.kernel)}});
-        if(isJsonObject(row(recordOf(node).mechanics).profile))throw new RpcError('invalid_params',`the source prints ${graph.displayName(node)}'s numbers; an archetype cannot replace them`,{fix:'resolve against the printed profile; no pin is needed',details:{field:'npc.archetype',actor:handle,authority:'source_authored'}});
+        if(isJsonObject(graph.mechanicsOf(node).profile))throw new RpcError('invalid_params',`the source prints ${graph.displayName(node)}'s numbers; an archetype cannot replace them`,{fix:'resolve against the printed profile; no pin is needed',details:{field:'npc.archetype',actor:handle,authority:'source_authored'}});
         const existing=row(row(world.npc_profiles)[handle]);
         if(truth(existing.archetype))throw new RpcError('invalid_params',`${graph.displayName(node)} already has a pinned ${string(existing.archetype)} profile from turn ${string(existing.pinned_turn)}`,{fix:'resolve against it; a pin is made once for the campaign',details:{field:'npc.archetype',actor:handle,archetype:existing.archetype,pinned_turn:existing.pinned_turn??null}});
         profile=await rollArchetypeProfile(context.kernel,archetype.trim(),why,number(context.turn.turn));

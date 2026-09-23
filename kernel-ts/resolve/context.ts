@@ -4,7 +4,6 @@ import type { KernelContext } from '../context.js';
 import type { TurnTransaction } from '../transactions.js';
 import { isJsonObject, jsonDigest } from '../json.js';
 import { CampaignSnapshot, type LoadedModule } from '../read/campaign.js';
-import { recordOf } from '../read/module-graph.js';
 import { SessionView } from '../read/session-view.js';
 import { dieHidden } from '../read/mechanics.js';
 import { factsFromState, RuleObservations } from '../read/rule-facts.js';
@@ -15,6 +14,7 @@ import { moduleSpellRecords } from '../rules/catalog.js';
 import { caseFold } from '../rules/casefold.js';
 import { nowIso } from '../write/store.js';
 import {weaponRows} from '../mods/projection.js';
+import { engineWeapon } from '../combat/profiles.js';
 import {prepareMagicFacts,augmentMagicFacts,provisionalMagicSemantic,type PreparedMagicFacts} from '../magic/facts.js';
 import { incapacitatedBy } from '../healing/conditions.js';
 import { personLabel } from '../read/capsule.js';
@@ -41,16 +41,20 @@ export interface ResolveWriter {
  * a damage effect is about (contract §66). The method stays, so nothing else changes.
  */
 export function npcProfileOf(graph: LoadedModule['graph'], world: Row, handle: string): Row | null {
-    const node = graph.find(handle, ['npc']);
+    // An `npc`, or a `creature` that states a stat block (contract §136.12).
+    const node = graph.actor(handle);
     if (!node)
         return null;
     // The book's numbers first; then a profile the table pinned from a rulebook archetype (contract §34.10).
-    const authored = row(recordOf(node).mechanics).profile, pinnedProfile = row(world.npc_profiles)[handle];
+    const authored = graph.mechanicsOf(node).profile, pinnedProfile = row(world.npc_profiles)[handle];
     const profile = isJsonObject(authored) ? authored : isJsonObject(pinnedProfile) ? pinnedProfile : null;
     if (!isJsonObject(profile))
         return null;
     const resources = row(row(world.npc_resources)[handle]);
     const result = clone(profile);
+    // The book's weapons are weapon shapes; the engine reads its own spelling of them (§136.12).
+    if (profile === authored && Array.isArray(result.weapons))
+        result.weapons = result.weapons.map((weapon: any) => isJsonObject(weapon) ? engineWeapon(weapon) : weapon);
     result.spells = [...new Set([...array(result.spells), ...Object.keys(row(row(row(world.objects).abilities)[handle]))])];
     result.weapons = [...array(result.weapons), ...weaponRows(world, handle)];
     if (Object.hasOwn(resources, 'current_hp'))
@@ -140,7 +144,7 @@ export class SettleContext {
             return null;
         return integer(spec.base_chance) && number(spec.base_chance) >= 0 && number(spec.base_chance) <= 100 ? number(spec.base_chance) : null;
     }
-    npcNode(handle: string): Row | null { return this.graph.find(handle, ['npc']); }
+    npcNode(handle: string): Row | null { return this.graph.actor(handle); }
     npcProfile(handle: string): Row | null { return npcProfileOf(this.graph, this.world, handle); }
     npcSkillLabels(ref: string): string[] {
         const parts = ref.split(':');
@@ -437,7 +441,7 @@ export class SettleContext {
 /** Scene-bound NPCs shared by combat and chase; engine-specific eligibility stays with each caller. */
 export function presentOpponents(context: SettleContext): Array<[string, Row, Row | null]> {
     return entries(context.world.npc_presence).filter(([, at]) => at === context.activeScene).flatMap(([handle]) => {
-        const node = context.graph.find(handle, ['npc']);
+        const node = context.graph.actor(handle);
         return node ? [[handle, node, context.npcProfile(handle)] as [string, Row, Row | null]] : [];
     });
 }

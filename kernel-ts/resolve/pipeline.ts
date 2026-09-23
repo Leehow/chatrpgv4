@@ -98,7 +98,7 @@ export function resolveActor(party: Row[], graph: SettleContext['graph'], sessio
     const name = action.actor;
     const target = party.find(sheet => [normalize(string(sheet.id)), normalize(string(sheet.name))].includes(normalize(string(action.target || ''))));
     const investigator = typeof name === 'string' ? party.find(sheet => [normalize(string(sheet.id)), normalize(string(sheet.name))].includes(normalize(name))) : null;
-    const node = typeof name === 'string' && !investigator ? graph.find(name, ['npc']) : null;
+    const node = typeof name === 'string' && !investigator ? graph.actor(name) : null;
     if (node) {
         const handle = graph.handle(node);
         const session = active(sessions.combat) ? sessions.combat : active(sessions.chase) ? sessions.chase : null;
@@ -186,13 +186,13 @@ export class ResolvePipeline {
     npcTarget(): Row | null {
         if (!truth(this.action.target) || this.context.sheetById(this.action.target))
             return null;
-        const node = this.context.graph.find(this.action.target, ['npc']);
+        const node = this.context.graph.actor(this.action.target);
         if (!node)
             return null;
         const handle = this.context.graph.handle(node);
         if (row(this.context.world.npc_presence)[handle] !== this.context.world.active_scene) {
             const candidates = entries(this.context.world.npc_presence).flatMap(([name, at]) => {
-                const present = this.context.graph.find(name, ['npc']);
+                const present = this.context.graph.actor(name);
                 return at === this.context.world.active_scene && present ? [{
                         name,
                         kind: 'npc',

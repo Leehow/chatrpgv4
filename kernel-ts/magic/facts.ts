@@ -1,6 +1,6 @@
 /** Read-only spell knowledge and source facts, prepared before synchronous graph checks. */
 import { array, clone, entries, row, string, truth, values, type Row } from '../read/values.js';
-import { recordOf } from '../read/module-graph.js';
+import { recordOf, type ModuleGraph } from '../read/module-graph.js';
 import type { SettleContext } from '../resolve/context.js';
 import { Catalog } from '../rules/catalog.js';
 import { canonicalSpellName } from './spells.js';
@@ -19,10 +19,25 @@ export function magicLearningSources(context: Pick<SettleContext, 'graph' | 'wor
     }
     for (const [owner, abilities] of entries(row(context.world.objects).abilities))
         sources[`person:${owner}`] = [...new Set([...array(sources[`person:${owner}`]), ...entries(abilities).map(([name]) => name)])];
+    return Object.assign(sources, bookSpellSources(context.graph));
+}
+/**
+ * The spells the book's tomes and creatures teach, keyed `tome:<handle>` / `entity:<handle>`: the node's legacy
+ * `spells` names, then (a tome) the spell nodes `mechanics.tome.spells` names, each by the name the module's spell
+ * catalog gives it (contract §136.16). One function for the learn binder and the rule layer's fact.
+ */
+export function bookSpellSources(graph: ModuleGraph): Row {
+    const sources: Row = {};
     for (const [kind, prefix] of [['tome', 'tome'], ['creature', 'entity']]) {
-        for (const node of context.graph.kind(kind)) {
-            const spells = truth(row(node.properties).spells) ? node.properties.spells : recordOf(node).spells;
-            if (Array.isArray(spells) && spells.length) sources[`${prefix}:${context.graph.handle(node)}`] = spells.filter(value => typeof value === 'string');
+        for (const node of graph.kind(kind)) {
+            const legacy = truth(row(node.properties).spells) ? node.properties.spells : recordOf(node).spells;
+            const names = Array.isArray(legacy) ? legacy.filter(value => typeof value === 'string') : [];
+            for (const id of array(row(graph.mechanicsOf(node).tome).spells)) {
+                const spell = typeof id === 'string' ? graph.nodes.get(id) : undefined;
+                const name = spell?.node_kind === 'spell' ? string(spell.name || graph.handle(spell)) : '';
+                if (name && !names.includes(name)) names.push(name);
+            }
+            if (names.length || Array.isArray(legacy) && legacy.length) sources[`${prefix}:${graph.handle(node)}`] = names;
         }
     }
     return sources;
