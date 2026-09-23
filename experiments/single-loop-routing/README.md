@@ -41,10 +41,19 @@ node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 --llm repl
 node experiments/single-loop-routing/run.mjs --fixture fight-round --runs 3 --llm replay --admission jev
 node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 --llm replay --driver prototype
 node --test experiments/single-loop-routing/loop.test.mjs
+# SL-11: the same product driver with the real Keeper model (the App's grok-build login, copied without its refresh
+# token; the default model grok-build/grok-4.7-build-fast), a thinking level, and follow-on turns in one session:
+node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 --llm replay --keeper live --thinking low
+node experiments/single-loop-routing/run.mjs --fixture <dir> --runs 3 --llm replay --keeper live --then "<next player input>"
 ```
+
+Every product run's summary has `model_calls`: per Keeper call, the provider's own `input`, `cache_read`, `output` and
+`reasoning` tokens, its seconds and time to response headers, the tools it called and the reasoning effort sent. A
+`--fixture` given as a directory path reads a scratch fixture (its `baseline.json` is optional). With `--keeper live`
+the admission lane answers an unrecorded review `authorized` (admission is SL-10's measurement, not this one's).
 
 Needs the App signed in to Jev (the key is read from the profile's secret vault). Every run extracts the fixture into a temporary workspace, resets it to the pre-turn commit, opens the turn with the recorded player input, and removes the workspace afterwards. Nothing under Application Support is written.
 
 ## Boundaries
 
-No LLM is called (the replay mode replays recorded calls). No hard-coded semantic lists: the exits are structural, candidates are host-issued, precedence ranks families the host already knows. Product code under `extensions/`, `runtime/`, `kernel-ts/` is imported, not modified.
+No LLM is called in the replay modes (they replay recorded calls); `--keeper live` calls the real Keeper model and is a measurement, never a table or a playtest. No hard-coded semantic lists: the exits are structural, candidates are host-issued, precedence ranks families the host already knows. Product code under `extensions/`, `runtime/`, `kernel-ts/` is imported, not modified.
