@@ -1,7 +1,8 @@
 /** Receipt-to-JSON projection. It neither changes receipts nor evaluates story text. */
-import { array, row, number, integer, truth, chars, length, type Row } from "./values.js";
+import { array, row, number, integer, truth, type Row } from "./values.js";
 import { publicDefinition } from "../mods/public-definition.js";
 import { queuedDefinition } from "../mods/queue.js";
+import { handoutBody } from "./handout-document.js";
 /**
  * A roll receipt's visibility tier (§16.5). Three, not two.
  *
@@ -240,13 +241,9 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
         labeled(out, "label", receipt.label);
         labeled(out, "path", attachment.path);
         labeled(out, "media_type", attachment.media_type);
-        let body = texts.get(attachment.path);
-        if (body !== undefined) {
-            const lines = body.split("\n");
-            if (lines[0]?.startsWith("# "))
-                body = lines.slice(1).join("\n").trim();
-            if (length(body) > 8000)
-                body = chars(body, 8000).trimEnd() + " …";
+        const file = texts.get(attachment.path);
+        if (file !== undefined) {
+            const body = handoutBody(file);
             if (body)
                 out.text = body;
         }

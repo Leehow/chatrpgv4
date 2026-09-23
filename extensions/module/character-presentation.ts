@@ -6,6 +6,7 @@ import {resourceRootFrom,runtimeEntryUrl} from '../../runtime/deployment.mjs';
 import {acceptPresentationReferences,issuePresentationReferences,selectPresentationReferences,
   type PresentationCatalog,type PresentationSource,validatePresentationReferenceShape} from '../../runtime/jev/presentation-references.ts';
 import {PLAY_LANGUAGE_TAG} from '../../runtime/ui-words.ts';
+import {handoutBody,handoutHeading} from '../../kernel-ts/read/handout-document.ts';
 import {coded} from '../ui/errors.ts';
 import {reasoned,readerFailureReason} from './reader.ts';
 import {runPresentationAttempt} from './presentation-attempt.ts';
@@ -241,8 +242,9 @@ export function handoutTexts(view:Row):string[] {
  * The handouts a campaign has handed over, as the lane's own input.
  *
  * `apply handout` writes a card that has a body to `<campaign>/handouts/<handle>.md` as
- * `# <display>\n\n<body>`, so the heading is read back rather than guessed out of the prose, and
- * an absent folder is a campaign that has handed nothing over — not a failure.
+ * `# <display>\n\n<body>` (`kernel-ts/read/handout-document.ts`), so the heading is read back rather
+ * than guessed out of the prose, and an absent folder is a campaign that has handed nothing over —
+ * not a failure.
  */
 export async function handoutInput(home:string,campaign:string):Promise<Row[]> {
   if(!CAMPAIGN_NAME.test(campaign))throw coded('invalid_params','Invalid presentation request');
@@ -251,8 +253,11 @@ export async function handoutInput(home:string,campaign:string):Promise<Row[]> {
   for(const file of (await readdir(folder).catch(()=>[] as string[])).filter(name=>name.endsWith('.md')).sort()) {
     const text=await readFile(join(folder,file),'utf8').catch(()=>null);
     if(typeof text!=='string'||!text.trim())continue;
-    const heading=/^#[ \t]+(.+?)[ \t]*(?:\r?\n|$)/.exec(text);
-    rows.push({name:heading?heading[1]:null,text});
+    // The body exactly as the card carries it (`handoutBody`, the mechanics row's `text`): the lane's
+    // answer is looked up by that string, so asking for the whole file -- heading included -- keyed
+    // the translation on a string no card shows, and the document stayed in the book's language.
+    const body=handoutBody(text);
+    rows.push({name:handoutHeading(text),text:body||null});
   }
   return rows;
 }

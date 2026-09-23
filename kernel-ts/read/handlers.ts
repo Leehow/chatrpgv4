@@ -7,6 +7,7 @@ import { continuityView } from "./continuity.js";
 import { glossaryOf, RULES_DATA } from "./glossary.js";
 import { playLanguageOf } from "./languages.js";
 import { CampaignSnapshot, loadModule, loadCampaignModule, replayTrail, type LoadedModule } from "./campaign.js";
+import { heldHandouts } from "./handout-document.js";
 import { ModuleGraph, recordOf } from "./module-graph.js";
 import { SessionView } from "./session-view.js";
 import { RuleObservations } from "./rule-facts.js";
@@ -236,6 +237,7 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
             state: "setting_up",
             investigators: (await initial.files("party")).map(investigatorView),
             clues: { discovered: [] },
+            handouts: [],
             npcs: { journal: [] },
             labels: await playerGlossary(context, language)
         };
@@ -279,6 +281,10 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
             incapacitated: incapacitatedBy(sheet.conditions)
         })),
         clues: { discovered },
+        // The documents this table was handed, so a clipping read once can be read again from the
+        // clue list after the delivery card has scrolled away (2026-09-23 ruling). Same body as the
+        // card's `text`, so the handouts lane's projection answers both.
+        handouts: await heldHandouts(campaign.dir, array(world.handouts_shown)),
         npcs: { journal: await npcJournalSection(campaign, graph) },
         labels: await playerGlossary(context, language)
     };

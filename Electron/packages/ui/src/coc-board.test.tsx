@@ -141,6 +141,31 @@ describe('a found clue is named, and the account of how folds away', () => {
   });
 });
 
+describe('a document the table was handed stays in the clue list, and opens into its text', () => {
+  it('draws each held handout as its own row, in the play language, even with no clue found', async () => {
+    // Byte for byte what `table.view` carries: the heading as `name`, the card's body as `text`.
+    const name = 'Boston Globe City Desk Copy — Held from Print (1918)';
+    const body = 'BOSTON GLOBE — CITY DESK COPY — HELD FROM PRINT\n\nThe Macario family took the house early in 1918.';
+    const { container } = render(<Board api={host(ready({ view: {
+      handouts: [{ handout: 'globe-unpublished-1918', name, text: body }, { handout: 'blank', name: 'Blank', text: '' }],
+      // The handouts lane's saved projection, merged under `labels` the way every sheet lane is.
+      labels: { [name]: '《环球报》城市版未刊稿（一九一八年）', [body]: '波士顿环球报——城市版编辑部稿——暂缓付印\n\n马卡里奥一家于1918年初入住此宅。' },
+    } }))} />);
+    await screen.findByRole('heading', { name: enBoard.clues });
+    // A table that found no clue but holds a document does not say "no clues" over it.
+    expect(screen.queryByText(enBoard.noClues)).toBeNull();
+    const docs = container.querySelectorAll('details.coc-clue-doc');
+    expect(docs).toHaveLength(1);
+    const doc = docs[0] as HTMLDetailsElement;
+    expect(doc.dataset.handout).toBe('globe-unpublished-1918');
+    expect(doc.querySelector('summary')?.textContent).toBe('《环球报》城市版未刊稿（一九一八年）');
+    expect(doc.querySelector('summary [data-icon="document"]')).toBeTruthy();
+    expect(doc.open).toBe(false);
+    expect(doc.querySelector('.coc-clue-doc-body')?.textContent).toBe('波士顿环球报——城市版编辑部稿——暂缓付印\n\n马卡里奥一家于1918年初入住此宅。');
+    expect(container.textContent).not.toContain('HELD FROM PRINT');
+  });
+});
+
 describe('the people section is the legend for the spoken lines', () => {
   it('draws the speaker dot with its slot ink, and marks a closed ledger dead', async () => {
     const { container } = render(<Board api={host(ready({ view: {

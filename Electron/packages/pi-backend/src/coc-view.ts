@@ -298,9 +298,10 @@ export async function cocPlayLanguage(repo:string, contentRoot:string, tag:unkno
 /**
  * The lanes a campaign projects its own growing vocabulary into, in the order they merge.
  *
- * `handouts` is here but not in `SHEET_LANES`, the way `standing` is: a sheet read cannot top it
- * up because a handout is on no panel and in no view. Its trigger is the delivery that hands the
- * document over.
+ * `handouts` is started by the delivery that hands a document over, and -- since `table.view`
+ * carries the held documents for the clue list (2026-09-23) -- topped up by a sheet read as well,
+ * so a table whose saved projection is keyed on anything but the card's body heals on the next
+ * board read instead of waiting for a second delivery of the same document.
  */
 export const PRESENTATION_LANES=['standing','possessions','clues','languages','handouts','rules'] as const;
 /**
@@ -514,7 +515,7 @@ export async function readColdSheet(repo:string, context:CocBinding, previewRevi
  * discovered clue is called and says. The collector is the one definition of a lane's words,
  * read from the built presenter, so the host never counts a sheet's words a second way.
  */
-export const SHEET_LANES={possessions:'possessionTexts',clues:'clueTexts',languages:'languageTexts',rules:'rulesTexts',journal:'journalTexts',identity:'identityTexts'} as const;
+export const SHEET_LANES={possessions:'possessionTexts',clues:'clueTexts',languages:'languageTexts',rules:'rulesTexts',journal:'journalTexts',identity:'identityTexts',handouts:'handoutTexts'} as const;
 export type SheetLane=keyof typeof SHEET_LANES;
 export async function laneWords(repo:string, lane:SheetLane, view:unknown, entrypoint='build/extensions/module/character-presentation.mjs'):Promise<string[]> {
   const presenter=await import(pathToFileURL(resolve(repo,entrypoint)).href);

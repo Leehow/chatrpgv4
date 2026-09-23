@@ -2932,7 +2932,8 @@ replacement rather than a second copy of the turn.
 
 **Every lane a delivery starts must be one that can collect the words asked
 for.** A handed-over handout is module prose under the same law, but it is on no
-panel and in no view: `apply handout` writes a card with a body to
+panel and in no view (superseded by §133: `table.view.handouts` now carries it,
+and the lane asks for the card's body, not the file): `apply handout` writes a card with a body to
 `<campaign>/handouts/<handle>.md` and the delivery is its only surface. Its lane
 is therefore `handouts`, whose input is those files rather than `table.view` —
 `handoutInput` reads each one and takes the `# ` heading the kernel wrote above
@@ -16049,3 +16050,47 @@ patch that arrives before its card; the re-read folds patches in file order; an 
 ignored without error; a patch that changes nothing draws nothing), and the §129 tests unchanged in
 what they assert (`coc-object-details.test.ts`; `object-details-pairing.test.mjs` now picks the §129
 word out by its type, because a patch rides beside each one).
+
+## 133. A handed-over document is asked by the body the card shows, and stays in the clue list (2026-09-23, amends §16.2 and the handouts-lane paragraph of "Host decision: languages and UI words are data")
+
+**What broke on a real table.** A zh-Hans table of The Haunting was handed the Globe clipping. The
+delivery card's title was Chinese and the document under it was English. The handouts lane had
+run and had translated the whole document correctly. It had keyed that translation on the whole
+file `apply handout` wrote, which is `# <display>\n\n<body>\n`. The card looks its body up
+through `term(row.text)`, and `row.text` is what §16.2 projects: the body without the heading,
+trimmed, and capped at 8000 code points. No card ever carries the file, so the lookup missed
+every time. The title matched only because `name` really is the heading. The lane's own test
+asserted the whole-file string, so the test pinned the defect.
+
+**One format, one reader.** `kernel-ts/read/handout-document.ts` owns the materialised file. It
+has three functions:
+
+- `handoutFile(display, text)`, the writer, which `apply handout` calls.
+- `handoutHeading(file)`, which reads back the `name`.
+- `handoutBody(file)`, which produces the `text` that §16.2's mechanics row carries.
+
+The handouts lane's input (`handoutInput`) reads the heading and the body through the same two
+functions, so what the lane is asked for is exactly what the renderer looks up. A projection
+already saved under the whole-file key does no harm. It is simply never looked up.
+
+**The clue list keeps the document (owner ruling, 2026-09-23).** Before this section the delivery
+card was the only surface a handout had. Once the transcript scrolled past it, the player could
+not read the clipping again. `table.view` now returns `handouts: [{handout, name, text}]`, one row
+per text handout in `world.handouts_shown`, in delivery order. Membership comes from the world,
+not from the folder, so a worldline that no longer holds the delivery does not list it. A handout
+with no document file is not listed: an image, or a card registered without text. The row's
+`name` and `text` are the same two strings the card carries. The board draws each row inside the
+clue section as its own fold, with a document glyph and the name through `term()`, and the fold
+opens into the body through `term()`. The document appears once even when it `supports` two clues.
+A table that holds a document but has found no clue does not print "no clues" above it.
+
+**The sheet read tops up the lane.** `handouts` joins `SHEET_LANES` (collector `handoutTexts`, which
+reads `view.handouts`). A delivery still starts the lane, as before. Now a board read also starts
+it for anything the saved projection lacks. So a campaign whose projection was saved under the old
+key recovers the next time the board is read, without waiting for a second delivery of the same
+document.
+
+**Pinned by** `tests/extension/handout-words-follow-the-card.test.mjs`. It runs the real kernel on
+the shipped starter: `apply handout`, then the recorded receipt through `mechanics`, then
+`handoutInput`, then `table.view`. It fails if the lane's input goes back to the whole file.
+`coc-board.test.tsx` pins the board row.
