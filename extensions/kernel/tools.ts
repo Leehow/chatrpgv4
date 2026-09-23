@@ -27,6 +27,47 @@ const UsingSkill = Type.Optional(Type.String({
 }));
 
 /**
+ * Contract §135.21: an argument that says why or how a write happened is one sentence, not prose. Every such field
+ * (`how` on a clue, every `why`) declares this ceiling in its schema, and a call over it is refused before it runs
+ * with a fix that says to shorten it (`argumentLimitRefusal`), on both loop engines; nothing is ever cut to fit. 200
+ * characters is the workpad's one-sentence ceiling (§19.2); across 604 recorded `how`/`why` arguments of the App's and
+ * the source tree's play sessions the longest was 99.
+ */
+export const SENTENCE_MAX = 200;
+/** The fields `SENTENCE_MAX` bounds, wherever they sit in a call's arguments (schema field names, a closed list). */
+export const SENTENCE_FIELDS: readonly string[] = Object.freeze(["how", "why"]);
+const Sentence = (description?: string) =>
+	Type.String({ maxLength: SENTENCE_MAX, description: `${description ? `${description}; ` : ""}one sentence, at most ${SENTENCE_MAX} characters` });
+
+/**
+ * The refusal of a call whose `how`/`why` argument is longer than one sentence (§135.21), or none: `invalid_params`
+ * with `code_detail: argument_too_long`, every offending field with its length, and a fix that says to shorten it.
+ * Lengths are counted in code points, as JSON Schema's `maxLength` counts them.
+ */
+export function argumentLimitRefusal(tool: string, args: unknown): { code: string; code_detail: string; message: string; fix: string; retryable: false; next: "change_input"; details: Record<string, unknown> } | undefined {
+	const over: Array<{ field: string; length: number; max: number }> = [];
+	const walk = (value: unknown, path: string): void => {
+		if (Array.isArray(value)) value.forEach((item, index) => walk(item, `${path}[${index}]`));
+		else if (value && typeof value === "object") for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+			const field = path ? `${path}.${key}` : key;
+			if (SENTENCE_FIELDS.includes(key) && typeof item === "string") {
+				const length = Array.from(item).length;
+				if (length > SENTENCE_MAX) over.push({ field, length, max: SENTENCE_MAX });
+			} else walk(item, field);
+		}
+	};
+	walk(args, "");
+	if (!over.length) return undefined;
+	const named = over.map((row) => `${row.field} (${row.length} characters)`).join(", ");
+	return {
+		code: "invalid_params", code_detail: "argument_too_long", retryable: false, next: "change_input",
+		message: `${tool}: ${named} ${over.length === 1 ? "is" : "are"} longer than one sentence of ${SENTENCE_MAX} characters`,
+		fix: `Shorten ${over.map((row) => row.field).join(", ")} to one sentence of at most ${SENTENCE_MAX} characters and send the same call again; nothing in this call was written. What does not fit in one sentence belongs in the narration, not in the argument.`,
+		details: { fields: over },
+	};
+}
+
+/**
  * The workpad patch is deliberately schema-permissive: Pi validates tool arguments against this
  * schema before the tool runs, and a schema refusal would block the delivery that carried the
  * patch — exactly what the contract forbids (§19.2). The shape guidance lives in the description;
@@ -60,7 +101,7 @@ const ClueEffect = Type.Object({
 		description:
 			"clue name; must be a clue obtainable in the current scene. An echo id from the capsule's worldlines.echoes (it starts with echo:) reveals what another worldline left standing here — you decide whether to show it and how to tell it, never what it says",
 	}),
-	how: Type.Optional(Type.String({ description: "one sentence: how they got it" })),
+	how: Type.Optional(Sentence("how they got it")),
 	from: Type.Optional(Type.String({ description: "the NPC who handed it over, when someone did; it goes on their ledger as something they disclosed" })),
 	label: Type.Optional(Type.String({ description: "short name of this clue in the player's language; omitted means the clue name" })),
 });
@@ -73,20 +114,20 @@ const DamageEffect = Type.Object({
 	dice: Type.Optional(Type.String({ description: "the damage dice from the rulebook, such as 1D6; the kernel rolls them. Required unless stated names them" })),
 	stated: StatedAmount,
 	subject: Type.Optional(Type.String({ description: "who is hurt: an investigator or an NPC who is in the scene; defaults to the current investigator. An NPC whose numbers the book never printed needs an archetype pinned first (npc.archetype); until someone has hit points, nothing that happens to them can be settled, healed or clocked — it is only prose" })),
-	why: Type.Optional(Type.String({ description: "one sentence: how they were hurt" })),
+	why: Type.Optional(Sentence("how they were hurt")),
 });
 
 const ClockEffect = Type.Object({
 	kind: Type.Literal('clock'),
 	local_datetime: Type.String({ description: "Pin the opening datetime once when the book gives no full date: YYYY-MM-DDTHH:MM, no timezone; preserve any declared start_time" }),
-	why: Type.Optional(Type.String({ description: "one sentence: why this opening date was chosen" })),
+	why: Type.Optional(Sentence("why this opening date was chosen")),
 });
 
 const TimeEffect = Type.Object({
 	kind: StringEnum(["time"] as const, { description: "the world clock moves forward" }),
 	stated: StatedAmount,
 	minutes: Type.Optional(Type.Integer({ description: "required unless stated gives them: minutes advanced. Six hours or more is a day of rest and the party heals for it (1 HP a day with no major wound), an hour or more regenerates magic points; the result lists what came back in recovered, and your narration owes those numbers like any other change" })),
-	why: Type.Optional(Type.String({ description: "one sentence: where the time went" })),
+	why: Type.Optional(Sentence("where the time went")),
 });
 
 /** Things changing hands (contract §5 `item`, #19): what the narration gains or loses reaches the sheet here. */
@@ -103,7 +144,7 @@ const ItemEffect = Type.Object({
 	),
 	quantity: Type.Optional(Type.Integer({ description: "quantity, default 1; a negative number is a loss (used up, handed over, taken away)" })),
 	label: Type.Optional(Type.String({ description: "short name of this thing in the player's language; omitted means the item name" })),
-	why: Type.Optional(Type.String({ description: "one sentence: how it was gained, or how it was lost" })),
+	why: Type.Optional(Sentence("how it was gained, or how it was lost")),
 });
 
 const DefineEffect = Type.Object({
@@ -150,12 +191,12 @@ const ObjectEffect = Type.Object({
   // refused today.
   part: Type.Optional(Type.String({description:"Name for the portion that separates when only some of a stack moves, in the campaign's play_language: with quantity short of what the instance holds, that many become their own thing under this name and go to to, while the rest keep the old name and stay where they are. Use it for two of four photographs left in a drawer, a handful of cartridges given away, one of a bundle set down. When the stack has readable text, also send document action divide with the complete part_text and remainder_text; leave part out to move the whole stack"})),
   quantity: Type.Optional(Type.Integer({minimum:1})),
-  why: Type.Optional(Type.String()),
+  why: Type.Optional(Sentence()),
 });
 const AbilityEffect = Type.Object({
   kind: StringEnum(["ability"] as const), name: Type.String(), to: Type.String(),
   source: Type.String({description:"Established source of an NPC's spell knowledge; investigators learn through resolve"}),
-  why: Type.Optional(Type.String()),
+  why: Type.Optional(Sentence()),
 });
 
 /** A priced transaction (contract §5 `cash`, #19; §58 source and Spending Level settlement). */
@@ -169,7 +210,7 @@ const CashEffect = Type.Object({
 	price_id: Type.Optional(Type.String({ description: "required with source price: the price_id of the printed record you are charging, exactly as lookup kind=catalog returned it. An invented one is refused" })),
 	currency: Type.Optional(Type.String({ description: "the unit this amount is counted in, when the fiction named one. It must be the unit the balance is held in — the kernel does not convert between units. If a price was quoted in another currency, settle the exchange in the fiction and record what actually left the purse" })),
 	with: Type.Optional(Type.String({ description: "the person on the other side of it: an NPC name. Name them whenever money is paid to or taken from someone — that is what puts it on their account, and you are told it again the next time they are in the room" })),
-	why: Type.Optional(Type.String({ description: "one sentence: where the money went, or where it came from" })),
+	why: Type.Optional(Sentence("where the money went, or where it came from")),
 });
 
 /** The Keeper's pacing instrument (contract §30.9): the book writes the clock, only this moves it. */
@@ -179,7 +220,7 @@ const ThreatEffect = Type.Object({
 	stated: StatedAmount,
 	clock: Type.Optional(Type.String({ description: "which of its clocks; only needed when the threat has more than one" })),
 	segments: Type.Optional(Type.Integer({ description: "omitted means one segment forward; a negative number gives ground back" })),
-	why: Type.Optional(Type.String({ description: "one sentence: what moved it" })),
+	why: Type.Optional(Sentence("what moved it")),
 });
 
 /** The Keeper's bookkeeping (contract §18, #27): world switches, debts owed, table rulings. */
@@ -188,7 +229,7 @@ const FlagEffect = Type.Object({
 	name: Type.Optional(Type.String({ description: "the switch's name; a name the book uses for a gate reads back on the exits that gate on it. Required unless stated names it" })),
 	stated: StatedAmount,
 	value: Type.Optional(Type.String({ description: 'omitted means true; "false" clears it; any other short string is kept as the switch\'s value' })),
-	why: Type.Optional(Type.String({ description: "one sentence: what set it" })),
+	why: Type.Optional(Sentence("what set it")),
 });
 
 const NoteEffect = Type.Object({
@@ -263,7 +304,7 @@ const NpcEffect = Type.Object({
 	disposition: Type.Optional(StringEnum(["fights_to_the_end", "fights_then_flees", "avoids_fighting", "surrenders"] as const, {
 		description: "how this person behaves in a fight, when the fiction has shown it: it replaces the book's; each of their turns then reads the disposition table against their wounds, the odds and their stance (session.standing_action). This variant stands alone in one npc effect and needs why",
 	})),
-	why: Type.Optional(Type.String({ description: "one sentence: why they moved, why they now stand there, how they died, what changed how they defend, or why they attack, hold back or fight the way they do" })),
+	why: Type.Optional(Sentence("why they moved, why they now stand there, how they died, what changed how they defend, or why they attack, hold back or fight the way they do")),
 });
 
 /**
@@ -276,7 +317,7 @@ const PersonEffect = Type.Object({
 	who: Type.String({ description: "the person this is about: an investigator at the table or an NPC, by the name you already use for them" }),
 	name: Type.Optional(Type.String({ description: "what this table calls this NPC in the player's language \u2014 the transliteration or rendering you have been writing. Say it once, the first turn you write it, and every card, capsule and later turn uses that same word instead of re-inventing it; refused for an investigator, whose name is the player's own and already on the sheet" })),
 	address: Type.Optional(Type.String({ description: "what this person is called to their face, when the table has established one \u2014 the player corrected a form of address and you accepted it in the fiction, or someone earned a title in play. Record what was said and accepted, not your reading of what suits them. Everyone at the table then owes it, including someone who walks in later and has never been corrected" })),
-	why: Type.Optional(Type.String({ description: "one sentence: where this word came from \u2014 who said it, and on what turn it was accepted" })),
+	why: Type.Optional(Sentence("where this word came from \u2014 who said it, and on what turn it was accepted")),
 });
 
 /**
@@ -346,7 +387,7 @@ const MapEffect = Type.Object({
 	region_labels: Type.Record(Type.String(),Type.String({description:"every chosen region id's player-facing name in play_language"})),
 	level_labels: Type.Record(Type.String(),Type.String({description:"every chosen source level name's player-facing name in play_language; use an empty object when none has a level"})),
 	label: Type.String({ description: "the player-facing map title in play_language" }),
-	why: Type.String({ description: "what established that the investigators know these regions" }),
+	why: Sentence("what established that the investigators know these regions"),
 });
 
 const ResolveAction = Type.Object({

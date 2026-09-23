@@ -21,7 +21,7 @@ import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError
 import { progressPartial } from "./progress.ts";
 import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view.ts';
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
-import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
+import { argumentLimitRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
 import { createCanonicalOperationDispatcher } from './canonical-operation-dispatcher.ts';
@@ -3206,6 +3206,13 @@ export default function (pi: ExtensionAPI) {
 			description: spec.description,
 			promptSnippet: spec.promptSnippet,
 			parameters: spec.parameters,
+			// Contract §135.21: a `how`/`why` longer than one sentence is refused before Pi's schema check, with the
+			// kernel-shaped refusal whose fix says to shorten it (the schema's own maxLength message carries no fix).
+			prepareArguments: (args: unknown) => {
+				const refusal = argumentLimitRefusal(spec.name, args);
+				if (refusal) throw new Error(new KernelError(refusal).toToolText());
+				return args as never;
+			},
 			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
 			executionMode: "sequential",
 			execute: async (toolCallId, params, signal, onUpdate) => dispatcher.execute(spec, toolCallId, params as Record<string, unknown>, signal, onUpdate),
