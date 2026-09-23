@@ -82,6 +82,31 @@ export function admissionJevMinConfidence(env: NodeJS.ProcessEnv = process.env):
 	return Number.isFinite(value) && value > 0 && value <= 1 ? value : ADMISSION_JEV_DEFAULT_MIN_CONFIDENCE;
 }
 
+/**
+ * The bookkeeping fast path (§32.11): the `apply` kinds a typed admission may settle on its own, a closed contract
+ * enum. A batch whose every triggering kind is one of these is a bookkeeping batch; any other triggering kind (cash,
+ * item, object, usage, map) keeps the batch with the configured reviewer. Never a reading of the prose.
+ */
+export const FAST_PATH_KINDS: ReadonlySet<string> = new Set(["move", "clue", "handout", "time"]);
+/**
+ * `PI_COC_ADMISSION_FAST_MIN_CONFIDENCE`: the review confidence at which a typed admission of a bookkeeping batch
+ * stands alone. Default 0.87, measured (§32.11): the lowest threshold at which no lane refusal of the retained bank
+ * was typed-admitted. `off` turns the fast path off. Read per review.
+ */
+export const ADMISSION_FAST_DEFAULT_MIN_CONFIDENCE = 0.87;
+export function admissionFastMinConfidence(env: NodeJS.ProcessEnv = process.env): number | undefined {
+	const raw = env.PI_COC_ADMISSION_FAST_MIN_CONFIDENCE?.trim();
+	if (raw === "off") return undefined;
+	const value = Number(raw || NaN);
+	return Number.isFinite(value) && value > 0 && value <= 1 ? value : ADMISSION_FAST_DEFAULT_MIN_CONFIDENCE;
+}
+/** A bookkeeping batch (§32.11): an `apply` whose triggering kinds are all fast-path kinds. */
+export function bookkeepingBatch(proposal: AdmissionProposal): boolean {
+	if (proposal.tool !== "apply" || !proposal.kinds?.length) return false;
+	const triggering = proposal.kinds.filter((kind) => TRIGGER_KINDS.has(kind));
+	return triggering.length > 0 && triggering.every((kind) => FAST_PATH_KINDS.has(kind));
+}
+
 /** One proposal put to review: the tool, a host-owned reuse key, and the lines the reviewer reads. */
 export interface AdmissionProposal {
 	tool: "resolve" | "apply";
@@ -426,8 +451,8 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 		timeoutMs: options.timeoutMs ?? admissionTimeoutMs(),
 		shape: shapeVerdict,
 	});
-	if (!lane.ok) return { ok: false, reason: lane.reason, detail: lane.detail, ms: lane.ms, ...(lane.model ? { model: lane.model } : {}), reviewer: "lane" };
-	return { ok: true, verdict: { ...lane.value, reviewer: "lane" }, ms: lane.ms, model: lane.model, reviewer: "lane" };
+	if (!lane.ok) return { ok: false, reason: lane.reason, detail: lane.detail, ms: lane.ms, ...(lane.model ? { model: lane.model } : {}), reviewer: "lane", meta: { path: "lane" } };
+	return { ok: true, verdict: { ...lane.value, reviewer: "lane" }, ms: lane.ms, model: lane.model, reviewer: "lane", meta: { path: "lane" } };
 }
 
 /**
@@ -444,21 +469,8 @@ export interface PrimaryAdmissionReviewOptions extends AdmissionReviewOptions {
 	decision?: DecisionPort;
 }
 
-/**
- * The primary review (§32.10). With the lane as reviewer this is `reviewAdmission` unchanged.
- * With Jev first, one typed batch either returns a verdict at or above the family confidence, or
- * the lane runs exactly as it does alone -- same prompt, same cap, same budget, same refusal on
- * failure. Never throws.
- */
-export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOptions): Promise<AdmissionOutcome> {
-	const env = options.env ?? process.env;
-	if (admissionReviewer(env) !== "jev") return reviewAdmission(options);
-	const began = Date.now();
-	const lane = async (fallback: string, jev: Record<string, unknown>): Promise<AdmissionOutcome> => {
-		const outcome = await reviewAdmission(options);
-		return { ...outcome, ms: Date.now() - began, meta: { ...outcome.meta, jev_fallback: fallback, lane_ms: outcome.ms, ...jev } };
-	};
-	if (options.proposal.kinds?.some((kind) => LANE_ONLY_KINDS.has(kind))) return lane("numeric_commitment", { jev_calls: 0, jev_ms: 0 });
+/** One typed attempt (§32.10's family) under the review's own signal, budget and deadline. Never throws. */
+async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.ProcessEnv, began: number, minConfidence: number) {
 	const context = options.context;
 	const input: AdmissionJevInput = {
 		campaign: options.campaign,
@@ -490,27 +502,62 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 		lease = new TaskLease({ owner: ADMISSION_JEV_FAMILY, goal: "Judge whether the player chose the proposed action",
 			scope: bindings.scope, capabilities: ["decision"], readSet: bindings.readSet, signal,
 			budget: { deadlineAt, remainingInputTokens: 200_000, remainingOutputTokens: 20_000, remainingCostUsd: 0.02, remainingActions: 4 } });
-		typed = await runAdmissionJev(input, accounting.decision, lease, { minConfidence: admissionJevMinConfidence(env) });
+		typed = await runAdmissionJev(input, accounting.decision, lease, { minConfidence });
 	} catch {
 		typed = undefined;
 	} finally {
 		lease?.close();
 		accounting?.close();
 	}
-	const jev = typed ? {
+	const meta: Record<string, unknown> = typed ? {
 		jev_ms: typed.elapsedMs,
 		jev_calls: typed.calls,
 		jev_input_tokens: typed.usage.inputTokens,
 		...(typed.confidence === undefined ? {} : { jev_confidence: typed.confidence }),
 		...(typed.lines ? { line_verdicts: typed.lines.map((line) => line.verdict) } : {}),
 	} : { jev_calls: 0, jev_ms: Date.now() - began };
+	return { typed, meta };
+}
+
+/**
+ * The primary review (§32.10, §32.11). A bookkeeping batch (§32.11) is put to the typed family first whatever the
+ * setting says, and a typed admission at or above the fast-path confidence stands alone; a typed refusal, a lower
+ * confidence or any non-verdict escalates to the configured reviewer. Otherwise: with the lane as reviewer this is
+ * `reviewAdmission` unchanged; with Jev first, one typed batch either returns a verdict at or above the family
+ * confidence, or the lane runs exactly as it does alone -- same prompt, same cap, same budget, same refusal on
+ * failure. Never throws; every outcome names its `path` (whose verdict stood).
+ */
+export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOptions): Promise<AdmissionOutcome> {
+	const env = options.env ?? process.env;
+	const reviewer = admissionReviewer(env), familyMin = admissionJevMinConfidence(env);
+	const fastMin = bookkeepingBatch(options.proposal) ? admissionFastMinConfidence(env) : undefined;
+	if (fastMin === undefined && reviewer !== "jev") return reviewAdmission(options);
+	const began = Date.now();
+	const fast = fastMin === undefined ? {} : { fast_path: true, fast_min_confidence: fastMin };
+	const lane = async (fallback: string, jev: Record<string, unknown>): Promise<AdmissionOutcome> => {
+		const outcome = await reviewAdmission(options);
+		return { ...outcome, ms: Date.now() - began, meta: { ...outcome.meta, ...fast, jev_fallback: fallback, lane_ms: outcome.ms, ...jev } };
+	};
+	if (fastMin === undefined && options.proposal.kinds?.some((kind) => LANE_ONLY_KINDS.has(kind))) return lane("numeric_commitment", { jev_calls: 0, jev_ms: 0 });
+	// The fast path reads every typed answer (minimum 0) and applies both thresholds itself: one typed call serves both rules.
+	const { typed, meta: jev } = await typedAttempt(options, env, began, fastMin === undefined ? familyMin : 0);
 	if (!typed || typed.status !== "decided") return lane(typed?.reason ?? "admission_owner_error", jev);
-	return {
+	const verdict = typed;
+	const decided = (via?: string): AdmissionOutcome => ({
 		ok: true,
-		verdict: { verdict: typed.verdict, grounds: typed.grounds, ...(typed.missing ? { missing: typed.missing } : {}), reviewer: "jev" },
+		verdict: { verdict: verdict.verdict, grounds: verdict.grounds, ...(verdict.missing ? { missing: verdict.missing } : {}), reviewer: "jev" },
 		ms: Date.now() - began,
 		model: ADMISSION_JEV_MODEL,
 		reviewer: "jev",
-		meta: { confidence: typed.confidence, ...jev },
-	};
+		meta: { path: "typed", ...fast, ...(via ? { typed_rule: via } : {}), confidence: verdict.confidence, ...jev },
+	});
+	if (fastMin !== undefined) {
+		// §32.11: every line admits (the batch verdict admits) at the fast-path confidence: the typed admission stands alone.
+		if (ADMITTING_VERDICTS.has(verdict.verdict) && verdict.confidence >= fastMin) return decided("fast_path");
+		// §32.10 still governs an escalation when Jev is the configured reviewer: a typed answer at the family minimum
+		// stands (a confident refusal refuses), with no second typed call.
+		if (reviewer === "jev" && verdict.confidence >= familyMin) return decided("family");
+		return lane(ADMITTING_VERDICTS.has(verdict.verdict) ? "low_confidence" : "typed_refusal", jev);
+	}
+	return decided();
 }
