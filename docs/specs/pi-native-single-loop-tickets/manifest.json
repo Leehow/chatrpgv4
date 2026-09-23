@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "canonicalSpec": "docs/specs/pi-native-single-loop.md",
+  "designProposal": "docs/PiPiCoC_Pi原生单循环重构设计_v1.0.md",
+  "prototype": "experiments/single-loop-routing",
+  "branch": "0.9.5a",
+  "publicationState": "repository-local-published",
+  "operationalConstraints": {
+    "tracker": "repository-local-markdown",
+    "publishRemote": false,
+    "push": false,
+    "package": false,
+    "productionKernel": "kernel-ts",
+    "fakePlayAcceptance": false,
+    "piSource": "vendored snapshot or controlled fork at a fixed commit, one authority (ADR in SL-00)"
+  },
+  "tickets": [
+    {"id": "SL-00", "file": "00-inventory.md", "status": "ready-for-agent"},
+    {"id": "SL-01", "file": "01-run-driver.md", "status": "ready-for-agent"},
+    {"id": "SL-02", "file": "02-domain-policy.md", "status": "needs-triage"},
+    {"id": "SL-03", "file": "03-operations-and-delivery.md", "status": "needs-triage"},
+    {"id": "SL-04", "file": "04-session-events-recovery.md", "status": "needs-triage"},
+    {"id": "SL-05", "file": "05-performance-and-product.md", "status": "needs-triage"},
+    {"id": "SL-06", "file": "06-retire.md", "status": "needs-triage"}
+  ]
+}

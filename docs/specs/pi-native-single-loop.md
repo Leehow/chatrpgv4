@@ -1,0 +1,146 @@
+# Pi-native single loop: one RunDriver routes every step of a player turn
+
+Status: **ready-for-agent** (spec; tickets under `pi-native-single-loop-tickets/`, SL-00 and SL-01 ready, later stages gated on their predecessors).
+Branch: `0.9.5a` (created 2026-09-23 from 0.9.4a `cab4d475e` + the 2026-09-22/23 table-loop work + the routing prototype).
+Design proposal this spec implements: `docs/PiPiCoC_Pi原生单循环重构设计_v1.0.md` (owner's document, v1.0, 2026-09-22). Corrections to its baselines are in Further Notes.
+Prototype this spec is bound to: `experiments/single-loop-routing/` (README, `loop.ts`, `loop.test.mjs`, `RESULTS-20260923.md`) and `docs/specs/single-loop-step-routing.md`.
+
+## Problem Statement
+
+A player's turn at a PipiCOC table takes 80–150 seconds, and nearly all of it is the Keeper model thinking one step at a time. On the 2026-09-23 haunting table, turn 3 ("go to the Globe's clippings morgue") took 147 s, of which 122 s were six sequential Keeper calls: move, stage a person, first-impression check, Persuade, stage another person, reveal the clues, then narrate. Four of those six are bookkeeping the host could have settled itself: the destination is a graph node the kernel already issued, the people present are on the capsule, the contact checks are Mod-declared, the clues are located material. The Keeper is the only component allowed to decide anything, so every step waits for it.
+
+Jev exists for exactly this: typed semantic decisions over host-issued closed sets, in hundreds of milliseconds. But today Jev only runs in a few fixed side-points (the prescreen before the first request, NPC advice, optional admission, speech attribution), each behind its own switch, and none of them can perform an operation. The experimental TaskRuntime that can (source-mode S0) is a second loop beside Pi's, with its own plan step and its own state owner, and it is not what the installed App runs.
+
+The owner's decision: do not add a faster orchestrator beside Pi; change Pi's execution loop so that Jev judgment, LLM inference, tool operations, review, waiting and delivery are steps of one driver, and an LLM request is no longer the mandatory entry of every iteration.
+
+## Solution
+
+One RunDriver per player input owns the turn. Each iteration it picks the next step from a pure policy over the current run view:
+
+- **direct** when the next step is fixed by structure (the model's proposals after an inference, a bound operation after a binding decision, the read that follows a scene change, the first read of a run);
+- **decide** (Jev) when the next step is open: one need question per host-issued candidate plus one exit question; the answer is the routing;
+- **infer** (LLM) when the exit says so, when nothing host-issuable applies, on `none_of_above`, low confidence, a repeated question, an exhausted Jev budget, and always for composing the narration;
+- **operate** through one operation entry that admission, Mod preparation, kernel execution and receipts pass through exactly once, whether the proposal came from Jev or from the model;
+- **scope** for source consultation and memory search as explicit frames of the same run, never a recursive submit;
+- **wait** and **finish** with real evidence (a committed `narrate`, a real `pending_choice`).
+
+Tools are one catalog shared by the LLM and by Jev. Jev may have tools of its own (read more, locate, bind); Jev may hand an open parameter to the LLM to fill (the LLM as a parameter-filling sub-step, not the driver). The prescreen as a separate pre-request stage dissolves into the loop's read and decide steps; its allowance becomes the run's budget.
+
+From the player's chair: a declared move, reveal or Mod-declared check settles before the Keeper is asked anything; the Keeper is called for judgment and for the prose; the turn ends sooner and with the same receipts.
+
+## User Stories
+
+1. As a player, I want my declared move to be carried out before the Keeper starts writing, so that the turn does not spend a model call on bookkeeping I already stated.
+2. As a player, I want a check the Mod already declares (a first meeting, a gatekeeper's demand) to be rolled by the host once the situation calls for it, so that the Keeper's calls go to judgment, not to routing.
+3. As a player, I want the clues and handouts my action reaches to be revealed with the same receipts as today, so that the audit trail of my table does not change when the router changes.
+4. As a player, I want an action the host cannot map to any candidate to reach the Keeper exactly as it does today, so that free-form play is never refused because a catalog was short.
+5. As a player, I want a turn that needs the Keeper's invention (who meets me, what they want) to get it, so that the loop never replaces craft with a menu.
+6. As a player, I want the narration to be written by the Keeper only, so that no host or Jev step ever puts words in the Keeper's mouth.
+7. As a player, I want my next input to cancel the previous run's remaining work immediately, so that a slow step never delays what I just said.
+8. As a player, I want a pending choice to be handed back to me by a real `ask`, so that the run ends in `awaiting_player` with the choice recorded, not with a host guess.
+9. As a player, I want a dropped connection mid-turn to resume from the settled receipts, so that a roll already made is never re-rolled and a payment never repeated.
+10. As a player, I want the first visible prose to arrive sooner than today, so that the table feels like a table.
+11. As a Keeper (the model), I want the receipts of the host's steps in my capsule as "done this turn", so that I narrate what happened and do not redo it.
+12. As a Keeper, I want the same seven verbs with the same admission, so that my proposals are judged exactly as before.
+13. As a Keeper, I want a tool call I make to be executed once, in order, with its result paired to my call, so that my next reasoning stands on real results.
+14. As a Keeper, I want to be asked to fill one open parameter (a person's table name, a handout's caption) when Jev chose the operation, so that I supply invention without re-deciding the step.
+15. As a Keeper, I want a review that needs my rewrite to come back as one request with every finding, so that I repair once.
+16. As a Jev decision, I want candidates that come from the kernel's own options, the capsule's roster, the Mods' declared checks and the located material, so that I never choose among things the host cannot perform.
+17. As a Jev decision, I want the exits `ask_llm`, `read_more`, `finish` and `none_of_above` in every route question, so that "I cannot decide this" is a legal, routed answer.
+18. As a Jev decision, I want one need question per candidate, so that two needs that are both true do not fight for one choice.
+19. As a Jev decision, I want the material the prescreen located in front of me before I route, so that a declared move is decidable (0.76–0.81, not 0.52–0.58).
+20. As a Jev decision, I want internal kernel tags kept out of what I see, so that an `authority` label does not read as a verdict.
+21. As a Jev decision, I want my own tools (read more, locate, bind a closed parameter), so that I can complete a step without the LLM when the vocabulary is closed.
+22. As the host, I want one operation entry for model-origin and policy-origin proposals, so that admission, Mod preparation, execution and receipts run exactly once per operation.
+23. As the host, I want an explicit invocation context (run, step, origin, input revision, scope, proposal) for every operation, so that a policy-origin operation before the first assistant message is still authorized against the real player input.
+24. As the host, I want the operation service to return `suspended` with a continuation when a review must run, so that no tool starts a second agent inside itself.
+25. As the host, I want source consultation and memory search as scope frames with serializable continuations, so that a restart resumes the frame instead of losing it.
+26. As the host, I want one budget ledger per run (Jev calls and time, provider attempts, writer reserve), so that the loop cannot starve the narration.
+27. As the host, I want the three guards (no repeated question; direct-or-finish after the LLM; budget exhaustion hands the close to the LLM), so that the loop cannot spin.
+28. As the host, I want every route answer's distribution retained in telemetry, so that the gates can be re-read from a live table.
+29. As the host, I want `stateVersion`, `inputRevision` and the world revision bound to every decision and proposal, so that a model change, a worldline switch or a source update invalidates stale work.
+30. As the host, I want the run's busy state to distinguish `runActive`, `providerStreaming`, `waiting` and `settled`, so that input queueing, abort and model switching do not depend on a token stream.
+31. As the host, I want committed-memory extraction to keep its own root with no foreground write permission, so that background work never inherits the player's authorization.
+32. As the host, I want the old task records readable and never treated as new permission, so that migration cannot replay an old plan as an action.
+33. As an operator, I want a switch `PI_COC_LOOP_ENGINE=hybrid-v1|legacy`, so that a table can be run on the old engine as a control arm, never mixed within one run.
+34. As an operator, I want the fast-model setting to govern every quick lane the loop runs (review, journal, memory, verifier, voice, projection), so that the loop's speed is not undone by a slow lane.
+35. As an operator, I want the startup record to carry the product commit, the Pi base and patch digest, the loop protocol version and the actual models, so that a table's evidence names the engine it ran on.
+36. As a maintainer, I want the policy to be a pure function with the prototype's tests, so that the implementation cannot drift from the ruling.
+37. As a maintainer, I want the turn-3 replay to run against the product policy, so that the acceptance is the same replay the prototype used.
+38. As a maintainer, I want architecture assertions (one active driver per run; no `TaskRuntime.submit` on the hybrid path; frames not recursion; no fake assistant messages), so that the single loop is proven by traces, not by file names.
+39. As a maintainer, I want Pi consumed from a reviewable source snapshot with an upstream version, license and change log, so that an upgrade re-applies a known patch set.
+40. As a maintainer, I want the legacy driver retired only when every retirement condition holds, so that two owners of world writes never coexist.
+41. As a Mod or Director author, I want to declare gatekeeper checks, forced encounters and scene obligations as host-issuable candidates, so that the loop can settle them without the Keeper (the prototype's open question).
+42. As a UI, I want run and step events with run id, step id, sequence, scope, origin and visibility, so that progress, cancellation and secret filtering work without reading message types.
+
+## Implementation Decisions
+
+**The owner's routing ruling (2026-09-23) is the policy.** `next = determined(view) ? direct : jevRoute(candidates(view) ∪ {ask_llm, read_more, finish})`, with an absolute confidence gate and a margin gate on the reported distribution, and the three guards. `none_of_above` is a legal answer routed to the LLM. The prototype's `loop.ts` encodes the decision-rich parts and the implementation starts from it:
+
+```
+next(view):
+  if stopped → finish
+  if last step was infer → head is direct ? direct : finish        // guard 2
+  if head is direct/infer → that
+  if head is decide → budget exhausted ? infer(bind|adjudicate) : decide(bind|locate)
+  if budget exhausted → infer(compose)                              // guard 3
+  if routeDigest(view) already asked → infer(adjudicate)            // guard 1
+  → decide(route)
+route question: per candidate need_N ∈ {now, later, unknown}; exit ∈ {continue, ask_llm, read_more, finish}
+interpretRoute: selected = needs answered now that clear a gate, ordered person → mod_check → core-check → clue/handout → move;
+  none selected: exit read_more → read; finish → infer(compose); ask_llm / continue-with-nothing → infer(adjudicate)
+```
+(from the prototype; the product policy keeps these names)
+
+**Read first, then route; re-read after a scene change.** The first step of a run is the read (today's prescreen: semantic locate + bounded reads); a scene change queues another read before the next route. The prescreen's per-input allowance becomes the run's Jev budget.
+
+**Candidates are host-issued from real state and nothing else.** Kernel apply options with the kernel's own availability verdict, scene assets, people present and not yet introduced (staged under the capsule's own label), the active Mods' pending contact checks, the ordinary check with its closed route/profile binder, specialised families only while the kernel reports their session active, located entities. Internal kernel tags are not shown. A person already introduced, a gate not met, and a candidate the model's own batch carried out are not offered. No text is classified.
+
+**One tool catalog for the LLM and for Jev.** The seven Keeper verbs and the kernel's operations are the candidates Jev routes and the tools the LLM calls; the same operation entry executes both. Jev additionally has its own tools: read more, locate, bind (closed vocabulary). When a chosen operation has an open parameter, the loop asks the LLM to fill it (`infer(bind)`): the LLM is a parameter-filling sub-step there, not the driver.
+
+**One operation entry.** The canonical operation stages (capability and scope check, parameter binding, action admission §32, Mod preparation, persisted request identity, kernel execution, receipt and source publication, result hooks) become the operation service both origins use, with an explicit invocation context (run, step, origin, input revision, scope, proposal, and the model artifact only for model-origin). A review that needs a model returns `suspended` with a proposal digest and continuation; the review is a step of the run. The dispatcher's existing guarantees (real hooks, request identity, recovery by `call_status`) are kept.
+
+**Real `narrate` / `ask` only.** Jev never writes prose; the host never bypasses "delivery requires the writer". `finish` needs delivery evidence; an accepted `ask` ends the run `awaiting_player` with the pending choice reference.
+
+**Pi is changed, not wrapped.** The RunDriver lives in Pi agent-core; coding-agent's session layer passes the ports through and stops the post-run `continue()` loop on the hybrid path; retry and compaction become steps of the same run. Pi 0.87.0 is consumed from a reviewable source snapshot (`vendor/pi/`, or a controlled fork at a fixed commit; one authority), built reproducibly into the product's package; stock and patched agent-core are never both loaded. This overturns the standing rule "no Pi fork or patch" in `docs/pi-host-contract.md` and ADR-0002's consequence; the ADR is superseded by a new ADR recorded in SL-00.
+
+**Scope frames replace recursive submits.** `source.consult` and `memory.search` become frames with narrower capabilities, their own state, observations and completion, entered and left through events with serializable continuations.
+
+**Budgets.** One ledger per run: Jev calls and time, provider attempts (estimate and actual recorded separately), writer reserve. Parent and child frames share the root ledger; children only narrow.
+
+**Events and state.** New run/step/scope/operation/delivery events carry run id, step id, sequence, scope id, origin, visibility and schema version; message events keep meaning only real model messages; Jev decisions are decision artifacts, never assistant messages or tool results. Run state has one owner; world state stays with the kernel. The old TaskStore is the first RunStore backend; old task records stay read-only.
+
+**Switch and startup record.** `PI_COC_LOOP_ENGINE=hybrid-v1|legacy`; the startup record carries product commit, Pi base and patch digest, loop protocol version, configuration, mounts and actual models.
+
+**Lanes keep the fast model.** Every quick lane resolves through the fast-model setting (§37.10.1); the loop's review step uses it.
+
+## Testing Decisions
+
+A good test drives the real seam and asserts observable behaviour: which step ran, what the kernel received, what receipts exist, what the player was shown — never internal call order or private state.
+
+- **Policy seam (pure):** the prototype's `loop.test.mjs` cases, run against the product policy with a stub DecisionPort and a stub executor: determined → direct without a Jev call; fan-out shape; structural order; low confidence, `none_of_above`, repeated question and budget → LLM; after LLM → direct or finish only; closed bind then direct; margin gate. Prior art: `experiments/single-loop-routing/loop.test.mjs`.
+- **Replay seam (real Jev, real kernel, recorded model):** the turn-3 replay (`--llm replay`) against the product driver: 8/8 live actions, ≤ 5 LLM steps, every route distribution retained. Prior art: `experiments/single-loop-routing/run-entry.ts`, `tests/extension/turn.test.mjs`'s fake kernel and DecisionPort stubs.
+- **Architecture assertions (traces, not grep):** SL-A01…SL-A10 of the design's §14.1 as tests over run traces: one active driver per run id; a policy-origin read before the first model message; no `TaskRuntime.submit` on the hybrid path; frames for source and memory; the same run id after an LLM step; no tool-less model response ends an undelivered run; admission/prepare/execute/finalize once per operation; no fabricated assistant message, usage or tool result; no `agent.continue()` second loop; a semantic read publishes nothing.
+- **Scenario tests** from the design's §14.2 (plain response, card and history reads, one ordinary check, apply after resolve, special families, pending choice, free combination, source paging, cross-turn promises, new input pre-empting Jev, disconnect after resolve/apply, cancel after commit, compaction after tools, writer/review unavailable, background memory in parallel, worldline or source switch, compiled and source parity), each at the extension seam with the fake kernel where the kernel is not the subject and with the real emitted kernel where it is. Prior art: `tests/extension/*.test.mjs` and `tests/kernel` (pytest over `build/kernel/rpc.mjs`).
+- **Baselines stay green:** `npm run test:ext` (2541 on 0.9.5a's parent) and `uv run --frozen python -m pytest tests/kernel tests/play` (1612 passed) before and after each stage; the pi-backend vitest is judged by failing names, not totals.
+- **Performance is paired and separated from quality:** the same table, inputs, Mods, models and thinking level on the legacy engine and on hybrid-v1, recording first visible prose, formal delivery, provider calls and durations, tokens and cost, retries and cancellations; thresholds pre-registered before the runs.
+
+## Out of Scope
+
+- Rewriting the CoC rule kernel, game time, worldlines, receipts or Mod locking semantics.
+- Replacing the store in the same change as the scheduler.
+- Removing action admission or the delivery review for speed.
+- Precompiling scenes into fixed plot trees; requiring one LLM call per turn.
+- Making the Mods and Director declare gatekeeper checks and scene obligations as candidates (the prototype's open question) — a separate spec, though it is what makes the loop's saving grow.
+- The extension-level "stage one" (host routing inside today's preparation stage without changing Pi) — considered and set aside by the owner in favour of the Pi-native loop.
+- The remote web deploy and the PipiUI host beyond the RPC and UI consumers the design's §9 names.
+
+## Further Notes
+
+**Baseline corrections to the design proposal.** Pi is 0.87.0 (the proposal says 0.85.1; the agent-session line ranges it cites must be re-read). The product baseline is 0.9.5a (the proposal pins 0.9.4a@86078fd); since then §127–§132 landed (starter lookup, say rule with `context_with_system`, deferred object details and definitions, post-delivery review, parsed-file caches, card patches) and the fast-model setting. The TaskRuntime/S0 path is gated (`PI_COC_JEV_S0=1`, source-mode play only) and is not the installed App's path: the shipped Keeper is Pi's stock loop plus lanes, so "dismantle the second loop" describes the experiment line, while the product change is "replace the shipped loop with the patched Pi".
+
+**Standing rules this overturns, to be recorded explicitly:** `docs/pi-host-contract.md` ("we do not fork or patch Pi") and ADR-0002's consequence. SL-00 writes the superseding ADR.
+
+**What the prototype established** (details in `experiments/single-loop-routing/RESULTS-20260923.md`): read before route; fan-out not pick-one; candidate hygiene decided every miss; Jev takes the declared bookkeeping and defers scene craft (`ask_llm` 0.74–0.89). On the replayed turn the loop saves one LLM call (6 → 5); turns whose declared action is the bookkeeping save more; scene craft saves nothing until it is data.
+
+**Risks the design itself names:** RPC and UI consumers are not fully audited; reader and Mod subprocesses must be classified into pure parsers and decision-bearing loops before the switch; `ps`-visible environment freezes are gone but the settings-at-task-time rule must hold for every new lane.

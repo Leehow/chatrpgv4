@@ -1,6 +1,6 @@
 # Single-loop step routing (the §5 policy of the Pi-native single-loop refactor)
 
-Status: **prototype** — see `docs/agents/triage-labels.md`. Prototype and results: `experiments/single-loop-routing/` (kept on purpose; implementation of SL-01/SL-02 starts from its `loop.ts` and keeps its `loop.test.mjs` green).
+Status: **prototype record** — superseded as the implementation plan by `docs/specs/pi-native-single-loop.md` (the §5 policy it specifies is this document's rule); kept as the binding record of the prototype and its results.
 
 Design proposal this refines: `docs/PiPiCoC_Pi原生单循环重构设计_v1.0.md` (owner's file; §1, §4.3, §5, §6.2, §11.3). Baselines to correct there before SL-00: Pi is 0.87.0 (not 0.85.1); the product baseline is integration commit fc884d7ed (not 0.9.4a@86078fd); the TaskRuntime/S0 path is gated (`PI_COC_JEV_S0=1`, source mode only) and is not what the installed App runs; `docs/pi-host-contract.md` forbids patching or forking Pi and must be overturned explicitly.
 
