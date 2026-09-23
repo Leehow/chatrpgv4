@@ -16094,3 +16094,164 @@ document.
 the shipped starter: `apply handout`, then the recorded receipt through `mechanics`, then
 `handoutInput`, then `table.view`. It fails if the lane's input goes back to the whole file.
 `coc-board.test.tsx` pins the board row.
+
+## 135. The single-loop run settles the player's declared bookkeeping itself: candidates, clerk authority, one tool catalog (2026-09-23, SL-02 of `docs/specs/pi-native-single-loop.md`)
+
+§133 is taken on this branch and §134 on another; this section is §135, and §-numbers are stable ids (§133's
+rule), so it keeps the number whatever lands in between. It applies only to `PI_COC_LOOP_ENGINE=hybrid-v1`
+(SL-01's switch); the legacy engine does not read any of it and behaves byte for byte as before.
+
+### 135.1 What the run does now
+
+SL-01 gave Pi a RunDriver whose route question carried only its exit. SL-02 gives that question host-issued
+candidates, lets the host carry out the ones the player declared, and keeps everything else with the Keeper.
+The spec's Rulings (2026-09-23) bind every paragraph below: the Keeper is the boss, Jev and the host are the
+clerk; the clerk does bookkeeping, fetching and execution, and every word the player reads is the Keeper's.
+
+### 135.2 Candidates come from real state (`runtime/jev/candidates.ts`)
+
+The builder moved from `experiments/single-loop-routing/candidates.ts` into the product; the prototype re-exports
+it. It reads `table.capsule`, `table.apply.options`, `table.resolve.options` and the entities the run's read
+located, and nothing else. It never classifies text.
+
+- `apply.options` moves whose `unlock_when.met` is not `false`, and its scene clues;
+- the scene's handout assets (`capsule.where.assets`, `kind: "handout"`);
+- people in `capsule.present` without `called`, staged under the capsule's own `untold.label`. Without a label
+  the name is an open parameter, and only the LLM fills it. Anyone off the roster is never a candidate;
+- the active Mods' `pending_contacts`;
+- the ordinary check (`core-check:ordinary-check`) with its closed route/profile binder (`check-preflight`),
+  offered only outside a running session;
+- the running combat or chase session's own steps, read from the kernel's session view (`turn_of`, `actions[]`,
+  `pending_defense`; §11.5, `kernel-ts/read/session-view.ts`). This is the "parameters-only steps never go to
+  the LLM" ruling. A parameter the view issues with one value is bound. A parameter it issues as a list (targets,
+  weapons, the defence options) is a closed Jev bind. A parameter it does not issue (a manoeuvre's kind, an
+  ending's outcome) is open, for the LLM. An NPC's pending defence is `forced`: the kernel accepts nothing else
+  next (§32.1 pipeline `restrict`), so it runs as soon as it appears and is never a route question. The
+  player's own pending defence is a candidate only when this input answers a choice that was already open when
+  the run began. A choice opened during the run is handed back with the Keeper's `ask`. Damage and the
+  initiative advance are consequences of the resolve that causes them, so they are never candidates. A sanity
+  bout issues nothing: it is a consequence, and consequences are the Keeper's;
+- located clue and handout entities.
+
+While a combat or chase session runs, scene moves are not offered: leaving is the session's own `combat:flee`
+or chase step. Each candidate carries two internal fields that are never shown to Jev or the model. `clerk`
+(§135.3) names the authority that lets the host run it. `basis` is the kernel row it was built from: the read,
+the path and the row itself. The kernel's own tags, such as `authority: available_route_not_player_choice`,
+appear only inside `basis`. A key consumed this turn, whether the host or the Keeper carried it out, is never
+offered again.
+
+**SO-04 seam.** `obligationCandidates(reads)` returns nothing. The scene obligations of
+`docs/specs/scene-obligations-as-candidates.md` (clerk authority (e), `obligation_check` precedence, `guarded_by`
+withheld, `reaction: "preordained"`) join there in SO-04, not in SL-02.
+
+### 135.3 The clerk's authority is a closed list; everything else is the Keeper's
+
+`CLERK_AUTHORITY` (`runtime/jev/step-policy.ts`) is a closed contract enum:
+
+- `declared_bookkeeping` (Ruling a): a move to an available exit, an issued or located clue, a scene handout,
+  a person on the roster under the table's own label;
+- `mod_contact` (b): a contact check an active Mod declares;
+- `declared_check` (c): the ordinary check, when the binder settles its route and profile. An ambiguous
+  action ("I look around this place") comes back `unknown` from the binder and goes to the Keeper;
+- `session_step`: a session step whose parameters the kernel issued (the parameters-only ruling).
+
+Ruling (d), fetching data, is the read step itself. The run executes a policy-origin write only for a candidate
+whose `clerk` is in this list. Anything else is refused with `not_clerk_authority` before it reaches the kernel.
+The following are **boss only**, and the builder produces no candidate for them: anyone off the roster, any check
+the player did not declare, consequences (damage, sanity, cash beyond what was declared), pending decisions, and
+prose. `needs_player` from the binder never becomes an `ask`: it becomes a Keeper compose step. The clerk never
+calls `narrate` or `ask`. The canonical gateway already refuses both from a host (`delivery_requires_writer_message`).
+
+Clerk steps commit at once. There is no "pending confirmation" receipt. A clerk mistake is reconciled by the
+Keeper in the fiction, or reversed with a real operation of its own (its own receipt, its own time cost).
+
+### 135.4 One tool catalog; a policy-origin write is the Keeper's verb through the canonical gateway
+
+A candidate becomes the same Keeper verb, with the same arguments, the model would call (`keeperCall`: `apply
+{effects}` or `resolve {action}`). The run hands it to the kernel extension's canonical operation gateway
+(`coc:operation-dispatcher` → `dispatch`), so every stage runs exactly once and exactly as for the model: the
+`tool_call` gates (including the closed-turn door, §86), argument validation against the tool's closed schema,
+the call id minted from the kernel extension's one ordinal (`t<turn>-c<n>`, shared with the model's own
+calls), action admission (§32), Mod preparation, the kernel transaction, and the `tool_result` hooks. The
+`HostOperationContext` of such a call carries `origin: {origin: "policy", run, step, clerk, basis}`. That field is
+tracing only: it grants nothing. Its operation journal is in memory for the run. The durable operation
+service, suspension and recovery are SL-03's.
+
+**`IntentBinding` is required.** The run's first read binds it: the raw input as a `SourceRef` of the turn, the
+scope, the turn and the input revision. No policy-origin write runs before it exists (`intent_unbound`).
+`validateCurrent` checks before every stage that the table is still on the run's turn and that the turn is
+still open (`run_input_stale`).
+
+**Jev's own tools.** Jev has three tools of its own: read more (the read step), locate (folded into the read,
+§135.6) and closed bind (`single-loop-bind`, and the ordinary-check binder). When Jev chose an operation that
+has an open parameter, the run asks the LLM to fill it (`infer(bind)`). The projection names the operation, its
+bound values and what is missing. The LLM's answer is one call of that verb, executed as a model-origin call.
+
+### 135.5 Keeper batches; the plan is an artifact, never a second executor
+
+The calls of one model response are the Keeper's batch. They run in their order. Each step has one success
+branch (the next step) and one failure branch (back to the Keeper). A step fails when it is refused or when it
+is a `resolve` whose check the kernel reports failed (`outcome.success === false`, a closed field). The steps
+after a failed step are answered as not executed. The run's next step is then an `infer(adjudicate)` with reason
+`batch_fallen`, and no route question comes before it. There are no richer conditions. The batch is recorded
+as a `PlanArtifact` in the run view (`view.plan`: the steps, each with `onSuccess: "next"`,
+`onFailure: "return_to_keeper"` and its status). The driver's operate step is the only executor. `Requirements`
+(the driver's boundary requirements) is optional state.
+
+`submit_plan_packet` is not in the hybrid tool set. The hybrid engine removes it from the active tools at
+session start and before every run. `bin/pi-coc` also refuses to start the S0/TaskRuntime private roles
+(`PI_COC_JEV_S0=1`, or `PI_COC_TASK_RUNTIME=1` in play) together with `PI_COC_LOOP_ENGINE=hybrid-v1`, instead
+of starting them on the legacy loop under a hybrid startup record.
+
+### 135.6 Read first, re-read after a scene change; the prescreen is the run's read
+
+The first step of every run, and the step after every scene change, is the read. It runs the kernel reads above
+and then the product prescreen (`prepareKeeperSupport`: semantic locate over the closed entity/rule index, then
+bounded reads) as a policy-origin read inside the run. Its materials go in front of the route question, and the
+clues and handouts it located become candidates. The prescreen's per-input allowance
+(`readJevPreselectAllowanceMs`, §124.10) is the run's Jev budget. The run's `maxJevMs` is that allowance, and
+the prescreen's own calls and time count against it. A re-read gets what the earlier steps left. The read
+publishes nothing.
+
+The context hook (`extensions/table/context-runtime.ts`) runs no prescreen on this engine. The engine announces
+itself on `coc:loop-engine` (`{prescreen: "run"}`), and the read hands its packet over on `coc:run-prescreen`
+(`{campaign, turn, run, message}`). The hook injects that packet, for the same campaign and turn, into the
+prescreen slot of the Keeper's request, under the same byte rules and the same `delivered` telemetry as before.
+NPC advice preparation is unchanged.
+
+### 135.7 Telemetry
+
+- `lane: "route"`, one row per Jev answer. It carries `purpose` (`route`, `bind` or `bind-ordinary`), `run`,
+  `step`, `status` and `ms`. A route row adds the offered keys, `selected`, `exit`, `reason`, and every
+  question's `choice`, `confidence` and `probabilities`. A bind-ordinary row adds `disposition` and `unresolved`.
+- `lane: "run"` gains `event: "read"` (candidates, prescreen outcome, ms) and `event: "operation_stage"` (the
+  gateway's stages for a clerk write).
+- The tool-call row and every `lane: "admission"` row of a policy-origin call carry `origin: "policy"`, `run`,
+  `step`, `clerk` and `basis`. A model-origin call's rows are unchanged. This is the instrument of the §32
+  research item (§135.10).
+
+### 135.8 What the Keeper is told: one `coc-clerk` message per model step
+
+Before each model step the run prepends at most one `coc-clerk` custom message (`display: false`, persisted
+like any message; `CLERK_TYPE`). It says what the clerk did since the last one: operation, label, clerk
+authority, call id, status, receipts, the kernel row it came from and the settled action, with the note that
+these are committed and how to undo one. It also says what this step asks: the operation to complete for an
+`infer(bind)`, or the batch that returned for `batch_fallen`. With nothing new to say, no message is sent. A
+`coc-clerk` message from an earlier turn is closed noise to the context projection (§19.2), like a stale
+capsule. It is never an unclassified retained message.
+
+### 135.9 What SL-02 leaves to later stages
+
+SL-03 owns the operation service both origins use: suspension with a continuation, a durable operation journal
+and recovery by `call_status` across a restart, scope frames, and delivery evidence for the kernel extension's
+implicit narrate. On the hybrid engine a prose-only compose still ends the run `undelivered` in the run events,
+although the table delivered. The compose step's raw-prose streaming with in-place card replacement is SL-03's
+and the UI's. SO-04 owns the obligation candidates (§135.2), and with them the rule that clerk-origin refusals
+stay off the Keeper's refusal budget (§67). Until then a clerk refusal is struck like any other.
+
+### 135.10 The §32 research item (decided by measurement, not by ruling)
+
+Whether a fully-bound, kernel-issued, Jev-selected operation still needs §32 admission, or whether §32.10's
+typed admission (or none) is enough for policy-origin operations. The rows of §135.7 carry the measurement. The
+numbers from the SL-02 replays are recorded in `docs/specs/pi-native-single-loop-tickets/02-domain-policy.md`
+under Comments. Until the owner decides, a policy-origin write passes §32 exactly as a model-origin one does.
