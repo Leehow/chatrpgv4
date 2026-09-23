@@ -351,7 +351,9 @@ export class ResolvePipeline {
         const action = this.action;
         const extras: Row = {};
         if ([ORDINARY, LUCK_ROLL].includes(ref)) {
-            const skill = this.oneSkill();
+            // The Luck roll's characteristic is the decision's own payload constant (LUCK) and its target is host-locked:
+            // it declares no skill slot, so naming one was refused as an undeclared input (found by §136.20's Luck step).
+            const skill = ref === LUCK_ROLL ? null : this.oneSkill();
             const [bonus, penalty, difficulty] = this.modifiers;
             const semantic: Row = {
                 difficulty,
@@ -359,7 +361,8 @@ export class ResolvePipeline {
                 stakes: this.stakes(),
                 difficulty_basis: truth(row(action.modifiers).difficulty) ? 'explicit' : 'keeper'
             };
-            semantic[Object.hasOwn(CHARACTERISTICS, skill) ? 'characteristic' : 'skill'] = skill;
+            if (skill !== null)
+                semantic[Object.hasOwn(CHARACTERISTICS, skill) ? 'characteristic' : 'skill'] = skill;
             if (bonus)
                 semantic.bonus = bonus;
             if (penalty)

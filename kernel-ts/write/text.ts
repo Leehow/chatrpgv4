@@ -232,7 +232,7 @@ function clockOfferId(kind: "clock" | "pressure", target: Row): string {
 function tickedClockTargets(receipts: Row[]): Set<string | null> {
     return new Set(receipts.filter(receipt => receipt.kind === "threat").map(clockTargetKey).filter(Boolean));
 }
-export function offerLedger(turn: Row, obligationSettled: (handle: string) => boolean = () => false): Row | null {
+export function offerLedger(turn: Row, obligationSettled: (handle: string) => boolean = () => false, statedHandle: (name: string) => string | null = () => null): Row | null {
     const capsule = row(turn.capsule), receipts = array(turn.receipts);
     if (!Object.keys(capsule).length)
         return null;
@@ -264,6 +264,14 @@ export function offerLedger(turn: Row, obligationSettled: (handle: string) => bo
     for (const entry of array(capsule.obligations))
         if (row(entry).kind === "scene" && row(entry).state === "open" && truth(row(entry).name))
             offer(`obligation:${string(row(entry).name)}`, obligationSettled(string(row(entry).name)));
+    // Contract §136.24: a rule row with a `mech` line is an offer of the book's numbers, taken when a receipt of the
+    // turn was rolled on it (`basis.rule`) or took its amount (`stated`). Counted only.
+    const named = new Set(receipts.flatMap(r => [row(r.basis).rule, r.stated]).filter(v => typeof v === "string"));
+    for (const entry of array(row(capsule.where).rules)) {
+        const handle = truth(row(entry).mech) ? statedHandle(string(row(entry).name)) : null;
+        if (handle)
+            offer(`stated:${handle}`, named.has(handle));
+    }
     const connectionOffers = array(row(mods.thread).connections).map(connection => string(connection.name));
     if (!offers.length && !connectionOffers.length)
         return null;

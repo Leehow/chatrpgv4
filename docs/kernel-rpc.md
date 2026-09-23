@@ -357,6 +357,7 @@ params：`{"call_id": "...", "effects": [{"kind": "move", "to": "<场景名>", "
 - `time`：推进世界时钟，写 `time-advanced` 事件。**时间过去了，伤就该好。**本批 `time` 效果的分钟数相加（同一批两个四小时就是一夜；`move` 的行程分钟不算——赶路不是休息）：≥360 分钟走治疗引擎的休整入口（`handle_time_trigger`：六小时以上算一天，没有重伤则每天回 1 点生命，规则书 p.121；不到这个数一次都不调，因为同一个函数还会清掉当天的急救次数，十分钟不是新的一天），≥60 分钟走魔法点的每小时回复（规则书的单位是小时，引擎的下限会给任何一次推进至少 1 点）。每个真正变动的资源写一条 `delta` 收据与一条 `resource-changed` 事件，result 另给 `recovered: [{investigator, resource, before, after}]`，好让守秘人在写这一夜之前就知道这一夜的人还站不站得起来（数字本身不进正文，§16.3）。**这条规则一直在规则图上**（`rule:coc7:healing:regular-damage-recovery`），两个引擎的入口也一直写着、测着，只是内核从来没有调用过：真桌上 55 个游戏内小时、三夜睡眠、两次看医生，生命值一整局卡在 5/11。
 - `item`（#19）：`{"kind": "item", "name": "<物品名>", "to"?: "<调查员>", "from"?: "<NPC 名>", "weapon"?: "<规则表武器 id 或 profile 名>", "quantity"?: int, "label"?: "<玩家语言短名>", "why"?}`。叙述里到手的东西由此进调查员表：写 `party/<id>.json` 的 `equipment[]`（名字、数量、来源回合），`weapon` 给了就同时写 `weapons[]`（从 `rules-json/weapons.json` 的武器 profile 取伤害、射程、弹容、技能（`equipment.json` 只是价目表），取不到报 `needs`，`details.needs.options` 列可用 id），之后 `resolve` 的 `weapon` 能解析它、战斗开局按它排弹药。收据 `item:<slug>-t<turn>-c<n>`，渲染 `【变化】物品：<人> 得到 <label 或名>`，事件 `item-transferred`（`{name, to, from?, weapon?, quantity}`）。`quantity` 为负是失去（消耗、交出、被夺），表上没有就报 `invalid_params`。
 - `cash`（#19，§58）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "source": "price"|"quote"|"found", "settlement"?: "cash"|"spending_level", "price_id"?: "<印刷记录 id，source=price 必填>", "currency"?: "<这笔钱的单位>", "with"?: "<NPC 名>", "why"?}`；**`source` 必填**：钱的数额必须说明来源，`price` 由内核到规则书印刷物价表里解析 `price_id`（解析不到就拒），`quote` 要 `with`（场上谁开的价），`found` 是不涉及价格的进出。`settlement` 缺省 `cash`；`spending_level` 只用于不超过调查员消费等级的负向 `price`/`quote`，记录购买但不改现金。`currency` 与余额单位不一致直接拒——内核没有汇率表，不替任何人换算。玩家说的自己兜里有多少是余额不是价格；余额与本局已成交的价在胶囊 `known.investigator.cash` 与 `known.prices_paid` 里。全文见 §58；`with` 是钱的另一头（付给谁、从谁那儿来），落进那个人的账本 `exchanged`（§17.3）与机制投影；不写就只是钱数变了，没有对方。普通结算写表上 `finance.cash`；消费等级结算保留余额（没有 finance 块的时代都先按 `rules-json/cash-assets.json` 建一个），收据均为 `cash:t<turn>-c<n>`，事件分别是 `resource-changed` 与 `purchase-settled`。
+- `damage`、`time`、`threat`、`flag`、`cash` 另收 `stated: <名字>`（2026-09-23，RD-03）：数额取自书上写明的形状，不与守秘人自己的数额并给（`stated_conflict`）；不带 `stated` 时照旧，收据记 `basis: "keeper"`。见 §136.22。
 - 其余种类报 `not_implemented`。
 result：`{"receipts": ["move:hall-of-records-t3-c2", ...], "world": {"active_scene", "clock"}, "material_ready": true, "recovered"?: [{"investigator", "resource", "before", "after"}]}`。切片 0 `material_ready` 恒为 true；`recovered` 只在这一批的休整真的还了资源时出现。
 
@@ -475,7 +476,7 @@ recovery path it was pointed at.
 
 ### 11.1 输入补充
 
-`action` 在切片 0 的字段之外接受（扩展的工具表必须逐一声明，否则模型无处可填）：`san_loss`（理智检定的成功/失败损失表达式，如 `0/1D6`）、`involuntary`（理智失败时的失控行为，`faint`、`flee`、`scream`、`freeze`、`attack` 之一）、`outcome`（结束战斗时的结果）、`skills` 与 `mode`（合并检定）、`motive`（`{direction: support|neutral|oppose, intensity: 0..2}`，工具表与内核用同一套词）与 `support`（社交判定里 NPC 倾向与玩家实证）、`interrupted`（施法）、`rest`（每周恢复条件）、`ending`（结束会话的结局种类）；以及：`weapon`（武器名，攻击时用；`unarmed` 表示徒手）、`spell`（法术名）、`defense`（`dodge` 或 `fight_back`，回应待决防御时用）、`push: true`（对上一次失败检定推骰，`stakes` 必填，是宣告的后果）、`luck: <点数>`（花幸运补上一次检定）。`actor` 可以是 NPC 名：守秘人替 NPC 行动时用——战斗或追逐里轮到他，**或者他在战斗之外用自己的本事替队伍做一件事**（医生缝合、锁匠开锁、向导认路）。后一种以前被拒（「只能在他参与的战斗或追逐里行动」），于是求医、雇向导这类调查跑团的日常表达不了；更糟的是治疗族把施救者写死成当前调查员，医生给伤员缝手掷的是**伤员自己**的医药基础值（真桌上是 4），必然失败还看着像一次正常判定。详见 §17.9。
+`action` 在切片 0 的字段之外接受（扩展的工具表必须逐一声明，否则模型无处可填）：`san_loss`（理智检定的成功/失败损失表达式，如 `0/1D6`）、`involuntary`（理智失败时的失控行为，`faint`、`flee`、`scream`、`freeze`、`attack` 之一）、`outcome`（结束战斗时的结果）、`skills` 与 `mode`（合并检定）、`motive`（`{direction: support|neutral|oppose, intensity: 0..2}`，工具表与内核用同一套词）与 `support`（社交判定里 NPC 倾向与玩家实证）、`interrupted`（施法）、`rest`（每周恢复条件）、`ending`（结束会话的结局种类）；以及：`weapon`（武器名，攻击时用；`unarmed` 表示徒手）、`spell`（法术名）、`defense`（`dodge` 或 `fight_back`，回应待决防御时用）、`push: true`（对上一次失败检定推骰，`stakes` 必填，是宣告的后果）、`luck: <点数>`（花幸运补上一次检定）。`actor` 可以是 NPC 名：守秘人替 NPC 行动时用——战斗或追逐里轮到他，**或者他在战斗之外用自己的本事替队伍做一件事**（医生缝合、锁匠开锁、向导认路）。后一种以前被拒（「只能在他参与的战斗或追逐里行动」），于是求医、雇向导这类调查跑团的日常表达不了；更糟的是治疗族把施救者写死成当前调查员，医生给伤员缝手掷的是**伤员自己**的医药基础值（真桌上是 4），必然失败还看着像一次正常判定。详见 §17.9。另有 `rule` 与 `step`（2026-09-23，RD-03）：点名一条书上写明的规则、危险（及其步骤）或典籍，内核按书上的检定绑定并掷骰，结果带 `stated`，什么都不施加，见 §136.20–§136.21；与 `decision: sanity:check` 同用时从该节点取 `san_loss`，见 §136.23。
 
 ### 11.2 事实
 
@@ -6279,7 +6280,7 @@ already runs, at `narrate` and at `ask`, and writes one telemetry row per turn:
 {"lane": "offers", "turn": n, "closed_by": "narrate"|"ask", "offered": [ids], "taken": [ids]}
 ```
 
-An id is `<kind>:<handle>`; taken is decided by the turn's own receipts — a `clue` receipt for that clue, a
+(§134.14 adds `obligation:` and §136.24 `stated:`, a rule row with a `mech` line.) An id is `<kind>:<handle>`; taken is decided by the turn's own receipts — a `clue` receipt for that clue, a
 `move` to that scene, a `threat` tick of that clock. `tests/play/kpi.py` aggregates a run into offered, taken and
 `never_taken` per kind.
 
@@ -16989,8 +16990,8 @@ whether*. The curated starters, the visual PDF reader (RD-05) and, where a Mod s
 declarations use the same shapes and the same validator. This section is the catalog (spec D4) and the
 refusal rules (spec D5) with the implementation rulings A–D of 2026-09-23 (spec, Comments). **RD-01 adds
 no reader:** no capsule row, option, lookup or engine path reads a shape yet (RD-02 is the first reader,
-RD-03 the operations `action.rule` and `stated`). **RD-02 adds the readers** (§136.10–§136.19); the sentences of this preamble describe RD-01's state and
-are kept as its record. A writer without a reader is the §31 defect; it is
+RD-03 the operations `action.rule` and `stated`). **RD-02 adds the readers** (§136.10–§136.19) and **RD-03 the operations** (§136.20–§136.25); the sentences of this
+preamble describe RD-01's state and are kept as its record. A writer without a reader is the §31 defect; it is
 accepted here for one scheduled ticket, as §134.7 was. No shipped starter authors a shape yet, so every
 read of every starter is unchanged.
 
@@ -17421,3 +17422,152 @@ kernel, fights a creature with a stat block, rolls a typed `sanity_loss` without
 casts a module spell priced by `mechanics.spell` from a tome that names it in `mechanics.tome.spells`. Every
 shipped starter's capsule, `table.apply.options`, `table.resolve.options`, module and scene lookups and `look
 focus=scene`, walked scene by scene, are byte-identical to the parent commit `fb4ddbb50`.
+
+### 136.20 `resolve` names a stated check: `action.rule`, `action.step` (RD-03, spec D6.3, owner ruling Q1)
+
+`resolve` accepts two optional action fields: `rule: <name>` — a `rule`, `hazard` or `tome` node (or, with
+`decision: sanity:check`, an `object` or `artifact`; §136.23) that states a shape, named by handle, node id or name
+as `graph.find` resolves it — and, for a hazard, `step: <n>` (an integer from 0). The kernel validates, in order,
+and refuses with a stable `details.reason` (`details.field: "action.rule"`; code in brackets). The table mirrors
+§134.11's; `rule_intent` and `rule_decision` are the mirrors of `obligation_intent` and `obligation_decision`.
+
+| reason | refused |
+| --- | --- |
+| `rule_unknown` (`unknown_entity`) | the name finds no rule, hazard, tome, object or artifact node that states a shape; `details.candidates` lists the active scene's `uses-rule` nodes that state a check or a hazard |
+| `rule_not_here` (`not_here`) | the node is not linked from the active scene by `uses-rule`; a tome, object or artifact is also here when it is among the scene's assets (the `where.assets` links) or a party sheet holds it (an `equipment` entry whose name finds the node) |
+| `rule_intent` (`invalid_params`) | `intent` is `idle`, `meta`, `stuck` or `ambiguous` |
+| `rule_decision` (`invalid_params`) | `action.obligation` is present too (one roll has one owner); `action.decision` is present and is neither the decision the check maps to nor `sanity:check`; a push or Luck spend names another rule than the roll it continues |
+| `rule_step` (`invalid_params`) | `action.step` is not an integer ≥ 0, or names no step of the node's hazard |
+| `rule_no_check` (`invalid_params`) | the node states no check to roll (`details.shapes` lists what it does state) |
+| `rule_target` (`not_here`/`invalid_params`/`needs`) | the check's stated target is not present, or `action.target` names someone else; an opposed check with no opponent named, or whose opponent's profile carries none of `opposing.values` |
+| `rule_difficulty` (`invalid_params`) | `action.modifiers.difficulty` differs from the stated difficulty |
+| `rule_skill` (`needs`/`invalid_params`) | `selection: approach` without `action.skill` (`needs`, options = the approaches), or a skill that is not one of them |
+| `rule_minimum` (`invalid_params`) | the actor's rating is below the chosen approach's `minimum`, or no approach meets its minimum |
+
+**Which check.** With `action.step`, that step of the node's `hazard`; without it, the node's `check`, else a tome's
+`read_check`, else its hazard's first step (step 0). A hazard is rolled only when the Keeper names it this way —
+never on entry, on a timer or by the clerk (owner ruling Q1) — and a later step is rolled only when the Keeper names
+it too: a result's `next_step` says which step the book says follows, and the Keeper decides whether it does. The
+kernel does not require the steps in order (the module is reference, spec P8).
+
+**The binding** is §134.11's, the same function (`bindCheckStep`, `kernel-ts/resolve/obligation.ts`; an obligation's
+check and a rule's are bound by one binder, reason prefix `obligation_` or `rule_`): the step's `target` present in
+the active scene, the stated difficulty (the Keeper's own when it is `difficulty_unstated`; a non-regular stated
+difficulty on a social intent carries `modifiers.reason` "stated by the module"), the named approach for `approach`
+or the actor's highest value among those meeting their minimums for `maximum`, the Keeper's own skill when
+`approaches_unstated`. The Keeper's bonus and penalty dice pass through. The stored call parameters stay the
+Keeper's own; only the settlement reads the bound action.
+
+**The decision it maps to.** A check whose only value is `characteristics.Luck` runs `push-luck:luck-roll`; a check of
+scope `opposed` runs `core-check:opposed-check` — the actor's bound value against the opponent's highest value among
+`opposing.values` that its profile carries (the stated target, else `action.target`, which must be a present person
+with a profile); any other check runs `core-check:ordinary-check`.
+
+`push-luck:luck-roll` had never settled in this kernel: the action slots named the Luck characteristic as a skill
+slot, which the decision does not declare (its characteristic is a payload constant and its target host-locked), so
+every Luck roll was refused as an undeclared input. The slot is now left to the decision, for any caller; this is the
+one behaviour RD-03 changes outside `action.rule`, and it was found by the chapel floor's Luck step.
+
+`action.step` without `action.rule` is refused (`invalid_params`, `details: {field: "action.step", reason:
+"rule_step"}`): a step belongs to the hazard it names.
+
+### 136.21 The stated result and the receipt's `basis`
+
+The result carries
+
+```
+stated: {rule: <handle>, step?: <n>, level, effects: [<bound effect>], next_step?: <n>, book?: <line>,
+         push?: {allowed: true, book?: <line>}}
+```
+
+- `level` is the level the check reached. For an opposed check it is the actor's own level when the actor won, and
+  `failure` when the actor lost with a success (a fumble or failure stays what it was): the book's result levels are
+  the actor's side of the contest.
+- `effects` are the level's stated effects (§136.5) as the arguments of the verbs that execute them — `{kind: "damage",
+  dice}`, `{kind: "sanity_loss", san_loss: "S/F"}`, `{kind: "time", minutes}` (or `{kind: "time", amount, unit}` for a
+  dice amount or combat rounds), `{kind: "threat", name, clock, segments}`, `{kind: "flag", name, value}`, `{kind:
+  "cost", resource, amount | chosen, per?}`, `{kind: "book", line}`; an unstated amount keeps its `_unstated` twin.
+  A pushed roll that failed adds the push's own effects. `next_step` is the step the level's `next_step` effect names.
+  `book` is the level's line; `push` is given on a failed roll that can still be pushed when the book allows it.
+- **Nothing is applied.** The roll writes its own receipts and nothing else: no hit point, clock, flag or Sanity
+  moves because a level states it (owner rulings; spec P6). The Keeper applies what it chooses with `apply … {stated}`
+  (§136.22) or `sanity:check` (§136.23), or improvises its own.
+- The roll receipt (the first `roll` receipt of the call) carries `basis: {rule: <handle>, step?: <n>, level, pushed?:
+  true}`. `basis` is Keeper-side: the §16.2 projection does not carry it.
+- **Push and Luck continue the rule.** A push or a Luck spend continues the latest check receipt of the actor (§11);
+  when that receipt carries `basis.rule`, the continuation is rolled on the same rule and step and carries its own
+  `stated` and `basis` for the level it reached. An explicit `action.rule` on it must name the same one. A push of a
+  roll that named no rule names none.
+- **A resolve without `action.rule` is exactly today's.** A stated shape in the scene never refuses, narrows or
+  annotates any other `resolve` or `apply` (spec P8, the §134.11 "crossing is information" rule generalised; there
+  is no crossing annotation for a shape, because a shape guards nothing).
+
+### 136.22 `apply … {stated}` (spec D6.3)
+
+`apply damage`, `time`, `threat`, `flag` and `cash` accept `stated: <name>`: a node `graph.find` resolves among the
+rule, hazard, tome, object and artifact nodes that state a shape, or a threat one of whose clocks carries
+`advances_on`. The amount comes from, in order:
+
+1. the effects of this kind (`damage`, `time`, the `clock` effect for `threat`, `flag`) the latest `action.rule` roll of
+   this turn on that node reached (the turn's receipts, by `basis.rule`; a pushed failure adds the push's effects);
+2. else the node's own shape of that kind: `damage`; `time_cost`; for `threat` the clocks of a threat node that carry
+   `advances_on` (one segment each); for `cash` the `reward.cash` (with its `currency`, and `source: "quote"` unless the
+   Keeper gives a source: the book's figure is the quote, §58); and, for every kind, the no-roll `effects` of the
+   node's hazard.
+
+| reason | refused (`details.field: "stated"`) |
+| --- | --- |
+| `stated_unknown` (`unknown_entity`) | the name finds no such node |
+| `stated_conflict` (`invalid_params`) | the effect also gives a field the binding supplies — `dice`; `minutes`; `name`, `clock`, `segments`; `name`, `value`; `delta`, `currency` (`details.fields`) |
+| `stated_ambiguous` (`invalid_params`) | more than one candidate amount (`details.choices`, each a bound effect) |
+| `stated_none` (`invalid_params`) | no candidate of that kind; a stated time counted in combat rounds; `stated` on any other effect kind |
+| `stated_unstated` (`invalid_params`) | the one candidate records its amount `_unstated`: the amount is the Keeper's |
+
+A time amount that is a dice string is rolled by the kernel (`rollExpression`) and multiplied by its unit's minutes
+(1, 60, 1440, 10080); the time receipt carries `stated_roll: {expression, unit, total}`.
+
+**Whose number it was.** Every receipt an effect of these five kinds mints carries `basis`: `"stated"` with `stated:
+<handle>` when the amount was bound, `"keeper"` otherwise (a damage effect's `roll` and `delta` receipts both). An
+`apply` without `stated` is exactly today's apply (spec P8): the Keeper's own amount lands with `basis: "keeper"`.
+
+### 136.23 `sanity:check` with `action.rule` (spec D6.3)
+
+`resolve` with `decision: sanity:check` and `action.rule` takes `san_loss` from the node: the `sanity_loss` effect this
+turn's latest roll on it reached, else its own `sanity_loss` shape (a rule, hazard, object or artifact), a tome's
+`sanity_cost`, or its hazard's no-roll `sanity_loss` effect — the pair `"<success>/<failure>"`, built from the two
+strings, never searched for in a sentence. The node is validated as §136.20 says (`rule_unknown`, `rule_not_here`,
+`rule_intent`); `action.san_loss` given as well is `stated_conflict`; none is `stated_none`, two are
+`stated_ambiguous`, a half recorded `_unstated` is `stated_unstated` (the Keeper's own `san_loss` completes it). The
+result carries `stated: {rule, san_loss}` and the SAN roll receipt `basis: {rule}`. The involuntary behaviour stays the
+Keeper's pick.
+
+### 136.24 Three ends, the offer ledger, the tools and the prompt (spec D6.4)
+
+*Writer:* the starter author and (RD-05) the reader under review; never the kernel and never a lane. *Reader:*
+§136.10–§136.18 and the operations of §136.20–§136.23. *Actor:* the Keeper, through the `mech` line and
+`action.rule`/`stated`; the clerk only where spec D8 says (RD-06), never for a hazard or a consequence.
+
+The offer ledger (§31.2) registers `stated:<handle>` for every `where.rules` row of the turn's capsule that carries a
+`mech` line (the row's name resolved to its node's handle), and marks it taken when a receipt of the turn carries
+`basis.rule` or `stated` naming that handle. `tests/play/kpi.py` counts it under its own kind `stated` (its `offers`
+aggregation reads the kind from the id's prefix). It counts and never nags: nothing of it reaches the next capsule.
+
+The `resolve` tool's `action` gains `rule` and `step`; the `damage`, `time`, `threat`, `flag` and `cash` effects gain
+`stated` (their amount fields become optional in the schema, and the kernel refuses a missing amount exactly as
+before when `stated` is absent). The base Keeper prompt gains one sentence: stated mechanics are the book's numbers;
+name them with `action.rule` or `stated`, or use your own amount. The fake kernel (`tests/extension/fixtures/fake-kernel.mjs`)
+answers `action.rule` with a `stated` object and refuses `stated` beside an amount as `stated_conflict`.
+
+### 136.25 Tests (RD-03)
+
+`tests/kernel/test_stated_operations.py`, over the emitted kernel on a derived haunting content root (seeded; a
+"forced" level is a recorded seed for exactly that call sequence): a hazard's steps rolled through `action.rule` and
+`action.step` with `next_step` and the bound damage and no hit point written; `apply damage {stated}` rolling the stated
+dice with `basis: "stated"`; `stated` beside `dice` refused `stated_conflict`; `apply damage {dice}` alone landing with
+`basis: "keeper"`; every refusal of §136.20 and §136.22 by its reason with no roll written; the opposed and Luck
+decisions; a push continuing the rule; `sanity:check` with `action.rule`; `time`, `threat`, `flag` and `cash` bound;
+a stated hazard in the scene crossed by an unrelated `resolve` and `apply` that land exactly as without it; the offer
+ledger's `stated:` rows and `kpi.py`'s count. `tests/extension/stated-operations.test.mjs` covers the tool schema and
+the fake kernel. Every shipped starter's capsule, `table.apply.options`, `table.resolve.options`, module and scene
+lookups and `look focus=scene`, walked scene by scene, are byte-identical to the parent commit `172b80065`, and again after 0.9.5a
+(SL-08) was merged in, to `e1b4176d3`.

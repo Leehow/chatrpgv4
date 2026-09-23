@@ -487,6 +487,9 @@ function resolve(params) {
 			pending_choice: null,
 			continuations: [],
 			rule_refs: ["percentile-check"],
+			// Contract §136.21: a check rolled on a stated rule hands back what the level reached states, applied by nobody.
+			...(typeof action.rule === "string" ? { stated: { rule: action.rule, ...(Number.isInteger(action.step) ? { step: action.step } : {}),
+				level: checkPassed ? "regular" : "failure", effects: checkPassed ? [] : [{ kind: "damage", dice: "1D6" }] } } : {}),
 		},
 	};
 }
@@ -902,7 +905,14 @@ function handle(method, params) {
 				if (effect.kind === "item" && !effect.name) {
 					return { ok: false, error: { code: "invalid_params", message: "item 要物品名", details: { index } } };
 				}
-				if (effect.kind === "cash" && typeof effect.delta !== "number") {
+				// Contract §136.22: the book's amount or the Keeper's own, never both.
+				const amounts = { damage: ["dice"], time: ["minutes"], threat: ["name", "clock", "segments"], flag: ["name", "value"], cash: ["delta", "currency"] }[effect.kind];
+				if (effect.stated != null && amounts?.some((field) => effect[field] != null)) {
+					return { ok: false, error: { code: "invalid_params", message: `stated takes the amount from ${effect.stated}; give one`,
+						fix: "leave the amount out to use the book's, or stated out to use your own",
+						details: { index, field: "stated", reason: "stated_conflict", fields: amounts.filter((field) => effect[field] != null) } } };
+				}
+				if (effect.kind === "cash" && effect.stated == null && typeof effect.delta !== "number") {
 					return { ok: false, error: { code: "invalid_params", message: "cash 要带正负号的 delta", details: { index } } };
 				}
 			}

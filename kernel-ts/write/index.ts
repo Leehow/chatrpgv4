@@ -32,6 +32,7 @@ import { loadModuleContract, validSourceLanguage } from '../modules/contract.js'
 import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
 import { asciiSlug, facts, publicContext, directorAdoption, offerLedger } from './text.js';
 import { obligationByHandle, obligationState } from '../read/obligations.js';
+import { statedHandleOf } from '../read/stated.js';
 import { deliveryText, deliveryRecord } from './delivery.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
@@ -865,7 +866,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const offers = offerLedger(turn, handle => {
             const node = obligationByHandle(module.graph, handle);
             return node !== null && ['settled', 'waived'].includes(obligationState(module.graph, world, node));
-        });
+        }, name => statedHandleOf(module.graph, name));
         if (offers)
             await campaign.telemetry({
                 lane: 'offers',
