@@ -17025,13 +17025,16 @@ engine answers it from the kernel extension's turn-close port. The port goes ont
   The Keeper's answer goes through the same `message_end`: prose is closed by the implicit narrate, and a second
   leg that brings nothing falls back to the draft the floor or speech steer dropped. Or the Keeper calls its own
   verbs, and those run as any model proposals do.
-- `{status: "none", reason}`: nothing is owed or the steer is spent (`delivered_turn_closed`,
-  `review_unavailable`, `run_abandoned`, `steer_spent`, `turn_not_open`). The run finishes, and without evidence
-  it is `undelivered` with reason `turn_close_<reason>:no_delivered_evidence`.
+- `{status: "none", reason}`: nothing is owed or the steer is spent (`steer_spent`, `turn_not_open`,
+  `review_unavailable`, `run_abandoned`, `no_table`). The run finishes, and without evidence it is `undelivered`
+  with reason `turn_close_<reason>:no_delivered_evidence`.
 
-A port that is absent or throws answers `unavailable`, and the run finishes as before. **The bound is legacy's.**
+A port that is absent or throws answers `unavailable` (finish reason `turn_close_<cause>`, e.g.
+`turn_close_no_turn_close_port`), and the run finishes as before. The verdict is recorded as a `lane: "turn"`,
+`event: "turn_close"` row (`status`, `kind` or `reason`, and `implicit` with `call_id` for an implicit narrate). **The bound is legacy's.**
 The extension spends its steer once per turn. The policy also follows at most one `turn_close` steer per run, so a
-port that answered `steer` twice still costs one more model step and no more. `undelivered` is now reserved for
+port that answered `steer` twice still costs one more model step and no more (the second answer finishes the run
+with `turn_close_run_steer_spent`). `undelivered` is now reserved for
 a run whose Keeper produced nothing deliverable even after that one steer (tool calls only, or thinking only,
 twice), or whose close was withheld by §38 or §94. The §38 notice at `agent_settled` is unchanged. It is never
 sent over prose that existed: prose that reached `message_end` is either delivered by the implicit narrate or
@@ -17047,8 +17050,9 @@ picks its steer through `takeTurnCloseSteer` and sends it exactly as before.
 Tests: `tests/extension/single-loop-turn-close.test.mjs` (hybrid seam, fake kernel). A text-only last step ends
 `delivered` on the implicit narrate's receipt, with the prose in the delivery. A step that called `narrate` is
 unchanged. A thinking-only step after a failed check is steered once and then delivered. A run whose Keeper
-brings nothing twice ends `undelivered` with the §38 notice, and no steer is queued for the next input. The legacy
-suites run unchanged.
+brings nothing twice ends `undelivered` with the §38 notice, and no steer is queued for the next input. A prose-only
+turn with no tool call is floor-steered once, and a second leg that brings nothing delivers the dropped draft. The
+legacy suites run unchanged; the SL-00 inventory counts `agent_end`'s one remaining `sendHost` site.
 
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 
