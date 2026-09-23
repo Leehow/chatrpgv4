@@ -45,7 +45,7 @@ function createReact() {
 		cursor = 0;
 		tree = Card({ details });
 	}
-	/** The turn's mechanics slip starts folded; the player opens it by its own toggle to reach the map. */
+	/** The turn's trailing mechanics folds start shut; the player opens them by their own toggles to reach the map. */
 	function openSlip() {
 		const toggles = [];
 		(function walk(node) {

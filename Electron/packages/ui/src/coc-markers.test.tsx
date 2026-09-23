@@ -208,12 +208,12 @@ describe('the card draws a marked delivery', () => {
     expect(rendered.getAttribute('title')).toContain('a crow on the sill')
   })
 
-  it('captions the mechanics slip from the delivery, and shows the key for a language that lacks it', () => {
+  it('captions a trailing fold from the delivery, and shows the key for a language that lacks it', () => {
     const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:13,
-      ui: ui('zh-Hans', {mechanics: {mechanics: undefined}}), mechanics:[CLUE]}} />)
+      ui: ui('zh-Hans', {mechanics: {'fold.clue': undefined}}), mechanics:[CLUE]}} />)
     // The caption word alone: the toggle beside it also counts the rows, which is chrome, not a word.
-    expect(container.querySelector('.coc-mech-cap .coc-mech-list-name')?.textContent).toBe('mechanics')
-    expect(container.textContent).not.toContain(say('en', 'mechanics', 'mechanics'))
+    expect(container.querySelector('.coc-mech-cap .coc-mech-list-name')?.textContent).toBe('fold.clue')
+    expect(container.textContent).not.toContain(say('en', 'mechanics', 'fold.clue'))
   })
 
   it('keeps the prose in order and puts each placed receipt at its point', () => {

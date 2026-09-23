@@ -173,8 +173,8 @@ function drawn(node) {
 
 /**
  * The delivery card, drawn by the shipped renderer with the captions this build ships, and read the
- * way the player reads it: the turn's mechanics slip starts folded, so it is opened by its own toggle
- * first. A card read folded would pass the "never draws the book's sentence" checks by drawing nothing.
+ * way the player reads it: the turn's trailing mechanics folds start shut, so each is opened by its own
+ * toggle first. A card read shut would pass the "never draws the book's sentence" checks by drawing nothing.
  */
 function cardText(mechanics) {
 	const states = [];
@@ -197,8 +197,8 @@ function cardText(mechanics) {
 		[...(node.children ?? []), node.props?.children].forEach(walk);
 	};
 	walk(draw());
-	assert.equal(toggles.length, 1, 'the card has one folded mechanics slip');
-	toggles[0].props.onClick();
+	assert.ok(toggles.length > 0, 'the card has a shut mechanics fold to open');
+	for (const toggle of toggles) toggle.props.onClick();
 	return drawn(draw());
 }
 
