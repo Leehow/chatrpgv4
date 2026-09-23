@@ -10,8 +10,32 @@ import {
 	type ThinkingBudgets,
 	type Transport,
 	toToolDeclaration,
+	type AssistantMessage,
+	type ToolResultMessage,
+	uuidv7,
 } from "@earendil-works/pi-ai";
-import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.ts";
+import {
+	createErrorToolResult,
+	createToolResultMessage,
+	declareToolChanges,
+	emitToolExecutionEnd,
+	emitToolResultMessage,
+	executePreparedToolCall,
+	type FinalizedToolCallOutcome,
+	finalizeExecutedToolCall,
+	prepareToolCall,
+	runAgentLoop,
+	runAgentLoopContinue,
+	streamAssistantResponse,
+} from "./agent-loop.ts";
+import {
+	type InferEngine,
+	type OperationProposal,
+	type RunDriverPorts,
+	type RunPolicy,
+	type DrivenRunResult,
+	runDriver,
+} from "./run-driver.ts";
 import { getDefaultStreamFn } from "./stream-fn.ts";
 import type {
 	AfterToolCallContext,
@@ -170,6 +194,23 @@ class PendingMessageQueue {
 	clear(): void {
 		this.messages = [];
 	}
+}
+
+/** Options of a driven run ({@link Agent.runDriven}); the policy and ports come from the host. */
+export interface AgentRunDriverOptions<S = unknown> {
+	policy: RunPolicy<S>;
+	ports?: RunDriverPorts;
+	runId?: string;
+	/** Binds the run to its input; a host passes a revision that changes with every new input. */
+	inputRevision?: string;
+	scopeId?: string;
+	maxSteps?: number;
+	/**
+	 * A failed response the host can recover (auto-retry backoff, overflow compaction). Resolve true to
+	 * make another provider attempt of the same infer step; the failed attempt stays in the transcript
+	 * as the provider produced it.
+	 */
+	recover?: (message: AssistantMessage, attempt: number, signal: AbortSignal) => Promise<boolean>;
 }
 
 type ActiveRun = {
@@ -405,6 +446,174 @@ export class Agent {
 		}
 
 		await this.runContinuation();
+	}
+
+	/**
+	 * Run one input through the RunDriver instead of the model-first loop: each step is chosen by
+	 * `options.policy` and performed through `options.ports` or this agent's own provider path and
+	 * tools. There is no continuation loop behind it; the run ends when the policy finishes it or it is
+	 * aborted. A failure ends the run `failed` without a synthetic assistant message.
+	 */
+	async runDriven<S>(input: string | AgentMessage | AgentMessage[], options: AgentRunDriverOptions<S>): Promise<DrivenRunResult> {
+		if (this.activeRun) {
+			throw new Error("Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.");
+		}
+		const messages = this.normalizePromptInput(input);
+		const runId = options.runId ?? `run-${uuidv7()}`;
+		let result: DrivenRunResult | undefined;
+		await this.runDriverLifecycle(runId, async (signal, emitted) => {
+			result = await this.driveRun(runId, messages, options, signal, emitted);
+		});
+		return result ?? { runId, status: "failed", reason: "driver_error", steps: 0, observations: [], error: this._state.errorMessage };
+	}
+
+	private async runDriverLifecycle(
+		runId: string,
+		executor: (signal: AbortSignal, emitted: AgentMessage[]) => Promise<void>,
+	): Promise<void> {
+		if (this.activeRun) throw new Error("Agent is already processing.");
+		const abortController = new AbortController();
+		let resolvePromise = () => {};
+		const promise = new Promise<void>((resolve) => {
+			resolvePromise = resolve;
+		});
+		this.activeRun = { promise, resolve: resolvePromise, abortController };
+		this._state.isStreaming = true;
+		this._state.streamingMessage = undefined;
+		this._state.errorMessage = undefined;
+		const emitted: AgentMessage[] = [];
+		try {
+			await executor(abortController.signal, emitted);
+		} catch (error) {
+			// No synthetic assistant message: the run records what failed and closes with what really happened.
+			this._state.errorMessage = `run ${runId} failed: ${error instanceof Error ? error.message : String(error)}`;
+			try {
+				await this.processEvents({ type: "agent_end", messages: emitted });
+			} catch {
+				// The listeners already failed once; the run still has to become idle.
+			}
+		} finally {
+			this.finishRun();
+		}
+	}
+
+	private async driveRun<S>(
+		runId: string,
+		prompts: AgentMessage[],
+		options: AgentRunDriverOptions<S>,
+		signal: AbortSignal,
+		newMessages: AgentMessage[],
+	): Promise<DrivenRunResult> {
+		const emit = (event: AgentEvent) => this.processEvents(event);
+		let context: AgentContext = this.createContextSnapshot();
+		let config: AgentLoopConfig = this.createLoopConfig();
+		let lastCompletedTurn: PrepareNextTurnContext | undefined;
+		const applyUpdate = (update: AgentLoopTurnUpdate | undefined) => {
+			if (!update) return;
+			context = update.context ?? context;
+			config = {
+				...config,
+				model: update.model ?? config.model,
+				reasoning:
+					update.thinkingLevel === undefined
+						? config.reasoning
+						: update.thinkingLevel === "off"
+							? undefined
+							: update.thinkingLevel,
+			};
+		};
+		const append = async (messages: AgentMessage[]) => {
+			for (const message of declareToolChanges(context, messages)) {
+				await emit({ type: "message_start", message });
+				await emit({ type: "message_end", message });
+				context.messages.push(message);
+				newMessages.push(message);
+			}
+		};
+		const answer = async (proposal: OperationProposal, finalized: FinalizedToolCallOutcome): Promise<ToolResultMessage> => {
+			await emitToolExecutionEnd(finalized, emit);
+			const message = createToolResultMessage(finalized);
+			await emitToolResultMessage(message, emit);
+			context.messages.push(message);
+			newMessages.push(message);
+			return message;
+		};
+		const engine: InferEngine = {
+			infer: async ({ prepend, signal: stepSignal, onAttempt }) => {
+				let prepared: AgentMessage[] = [];
+				if (lastCompletedTurn) {
+					const snapshot = await config.prepareNextTurn?.(lastCompletedTurn);
+					applyUpdate(snapshot);
+					prepared = snapshot?.messages ?? [];
+				}
+				await emit({ type: "turn_start" });
+				const steering = (await config.getSteeringMessages?.()) || [];
+				await append([...prepared, ...prepend, ...steering]);
+				for (let attempt = 1; ; attempt++) {
+					await onAttempt(attempt);
+					applyUpdate(
+						(await config.prepareRequest?.(
+							{ context, model: config.model, thinkingLevel: config.reasoning ?? "off" },
+							stepSignal,
+						)) ?? undefined,
+					);
+					const message = await streamAssistantResponse(context, config, stepSignal, emit, this.streamFunction);
+					newMessages.push(message);
+					if (
+						message.stopReason === "error" &&
+						!stepSignal.aborted &&
+						options.recover &&
+						(await options.recover(message, attempt, stepSignal))
+					)
+						continue;
+					return message;
+				}
+			},
+			executeModelTool: async (proposal, stepSignal) => {
+				const toolCall = proposal.toolCall!;
+				const assistantMessage = proposal.assistantMessage!;
+				await emit({ type: "tool_execution_start", toolCallId: toolCall.id, toolName: toolCall.name, args: toolCall.arguments });
+				const preparation = await prepareToolCall(context, assistantMessage, toolCall, config, stepSignal);
+				if (preparation.kind === "immediate")
+					return answer(proposal, { toolCall, result: preparation.result, isError: preparation.isError });
+				const executed = await executePreparedToolCall(preparation, stepSignal, emit);
+				return answer(proposal, await finalizeExecutedToolCall(context, assistantMessage, preparation, executed, config, stepSignal));
+			},
+			refuseModelTool: async (proposal, reason) => {
+				const toolCall = proposal.toolCall!;
+				await emit({ type: "tool_execution_start", toolCallId: toolCall.id, toolName: toolCall.name, args: toolCall.arguments });
+				return answer(proposal, { toolCall, result: createErrorToolResult(reason), isError: true });
+			},
+			closeTurn: async (message, toolResults) => {
+				lastCompletedTurn = { message, toolResults, context, newMessages };
+				const decision = await config.finishTurn?.(lastCompletedTurn, signal);
+				await emit({ type: "turn_end", message, toolResults });
+				return { continueRequested: decision?.action === "continue" };
+			},
+		};
+
+		await emit({ type: "agent_start" });
+		await append(prompts);
+		const rawInput = prompts
+			.flatMap((message) =>
+				message.role === "user"
+					? typeof message.content === "string"
+						? [message.content]
+						: message.content.flatMap((block) => (block.type === "text" ? [block.text] : []))
+					: [],
+			)
+			.join("\n");
+		const result = await runDriver({
+			input: { runId, inputRevision: options.inputRevision ?? `${runId}:input`, rawInput, scopeId: options.scopeId ?? `${runId}:root` },
+			policy: options.policy,
+			ports: options.ports,
+			engine,
+			emit,
+			signal,
+			maxSteps: options.maxSteps,
+		});
+		await emit({ type: "agent_end", messages: newMessages });
+		return result;
 	}
 
 	private normalizePromptInput(
