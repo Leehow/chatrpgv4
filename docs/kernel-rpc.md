@@ -6838,6 +6838,90 @@ opt-in; a `cash` batch makes no typed call; a typed verdict is reused within the
 `tests/extension/admission-jev-domain.test.mjs`. **Not verified:** live agreement, live latency and tail at the table,
 whether a Keeper handles the thinner typed `missing` as well as the lane's prose, and CJK accuracy on the typed model.
 
+### 32.11 The bookkeeping fast path: a confident typed admission settles a bookkeeping batch alone (2026-09-23, SL-10; amends §32.10 for one closed class of batch)
+
+**Why.** The owner's ruling "A turn is under 60 seconds" names model-origin bookkeeping writes (`apply clue |
+person | handout | move`) as the second lever: admitted by the typed reviewer at a threshold decided by
+measurement, the lane only for `resolve` on an investigator and for escalations. The SL-02 live gate paid 11.0 s
+of lane review for one `apply` batch.
+
+**Which batches (closed contract enums, never the prose).** An `apply` batch that §32.1 puts to review and
+whose every triggering kind is one of `move`, `clue`, `handout`, `time` is a **bookkeeping batch**
+(`FAST_PATH_KINDS` in `extensions/kernel/admission.ts`). Non-triggering kinds may ride along (§32.1's list:
+`person`, `npc`, `note`, `define`, ...); `person` alone is never reviewed at all (§32.1), so it needs no fast path.
+Why these four and not the rest of §32.1's triggering kinds, by what §32 ties to the investigator's consent:
+
+- `cash` is tied to consent by §32.2's explicit limits and undisclosed prices, and is lane-only already (§32.10);
+- `item` by §32.2's "surrender of possessions or other resource commitment";
+- `object` and `usage` by the reviewer rule that an object pickup or transfer is a real proposed action, and that
+  a usage must not invent an attack the player only contemplated (§32.2's prompt, `admissionSystemPrompt`);
+- `map` is left with the lane: nothing in §32 says what its landing commits, so it is not claimed here;
+- `time` joins the four because §32.2 makes routine time and effort inherent in a chosen action *entailed*, not a
+  separate consent; a voluntary new commitment of time is still judged, only by the typed reviewer first;
+- `move` stays a consent judgement (§32.2's destination rule, the 「那看看报纸」 case). The fast path does not
+  change what is judged, only who may answer first, and a typed refusal never stands on this path.
+- `resolve` is never on this path: a check is the investigator's method and target (§32.2), and it keeps the
+  configured reviewer (default the lane).
+
+Origin does not enter: the clerk's policy-origin writes (§135.4) and the Keeper's own are the same verb and the
+same batch, and origin is tracing only.
+
+**The rule** (`reviewAdmissionPrimary`). For a bookkeeping batch the typed family of §32.10 runs first, whatever
+`PI_COC_ADMISSION_REVIEWER` says, on exactly §32.3's input. It admits alone only when **every line's typed
+verdict admits** (so the batch verdict admits, §32.10's mapping) **and** the review confidence (the minimum line
+verdict confidence, §32.10) is at least `PI_COC_ADMISSION_FAST_MIN_CONFIDENCE` (default **0.87**, measured
+below). Everything else escalates: a typed `not_authorized` or `uncertain` on any line, a confidence under the
+threshold, and every typed non-verdict (§32.10's list: unconfigured, timeout, service error, packing, invalid
+answer). An escalation runs the reviewer the setting names: with `lane` (the default) the §32.2 lane decides
+exactly as it does alone; with `jev` a typed answer that already meets §32.10's family minimum stands as §32.10
+says (a confident typed refusal refuses, no second typed call), and anything else goes to the lane. **The fast
+path never refuses and never admits on a failure.** `PI_COC_ADMISSION_FAST_MIN_CONFIDENCE=off` turns the fast
+path off (a control arm); every bookkeeping batch then takes the configured reviewer, as before this section.
+
+**Telemetry (amends §32.7).** Every reviewed `lane: "admission"` row carries `path: "typed" | "lane"` (whose
+verdict stood) beside `ms` (the whole review). A bookkeeping batch adds `fast_path: true`, `fast_min_confidence`,
+and on escalation `jev_fallback` (`typed_refusal`, `low_confidence`, or §32.10's non-verdict reason), `lane_ms`
+and the typed `jev_confidence`/`line_verdicts`.
+
+**The measurement (2026-09-23; details in `docs/specs/pi-native-single-loop-tickets/10-turn-budget-and-admission.md`
+Comments).** Rule: typed admits when every line admits and the minimum line confidence is at least *T*.
+
+- **The replays and the gate table.** Turn 3 (SL-02's typed arm, 3 runs): the clerk's `move` 0.86 / 0.88 / 0.89,
+  `authorized`; the Keeper's `clue, clue, handout, time` batch 0.17 / 0.23 / 0.27 with the handout line typed
+  `not_authorized` (the lane: `entailed`), so it always escalates. The fight round has no bookkeeping batch (its
+  writes are `resolve`s). The gate table's 11.0 s batch carried `cash`, `define` and `object` beside the clues,
+  handout and move, so it is not a bookkeeping batch: the fast path cannot touch it.
+- **The retained bank** (`experiments/admission-jev-bank`, rebuilt 2026-09-23 over the App home and the
+  repository's `.coc`; 5 204 paired cases): its 2 174 lane-labelled bookkeeping batches, typed live at minimum
+  confidence 0 (2 169 answered, 5 typed non-verdicts). Lane labels: authorized 1 229, entailed 572, not_player_action
+  120, not_authorized 247, uncertain 1. Every line typed admitting: 1 570 (72.4%); among those the confidence
+  quantiles p10/p25/p50/p75/p90 are 0.23 / 0.34 / 0.45 / 0.61 / 0.73. Of the 248 lane refusals, 110 were typed
+  admitting on every line.
+
+| *T* | typed admits alone | lane called | lane refusals typed-admitted |
+| --- | --- | --- | --- |
+| 0 | 1 570 | 27.6% | 110 |
+| 0.5 | 660 | 69.6% | 23 |
+| 0.7 | 212 | 90.2% | 4 |
+| 0.8 | 87 | 96.0% | 1 |
+| 0.86 | 41 | 98.1% | 1 |
+| **0.87** | **34** | **98.4%** | **0** |
+| 0.9 | 17 | 99.2% | 0 |
+
+**The decision the numbers force.** The ticket's two targets cannot both hold with this family: refusals
+unchanged (no lane refusal typed-admitted) needs *T* ≥ 0.87, where the lane is still called for 98.4% of
+bookkeeping batches; a lane share under 20% is not reached at any *T*, because 27.6% of batches carry a typed
+refusal on some line, and at *T* = 0 it would admit 110 of the 248 lane refusals. The rule "refusals unchanged"
+wins, so the default is **0.87**, the lowest threshold with no false admission on the bank, with **no margin**
+(the highest-confidence false admission is 0.86, a single-line `move`). On the replays it admits the clerk's move
+when Jev answers at 0.87 or above (two of SL-02's three runs) and nothing else. The cost on every escalated batch
+is the typed attempt in front of the lane: 468 ms p50, 627 ms p90, 1.8 s max on the bank. Caveats: the lane label
+is not ground truth; the bank is 92% persona-bench driver runs and its move lines lack `registered_destination`
+(§32.10's reconstruction gap), which may depress typed confidence on moves; on the 175 table-source cases alone
+no false admission occurs at *T* ≥ 0.5 (46 admitted). Whether to accept false admissions for speed, calibrate a
+new typed family, or move the latency elsewhere (SL-11) is the owner's decision; this section records only what
+the measurement allows.
+
 ## 33. Creation difficulty: an extension setting scaled into chargen (2026-09-11)
 
 A difficulty setting for character creation, owned by the COC Keeper extension's
@@ -17064,6 +17148,9 @@ typed admission (or none) is enough for policy-origin operations. The rows of §
 numbers from the SL-02 replays are recorded in `docs/specs/pi-native-single-loop-tickets/02-domain-policy.md`
 under Comments. Until the owner decides, a policy-origin write passes §32 exactly as a model-origin one does.
 
+SL-10 (2026-09-23) measured the typed side for the class the owner named: §32.11 is the rule for bookkeeping
+`apply` batches, whichever origin proposes them; a `resolve` and every other batch still pass §32 as before.
+
 ### 135.11 The driven run owns the turn close: the implicit narrate is delivery evidence, and the turn-close steer is one more model step (2026-09-23, SL-02 live-gate finding; amends §135.9)
 
 **The finding.** On the installed `e1b4176d3`, campaign `game-b5367f88`, two turns in a row ended with
@@ -17317,6 +17404,74 @@ own credential, two passes each):
 The per-level replay table (turn 3 and the fight round on the product driver, with a live Keeper: tokens and
 seconds per call, and actions against the recorded ones) is in the SL-11 ticket's Comments. **The default is not
 changed:** the table stays `low` until the owner picks from that table.
+
+### 135.25 The run's time budget: past it the next model step is the compose (2026-09-23, SL-10)
+
+SL-10 takes §135.25 (§135.11 is the prose-delivery fix's, §135.20–§135.24 are SL-11's; §-numbers are stable ids).
+
+**Why.** The owner's ruling "A turn is under 60 seconds" (spec Rulings): the player waits at most a minute from
+input to the first delivered prose. The SL-02 live gate's declared-move turn took 85 s (seven model calls, three
+§32 lane reviews, the read, Jev). The first lever is a budget in the policy itself, so that past it the rest of
+the bookkeeping waits for the next turn instead of holding the prose.
+
+**Setting.** `PI_COC_TURN_BUDGET_MS`, milliseconds from the run's start (the driver's `prepare`, where the run's
+input arrives), read per run. Default **45 000**; a value that is not a positive number reads as the default.
+There is no value that disables it.
+
+**The rule** (`next` in `runtime/jev/step-policy.ts`; `Budget.runMs`/`maxRunMs`). The policy keeps the run's
+elapsed time in its own state (`budget.runMs`), stamped from the engine's clock when each step is folded in, so
+`next` stays a pure function of the view and `reduce` recomputes the same step. When `runMs >= maxRunMs`:
+
+- the model's own pending proposals still run first (`createStepPolicy.next` returns `operate` for them before it
+  reads the budget): a Keeper batch is never cut mid-way, and each of its steps keeps its §135.5 branches;
+- a running step is never pre-empted: the budget is read only between steps, when the policy picks the next one.
+  An `infer` that crosses the budget completes, and its proposals execute;
+- a step the kernel forces (`candidate.forced`: an NPC's pending defence, an NPC's turn under a standing, a
+  disposition inference, §135.2) still runs when it is `direct` or a Jev `decide`: the kernel accepts nothing
+  else next, so leaving it would hand the Keeper a restriction to settle in prose. A forced step whose parameters
+  are open (an `infer(bind)`) is not run: the compose comes instead;
+- a compose already pending keeps its place and its reason: the turn close's steer (§135.11,
+  `turn_close:<kind>`, which carries its `coc-host` message) and the route's `finish` are the compose;
+- otherwise the next step is `infer(compose)` with reason `run_budget`, whatever the route said: no route
+  question, no read, no clerk write, no `infer(bind)`. A pending `adjudicate` (a fallen batch, `ask_llm`) is
+  consumed by that compose; the compose is the same Keeper request, and a fallen batch's note still travels.
+  Because a compose and an adjudication are the same request to the model, the compose's `coc-clerk` note says
+  why (`budget: {budget_ms, elapsed_ms}` and a note: the budget is spent, close the turn now with the prose and
+  leave further bookkeeping for the next turn). The Keeper is still the boss: a tool call in that response runs
+  as a batch like any other, and the step after it is again the compose.
+- **The budget sits before the turn close, never in its place.** A budget compose that ends in prose stops the
+  policy, and the run then takes §135.11's `turn_close` exactly as any compose does: the implicit narrate is its
+  delivery evidence, and a steer is followed once. The budget never finishes a run itself.
+
+**Deferred candidates.** The clerk steps still pending when the budget is spent (pending items that carry a host
+candidate and are not run under the rule above) are **deferred by budget**: nothing was executed for them. They
+are listed, by key, label, family, clerk authority and the stage they were at, in three places: the budget row
+(below); the `coc-clerk` note of the compose (`deferred_by_budget` with a note that these declared steps were
+not carried out and that the Keeper narrates only what landed); and the first `coc-clerk` note of the next run
+of the same campaign (`deferred_last_turn`), once. The next run rebuilds its candidates from real state
+(§135.2), so a deferred step the player still wants is offered again; the note only says the clerk did not do
+it. The carry lives in the engine's memory for the session (it is a note, not state): a restart between the
+two turns loses the note, never a receipt.
+
+**Telemetry (extends §135.7).** Every budget decision is a `lane: "run"` row `event: "budget"`: `decision`
+`compose` (the budget chose the compose; with `deferred_by_budget`), `compose_owed` (a compose already pending
+ran past the budget: a turn-close steer or the route's finish), `model_batch` (the Keeper's proposals ran whole past
+it), `turn_close` (§135.11's close ran past it) or `forced_step` (a forced step ran past it), with `run`, `step`,
+`budget_ms` and `elapsed_ms`. At the run's end one `event: "budget"` row with
+`decision: "summary"` carries `budget_ms`, `elapsed_ms` (run start to end), `elapsed_at_compose` (run start to
+the start of the run's last model step, the one that closed the turn; `null` without one), `over_budget` and the
+final `deferred_by_budget`. `event: "budget_carried"` records the next run's note.
+
+**Three ends (§31).** Writer: the policy (`next` over `budget.runMs`), stamped by the engine's clock. Reader: the
+engine's projection (`coc-clerk`) and record ports. Actor: the Keeper, who narrates what landed and may settle a
+deferred step itself on a later turn; the operator, through the rows.
+
+**Verified** (`tests/extension/single-loop-turn-budget.test.mjs`): with a stub clock and stub ports on the
+vendored driver, a spent budget makes the next step the compose with the pending clerk steps listed; a model
+step that crosses the budget completes and its whole batch runs before the compose; a forced direct step still
+runs; within the budget the route runs; a budget compose that ends in prose still goes through the turn close. At the extension seam, a route that selected the move past the budget
+is not executed, the compose's note and the next run's note list it, and the rows carry `budget_ms` and
+`elapsed_at_compose`.
 
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 
