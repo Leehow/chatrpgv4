@@ -10,12 +10,13 @@ import { playLanguageOf } from '../read/languages.js';
 import { recordOf, type ModuleGraph } from '../read/module-graph.js';
 import { presentSection, whereSection } from '../read/capsule.js';
 import { MOD_CAPABILITIES, objectContext, unregisteredEquipment, findNamedObject } from '../read/mods.js';
-import { array, chars, clone, entries, equal, normalize, row, sorted, string, truth, values, type Row } from '../read/values.js';
+import { array, chars, clone, entries, equal, normalize, repr, row, sorted, string, truth, values, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
 import type { createWriteRuntime } from '../write/index.js';
 import { validateDefinition, validateDocumentSeed } from './definition.js';
 import {USAGE_CAPABILITY, findAcceptedUsage, registerUsage, usageObject, usagePhysicalBasis, validateUsage, validateUsageProposal, validateUsageRequest} from './usages.js';
 import {projectInventory} from './projection.js';
+import {isPlaceholder, objectInstance} from './objects.js';
 import {stageModEffect} from './stage.js';
 import type {ApplyContext} from '../apply/index.js';
 import { claimedEquipment, queuedRegistrations } from './queue.js';
@@ -167,6 +168,12 @@ export class ModJobs {
         if (!['create', 'usage', 'audit'].includes(role)) throw new RpcError('invalid_params', 'Mod job role must be create, usage or audit');
         if (role === 'usage' && !prefetch) validateUsageRequest(params.input);
         const physicalBasis = role === 'usage' ? usagePhysicalBasis(world, string(params.input.object)) : null;
+        // §129.4: a usage prepared against a placeholder would be bound to parameters that are about to be
+        // replaced -- stale on arrival, and a proposal would mark the object as having a usage for good.
+        if (physicalBasis && isPlaceholder(row(row(world.objects).definitions)[string(physicalBasis.definition)]))
+            throw new RpcError('needs', `${repr(string(params.input.object))} is registered; its parameters are still being prepared`,
+                {details: {reason: 'definition_pending', object: params.input.object},
+                 fix: 'its parameters land at the start of the next turn; prepare its usage then, and settle this action without it'});
         if (role === 'create') {
             const input = params.input;
             if (!isJsonObject(input) || !['weapon', 'spell', 'item'].includes(input.category as string)) throw new RpcError('invalid_params', 'Definition request needs a category and a name');
@@ -232,7 +239,7 @@ export class ModJobs {
             }
             if (role === 'create') {
                 const prior = findNamedObject(row(row(world.objects).definitions), string(params.input.name));
-                if (prior && prior.category === params.input.category) {
+                if (prior && prior.category === params.input.category && !isPlaceholder(prior)) {
                     const definition = Object.fromEntries(['name', 'category', 'description', 'basis', 'parameters', 'player_view', 'traits', 'document'].filter(name => Object.hasOwn(prior, name)).map(name => [name, clone(prior[name])]));
                     await writeJsonAtomic(join(root, 'accepted.json'), {definition, provenance: {mod: packageRow.id, digest: packageRow.digest, job: key, reused_definition: prior.id}});
                 }
@@ -251,6 +258,14 @@ export class ModJobs {
      */
     async queued(params: Row): Promise<Row> {
         const {campaign, world, turn} = await this.load(params), effects: Row[] = [], unfinished: Row[] = [];
+        // §129.4: `now` is for an action that needs an object's parameters in this very turn (a usage batch);
+        // it takes the registrations behind the placeholders of the named instances, whatever turn queued them.
+        const now = truth(params.now), wanted = new Set<string>();
+        if (now) for (const name of array(params.objects)) {
+            const item = typeof name === 'string' ? objectInstance(world, name) : null;
+            const definition = item ? row(row(world.objects).definitions)[string(item.definition)] : null;
+            if (isPlaceholder(definition)) wanted.add(normalize(string(definition.name)));
+        }
         // A registration the host could not complete falls back to the ordinary blocking path rather than
         // leaving a marker that hides its row from the audit: dropped here, the gear reads as unregistered
         // again on the next turn and the Keeper registers it the way it did before any of this existed.
@@ -263,7 +278,7 @@ export class ModJobs {
         for (const entry of queuedRegistrations(world)) {
             // Deferral means not this turn. Completing inside the turn that queued it would put the wait
             // back where it was, one tool call later, which is exactly what the marker exists to avoid.
-            if (equal(entry.turn, turn.turn)) continue;
+            if (now ? !wanted.has(normalize(string(entry.name))) : equal(entry.turn, turn.turn)) continue;
             const define = clone(row(entry.define));
             const accepted = join(this.runtime.root, 'jobs', string(entry.job), 'accepted.json');
             // A session that died between the marker and its parameters must not leave the row hidden from

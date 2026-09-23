@@ -626,7 +626,9 @@ export function objectContext(world: Row): Row {
             document: truth(value.document) ? {
                 presentation: value.document.presentation,
                 has_text: truth(value.document.text)
-            } : null
+            } : null,
+            // §129.4: a placement's stand-in for a queued registration; its parameters are not known yet.
+            ...(value.placeholder === true ? { placeholder: true } : {})
         })),
         instances: values(row(data.instances)).slice(-24).map(value => ({
             name: value.name,
@@ -834,6 +836,8 @@ export function objectLook(world: Row, name?: any): Row {
     }
     return {
         definition: pick(definition, ["name", "category", "description", "parameters", "basis", "traits", "document"]),
+        // §129.4: placed against a queued registration; the same answer a queued name gets above.
+        ...(definition.placeholder === true ? { pending: `${repr(string(definition.name))} is registered; its parameters are still being prepared and land at the start of the next turn` } : {}),
         instance: item ? {
             name: item.name,
             owner: item.owner.name,

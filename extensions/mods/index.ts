@@ -467,7 +467,8 @@ export default function modsExtension(pi: ExtensionAPI): void {
    * each definition that lands is retained as an accepted job, so the retry the Keeper is told to
    * make resumes from what is already done instead of paying for it twice.
    */
-  async function materialize(campaign: string, defines: Record<string, any>[], signal?: AbortSignal, previews: (Record<string, any>[] | undefined)[] = [], providerBudget?: TaskProviderBudget): Promise<void> {
+  async function materialize(campaign: string, defines: Record<string, any>[], signal?: AbortSignal, previews: (Record<string, any>[] | undefined)[] = [], providerBudget?: TaskProviderBudget,
+    prepared: any[] = []): Promise<void> {
     // The kernel keys a job by its request, so two identical defines in one batch are one job directory.
     // Serially the second used to find the first already accepted; together they would race over the same
     // `result.json`, so they are folded here and share the one run. Usage jobs include the private staged
@@ -484,7 +485,8 @@ export default function modsExtension(pi: ExtensionAPI): void {
     const worker = async (): Promise<void> => {
       for (let slot = next++; slot < total; slot = next++) {
         const index = jobs[slot];
-        try { results[index] = await task(campaign, defines[index].kind === "usage" ? "usage" : "create", inputs[index], signal, previews[index], undefined, providerBudget); }
+        try { results[index] = await task(campaign, defines[index].kind === "usage" ? "usage" : "create", inputs[index], signal, previews[index], undefined, providerBudget,
+          prepared[index] ? {job: prepared[index]} : {}); }
         catch (error) { failures[index] = error; }
         announce(campaign, ++done, total, jobs.map(index => defines[index]));
       }
@@ -512,19 +514,15 @@ export default function modsExtension(pi: ExtensionAPI): void {
 
 
   /**
-   * A batch of nothing but definitions and adoptions is bookkeeping: adoption enriches gear the
-   * investigator already carries, may not name a giver, and the Mod contract forbids it advancing time
-   * or moving anything. Every expensive opening batch on record has exactly this shape, and every batch
-   * that belongs to the moment being narrated carries clues, cash, handouts or time beside it.
+   * Contract §129.4: a definition is generated beside the turn in every batch shape but two. A placement in
+   * the same batch mints its instance against a placeholder the kernel makes from the Keeper's own request,
+   * and the next resume replaces it under the same id, so no batch has to wait for a creator child to put
+   * an object in the world. What still waits: a `usage` batch (handled before this), and a spell, or any
+   * definition in a batch that teaches one -- nothing places a spell, and everything that reads one (ability,
+   * learning, casting) reads its costs, which a placeholder does not have.
    */
-  const bookkeeping = (effect: Record<string, any>): boolean =>
-    effect?.kind === "define" || (effect?.kind === "object" && typeof effect?.adopt === "string" && !effect?.from);
-  const registrationOnly = (effects: Record<string, any>[]): boolean =>
-    effects.length > 0 && effects.every(bookkeeping) && effects.some(effect => effect?.kind === "define")
-    // The adoption has to be visible in the same batch. A batch of bare definitions could just as well be
-    // about to place its object in the scene, and a definition queued behind that placement would leave the
-    // Keeper holding a name the kernel cannot find yet.
-    && effects.some(effect => effect?.kind === "object" && typeof effect?.adopt === "string");
+  const definedInTurn = (effect: Record<string, any>, effects: Record<string, any>[]): boolean =>
+    effect?.category === "spell" || effects.some(other => other?.kind === "ability");
   const usageBatchKind = (effect: Record<string, any>): boolean =>
     effect?.kind === "define" || effect?.kind === "object" || effect?.kind === "usage";
   const usagePreview = (effects: Record<string, any>[], index: number): Record<string, any>[] | undefined => {
@@ -539,22 +537,56 @@ export default function modsExtension(pi: ExtensionAPI): void {
    * parameters beside it. Nothing is invented on the Keeper's behalf: the kernel writes real receipts
    * saying the registration is queued, and the audit that reads this turn's receipts is told the truth.
    */
-  async function defer(campaign: string, defines: Record<string, any>[], signal?: AbortSignal): Promise<boolean> {
-    if (!call) return false;
+  async function defer(campaign: string, defines: Record<string, any>[], _signal?: AbortSignal): Promise<{now: number[]; jobs: any[]}> {
+    const all = {now: defines.map((_, index) => index), jobs: [] as any[]};
+    if (!call) return all;
     const current = call;
     const inputs = defines.map(effect => ({name:effect.name, category:effect.category ?? "item", description:effect.description, template:effect.template}));
-    const handles: {index: number; job: any}[] = [];
-    for (const [index, input] of inputs.entries()) {
+    for (const input of inputs) {
       const job = await current("mods.job", {campaign, role:"create", input});
-      if (!job?.enabled || typeof job.mod !== "string") return false;
-      handles.push({index, job});
+      all.jobs.push(job);
+      // Not something a marker can name: the whole batch takes the blocking path, with the jobs already prepared.
+      if (!job?.enabled || typeof job.mod !== "string" && !job.accepted) return all;
     }
-    for (const {index, job} of handles) {
+    // Already accepted -- the name was defined before, or this is the retry of a batch whose generation has
+    // since landed -- so it is read in the call (no child runs) instead of standing behind a placeholder.
+    const now = all.jobs.flatMap((job, index) => job.accepted ? [index] : []);
+    const later: Record<string, any>[] = [];
+    for (const [index, job] of all.jobs.entries()) {
+      if (job.accepted) continue;
       defines[index]._queued = job.job;
       defines[index]._provenance = {mod: job.mod, digest: job.digest};
+      later.push(inputs[index]);
     }
-    beside(campaign, inputs);
-    return true;
+    if (later.length) beside(campaign, later);
+    return {now, jobs: all.jobs};
+  }
+
+  /**
+   * §129.4: a usage batch reads its object's parameters in this very turn, so an object placed against a
+   * placeholder gets them before its usage is prepared again. Nothing is deferred here -- the usage path
+   * waits anyway (§26): the batch already generating beside the turn is awaited, a registration it could not
+   * finish is generated now on this call's clock, and every one that has landed is written.
+   */
+  async function complete(campaign: string, objects: string[], signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<void> {
+    if (!call || !objects.length) return;
+    const current = call;
+    if (outstanding) await outstanding.catch(() => undefined);
+    let queued = await current("mods.queued", {campaign, now: true, objects});
+    const unfinished: any[] = Array.isArray(queued?.unfinished) ? queued.unfinished : [];
+    if (unfinished.length) {
+      await materialize(campaign, unfinished.map(input => ({kind: "define", ...input})), signal, [], providerBudget);
+      queued = await current("mods.queued", {campaign, now: true, objects});
+    }
+    const effects: any[] = Array.isArray(queued?.effects) ? queued.effects : [];
+    if (!effects.length) return;
+    const callId = mintCallId?.();
+    if (!callId) throw new KernelError({code:"needs", message:"The table cannot mint a call id for deferred registration"});
+    const result = await current("table.apply", {campaign, call_id: callId, effects, ...(trackTaskReceipts ? {_task_read_set: true} : {})});
+    if (result?._task_advance) pi.events.emit('coc:task-receipt-advance', result._task_advance);
+    warm(campaign, carriers(effects));
+    announceDetails(campaign, effects.filter(effect => effect?.kind === "define" && effect._definition && typeof effect.name === "string")
+      .map(effect => ({name: String(effect.name), definition: "ready", object: publicDefinition(effect._definition)})));
   }
 
   /**
@@ -770,11 +802,19 @@ export default function modsExtension(pi: ExtensionAPI): void {
           const usageEntries = effects.map((effect, index) => ({effect, index})).filter(entry => entry.effect?.kind === "usage");
           const usages = usageEntries.map(entry => entry.effect);
           const previews = usageEntries.map(entry => usagePreview(effects, entry.index));
-          await materialize(payload.campaign, usages, signal, previews, providerBudget);
+          try { await materialize(payload.campaign, usages, signal, previews, providerBudget); }
+          catch (error) {
+            // §129.4: the kernel refuses a usage bound to a placeholder; its definition is completed, then the usage prepared.
+            if (!(isKernelError(error) && error.details?.reason === "definition_pending")) throw error;
+            await complete(payload.campaign, [...new Set(usages.map(effect => effect.object).filter((name): name is string => typeof name === "string"))], signal, providerBudget);
+            await materialize(payload.campaign, usages, signal, previews, providerBudget);
+          }
         } else {
           const defines = effects.filter((effect: Record<string, any>) => effect?.kind === "define");
-          if (defines.length && !(registrationOnly(effects) && await defer(payload.campaign, defines, signal)))
-            await materialize(payload.campaign, defines, signal, [], providerBudget);
+          const later = defines.filter(effect => !definedInTurn(effect, effects));
+          const plan = later.length ? await defer(payload.campaign, later, signal) : {now: [], jobs: []};
+          const now = defines.filter(effect => definedInTurn(effect, effects) || plan.now.includes(later.indexOf(effect)));
+          if (now.length) await materialize(payload.campaign, now, signal, [], providerBudget, now.map(effect => plan.jobs[later.indexOf(effect)]));
         }
       }
       if ((method === "narrate" || method === "ask") && payload.text) {
