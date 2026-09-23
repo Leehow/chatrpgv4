@@ -1,0 +1,1855 @@
+{
+  "schema": "sl00-control-flow-inventory/1",
+  "ticket": "docs/specs/pi-native-single-loop-tickets/00-inventory.md",
+  "product_commit": "0b729e8fb363155b9efe78f08c2b02324241e5c6",
+  "scanner": "tests/extension/control-flow-scan.mjs",
+  "guard": "tests/extension/control-flow-inventory.test.mjs",
+  "trees": [
+    "extensions",
+    "runtime",
+    "pipicoc",
+    "Electron/packages/pi-backend/src"
+  ],
+  "key": "file + symbol + kind + callee; count is the number of call sites under that key. Line numbers are informative only and are not checked.",
+  "vocabulary": {
+    "path": {
+      "app-play": "runs on the installed App's play path with today's settings",
+      "app-play-gated": "on the App play path only when the named gate holds",
+      "app-setup": "App setup/preparation, not a player turn",
+      "app-ui": "App UI action (portrait, illustration, panels), not a player turn",
+      "child-process": "runs inside a Pi child process, not the Keeper process",
+      "source-only": "source-mode play only (startS0Rpc refuses the compiled layout)",
+      "settings-ui": "operator settings",
+      "host-infra": "no model involved",
+      "no-caller": "no caller in the scanned trees"
+    },
+    "role": {
+      "driver": "starts or extends a model run, or holds a multi-round decision/operation loop that decides when its goal is done",
+      "leaf": "one bounded model/Jev/network call (fixed retries at most) whose result returns to its caller",
+      "infra": "no model in the call"
+    }
+  },
+  "entries": [
+    {
+      "file": "Electron/packages/pi-backend/src/browser-watch-bridge.ts",
+      "symbol": "BrowserWatchCallbackRegistry.deliver",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "pipiui browser pane",
+      "path": "host-infra",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Local browser-watch callback; no model host.",
+      "lines_at_0b729e8fb": [
+        86
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/browser-watch-bridge.ts",
+      "symbol": "postBrowserWatchTrigger",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "pipiui browser pane",
+      "path": "host-infra",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Local browser-watch trigger; no model host.",
+      "lines_at_0b729e8fb": [
+        264
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/extension-host-workers.ts",
+      "symbol": "ExtensionHostWorkers.start",
+      "kind": "spawn",
+      "callee": "this.spawnImpl",
+      "count": 1,
+      "owner": "pipiui extension host",
+      "path": "host-infra",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Extension host worker processes; no model loop.",
+      "lines_at_0b729e8fb": [
+        131
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/extension-update-engine.ts",
+      "symbol": "checkExtensionUpdate",
+      "kind": "network",
+      "callee": "globalThis.fetch",
+      "count": 1,
+      "owner": "pipiui update center",
+      "path": "host-infra",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Update manifest fetch.",
+      "lines_at_0b729e8fb": [
+        927
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/extension-update-engine.ts",
+      "symbol": "applyExtensionUpdate",
+      "kind": "network",
+      "callee": "globalThis.fetch",
+      "count": 1,
+      "owner": "pipiui update center",
+      "path": "host-infra",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Update archive fetch.",
+      "lines_at_0b729e8fb": [
+        1091
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/external-auth-runtime.ts",
+      "symbol": "spawnWorker",
+      "kind": "spawn",
+      "callee": "spawn",
+      "count": 1,
+      "owner": "pipiui auth",
+      "path": "host-infra",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Resident auth helper process.",
+      "lines_at_0b729e8fb": [
+        71
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/external-auth-runtime.ts",
+      "symbol": "ExternalAuthRuntime.login",
+      "kind": "spawn",
+      "callee": "spawn",
+      "count": 1,
+      "owner": "pipiui auth",
+      "path": "host-infra",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Interactive login helper process.",
+      "lines_at_0b729e8fb": [
+        282
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/index.ts",
+      "symbol": "fetchCompatModelsCatalogStrict",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "pipiui settings (compatible provider)",
+      "path": "settings-ui",
+      "role": "leaf",
+      "trace": "n/a",
+      "note": "Lists models of an operator-entered OpenAI-compatible host; settings only.",
+      "lines_at_0b729e8fb": [
+        2090
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/index.ts",
+      "symbol": "runCompatModelTest",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "pipiui settings (compatible provider)",
+      "path": "settings-ui",
+      "role": "leaf",
+      "trace": "n/a",
+      "note": "One test completion against an operator-entered host; settings only.",
+      "lines_at_0b729e8fb": [
+        2176
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/index.ts",
+      "symbol": "PiHostBackend.dispatchQueuedMessage",
+      "kind": "rpc-run-command",
+      "callee": "{type: steer|follow_up|prompt}",
+      "count": 1,
+      "owner": "pipiui host input queue",
+      "path": "app-play",
+      "role": "driver",
+      "trace": "observed: 7 user messages in the retained session",
+      "note": "Entry of every player turn: writes the RPC prompt (or steer/follow_up) to the Keeper Pi child, which runs AgentSession.prompt -> _runAgentPrompt -> agent.prompt. Also retries an already-processing prompt as followUp.",
+      "lines_at_0b729e8fb": [
+        11146
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/index.ts",
+      "symbol": "PiHostBackend.sweepSessionAgents",
+      "kind": "rpc-run-command",
+      "callee": "{type: prompt}",
+      "count": 1,
+      "owner": "pipiui subagent panel",
+      "path": "host-infra",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "`/subagent_abort_all` slash command; commands are dispatched before any run starts (host contract 3.5). No subagent extension is mounted in coc-keeper sessions.",
+      "lines_at_0b729e8fb": [
+        12270
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/index.ts",
+      "symbol": "PiHostBackend.agentCommand",
+      "kind": "rpc-run-command",
+      "callee": "{type: prompt}",
+      "count": 2,
+      "owner": "pipiui subagent panel",
+      "path": "host-infra",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "`/subagent_abort|resolve` slash commands; not a run. Not mounted in coc-keeper sessions.",
+      "lines_at_0b729e8fb": [
+        12307,
+        12342
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/managed-npm.ts",
+      "symbol": "runNpm",
+      "kind": "spawn",
+      "callee": "spawn",
+      "count": 1,
+      "owner": "pipiui extension installer",
+      "path": "host-infra",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "npm for managed extensions.",
+      "lines_at_0b729e8fb": [
+        46
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/session-title.ts",
+      "symbol": "generateModelSessionTitle.sendPrompt",
+      "kind": "rpc-run-command",
+      "callee": "{type: prompt}",
+      "count": 1,
+      "owner": "pipiui session titles",
+      "path": "no-caller",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Would start a separate Pi child run for a title; no caller in pi-backend (startAutomaticSessionTitle uses a provisional title: \"this product never starts another Keeper for it\").",
+      "lines_at_0b729e8fb": [
+        143
+      ]
+    },
+    {
+      "file": "Electron/packages/pi-backend/src/session-title.ts",
+      "symbol": "generateModelSessionTitle",
+      "kind": "spawn",
+      "callee": "options.spawn",
+      "count": 1,
+      "owner": "pipiui session titles",
+      "path": "no-caller",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Spawn half of the dead title generator.",
+      "lines_at_0b729e8fb": [
+        148
+      ]
+    },
+    {
+      "file": "extensions/deepseek/agent/catalog-runtime.js",
+      "symbol": "refreshDeepSeekCatalog",
+      "kind": "network",
+      "callee": "globalThis.fetch",
+      "count": 1,
+      "owner": "deepseek-extended provider",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Transport/catalog of the `deepseek-extended` provider registered with pi.registerProvider; used only when a deepseek-extended model is selected. Today's Keeper (grok-build) and fast model (opencode-go) do not use it. Requests are driven by Pi's stream path, not by this code.",
+      "lines_at_0b729e8fb": [
+        93
+      ]
+    },
+    {
+      "file": "extensions/deepseek/agent/client.js",
+      "symbol": "DeepSeekClient.constructor",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "deepseek-extended provider",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Transport/catalog of the `deepseek-extended` provider registered with pi.registerProvider; used only when a deepseek-extended model is selected. Today's Keeper (grok-build) and fast model (opencode-go) do not use it. Requests are driven by Pi's stream path, not by this code.",
+      "lines_at_0b729e8fb": [
+        279
+      ]
+    },
+    {
+      "file": "extensions/deepseek/agent/files/client.js",
+      "symbol": "DeepSeekFilesClient.constructor",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "deepseek-extended provider",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Transport/catalog of the `deepseek-extended` provider registered with pi.registerProvider; used only when a deepseek-extended model is selected. Today's Keeper (grok-build) and fast model (opencode-go) do not use it. Requests are driven by Pi's stream path, not by this code.",
+      "lines_at_0b729e8fb": [
+        48
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/catalog.js",
+      "symbol": "loadGrokBuildCatalog",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Model catalog of the Keeper's provider.",
+      "lines_at_0b729e8fb": [
+        116
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/files/client.js",
+      "symbol": "FilesClient.constructor",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Files API client (input files); not a completion.",
+      "lines_at_0b729e8fb": [
+        59
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/files/service.js",
+      "symbol": "createInputFilesService",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Files API service default fetch.",
+      "lines_at_0b729e8fb": [
+        8
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/host.js",
+      "symbol": "createGrokBuildHostLibrary",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Host library default fetch (OAuth/relay plumbing).",
+      "lines_at_0b729e8fb": [
+        51
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/images/client.js",
+      "symbol": "ImagesClient.constructor",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play-gated",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Image API client; the grok image tools are disabled in Keeper sessions (PI_GROK_BUILD_IMAGE_TOOLS=0).",
+      "lines_at_0b729e8fb": [
+        131
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/index.js",
+      "symbol": "emit",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "UI hint to the local host bridge (127.0.0.1).",
+      "lines_at_0b729e8fb": [
+        33
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/index.js",
+      "symbol": "getBroker",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Credential broker default fetch.",
+      "lines_at_0b729e8fb": [
+        63
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/index.js",
+      "symbol": "runImageOp",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play-gated",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Image op; tools disabled in Keeper sessions.",
+      "lines_at_0b729e8fb": [
+        251
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/index.js",
+      "symbol": "runLegacyRelay",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play-gated",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Image op via local relay; tools disabled in Keeper sessions.",
+      "lines_at_0b729e8fb": [
+        304
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/oauth/broker.js",
+      "symbol": "GrokCredentialBroker.constructor",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "OAuth credential broker.",
+      "lines_at_0b729e8fb": [
+        130
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/oauth/device.js",
+      "symbol": "requestDeviceCode",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "OAuth device flow.",
+      "lines_at_0b729e8fb": [
+        71
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/oauth/device.js",
+      "symbol": "pollDeviceToken",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "OAuth device flow.",
+      "lines_at_0b729e8fb": [
+        120
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/oauth/device.js",
+      "symbol": "refreshAccessToken",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "OAuth token refresh (runs on the Keeper path when the token expires).",
+      "lines_at_0b729e8fb": [
+        201
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/oauth/refresh.js",
+      "symbol": "refreshCredentialUnlocked",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "OAuth token refresh.",
+      "lines_at_0b729e8fb": [
+        65
+      ]
+    },
+    {
+      "file": "extensions/grok-build-oauth/agent/structured-output-hooks.js",
+      "symbol": "takeStructuredOutputViaBridge",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "grok-build-oauth provider (Keeper model provider)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Local bridge for structured output hooks.",
+      "lines_at_0b729e8fb": [
+        25
+      ]
+    },
+    {
+      "file": "extensions/image-gen/agent/grok.js",
+      "symbol": "grokGenerate",
+      "kind": "provider-direct",
+      "callee": "hostLibrary.generateImage",
+      "count": 1,
+      "owner": "image-gen (grok vendor)",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Grok image generation through the grok-build-oauth host library.",
+      "lines_at_0b729e8fb": [
+        40
+      ]
+    },
+    {
+      "file": "extensions/image-gen/agent/index.js",
+      "symbol": "dispatchImageOp",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "image-gen",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Image model call; reached from PipiCOC portrait/illustration (pipicoc/sheet.ts, pipicoc/illustration.ts). image_gen/image_edit tools are registered but not in the Keeper's active set (kernel setActiveTools limits it to the COC verbs).",
+      "lines_at_0b729e8fb": [
+        96
+      ]
+    },
+    {
+      "file": "extensions/image-gen/agent/vendors.js",
+      "symbol": "openaiAdapter",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "image-gen",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Per-vendor image model transport (one request, or create+poll for DashScope async).",
+      "lines_at_0b729e8fb": [
+        177
+      ]
+    },
+    {
+      "file": "extensions/image-gen/agent/vendors.js",
+      "symbol": "xaiAdapter",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "image-gen",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Per-vendor image model transport (one request, or create+poll for DashScope async).",
+      "lines_at_0b729e8fb": [
+        210
+      ]
+    },
+    {
+      "file": "extensions/image-gen/agent/vendors.js",
+      "symbol": "arkAdapter",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "image-gen",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Per-vendor image model transport (one request, or create+poll for DashScope async).",
+      "lines_at_0b729e8fb": [
+        230
+      ]
+    },
+    {
+      "file": "extensions/image-gen/agent/vendors.js",
+      "symbol": "geminiAdapter",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "image-gen",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Per-vendor image model transport (one request, or create+poll for DashScope async).",
+      "lines_at_0b729e8fb": [
+        252
+      ]
+    },
+    {
+      "file": "extensions/image-gen/agent/vendors.js",
+      "symbol": "dashScopeSyncAdapter",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "image-gen",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Per-vendor image model transport (one request, or create+poll for DashScope async).",
+      "lines_at_0b729e8fb": [
+        288
+      ]
+    },
+    {
+      "file": "extensions/image-gen/agent/vendors.js",
+      "symbol": "dashScopeAsyncAdapter",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "image-gen",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Per-vendor image model transport (one request, or create+poll for DashScope async).",
+      "lines_at_0b729e8fb": [
+        321
+      ]
+    },
+    {
+      "file": "extensions/kernel/adaptation-submit.ts",
+      "symbol": "adaptationSubmit.on(agent_end)",
+      "kind": "trigger-turn",
+      "callee": "pi.sendMessage{triggerTurn}",
+      "count": 1,
+      "owner": "adaptation child (reader subprocess)",
+      "path": "child-process",
+      "role": "driver",
+      "trace": "not observed",
+      "note": "Loaded only inside an adaptation creator/reviewer child Pi. Once per child, extends the child's own run (followUp) to force submit_adaptation.",
+      "lines_at_0b729e8fb": [
+        22
+      ]
+    },
+    {
+      "file": "extensions/kernel/adaptation.ts",
+      "symbol": "run",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "kernel ext: adaptation service",
+      "path": "app-play",
+      "role": "driver",
+      "trace": "not observed",
+      "note": "Host `while (task)` loop over creator/reviewer children (2 passes each), started by the Keeper's `lookup kind=adaptation` tool; the tool waits PI_COC_ADAPTATION_WAIT_MS in the foreground, then the loop continues in the background. Each child is a tool-enabled Pi agent (read,write,edit,bash).",
+      "lines_at_0b729e8fb": [
+        51
+      ]
+    },
+    {
+      "file": "extensions/kernel/admission.ts",
+      "symbol": "reviewAdmission",
+      "kind": "lane",
+      "callee": "runLane",
+      "count": 1,
+      "owner": "kernel ext: action admission (contract 32)",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "observed: 8 admission rows, 7 lane-call admission starts",
+      "note": "One zero-tool completion per proposed resolve/apply, before the kernel; fast model. Default reviewer (PI_COC_ADMISSION_REVIEWER unset = lane).",
+      "lines_at_0b729e8fb": [
+        417
+      ]
+    },
+    {
+      "file": "extensions/kernel/admission.ts",
+      "symbol": "reviewAdmissionPrimary",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel ext: action admission (contract 32.10)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "not observed (reviewer: lane)",
+      "note": "Gate: PI_COC_ADMISSION_REVIEWER=jev; falls back to the lane on every non-verdict.",
+      "lines_at_0b729e8fb": [
+        485
+      ]
+    },
+    {
+      "file": "extensions/kernel/client.ts",
+      "symbol": "KernelClient.spawnChild",
+      "kind": "spawn",
+      "callee": "spawn",
+      "count": 1,
+      "owner": "kernel ext: kernel client",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "The kernel subprocess (build/kernel/rpc.mjs). JSON-RPC, no model. Pure parser/transaction process.",
+      "lines_at_0b729e8fb": [
+        189
+      ]
+    },
+    {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "sendHost",
+      "kind": "trigger-turn",
+      "callee": "pi.sendMessage{triggerTurn}",
+      "count": 1,
+      "owner": "kernel ext",
+      "path": "app-play",
+      "role": "driver",
+      "trace": "observed: coc-host kind=opening (turn 0), kind=speech (turn 2)",
+      "note": "The wrapper: starts a Keeper run when idle, steers the live run when streaming (AgentSession.sendCustomMessage). Its callers are listed separately.",
+      "lines_at_0b729e8fb": [
+        1134
+      ]
+    },
+    {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "ensureMapWords.runner",
+      "kind": "reader-task",
+      "callee": "owner.runTask",
+      "count": 1,
+      "owner": "kernel ext: map words presenter",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "not observed (no map-words rows)",
+      "note": "Background presenter child (kind mod) projecting map words into the play language; not awaited by the turn.",
+      "lines_at_0b729e8fb": [
+        1470
+      ]
+    },
+    {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "attributeUnwrappedSpeech",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel ext: speech attribution (128.3)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "observed: 5 speech rows",
+      "note": "Gate: PI_COC_SPEECH_ATTRIBUTE != 0 (default on) and a Jev key. Bounded Jev fan-out before an implicit/explicit narrate commits; never refuses.",
+      "lines_at_0b729e8fb": [
+        1781
+      ]
+    },
+    {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "emitProviderNotice",
+      "kind": "trigger-turn",
+      "callee": "pi.sendMessage{steer-when-streaming}",
+      "count": 1,
+      "owner": "kernel ext: service notices",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Service notice scheduled on the next task after settle, so it appends without starting a run; were a run streaming, Pi would steer it (no triggerTurn:false).",
+      "lines_at_0b729e8fb": [
+        2233
+      ]
+    },
+    {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "emitCommitDownNotice",
+      "kind": "trigger-turn",
+      "callee": "pi.sendMessage{steer-when-streaming}",
+      "count": 1,
+      "owner": "kernel ext: service notices",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Service notice scheduled on the next task after settle, so it appends without starting a run; were a run streaming, Pi would steer it (no triggerTurn:false).",
+      "lines_at_0b729e8fb": [
+        2262
+      ]
+    },
+    {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "emitTurnUnfinishedNotice",
+      "kind": "trigger-turn",
+      "callee": "pi.sendMessage{steer-when-streaming}",
+      "count": 1,
+      "owner": "kernel ext: service notices",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Service notice scheduled on the next task after settle, so it appends without starting a run; were a run streaming, Pi would steer it (no triggerTurn:false).",
+      "lines_at_0b729e8fb": [
+        2467
+      ]
+    },
+    {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "emitInputRefusedNotice",
+      "kind": "trigger-turn",
+      "callee": "pi.sendMessage{steer-when-streaming}",
+      "count": 1,
+      "owner": "kernel ext: service notices",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Service notice scheduled on the next task after settle, so it appends without starting a run; were a run streaming, Pi would steer it (no triggerTurn:false).",
+      "lines_at_0b729e8fb": [
+        2631
+      ]
+    },
+    {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "emitEmptyInputNotice",
+      "kind": "trigger-turn",
+      "callee": "pi.sendMessage{steer-when-streaming}",
+      "count": 1,
+      "owner": "kernel ext: service notices",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Service notice scheduled on the next task after settle, so it appends without starting a run; were a run streaming, Pi would steer it (no triggerTurn:false).",
+      "lines_at_0b729e8fb": [
+        2664
+      ]
+    },
+    {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "on(session_start)",
+      "kind": "trigger-turn",
+      "callee": "sendHost",
+      "count": 2,
+      "owner": "kernel ext: table open",
+      "path": "app-play",
+      "role": "driver",
+      "trace": "observed: coc-host kind=opening at turn 0",
+      "note": "Host-started Keeper runs with no player input: crash recovery (\"finish this turn\") and the opening turn.",
+      "lines_at_0b729e8fb": [
+        3415,
+        3428
+      ]
+    },
+    {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "on(agent_settled)",
+      "kind": "trigger-turn",
+      "callee": "pi.sendUserMessage",
+      "count": 1,
+      "owner": "kernel ext: input queue",
+      "path": "app-play",
+      "role": "driver",
+      "trace": "not observed",
+      "note": "Releases a player input held while a turn was open as a new run (deferred by Pi 0.87 until settled handlers finish).",
+      "lines_at_0b729e8fb": [
+        3559
+      ]
+    },
+    {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "on(agent_end)",
+      "kind": "trigger-turn",
+      "callee": "sendHost",
+      "count": 5,
+      "owner": "kernel ext: turn-close policy",
+      "path": "app-play",
+      "role": "driver",
+      "trace": "observed: coc-host kind=speech at turn 2 followed by two more Keeper provider calls",
+      "note": "The host's own continuation policy: preparation wait, reading wait, kernel delivery fix (incl. the speech steer), pending choice, \"turn not closed\". Each steer is agent.steer on a streaming run, and _handlePostAgentRun continues the same run: one more provider request.",
+      "lines_at_0b729e8fb": [
+        4582,
+        4589,
+        4597,
+        4605,
+        4612
+      ]
+    },
+    {
+      "file": "extensions/kernel/verifier.ts",
+      "symbol": "budgetedVerifierContext.complete",
+      "kind": "provider-direct",
+      "callee": "original.complete",
+      "count": 1,
+      "owner": "kernel ext: verifier",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "observed (verifier lane)",
+      "note": "Wraps ctx.modelRegistry.complete to charge the verifier lease; one completion.",
+      "lines_at_0b729e8fb": [
+        208
+      ]
+    },
+    {
+      "file": "extensions/kernel/verifier.ts",
+      "symbol": "runVerifierLane",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel ext: post-delivery verifier",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "not observed (route: incumbent)",
+      "note": "Gate: PI_COC_JEV_VERIFIER=1.",
+      "lines_at_0b729e8fb": [
+        287
+      ]
+    },
+    {
+      "file": "extensions/kernel/verifier.ts",
+      "symbol": "incumbent",
+      "kind": "lane",
+      "callee": "runLane",
+      "count": 1,
+      "owner": "kernel ext: post-delivery verifier",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "observed: 4 verifier rows",
+      "note": "Advisory verifier lane after delivery; fast model.",
+      "lines_at_0b729e8fb": [
+        324
+      ]
+    },
+    {
+      "file": "extensions/lanes/subsession.ts",
+      "symbol": "runLaneAttempt",
+      "kind": "provider-direct",
+      "callee": "modelRegistry.complete",
+      "count": 1,
+      "owner": "lanes (shared)",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "observed: 22 lane-call rounds",
+      "note": "The single provider call of every zero-tool lane (verifier, admission, memory, journal, voice). Outside the Keeper's streamFn: no before/after_provider_request hooks.",
+      "lines_at_0b729e8fb": [
+        428
+      ]
+    },
+    {
+      "file": "extensions/memory/index.ts",
+      "symbol": "attempt",
+      "kind": "lane",
+      "callee": "runLane",
+      "count": 1,
+      "owner": "memory ext: extraction",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "observed: 4 memory rows",
+      "note": "Committed-turn extraction; background root, runs after commit.",
+      "lines_at_0b729e8fb": [
+        280
+      ]
+    },
+    {
+      "file": "extensions/mods/audit-submit.ts",
+      "symbol": "auditSubmit.on(agent_end)",
+      "kind": "trigger-turn",
+      "callee": "pi.sendMessage{triggerTurn}",
+      "count": 1,
+      "owner": "continuity audit child (mod subprocess)",
+      "path": "child-process",
+      "role": "driver",
+      "trace": "not observed",
+      "note": "Loaded only inside the audit child Pi. Once per child, extends the child's own run to force submit_audit.",
+      "lines_at_0b729e8fb": [
+        61
+      ]
+    },
+    {
+      "file": "extensions/mods/document-presentation.ts",
+      "symbol": "documentPresentationStatus",
+      "kind": "present-document",
+      "callee": "presentDocument",
+      "count": 1,
+      "owner": "mods ext: document presentation",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Opens a paper's reading (presenter child, tool-enabled) on demand; not part of a turn.",
+      "lines_at_0b729e8fb": [
+        40
+      ]
+    },
+    {
+      "file": "extensions/mods/index.ts",
+      "symbol": "runContinuityReview",
+      "kind": "reader-task",
+      "callee": "owner.runTask",
+      "count": 1,
+      "owner": "mods ext: continuity review (narration-audit Mod)",
+      "path": "app-play",
+      "role": "driver",
+      "trace": "observed: 12 continuity-review rows (post mode; 4 child runs)",
+      "note": "Tool-enabled audit child whose verdict can pause review and strand turns (contract 38). Default mode post (after delivery); PI_COC_CONTINUITY_GATE=pre makes it gate delivery. Decision-bearing multi-round child loop.",
+      "lines_at_0b729e8fb": [
+        284
+      ]
+    },
+    {
+      "file": "extensions/mods/index.ts",
+      "symbol": "task",
+      "kind": "reader-task",
+      "callee": "owner.runTask",
+      "count": 1,
+      "owner": "mods ext: Mod definition agents (create/usage/audit)",
+      "path": "app-play",
+      "role": "driver",
+      "trace": "observed: mod-agent create x5, usage x6",
+      "note": "Up to two attempts (host repair round) of a tool-enabled child. Runs inside the Keeper's resolve/apply tool through mods.prepare when a definition must exist first (foreground), or deferred (129). Decision-bearing child loop in the current turn when foreground.",
+      "lines_at_0b729e8fb": [
+        390
+      ]
+    },
+    {
+      "file": "extensions/mods/index.ts",
+      "symbol": "warm",
+      "kind": "present-document",
+      "callee": "presentDocument",
+      "count": 1,
+      "owner": "mods ext: document presentation warmup",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Background warmup when a paper is acquired; outlives the tool call; not awaited.",
+      "lines_at_0b729e8fb": [
+        738
+      ]
+    },
+    {
+      "file": "extensions/mods/index.ts",
+      "symbol": "warm.runner",
+      "kind": "reader-task",
+      "callee": "owner.runTask",
+      "count": 1,
+      "owner": "mods ext: document presentation warmup",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Runner handed to presentDocument (child kind mod).",
+      "lines_at_0b729e8fb": [
+        739
+      ]
+    },
+    {
+      "file": "extensions/module/reader.ts",
+      "symbol": "runOwnedReader",
+      "kind": "spawn",
+      "callee": "spawn",
+      "count": 1,
+      "owner": "module ext: reader",
+      "path": "app-play",
+      "role": "driver",
+      "trace": "observed indirectly (every mod-agent/continuity/npc/voice child)",
+      "note": "THE Pi child spawn: `pi -p --no-session --no-context-files --no-extensions --no-skills --tools <list> --mode json`. Every reader/mod/presenter child is a stock Pi agent loop (multi-round model-tool).",
+      "lines_at_0b729e8fb": [
+        280
+      ]
+    },
+    {
+      "file": "extensions/module/reading-service.ts",
+      "symbol": "ReadingService.runJob.run",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "module ext: source reader",
+      "path": "app-play",
+      "role": "driver",
+      "trace": "not observed on the retained turns",
+      "note": "Checked source reading (guidance/answer units with independent review). Foreground when a Keeper lookup kind=source or a material_pending read waits (up to 120 s), then background.",
+      "lines_at_0b729e8fb": [
+        694
+      ]
+    },
+    {
+      "file": "extensions/module/reading-service.ts",
+      "symbol": "ReadingService.runJob",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "module ext: source reader",
+      "path": "app-play",
+      "role": "driver",
+      "trace": "not observed on the retained turns",
+      "note": "Source reader child for skeleton/opening/detail/index jobs; same foreground rule.",
+      "lines_at_0b729e8fb": [
+        709
+      ]
+    },
+    {
+      "file": "extensions/npc-journal/index.ts",
+      "symbol": "attempt",
+      "kind": "lane",
+      "callee": "runLane",
+      "count": 1,
+      "owner": "npc-journal ext",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "observed: 4 journal rows",
+      "note": "Background journal lane after commit.",
+      "lines_at_0b729e8fb": [
+        240
+      ]
+    },
+    {
+      "file": "extensions/npc-voice/index.ts",
+      "symbol": "attempt",
+      "kind": "lane",
+      "callee": "runLane",
+      "count": 1,
+      "owner": "npc-voice ext: voice check",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "observed: 3 voice lane-calls",
+      "note": "Voice mask check lane; background.",
+      "lines_at_0b729e8fb": [
+        303
+      ]
+    },
+    {
+      "file": "extensions/npc-voice/writer.ts",
+      "symbol": "writeVoice",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "npc-voice ext: voice mask author",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "observed: voice job rows",
+      "note": "Background tool-enabled author child; not awaited by the turn.",
+      "lines_at_0b729e8fb": [
+        25
+      ]
+    },
+    {
+      "file": "extensions/npc/index.ts",
+      "symbol": "npcExtension.on(session_start)",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "npc ext: NPC advice",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "observed: npc decision x3, advice x3, coc-npc-advice messages",
+      "note": "Gate: Jev key, not the preparation owner, PI_COC_NPC_ADVICE_AUTO != 0. Bounded Jev fan-out prepared before the Keeper's first request.",
+      "lines_at_0b729e8fb": [
+        63
+      ]
+    },
+    {
+      "file": "extensions/npc/writer.ts",
+      "symbol": "authorNpc",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "npc ext: NPC author",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "observed: npc personality/responses x3",
+      "note": "Background tool-enabled author child.",
+      "lines_at_0b729e8fb": [
+        14
+      ]
+    },
+    {
+      "file": "extensions/onboarding/index.ts",
+      "symbol": "ensureGuidance",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "onboarding ext",
+      "path": "app-setup",
+      "role": "driver",
+      "trace": "n/a (setup)",
+      "note": "Setup-mode guidance reader child.",
+      "lines_at_0b729e8fb": [
+        157
+      ]
+    },
+    {
+      "file": "extensions/onboarding/index.ts",
+      "symbol": "presentDraft",
+      "kind": "trigger-turn",
+      "callee": "pi.sendMessage{steer-when-streaming}",
+      "count": 1,
+      "owner": "onboarding ext",
+      "path": "app-setup",
+      "role": "leaf",
+      "trace": "n/a (setup)",
+      "note": "Card preview sent from inside the setup tool; rides the live setup run as a steering message (no triggerTurn:false). Skipped under PI_COC_SETUP_AUTOSTART=1.",
+      "lines_at_0b729e8fb": [
+        444
+      ]
+    },
+    {
+      "file": "extensions/onboarding/index.ts",
+      "symbol": "on(session_start)",
+      "kind": "trigger-turn",
+      "callee": "pi.sendMessage{steer-when-streaming}",
+      "count": 1,
+      "owner": "onboarding ext",
+      "path": "app-setup",
+      "role": "leaf",
+      "trace": "observed: coc-setup-opening",
+      "note": "Setup opening message at session start; appended while idle, no run.",
+      "lines_at_0b729e8fb": [
+        867
+      ]
+    },
+    {
+      "file": "extensions/rerank/agent/vendors.js",
+      "symbol": "rerankDocuments",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "rerank (table workspace)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "not observed (no workspace-rerank rows)",
+      "note": "Rerank model host. Reached from extensions/table/workspace/reranker.ts rankWorkspaceCandidates when the workspace mode is on, the rerank setting is on and remote use is permitted.",
+      "lines_at_0b729e8fb": [
+        250
+      ]
+    },
+    {
+      "file": "extensions/table/context-runtime.ts",
+      "symbol": "installContextPolicy.decision",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "table ext: preparation (prescreen + NPC preparation owner)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "observed (prescreen rows)",
+      "note": "Shared adapter factory for the per-input preparation. Gate: Jev key; the prescreen also needs ext.jev.preselectEnabled (true in the App).",
+      "lines_at_0b729e8fb": [
+        61
+      ]
+    },
+    {
+      "file": "extensions/table/keeper-support-lookup.ts",
+      "symbol": "lookupKeeperSupport",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel/table: Keeper `lookup kind=support` tool",
+      "path": "app-play-gated",
+      "role": "driver",
+      "trace": "not observed (no keeper-support rows)",
+      "note": "Inside a Keeper tool: runs prepareKeeperSupport, i.e. the Jev evidence loop, bounded by the preselect allowance. Gate: Jev key.",
+      "lines_at_0b729e8fb": [
+        30
+      ]
+    },
+    {
+      "file": "extensions/table/prescreen-loop.ts",
+      "symbol": "runPrescreenLoop",
+      "kind": "jev-loop",
+      "callee": "runEvidenceAgent",
+      "count": 1,
+      "owner": "table ext",
+      "path": "no-caller",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Exported wrapper with no caller.",
+      "lines_at_0b729e8fb": [
+        8
+      ]
+    },
+    {
+      "file": "extensions/table/prescreen.ts",
+      "symbol": "prepareKeeperSupport",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "table ext: prescreen",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "observed",
+      "note": "Adapter used when no shared one is passed.",
+      "lines_at_0b729e8fb": [
+        295
+      ]
+    },
+    {
+      "file": "extensions/table/prescreen.ts",
+      "symbol": "prepareKeeperSupport",
+      "kind": "jev-loop",
+      "callee": "runEvidenceAgent",
+      "count": 1,
+      "owner": "table ext: prescreen (keeper-preparation)",
+      "path": "app-play-gated",
+      "role": "driver",
+      "trace": "observed: allowance_started x3, locate x3, loop_packing x12, loop_decision x6, loop_operation x3, loop_cycle x3",
+      "note": "Host-side Jev decision/read loop (`while (steps < maxSteps)`: decide -> execute read/follow/discover operations -> cycle) that runs before the Keeper's first provider request of each input, within the 12 s allowance. Gate: Jev key + ext.jev.preselectEnabled (true in the App). A decision loop beside Pi's own on today's play path.",
+      "lines_at_0b729e8fb": [
+        558
+      ]
+    },
+    {
+      "file": "pipicoc/host-bridge.ts",
+      "symbol": "emitToPanel",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "pipicoc panels",
+      "path": "host-infra",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Local panel bridge (127.0.0.1).",
+      "lines_at_0b729e8fb": [
+        57
+      ]
+    },
+    {
+      "file": "pipicoc/illustration.ts",
+      "symbol": "defaultImageGenerator",
+      "kind": "provider-direct",
+      "callee": "generateImage",
+      "count": 1,
+      "owner": "pipicoc illustration",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Image model call.",
+      "lines_at_0b729e8fb": [
+        81
+      ]
+    },
+    {
+      "file": "pipicoc/illustration.ts",
+      "symbol": "writePrompt",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "pipicoc illustration",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Two-round prompt-writer child for an illustration.",
+      "lines_at_0b729e8fb": [
+        176
+      ]
+    },
+    {
+      "file": "pipicoc/mods.ts",
+      "symbol": "invoke.runner",
+      "kind": "reader-task",
+      "callee": "owner.runTask",
+      "count": 1,
+      "owner": "pipicoc Mods panel",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Document presentation child from the Mods panel.",
+      "lines_at_0b729e8fb": [
+        77
+      ]
+    },
+    {
+      "file": "pipicoc/onboarding-worker.ts",
+      "symbol": "runTask",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "pipicoc onboarding worker",
+      "path": "app-setup",
+      "role": "driver",
+      "trace": "n/a (setup)",
+      "note": "Guidance reader children in the preparation worker process.",
+      "lines_at_0b729e8fb": [
+        46
+      ]
+    },
+    {
+      "file": "pipicoc/onboarding-worker.ts",
+      "symbol": "main",
+      "kind": "present-document",
+      "callee": "presentDocument",
+      "count": 1,
+      "owner": "pipicoc onboarding worker",
+      "path": "app-setup",
+      "role": "leaf",
+      "trace": "n/a (setup)",
+      "note": "Guidance presenter child.",
+      "lines_at_0b729e8fb": [
+        102
+      ]
+    },
+    {
+      "file": "pipicoc/rpc.mjs",
+      "symbol": "launch",
+      "kind": "spawn",
+      "callee": "spawn",
+      "count": 1,
+      "owner": "pipicoc launcher",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "App: spawns launch.mjs (compiled) or bin/pi-coc (source) for play/setup.",
+      "lines_at_0b729e8fb": [
+        41
+      ]
+    },
+    {
+      "file": "pipicoc/sheet.ts",
+      "symbol": "defaultPortraitGenerator",
+      "kind": "provider-direct",
+      "callee": "generateImage",
+      "count": 1,
+      "owner": "pipicoc sheet",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Portrait image model call.",
+      "lines_at_0b729e8fb": [
+        105
+      ]
+    },
+    {
+      "file": "pipicoc/ui-words.ts",
+      "symbol": "uiWordsSurface.words.runner",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "pipicoc UI words lane",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Presenter child projecting UI words.",
+      "lines_at_0b729e8fb": [
+        70
+      ]
+    },
+    {
+      "file": "runtime/jev/decision-adapter.ts",
+      "symbol": "createDecisionAdapter",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "Jev decision port",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "observed: prescreen loop_decision, npc decision, speech rows",
+      "note": "The one transport of every typed Jev decision (POST https://api.typesafe.ai/v1/systemone). Gate: a Jev key in the vault (configured in the App).",
+      "lines_at_0b729e8fb": [
+        215
+      ]
+    },
+    {
+      "file": "runtime/jev/fresh-source-navigator.ts",
+      "symbol": "createFreshSourceNavigator",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "module reading: fresh-source navigation",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "n/a",
+      "note": "Gate: PI_COC_TASK_RUNTIME=1 and PI_COC_JEV_SOURCE=1 and a Jev key (no App setting sets the env vars).",
+      "lines_at_0b729e8fb": [
+        119
+      ]
+    },
+    {
+      "file": "runtime/jev/fresh-source-navigator.ts",
+      "symbol": "createFreshSourceNavigator",
+      "kind": "task-runtime",
+      "callee": "new TaskRuntime",
+      "count": 1,
+      "owner": "module reading: fresh-source navigation",
+      "path": "app-play-gated",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "The only TaskRuntime not behind the source-mode check: env-gated, reachable from ReadingService (play) and the onboarding worker (setup) for a fresh skeleton job.",
+      "lines_at_0b729e8fb": [
+        142
+      ]
+    },
+    {
+      "file": "runtime/jev/fresh-source-navigator.ts",
+      "symbol": "createFreshSourceNavigator",
+      "kind": "task-runtime",
+      "callee": "tasks.begin",
+      "count": 1,
+      "owner": "module reading: fresh-source navigation",
+      "path": "app-play-gated",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Same gate.",
+      "lines_at_0b729e8fb": [
+        146
+      ]
+    },
+    {
+      "file": "runtime/jev/fresh-source-navigator.ts",
+      "symbol": "createFreshSourceNavigator",
+      "kind": "task-runtime",
+      "callee": "tasks.submit",
+      "count": 1,
+      "owner": "module reading: fresh-source navigation",
+      "path": "app-play-gated",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Same gate; TaskRuntime.#run drives Jev navigation decisions.",
+      "lines_at_0b729e8fb": [
+        150
+      ]
+    },
+    {
+      "file": "runtime/jev/memory-read-owner.ts",
+      "symbol": "registerMemoryReadOperations.execute",
+      "kind": "task-runtime",
+      "callee": "runtime.begin",
+      "count": 1,
+      "owner": "S0 task mode: memory.search owner",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Recursive child task inside an owner operation (design 2.4). Registered only by task-host-session.",
+      "lines_at_0b729e8fb": [
+        58
+      ]
+    },
+    {
+      "file": "runtime/jev/memory-read-owner.ts",
+      "symbol": "registerMemoryReadOperations.execute",
+      "kind": "task-runtime",
+      "callee": "runtime.submit",
+      "count": 1,
+      "owner": "S0 task mode: memory.search owner",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Same.",
+      "lines_at_0b729e8fb": [
+        63
+      ]
+    },
+    {
+      "file": "runtime/jev/s0-decision.ts",
+      "symbol": "createS0Decider",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "S0 probe",
+      "path": "source-only",
+      "role": "leaf",
+      "trace": "n/a",
+      "note": "S0 decider transport; only constructed by startS0Rpc.",
+      "lines_at_0b729e8fb": [
+        9
+      ]
+    },
+    {
+      "file": "runtime/jev/s0-rpc.ts",
+      "symbol": "startS0Rpc",
+      "kind": "jev-adapter",
+      "callee": "createS0Decider",
+      "count": 1,
+      "owner": "S0 probe",
+      "path": "source-only",
+      "role": "leaf",
+      "trace": "n/a",
+      "note": "Gate: PI_COC_JEV_S0=1 (or PI_COC_TASK_RUNTIME=1 in play), and startS0Rpc throws unless PI_COC_LAYOUT=source.",
+      "lines_at_0b729e8fb": [
+        42
+      ]
+    },
+    {
+      "file": "runtime/jev/s0-rpc.ts",
+      "symbol": "startS0Rpc",
+      "kind": "session-host",
+      "callee": "createAgentSessionRuntime",
+      "count": 1,
+      "owner": "S0 probe",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Alternative Keeper host built on the Pi SDK instead of the stock CLI.",
+      "lines_at_0b729e8fb": [
+        54
+      ]
+    },
+    {
+      "file": "runtime/jev/s0-rpc.ts",
+      "symbol": "startS0Rpc",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "S0 task mode",
+      "path": "source-only",
+      "role": "leaf",
+      "trace": "n/a",
+      "note": "Adapter for the task host.",
+      "lines_at_0b729e8fb": [
+        58
+      ]
+    },
+    {
+      "file": "runtime/jev/s0-rpc.ts",
+      "symbol": "startS0Rpc",
+      "kind": "session-host",
+      "callee": "createAgentSessionFromServices",
+      "count": 1,
+      "owner": "S0 probe",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Same host.",
+      "lines_at_0b729e8fb": [
+        72
+      ]
+    },
+    {
+      "file": "runtime/jev/s0-rpc.ts",
+      "symbol": "startS0Rpc",
+      "kind": "session-host",
+      "callee": "runRpcMode",
+      "count": 1,
+      "owner": "S0 probe",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Same host.",
+      "lines_at_0b729e8fb": [
+        78
+      ]
+    },
+    {
+      "file": "runtime/jev/source-owner-operations.ts",
+      "symbol": "registerSourceOperations.register(source.consult)",
+      "kind": "task-runtime",
+      "callee": "runtime.begin",
+      "count": 1,
+      "owner": "S0 task mode: source.consult owner",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Recursive child task inside an owner operation (design 2.4). Gate: PI_COC_JEV_SOURCE=1 in task mode.",
+      "lines_at_0b729e8fb": [
+        141
+      ]
+    },
+    {
+      "file": "runtime/jev/source-owner-operations.ts",
+      "symbol": "registerSourceOperations.register(source.consult)",
+      "kind": "task-runtime",
+      "callee": "runtime.submit",
+      "count": 1,
+      "owner": "S0 task mode: source.consult owner",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Same.",
+      "lines_at_0b729e8fb": [
+        145
+      ]
+    },
+    {
+      "file": "runtime/jev/task-host-session.ts",
+      "symbol": "createTaskHostAdapter.ensureRuntime",
+      "kind": "task-runtime",
+      "callee": "new TaskRuntime",
+      "count": 1,
+      "owner": "S0 task mode",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Gate: PI_COC_TASK_RUNTIME=1, play, source layout.",
+      "lines_at_0b729e8fb": [
+        138
+      ]
+    },
+    {
+      "file": "runtime/jev/task-host-session.ts",
+      "symbol": "createTaskHostAdapter.extension.runMemory",
+      "kind": "task-runtime",
+      "callee": "shared.begin",
+      "count": 1,
+      "owner": "S0 task mode: committed memory",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Independent committed-memory root. Gate: PI_COC_JEV_MEMORY=1.",
+      "lines_at_0b729e8fb": [
+        207
+      ]
+    },
+    {
+      "file": "runtime/jev/task-host-session.ts",
+      "symbol": "createTaskHostAdapter.extension.runMemory",
+      "kind": "task-runtime",
+      "callee": "shared.submit",
+      "count": 1,
+      "owner": "S0 task mode: committed memory",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Same.",
+      "lines_at_0b729e8fb": [
+        214
+      ]
+    },
+    {
+      "file": "runtime/jev/task-host-session.ts",
+      "symbol": "createTaskHostAdapter.extension.on(before_agent_start)",
+      "kind": "task-runtime",
+      "callee": "runtime.begin",
+      "count": 1,
+      "owner": "S0 task mode: table evidence",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Binds the player input to a foreground task before the Keeper's first request.",
+      "lines_at_0b729e8fb": [
+        402
+      ]
+    },
+    {
+      "file": "runtime/jev/task-host-session.ts",
+      "symbol": "createTaskHostAdapter.extension.on(tool_result)",
+      "kind": "provider-direct",
+      "callee": "incumbent.complete",
+      "count": 1,
+      "owner": "S0 task mode",
+      "path": "source-only",
+      "role": "leaf",
+      "trace": "n/a",
+      "note": "Not a provider call: completes the incumbent (a scanner false positive kept so the key is stable).",
+      "lines_at_0b729e8fb": [
+        481
+      ]
+    },
+    {
+      "file": "runtime/jev/task-host-session.ts",
+      "symbol": "createTaskHostAdapter.extension.execute",
+      "kind": "task-runtime",
+      "callee": "runtime.submit",
+      "count": 1,
+      "owner": "S0 task mode: submit_plan_packet",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "The Keeper's submit_plan_packet tool awaits the whole TaskRuntime run (design 2.2).",
+      "lines_at_0b729e8fb": [
+        568
+      ]
+    },
+    {
+      "file": "runtime/jev/task-runtime.ts",
+      "symbol": "TaskRuntime.submit",
+      "kind": "task-runtime",
+      "callee": "#run",
+      "count": 1,
+      "owner": "TaskRuntime",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "The second loop: decision -> operation -> checkpoint -> replan -> completion. Reached from S0 task mode (source only) and fresh-source navigation (env-gated).",
+      "lines_at_0b729e8fb": [
+        182
+      ]
+    },
+    {
+      "file": "runtime/jev/task-runtime.ts",
+      "symbol": "TaskRuntime.resume",
+      "kind": "task-runtime",
+      "callee": "#run",
+      "count": 1,
+      "owner": "TaskRuntime",
+      "path": "source-only",
+      "role": "driver",
+      "trace": "n/a",
+      "note": "Resume of the same loop.",
+      "lines_at_0b729e8fb": [
+        249
+      ]
+    },
+    {
+      "file": "runtime/launch.ts",
+      "symbol": "launchMain",
+      "kind": "spawn",
+      "callee": "spawn",
+      "count": 1,
+      "owner": "runtime launcher",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Spawns the stock Pi CLI (`dist/cli.js --mode rpc`): the Keeper process whose AgentSession/agent loop is what the App runs. Replaced by startS0Rpc only under the S0 gates.",
+      "lines_at_0b729e8fb": [
+        111
+      ]
+    },
+    {
+      "file": "runtime/preparation.ts",
+      "symbol": "createPreparationHost.start",
+      "kind": "spawn",
+      "callee": "spawn",
+      "count": 1,
+      "owner": "runtime preparation host",
+      "path": "app-setup",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Spawns the onboarding worker (pipicoc/onboarding-worker) for setup preparation.",
+      "lines_at_0b729e8fb": [
+        29
+      ]
+    },
+    {
+      "file": "runtime/process.ts",
+      "symbol": "runHostProcess",
+      "kind": "spawn",
+      "callee": "spawn",
+      "count": 1,
+      "owner": "runtime tasks",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a",
+      "note": "Pure-parser subprocesses: the deterministic checker (build/kernel/check.mjs) and the PDF.js source worker (runtime/source-worker.ts). No model.",
+      "lines_at_0b729e8fb": [
+        9
+      ]
+    },
+    {
+      "file": "runtime/tasks.ts",
+      "symbol": "runTask",
+      "kind": "reader-task",
+      "callee": "runReader",
+      "count": 1,
+      "owner": "runtime tasks",
+      "path": "app-play",
+      "role": "driver",
+      "trace": "observed indirectly (every child row)",
+      "note": "The one funnel for every tool-enabled Pi child (kind reader|mod): resolves the child model, applies the provider budget, calls runReader.",
+      "lines_at_0b729e8fb": [
+        289
+      ]
+    }
+  ]
+}
