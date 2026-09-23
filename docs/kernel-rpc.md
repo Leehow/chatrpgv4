@@ -522,6 +522,79 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - 理智：`sanity:check` 由守秘人在 `intent: investigate` 加 `stakes` 提到理智或 `action.decision: "sanity:check"` 时触发，`goal` 是来源；失败进入发作时结果带 `pending_choice`（守秘人的发作动作选择）与 `session.kind: "sanity_bout"`。
 - 推骰与幸运：失败的可推检定在结果 `continuations` 里列出 `pushed-roll` 与 `luck-spend` 及其需要的 `action` 字段；守秘人先 `ask` 玩家，再以 `push: true` 或 `luck` 调 `resolve`。
 
+### 11.5.2 An NPC's standing defence (2026-09-23, SL-07 of `docs/specs/pi-native-single-loop.md`)
+
+The spec's ruling "An NPC's defence is data" (owner, 2026-09-23). §11.5 leaves an NPC defender's choice between
+`dodge` and `fight_back` to the Keeper's next `resolve`, and nothing stated it: SL-02's fight-round replay spent
+its one non-prose LLM step on that choice in 6/6 runs, because Jev honestly answered `unknown`. The choice is now
+a standing on the NPC, issued by the kernel. §11.5.1 is reserved for the investigator's standing defence, which is
+another piece of work; nothing here depends on it or shapes it.
+
+**What is issued.** `pending_defense` (§11.9) for an NPC defender (`for: "npc"`) carries
+`standing: {defense, basis}`. `defense` is always one of that `pending_defense.options`; `basis` is one of
+`"authored"`, `"rule-default"`, `"keeper"`. `options` stay exactly as issued: the standing narrows nothing, and
+the Keeper may still resolve any legal option. A player defender's `pending_defense` carries no `standing`.
+The `pending_choice` of an NPC defence is unchanged: `table.view` hands the pending choice to the player's client,
+so the standing is carried by the session view alone (the capsule's `where.session`, `resolve` results, `look
+focus=session`), which only the Keeper reads.
+
+**The three sources, in the ruling's order.** The book's tactic when it has one, else the rules default; a
+Keeper override replaces either:
+
+1. **Authored** (`basis: "authored"`): the NPC record's combat tactic, `combat.defense`, one of the §11.9
+   defence words (`dodge`, `fight_back`, `none`), on the starter's or module's NPC record (the `recordOf` record
+   the kernel already reads for `mechanics.profile`). A word outside those three is not a tactic, and the reading
+   falls through to the rules default. A Mod's declaration for one NPC would reach the same field; no Mod
+   contribution kind carries a closed defence word today (§28 accepts `actor_profile_keys`, free text asked of a
+   book), so this source is the book's alone until one is contracted.
+2. **Rules default** (`basis: "rule-default"`): computed from the combat participant the profile builder already
+   makes (`npcCombatParticipant`, `kernel-ts/combat/profiles.ts`): `fight_back` when the participant's
+   `combat_skill` is at least its `dodge_skill`, otherwise `dodge` (`defaultDefense`). `combat_skill` is the
+   Fighting value the engine rolls a fight-back with (`npcDefenceSkills`: `Fighting (Brawl)`, else `Brawl`, else
+   `Fighting`, else 25; in a fight, the usage skill a bound weapon set on the participant). The ruling's "best
+   fighting skill" is read as that value, because a default that compared a skill the engine does not roll would
+   pick a fight-back the dice then lose.
+   The session view reads both numbers off the saved snapshot's participant, so the default always matches the
+   numbers the defence will be rolled with.
+3. **Keeper override** (`basis: "keeper"`): `apply npc {name, defense, why}` (§17.3's effect, its own variant).
+   `defense` is one of the three words; `why` is required. It writes `world.npc_defense[<handle>] =
+   {defense, why, turn}` and mints the ordinary `npc` receipt (`npc:<slug>-t<n>-c<k>`) with `defense`,
+   `previous` (the override it replaced, or `null`), `why` and `visibility: "keeper"`; the event is
+   `npc-changed` with `{npc, defense, why}`. It stands alone in its effect: combining it with `to`, `stance`,
+   `dead`, `skill`, `archetype`, `conditions` or `reunion` is refused as `invalid_params` before anything is
+   written (put the two changes in two effects of one batch). An `npc` batch is bookkeeping to §32.1 and is not
+   reviewed. The override is world state, so it commits with the turn and survives a restart and a resume; it
+   applies to every later pending defence of that NPC, and to one already pending, because the view is read,
+   not stored.
+
+**A firearm attack.** Against a firearm attack the options are `dodge` / `none` (§11.11; the engine reads
+`dodge` as diving for cover). A standing `fight_back` against a firearm reads as `dodge`, exactly as the engine
+already turns every defence but `none` into `dive_for_cover` there; the basis is kept.
+
+**The NPC card.** `look focus=npc` (the Keeper's card of one person) carries `combat_tactic: {defense, basis}`:
+the override or the authored word when there is one, otherwise the rules default from the NPC's profile (the book's
+or a pinned archetype, §34.10) through `npcDefenceSkills`, the numbers `npcCombatParticipant` makes, otherwise
+`{defense: null, basis: "rule-default"}` for a person with no numbers. It is Keeper-only: no player projection (`table.view`, mechanics
+rows, `coc-choice`, the pending choice) carries it, and the `npc` receipt of an override is `visibility:
+"keeper"`.
+
+**Who acts on it.** The single-loop clerk (§135.2): an NPC's pending defence with a `standing` is a bound
+`direct` step with `defense` set to the standing's word, never a Jev `decide` and never an LLM `infer`; the
+clerk basis on its tool and admission rows names the standing (`basis.standing`). On the legacy engine the Keeper
+reads it on `pending_defense` and resolves with it unless the fiction changed the NPC's
+tactic, which it then writes as an override instead of re-deciding every round.
+
+**The player's `none`.** `none` is one of the player's own defences (§11.5: "`dodge` / `fight_back` / 不防";
+§11.11: "`none` 处处合法"), so `ask kind: "mechanics"` accepts `none` beside the six words of §23; the kernel
+offered it in `pending_defense.options` and `ask` refused it (SL-02, turns 6 and 8 of the fight table). The
+choice control's caption for it is not authored yet: `pipicoc/choices.js` shows an option with no
+`choices.option.<name>` word under its key, and adding `option.none` to `content/ui/en/choices.json` needs the
+shipped seeds projected by the UI-words lane in the same change (`tests/extension/ui-words.test.mjs`), which SL-07
+does not do.
+
+Tests: `tests/kernel/test_npc_standing_defense.py` (emitted kernel), `tests/extension/single-loop-candidates.test.mjs`,
+`tests/extension/single-loop-domain-policy.test.mjs`.
+
 ### 11.6 结果与收据
 
 `outcome.kind` 取 `check`、`opposed`、`combined`、`social`、`psychology`、`healing`、`push`、`luck`、`magic`、`development`、`combat`、`chase`、`sanity`、`none`。每种至少有 `level` 或 `status`、涉及的骰面与目标值、`effects`。`effects` 每条 `{kind: hp|san|mp|luck|condition|ammo|position, subject, before, after}`。
@@ -541,7 +614,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 ### 11.9 边界澄清（扩展 worker 提出，已定）
 
 - `needs` 与 `needs_choice` 的候选与选项放在 `error.details` 里（`details.needs = {field, options}`、`details.candidates = [{name, when}]`、`details.exits`），`message` 与 `fix` 不重复列举；Pi 只把工具结果的文本交给模型，所以由扩展把这些 `details` 渲染进结果文本。
-- `session` 的形状：`{kind: combat|chase|sanity_bout, status: active|ended, round, turn_of: <在场者名>, actions: [...], pending_defense: null | {for: player|npc, actor, options}, participants: [{name, side, hp?}]}`。会话进行期间每个 `resolve` 结果都回显它，不因本次判定与会话无关而返回 null；会话结束那一次返回 `status: ended`，之后返回 null。
+- `session` 的形状：`{kind: combat|chase|sanity_bout, status: active|ended, round, turn_of: <在场者名>, actions: [...], pending_defense: null | {for: player|npc, actor, options, standing?}, participants: [{name, side, hp?}]}`。NPC 守方的 `pending_defense` 另带 `standing: {defense, basis}`（§11.5.2）。会话进行期间每个 `resolve` 结果都回显它，不因本次判定与会话无关而返回 null；会话结束那一次返回 `status: ended`，之后返回 null。
 - `pending_choice` 的形状：`{name, for: player|keeper, prompt, options}`。`for: player` 的待决由守秘人用 `ask` 交回玩家，`ask.binds` 填它的 `name`；守秘人漏填时扩展在 `tool_call` 里用最近一条 `for: player` 的待决名补上。`for: keeper` 的待决由守秘人下一次 `resolve` 的 `decision` 或 `defense` 回答。
 - `defense` 取 `dodge`、`fight_back`、`none`；`none` 表示放弃防御。
 - 遥测行是扁平的：`outcome_kind`、`session_kind`。
@@ -1636,7 +1709,7 @@ contract one.
 - **`knows` 有两个来源，同一个出口。** `npc_knows` 合并以该 NPC 为主语的 `knows` claim 与 starter 记录里的 `facts[].clue_id`，按图上顺序去重。`npc_claim_lines` 取对象节点的 summary/name，再退到 claim 的 `statement`，只复制不改写。`npcs_knowing` 按 `knows` claim 反算 `known_by_ids`，不改图上已授权的那份。
 - **`min_trust` 丢弃。** starter 的 `facts[].min_trust` 没有任何消费者，投影时不带；没有规则读的数字不是事实。
 - **关系不新增。** `npc_ties` 只读 §17.2 列的十种关系，两个方向都读，按 `(种类, 对端)` 去重；`present` 里按「在场者 → 派系/组织 → 其余」排序后裁到 6 条。
-- **`apply npc` 的形状。** `{kind: "npc", name, to?, stance?, conditions?, why?}`，`to` 取场景名、`here`（当前场景）或 `away`（下场），`stance` 取账本四词；`conditions` 是 `{gained?: [...], lost?: [...]}`，只在叙事、毒物、法术或别的非伤害裁定真正改变这个人的规则状态时使用，词来自规则引擎的闭合 condition 表。死亡仍用既有 `dead: true`，不能借 condition 移除；同一个 npc effect 若带 `conditions` 就不兼带 `to`/`stance`/`dead`/`skill`/`archetype`，需要同时移动与改变状态时，把两条 effect 放在同一个原子 batch。全缺、两边都空、同一状态同时 gained/lost、未知状态或互斥字段报 `invalid_params`，不写任何世界状态。普通变体收据仍是 `npc:<slug>-t<n>-c<k>`（句柄无拉丁 slug 时退到 `npc:t<n>-c<k>`，与 `item`/`cash` 同一条），事件 **`npc-changed`**（事件枚举因此从十八类变十九类）。condition 变体写现有 `world.npc_resources[handle].conditions`，铸造与治疗/伤害同形的 `condition` 收据（`before/after/gained/lost/incapacitated/subject_label`，玩家可见）；它不是第二套 NPC 状态。`to` 写 `world.npc_presence`——位置的唯一真相仍在世界里，账本只引用。
+- **`apply npc` 的形状。** `{kind: "npc", name, to?, stance?, conditions?, defense?, why?}`（`defense` 是守秘人改写这个人的常备防御，独立一条 effect、必带 `why`，见 §11.5.2），`to` 取场景名、`here`（当前场景）或 `away`（下场），`stance` 取账本四词；`conditions` 是 `{gained?: [...], lost?: [...]}`，只在叙事、毒物、法术或别的非伤害裁定真正改变这个人的规则状态时使用，词来自规则引擎的闭合 condition 表。死亡仍用既有 `dead: true`，不能借 condition 移除；同一个 npc effect 若带 `conditions` 就不兼带 `to`/`stance`/`dead`/`skill`/`archetype`，需要同时移动与改变状态时，把两条 effect 放在同一个原子 batch。全缺、两边都空、同一状态同时 gained/lost、未知状态或互斥字段报 `invalid_params`，不写任何世界状态。普通变体收据仍是 `npc:<slug>-t<n>-c<k>`（句柄无拉丁 slug 时退到 `npc:t<n>-c<k>`，与 `item`/`cash` 同一条），事件 **`npc-changed`**（事件枚举因此从十八类变十九类）。condition 变体写现有 `world.npc_resources[handle].conditions`，铸造与治疗/伤害同形的 `condition` 收据（`before/after/gained/lost/incapacitated/subject_label`，玩家可见）；它不是第二套 NPC 状态。`to` 写 `world.npc_presence`——位置的唯一真相仍在世界里，账本只引用。
 - **账本是收据的折叠，别的什么都不是。** `npc.apply_receipts` 只认四种收据：`roll`（互动与 stance）、`clue`（`from` → `disclosed`）、`npc`（守秘人显式改写）、`delta`（NPC 的 HP ≤ 0 → `dead`）。因此 `_rebuild_ledger` 重放 `turns/*.json` 与 `memory/candidates.jsonl` 就能重建整份账本——崩溃恢复、世界线切换、以及本切片之前的老战役第一次 `table.open`，走的是同一条路。只在文件不存在时重建：磁盘上的账本就是状态。
 - **收据自己说清是谁。** `resolve` 结算后给本次调用的 roll 收据补 `family`、`npc`（本次判定针对的在场 NPC，NPC 自己掷的那条不补）与 `approach`。这是让账本能只读收据的前提；守秘人从不被问这件事。
 - **stance 的数全在表里。** `content/rulesets/coc7/rules-json/npc-stance.json`：初值 0、区间 −5..5、四档阈值（≤ −3 hostile、≤ −1 wary、≤ 1 neutral、其余 warm）、`social[approach][level]` 的增减、`pushed_failure_delta`、`combat_target_score`。代码里没有一个字面量；表里没写的 approach 或 level 一律动 0——沉默是零，不是猜。显式 `apply npc stance` 把分数置为该档下界。
@@ -3383,7 +3456,8 @@ a stale response from an earlier session cannot replace the selected session.
 
 ask accepts kind=story|mechanics (default story). Story uses prompt and authored
 options in play_language. Mechanics accepts only push, spend_luck, accept, dodge,
-fight_back, flee and forbids a prompt. The result includes interaction with its
+fight_back, none, flee and forbids a prompt (`none`, the player's own "no defence"
+of §11.5, since 2026-09-23: §11.5.2). The result includes interaction with its
 pending-choice name, kind, options and play_language. The host emits coc-choice
 entries rendered as controls outside narration. Clicking is checked against the
 selected session's current pending choice before submitting a semantic player
@@ -6108,7 +6182,7 @@ What is **not** put to review, decided by closed contract enums and never by rea
   `ruling`, `define`, `object`, `ability`, `dossier`, `ending`, `fork`, `switch`, `merge`, `damage` on
   their own are bookkeeping, NPC movement, pacing, world switches or consequences, not a proposed
   voluntary action;
-- a `resolve` that settles the closed option the player was just asked (`ask` offered `dodge`/`fight_back`/`push`/`spend_luck`, the player answered in their own words, the Keeper writes `defense`, `push: true` or `luck` accordingly): the answer is the player's own choice, in whatever words it came. The second real table paid a full review, and two of its four timeouts, on exactly these combat rounds before this exemption existed;
+- a `resolve` that settles the closed option the player was just asked (`ask` offered `dodge`/`fight_back`/`none`/`push`/`spend_luck`, the player answered in their own words, the Keeper writes `defense`, `push: true` or `luck` accordingly): the answer is the player's own choice, in whatever words it came. The second real table paid a full review, and two of its four timeouts, on exactly these combat rounds before this exemption existed;
 - a turn with no player text (the opening). The skip is a telemetry row, not a silence.
 
 A batch is reviewed whole and refused whole: a `clue` beside a `move` is admitted only when the player's
@@ -16115,7 +16189,10 @@ it. It reads `table.capsule`, `table.apply.options`, `table.resolve.options` and
 located, and nothing else. It never classifies text.
 
 - `apply.options` moves whose `unlock_when.met` is not `false`, and its scene clues;
-- the scene's handout assets (`capsule.where.assets`, `kind: "handout"`);
+- the scene's handout assets (`capsule.where.assets`, `kind: "handout"`), except one the kernel marks `shown:
+  true` (SL-07: the capsule marks a handout row from the world's `handouts_shown`). A located handout whose handle
+  is in `table.apply.options.context.handouts_shown` is not offered either. A handout already handed over is
+  consumed by world state, never by its words;
 - people in `capsule.present` without `called`, staged under the capsule's own `untold.label`. Without a label
   the name is an open parameter, and only the LLM fills it. Anyone off the roster is never a candidate;
 - the active Mods' `pending_contacts`;
@@ -16130,7 +16207,11 @@ located, and nothing else. It never classifies text.
   player's own pending defence is a candidate only when this input answers a choice that was already open when
   the run began. A choice opened during the run is handed back with the Keeper's `ask`. Damage and the
   initiative advance are consequences of the resolve that causes them, so they are never candidates. A sanity
-  bout issues nothing: it is a consequence, and consequences are the Keeper's;
+  bout issues nothing: it is a consequence, and consequences are the Keeper's. **SL-07 (§11.5.2):** an NPC's
+  pending defence that carries a `standing` whose word is one of its issued `options` is bound to that word, so
+  it is a `direct` step, never a Jev `decide` and never an LLM `infer`; its `basis` adds `standing: {defense,
+  basis}`, which the tool and admission rows of §135.7 carry. Only a pending defence without a standing (a kernel
+  that predates §11.5.2) keeps the closed Jev bind over its options;
 - located clue and handout entities.
 
 While a combat or chase session runs, scene moves are not offered: leaving is the session's own `combat:flee`
