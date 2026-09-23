@@ -3,8 +3,20 @@ import {readFileSync, writeFileSync, renameSync} from 'node:fs';
 import {join, basename} from 'node:path';
 import {Type} from 'typebox';
 import {continuityArtifactErrors, normalizeContinuityArtifact} from '../../kernel-ts/mods/audit-result.ts';
-import {AUDIT_SUBREVIEW_PLACEMENT, auditReferenceIssues, buildAuditReferences, materializeAuditReferences} from '../../kernel-ts/mods/audit-references.ts';
+import {AUDIT_SUBREVIEW_PLACEMENT, auditArtifactIssues, buildAuditReferences} from '../../kernel-ts/mods/audit-references.ts';
 import {auditEvidenceView} from './audit-evidence.ts';
+
+const MAX_RETAINED_ERRORS = 64, SUMMARY_CHARS = 1500;
+/** `path: message` rows, bounded, so a telemetry cause stays one readable line. */
+function errorSummary(errors: {path: string; message: string}[]): string {
+    let text = '';
+    for (const [i, issue] of errors.entries()) {
+        const row = `${i ? '; ' : ''}${issue.path || '/'}: ${issue.message}`;
+        if (text.length + row.length > SUMMARY_CHARS) return `${text}; and ${errors.length - i} more`;
+        text += row;
+    }
+    return text;
+}
 
 export default function auditSubmit(pi: any) {
     const controlPath = process.env.PI_COC_AUDIT_CONTROL;
@@ -17,7 +29,8 @@ export default function auditSubmit(pi: any) {
         return [name, JSON.parse(readFileSync(join(cwd, name), 'utf8'))];
     }));
     let requests = 0, repairs = 0, submissionReminder = false;
-    const status = {requests: 0, artifact_repairs: 0, submitted: false, unavailable: ''};
+    const status: {requests: number; artifact_repairs: number; submitted: boolean; unavailable: string; errors?: any[]} =
+        {requests: 0, artifact_repairs: 0, submitted: false, unavailable: ''};
     const save = () => {
         status.requests = requests; status.artifact_repairs = repairs;
         const path = join(cwd, basename(control.status_file)), tmp = path + '.tmp';
@@ -76,25 +89,17 @@ export default function auditSubmit(pi: any) {
             } catch (error) { return unavailable(`The retained audit input or artifact could not be read: ${error instanceof Error ? error.message : String(error)}`); }
             if (schema === 1) result = normalizeContinuityArtifact(result, files);
             const catalog = schema === 2 ? buildAuditReferences(request, files) : undefined;
-            let checked = result, errors: any[] = [];
-            if (catalog) {
-                let materialized = materializeAuditReferences(result, catalog);
-                errors.push(...materialized.errors);
-                if (materialized.value) {
-                    const normalized = normalizeContinuityArtifact(materialized.value, files);
-                    if (normalized.continuity_review?.verdict !== materialized.value.continuity_review?.verdict) {
-                        result = {...result, continuity_review: {...result.continuity_review, verdict: normalized.continuity_review.verdict}};
-                        materialized = materializeAuditReferences(result, catalog);
-                        errors.push(...materialized.errors);
-                    }
-                    checked = materialized.value ?? normalized;
-                    if (!materialized.errors.length)
-                        errors.push(...auditReferenceIssues(continuityArtifactErrors(checked, request.input.text, files, catalog.speechTexts)));
-                }
-            } else errors = continuityArtifactErrors(checked, request.input.text, files);
+            let errors: any[];
+            if (catalog) ({errors, result} = auditArtifactIssues(result, request, files, catalog));
+            else errors = continuityArtifactErrors(result, request.input.text, files);
             if (errors.length) {
                 writeFileSync(join(cwd, `rejected-artifact-${basename(control.status_file)}-${repairs}.json`), JSON.stringify(result));
-                if (repairs >= control.max_artifact_repairs) return unavailable('The audit artifact still has invalid fields after its targeted repair');
+                // §130.9: the last refusal stays on the status and in the unavailable reason, which is the
+                // continuity-review row's `cause`, so a failed job reads without its agent transcript.
+                if (repairs >= control.max_artifact_repairs) {
+                    status.errors = errors.slice(0, MAX_RETAINED_ERRORS);
+                    return unavailable(`The audit artifact still has invalid fields after its targeted repair: ${errorSummary(errors)}`);
+                }
                 repairs++; save();
                 return {content: [{type: 'text', text: JSON.stringify({reason: 'audit_artifact_invalid', errors})}],
                     isError: true, details: {kind: 'audit_artifact_error', errors, artifact_repairs: repairs}};
