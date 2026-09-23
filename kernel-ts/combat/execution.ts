@@ -6,7 +6,7 @@ import { defenseOptions } from '../read/session-view.js';
 import { rollExpression } from '../resolve/arithmetic.js';
 import { OUT_OF_FIGHT_CONDITIONS } from '../healing/conditions.js';
 import { presentOpponents, type SettleContext, type ExecutionResult } from '../resolve/context.js';
-import { recordEngineRolls } from '../resolve/session-receipts.js';
+import { recordCombatRolls, recordCombatDamage, type DamageReceipt } from './receipts.js';
 import { weaponRows } from '../mods/projection.js';
 import { moveObject } from '../mods/objects.js';
 import { objectTransferReceipt } from '../mods/object-transfer.js';
@@ -67,14 +67,26 @@ function hpState(session: CombatSession): Row {
     }
     return state;
 }
-async function emitDeltas(context: SettleContext, session: CombatSession, before: Row, damageReceipts: Row): Promise<void> {
-    const after = hpState(session);
+async function emitDeltas(context: SettleContext, session: CombatSession, before: Row, damages: DamageReceipt[]): Promise<void> {
+    const after = hpState(session), damagedHp = recordCombatDamage(context, damages);
     for (const [id, prior] of entries(before)) {
         const now = after[id];
         if (!now)
             continue;
-        if (now.hp !== prior.hp)
-            context.addDelta('hp', id, prior.hp, now.hp, { source_receipt: damageReceipts[id] ?? null });
+        const priorHp = damagedHp.get(id) ?? prior.hp;
+        if (now.hp !== priorHp) {
+            const cause = [...damages].reverse().find(({damage}) => string(damage.target_actor_id) === id);
+            const receiptId = context.addDelta('hp', id, priorHp, now.hp,
+                cause ? { source_receipt: cause.receipt } : {});
+            const receipt = context.receipts.find(row => row.id === receiptId);
+            // A terminal effect such as destroy_target may change HP after the last damage record.
+            // Keep the normal outcome effect and Keeper label intact; attribution is receipt-only.
+            if (receipt) Object.assign(receipt, {
+                public_combat: true,
+                public_subject_label: context.publicCombatLabel(id),
+                ...(cause ? { public_source_label: context.publicCombatLabel(string(cause.damage.source_actor_id)) } : {}),
+            });
+        }
         if (now.mp !== prior.mp)
             context.addDelta('mp', id, prior.mp, now.mp);
         if (!equal(now.conditions, prior.conditions))
@@ -398,17 +410,8 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         }
     }
     session.revision++;
-    const round = turn ? Number(turn.turn_id.split('-')[0].slice(1)) : session.currentRound, receiptIds: Row = {};
-    for (const record of rolls)
-        if (isJsonObject(record) && typeof record.roll_id === 'string') {
-            const ids = recordEngineRolls(context, [record], 'combat_check', { round, session_kind: 'combat' });
-            if (ids.length)
-                receiptIds[record.roll_id] = ids[0];
-        }
-    const damageReceipts: Row = {};
-    for (const damage of session.damageChain)
-        if (turn && damage.source_turn_id === turn.turn_id && typeof damage.damage_roll_id === 'string' && receiptIds[damage.damage_roll_id])
-            damageReceipts[string(damage.target_actor_id)] = receiptIds[damage.damage_roll_id];
+    const round = turn ? Number(turn.turn_id.split('-')[0].slice(1)) : session.currentRound;
+    const damageReceipts = recordCombatRolls(context, turn, rolls, session.damageChain, round);
     landThrownUsage(context, session, turn, turn?.weapon_id ?? pending?.weapon_id ?? args.weapon_id ?? null, string(turn?.actor_id ?? pending?.actor_id ?? actor));
     await session.save(context);
     await emitDeltas(context, session, before, damageReceipts);
@@ -450,7 +453,7 @@ export async function executeCombatEnd(context: SettleContext, args: Row): Promi
     session.endedAtTurn = context.turnNumber;
     session.revision++;
     await session.save(context);
-    await emitDeltas(context, session, before, {});
+    await emitDeltas(context, session, before, []);
     context.addSessionReceipt('combat', 'end', { outcome });
     return { data: { combat_id: session.combatId, revision: session.revision, round: session.currentRound, status: session.status, outcome, session: context.sessions().combatView(), pending_choice: null },
         warnings: [], hints: ['the fight is closed; conditions from the exchange stay on the sheet'] };

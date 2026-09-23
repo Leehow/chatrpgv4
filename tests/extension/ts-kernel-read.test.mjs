@@ -16,6 +16,11 @@ after(()=>rm(temporary,{recursive:true,force:true}));
 const exports=[
   ['json',['parsePythonJson','pythonJsonDumps','canonicalJson','PythonFloat']],
   ['context',['createKernelContext']],
+  ['rules/tables',['RuleTables']],
+  ['combat/engine',['CombatSession']],
+  ['combat/receipts',['recordCombatRolls','recordCombatDamage']],
+  ['combat/execution',['executeCombatResolve']],
+  ['resolve/context',['SettleContext']],
   ['capabilities',['REGISTERED_CONDITION_PATHS','RESOLVER_NAMES']],
   ['read/campaign',['CampaignSnapshot']],
   ['read/module-graph',['ModuleGraph','conditionStatus']],
@@ -358,6 +363,100 @@ test('mechanics match Python without exposing unlabeled NPC identities',async()=
   assert.equal(liveClue.summary,undefined,'and the projection no longer copies it across');
   assert.equal(liveClue.how,undefined,'nothing was filed for this clue, so the row offers nothing to open');
   assert.equal(api.pythonJsonDumps(receipts),before);
+});
+
+test('public combat keeps attack, damage and each HP change attached to safe table names',async()=>{
+  const npcId=graph.handle(npc);
+  async function settle({actor='alice',skill=99,defense='none',shots=null,named=true,firearm=false}={}) {
+    const kernel=await api.createKernelContext({workspace:temporary,content:CONTENT,seed:'combat-cards'});
+    const tables=new api.RuleTables(kernel),session=await api.CombatSession.create('cards','scene/test',1,kernel.rng,tables);
+    session.weaponCatalog.card_gun={weapon_id:'card_gun',skill:'Firearms (Handgun)',damage:'1D3',uses_per_round:'3',magazine:10};
+    for(const id of ['alice',npcId])session.addParticipant(id,id==='alice'?'investigator':'npc',{
+      dex:60,combatSkill:id===actor?skill:99,firearmsSkill:99,build:0,hpMax:100,weapons:[{weapon_id:shots||firearm?'card_gun':'unarmed'}]});
+    session.beginRound();
+    const target=actor==='alice'?npcId:'alice';
+    const turn=session.declareAndResolveTurn(actor,'Attack',{action:'attack',targetActorId:target,defenseKind:defense,weaponId:shots||firearm?'card_gun':'unarmed',...(shots?{shots}: {})});
+    const [rolls]=session.drainPending();
+    const world={person_labels:named?{[npcId]:{name:'The masked visitor'}}:{}};
+    const context=new api.SettleContext(kernel,{campaign:{id:'cards'},world,turn:{turn:1,receipts:[]}},
+      {party}, {graph},tables,session.arithmetic,{},'t1-c1',1,party[0],party[0],{});
+    const damages=api.recordCombatRolls(context,turn,rolls,session.damageChain,1);
+    api.recordCombatDamage(context,damages);
+    return {rows:api.mechanics(context.receipts),context,session,turn};
+  }
+  for(const actor of ['alice',npcId]) {
+    const {rows}=await settle({actor});
+    const source=actor==='alice'?'Alice':'The masked visitor',target=actor==='alice'?'The masked visitor':'Alice';
+    const attack=rows.find(row=>row.combat_action==='attack'),die=rows.find(row=>row.kind==='dice'),hp=rows.find(row=>row.kind==='change');
+    assert.equal(attack.actor_label,source);assert.equal(attack.target_label,target);
+    assert.equal(die.actor_label,source);assert.equal(die.target_label,target);
+    assert.equal(hp.subject_label,target);assert.equal(hp.source_label,source);assert.equal(hp.source_receipt,die.receipt);
+    assert.equal(hp.before,100);assert.ok(hp.after<100);
+    assert.ok(rows.every(row=>row.actor!==npcId&&row.subject!==npcId));
+  }
+  const miss=await settle({skill:1});assert.equal(miss.rows.some(row=>row.kind==='dice'||row.kind==='change'),false);
+  const counter=await settle({skill:1,defense:'fight_back'});
+  assert.equal(counter.rows.find(row=>row.combat_action==='defense').actor_label,'The masked visitor');
+  assert.equal(counter.rows.find(row=>row.kind==='dice').target_label,'Alice');
+  assert.equal(counter.rows.find(row=>row.kind==='change').source_label,'The masked visitor');
+  const burst=await settle({shots:3}),changes=burst.rows.filter(row=>row.kind==='change');
+  assert.ok(changes.length>=2);
+  assert.equal(new Set(changes.map(row=>row.source_receipt)).size,changes.length);
+  for(let i=1;i<changes.length;i++)assert.equal(changes[i].before,changes[i-1].after);
+  const cover=await settle({actor:npcId,firearm:true,defense:'dive_for_cover'});
+  assert.ok(cover.turn.cover_reroll_roll_id,'the real engine took the successful dive branch');
+  const rerollReceipt=cover.context.receipts.find(row=>row.engine_roll_id===cover.turn.cover_reroll_roll_id);
+  const reroll=cover.rows.find(row=>row.receipt===rerollReceipt.id);
+  assert.equal(reroll.public_combat,true);assert.equal(reroll.combat_action,'attack');
+  assert.equal(reroll.actor_label,'The masked visitor');assert.equal(reroll.target_label,'Alice');
+  const hidden=await settle({actor:npcId,named:false});
+  assert.equal(hidden.rows.find(row=>row.combat_action==='attack').actor_label,undefined);
+  assert.ok(!JSON.stringify(hidden.rows).includes(graph.displayName(npc)));
+  hidden.context.addRoll({actor:npcId,skill:'Listen',target:60,threshold:60,roll:30,level:'regular',passed:true});
+  assert.equal(api.mechanics(hidden.context.receipts).at(-1).actor_label,undefined,'noncombat NPC remains anonymous');
+  const hiddenCombat={...counter.context.receipts.find(row=>row.combat_action==='defense'),visibility:'concealed'};
+  assert.equal(api.mechanics([hiddenCombat])[0].target_label,undefined);
+});
+
+test('executeCombatResolve declares then defends, emits HP exactly once and mirrors the real damage',async()=>{
+  const npcId=graph.handle(npc);
+  for(const {actor,destroy} of [{actor:'alice',destroy:false},{actor:npcId,destroy:false},{actor:'alice',destroy:true}]) {
+    const kernel=await api.createKernelContext({workspace:temporary,content:CONTENT,seed:'combat-cards'});
+    const tables=new api.RuleTables(kernel),session=await api.CombatSession.create('execute-cards','scene/test',1,kernel.rng,tables);
+    for(const id of ['alice',npcId])session.addParticipant(id,id==='alice'?'investigator':'npc',{
+      dex:id===actor?80:50,combatSkill:99,build:0,hpMax:100,weapons:[{weapon_id:'unarmed'}]});
+    session.beginRound();
+    const target=actor==='alice'?npcId:'alice',jsonFiles=new Map();
+    const localParty=[{...structuredClone(party[0]),current_hp:100,derived:{HP:100}}];
+    const world={active_scene:sceneHandle,clock:{minutes:0},npc_resources:{[npcId]:{current_hp:100}},person_labels:{[npcId]:{name:'The masked visitor'}}};
+    const campaign={id:'execute-cards',readSave:async name=>jsonFiles.get(join('save',name))??null,
+      writeSave:async(name,value)=>jsonFiles.set(join('save',name),structuredClone(value)),writeSheet:async()=>{},writeWorld:async()=>{}};
+    const snapshot={party:localParty,jsonFiles,records:[],saved:name=>jsonFiles.get(join('save',name))??null,sanity:()=>null};
+    const context=new api.SettleContext(kernel,{campaign,world,turn:{turn:1,receipts:[]}},snapshot,{graph},tables,session.arithmetic,{},'t1-c1',1,localParty[0],localParty[0],{});
+    if(destroy)jsonFiles.set(join('save','combat-operation.json'),{operation:{investigator_weapon_id:'unarmed',rulebook_exception:'own_dagger_ignores_spells',on_success:{kind:'destroy_target',outcome:'investigators_win',rule_ref:'test.destroy'}}});
+    await session.save(context);
+    const declared=await api.executeCombatResolve(context,{action_kind:'attack',actor_id:actor,target_npc_id:target,weapon_id:'unarmed'});
+    assert.equal(declared.data.pending_attack.target_actor_id,target);
+    assert.equal(context.receipts.some(row=>row.kind==='roll'||row.resource==='hp'),false);
+    const settled=await api.executeCombatResolve(context,{action_kind:'defend',actor_id:target,defense_kind:'none'});
+    assert.equal(settled.data.pending_attack,null);
+    const saved=await context.readSave('combat.json'),damage=saved.damage_chain;
+    const hp=context.receipts.filter(row=>row.kind==='delta'&&row.resource==='hp');
+    assert.equal(damage.length,1);assert.equal(hp.length,damage.length+Number(destroy),'only destroy_target adds a terminal HP delta');
+    assert.equal(hp[0].before,damage[0].hp_before);assert.equal(hp[0].after,damage[0].hp_after);
+    if(destroy){assert.equal(hp[1].before,hp[0].after);assert.equal(hp[1].after,0);}
+    const die=context.receipts.find(row=>row.id===hp[0].source_receipt);
+    assert.equal(die.form,'dice');assert.equal(die.actor,actor);
+    const rows=api.mechanics(context.receipts),changes=rows.filter(row=>row.kind==='change'&&row.resource==='hp');
+    for(const change of changes){
+      assert.equal(change.subject_label,target==='alice'?'Alice':'The masked visitor');
+      assert.equal(change.source_label,actor==='alice'?'Alice':'The masked visitor');
+      assert.equal(change.source_receipt,die.id);
+    }
+    assert.deepEqual(context.effects.filter(effect=>effect.kind==='hp'),hp.map(({before,after})=>({kind:'hp',subject:target,before,after})));
+    assert.equal(hp.at(-1).subject_label,context.subjectLabel(target),'Keeper receipt keeps its established label');
+    assert.equal(target==='alice'?localParty[0].current_hp:world.npc_resources[npcId].current_hp,destroy?0:damage[0].hp_after);
+  }
 });
 
 test('capsule budget cuts match Python for nested lists, Unicode and module rosters',async t=>{

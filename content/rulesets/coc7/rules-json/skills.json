@@ -36,6 +36,7 @@
     },
     "Fighting": {
       "base_chance": "varies",
+      "localized_labels": {"zh-Hans": "格斗"},
       "specializations": {
         "Brawl": 25,
         "Axe": 15,

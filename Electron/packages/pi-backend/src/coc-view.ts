@@ -378,10 +378,12 @@ export async function reloadLaneLabels(context?:CocBinding):Promise<Record<strin
  */
 export function deliveryWords(entry:any):Record<string,string[]> {
   const rows=Array.isArray(entry?.data?.mechanics)?entry.data.mechanics:[];
-  const wanted:Record<string,Set<string>>={clues:new Set(),handouts:new Set()};
+  const wanted:Record<string,Set<string>>={clues:new Set(),handouts:new Set(),rules:new Set()};
   const keys:Record<string,string[]>={clues:['label','summary'],handouts:['name','text']};
   for(const row of rows) {
     if(!row||typeof row!=='object'||row.visibility==='keeper')continue;
+    if(row.kind==='roll'&&typeof row.skill==='string'&&row.skill.trim()&&typeof entry?.data?.labels?.[row.skill]!=='string')
+      wanted.rules.add(row.skill);
     const lane=row.kind==='clue'?'clues':row.kind==='handout'?'handouts':null;
     if(!lane)continue;
     for(const key of keys[lane])
@@ -398,10 +400,12 @@ export function deliveryWords(entry:any):Record<string,string[]> {
  * from the Keeper simply talking — but every figure is dropped here rather than in the renderer,
  * because a number that reaches the client has already left the Keeper's hands whatever is drawn.
  */
-const CONCEALED_FIGURES=['roll','target','threshold','difficulty','level','passed','pushed'];
+const CONCEALED_FIGURES=['roll','target','threshold','difficulty','level','passed','pushed','bonus','penalty','expression','faces','total','before','after'];
+const COMBAT_LABELS=['public_combat','combat_action','target_label','source_label','source_receipt'];
 function concealFigures(row:any):any {
-  if(row.kind!=='roll'||row.visibility!=='concealed')return row;
-  return Object.fromEntries(Object.entries(row).filter(([key])=>!CONCEALED_FIGURES.includes(key)));
+  if(row.visibility!=='concealed')return row;
+  const hidden=[...CONCEALED_FIGURES,...COMBAT_LABELS,...(row.public_combat===true?['actor_label','subject_label']:[])];
+  return Object.fromEntries(Object.entries(row).filter(([key])=>!hidden.includes(key)));
 }
 const DRAFT_PROJECTION=/^(\d+)-(.+)\.json$/;
 /**

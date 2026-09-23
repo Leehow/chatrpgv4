@@ -805,13 +805,20 @@ export function createComponent(React) {
         : h("div", { className: "coc-map-empty" }, regionLabels.join(" \u00b7 ")));
   }
 
+  function combatWho(row, from, to, t, owner = from) {
+    if (row.public_combat !== true || row.visibility === "concealed") return "";
+    const source = text(row[from]), target = text(row[to]);
+    // A lone name can occupy only this row's own role: roller for dice, recipient for HP.
+    return source && target ? `${source} ${t("arrow")} ${target}` : text(row[owner]);
+  }
+
   function renderRow(row, t, term, index, sheet) {
     const kindLabel = t(`kind.${row.kind}`, term(text(row.kind)));
     const key = `${text(row.receipt)}:${index}`;
     const family = text(row.family) || undefined;
     switch (row.kind) {
       case "roll": {
-        const who = row.actor_is_investigator === true ? text(row.actor_label || row.actor) : "";
+        const who = combatWho(row, "actor_label", "target_label", t) || (row.actor_is_investigator === true ? text(row.actor_label || row.actor) : "");
         const skill = term(text(row.skill));
         // The die is the keeper's; the attempt is the player's. Nothing numeric is drawn — no
         // figure, no target, no grade, no pass/fail stamp — because each of those is the very
@@ -877,7 +884,7 @@ export function createComponent(React) {
           h(Stamp, { tone: row.passed ? "pass" : "fail" }, row.passed ? t("pass") : t("fail")));
       }
       case "dice": {
-        const who = row.actor_is_investigator === true ? text(row.actor_label || row.actor) : "";
+        const who = combatWho(row, "actor_label", "target_label", t) || (row.actor_is_investigator === true ? text(row.actor_label || row.actor) : "");
         // Faces are drawn only when they say more than the total: a 1D6 that rolled 5 written
         // as "5 [5]" says the same number twice.
         const rolled = Array.isArray(row.faces) ? row.faces : [];
@@ -896,10 +903,11 @@ export function createComponent(React) {
         // The only arithmetic here, and it is subtraction of two numbers the kernel handed over —
         // done on their digits, because in binary the difference of two decimals is not one.
         const delta = exactDelta(before, after);
+        const who = combatWho(row, "source_label", "subject_label", t, "subject_label") || (row.subject_is_investigator === true ? text(row.subject_label || row.subject) : "");
         return h(Row, { key, kindKey: "change", kindLabel, family },
           h("span", { className: "coc-mech-body" },
-            row.item ? h("span", { className: "coc-mech-who" }, `${term(text(row.item))} `) : row.subject_is_investigator === true
-              ? h("span", { className: "coc-mech-who" }, `${text(row.subject_label || row.subject)} `) : "",
+            row.item ? h("span", { className: "coc-mech-who" }, `${term(text(row.item))} `) : who
+              ? h("span", { className: "coc-mech-who" }, `${who} `) : "",
             h("span", { className: "coc-mech-res" },
               t(`resource.${text(row.resource)}`, term(text(row.resource).toUpperCase())))),
           h("span", { className: "coc-mech-figure" },

@@ -214,6 +214,21 @@ export class SettleContext {
         const node = this.npcNode(id);
         return node ? personLabel(this.world, this.graph.handle(node), this.graph.displayName(node)) : id;
     }
+    /** Only names explicitly established at this table may identify an NPC on a public combat card. */
+    publicCombatLabel(id: string): string | null {
+        if (this.sheetById(id))
+            return this.subjectLabel(id);
+        const named = row(row(this.world.person_labels)[id]).name;
+        if (typeof named === 'string' && named.trim())
+            return named;
+        const node = this.npcNode(id);
+        if (node && this.graph.isTablePerson(node)) {
+            const person = array(this.world.table_people).find(person => this.graph.find(person.name, ['npc'])?.node_id === node.node_id);
+            if (typeof person?.name === 'string' && person.name.trim())
+                return person.name;
+        }
+        return null;
+    }
     addSessionReceipt(family: string, transition: string, options: Row = {}): string {
         const id=this.mint(`session:${family}-${transition}-t${this.turnNumber}-c${this.ordinal}`);
         const {outcome=null,summary=null,...extra}=options;

@@ -15,6 +15,7 @@ import { RuleObservations } from '../read/rule-facts.js';
 import { buildCapsule } from '../read/assemble.js';
 import { contextBinding } from '../read/context.js';
 import { mechanics } from '../read/mechanics.js';
+import { SessionView } from '../read/session-view.js';
 import { standingStates } from '../read/standing.js';
 import { authoredMapWords } from '../read/maps.js';
 import { sceneLabel } from '../read/capsule.js';
@@ -660,6 +661,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 display_name: sceneLabel(module.graph, snapshot.world, scene)
             },
             pending_turn: pending,
+            session: new SessionView(snapshot, module.graph, snapshot.party, snapshot.world).activeSession(),
             opening_needed: opening,
             ...(modGaps.length ? { mods_unreadable: modGaps } : {}),
             mod_context: await modContext(context, module.graph, snapshot.world, snapshot.party, snapshot.records, true, {

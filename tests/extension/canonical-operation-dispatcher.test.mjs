@@ -196,6 +196,44 @@ test("conformance: host and ordinary look share the public hook/executor/result 
 		"host operations do not forge Pi child messages");
 });
 
+test('standing-defense recovery cannot mark an unexecuted framed apply as succeeded', async t => {
+  const campaign = 'dispatcher-defense';
+  const {table, control, records} = await openDispatchTable(t, {
+    campaign, realKernel: true, env: {COC_KERNEL_SEED: '9'}, responses: closeTurn('The investigation begins.'),
+  });
+  await waitForIdle(table.session);
+  const rpc = (method, params = {}) => control.bridge.call(`table.${method}`, {campaign, ...params});
+  // A historical asked turn, installed through the real kernel solely as a regression fixture.
+  await rpc('player_input', {text: 'Confront Corbitt.'});
+  let ordinal = 0;
+  const write = (method, params) => rpc(method, {call_id: `t1-c${++ordinal}`, ...params});
+  for (const to of ['corbitt-house-ground', 'basement-rites', 'corbitt-confrontation'])
+    await write('apply', {effects: [{kind: 'move', to}]});
+  await write('resolve', {action: {intent: 'combat', goal: 'Shoot', method: 'Fire', target: 'Walter Corbitt', weapon: '.38 Revolver'}});
+  await write('resolve', {action: {intent: 'combat', goal: 'Stand', method: '', actor: 'Walter Corbitt', defense: 'none'}});
+  const attack = await write('resolve', {action: {intent: 'combat', goal: 'Attack', method: '', actor: 'Walter Corbitt', target: 'thomas-hayes'}});
+  await write('ask', {kind: 'mechanics', text: 'The knife approaches.', options: ['dodge', 'fight_back', 'flee'], binds: attack.pending_choice.name});
+  const before = await rpc('view');
+  const owner = task(campaign, ['apply']);
+  control.scenarios.push({proposal: proposal(owner, {id: 'host-op-recovery-apply', operation: 'apply',
+    args: {effects: [{kind: 'time', minutes: 5, why: 'Wait after the attack'}]}}), context: hostContext(control, owner)});
+  table.faux.setResponses([dispatchCall(), ...closeTurn('The defense resolves.')]);
+  await play(table);
+  const observation = control.observations[0];
+  assert.equal(observation.status, 'refused', JSON.stringify({observation, telemetry:table.telemetry().filter(row=>row.lane==='standing-defense'), hooks:control.hooks}));
+  assert.deepEqual(observation.receipts, [], 'defense receipts never become the original operation receipts');
+  assert.equal(observation.result.coc_error.code, 'operation_not_executed');
+  assert.equal(observation.result.coc_error.details.operation_executed, false);
+  const defense = observation.result.coc_error.details.automatic_defense;
+  assert.equal(defense.outcome.status, 'resolved');
+  assert.ok(defense.receipts.length > 0, 'the separately owned defense result remains available to the Keeper');
+  assert.equal(records.get('host-op-recovery-apply').request, undefined, 'the original apply was never submitted');
+  const after = await rpc('view');
+  assert.equal(after.clock.minutes, before.clock.minutes, 'the requested time effect never happened');
+  assert.equal((await rpc('look', {focus:'session', _context_read:true})).session.pending_defense, null);
+  assert.equal(table.telemetry().filter(row => row.lane === 'standing-defense' && row.ok).length, 1);
+});
+
 test("conformance: capability derivation cannot promote source answer to prepare, escalate tools, or deliver as the host", async (t) => {
 	assert.equal(operationCapability("lookup", { kind: "source", source_mode: "answer" }), "lookup.source.answer");
 	assert.equal(operationCapability("lookup", { kind: "source" }), "source.prepare");
@@ -387,7 +425,8 @@ test("conformance: malformed retained journal identities fail closed before hook
 		["failed", "invalid_operation_identity"],
 	]);
 	assert.deepEqual(control.hooks, []);
-	assert.equal(table.kernelRequests().some((row) => row.method === "table.look"), false);
+	assert.equal(table.kernelRequests().some((row) => row.method === "table.look" && row.params?._context_read !== true), false,
+		'no malformed look executes; the later narrate may read the host-only defense snapshot');
 });
 
 test("conformance: settled mutations remain succeeded when trace or cancellation arrives after settlement", async (t) => {

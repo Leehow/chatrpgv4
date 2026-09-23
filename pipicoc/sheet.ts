@@ -25,6 +25,7 @@ import { emitToPanel, registerInvokeHandlers } from "./host-bridge.ts";
 import { uiWordsSurface } from "./ui-words.ts";
 import type { UiWords } from "../runtime/ui-words.ts";
 import type { HostRuntime } from "../runtime/host.ts";
+import {readDefensePreference, writeDefensePreference} from '../runtime/combat-defense.ts';
 
 /** The manifest id. The invoke registry and the bridge both namespace by it. */
 export const PACK_ID = "coc-keeper";
@@ -208,6 +209,7 @@ export function registerSheetPanel(pi: ExtensionAPI, deps: SheetPanelDeps = {}):
 			// The kernel's own answer names the campaign's language; later reads keep it after a
 			// restart that missed `coc:table-open`.
 			if (typeof view?.play_language === "string" && view.play_language) language = view.play_language;
+			if (view && runtime?.home) view.defense_preference = await readDefensePreference(runtime.home, campaign);
 			return answer({ status: "ready", view, campaign });
 		} catch (error) {
 			// A kernel refusal is an answer, not a crash: a campaign with no party yet, a turn
@@ -291,6 +293,13 @@ export function registerSheetPanel(pi: ExtensionAPI, deps: SheetPanelDeps = {}):
 	}
 
 	registerInvokeHandlers(PACK_ID, {
+		'defense-preference': async (raw: unknown) => {
+			const params = raw as {campaign?: unknown; defense?: unknown};
+			if (!runtime?.home || !campaign || params?.campaign !== campaign) throw new Error('The selected campaign has changed');
+			const defense = await writeDefensePreference(runtime.home, campaign, params.defense);
+			void emitToPanel(PACK_ID, 'sheet-changed');
+			return {campaign, defense_preference: defense};
+		},
 		// `retry_projection` is the player asking again for a lane run that failed -- the same word
 		// the sheet's own vocabulary lanes take, so one button covers both.
 		sheet: async (raw: unknown) => {

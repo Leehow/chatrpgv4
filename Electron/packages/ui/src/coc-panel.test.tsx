@@ -19,6 +19,34 @@ import { say, ui } from './fixtures/coc-ui-words';
 const Panel = createComponent(React);
 afterEach(cleanup);
 
+it('writes the bound campaign defense preference and rereads the authoritative value',async()=>{
+  let defense='dodge';
+  const api={invoke:vi.fn(async(method:string,params:any)=>{
+    if(method==='defense-preference') {
+      expect(params.campaign).toBe('combat-a'); defense=params.defense;
+      return {ok:true,data:{campaign:'combat-a',defense_preference:defense}};
+    }
+    return {ok:true,data:{campaign:'combat-a',ui:ui('en'),view:view({play_language:'en',session:{kind:'combat',round:1},defense_preference:defense})}};
+  })};
+  const rendered=render(<Panel api={api}/>);
+  const select=await screen.findByLabelText('Defense preference') as HTMLSelectElement;
+  expect(select.value).toBe('dodge');
+  fireEvent.change(select,{target:{value:'fight_back'}});
+  await waitFor(()=>expect(select.value).toBe('fight_back'));
+  expect(api.invoke).toHaveBeenCalledWith('defense-preference',{campaign:'combat-a',defense:'fight_back'});
+  rendered.unmount(); render(<Panel api={api}/>);
+  expect((await screen.findByLabelText('Defense preference') as HTMLSelectElement).value).toBe('fight_back');
+});
+
+it('does not claim a failed preference save succeeded',async()=>{
+  const api={invoke:vi.fn(async(method:string)=>method==='defense-preference'?{ok:false,error:{code:'stale_choice'}}:
+    {ok:true,data:{campaign:'combat-a',ui:ui('en'),view:view({play_language:'en',session:{kind:'combat',round:1},defense_preference:'dodge'})}})};
+  render(<Panel api={api}/>);
+  const select=await screen.findByLabelText('Defense preference') as HTMLSelectElement;
+  fireEvent.change(select,{target:{value:'fight_back'}});
+  await screen.findByRole('alert'); expect(select.value).toBe('dodge');
+});
+
 const investigator = {
   id: 'inv-1',
   name: '托马斯·海斯',

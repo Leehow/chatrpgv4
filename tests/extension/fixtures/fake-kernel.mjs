@@ -377,6 +377,7 @@ function resolve(params) {
 		};
 	}
 	if (action.defense) {
+		if (process.env.FAKE_DEFENSE_FAIL === '1') return {ok: false, error: {code: 'needs', message: 'The defense could not settle'}};
 		mechanic({ kind: "roll", actor: INVESTIGATOR, skill: "Dodge", roll: 18, target: 40, level: "regular", passed: true, visibility: "public" });
 		return {
 			ok: true,
@@ -409,7 +410,8 @@ function resolve(params) {
 					kind: "combat",
 					round: 1,
 					turn_of: "看门人",
-					pending_defense: { for: "player", defender: "托马斯·海耶斯", options: ["dodge", "fight_back"] },
+					status: 'active',
+					pending_defense: { for: "player", actor: INVESTIGATOR, attack_command_id: params.call_id, revision: 1, options: ["dodge", "fight_back"] },
 				},
 				pending_choice: {
 					name: `combat-defense-t${turn}`,

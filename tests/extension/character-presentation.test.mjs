@@ -27,6 +27,25 @@ test('presentation covers all UI and value text, skips numerical values and reus
  assert.equal(await readFile(join(dir,'1.json'),'utf8'),raw);
  await assert.rejects(prepareCharacterPresentation({...options,campaign:'../other'}),/Invalid/);
 });
+test('rules presentation collects and caches an unseeded delivered combat skill through the tool runner',async()=>{
+ const {rulesTexts,prepareRulesPresentation}=await import('../../extensions/module/character-presentation.ts');
+ const home=await mkdtemp(join(tmpdir(),'combat-terms-'));
+ const view={play_language:'fr',labels:{Dodge:'Evade'},investigators:[],mechanics:[{kind:'roll',skill:'Fighting',visibility:'public'},
+  {kind:'roll',skill:'Dodge',visibility:'public'},{kind:'roll',skill:'Hidden skill',visibility:'keeper'}]};
+ assert.deepEqual(rulesTexts(view),['Fighting']);
+ let calls=0;
+ const runner=async request=>{calls++;assert.ok(request.brief.includes('presentation.json'));
+  const packet=JSON.parse(await readFile(join(request.cwd,'texts.json'),'utf8'));
+  await writeFile(join(request.cwd,'presentation.json'),JSON.stringify(presentation(packet,{translate:()=> 'Projected combat term'})));
+  return {ok:true};};
+ const options={home,campaign:'cards',play_language:'fr',view,known_labels:view.labels,runner};
+ try {
+  assert.equal((await prepareRulesPresentation(options)).texts.Fighting,'Projected combat term');
+  assert.equal((await prepareRulesPresentation(options)).texts.Fighting,'Projected combat term');
+  assert.equal(calls,1);
+ } finally {await rm(home,{recursive:true,force:true});}
+});
+
 test('incomplete text projection is refused',async()=>{
  const home=await mkdtemp(join(tmpdir(),'card-presentation-')),dir=join(home,'.coc/campaigns/c1/setup/drafts');await mkdir(dir,{recursive:true});await writeFile(join(dir,'1.json'),JSON.stringify({play_language:'zh-Hans',sheet}));
  await assert.rejects(prepareCharacterPresentation({home,campaign:'c1',revision:1,play_language:'zh-Hans',runner:async r=>{await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({texts:{Parameter:'Parameter'}}));return {ok:true}}}),/Incomplete/);

@@ -823,7 +823,18 @@ export function createComponent(React) {
 
   /** Where and when the table stands: the old panel's time tab, now with the module's own clock. */
   function Standing(props) {
-    const { view, t } = props;
+    const { view, t, api, campaign, refresh } = props;
+    const [saving, setSaving] = useState(false), [failed, setFailed] = useState(false);
+    async function changeDefense(defense) {
+      if (!api.invoke || saving) return;
+      setSaving(true); setFailed(false);
+      try {
+        const result = await api.invoke('defense-preference', {campaign, defense});
+        if (!result?.ok || result.data?.campaign !== campaign) throw new Error('Defense preference was not saved');
+        await refresh();
+      } catch { setFailed(true); }
+      finally { setSaving(false); }
+    }
     const names = isRecord(view.standing_labels) ? view.standing_labels : {};
     const display = value => text(names[value]) || "…";
     const clock = isRecord(view.clock) ? view.clock : {};
@@ -837,7 +848,8 @@ export function createComponent(React) {
     if (session) lines.push({ key: t("sessionKey"), value: session.round
       ? fill(t("session.round"), { kind: display(session.kind), round: session.round })
       : fill(t("session"), { kind: display(session.kind) }), live: true });
-    if (view.pending_choice) lines.push({ key: "", value: t("awaitingChoice"), live: true });
+    if (view.pending_choice && !(view.pending_choice.kind === 'mechanics' && view.pending_choice.options?.some(option => option === 'dodge' || option === 'fight_back'))
+      && !session?.pending_defense) lines.push({ key: "", value: t("awaitingChoice"), live: true });
     const meta = lines.filter(line => !line.live);
     const live = lines.filter(line => line.live);
     const at = storyTime(clock.at);
@@ -851,6 +863,12 @@ export function createComponent(React) {
           { d: span.days, hh: span.hours, mm: span.minutes })
       : null;
     return h(Section, { title: t("time"), icon: "clock", anchor: "time" },
+      session?.kind === 'combat' ? h('div', {className: 'coc-standing-defense'},
+        h('label', null, t('defensePreference'), ' ', h('select', {
+          value: view.defense_preference || 'dodge', disabled: saving || !api.invoke,
+          onChange: event => void changeDefense(event.target.value),
+        }, h('option', {value: 'dodge'}, t('defense.dodge')), h('option', {value: 'fight_back'}, t('defense.fight_back')))),
+        failed ? h('p', {role: 'alert'}, t('defenseSaveFailed')) : null) : null,
       reading ? h("div", { className: "coc-clock" }, reading) : null,
       meta.length
         ? h("div", { className: "coc-standing-meta" }, meta.map((line, index) =>
@@ -1120,7 +1138,7 @@ export function createComponent(React) {
               onClick: () => setWho(index),
             }, text(member.name) || text(member.id))))
         : null,
-      h(Standing, { view, t }),
+      h(Standing, { key: answer.campaign, view, t, api, campaign: answer.campaign, refresh: load }),
       sheet ? h(Vitals, { sheet, t, term, ui }) : null,
       sheet ? h(Characteristics, { sheet, t, term }) : null,
       sheet ? h(Skills, { sheet, t, term }) : null,

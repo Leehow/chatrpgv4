@@ -629,7 +629,8 @@ it('a live delivery draws a found clue in the play language, not the language th
   // What the delivery needs projected: the two player-facing words of the public clue row, and
   // nothing from the keeper row or from a kind that carries no module prose.
   expect(deliveryWords(row)).toEqual({clues:[summary,'调查方向']});
-  expect(deliveryWords({data:{mechanics:[{kind:'roll',skill:'Spot Hidden'}]}})).toEqual({});
+  expect(deliveryWords({data:{mechanics:[{kind:'roll',skill:'Spot Hidden'}]}})).toEqual({rules:['Spot Hidden']});
+  expect(deliveryWords({data:{labels:{'Spot Hidden':'Known term'},mechanics:[{kind:'roll',skill:'Spot Hidden'}]}})).toEqual({});
   expect(deliveryWords(undefined)).toEqual({});
 
   // The synchronous reader answers with nothing before a read has landed -- and asking starts one,
@@ -715,6 +716,52 @@ it('a clue found this turn starts its own projection and redraws the delivery in
     expect(drawn[2].entry.id).toBe('found-5');
     expect(drawn[2].entry.presentation.details.labels[summary]).toBe(projected);
   } finally {await backend.close();}
+},40000);
+
+it('two live deliveries waiting on the same rule word each redraw their own entry',async()=>{
+  const {cp}=await import('node:fs/promises');
+  const {createPiHostBackend}=await import('../src/index.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-shared-rule-lane-'));
+  const client=new KernelClient({command:[process.execPath,join(repo,'build/kernel/rpc.mjs'),'--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{}});
+  try {await client.call('campaign.create',{id:'shared-rules',module:'the-haunting',pregen:'thomas-hayes',play_language:'fr'});}finally{await client.close();}
+  const folder=join(root,'.coc/campaigns/shared-rules/setup/presentations');await mkdir(folder,{recursive:true});
+  let release:()=>void=()=>{};
+  const gate=new Promise<void>(resolve=>{release=resolve});
+  const asked:any[]=[];let flight:Promise<any>|undefined;
+  const registry={get:()=>({presentation:(request:any)=>{
+    asked.push(request);
+    return flight??=(async()=>{await gate;await writeFile(join(folder,'rules-fr.json'),JSON.stringify({play_language:'fr',texts:{Fighting:'Combat projeté'}}));return {texts:{Fighting:'Combat projeté'}};})();
+  }}),dispose(){},async close(){}} as any;
+  const profile=join(root,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
+  await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
+  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime'),defaultPack:'coc-keeper',managedNodeModulesRoot:join(repo,'node_modules'),cocOnboardingRegistry:registry,env:{...process.env,PI_COC_HOME:root,UV_CACHE_DIR:'/tmp/pi-coc-uv-cache'},piCommand:{executable:join(repo,'pipicoc/rpc'),env:{PATH:process.env.PATH!}},spawn:()=>{throw new Error('Pi must remain asleep');}});
+  try {
+    await backend.handle('addProject',[root]);const projects=await backend.handle('listProjects',[]) as any[];
+    const session=await backend.handle('newSession',[projects[0].id]) as any;
+    const located=await (backend as any).locate(session.id);
+    await writeFile(located.path+'.coc.json',JSON.stringify({campaign:'shared-rules',home:root,play_language:'fr'}));
+    (backend as any).cocSessionBindings.set(session.id,(await readCocBinding(located.path))!);
+    const drawn:any[]=[];
+    backend.subscribe((frame:any)=>{if(frame.channel==='stream'&&frame.event?.type==='presentation')drawn.push(frame.event);});
+    (backend as any).sessionRuntimeTokens.set(session.id,7);
+    for(const id of ['first','second']){
+      const entry={type:'custom',id,customType:'coc-mechanics',timestamp:'2026-09-10',data:{turn:4,
+        mechanics:[{kind:'roll',receipt:`roll:${id}`,skill:'Fighting',roll:38,target:45,visibility:'public'}]}};
+      (backend as any).rpcEvent({session:{id:session.id},runtimeToken:7},{type:'entry_appended',entry});
+    }
+    for(let i=0;i<100&&asked.length<2;i++)await new Promise(r=>setTimeout(r,10));
+    release();
+    for(let i=0;i<200&&drawn.length<4;i++)await new Promise(r=>setTimeout(r,10));
+    expect(asked).toHaveLength(2);
+    expect(asked.every(request=>request.rules===true&&request.mechanics[0].skill==='Fighting')).toBe(true);
+    expect(drawn.filter(event=>event.entry.id==='first')).toHaveLength(2);
+    expect(drawn.filter(event=>event.entry.id==='second')).toHaveLength(2);
+    for(const id of ['first','second']){
+      const cards=drawn.filter(event=>event.entry.id===id);
+      expect(cards[0].entry.presentation.details.labels.Fighting).toBeUndefined();
+      expect(cards[1].entry.presentation.details.labels.Fighting).toBe('Combat projeté');
+    }
+  } finally {release();await backend.close();}
 },40000);
 
 it('a handed-over document is asked of the lane that can collect it, by the words that lane reads',()=>{

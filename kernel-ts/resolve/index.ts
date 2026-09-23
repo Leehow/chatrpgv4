@@ -193,6 +193,22 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                 throw new RpcError('invalid_params', 'params.action must be an object');
             if (!INTENTS.includes(string(action.intent)))
                 unsupportedValue('intent', action.intent, INTENTS, `unknown intent ${repr(action.intent)}`);
+            if (params._standing_defense != null) {
+                await snapshot.preload();
+                const sessions = new SessionView(snapshot, graph, snapshot.party, transaction.world);
+                const expected = params._standing_defense, pending = sessions.combatView()?.pending_defense;
+                if (!isJsonObject(expected) || pending?.for !== 'player' || sessions.combatView()?.status !== 'active'
+                    || expected.attack_command_id !== pending.attack_command_id || expected.actor !== pending.actor
+                    || expected.revision !== pending.revision || action.actor !== pending.actor
+                    || action.intent !== 'combat' || action.decision !== 'combat:defend'
+                    || !['dodge', 'fight_back'].includes(string(action.defense)) || !pending.options.includes(action.defense))
+                    throw new RpcError('invalid_params', 'The standing defense no longer matches the live investigator attack', {details: {reason: 'stale_defense'}});
+                // An old ask remains history, not a second authorization awaiting resubmission.
+                const oldChoice = transaction.turn.pending_choice;
+                if (isJsonObject(oldChoice) && (oldChoice.binds === sessions.pendingChoice()?.name
+                    || oldChoice.kind === 'mechanics' && array(oldChoice.options).some(option => option === 'dodge' || option === 'fight_back')))
+                    transaction.turn.pending_choice = null;
+            }
             const intent = string(action.intent);
             if (!NONE_INTENTS.has(intent)) {
                 if (contributions.requireMaterial)

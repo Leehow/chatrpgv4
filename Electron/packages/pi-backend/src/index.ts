@@ -1,5 +1,6 @@
 import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } from './coc-onboarding.js';
 import { timelineAnchors, transcriptPrefix } from './coc-timeline.js';
+import {readDefensePreference, writeDefensePreference, isDefenseChoice} from './coc-defense.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
 import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, laneWords, laneProjection, laneLabels,
   laneLabelsLoaded, reloadLaneLabels, deliveryWords, CocCardLedger, type CocCardPatch,
@@ -6227,7 +6228,9 @@ export class PiHostBackend implements HostBackend {
       let landed = false;
       for (const [lane, missing] of pending) {
         const key = JSON.stringify([binding.home, binding.campaign, binding.play_language, lane, missing]);
-        if (this.cocLaneJobs.has(key)) continue;
+        // Every delivery owns a redraw of its own entry. An in-flight projection may be shared
+        // by the onboarding host, but skipping this caller would strand its card in the old language.
+        if (this.cocLaneJobs.get(key)?.status === "failed") continue;
         this.cocLaneJobs.set(key, {status: "pending"});
         try {
           const repo = resolve(this.managedNodeModulesRoot!, "..");
@@ -6236,6 +6239,7 @@ export class PiHostBackend implements HostBackend {
           this.cocOnboarding = host;
           const state = await this.getModelState(sessionId);
           await host.presentation({campaign: binding.campaign, play_language: binding.play_language, [lane]: true,
+            ...(lane === "rules" ? {mechanics: raw.data.mechanics} : {}),
             ...await this.cocFastLane(state)});
           this.cocLaneJobs.delete(key);
           landed = true;
@@ -9861,7 +9865,7 @@ export class PiHostBackend implements HostBackend {
         return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error),(error as any)?.details);
       }
     }
-    if (id === "coc-keeper" && ["sheet","choose"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
+    if (id === "coc-keeper" && ["sheet","choose","defense-preference"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
       return {ok:true,data:{status:"unbound",view:null,campaign:null,...await this.cocAnswerWords(undefined)}};
     }
     if (id === "coc-keeper" && method === "ui-words") {
@@ -9900,11 +9904,24 @@ export class PiHostBackend implements HostBackend {
         ? optsValue.sessionId.trim()
         : [...this.live.keys()].at(-1);
     if (!sessionId) return this.cocDenied("no_session", "no active session");
+    if (id === 'coc-keeper' && method === 'defense-preference') {
+      const selected = await this.locate(sessionId), binding = await readCocBinding(selected.path);
+      if (!binding) return this.cocDenied('campaign_unbound', 'No campaign is bound');
+      if (!isRecord(params) || params.campaign !== binding.campaign)
+        return this.cocDenied('stale_choice', 'The selected campaign has changed');
+      try {
+        const defense = await writeDefensePreference(binding.home, binding.campaign, params.defense);
+        this.cocSheetReads.delete(sessionId);
+        emitFrame(this.listeners, {protocolVersion: PIPI_HOST_PROTOCOL_VERSION, channel: 'ext.coc-keeper',
+          event: {type: 'sheet_changed', payload: {campaign: binding.campaign}}});
+        return {ok: true, data: {campaign: binding.campaign, defense_preference: defense}};
+      } catch (error) { return this.cocDenied('invalid_params', error instanceof Error ? error.message : String(error)); }
+    }
     if (id === "coc-keeper" && method === "choose") {
       const sheet:any = await this.invokeExtension(id,"sheet",{}, {sessionId});
       const choice = sheet?.data?.view?.pending_choice;
       const selected = params as {choice?:string;option?:string};
-      if (!choice || choice.name !== selected?.choice || !choice.options?.includes(selected?.option)) {
+      if (isDefenseChoice(choice) || !choice || choice.name !== selected?.choice || !choice.options?.includes(selected?.option)) {
         return this.cocDenied("stale_choice", "This choice is no longer pending.");
       }
       if (this.cocChoiceClaims.get(sessionId) === choice.name) return this.cocDenied("stale_choice", "This choice was already submitted.");
@@ -9962,6 +9979,7 @@ export class PiHostBackend implements HostBackend {
             } catch { /* A card can still be read before its text projection has been prepared. */ }
             // Project only names the kernel has already exposed to this player.
             const liveView=view as any;
+            liveView.defense_preference = await readDefensePreference(context.home, context.campaign);
             const visibleNames=[liveView.scene?.display_name||liveView.scene?.name,liveView.session?.kind].filter((name):name is string=>typeof name==='string'&&!!name.trim());
             let names:Record<string,string>={};
             try {

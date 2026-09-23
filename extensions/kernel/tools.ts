@@ -387,7 +387,7 @@ const ResolveAction = Type.Object({
 	defense: Type.Optional(
 		StringEnum(["dodge", "fight_back", "none"] as const, {
 			description:
-				"with an attack target and weapon, none resolves a non-resisting target in the same call; otherwise answers the pending defence from the previous result: dodge, fight back, or give up the defence; ask the player for his own defence first, and decide an NPC's yourself together with actor",
+				"with an attack target and weapon, none resolves a non-resisting target in the same call; otherwise answers the pending defence from the previous result: dodge, fight back, or give up the defence; the host automatically resolves a live investigator defense using the campaign standing preference, so never ask the player for or repeat that defense; decide an NPC's defense yourself together with actor",
 		}),
 	),
 	push: Type.Optional(
@@ -627,7 +627,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Ask",
 		method: "table.ask",
 		description:
-			"Close with a structured interaction only for a required mechanical decision. Ordinary story questions belong in narrate prose and await free input. kind mechanics forbids a prompt and uses only closed action identifiers: push, spend_luck, accept, dodge, fight_back, flee. Never automatically ask how to handle a failed check; normally narrate its fictional consequence. Questions and options are JSON for frontend controls, never part of rendered prose. text contains fiction only, and takes the same {{marker}} placement and {{say:Name}}…{{/say}} wrapping of spoken lines narrate does. After the call write no more prose.",
+			"Close with a structured interaction only for a required mechanical decision. Ordinary story questions belong in narrate prose and await free input. kind mechanics forbids a prompt and uses only closed action identifiers: push, spend_luck, accept, flee. Investigator combat defense is automatic under the campaign standing preference, never an ask; NPC defense is the Keeper's resolve decision. Never automatically ask how to handle a failed check; normally narrate its fictional consequence. Questions and options are JSON for frontend controls, never part of rendered prose. text contains fiction only, and takes the same {{marker}} placement and {{say:Name}}…{{/say}} wrapping of spoken lines narrate does. After the call write no more prose.",
 		promptSnippet: "Hand one choice back to the player, and close the turn with it",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
@@ -639,7 +639,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			),
 			kind: Type.Literal("mechanics"),
 
-			options: Type.Array(Type.String(), { minItems: 2, description: "Mechanics: only push, spend_luck, accept, dodge, fight_back, flee. Never automatically ask after a failed roll." }),
+			options: Type.Array(Type.String(), { minItems: 2, description: "Mechanics: only push, spend_luck, accept, flee. Never ask for combat defense: the host uses the investigator's standing preference, and the Keeper resolves NPC defenses. Never automatically ask after a failed roll." }),
 			binds: Type.Optional(Type.String({ description: "the name of the pending choice this binds to" })),
 			workpad_patch: WorkpadPatch,
 		}),
