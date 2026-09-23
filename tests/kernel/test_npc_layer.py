@@ -496,8 +496,11 @@ def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_pat
         if n["node_kind"] == "module": n["node_id"] = f"module-{mid}"
         n["source_refs"] = [{"page": 1}]
         if n["node_kind"] in ("asset", "handout"): n.get("properties", {}).pop("asset_ref", None)
-        if n["node_kind"] == "npc" and "skills" in n.get("properties", {}):
-            n["properties"]["mechanics"] = {"profile": {"skills": n["properties"].pop("skills")}}
+        # The frozen fixture's skills are named in the book's language. A reader's profile is a mechanical
+        # shape now and names skills as the ruleset does (contract §136.26); this test walks dossier claims,
+        # not numbers, so the legacy skill dictionary is left out rather than translated here.
+        if n["node_kind"] == "npc":
+            n.get("properties", {}).pop("skills", None)
     claims = [{k: c[k] for k in ("subject_id", "predicate", "object", "truth_status", "visibility", "reason", "known_by_ids", "asserted_by_ids", "validity") if k in c}
               for c in frozen["claims"]]
     for c in claims:
