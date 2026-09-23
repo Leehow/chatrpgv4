@@ -1,7 +1,9 @@
 export type RuntimeLayout = 'source' | 'compiled';
 export interface RuntimeEntrypoints {
   readonly kernel: string; readonly kernelCheck: string; readonly host: string; readonly preparation: string;
-  readonly check: string; readonly launch: string; readonly sourceWorker: string; readonly source: string;
+  readonly check: string; readonly launch: string;
+  /** The Keeper's Pi CLI on the hybrid engine (vendored Pi `main` plus the RunDriver). */
+  readonly piHybrid: string; readonly sourceWorker: string; readonly source: string;
   readonly onboardingWorker: string; readonly rpc: string; readonly agent: string; readonly readerContext: string;
   readonly readerPdf: string; readonly readerSubmit: string; readonly deepseek: string; readonly imageGen: string; readonly grokBuild: string;
   readonly characterGuidance: string; readonly characterPresentation: string; readonly documentPresentation: string;
@@ -12,7 +14,11 @@ export interface RuntimeEntrypoints {
   readonly providerExtensions: readonly string[];
   /** The provider ids those extensions declare, which a lane child therefore resolves. */
   readonly providerExtensionIds: readonly string[];
-  readonly hostAssets: string; readonly pi: string;
+  readonly hostAssets: string;
+  /** The vendored Pi CLI (ADR-0006), started for the Keeper and every reader/Mod child. */
+  readonly pi: string;
+  /** The vendored Pi package entry, imported in-process by pi-backend (the same copy). */
+  readonly piModule: string;
 }
 export interface ProviderExtension {
   /** The extension directory name under `extensions/`. */
@@ -30,6 +36,8 @@ export interface RuntimeDeployment {
   readonly entrypoints: RuntimeEntrypoints;
 }
 export const COMPILED_ENTRIES: Readonly<Record<string, string>>;
+export const PI_PACKAGE_ROOT: string;
+export const PI_ENTRIES: Readonly<{ pi: string; piModule: string }>;
 export function agentExtensionManifests(root: string): readonly ProviderExtension[];
 export function providerExtensionManifests(root: string): readonly ProviderExtension[];
 export const HOST_MOUNTS: Readonly<Record<string, string>>;

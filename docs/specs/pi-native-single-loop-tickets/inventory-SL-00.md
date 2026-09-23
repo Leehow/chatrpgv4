@@ -45,7 +45,7 @@ TaskRuntime, S0, `keeper-support`, `map-words`, `workspace-rerank` or reading ro
 
 ## 2. Counts
 
-127 call sites under 121 inventory keys.
+127 call sites under 121 inventory keys (at SL-00; SL-01 adds one app-play-gated leaf, `runtime/jev/hybrid-engine.ts` `createDecisionAdapter`, listed below).
 
 | role \ path | app-play | app-play-gated | child-process | app-setup | app-ui | settings-ui | source-only | no-caller | host-infra | total |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -198,6 +198,7 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 | `extensions/table/context-runtime.ts` | `installContextPolicy.decision` | 61 | `createDecisionAdapter` | table ext: preparation (prescreen + NPC preparation owner) | app-play-gated | observed (prescreen rows) | Shared adapter factory for the per-input preparation. Gate: Jev key; the prescreen also needs ext.jev.preselectEnabled (true in the App). |
 | `extensions/table/prescreen.ts` | `prepareKeeperSupport` | 295 | `createDecisionAdapter` | table ext: prescreen | app-play-gated | observed | Adapter used when no shared one is passed. |
 | `runtime/jev/decision-adapter.ts` | `createDecisionAdapter` | 215 | `fetch` | Jev decision port | app-play-gated | observed: prescreen loop_decision, npc decision, speech rows | The one transport of every typed Jev decision (POST https://api.typesafe.ai/v1/systemone). Gate: a Jev key in the vault (configured in the App). |
+| `runtime/jev/hybrid-engine.ts` | `createHybridEngine` | – | `createDecisionAdapter` | hybrid engine (SL-01): Jev decision port of Pi's RunDriver | app-play-gated | n/a (added at SL-01) | Gate: PI_COC_LOOP_ENGINE=hybrid-v1 (play) and a Jev key. The RunDriver's decide steps (route/bind) go through this adapter under a lease bound to the run's signal; the driver, not this call, owns the loop. |
 | `runtime/jev/fresh-source-navigator.ts` | `createFreshSourceNavigator` | 119 | `createDecisionAdapter` | module reading: fresh-source navigation | app-play-gated | n/a | Gate: PI_COC_TASK_RUNTIME=1 and PI_COC_JEV_SOURCE=1 and a Jev key (no App setting sets the env vars). |
 
 #### Leaves (model-involving) — app-setup (3 sites)

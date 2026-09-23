@@ -124,6 +124,7 @@ PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/play -q -p no:c
 
 Most tests run the driver against `tests/play/fixtures/fake_pi_rpc.py`, a
 scripted stand-in for pi that needs no LLM or API key. One smoke test spawns
-the real `node_modules/.bin/pi --mode rpc --no-session` to confirm the JSONL
-framing assumptions against the real binary; it is skipped when
-`node_modules` is absent.
+the real Pi CLI the product starts (the vendored build,
+`build/node_modules/@earendil-works/pi-coding-agent/dist/cli.js`, ADR-0006) with
+`--mode rpc --no-session` to confirm the JSONL framing assumptions; it is skipped
+when `npm run build:runtime` has not built it.

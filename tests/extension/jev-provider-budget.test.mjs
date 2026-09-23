@@ -98,7 +98,7 @@ async function fixture(t,mode){
  const home=await mkdtemp(join(tmpdir(),'jev-provider-'));t.after(()=>rm(home,{recursive:true,force:true}));
  const cli=join(home,'pi-fixture.mjs'),marker=join(home,'dispatched');
  await writeFile(cli,`import {writeFileSync} from 'node:fs';\nimport readerContext from ${JSON.stringify(join(ROOT,'extensions/module/reader-context.ts'))};
- import {ExtensionRunner,createExtensionRuntime} from ${JSON.stringify(join(ROOT,'node_modules/@earendil-works/pi-coding-agent/dist/index.js'))};
+ import {ExtensionRunner,createExtensionRuntime} from ${JSON.stringify(join(ROOT,'build/node_modules/@earendil-works/pi-coding-agent/dist/index.js'))};
  const handlers=new Map();readerContext({on:(name,fn)=>{const list=handlers.get(name)??[];list.push(fn);handlers.set(name,list);}}, {env:process.env});
  const ctx={model:${JSON.stringify(model)},abort(){}};
  const runner=new ExtensionRunner([{path:"budget-conformance",handlers}],createExtensionRuntime(),process.cwd(),{},{});

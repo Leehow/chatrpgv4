@@ -1844,6 +1844,30 @@ export function parseHostWireFrame(raw: unknown): HostWireParseResult {
   return { ok: false, error: "unsupported protocol" };
 }
 
+/** Answer one request against the backend; `setEventProjectionSession` is the caller's state. */
+function answerHostRequest(
+  backend: HostBackend,
+  request: HostRequest,
+  send: (frame: HostWireFrame) => void,
+  isClosed: () => boolean,
+  selectProjection: (session: string | undefined) => void
+): void {
+  if (request.method === "setEventProjectionSession") {
+    selectProjection(normalizeEventProjectionSession(request.params[0]));
+    send({ protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: request.id, type: "response", ok: true, result: undefined });
+    return;
+  }
+  void Promise.resolve(backend.handle(request.method, request.params)).then(
+    result => {
+      if (!isClosed()) send({ protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: request.id, type: "response", ok: true, result });
+    },
+    error => {
+      if (isClosed()) return;
+      send({ protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: request.id, type: "response", ok: false, ...thrownHostError(error) });
+    }
+  );
+}
+
 /** Transport-neutral HostBackend ↔ HostRequest/HostResponse/HostEvent pump. */
 export function createHostBackendSession(
   backend: HostBackend,
@@ -1865,25 +1889,76 @@ export function createHostBackendSession(
         send(protocolErrorResponse());
         return;
       }
-      const request = parsed.frame;
-      if (request.method === "setEventProjectionSession") {
-        selectedEventProjectionSession = normalizeEventProjectionSession(request.params[0]);
-        send({ protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: request.id, type: "response", ok: true, result: undefined });
-        return;
-      }
-      void Promise.resolve(backend.handle(request.method, request.params)).then(
-        result => {
-          if (!closed) send({ protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: request.id, type: "response", ok: true, result });
-        },
-        error => {
-          if (closed) return;
-          send({ protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: request.id, type: "response", ok: false, ...thrownHostError(error) });
-        }
-      );
+      answerHostRequest(backend, parsed.frame, send, () => closed, session => {
+        selectedEventProjectionSession = session;
+      });
     },
     async close() {
       if (closed) return;
       closed = true;
+      unsubscribe();
+      if (options.ownsBackend) await Promise.resolve(backend.close?.()).catch(() => undefined);
+    }
+  };
+}
+
+export type MultiplexedHostBackendSession = {
+  /** A browser arrived; it hears events from now on, before its first request. */
+  attach(client: string): void;
+  /** A browser left; its projection choice goes with it. */
+  detach(client: string): void;
+  /** One request from `client`. Responses carry no address: the relay routes them. */
+  receive(raw: unknown, client: string): void;
+  close(): Promise<void>;
+};
+
+/**
+ * One host link serving several browsers. Each browser chooses its own event
+ * projection session, so a phone watching session A and a desktop watching B
+ * each get their own transcript stream. Every event is sent once, addressed to
+ * the browsers that want it (`clients`); the relay fans it out, so N browsers
+ * do not cost N times the frame budget.
+ */
+export function createMultiplexedHostBackendSession(
+  backend: HostBackend,
+  send: (frame: HostWireFrame & { clients?: string[] }) => void,
+  options: BindHostBackendOptions = {}
+): MultiplexedHostBackendSession {
+  let closed = false;
+  const projections = new Map<string, string | undefined>();
+  const unsubscribe = backend.subscribe(event => {
+    if (closed || projections.size === 0) return;
+    const clients: string[] = [];
+    for (const [client, selected] of projections) {
+      if (shouldForwardProjectedHostEvent(event, selected)) clients.push(client);
+    }
+    if (clients.length) send({ type: "event", ...event, clients });
+  });
+  const attach = (client: string) => {
+    if (!projections.has(client)) projections.set(client, undefined);
+  };
+  return {
+    attach,
+    detach(client) {
+      projections.delete(client);
+    },
+    receive(raw, client) {
+      if (closed) return;
+      const parsed = parseHostWireFrame(raw);
+      if (!parsed.ok || parsed.frame.type !== "request") {
+        send(protocolErrorResponse());
+        return;
+      }
+      attach(client);
+      answerHostRequest(backend, parsed.frame, send, () => closed, session => {
+        // A request can outlive its browser; do not resurrect a detached one.
+        if (projections.has(client)) projections.set(client, session);
+      });
+    },
+    async close() {
+      if (closed) return;
+      closed = true;
+      projections.clear();
       unsubscribe();
       if (options.ownsBackend) await Promise.resolve(backend.close?.()).catch(() => undefined);
     }

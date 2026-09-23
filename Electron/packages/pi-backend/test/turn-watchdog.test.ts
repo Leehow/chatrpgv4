@@ -3,7 +3,7 @@ import { access, mkdtemp, mkdir, rm, stat, writeFile, appendFile } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { abandonmentStillCoversTheSilence, createPiHostBackend, TURN_WATCHDOG_TIMEOUT_MS } from "../src/index.js";
+import { abandonmentStillCoversTheSilence, createPiHostBackend, RUN_ACTIVITY_EVENTS, TURN_WATCHDOG_TIMEOUT_MS } from "../src/index.js";
 
 let root = "";
 afterEach(async () => { if (root) await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 }); root = ""; });
@@ -562,6 +562,35 @@ describe("turn watchdog (fix 3)", () => {
     }) + "\n");
     expect(await (backend as any).isSessionTailTerminal(sessionPath)).toBe(false);
 
+    await backend.close();
+  });
+});
+
+describe("turn watchdog and the RunDriver's step events (SL-01)", () => {
+  it("counts run/step events as activity, so host and Jev steps before the first model message are not aborted", async () => {
+    const { backend } = await fixture();
+    const statuses: string[] = [];
+    const off = backend.subscribe(e => { if (e.channel === "stream" && e.event.type === "status") statuses.push(e.event.status); });
+    await backend.handle("sendPrompt", ["s1", "__hold__"]);
+    await eventually(() => statuses.includes("started"));
+    const live = (backend as any).live.get("s1");
+    const silent = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
+    // A non-activity event leaves the silence standing.
+    live.lastTurnActivityAt = silent;
+    (backend as any).rpcEvent(live, { type: "queue_update", steering: [], followUp: [] });
+    expect(live.lastTurnActivityAt).toBe(silent);
+    // Every run/step event the driver emits is activity.
+    for (const type of ["run_start", "step_start", "step_attempt", "operation_prepared", "operation_settled", "step_end", "delivery_accepted", "scope_enter", "scope_exit", "run_end"]) {
+      expect(RUN_ACTIVITY_EVENTS.has(type)).toBe(true);
+      live.lastTurnActivityAt = silent;
+      (backend as any).rpcEvent(live, { type, runId: "r1", stepId: "r1:s1", sequence: 1, scopeId: "r1:root", origin: "policy", visibility: "internal", schemaVersion: 1, at: Date.now() });
+      expect(Date.now() - live.lastTurnActivityAt).toBeLessThan(TURN_WATCHDOG_TIMEOUT_MS);
+    }
+    // A run whose last event was a step is not aborted by the sweep.
+    await (backend as any).checkTurnWatchdogs();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(statuses).not.toContain("stopped");
+    off();
     await backend.close();
   });
 });

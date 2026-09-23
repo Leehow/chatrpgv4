@@ -287,24 +287,31 @@ test('a language name is asked once per language, and only the name is asked',as
  assert.deepEqual(languageTexts({}),[]);
 });
 
-test('a handed-over handout is asked as one document, with the heading the kernel wrote above it',async()=>{
+test('a handed-over handout is asked as the one document the card shows, under the heading the kernel wrote',async()=>{
  const {prepareHandoutPresentation,handoutInput,handoutTexts}=await import('../../extensions/module/character-presentation.ts');
+ const {handoutFile,handoutBody}=await import('../../kernel-ts/read/handout-document.ts');
  const home=await mkdtemp(join(tmpdir(),'handout-presentation-'));
  const folder=join(home,'.coc/campaigns/c1/handouts');await mkdir(folder,{recursive:true});
  const display='Handout 2: Unpublished Boston Globe Story (1918)';
- // Exactly what `apply handout` writes: `# <display>\n\n<body>\n`.
- const text=`# ${display}\n\nHOUSE ON SHEAFE STREET LEAVES A RECORD OF MISFORTUNE\n\nThe Macario family took the house early in 1918.\n`;
- await writeFile(join(folder,'globe-unpublished-1918.md'),text);
+ // Exactly what `apply handout` writes, through the writer itself.
+ const file=handoutFile(display,'HOUSE ON SHEAFE STREET LEAVES A RECORD OF MISFORTUNE\n\nThe Macario family took the house early in 1918.');
+ await writeFile(join(folder,'globe-unpublished-1918.md'),file);
  await writeFile(join(folder,'empty.md'),'   \n');
  await writeFile(join(folder,'map.png'),'not markdown');
+ // The card's body is the body the kernel's mechanics row carries (`handoutBody`) -- not the file.
+ // The lane's answer is looked up by that string, so the lane must ask for that string: asking for
+ // the whole file (heading included) left every handout in the book's language under a translated
+ // title (the-haunting, 2026-09-23). The real kernel path is pinned in handout-words-follow-the-card.
+ const shown=handoutBody(file);
+ assert.ok(shown&&!shown.startsWith('#')&&shown!==file,'the card shows the body, not the file');
  // The heading is read back, never guessed out of the prose; a blank card and a non-markdown
  // attachment contribute nothing.
- assert.deepEqual(await handoutInput(home,'c1'),[{name:display,text}]);
+ assert.deepEqual(await handoutInput(home,'c1'),[{name:display,text:shown}]);
  assert.deepEqual(await handoutInput(home,'never-played'),[]);
  await assert.rejects(handoutInput(home,'../escape'),/Invalid presentation request/);
  // One string for the whole document: a newspaper column translated a line at a time stops being
  // a newspaper column. The name is asked beside it, for the row the document folds under.
- assert.deepEqual(handoutTexts({handouts:[{name:display,text}]}),[display,text].sort());
+ assert.deepEqual(handoutTexts({handouts:[{name:display,text:shown}]}),[display,shown].sort());
  assert.deepEqual(handoutTexts({}),[]);
  assert.deepEqual(handoutTexts({handouts:[{name:null,text:'  '}]}),[]);
 
@@ -312,8 +319,9 @@ test('a handed-over handout is asked as one document, with the heading the kerne
  const runner=async r=>{const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));asked=inputTexts(input);
   await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input)));return {ok:true}};
  const saved=await prepareHandoutPresentation({home,campaign:'c1',play_language:'zh-Hans',runner});
- assert.deepEqual(asked.sort(),[display,text].sort());
- assert.equal(saved.texts[text],`zh-Hans:${text}`);
+ assert.deepEqual(asked.sort(),[display,shown].sort());
+ assert.equal(saved.texts[shown],`zh-Hans:${shown}`);
+ assert.equal(saved.texts[display],`zh-Hans:${display}`);
  assert.deepEqual(JSON.parse(await readFile(join(home,'.coc/campaigns/c1/setup/presentations/handouts-zh-Hans.json'),'utf8')),saved);
  // A second delivery of the same document asks for nothing.
  asked=null;

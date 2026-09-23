@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {Agent} from '@earendil-works/pi-agent-core';
+import {Agent} from './pi-agent-core.mjs';
 import {createAssistantMessageEventStream} from '@earendil-works/pi-ai';
 import readerSubmit from '../../extensions/module/reader-submit.ts';
 import {readerInput,readerCommand} from '../../extensions/module/reader.ts';

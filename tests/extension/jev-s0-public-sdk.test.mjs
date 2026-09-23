@@ -11,7 +11,7 @@ import {
 	ModelRuntime,
 	SessionManager,
 	SettingsManager,
-} from "@earendil-works/pi-coding-agent";
+} from "./pi.mjs";
 import { Type } from "typebox";
 import { createS0HostAdapter } from "../../runtime/jev/host-session-adapter.ts";
 

@@ -85,6 +85,9 @@ const CSS = `
   font-size:10px;transition:transform .12s ease}
 .coc-clue-fold[open]>summary::after{transform:rotate(90deg)}
 .coc-clue-body{padding:0 0 8px;color:var(--muted);line-height:1.6;overflow-wrap:anywhere}
+.coc-clue-doc>summary .coc-icon{flex:none;align-self:center}
+.coc-clue-doc-body{margin:2px 0 10px;padding:10px 14px;border-left:2px solid var(--border-strong);
+  font-family:var(--coc-serif);line-height:1.75;white-space:pre-wrap;color:var(--text)}
 /* One exchange with a person: where it happened, as a caption on its own line, then what passed
    between them. The place is a separate element because it is a separate word -- run inline, the
    scene's name and the lane's sentence read as one run with nothing between them. No separator
@@ -292,6 +295,7 @@ const ICON_PATHS = {
   map: ["M3 6.4 8.6 4.3v14.5L3 20.9z", "M9.6 4.3v14.5l4.8 2v-14.5z", "M15.4 6.3v14.5l4.6-1.8a1 1 0 0 0 1-1V6.5a1 1 0 0 0-1.3-1z"],
   search: ["M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14Z", "M16.2 16.2 21 21"],
   body: ["M12 4.6a2.7 2.7 0 1 1 0 5.4 2.7 2.7 0 0 1 0-5.4Z", "M4.8 20.2c.4-4 3.4-6.4 7.2-6.4s6.8 2.4 7.2 6.4Z"],
+  document: ["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z", "M14 3v5h5", "M9 13h6", "M9 17h6"],
 };
 
 export function createComponent(React) {
@@ -400,7 +404,13 @@ export function createComponent(React) {
     // A clue the scene offers but nobody has found is the Keeper's business, not the player's:
     // only the ones already marked discovered are named.
     const foundHere = here.filter(clue => isRecord(clue) && clue.discovered === true);
-    if (!discovered.length && !foundHere.length) {
+    // The documents the table was handed (`view.handouts`), each its own row that opens into the
+    // whole text, so a clipping read once is still here after its delivery card scrolls away. Name
+    // and body go through the glossary: the handouts lane projects exactly these two strings, the
+    // same ones the delivery card looks up.
+    const documents = (Array.isArray(view.handouts) ? view.handouts : [])
+      .filter(doc => isRecord(doc) && text(doc.text));
+    if (!discovered.length && !foundHere.length && !documents.length) {
       return h(Section, { title: t("clues"), icon: "search", anchor: "clues" }, h("p", { className: "coc-sheet-note" }, t("noClues")));
     }
     const seen = new Set();
@@ -412,7 +422,12 @@ export function createComponent(React) {
       seen.add(key);
       rows.push(line);
     }
-    return h(Section, { title: t("clues"), icon: "search", anchor: "clues" }, rows.map((row, index) =>
+    const documentRows = documents.map((doc, index) =>
+      h("details", { className: "coc-clue coc-clue-fold coc-clue-doc", key: `doc:${text(doc.handout)}:${index}`, "data-handout": text(doc.handout) },
+        h("summary", null, h(Icon, { name: "document" }),
+          h("span", { className: "coc-clue-name" }, term(text(doc.name) || text(doc.handout)))),
+        h("div", { className: "coc-clue-body coc-clue-doc-body" }, term(text(doc.text)))));
+    return h(Section, { title: t("clues"), icon: "search", anchor: "clues" }, [...rows.map((row, index) =>
       row.how
         // The name stays on the line; how this table came by the clue is one tap away. The name
         // goes through the glossary -- the Keeper's own label comes back as itself, a graph name
@@ -422,7 +437,7 @@ export function createComponent(React) {
             h("summary", null, h("span", { className: "coc-clue-name" }, term(row.name))),
             h("div", { className: "coc-clue-body" }, row.how))
         : h("div", { className: "coc-clue", key: `${row.name}:${index}` },
-            h("span", { className: "coc-clue-name" }, term(row.name)))));
+            h("span", { className: "coc-clue-name" }, term(row.name)))), ...documentRows]);
   }
 
   /**

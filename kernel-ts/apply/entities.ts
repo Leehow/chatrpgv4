@@ -4,6 +4,7 @@ import {isAbsolute,join} from 'node:path';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
 import {recordOf} from '../read/module-graph.js';
+import {handoutFile} from '../read/handout-document.js';
 import {npcsPresent,personLabel} from '../read/capsule.js';
 import {unsupported} from '../read/handlers.js';
 import {tablePersonId} from '../read/table-people.js';
@@ -165,7 +166,7 @@ export async function stageHandout(context:ApplyContext,effect:Row,asset:(module
     const attachment:Row={handout:handle,path:null,media_type:null,available:false};
     const text=typeof record.authored_text==='string'?record.authored_text:registered.authored_text;
     if(typeof text==='string'&&text.trim()){
-        const folder=join(context.campaign.directory,'handouts'),path=join(folder,`${handle}.md`);await mkdir(folder,{recursive:true});await writeFile(path,`# ${display}\n\n${text.trim()}\n`,'utf8');
+        const folder=join(context.campaign.directory,'handouts'),path=join(folder,`${handle}.md`);await mkdir(folder,{recursive:true});await writeFile(path,handoutFile(display,text),'utf8');
         Object.assign(attachment,{path,media_type:'text/markdown',available:true});
     }else{
         const ref=registered.path||props.asset_ref||props.image_ref,media=registered.media_type||props.media_type||null;

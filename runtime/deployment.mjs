@@ -7,6 +7,8 @@ export const COMPILED_ENTRIES = Object.freeze({
   kernel: 'build/kernel/rpc.mjs', kernelCheck: 'build/kernel/check.mjs',
   host: 'build/runtime/host.mjs', preparation: 'build/runtime/preparation.mjs',
   check: 'build/runtime/check.mjs', launch: 'build/runtime/launch.mjs',
+  // The Keeper's Pi CLI on the hybrid engine (PI_COC_LOOP_ENGINE=hybrid-v1): the vendored Pi's main plus the RunDriver.
+  piHybrid: 'build/runtime/pi-hybrid.mjs',
   sourceWorker: 'build/runtime/source-worker.mjs', source: 'build/extensions/module/source.mjs',
   onboardingWorker: 'build/pipicoc/onboarding-worker.mjs', rpc: 'build/pipicoc/rpc.mjs',
   agent: 'build/pipicoc/agent.mjs', readerContext: 'build/extensions/module/reader-context.mjs',
@@ -24,6 +26,14 @@ export const COMPILED_ENTRIES = Object.freeze({
   uiPresentation: 'build/extensions/module/ui-presentation.mjs',
   mapPresentation: 'build/extensions/module/map-presentation.mjs',
 });
+/**
+ * The one Pi the product loads (ADR-0006): `vendor/pi` compiled by `scripts/build-pi.mjs` into
+ * `build/node_modules`, the first `node_modules` every emitted entry under `build/` resolves through.
+ * The Keeper launch, every reader/Mod child and pi-backend's in-process loader take these paths, in
+ * source and compiled layouts alike; the installed `@earendil-works/pi-coding-agent` is never started.
+ */
+export const PI_PACKAGE_ROOT = 'build/node_modules/@earendil-works/pi-coding-agent';
+export const PI_ENTRIES = Object.freeze({ pi: `${PI_PACKAGE_ROOT}/dist/cli.js`, piModule: `${PI_PACKAGE_ROOT}/dist/index.js` });
 export const COC_EXTENSIONS = Object.freeze(['kernel', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice']);
 /**
  * The extensions that register a model provider, read from the manifests that already declare it.
@@ -145,7 +155,8 @@ export function runtimeEntrypoints(root, layout = 'source') {
     providerExtensions: Object.freeze(providerExtensionManifests(root).map(({entry}) => entry)),
     providerExtensionIds: Object.freeze(providerExtensionManifests(root).flatMap(({providers}) => providers)),
     hostAssets: join(root, 'build/host/runtime'),
-    pi: join(root, 'node_modules', '.bin', 'pi'),
+    pi: join(root, PI_ENTRIES.pi),
+    piModule: join(root, PI_ENTRIES.piModule),
   });
 }
 
@@ -166,6 +177,8 @@ export function readDeployment(root) {
   const gitExec = resourcePath(root, manifest.gitExec, 'directory');
   const gitTemplates = resourcePath(root, manifest.gitTemplates, 'directory');
   const pi = resourcePath(root, manifest.pi);
+  if (manifest.pi !== PI_ENTRIES.pi) throw new Error(`The standalone runtime must start the vendored Pi (${PI_ENTRIES.pi}), not ${manifest.pi}`);
+  const piModule = resourcePath(root, PI_ENTRIES.piModule);
   const entries = runtimeEntrypoints(root, 'compiled');
   for (const path of [...Object.values(COMPILED_ENTRIES), ...COC_EXTENSIONS.map(name => `build/extensions/${name}/index.mjs`)]) resourcePath(root, path);
   // A manifest that declares an agent extension must have shipped its emitted code. Discovery is
@@ -176,7 +189,7 @@ export function readDeployment(root) {
   for (const path of ['content', 'mods', 'node_modules', 'build/host/runtime']) resourcePath(root, path, 'directory');
   for (const path of ['prompts/keeper.md', 'prompts/setup.md', 'build/host/runtime/auth/pi-auth-helper.mjs']) resourcePath(root, path);
   return Object.freeze({ layout: 'compiled', backend: 'typescript', resourceRoot: resolve(root),
-    node, git, gitExec, gitTemplates, entrypoints: Object.freeze({ ...entries, pi }) });
+    node, git, gitExec, gitTemplates, entrypoints: Object.freeze({ ...entries, pi, piModule }) });
 }
 
 export function standaloneRuntime(resourcesPath) {

@@ -223,7 +223,7 @@ describe('createRemoteControlService', () => {
     return dir
   }
 
-  it('pairs, forwards request/response/event, replaces the second browser, and reconnects the same room', async () => {
+  it('pairs, forwards request/response/event, keeps a second browser alongside the first, and reconnects the same room', async () => {
     const relay = await startRelay()
     relays.push(relay)
     const dir = await userData()
@@ -305,6 +305,7 @@ describe('createRemoteControlService', () => {
       result: { terminal: false, browser: false, revealInFinder: false }
     })
 
+    // A second browser joins; the first is not evicted (multiplex).
     const granted2 = await claim(relay.origin, persisted.roomID, persisted.pairSecret)
     const second = new WebSocket(`ws://127.0.0.1:${new URL(relay.origin).port}/ws`, {
       headers: { Cookie: cookieHeader(granted2.headers.get('set-cookie')) }
@@ -314,15 +315,6 @@ describe('createRemoteControlService', () => {
       second.addEventListener('open', resolve, { once: true })
       second.addEventListener('error', () => reject(new Error('second browser')), { once: true })
     })
-    if (browser.readyState !== WebSocket.CLOSED && browser.readyState !== WebSocket.CLOSING) {
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('first browser not replaced')), 4_000)
-        browser.addEventListener('close', () => {
-          clearTimeout(timer)
-          resolve()
-        }, { once: true })
-      })
-    }
     second.send(JSON.stringify({
       protocolVersion: 2,
       id: 'req-2',
@@ -332,6 +324,24 @@ describe('createRemoteControlService', () => {
     }))
     const secondResponse = await nextBusinessFrame(secondQ, second)
     expect(secondResponse).toMatchObject({ type: 'response', id: 'req-2', ok: true })
+    expect(browser.readyState).toBe(WebSocket.OPEN)
+
+    // Each browser keeps its own projection: the first chose 'selected', the
+    // second chose nothing and hears every session.
+    backend.emit({ protocolVersion: 2, channel: 'stream', event: { type: 'text', sessionId: 'background', contentIndex: 0, delta: 'only second' } })
+    backend.emit({ protocolVersion: 2, channel: 'stream', event: { type: 'text', sessionId: 'selected', contentIndex: 0, delta: 'both' } })
+    await expect(nextBusinessFrame(secondQ, second)).resolves.toMatchObject({ event: { delta: 'only second' } })
+    await expect(nextBusinessFrame(secondQ, second)).resolves.toMatchObject({ event: { delta: 'both' } })
+    const firstNext = await nextBusinessFrame(browserQ, browser)
+    expect(firstNext).toMatchObject({ event: { delta: 'both' } })
+    expect(firstNext).not.toHaveProperty('clients')
+
+    // The panel follows the live count instead of sticking at 「浏览器已连接」.
+    second.close()
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(service.getState().status).toBe('paired')
+    browser.close()
+    await waitFor(() => service.getState().status === 'ready', 'host still claims a browser after the last one left')
 
     service.dropConnection()
     await waitFor(

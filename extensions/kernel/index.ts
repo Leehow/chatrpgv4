@@ -36,6 +36,7 @@ import { learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, 
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
+import { startupRecord } from "../../runtime/startup-record.ts";
 import {
 	SPEECH_ATTRIBUTION_DEFAULT_MIN_CONFIDENCE,
 	SPEECH_ATTRIBUTION_FAMILY,
@@ -3313,6 +3314,8 @@ export default function (pi: ExtensionAPI) {
 			applyOpen(open);
 			table.playLanguage = asString(open.campaign?.play_language);
 			pi.appendEntry("coc-session", {campaign, home: cocHome(ctx.cwd), play_language: table.playLanguage, mode: "play"});
+			// The startup record: which run engine and which Pi this table runs on (single-loop spec, story 35).
+			void record(startupRecord(runtime.resourceRoot, process.env) as unknown as Record<string, unknown>);
 			// The tool surface is fixed: these seven and no reshaping afterwards.
 			pi.setActiveTools([...COC_TOOL_NAMES]);
 			// One Pi session, one kernel subprocess (contract §1), so there is only this one kernel RPC.

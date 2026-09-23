@@ -11,7 +11,8 @@ import {prepareKeeperSupport} from '../../extensions/table/prescreen.ts';
 import {bindingOf} from '../../extensions/table/context-policy.ts';
 import type {DecisionBatch, DecisionResult, ReadSet, ScopeBinding} from '../../runtime/jev/contracts.ts';
 import {buildCandidates, kernelCall, type Candidate, type Json} from './candidates.ts';
-import {ROUTE_FAMILY, doneThisTurn, jsonBytes, type LoopPorts, type Material, type RunView, type StepRequest, type TurnContext} from './loop.ts';
+import {ROUTE_FAMILY, doneThisTurn, jsonBytes, type Material, type RunView, type StepRequest, type TurnContext} from '../../runtime/jev/step-policy.ts';
+import type {LoopPorts} from './loop.ts';
 
 type Row = Record<string, any>;
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};

@@ -84,3 +84,31 @@ Two facts decide how the source is held:
   (decision 4); the control arm of a paired measurement is a build of the base commit, not a second Pi in one install.
 - Upstream requests in host contract §6 remain worth filing; each one accepted upstream is a patch removed from the
   series.
+
+## Implementation record
+
+- **SL-01 Stage A (2026-09-23), first import.** `vendor/pi/` holds `packages/agent` and `packages/coding-agent` of
+  tag `v0.87.0` (`16787ad5`), the root `LICENSE` and `tsconfig.base.json`; `vendor/pi/VENDOR.md` is decision 1's
+  `UPSTREAM.md` (how it was fetched, the file list, what was left out), `vendor/pi/PATCHES.md` plus
+  `vendor/pi/patches/` the series of decision 2. `pi-ai`, `pi-tui`, `chord` and `pi-telemetry` are not vendored:
+  no patch needs them, and the installed 0.87.0 packages stay the only copies.
+- Decision 3 held with a stronger result than the ADR asked for: all 116 + 216 `sourcesContent` equal the tag's
+  files, and `scripts/build-pi.mjs` (TypeScript 5.9.3, upstream options, `useDefineForClassFields` set to what tsgo
+  actually emitted) reproduces all 335 published `.js` modules byte for byte. `tests/extension/vendored-pi.test.mjs`
+  re-checks both on every `npm run test:ext` for the files the series does not touch.
+- Decision 4: `npm run build:runtime` builds the two packages into `build/node_modules/@earendil-works/`. Every
+  emitted module under `build/` resolves a bare `@earendil-works/pi-*` import there first; `runtimeEntrypoints().pi`
+  (Keeper launch, reader/Mod children) and `.piModule` (pi-backend's in-process `SessionManager`/`ModelRuntime`,
+  passed as `PiBackendOptions.piModule` by the Electron main process; the auth helper finds the package from
+  `PIPIUI_PI_PATH`) point into it in both layouts; the standalone manifest's `deployment.pi` and
+  `buildDirectories` carry it into the package. The installed `pi-coding-agent` stays a production dependency
+  (it brings the shared packages and third-party modules the vendored build resolves) but nothing starts or
+  imports it. The extension test seam imports Pi through `tests/extension/pi.mjs`, so the suite runs on the
+  vendored build.
+- **SL-01 stages B–C (2026-09-23).** The series holds `0001-agent-core-run-driver.patch` (the RunDriver, `Agent.runDriven`,
+  run events in `AgentEvent`, export keywords in `agent-loop.ts`) and `0002-session-run-driver.patch` (`SessionRunDriver`
+  through the SDK, session services and `main`; the driven prompt that takes neither `continue()` site). Every other
+  upstream file is untouched and still emits the published JavaScript. The product selects the driver with
+  `PI_COC_LOOP_ENGINE=hybrid-v1` (`runtime/launch.ts` → `build/runtime/pi-hybrid.mjs`); `legacy` runs the same vendored
+  build through its unchanged model-first loop (decision 4's control arm inside one install is a build of the base
+  commit, as stated above).

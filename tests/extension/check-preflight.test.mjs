@@ -16,7 +16,7 @@ export {createKernelContext} from './kernel-ts/context.ts';export {nativeAdvisor
 export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {installContextPolicy} from './extensions/table/context-runtime.ts';
 export {validateKeeperSupport} from './runtime/jev/keeper-support-contract.ts';
-export {convertToLlm} from './node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js';`,resolveDir:root,sourcefile:'check-preflight-api.ts'},outfile:join(bundle,'api.mjs'),
+export {convertToLlm} from './build/node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js';`,resolveDir:root,sourcefile:'check-preflight-api.ts'},outfile:join(bundle,'api.mjs'),
   bundle:true,packages:'external',platform:'node',format:'esm',target:'node22',logLevel:'silent'});
 const api=await import(pathToFileURL(join(bundle,'api.mjs')).href);
 after(async()=>{for(const home of homes)await rm(home,{recursive:true,force:true});});

@@ -23,7 +23,7 @@
  * - spawn              `spawn(...)`, `.spawn(...)`, `.spawnImpl(...)` (child processes; Pi children among them)
  */
 import ts from 'typescript';
-import {readdirSync, readFileSync} from 'node:fs';
+import {existsSync, readdirSync, readFileSync} from 'node:fs';
 import {join, relative, resolve, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -41,6 +41,9 @@ export function sourceFiles(root = REPO, trees = TREES) {
       if (!entry.isFile() || !SOURCE.test(entry.name) || entry.name.endsWith('.d.ts') || entry.name.endsWith('.d.mts')) continue;
       const path = join(entry.parentPath ?? entry.path, entry.name);
       if (path.includes(`${'/'}node_modules${'/'}`)) continue;
+      // A stray emit beside its own source (extensions/kernel/client.js next to client.ts, gitignored) is the
+      // same code twice; the inventory names the source, so the emit is skipped rather than double-counted.
+      if (/\.(js|mjs|cjs)$/.test(entry.name) && existsSync(path.replace(/\.(js|mjs|cjs)$/, (_, ext) => ({js: '.ts', mjs: '.mts', cjs: '.cts'})[ext]))) continue;
       files.push(path);
     }
   }

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { test } from "node:test";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "./pi.mjs";
 
 const ROOT = process.cwd();
 const FIXTURE = join(ROOT, "tests/extension/fixtures/jev-s0-rpc-tools.mjs");

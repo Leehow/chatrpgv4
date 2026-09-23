@@ -4,7 +4,7 @@ import {mkdir, mkdtemp, rm} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
-import {SessionManager} from '@earendil-works/pi-coding-agent';
+import {SessionManager} from './pi.mjs';
 import {fauxAssistantMessage} from '@earendil-works/pi-ai';
 
 const root = resolve(import.meta.dirname, '../..');

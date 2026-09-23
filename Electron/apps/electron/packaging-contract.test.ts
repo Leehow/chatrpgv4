@@ -242,7 +242,9 @@ describe('standalone PipiCOC packaging contract', () => {
       expect(asset.sha256).toMatch(/^[a-f0-9]{64}$/)
       expect(asset.url).toMatch(/^https:\/\//)
     }
-    expect(runtimeDependencies.deployment).toMatchObject({ layout: 'compiled', backend: 'typescript', node: 'node/bin/node', git: 'git/bin/git', pi: 'node_modules/@earendil-works/pi-coding-agent/dist/cli.js' })
+    expect(runtimeDependencies.deployment).toMatchObject({ layout: 'compiled', backend: 'typescript', node: 'node/bin/node', git: 'git/bin/git', pi: 'build/node_modules/@earendil-works/pi-coding-agent/dist/cli.js' })
+    // ADR-0006: the standalone runtime ships build/node_modules, where the vendored Pi is built.
+    expect(runtimeDependencies.buildDirectories).toContain('node_modules')
     expect(runtimeDependencies.requiredEntries).toContain('build/kernel/rpc.mjs')
     expect(runtimeDependencies.requiredEntries).toContain('build/pipicoc/rpc.mjs')
     expect(runtimeDependencies.requiredEntries).toContain('build/host/runtime/kernel/pipiui-secret-vault.mjs')

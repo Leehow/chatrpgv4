@@ -11,12 +11,13 @@ import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { agentExtensionManifests, desktopSessionExtensionPaths, extensionArgs, providerExtensionManifests,
+import { agentExtensionManifests, desktopSessionExtensionPaths, extensionArgs, PI_ENTRIES, providerExtensionManifests,
 	readerProviderExtensionPaths, runtimeEntrypoints, sessionExtensionPaths } from "../../runtime/deployment.mjs";
 import { FAKE_KERNEL, openTable } from "./harness.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = realpathSync(join(HERE, "..", ".."));
+const VENDORED_PI = PI_ENTRIES.pi;
 
 function scratch(prefix) {
 	return realpathSync(mkdtempSync(join(tmpdir(), prefix)));
@@ -85,16 +86,18 @@ function fakeRepo() {
 		mkdirSync(join(root, "extensions", entry.name), { recursive: true });
 		copyFileSync(join(REPO, "extensions", entry.name, "pipiui-extension.json"), join(root, "extensions", entry.name, "pipiui-extension.json"));
 	}
-	mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
+	mkdirSync(join(root, "node_modules"), { recursive: true });
+	// The launcher starts the vendored Pi's CLI from build/node_modules (ADR-0006), never node_modules/.bin/pi.
+	mkdirSync(dirname(join(root, VENDORED_PI)), { recursive: true });
 	// The emitted launcher intentionally keeps runtime packages external. The fixture owns an isolated
-	// dependency view while its fake `.bin/pi` remains local to this tree.
+	// dependency view while its fake vendored Pi CLI remains local to this tree.
 	symlinkSync(join(REPO, "node_modules", "typebox"), join(root, "node_modules", "typebox"), "dir");
 	symlinkSync(join(REPO, "node_modules", "@earendil-works"), join(root, "node_modules", "@earendil-works"), "dir");
 	copyFileSync(join(REPO, "bin", "pi-coc"), join(root, "bin", "pi-coc"));
 	chmodSync(join(root, "bin", "pi-coc"), 0o755);
 	writeFileSync(join(root, "prompts", "keeper.md"), "# 守秘人\n");
 	writeFileSync(join(root, "prompts", "setup.md"), "# 建卡\n");
-	const piStub = join(root, "node_modules", ".bin", "pi");
+	const piStub = join(root, VENDORED_PI);
 	writeFileSync(piStub, `const fs=require('node:fs');
 fs.writeFileSync(process.env.PI_STUB_LOG,[
  'cwd='+process.cwd(),'agentdir='+process.env.PI_CODING_AGENT_DIR,'campaign='+(process.env.PI_COC_CAMPAIGN??'<unset>'),
@@ -282,14 +285,14 @@ test("bin/pi-coc preserves explicit extension control flags", (t) => {
 test("bin/pi-coc：没装 pi 时报清楚", (t) => {
 	const root = fakeRepo();
 	t.after(() => rmSync(root, { recursive: true, force: true }));
-	rmSync(join(root, "node_modules", ".bin", "pi"));
+	rmSync(join(root, VENDORED_PI));
 
 	assert.throws(
 		() => execFileSync(join(root, "bin", "pi-coc"), ["--campaign", "camp-a"], { encoding: "utf8", stdio: "pipe" }),
 		(error) => {
 			assert.equal(error.status, 1);
 			assert.match(error.stderr, /ENOENT/);
-			assert.ok(error.stderr.includes(join(root, 'node_modules/.bin/pi')));
+			assert.ok(error.stderr.includes(join(root, VENDORED_PI)));
 			return true;
 		},
 	);
@@ -323,4 +326,43 @@ test("bin/pi-coc：不写 setup 就是开桌，模式是 play", (t) => {
 	assert.equal(run.value("mode"), "play");
 	assert.equal(run.args[3], join(root, "prompts", "keeper.md"), "开桌用守秘人提示");
 	assert.equal(run.args[5], "coc-camp-d", "开桌的会话 id 跟建卡分开");
+});
+
+/**
+ * PI_COC_LOOP_ENGINE (single-loop SL-01): hybrid-v1 starts the same Pi arguments through the hybrid
+ * entry (the vendored Pi's main plus the RunDriver); unset or legacy starts the vendored CLI as before;
+ * setup always runs legacy; any other value is refused. The child is told the engine it runs.
+ */
+function withHybridEntry(root) {
+	mkdirSync(join(root, "build/runtime"), { recursive: true });
+	// Same logger as the Pi stub, as an ES module (the entry is .mjs); it names itself so the test sees which entry ran.
+	writeFileSync(join(root, "build/runtime/pi-hybrid.mjs"), `import fs from 'node:fs';
+fs.writeFileSync(process.env.PI_STUB_LOG, ['entry=pi-hybrid','engine='+(process.env.PI_COC_LOOP_ENGINE??'<unset>'),'mode='+(process.env.PI_COC_MODE??'<unset>'),
+ ...process.argv.slice(2).map(arg=>'arg='+arg)].join('\\n')+'\\n');\n`);
+	const stub = join(root, VENDORED_PI);
+	writeFileSync(stub, readFileSync(stub, "utf8").replace("'cwd='+process.cwd(),", "'entry=pi','engine='+(process.env.PI_COC_LOOP_ENGINE??'<unset>'),'cwd='+process.cwd(),"));
+	return root;
+}
+
+test("PI_COC_LOOP_ENGINE: hybrid-v1 starts the hybrid entry with the legacy arguments; unset and legacy start the vendored CLI", (t) => {
+	const root = withHybridEntry(fakeRepo());
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const legacy = runLauncher(root, ["--campaign", "camp-e"]);
+	const explicit = runLauncher(root, ["--campaign", "camp-e"], { PI_COC_LOOP_ENGINE: "legacy" });
+	const hybrid = runLauncher(root, ["--campaign", "camp-e"], { PI_COC_LOOP_ENGINE: "hybrid-v1" });
+	assert.equal(legacy.value("entry"), "pi");
+	assert.equal(legacy.value("engine"), "legacy");
+	assert.equal(explicit.value("entry"), "pi");
+	assert.equal(hybrid.value("entry"), "pi-hybrid");
+	assert.equal(hybrid.value("engine"), "hybrid-v1");
+	assert.deepEqual(hybrid.args, legacy.args, "the engine changes the entry, not a single Pi argument");
+});
+
+test("PI_COC_LOOP_ENGINE: setup always runs legacy, and an unknown engine is refused", (t) => {
+	const root = withHybridEntry(fakeRepo());
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const setup = runLauncher(root, ["setup", "--campaign", "camp-f"], { PI_COC_LOOP_ENGINE: "hybrid-v1" });
+	assert.equal(setup.value("entry"), "pi");
+	assert.equal(setup.value("engine"), "legacy");
+	assert.throws(() => runLauncher(root, ["--campaign", "camp-f"], { PI_COC_LOOP_ENGINE: "hybrid-v2" }), /PI_COC_LOOP_ENGINE must be one of legacy, hybrid-v1/);
 });
