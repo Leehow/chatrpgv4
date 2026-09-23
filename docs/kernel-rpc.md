@@ -14082,6 +14082,42 @@ from the kernel and hands off (§98)", on the real kernel: the live process revi
 kernel confirms and completes it, and the button's sentence must end in `coc-setup-exit` with no
 guidance refusal. It dies when `before_agent_start` stops calling `refreshCompleted`.
 
+### §98 addendum 4 — a blocked setup turn carries its cause (2026-09-23)
+
+Three failures block a setup turn, and until now one boolean stood for all of them: a guidance
+preparation that failed inside `create-campaign`, one that failed at the start of a later turn, and
+a `mods.context` read that failed at the start of a turn (§26). Every `setup` call then got
+"Guidance review did not pass", and `message_end` dropped the Keeper's text whichever it was, so a
+broken Mod package was reported to the player as a failed review and the Keeper could not even say
+what had happened (addendum 3's table was that case).
+
+The rule: **the block is a cause, not a flag.** The onboarding extension keeps
+`{kind, code?, detail, noticed}` with `kind ∈ {guidance_at_create_campaign, guidance_at_turn_start,
+package_context}`, and each consumer reads the kind, never a sentence:
+
+- **The refusal names the cause and its fix.** `setup` answers `{ok: false, code: "setup_blocked",
+  blocked_by: <kind>, cause?: <the preparer's or the kernel's code>, error}`. A guidance cause says
+  where it failed (when `create-campaign` ran, or at the start of this turn), the code and detail,
+  and that a new player input retries the preparation — except `guidance_not_ready`, where it says
+  a retry will not repair a stale starter bundle and only the offline builder replaces it (§22.9).
+  The package cause names the `mods.context` read and the kernel's message, and says to fix or
+  disable the package the error names in the Mods panel before a new player input reads the
+  context again. Both keep the standing order: no invented scene, no card, no core policy alone.
+- **Only a guidance failure hides the Keeper's text.** §23.4 has a failed review "block setup and
+  suppress invented fallback prose", so the two guidance kinds drop the assistant's text blocks at
+  `message_end`. §26 has a failed `mods.context` "block the turn with a notice rather than silently
+  running the core policy": the notice is the host's, and the Keeper's own explanation of it stays.
+- **One notice per failure, in its own words.** A turn-start cause is announced as it blocks
+  (`setup_guidance_failed` or `setup_packages_failed` with the detail) and `agent_end` does not
+  repeat it. The `create-campaign` cause is announced once at `agent_end`: `setup_guidance_review_failed`
+  when the code is `preparation_failed` (a review that needs another preparation), otherwise
+  `setup_guidance_failed` with the detail. The package cause is never called a guidance review.
+
+Cases: `tests/extension/setup.test.mjs`, one per kind. Each dies when the cause is ignored: the
+generic sentence returns the three refusals to one text, an always-on text filter hides the
+explanation §26 lets the Keeper give, and a cause-blind `agent_end` reports the package read as a
+failed review.
+
 ## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
 
 §97 was built from M-MAIN turn 109 but its fixture omitted the one property the live object had:

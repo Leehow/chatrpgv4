@@ -8,7 +8,7 @@
 
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
@@ -244,6 +244,171 @@ test("a live setup process learns the card button's cold completion from the ker
 	assert.deepEqual(refusals, [], "a completed setup is not a guidance failure");
 	assert.equal(table.entries("coc-setup-exit").length, 1,
 		"the live setup process exits so the launcher relaunches play on the ready_for_table campaign");
+});
+
+// ---- A blocked setup turn names its cause (contract §23.4, §26) ------------------------------
+//
+// Three failures block a setup turn and used to share one boolean: every `setup` call then got
+// "Guidance review did not pass", and `message_end` dropped the Keeper's text whichever it was. The
+// cause now travels with the block. Each case here dies when the cause is ignored: the generic
+// sentence comes back, the wrong notice fires, or the Keeper's explanation is hidden where §26
+// wants a notice and the Keeper free to explain it.
+
+/** The module the guidance preparer reads; `runTask` decides how the reader and reviewer answer. */
+function installGuidanceModule(table) {
+	const folder = join(table.workspace, ".coc/modules/the-haunting");
+	mkdirSync(folder, { recursive: true });
+	writeFileSync(join(folder, "module.json"), JSON.stringify({ id: "the-haunting", opening: { start_scene: "scene-meeting" } }));
+	writeFileSync(join(folder, "module-graph.json"), JSON.stringify({ nodes: [
+		{ node_id: "module-the-haunting", node_kind: "module", name: "Prepared source", summary: "An opening meeting." },
+		{ node_id: "scene-meeting", node_kind: "scene", name: "The meeting begins.", summary: "An opening meeting." }], relations: [] }));
+}
+
+/** A bridge whose owner runtime answers every reader task with `runTask`. */
+function withReader(table, runTask) {
+	const current = table.runtimeBridges().at(-1);
+	table.emit("coc:kernel-bridge", { ...current, runtime: { ...current.runtime, runTask } });
+}
+
+/** The captions a setup that has named no play language of its own speaks in: the data default (contract §23). */
+async function defaultWords() {
+	const declared = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "content/languages.json"), "utf8"));
+	return await extensionWords(declared.default);
+}
+
+/** The last assistant message's text blocks, as the screen shows them after `message_end`. */
+function lastAssistantTextBlocks(session) {
+	const last = session.messages.filter((message) => message.role === "assistant").at(-1);
+	return (last?.content ?? []).filter((block) => block.type === "text").map((block) => block.text);
+}
+
+const draftProfile = { name: { generated: "Helen" }, occupation: "journalist", age: 29, sex: "female", concept: "A cautious reporter.", own_language: "English" };
+
+test("a guidance review that fails inside create-campaign names itself, and the Keeper's fallback prose is dropped (§23.4)", async (t) => {
+	const table = await openSetup([
+		setupCall({ step: "choose-source", kind: "starter", module: "the-haunting" }),
+		setupCall({ step: "create-campaign", id: "guidance-at-create", title: "Prepared source", play_language: "en" }),
+		setupCall({ step: "create-investigator", profile: draftProfile }),
+		fauxAssistantMessage("The guidance review failed, so here is a meeting I made up: you sit in Knott's office."),
+	]);
+	t.after(() => table.dispose());
+	installGuidanceModule(table);
+	// The author writes a valid draft; the independent reviewer rejects it both rounds.
+	withReader(table, async (task) => {
+		const review = task.request.systemPrompt.endsWith("character-guidance-review.md");
+		writeFileSync(join(task.request.cwd, review ? "review.json" : "guidance.json"), JSON.stringify(review
+			? { approved: false, issues: ["The opening names a secret."] }
+			: { protocol: "setup-guidance-reference-v2", opening: "Who joins the meeting?", advice: "Choose a fitting investigator.", guide: null, handoff: "Continue the meeting." }));
+		return { ok: true };
+	});
+
+	await table.session.prompt("Start with this prepared source.");
+	await waitForIdle(table.session);
+
+	const results = setupResults(table.session);
+	const created = results.find((row) => row.code === "guidance_failed");
+	assert.ok(created, `create-campaign reports the failed preparation: ${JSON.stringify(results)}`);
+	assert.match(created.message, /needs revision/, "the preparer's own message rides on the step result");
+
+	const refused = results.at(-1);
+	assert.equal(refused.ok, false);
+	assert.equal(refused.code, "setup_blocked");
+	assert.equal(refused.blocked_by, "guidance_at_create_campaign", "the refusal carries the cause as an enum, not a sentence");
+	assert.equal(refused.cause, "preparation_failed", "and the preparer's code");
+	assert.match(refused.error, /Module guidance could not be prepared when create-campaign ran \(preparation_failed: .*needs revision/, "the text names where it failed and why");
+	assert.match(refused.error, /new player input, which retries the preparation/, "and the fix that matches a rejected review");
+	assert.doesNotMatch(refused.error, /Guidance review did not pass/, "the generic sentence is gone");
+	assert.doesNotMatch(refused.error, /package context/, "a guidance failure is not blamed on the packages");
+
+	assert.deepEqual(lastAssistantTextBlocks(table.session), [], "§23.4: a failed review suppresses the invented fallback prose");
+
+	const words = await defaultWords();
+	const notices = table.ui.notifications.filter((row) => row.type === "error").map((row) => row.message);
+	assert.deepEqual(notices, [words.word("setup_guidance_review_failed")],
+		"the player is told once, at the end of the run, in the words of a review that needs another preparation");
+});
+
+test("a guidance preparation that fails at the start of a turn names itself, and the Keeper's text is dropped (§23.4)", async (t) => {
+	// Turn one creates the campaign with no module on disk, so nothing is prepared; the module
+	// arrives before turn two and its reader fails, which is the turn-start cause.
+	const table = await openSetup([
+		setupCall({ step: "choose-source", kind: "starter", module: "the-haunting" }),
+		setupCall({ step: "create-campaign", id: "guidance-at-turn", title: "Prepared source", play_language: "en" }),
+		fauxAssistantMessage("The campaign is open. Who are you?"),
+	]);
+	t.after(() => table.dispose());
+	await table.session.prompt("Start with this prepared source.");
+	await waitForIdle(table.session);
+	assert.equal(setupResults(table.session).at(-1).ok, true, "turn one blocks nothing");
+	assert.deepEqual(table.ui.notifications.filter((row) => row.type === "error"), [], "and notifies nothing");
+
+	installGuidanceModule(table);
+	withReader(table, async () => ({ ok: false, reason: "reader offline" }));
+	table.faux.setResponses([
+		setupCall({ step: "create-investigator", profile: draftProfile }),
+		fauxAssistantMessage("I could not prepare the guidance; let me improvise an opening instead."),
+	]);
+	await table.session.prompt("I am Helen, a journalist.");
+	await waitForIdle(table.session);
+
+	const refused = setupResults(table.session).at(-1);
+	assert.equal(refused.ok, false);
+	assert.equal(refused.code, "setup_blocked");
+	assert.equal(refused.blocked_by, "guidance_at_turn_start");
+	assert.equal(refused.cause, "preparation_failed");
+	assert.match(refused.error, /Module guidance could not be prepared at the start of this turn \(preparation_failed: /, "the text says this turn's start, not create-campaign");
+	assert.match(refused.error, /new player input, which retries the preparation/);
+	assert.doesNotMatch(refused.error, /Guidance review did not pass|package context/);
+
+	assert.deepEqual(lastAssistantTextBlocks(table.session), [], "§23.4: the improvised opening never reaches the screen");
+
+	const words = await defaultWords();
+	const notices = table.ui.notifications.filter((row) => row.type === "error").map((row) => row.message);
+	assert.equal(notices.length, 1, `one notice for one failure, not one per hook: ${JSON.stringify(notices)}`);
+	assert.equal(notices[0], words.line("setup_guidance_failed", { detail: refused.error.match(/\(preparation_failed: ([^)]*)\)/)[1] }),
+		"the turn-start notice carries the preparer's detail; agent_end does not repeat it as a review failure");
+});
+
+test("a mods.context read that fails at the start of a turn names the packages, and the Keeper's explanation stays (§26)", async (t) => {
+	const kernelError = { code: "invalid_params", message: "Mod package 'broken-pack' 1.0.0: manifest is not valid JSON" };
+	const table = await openTable({
+		mode: "setup", campaign: null,
+		env: { FAKE_KERNEL_ERRORS: JSON.stringify({ "mods.context": kernelError }) },
+		responses: [
+			setupCall({ step: "choose-source", kind: "starter", module: "the-haunting" }),
+			setupCall({ step: "create-campaign", id: "packages-at-turn", title: "Prepared source", play_language: "en" }),
+			fauxAssistantMessage("The campaign is open. Who are you?"),
+		],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("Start with this prepared source.");
+	await waitForIdle(table.session);
+	assert.equal(setupResults(table.session).at(-1).ok, true, "create-campaign itself is not the failure");
+
+	const explanation = "One of this campaign's Mod packages cannot be read, so I cannot go on with the card until it is fixed or disabled.";
+	table.faux.setResponses([
+		setupCall({ step: "create-investigator", profile: draftProfile }),
+		fauxAssistantMessage(explanation),
+	]);
+	await table.session.prompt("I am Helen, a journalist.");
+	await waitForIdle(table.session);
+
+	assert.equal(table.kernelRequests().filter((entry) => entry.method === "mods.context").length, 1, "the package context was asked for and refused");
+	const refused = setupResults(table.session).at(-1);
+	assert.equal(refused.ok, false);
+	assert.equal(refused.code, "setup_blocked");
+	assert.equal(refused.blocked_by, "package_context", "the cause is the package read, not a guidance review");
+	assert.equal(refused.cause, kernelError.code);
+	assert.match(refused.error, /The setup package context could not be read \(mods\.context: invalid_params: Mod package 'broken-pack'/, "the text names the read and the kernel's own message");
+	assert.match(refused.error, /fix or disable the package the error names in the Mods panel/, "and the fix that matches it");
+	assert.doesNotMatch(refused.error, /Guidance review did not pass|Module guidance/, "a package failure is never called a guidance failure");
+
+	assert.deepEqual(lastAssistantTextBlocks(table.session), [explanation], "§26 blocks with a notice; the Keeper's explanation of it is not hidden");
+
+	const words = await defaultWords();
+	const notices = table.ui.notifications.filter((row) => row.type === "error").map((row) => row.message);
+	assert.deepEqual(notices, [words.line("setup_packages_failed", { detail: kernelError.message })],
+		"the one notice is the package line with the kernel's detail; agent_end adds no 'guidance review failed'");
 });
 
 test("选内置 starter 就是 starter 来源，不是 pdf，也不会被要资料包（#32）", async (t) => {
