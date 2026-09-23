@@ -71,7 +71,7 @@ Depends on: SO-01 merged.
 
 ## SO-04 — Loop consumption (inside SL-02)
 
-Status: ready-for-agent once SL-02's policy migration is on the branch
+Status: ready-for-human (implemented 2026-09-23 on `claude/so04-loop-obligations-20260923`; the Q6 replay line is **not met** on the turn-3 variant and needs an owner decision; the live-table gate is still owed; see Comments)
 Depends on: SO-02 merged; SL-02's RunPolicy and candidate builder in place (the §32 admission research result may still be open; then the obligation `resolve` goes through admission like any policy-origin operation until the measurement says otherwise).
 
 **What.** In the product RunPolicy's candidate builder (spec D6): an open obligation's `meet` step becomes the stated person candidate (replacing, not duplicating, the roster candidate), its `check` step an `obligation_check` candidate with the closed approach binder (one approach → bound; several → `decide(bind)`; below the gates → `infer(bind)`); `guarded_by` candidates withheld; `blocked` obligations issue nothing; precedence `person → mod_check → obligation_check → core-check → clue/handout → move`; the operation carries `basis: obligation <handle>` for admission; "clerk did" lines name the obligation step, receipt and page; clerk-origin refusals drop the candidate for the run and stay off the Keeper's refusal budget. Labels carry the demand and what it guards, never the page, kernel tags or `authority` strings.
@@ -152,3 +152,79 @@ written first (`c12cb908d`), then the reader paragraph, the review paragraph, th
 - Not verified: an owner-chosen book and pages (the haunting's own pages were used); the Keeper or clerk consuming a
   PDF-published obligation at a table (SO-04 and the live gate); the reader's guards chose the Globe-to-morgue exit rather
   than the clippings clues the starter guards, which is the reader's reading of the page, not checked against the starter.
+
+### 2026-09-23 — SO-04 implemented (loop consumption); the Q6 replay line is not met
+
+Branch `claude/so04-loop-obligations-20260923`, from `dd7aebb32`, merged with 0.9.5a up to `8e017016a` (`43eefe466`,
+`570e2aed8`). Contract first (`c64405b50`), then the code (`4f3ee2c69`, label fix `3df66a9f2`), the tests (`6bbb044ad`,
+`b15f87a46`), the fixture variant, instrument and pre-registration (`a9b107e6d`), the scored replays (`7e0914de5`). The
+section was written as §135.11; 0.9.5a gave §135.11 to the prose-delivery fix, so at the merge it became **§135.26**
+(SL-11 holds §135.20–§135.24; SL-10 may take §135.25), with every SO-04 reference moved; it amends §135.2, §135.3,
+§135.5, §135.8, §135.9 and §135.20, and §134.14 points at it.
+
+- Where it lives: `runtime/jev/obligation-candidates.ts` (the stated meeting, the obligation check and its closed
+  binder, `guardsOf`, `preordainedContacts`, the "clerk did" and crossing lines), called from `buildCandidates`
+  (`runtime/jev/candidates.ts`: roster substitution; `guarded_by`, located-clue, guarded-person and preordained
+  Mod-check withholding; the dice words in `keeperCall`); `ORDINARY_CHOICES` shared from
+  `runtime/jev/ordinary-resolve-domain.ts`; `stated_obligation` in `CLERK_AUTHORITY`, `obligation_check` in `PRECEDENCE`,
+  `consumedByClaim` and the `clerk_refused` hand-off in `runtime/jev/step-policy.ts`; the note's `obligation` /
+  `obligation_open` lines in `runtime/jev/hybrid-engine.ts`; the check's body through SL-11's
+  `runtime/jev/candidate-bodies.ts` (demand, next step, guards; never the page); clerk refusals recorded on the clerk's
+  side and kept off the Keeper's budget in `extensions/kernel/index.ts` (`finalizeOperation` and both pre-tool gate
+  strikes).
+- Decisions the spec left open, recorded in §135.26: the intent is a closed bind over the ordinary binder's
+  `investigate`/`social`/`move` even for one approach (the verb needs one and the kernel issues none), so a
+  single-approach check is a one-question Jev bind, not a direct step; a die on a social check carries
+  `modifiers.reason` = the player's declaration, as the ordinary binder's template does; a stated minimum above the
+  actor's issued rating rules that approach out; a person or a Mod check that an unsettled obligation guards is withheld
+  too; a refused clerk step hands the turn to the Keeper; a model resolve that claims an obligation consumes the clerk's
+  check for the run.
+
+Verified (shown):
+
+- `tests/extension/scene-obligation-candidates.test.mjs`, 9 cases: the builder over the seeded emitted kernel's own
+  morgue reads (variants are the kernel's rows with one field changed), the pure policy, the hybrid engine on a real Pi
+  session (the clerk's claimed check through admission and the kernel, the note's line; a clerk refusal kept off the
+  class budget), stub ports for the crossing line. 19 mutations, each killed: the meeting not replacing the roster
+  candidate (removed; and issued beside it under its own key), `guarded_by` not withheld, a located guarded clue offered,
+  a `blocked` obligation issuing a candidate, a clerk refusal counted on the Keeper's budget, a preordained pair still
+  issuing the Mod check, `obligation_check` ranked with `core-check`, a `served_by` step issuing its own candidate, the
+  stated minimum not read, several approaches bound by the clerk, no Keeper hand-off after a clerk refusal, no
+  "clerk did" obligation line, no crossing line, an unstated difficulty issued to the clerk, a guarded person's Mod check
+  offered, a guarded person staged, the body carrying the page, no body for the check.
+- The turn-3 replay on `fixtures/turn3-obligations` (only the module slice re-registered from the SO-01 starter; the
+  original fixture's bytes checked unchanged), kernel seeded (pass arm seed 1, fail arm seed 19), outcomes registered
+  before the scored runs (`experiments/single-loop-routing/RESULTS-20260923.md`): the stated meeting `later` 6/6
+  (0.61–0.68); the check `now` above the gates 6/6, but after the replayed Keeper staged Arty; **5 LLM steps on a
+  passing roll, not ≤ 3**; a failing roll left the obligation `open` with the book's lines and the Keeper's clue batch
+  crossed it (`obligation_open`) 3/3, reported, not scored; 11/11 live rows in 9/9 runs, but the recorded Persuade is
+  matched by the Keeper's unclaimed roll and the clerk's claimed Persuade is a second roll (6/6); every route
+  distribution retained; the regression on `turn3` unchanged. One unscored replay per arm after the second merge had the
+  same shape.
+- Suites on `dd7aebb32` (recorded first): `test:ext` 2729/2730 (the one failure is
+  `npc-preparation-integration.test.mjs` "overlaps NPC and material decisions", timing; it passes alone), pytest 1688
+  passed, 1 skipped (the lead's figure; re-measured on this branch before the merges: 1688 passed, 1 skipped). On the
+  final merged state (`570e2aed8`, 0.9.5a `8e017016a` included): `npm run build:runtime` ok, `npm run test:ext`
+  2776/2776, `uv run --frozen python -m pytest tests/kernel tests/play` 1691 passed, 1 skipped.
+
+Assumed, not verified: that a live Keeper told by the capsule row and the base-prompt sentence claims the obligation;
+that the stated meeting is selected, and binds without the LLM, where the table already has its own label for the
+person (no fixture has one).
+
+**Why the Q6 line is not met (owner decision needed; nothing was tuned away):**
+
+1. The spec's replay expectation (Testing Decisions: "the archivist meeting and the two clippings reveals are carried by
+   the host; the remaining LLM steps are one adjudication … plus the compose — 2") meets §135.2's rule "Without a label
+   the name is an open parameter, and only the LLM fills it", which D6 keeps ("it replaces the unmarked roster
+   candidate"). Arty and Ruth have no table label at turn 3, so each stated meeting is an `infer(bind)` even when Jev
+   selects it. The rulings did not settle this.
+2. Jev answered the stated meeting `later` in 26/26 runs (20 development, 6 scored) under both label wordings tried;
+   the spec's premise was that stating it turns the prototype's ~50/50 into `now`.
+3. The replayed Keeper predates SO-02: it rolls Arty's first impression (ruling Q2 takes it off the clerk, not off the
+   Keeper) and a Persuade without `action.obligation`, which settles nothing (D4), so the clerk then rolls the claimed
+   check again. At a live table the same double roll happens whenever the Keeper forgets the claim, and the loop has no
+   rule against it. A structural guard (for example: a model-origin resolve against the step's target with one of its
+   approaches consumes the clerk's check for the run) is the owner's to decide, not taken here.
+
+Not verified: the live table at the SL-02/SL-05 gate (the real Keeper, the main session as the one player, one sentence
+a turn) — still owed, and not delegable.
