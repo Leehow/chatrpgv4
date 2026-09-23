@@ -19,7 +19,7 @@ import { Type } from "typebox";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, waitFor } from "./harness.mjs";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
-import { ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
+import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { customMessage, PRESCREEN_TYPE } from "../../extensions/table/context-policy.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
 
@@ -150,6 +150,51 @@ test("the run reads first, Jev routes over host-issued candidates, the clerk's m
 	assert.equal(routes.length, 2);
 	assert.deepEqual(routes[0].selected, ["apply:move:newspaper-morgue"]);
 	assert.ok(Object.values(routes[0].answers).every((answer) => answer.probabilities));
+});
+
+test("SL-07: an NPC's pending defence with a standing is a direct clerk step -- no Jev question, no LLM -- and its row names the standing's basis", async (t) => {
+	const campaign = "test-camp";
+	// The fight is open and the landlord owes a defence against the investigator's punch when the player speaks again.
+	const prepareWorkspace = (workspace) => kernelSteps(workspace, campaign, [
+		["table.open", {}], ["table.player_input", { text: "我揍他" }],
+		["table.apply", { call_id: "t1-c1", effects: [{ kind: "npc", name: "Steven Knott", archetype: "ordinary_adult", why: "test fixture" }] }],
+		["table.resolve", { call_id: "t1-c2", action: { intent: "combat", goal: "hit him", method: "fists", target: "Steven Knott", weapon: "unarmed" } }],
+		["table.narrate", { call_id: "t1-c3", text: "你挥出一拳。" }],
+	]);
+	const table = await hybridTable({
+		realKernel: true, prepareWorkspace,
+		// Jev: the NPC's own turn is its attack; every other bind is unknown (so a defence bind, were one asked, would
+		// go to the LLM); the route after the NPC's attack finishes.
+		decide: (batch) => batch.family === BIND_FAMILY
+			? answered(batch, (question) => question.key === "decision" ? "combat:attack" : "unknown")
+			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
+		// The Keeper's one step: the player's own defence, handed back with the kernel's options -- `none` included.
+		responses: [fauxAssistantMessage([fauxToolCall("ask", { kind: "mechanics", options: ["dodge", "fight_back", "none"], text: "他的拳头朝你脸上砸来。" })], { stopReason: "toolUse" })],
+	});
+	t.after(() => table.dispose());
+	await table.table.session.prompt("继续揍他");
+	const { events, decisions, calls } = table;
+	const telemetry = table.table.telemetry(campaign);
+
+	const defend = calls.find((call) => call.phase === "call" && call.tool === "resolve" && call.input.action?.decision === "combat:defend");
+	assert.ok(defend?.id.startsWith("clerk:"), "the NPC's defence is the clerk's");
+	const row = telemetry.find((entry) => entry.tool === "resolve" && entry.origin === "policy" && entry.basis?.path === "context.session.pending_defense");
+	assert.equal(row.clerk, "session_step");
+	assert.equal(row.basis.standing.basis, "rule-default", "no authored tactic and no override: the rules default");
+	assert.deepEqual(row.basis.standing, row.basis.row.standing, "the basis names the standing the kernel issued");
+	assert.equal(defend.input.action.actor, "steven-knott");
+	assert.equal(defend.input.action.defense, row.basis.standing.defense, "the clerk resolved exactly the standing");
+	assert.equal(calls.find((call) => call.phase === "result" && call.id === defend.id).isError, false);
+
+	assert.equal(decisions.filter((batch) => batch.family === BIND_FAMILY && JSON.stringify(batch.state).includes("combat:defend")).length, 0,
+		"no Jev question about the defence");
+	const infers = events.filter((event) => event.type === "step_start" && event.kind === "infer");
+	assert.equal(infers.filter((event) => event.purpose === "bind").length, 0, "no LLM bind");
+	assert.ok(!telemetry.some((entry) => entry.event === "llm_bound" && String(entry.candidate).includes("combat:defend")));
+	// The round closes on the one LLM step, and the player's `none` is accepted by ask.
+	assert.equal(infers.length, 1);
+	const asked = calls.find((call) => call.phase === "result" && call.tool === "ask");
+	assert.equal(asked.isError, false, JSON.stringify(asked.details?.coc_error ?? null));
 });
 
 test("a Keeper batch whose step fails returns to the Keeper at once: the rest is not run and no route question comes first", async (t) => {
