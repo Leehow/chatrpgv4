@@ -1,0 +1,90 @@
+# Scene obligations as candidates — tickets
+
+Spec: [scene-obligations-as-candidates.md](scene-obligations-as-candidates.md) (`Status: ready-for-human`).
+Parent plan: [pi-native-single-loop.md](pi-native-single-loop.md) and its tickets under `pi-native-single-loop-tickets/`.
+
+State: **not started; every ticket is `needs-triage` until the owner has reviewed the spec and answered its questions (Q1–Q7).** None of these tickets may be picked up on the strength of the spec being written.
+
+Common constraints for every ticket (from `Agents.md`): contract first (`docs/kernel-rpc.md`, a new section at the next free number, amending the sections the spec names); `kernel-ts/` is the only kernel; system language English, no CJK in code; no hard-coded semantic lists; build before pytest, one pytest at a time, on the ticket's own worktree; stage only the ticket's paths; no packaging unless the ticket says so; never modify playtest evidence or the original replay fixture.
+
+## Dependency graph
+
+```
+SO-01 data schema + validator + haunting authoring ─┬─ SO-02 kernel issuance + settlement ─┬─ SO-04 loop consumption (after SL-02)
+                                                    └─ SO-03 reader extraction + validator   │
+                                                                         SL-02 accepted ─────┘
+```
+
+SO-02 and SO-03 can run in parallel after SO-01. SO-04 needs SO-02 and the single-loop plan's SL-02 accepted (including SL-02's §32 admission research result).
+
+---
+
+## SO-01 — The obligation shape, its validator, and the haunting's first authored sample
+
+Status: needs-triage
+Depends on: owner review of the spec; answers to Q2, Q3, Q7.
+
+**What.** Write the contract section for the `requirement` node's `properties.obligation` (spec D3), the settlement flag convention (D4), and the Mod `checks[]` extensions (`selection: approach`, `values[].minimum`, `trigger` validated as a closed enum). Implement one validator function (spec D7's refusal list) shared by starter registration and the Mod manifest check (`kernel-ts/read/mods.ts`, the `checks` loop). Author the haunting's first-cut obligations in `content/starters/the-haunting/module-graph.json` as `requirement` nodes with `has-requirement` claims, citing the pages actually checked.
+
+**Authoring scope** (per Q7's answer; default all):
+- morgue: clippings access (`attempt`, meet Arty, check approach ×4 regular) and the archivist (`after`, meet Ruth);
+- higher courts / police: raid-file access (approach ×5, Credit Rating with its stated minimum);
+- neighbourhood: Dooley (meet, then `selection: maximum` over APP and Credit Rating, regular);
+- the house: the basement stairs (`attempt` guarding the move to `basement-rites`, `selection: maximum` over DEX and Climb, difficulty as the page states or `difficulty_unstated`);
+- Hall of Records: the Law route settling the existing `records-serious-crime-destination-known` flag, only if the page states a difficulty (otherwise `difficulty_unstated`, Keeper-only).
+
+**Migration in the same change:** move `persuade-arty.roll_gate` into the morgue requirement and delete it; replace the morgue's `requires_completed_route_ids` and `npc_presence_requirements` by the requirements' `guards`/`after`; remove `befriend-ruth.roll_gate` (Q3 default); replace `clue-police-raid-chapel`'s narrower `Law` gate by the police obligation (one owner). `mystery-house` is not touched.
+
+**Acceptance.**
+- Validator tests through the real entries (starter registration, Mod manifest check), each refusal case in spec D7 present and each shown to fail when its rule is removed; the minimal valid node and a `difficulty_unstated` node accepted.
+- `natural-npc` still loads at its current version and digest.
+- The haunting registers; `tests/kernel/test_starters.py` digest/manifest checks updated only for the haunting; `mystery-house`, `voice-bench` and `the-haunting-rulebook` unchanged byte for byte.
+- No kernel read changes in this ticket: every capsule and options golden for every starter is unchanged (the nodes are data nobody reads yet). That is the check that SO-02 is where behaviour moves.
+
+---
+
+## SO-02 — Kernel issuance and settlement
+
+Status: needs-triage
+Depends on: SO-01.
+
+**What.** `sceneObligations(graph, world, scene)` beside `whereSection` in `kernel-ts/read/` (spec D5): state (`open`/`blocked`/`settled`/`waived`), next step, guards, Keeper-only book lines, source. Seats: `table.apply.options.obligations` (complete, same `revision`/`world_revision`), `guarded_by` on guarded effect candidates, capsule `obligations[kind: "scene"]` within the existing 1 KB budget, the obligation's name appended to a guarded clue's gate in `clueGate`. `resolve` accepts `action.obligation` and settles through the ordinary check (spec D4): validation of openness, scene, step, approach, difficulty, presence; the flag in the same transaction; `obligation: {handle, settled, book?}` on the receipt/result; no consequence applied. A result that crosses an open guard carries `obligation_open` (Q5). The Mod-recipe identity rule (spec D9): an obligation check with the same recipe as an active Mod check for the same pair is served by the Mod's frozen result. Offer ledger: `obligation:<handle>`, taken when the flag is set. Tool description for `resolve` gains the optional field; the base Keeper prompt gains the one sentence in spec D6 (English).
+
+**Acceptance** (spec Testing Decisions, kernel and control rows):
+- The morgue sequence on a fresh haunting campaign (open → meet → check; forced pass sets the flag and opens the archivist and the clippings; forced fail leaves it open with the book line; a same-skill `resolve` without `action.obligation` settles nothing; `apply flag` waives and reopens with receipts; a guarded `apply clue` succeeds and reports `obligation_open`).
+- Capsule rows and options rows agree for the same state.
+- `mystery-house`, `voice-bench` and the committed `the-haunting-rulebook`: capsule, `table.apply.options` and `table.resolve.options` byte-identical to goldens recorded on the parent commit.
+- The haunting's start-scene capsule unchanged; existing capsule-budget and Director tests move only for scenes that carry obligations.
+- `npm run test:ext` and `uv run --frozen python -m pytest tests/kernel tests/play` green against the rebuilt emitted kernel; the §31 world-state seam test still passes (no new world key).
+
+---
+
+## SO-03 — Reader extraction and review
+
+Status: needs-triage
+Depends on: SO-01.
+
+**What.** One paragraph in `content/setup/visual-reader.md` (spec D7): when the page states that a place demands a meeting or a check before the investigators get something there, write a `requirement` node in the D3 shape with a `has-requirement` claim from the scene and a `calls-for-check` claim to the rule node holding the book's wording; list every obligation field in `critical`; record `difficulty_unstated` / `approaches_unstated` instead of filling a value. The draft checker in `kernel-ts/modules/visual.ts` runs the SO-01 validator; numeric fields keep entering `required_review` through `numericPaths`. The review prompt names obligation fields as mechanical statements to check against the page image. No parsing of rule prose, no count gate, no automatic backfill.
+
+**Acceptance.**
+- Checker tests: a draft with an obligation missing `source_refs`, citing an unviewed page, with a prose skill string, or with a person not seated in the scene is refused with the path; a draft with a valid obligation whose fields are not all in `critical` gets them required for review; a draft with no obligations passes unchanged.
+- A detail read on a scratch copy of a book that states a gate (the owner chooses the book and pages; no committed source text) produces a reviewed `requirement` node; the evidence stays in the scratch workspace. The committed twin is not rebuilt.
+- The reader prompt change is English and carries no language- or book-specific wording.
+
+---
+
+## SO-04 — Loop consumption (after SL-02)
+
+Status: needs-triage
+Depends on: SO-02; single-loop SL-02 accepted, with its §32 admission research reported.
+
+**What.** In the product RunPolicy's candidate builder (spec D6): an open obligation's `meet` step becomes the stated person candidate (replacing, not duplicating, the roster candidate), its `check` step an `obligation_check` candidate with the closed approach binder (one approach → bound; several → `decide(bind)`; below the gates → `infer(bind)`); `guarded_by` candidates withheld; `blocked` obligations issue nothing; precedence `person → mod_check → obligation_check → core-check → clue/handout → move`; the operation carries `basis: obligation <handle>` for admission; "clerk did" lines name the obligation step, receipt and page; clerk-origin refusals drop the candidate for the run and stay off the Keeper's refusal budget. Labels carry the demand and what it guards, never the page, kernel tags or `authority` strings.
+
+**Acceptance.**
+- Policy tests with stub ports: an open gate yields the stated meeting then the obligation check; a guarded reveal is withheld until the flag is set and returns after; `blocked` issues nothing; one approach binds directly, several go to `decide(bind)`, low confidence goes to `infer(bind)`; the Mod-served recipe issues no second candidate; a clerk refusal does not change the Keeper's refusal counters.
+- The turn-3 replay on the new fixture variant (derived from `experiments/single-loop-routing/fixtures/turn3` with only the module slice re-registered from the SO-01 starter; the original fixture untouched; kernel seeded, seed recorded), outcomes as pre-registered in the spec: the meeting and the gatekeeper's check selected `now` in 3/3; on a passing roll ≤ 3 LLM steps (target 2), down from 5; on a failing roll, reported as the Keeper improvising past an open obligation; 8/8 live actions by kind, family, skill and target. Every route distribution retained.
+- The report separates what was verified (the replay's traces) from what was assumed, and names the live-table gate as still owed.
+
+**Not in this ticket:** the live table at the SL-02/SL-05 gates (real Keeper, the main session as the one player, one sentence a turn). It is the acceptance of the whole change and is not delegable.
+
+## Comments
