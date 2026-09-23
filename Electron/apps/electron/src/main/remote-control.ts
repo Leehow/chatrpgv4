@@ -3,9 +3,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   createHostBackendSession,
+  createMultiplexedHostBackendSession,
   type HostBackend,
   type HostBackendSession,
   type HostWireFrame,
+  type MultiplexedHostBackendSession,
   parseHostWireFrame
 } from '@pipi/host-api'
 import {
@@ -220,6 +222,9 @@ export function createRemoteControlService(options: RemoteControlServiceOptions)
   let stored: RemoteControlStored | null = null
   let socket: SocketLike | null = null
   let session: HostBackendSession | null = null
+  /** Set once the relay accepted our multiplex opt-in: one session serves every browser. */
+  let mux: MultiplexedHostBackendSession | null = null
+  let browserCount = 0
   let pacer: FramePacer | undefined
   let generation = 0
   let hostEpoch = 0
@@ -264,9 +269,13 @@ export function createRemoteControlService(options: RemoteControlServiceOptions)
     }
     const currentSession = session
     session = null
+    const currentMux = mux
+    mux = null
+    browserCount = 0
     const currentSocket = socket
     socket = null
     if (currentSession) await currentSession.close()
+    if (currentMux) await currentMux.close()
     if (currentSocket && currentSocket.readyState < 2) {
       try { currentSocket.close(1000, 'host stop') } catch { /* already closed */ }
     }
@@ -294,6 +303,27 @@ export function createRemoteControlService(options: RemoteControlServiceOptions)
     session = bound
   }
 
+  /**
+   * The relay offered to tell browsers apart. Opting in means a second browser
+   * joins instead of evicting the first, and each browser keeps its own event
+   * projection. Relays that never offer it keep the single-browser session.
+   */
+  const enableMultiplex = (target: SocketLike) => {
+    if (mux || target.readyState !== 1) return
+    try { target.send(JSON.stringify({ v: 2, type: 'multiplex' })) } catch { return }
+    const legacy = session
+    session = null
+    if (legacy) void legacy.close()
+    // Generations only ever told one browser from its replacement.
+    generation = 0
+    mux = createMultiplexedHostBackendSession(remoteBackend, frame => {
+      if (target.readyState !== 1) return
+      pacer?.push(JSON.stringify({ ...frame, ...(hostEpoch ? { hostEpoch } : {}) }))
+    })
+  }
+
+  const browserStatus = (): RemoteControlStatus => browserCount > 0 ? 'paired' : 'ready'
+
   const isLate = (value: Record<string, unknown>): boolean => {
     const frameEpoch = typeof value.hostEpoch === 'number' ? value.hostEpoch : undefined
     const frameGeneration = typeof value.generation === 'number' ? value.generation : undefined
@@ -302,7 +332,7 @@ export function createRemoteControlService(options: RemoteControlServiceOptions)
     return false
   }
 
-  const handlePayload = (raw: unknown, connectedRoomID?: string) => {
+  const handlePayload = (raw: unknown, connectedRoomID?: string, target?: SocketLike) => {
     const text = decodeSocketPayload(raw)
     let parsed: unknown
     try { parsed = JSON.parse(text) } catch { return }
@@ -312,12 +342,18 @@ export function createRemoteControlService(options: RemoteControlServiceOptions)
       if (value.type === 'pong') return
       if (value.type === 'ready') {
         hostEpoch = typeof value.hostEpoch === 'number' ? value.hostEpoch : hostEpoch
+        if (value.multiplex === true && target) enableMultiplex(target)
         publishIdentity(value.browserAttached === true ? 'paired' : 'ready')
         return
       }
       if (value.type === 'paired') {
         hostEpoch = typeof value.hostEpoch === 'number' ? value.hostEpoch : hostEpoch
-        generation = typeof value.generation === 'number' ? value.generation : generation
+        if (mux && typeof value.client === 'string') {
+          mux.attach(value.client)
+          if (typeof value.browsers === 'number') browserCount = value.browsers
+        } else {
+          generation = typeof value.generation === 'number' ? value.generation : generation
+        }
         // A link-check claim also triggers Relay `paired`. Swallow exactly
         // one such frame so the UI does not show “浏览器已连接” for our probe.
         if (suppressPaired > 0) {
@@ -354,11 +390,22 @@ export function createRemoteControlService(options: RemoteControlServiceOptions)
         hostEpoch = typeof value.hostEpoch === 'number' ? value.hostEpoch : hostEpoch
         return
       }
+      if (value.type === 'detached') {
+        if (typeof value.client === 'string') mux?.detach(value.client)
+        if (typeof value.browsers === 'number') browserCount = value.browsers
+        // Without this the panel kept saying 「浏览器已连接」 after the last one left.
+        if (state.status === 'paired' || state.status === 'ready') publishIdentity(browserStatus())
+        return
+      }
       return
     }
     if (isLate(value)) return
     const parsedFrame = parseHostWireFrame(value)
     if (!parsedFrame.ok || parsedFrame.frame.type !== 'request') return
+    if (mux) {
+      mux.receive(parsedFrame.frame as HostWireFrame, typeof value.client === 'string' ? value.client : '')
+      return
+    }
     session?.receive(parsedFrame.frame as HostWireFrame)
   }
 
@@ -396,7 +443,7 @@ export function createRemoteControlService(options: RemoteControlServiceOptions)
         : event && typeof event === 'object' && 'data' in event
           ? event.data
           : event
-      handlePayload(payload, hello.roomID)
+      handlePayload(payload, hello.roomID, target)
     }
     const onClose = () => {
       if (target.on && target.off) {

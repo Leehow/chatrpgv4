@@ -180,6 +180,14 @@ export function RemoteBrowserApp(options: RemoteBrowserAppOptions = {}) {
     let pendingReconnect = false
     let activeSocket: BrowserSocket | undefined
     let lastControl: string | undefined
+    /**
+     * Set once the page shows an unrecoverable close (replaced / expired / a
+     * refused claim). Only the button's retry, which remounts this effect,
+     * clears it. Returning to the tab used to reconnect anyway: it re-claimed
+     * with the stored secret and silently evicted whichever browser was in use,
+     * so two tabs switched in turn kept knocking each other off.
+     */
+    let halted = false
     let controlListener: ((raw: unknown) => void) | undefined
 
     const applyClose = (kind: ReturnType<typeof classifyRemoteClose>) => {
@@ -194,6 +202,10 @@ export function RemoteBrowserApp(options: RemoteBrowserAppOptions = {}) {
     }
 
     const failUnrecoverable = (kind: RemoteCloseKind) => {
+      halted = true
+      cancel(timer)
+      timer = 0
+      pendingReconnect = false
       applyClose(kind)
       setPhase('disconnected')
       setError(remoteCloseCopy(kind).detail)
@@ -365,7 +377,7 @@ export function RemoteBrowserApp(options: RemoteBrowserAppOptions = {}) {
     }
 
     const scheduleReconnect = (immediate = false) => {
-      if (stopRef.current) return
+      if (stopRef.current || halted) return
       setPhase('reconnecting')
       cancel(timer)
       timer = 0
@@ -391,7 +403,7 @@ export function RemoteBrowserApp(options: RemoteBrowserAppOptions = {}) {
         return
       }
       hidden = false
-      if (stopRef.current) return
+      if (stopRef.current || halted) return
       const open = activeSocket && (activeSocket.readyState === 0 || activeSocket.readyState === 1)
       if (open) return
       scheduleReconnect(true)
