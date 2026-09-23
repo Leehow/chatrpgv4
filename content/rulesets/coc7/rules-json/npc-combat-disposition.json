@@ -1,0 +1,39 @@
+{
+  "contract_id": "coc.npc-combat-disposition.v1",
+  "schema_version": 1,
+  "note": "Contract §11.5.3: the closed table an NPC's standing action in a fight is read from. A disposition is how this person behaves in a fight; its rows are tried in order and the first row whose every `when` condition holds gives the action. The last row of each disposition has no `when`, so every disposition gives an action. Conditions: `hp_fraction_at_most` (the participant's hp_current / hp_max in the saved combat snapshot is at most this number), `outnumbered` (true: more opponents who can still fight than people on the NPC's own side who can, the NPC included), `stance_in` (the NPC's stance word from the ledger, §17.3, is one of these). Every number lives here; the kernel writes no threshold of its own. Actions: attack (the clerk binds the attack), hold (does not attack this round: holds back, yields or surrenders, which the Keeper narrates), flee (tries to get away, which the Keeper narrates; the engine has no NPC flee action).",
+  "dispositions": {
+    "fights_to_the_end": {
+      "description": "Fights on whatever it costs: never breaks off, never yields.",
+      "rules": [
+        {"action": "attack"}
+      ]
+    },
+    "fights_then_flees": {
+      "description": "Fights while the fight goes its way; runs once badly hurt, or once hurt and outnumbered. Does not strike first at someone it is not hostile to.",
+      "rules": [
+        {"when": {"hp_fraction_at_most": 0.5}, "action": "flee"},
+        {"when": {"hp_fraction_at_most": 0.75, "outnumbered": true}, "action": "flee"},
+        {"when": {"stance_in": ["wary", "neutral", "warm"]}, "action": "hold"},
+        {"action": "attack"}
+      ]
+    },
+    "avoids_fighting": {
+      "description": "Does not want this fight: gets away when outnumbered or hurt, otherwise holds back rather than strike.",
+      "rules": [
+        {"when": {"outnumbered": true}, "action": "flee"},
+        {"when": {"hp_fraction_at_most": 0.75}, "action": "flee"},
+        {"action": "hold"}
+      ]
+    },
+    "surrenders": {
+      "description": "Fights only while unhurt and not outnumbered; yields as soon as the fight turns against it.",
+      "rules": [
+        {"when": {"hp_fraction_at_most": 0.75}, "action": "hold"},
+        {"when": {"outnumbered": true}, "action": "hold"},
+        {"when": {"stance_in": ["wary", "neutral", "warm"]}, "action": "hold"},
+        {"action": "attack"}
+      ]
+    }
+  }
+}

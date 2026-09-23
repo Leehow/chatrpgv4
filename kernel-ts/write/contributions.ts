@@ -122,7 +122,8 @@ export function preflightCampaign(meta: Row, world: Row, turn: Row, party: Row[]
     if (!available.modManagement && (truth(row(world.mods).pending) || Object.hasOwn(row(world.mods), 'pending_order')))
         missingContribution('pending Mod configuration');
 }
-const emptyNpc = (): Row => ({
+/** A ledger entry with nothing folded into it yet (the fold's own starting shape). */
+export const emptyLedgerEntry = (): Row => ({
     stance: null,
     disclosed: [],
     exchanged: [],
@@ -134,7 +135,7 @@ const emptyNpc = (): Row => ({
 });
 function entry(ledger: Row, id: string): Row {
     if (!ledger[id] || typeof ledger[id] !== 'object' || Array.isArray(ledger[id]))
-        ledger[id] = emptyNpc();
+        ledger[id] = emptyLedgerEntry();
     return ledger[id];
 }
 function npcId(graph: ModuleGraph, value: any): string | null {

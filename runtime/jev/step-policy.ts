@@ -31,7 +31,9 @@ const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value
 /** closed: the host can issue the complete vocabulary; open: only a language model can produce the value. */
 export interface Unbound {name: string; required: boolean; vocabulary: 'closed' | 'open'; options?: string[]; binder?: 'ordinary-resolve';
   /** What each closed option means, from the contract or the kernel row that issued it (the bind's criteria). */
-  descriptions?: Record<string, string>}
+  descriptions?: Record<string, string>;
+  /** The bind question's own instruction, when the generic one (the player's declaration, else the actor's choice) does not fit. */
+  instruction?: string}
 /** One shape a candidate takes once its `decision` is bound: the chosen action with its own parameters. */
 export interface CandidateVariant {label: string; bound: Record<string, Json>; unbound: Unbound[]; basis?: Json}
 /**
@@ -42,10 +44,12 @@ export interface CandidateVariant {label: string; bound: Record<string, Json>; u
  * - `mod_contact` (b): a contact check an active Mod declares;
  * - `declared_check` (c): the ordinary check, bound by the host's closed route/profile binder;
  * - `session_step`: a combat or chase step whose every parameter the kernel's session view issues (the
- *   "parameters-only steps never go to the LLM" ruling).
+ *   "parameters-only steps never go to the LLM" ruling);
+ * - `disposition_inference`: writing the combat disposition Jev inferred, once per campaign, for an NPC whose turn
+ *   has come and who has none (the ruling "An NPC's fight behaviour follows the NPC's own parameters"; §11.5.3).
  * Fetching data (d) is the read step itself, not a candidate. Everything else is the Keeper's.
  */
-export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step'] as const;
+export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step', 'disposition_inference'] as const;
 export type ClerkAuthority = typeof CLERK_AUTHORITY[number];
 /** A host-issued step candidate (design §5.1): what the host can perform now, and what it still needs. */
 export interface Candidate {
@@ -292,7 +296,7 @@ export function bindBatch(view: RunView, candidate: Candidate, scope: ScopeBindi
     chosen: candidateView(candidate), policy: ROUTE_POLICY} as Json;
   return {id: digest([BIND_FAMILY, view.runId, view.observations.length, state]), model: JEV_MODEL, family: BIND_FAMILY, familyVersion: '1',
     scope, readSet, state, questions: closed.map(value => ({key: value.name, target: `${value.name} of the chosen operation`, type: 'choice' as const,
-      instructions: `Select the ${value.name} of the chosen operation. When the player's input declares it, select that. When it is the own choice of `
+      instructions: value.instruction ?? `Select the ${value.name} of the chosen operation. When the player's input declares it, select that. When it is the own choice of `
         + `the person acting in the chosen operation (an NPC's defence or action), select the option that fits that person in the current situation `
         + `shown in the chosen operation's detail. Choose unknown when it cannot be told.`,
       criteria: {...Object.fromEntries(value.options!.map(option => [option, value.descriptions?.[option] ?? option])), unknown: 'Cannot be determined from the supplied state.'}}))};

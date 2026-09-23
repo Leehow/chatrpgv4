@@ -241,6 +241,22 @@ test('shape_prose: the book\'s armour sentence in the armour slot', () => refuse
 test('shape_prose: a defence word outside the closed enum', () => refusedUnder('shape_prose', graph => {
     record(graph, 'npc-walter-corbitt').combat = {defense: 'parry'};
 }));
+test('SL-08: the record\'s combat seats the authored standing action and combat disposition beside the defence (§11.5.3)', async () => {
+    await accepted(graph => { record(graph, 'npc-walter-corbitt').combat = {defense: 'dodge', action: 'attack', disposition: 'surrenders'}; });
+    await accepted(graph => { record(graph, 'npc-walter-corbitt').combat = {disposition: 'fights_to_the_end'}; });
+});
+test('shape_prose: a standing action a book cannot author (a flight is the table\'s or the Keeper\'s)', () => refusedUnder('shape_prose', graph => {
+    record(graph, 'npc-walter-corbitt').combat = {action: 'flee'};
+}));
+test('shape_prose: a combat disposition outside the closed enum', () => refusedUnder('shape_prose', graph => {
+    record(graph, 'npc-walter-corbitt').combat = {disposition: 'cowardly'};
+}));
+test('shape_prose: a combat record that states none of its three words', () => refusedUnder('shape_prose', graph => {
+    record(graph, 'npc-walter-corbitt').combat = {};
+}));
+test('shape_unknown_key: a combat key outside defense, action and disposition', () => refusedUnder('shape_unknown_key', graph => {
+    record(graph, 'npc-walter-corbitt').combat = {defense: 'dodge', stance: 'hostile'};
+}));
 test('shape_prose: a span in the unit slot', () => refusedUnder('shape_prose', graph => {
     stated(graph, 'rule', 'research', {time_cost: {amount: 1, unit: 'half-day'}});
 }));

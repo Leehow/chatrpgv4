@@ -216,7 +216,7 @@ const RulingEffect = Type.Object({
 
 /** A person moved on or off the stage, or where you read them as standing (contract §17.3). */
 const NpcEffect = Type.Object({
-	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, record that they died, or change how they defend" }),
+	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, record that they died, change how they defend, or what they do in a fight" }),
 	name: Type.String({ description: "what you are calling this person. A name from the book, or -- for someone the book never had -- whatever you are already calling them, a description like \"the clerk at the archive window\" included; the table establishes them under that word on this call, and apply person is what decides the word the player sees. Reuse the exact word you used before: two spellings make two people, and a refusal lists the ones this table already has" }),
 	reunion: Type.Optional(Type.Object({
 		background:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
@@ -249,7 +249,13 @@ const NpcEffect = Type.Object({
 	defense: Type.Optional(StringEnum(["dodge", "fight_back", "none"] as const, {
 		description: "how this person now defends when attacked, from here on: the fiction changed their tactic (cornered, protecting someone, too hurt to swing back). Without it they defend as the book says, or by the rules default (fight back when their Fighting is at least their Dodge, otherwise dodge); each pending defence shows it as standing. This variant stands alone in one npc effect and needs why",
 	})),
-	why: Type.Optional(Type.String({ description: "one sentence: why they moved, why they now stand there, how they died, or what changed how they defend" })),
+	action: Type.Optional(StringEnum(["attack", "hold"] as const, {
+		description: "what this person does on their own turn in a fight, when the fiction decides it: attack from here on, or hold (does not attack this round -- hesitates, yields; lapses when the round ends). Without it their turn follows session.standing_action (the book's word, or the disposition table). This variant stands alone in one npc effect and needs why",
+	})),
+	disposition: Type.Optional(StringEnum(["fights_to_the_end", "fights_then_flees", "avoids_fighting", "surrenders"] as const, {
+		description: "how this person behaves in a fight, when the fiction has shown it: it replaces the book's; each of their turns then reads the disposition table against their wounds, the odds and their stance (session.standing_action). This variant stands alone in one npc effect and needs why",
+	})),
+	why: Type.Optional(Type.String({ description: "one sentence: why they moved, why they now stand there, how they died, what changed how they defend, or why they attack, hold back or fight the way they do" })),
 });
 
 /**
