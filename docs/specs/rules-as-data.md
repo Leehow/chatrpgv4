@@ -404,6 +404,13 @@ A good test drives the real entry and asserts what the kernel issued, what recei
 
 ## Comments
 
+### 2026-09-23 — rulings after RD-05's real read (owner delegated; recorded here, implemented by the next ticket that touches the shape)
+
+- **A Sanity roll as a check.** SAN is not a characteristic, so `values[].path` gains the derived path `derived.SAN` (the sheet's current Sanity) as the one allowed non-characteristic, non-skill path for a `check`; the catalog's closed path prefixes become `characteristics.` / `skills.` / `derived.SAN`. RD-06 or RD-08, whichever lands first, adds it to the validator and the resolver with a test; until then a reader records such a roll as `approaches_unstated: true` with the book line.
+- **Opposed checks written by the reader.** The check's actor is the one whose action the check resolves (an attacking NPC is the actor; the investigator is the `target`); `values` are the actor's; a stated defender value goes in `target_values` (same value form). §136.6 gains that sentence; RD-05's Corbitt dagger node is re-read into that form by RD-04's migration or by SO-05, not by hand-editing the read evidence.
+- **Published profiles with non-English skill names** (from the pre-RD-05 reader instruction) stay as they are; they refuse nothing later, and the checker only judges what a draft introduces. Renaming them is a detail-read job on those modules, not a backfill.
+
+
 ### 2026-09-23 — implementation rulings for RD-01 (coordinator's decisions on the worker's recommendations)
 
 The RD-01 worker found the spec and the shipped starter data contradicting on four points the Owner rulings did not settle and stopped before any code. The decisions, applied above in P1, D4.1, D4.5 and D5:

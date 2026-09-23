@@ -220,16 +220,7 @@ export default function (pi: ExtensionAPI) {
 			steps = rows;
 			tableSources = declaredSources(result);
 			stepsError = undefined;
-			for (const done of Array.isArray(result.completed) ? result.completed : []) {
-				const id = asString(done);
-				if (!id) continue;
-				completed.add(id);
-				// A resumed setup that already took one investigator lane keeps that axis settled.
-				const row = rows.find((step) => step.id === id);
-				if (row?.investigatorSource && row.receipt && axisProducts(rows).has(row.receipt)) {
-					investigatorSource ??= row.investigatorSource;
-				}
-			}
+			absorbCompleted(rows, result.completed);
 			const carried = asRecord(result.state);
 			for (const [key, value] of Object.entries(carried)) {
 				if (context[key] === undefined) context[key] = value;
@@ -242,6 +233,34 @@ export default function (pi: ExtensionAPI) {
 			sourceKind = asString(carried.source_kind) ?? asString(carriedSource.kind) ?? sourceKind;
 		} catch (error) {
 			stepsError = `setup.steps did not come back: ${errorCode(error) ?? "internal"}: ${errorText(error)}`;
+		}
+	}
+
+	/** Book the steps the kernel reports done. The kernel's list only ever adds: a booked step is never un-booked here. */
+	function absorbCompleted(rows: Step[], done: unknown): void {
+		for (const entry of Array.isArray(done) ? done : []) {
+			const id = asString(entry);
+			if (!id) continue;
+			completed.add(id);
+			// A resumed setup that already took one investigator lane keeps that axis settled.
+			const row = rows.find((step) => step.id === id);
+			if (row?.investigatorSource && row.receipt && axisProducts(rows).has(row.receipt)) {
+				investigatorSource ??= row.investigatorSource;
+			}
+		}
+	}
+
+	/**
+	 * The card's button confirms and completes on a cold kernel (§98) while this process may still be
+	 * running, so once a card exists the steps booked at session start are no longer the kernel's
+	 * truth. Read them again before a turn decides what setup still owes.
+	 */
+	async function refreshCompleted(): Promise<void> {
+		if (!steps || !bridge || !context.campaign || draftRevision === undefined || completed.has("complete")) return;
+		try {
+			absorbCompleted(steps, asRecord(await bridge.call("setup.steps", { campaign: context.campaign })).completed);
+		} catch {
+			/* an unreadable snapshot leaves the booked steps as they were; the turn goes on as before */
 		}
 	}
 
@@ -739,11 +758,14 @@ export default function (pi: ExtensionAPI) {
     await ensureSteps();freezeInputSources(event.prompt);
     const inputPrompt='\n\nSetup input source selection (setup-input-reference-v1): profile.name selects {source,range?:{first,last}} or proposes {generated:newName}. Omit unchanged names when revising. pending_action selects only an actual player request; no generated form or copied string is permitted. This catalog covers user text fields only, not image or attached-file content. Unit aliases are inclusive grapheme endpoints, never character offsets. Coverage omissions mean missing input is unavailable, not absent; preserve an existing draft name and ask for a repeated request when its source is needed. Never copy epochs, digests or message IDs.\n'+JSON.stringify(inputCatalog!.public);
     // The frontend's confirm button commits the draft and completes setup on a cold kernel before
-    // it sends its ordinary closing sentence (§98). A fresh setup process therefore resumes with
-    // `complete` already booked and no world yet: asking `mods.context` at that point takes the
-    // play-only branch and fails because `table.open` has not created the world. Finish the existing
-    // handoff first; the agent only owes the short prologue close, and agent_end will let the wrapper
-    // replace this setup child with the play child.
+    // it sends its ordinary closing sentence (§98). A fresh setup process resumes with `complete`
+    // already booked; a live one learns it here from the kernel. Either way there is no world yet:
+    // asking `mods.context` at that point takes the play-only branch and fails because `table.open`
+    // has not created the world, and that failure used to block the turn as a guidance failure and
+    // strand the table (installed build e1b4176d3, 2026-09-23). Finish the existing handoff first;
+    // the agent only owes the short prologue close, and agent_end will let the wrapper replace this
+    // setup child with the play child.
+    await refreshCompleted();
     if(completed.has('complete')) {
       await finish();
       return {systemPrompt:event.systemPrompt+'\nSetup is already complete. Do not call setup or continue character creation. Close the prologue briefly; the host will open the table.'};
