@@ -23,7 +23,7 @@ before(async()=>{
     "export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';",
     "export {checkDraft} from './kernel-ts/modules/visual.ts';",
     "export {sourceInfo,sourceText,closeSourceDocuments} from './extensions/module/source.ts';",
-    "export {convertToLlm} from './node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js';",
+    "export {convertToLlm} from './build/node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js';",
   ].join('\n'),resolveDir:ROOT,sourcefile:'prescreen-source-request-entry.ts'},outfile:join(bundle,'api.mjs'),bundle:true,
     packages:'external',platform:'node',format:'esm',logLevel:'silent'});
   api=await import(pathToFileURL(join(bundle,'api.mjs')).href);

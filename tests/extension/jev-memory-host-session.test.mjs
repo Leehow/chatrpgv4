@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { setTimeout as settle } from "node:timers/promises";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
-import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "./pi.mjs";
 import { createCanonicalOperationDispatcher } from "../../extensions/kernel/canonical-operation-dispatcher.ts";
 import { bindDecisionAnswers } from "../../runtime/jev/contracts.ts";
 import { createTaskHostAdapter } from "../../runtime/jev/task-host-session.ts";

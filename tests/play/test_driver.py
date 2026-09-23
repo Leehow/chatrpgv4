@@ -5,7 +5,7 @@ Run with:
 
 Most tests drive driver.py against tests/play/fixtures/fake_pi_rpc.py, a
 scripted stand-in that speaks the Pi RPC protocol without needing a real
-LLM. One smoke test spawns the real `node_modules/.bin/pi --mode rpc
+LLM. One smoke test spawns the real (vendored, ADR-0006) Pi CLI `--mode rpc
 --no-session` directly (bypassing driver.py) to confirm the framing
 assumptions in driver.py -- split on "\n" only, one JSON object per line --
 hold against the real binary; it is skipped when node_modules is absent.
@@ -31,7 +31,8 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DRIVER = REPO_ROOT / "tests" / "play" / "driver.py"
 FAKE_PI = REPO_ROOT / "tests" / "play" / "fixtures" / "fake_pi_rpc.py"
-REAL_PI = REPO_ROOT / "node_modules" / ".bin" / "pi"
+# The Pi the product starts: vendor/pi built by `npm run build:runtime` (ADR-0006).
+REAL_PI = REPO_ROOT / "build" / "node_modules" / "@earendil-works" / "pi-coding-agent" / "dist" / "cli.js"
 
 
 def replay_turn(events, timeout=10):
@@ -584,7 +585,7 @@ def test_second_run_on_same_campaign_continues_the_kernel_turn_and_records_resum
             pass
 
 
-@pytest.mark.skipif(not REAL_PI.exists(), reason="node_modules/.bin/pi not installed")
+@pytest.mark.skipif(not REAL_PI.exists(), reason="vendored Pi not built (npm run build:runtime)")
 def test_real_pi_get_state_smoke():
     """Confirms the JSONL/get_state framing assumptions against the real pi binary.
 

@@ -11,7 +11,7 @@ import {
 	ModelRuntime,
 	SessionManager,
 	SettingsManager,
-} from "@earendil-works/pi-coding-agent";
+} from "./pi.mjs";
 import { Type } from "typebox";
 import thinkingSchedule from "../../extensions/thinking-schedule/index.ts";
 

@@ -17,7 +17,7 @@ export {prescreenFollowTargets} from './extensions/table/prescreen-loop.ts';
 export {createKernelContext} from './kernel-ts/context.ts';
 export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
 export {createKernelRuntime} from './kernel-ts/registry.ts';
-export {convertToLlm} from './node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js';
+export {convertToLlm} from './build/node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js';
 `},outfile:join(temp,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',logLevel:'silent'});
 const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
 

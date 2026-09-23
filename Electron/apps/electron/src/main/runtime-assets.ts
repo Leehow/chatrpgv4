@@ -2,7 +2,7 @@ import { accessSync, constants, statSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import type { PiBackendOptions, PiCommand, RuntimeAssets } from '@pipi/pi-backend'
-import { assertWritableLocation, compiledEnvironment, resourcePath, standaloneRuntime } from '../../../../../runtime/deployment.mjs'
+import { assertWritableLocation, compiledEnvironment, PI_ENTRIES, resourcePath, standaloneRuntime } from '../../../../../runtime/deployment.mjs'
 
 export interface AssetLookup {
   packaged: boolean
@@ -21,6 +21,8 @@ export interface ResolvedAssets extends RuntimeAssets {
   sessionsRoot: string
   runtimeRoot: string
   authNodePath?: string
+  /** The vendored Pi's package entry (ADR-0006): what pi-backend imports in-process, the same copy the Keeper runs. */
+  piModule: string
 }
 export const EMBEDDED_NODE_VERSION = '24.19.0'
 export const PI_RUNTIME_PACKAGE = '@earendil-works/pi-coding-agent' as const
@@ -54,7 +56,7 @@ export function resolveRuntimeAssets(lookup: AssetLookup): ResolvedAssets {
     return {
       sourceRoot: deployment.entrypoints.hostAssets,
       managedNodeModulesRoot: join(repo, 'node_modules'),
-      agentDir, sessionsRoot, runtimeRoot, authNodePath: deployment.node,
+      agentDir, sessionsRoot, runtimeRoot, authNodePath: deployment.node, piModule: deployment.entrypoints.piModule,
       cocRuntime: {layout: 'compiled', backend: 'typescript', nodeExecutable: deployment.node,
         contentRoot: join(repo, 'content'), kernelEntrypoint: deployment.entrypoints.kernel,
         preparationEntrypoint: deployment.entrypoints.preparation},
@@ -72,10 +74,11 @@ export function resolveRuntimeAssets(lookup: AssetLookup): ResolvedAssets {
     agentDir, sessionsRoot: join(agentDir, 'ui-sessions', mode),
     runtimeRoot: lookup.env.PIPIUI_RUNTIME_ROOT || join(lookup.userData || repo, 'runtime'),
     authNodePath: nodePath,
+    piModule: join(repo, PI_ENTRIES.piModule),
     cocRuntime: {layout: 'source', nodeExecutable: nodePath},
     piCommand: {
       executable: launcher,
-      piPath: join(repo, 'node_modules', '.bin', 'pi'),
+      piPath: join(repo, PI_ENTRIES.pi),
       env: {
         PI_CODING_AGENT_DIR: agentDir,
         PI_COC_RESOURCE_ROOT: repo, PI_COC_LAYOUT: 'source',

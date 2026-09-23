@@ -8,7 +8,7 @@ import { setTimeout as settle } from "node:timers/promises";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
-import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "./pi.mjs";
 import kernelExtension from "../../extensions/kernel/index.ts";
 import { bindDecisionAnswers } from "../../runtime/jev/contracts.ts";
 import { createTaskHostAdapter, DEFAULT_TASK_DEADLINE_MS, taskDeadlineMs } from "../../runtime/jev/task-host-session.ts";

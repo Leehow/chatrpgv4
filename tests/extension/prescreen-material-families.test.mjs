@@ -23,7 +23,7 @@ export * from './extensions/table/context-runtime.ts';
 export {createKernelContext} from './kernel-ts/context.ts';
 export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
 export {createKernelRuntime} from './kernel-ts/registry.ts';
-export {convertToLlm} from './node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js';
+export {convertToLlm} from './build/node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js';
 `,resolveDir:root,sourcefile:'prescreen-material-families-api.ts'},outfile:join(buildRoot,'api.mjs'),
   bundle:true,packages:'external',platform:'node',format:'esm',target:'node22',logLevel:'silent'});
 const api=await import(pathToFileURL(join(buildRoot,'api.mjs')).href);

@@ -11,12 +11,13 @@ import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { agentExtensionManifests, desktopSessionExtensionPaths, extensionArgs, providerExtensionManifests,
+import { agentExtensionManifests, desktopSessionExtensionPaths, extensionArgs, PI_ENTRIES, providerExtensionManifests,
 	readerProviderExtensionPaths, runtimeEntrypoints, sessionExtensionPaths } from "../../runtime/deployment.mjs";
 import { FAKE_KERNEL, openTable } from "./harness.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = realpathSync(join(HERE, "..", ".."));
+const VENDORED_PI = PI_ENTRIES.pi;
 
 function scratch(prefix) {
 	return realpathSync(mkdtempSync(join(tmpdir(), prefix)));
@@ -85,16 +86,18 @@ function fakeRepo() {
 		mkdirSync(join(root, "extensions", entry.name), { recursive: true });
 		copyFileSync(join(REPO, "extensions", entry.name, "pipiui-extension.json"), join(root, "extensions", entry.name, "pipiui-extension.json"));
 	}
-	mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
+	mkdirSync(join(root, "node_modules"), { recursive: true });
+	// The launcher starts the vendored Pi's CLI from build/node_modules (ADR-0006), never node_modules/.bin/pi.
+	mkdirSync(dirname(join(root, VENDORED_PI)), { recursive: true });
 	// The emitted launcher intentionally keeps runtime packages external. The fixture owns an isolated
-	// dependency view while its fake `.bin/pi` remains local to this tree.
+	// dependency view while its fake vendored Pi CLI remains local to this tree.
 	symlinkSync(join(REPO, "node_modules", "typebox"), join(root, "node_modules", "typebox"), "dir");
 	symlinkSync(join(REPO, "node_modules", "@earendil-works"), join(root, "node_modules", "@earendil-works"), "dir");
 	copyFileSync(join(REPO, "bin", "pi-coc"), join(root, "bin", "pi-coc"));
 	chmodSync(join(root, "bin", "pi-coc"), 0o755);
 	writeFileSync(join(root, "prompts", "keeper.md"), "# 守秘人\n");
 	writeFileSync(join(root, "prompts", "setup.md"), "# 建卡\n");
-	const piStub = join(root, "node_modules", ".bin", "pi");
+	const piStub = join(root, VENDORED_PI);
 	writeFileSync(piStub, `const fs=require('node:fs');
 fs.writeFileSync(process.env.PI_STUB_LOG,[
  'cwd='+process.cwd(),'agentdir='+process.env.PI_CODING_AGENT_DIR,'campaign='+(process.env.PI_COC_CAMPAIGN??'<unset>'),
@@ -282,14 +285,14 @@ test("bin/pi-coc preserves explicit extension control flags", (t) => {
 test("bin/pi-coc：没装 pi 时报清楚", (t) => {
 	const root = fakeRepo();
 	t.after(() => rmSync(root, { recursive: true, force: true }));
-	rmSync(join(root, "node_modules", ".bin", "pi"));
+	rmSync(join(root, VENDORED_PI));
 
 	assert.throws(
 		() => execFileSync(join(root, "bin", "pi-coc"), ["--campaign", "camp-a"], { encoding: "utf8", stdio: "pipe" }),
 		(error) => {
 			assert.equal(error.status, 1);
 			assert.match(error.stderr, /ENOENT/);
-			assert.ok(error.stderr.includes(join(root, 'node_modules/.bin/pi')));
+			assert.ok(error.stderr.includes(join(root, VENDORED_PI)));
 			return true;
 		},
 	);

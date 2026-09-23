@@ -10,6 +10,7 @@ import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extensi
 import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, rmSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
 import { pipeline } from "node:stream/promises";
 
@@ -722,6 +723,8 @@ export type PiBackendOptions = {
   /** App-specific installed extension tree. */ runtimeRoot?: string;
   /** Real on-disk node_modules containing the two bundled, pinned managed extensions. */
   managedNodeModulesRoot?: string;
+  /** Absolute path of the Pi package entry to load in-process (the COC runtime's vendored Pi, ADR-0006). */
+  piModule?: string;
   /**
    * Shipped extension sources. When set, the runtime tree is refreshed from them before every
    * spawn, so an edit under the Electron runtime source reaches the next session without
@@ -1730,12 +1733,28 @@ async function lastJsonlEntryId(path: string): Promise<string | null> {
   return null;
 }
 const SESSION_MANAGER_MAX_BYTES = 4 * 1024 * 1024;
-let sessionManagerModule: Promise<{ SessionManager: any }> | undefined;
-async function loadSessionManager() {
-  return (sessionManagerModule ??=
-    import("@earendil-works/pi-coding-agent") as Promise<{
-      SessionManager: any;
-    }>);
+/**
+ * The Pi this backend loads in-process (`SessionManager` for history, `ModelRuntime` for auth and the
+ * catalog). A COC host passes `piModule`: the vendored Pi's package entry (ADR-0006), the very copy the
+ * Keeper child runs, so the session format and model registry are read by the same code that writes
+ * them and the stock package never loads beside the patched one. Without it (a plain Pi host, tests)
+ * the backend's own dependency is used, as before.
+ */
+const piModules = new Map<string, Promise<any>>();
+export function piModuleSpecifier(piModule?: string): string {
+  return piModule ? pathToFileURL(piModule).href : "@earendil-works/pi-coding-agent";
+}
+export function loadPiCodingAgent(piModule?: string): Promise<any> {
+  const specifier = piModuleSpecifier(piModule);
+  let loaded = piModules.get(specifier);
+  if (!loaded) {
+    loaded = import(specifier);
+    piModules.set(specifier, loaded);
+  }
+  return loaded;
+}
+async function loadSessionManager(piModule?: string) {
+  return loadPiCodingAgent(piModule) as Promise<{ SessionManager: any }>;
 }
 /** Chat-window history: full stitched leaf walk, streamed in two passes for bounded paging. */
 async function readHistory(
@@ -2424,6 +2443,7 @@ export class PiHostBackend implements HostBackend {
   private piCommand: PiCommand;
   private runtimeRoot: string;
   private managedNodeModulesRoot?: string;
+  private readonly piModule?: string;
   private readonly cocRuntime: PiBackendOptions['cocRuntime'] & Pick<CocOnboardingOptions, 'preparationEnv'>;
   private runtimeAssets?: RuntimeAssets;
   private agentDir: string;
@@ -2581,6 +2601,7 @@ export class PiHostBackend implements HostBackend {
     this.structuredOutputNormalize = options.structuredOutputNormalize;
     this.structuredOutputsEnabledFn = options.structuredOutputsEnabled;
     this.managedNodeModulesRoot = options.managedNodeModulesRoot;
+    this.piModule = options.piModule;
     this.cocRuntime = Object.freeze({...options.cocRuntime,
       preparationEnv: async (projectRoot: string) => {
         // Cold source preparation uses the same enabled package and vault as table sessions.
@@ -2789,7 +2810,7 @@ export class PiHostBackend implements HostBackend {
     this.loadPersistedAgentLogs();
     // Preload the pi SessionManager module at startup: otherwise the first session open after
     // launch pays its ~1s dynamic-import cost and the chat appears to stall before painting.
-    void loadSessionManager();
+    void loadSessionManager(this.piModule);
     // Isolated init enqueues capability (if provided) then deterministic project migration.
     // Catalog preload waits on that same promise so the first listModels cannot cache a
     // pre-migration snapshot.
@@ -4190,7 +4211,7 @@ export class PiHostBackend implements HostBackend {
     try {
       if ((await fs.stat(meta.path)).size > SESSION_MANAGER_MAX_BYTES)
         return meta;
-      const { SessionManager } = await loadSessionManager();
+      const { SessionManager } = await loadSessionManager(this.piModule);
       const manager = SessionManager.open(meta.path);
       const header = manager.getHeader();
       if (!header) return meta;
@@ -10431,7 +10452,7 @@ export class PiHostBackend implements HostBackend {
   private async modelRuntime(): Promise<AuthRuntimeLike> {
     if (!this.authRuntimePromise) {
       this.authRuntimePromise = (async () => {
-        const mod: any = await import("@earendil-works/pi-coding-agent");
+        const mod: any = await loadPiCodingAgent(this.piModule);
         const real = await mod.ModelRuntime.create({
           authPath: join(this.agentDir, "auth.json"),
           modelsPath: join(this.agentDir, "models.json"),

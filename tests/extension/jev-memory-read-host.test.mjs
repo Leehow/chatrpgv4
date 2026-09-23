@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { setTimeout as settle } from "node:timers/promises";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
-import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "./pi.mjs";
 import kernelExtension from "../../extensions/kernel/index.ts";
 import { bindDecisionAnswers } from "../../runtime/jev/contracts.ts";
 import { MEMORY_READ_POLICY_VERSION } from "../../runtime/jev/memory-read-domain.ts";

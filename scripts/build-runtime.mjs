@@ -5,8 +5,11 @@ import {readdirSync,readFileSync,writeFileSync,existsSync,mkdirSync,copyFileSync
 import ts from 'typescript';
 import { fileURLToPath } from 'node:url';
 import { agentExtensionManifests } from '../runtime/deployment.mjs';
+import { buildPi } from './build-pi.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// The one Pi the product loads (ADR-0006): vendor/pi compiled into build/node_modules. Skipped when unchanged.
+buildPi();
 // Preserve the engine-owned clock convention without a handwritten runtime registry.
 const kernelRoot=resolve(root,'kernel-ts'),engines=[];
 for(const entry of readdirSync(kernelRoot,{recursive:true,withFileTypes:true})){
