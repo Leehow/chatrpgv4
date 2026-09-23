@@ -265,6 +265,13 @@ export class RuleObservations {
         }
         return result;
     }
+    /**
+     * One index per distinct graph object (contract §131). The snapshot reader hands the same frozen
+     * object back for unchanged bytes, so the graph's identity is the cache key and a changed file
+     * is a new key; the digest check and the index build then run once per process per graph
+     * instead of on every request that touches the rules.
+     */
+    private static readonly loaded = new WeakMap<Row, { manifest: Row; packageManifest: Row; observations: RuleObservations }>();
     static async load(context: KernelContext): Promise<RuleObservations> {
         const directory = join(context.content, "rulesets", "coc7"),
             manifest = row(await context.snapshots.readJson(join(directory, "manifest.json"))),
@@ -274,6 +281,8 @@ export class RuleObservations {
         const graph = row(await context.snapshots.readJson(join(directory, entry.rule_graph))),
             graphManifest = row(await context.snapshots.readJson(join(directory, entry.rule_graph_manifest))),
             problems: string[] = [];
+        const cached = RuleObservations.loaded.get(graph);
+        if (cached && cached.manifest === graphManifest && cached.packageManifest === manifest) return cached.observations;
         if (graph.contract_id !== "coc.rule-graph.v1")
             problems.push("graph.contract_id does not match the v1 contract");
         if (graphManifest.contract_id !== "coc.rule-graph-build-manifest.v1")
@@ -290,6 +299,8 @@ export class RuleObservations {
             problems.push("graph content digest does not match the graph manifest");
         if (problems.length)
             throw new RpcError("campaign_not_ready", "the coc7 rule graph is not loadable (graph_invalid)", { details: { findings: problems } });
-        return new RuleObservations(graph, graphManifest, manifest);
+        const observations = new RuleObservations(graph, graphManifest, manifest);
+        if (Object.isFrozen(graph)) RuleObservations.loaded.set(graph, { manifest: graphManifest, packageManifest: manifest, observations });
+        return observations;
     }
 }

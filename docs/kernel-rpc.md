@@ -15441,3 +15441,47 @@ Two costs are named rather than hidden. The kernel answers one request at a time
 And deferred-registration completion stays in front of `narrate` because it writes state; it is a kernel
 `apply` of definitions already accepted, except in the rare case an earlier session died before a queued
 definition's creator finished, when `resume` runs that creator in the foreground (§36 fallback, unchanged).
+
+## 131. A file parses once per process; a copy is a copy (2026-09-22)
+
+Evidence: a CPU profile of one `table.workspace.read` on the installed App (starter `the-haunting`, zh-Hans,
+campaign `game-21ac44b7`) put 72% of a 600 ms request inside the Python-compatible JSON parser and
+serializer (`kernel-ts/json.ts`), attributed by call site as: `RuleObservations.load` 36% (the 2.4 MB coc7
+rule graph parsed and canonically digested on every request), campaign and module `readJson` 18% (every
+turn record, save and ledger of the campaign per snapshot), `readPublishedGraph` 15% (the 0.8 MB module
+graph per load), `unitGroups` 11% (per-field packing that serializes the growing unit on every field) and
+`clone` 11% (a deep copy implemented as serialize-then-parse). The serializer itself is 6–17× slower than
+the native one and stays: its bytes are what every stored digest was computed from. What changes is how
+often the same bytes are parsed.
+
+### 131.1 Parsed files are kept by file identity
+
+`snapshots.readJson` and `readJsonl` (`kernel-ts/snapshots.ts`) keep the parsed, frozen value per path,
+keyed by the file's stamp — size, mtime and inode. Every value a read returns was already frozen, so the
+same object is handed to every caller and nothing downstream can tell a cached read from a fresh one.
+The kernel's own writers replace files atomically (`writeJsonAtomic` renames a fresh inode into place) and
+append to logs, so the stamp is the change signal; a file rewritten in place with the same size still moves
+its mtime. The cache is bounded (128 MB of decoded text, 4096 entries, least recently used evicted) and
+`forgetParsedFiles()` empties it. A read still costs one `stat`.
+
+`RuleObservations.load` (`kernel-ts/read/rule-facts.ts`) keeps one index per distinct frozen graph object,
+so the canonical digest check and the index build run once per process per graph; a changed file is a new
+object and a new index. `readPublishedGraph` (`kernel-ts/read/published-graph.ts`) keeps the bytes digest
+and the parsed graph per path stamp (32 entries) and the canonical digest per graph object; every integrity
+check of §28.9 still runs on every call, against the cached digest and graph, which is what a fresh read of
+the same bytes would have produced. `ModuleGraph` instances are not cached: a loaded graph is mutated per
+campaign (§14's table people, adaptation overlays), so it is rebuilt from the cached frozen `raw` per load.
+
+### 131.2 `clone` is structural
+
+`clone` (`kernel-ts/read/values.ts`) copies the value with exactly the shape the serialize-then-parse round
+trip produced: key order as `objectKeys` reads it (Python dict order for integer-looking keys included), an
+integer-valued number stays a number, any other number becomes a `PythonFloat` as the serializer would have
+written it, bigint and `PythonFloat` pass through, the copy is unfrozen however the input was, and the same
+inputs the serializer refused (`undefined`, unsafe integers) still throw. `pythonJsonDumps(clone(x)) ===
+pythonJsonDumps(x)` for every JSON value.
+
+Measured on the same table and process (warm, second request onward): `table.view` 132 → 5 ms,
+`table.look` 128 → 7 ms, `table.workspace.read` 600 → 240–290 ms. The remaining workspace cost is the
+per-field packing of §124's material units and the digests of the current turn's records, not parsing.
+Test: `tests/extension/kernel-parsed-file-cache.test.mjs`.
