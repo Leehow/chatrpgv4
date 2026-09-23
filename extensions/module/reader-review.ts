@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readerInput, type ReaderRequest, type ReaderOutcome } from "./reader.ts";
 import { draftHasMapRegions } from "./map-publication.ts";
 import { obligationReviewPaths } from "../../kernel-ts/modules/obligation-review.ts";
+import { shapeReviewPaths } from "../../kernel-ts/modules/shape-review.ts";
 
 type Row = Record<string, any>;
 function numeric(value: any, path: string): string[] {
@@ -25,6 +26,8 @@ export function reviewUnits(draft: Row): string[][] {
 			pointers.add(`${path}/properties/map_regions`);
 		// Contract §134.16: the publication gate requires every obligation field, listed in critical or not.
 		if (collection === "nodes") for (const pointer of obligationReviewPaths(row, path)) pointers.add(pointer);
+		// Contract §136.20: and every leaf of a stated mechanical shape, dice strings included.
+		if (collection === "nodes") for (const pointer of shapeReviewPaths(row, path)) pointers.add(pointer);
 		groups.set(path, pointers);
 	}
 	for (const path of draft.critical ?? []) {

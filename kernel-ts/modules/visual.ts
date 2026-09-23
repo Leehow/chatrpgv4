@@ -7,6 +7,8 @@ import { startSceneCandidates } from '../write/source.js';
 import { CLAIM_KEYS, NODE_KEYS, SHARD_KEYS, VISUAL_CONTRACT_ID, validSemanticId, type ModuleContract } from './contract.js';
 import { obligationRefusals, type Refusal } from './obligation-shape.js';
 import { obligationReviewPaths, statesObligation } from './obligation-review.js';
+import { carriesMechanics, mechanicsRefusals } from './mechanics-shape.js';
+import { shapeReviewPaths, statesMechanics } from './shape-review.js';
 const object = (value: any): boolean => isJsonObject(value);
 export function reject(message: string, path = '/'): never {
     throw new RpcError('invalid_params', message, {
@@ -156,14 +158,16 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         }
         if (Object.hasOwn(props, 'image_sources'))
             references(props.image_sources, count, seen);
-        if (kind === 'npc' && ['stats', 'skills', 'characteristics', 'derived'].some(key => object(props[key])) && !object(row(props.mechanics).profile))
-            reject('put authored NPC numbers in properties.mechanics.profile (characteristics, derived, skills); a standalone stats dictionary does not reach the rules engine', `/nodes/${i}/properties`);
+        if (['npc', 'creature'].includes(kind))
+            actorNumbersLaw(props, i, contract);
         if (!Object.hasOwn(node, 'visibility'))
             node.visibility = 'keeper-only';
         if (!array(vocab.visibility).includes(node.visibility))
             reject('node visibility must use the supplied vocabulary');
         if (statesObligation(node))
             obligationSourceLaw(node, i, seen);
+        if (statesMechanics(node))
+            mechanicsSourceLaw(node, i, seen);
         node.source_refs = references(node.source_refs, count, seen);
         defined.add(id);
     }
@@ -264,6 +268,10 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
             for (const path of obligationReviewPaths(node, `/nodes/${i}`))
                 required.add(path);
     }
+    checkMechanics(filled, packet, contract);
+    for (const [i, node] of nodes.entries())
+        for (const path of shapeReviewPaths(node, `/nodes/${i}`))
+            required.add(path);
     filled.required_review = sorted(required);
     return filled;
 }
@@ -303,29 +311,115 @@ function checkObligations(filled: Row, packet: Row, contract: ModuleContract): v
     if (!contract.rules)
         throw new Error('the draft states an obligation but the content root carries no ruleset tables to check it against');
     const drafted = new Map<string, number>((filled.nodes as Row[]).map((node, i) => [string(node.node_id), i]));
+    const refusals: Refusal[] = obligationRefusals(overlayGraph(filled, packet, contract, false), contract.rules, { starter: false });
+    if (!refusals.length) return;
+    const located = locate(refusals, drafted);
+    refuseObligation(located, located.some(refusal => refusal.rule === 'check_unknown_skill')
+        ? { ruleset: { skills: [...contract.rules.skills], characteristics: [...contract.rules.characteristics] } } : {});
+}
+/** A refusal on a drafted node points into the draft; one on a known node keeps the validator's path. Draft nodes first. */
+function locate(refusals: Refusal[], drafted: ReadonlyMap<string, number>): Row[] {
+    const located = refusals.map(refusal => drafted.has(string(refusal.node))
+        ? { ...refusal, path: `/nodes/${drafted.get(string(refusal.node))}${pointerTokens(refusal.path)}` } : { ...refusal });
+    located.sort((a, b) => Number(!drafted.has(string(a.node))) - Number(!drafted.has(string(b.node))));
+    return located;
+}
+/** A drafted value over a known one, objects merged key by key as publication's `mergeValue` merges them. */
+function deepOverlay(known: any, drafted: any): any {
+    if (!object(known) || !object(drafted)) return drafted;
+    const out: Row = { ...known };
+    for (const [key, value] of entries(drafted)) out[key] = Object.hasOwn(known, key) ? deepOverlay(known[key], value) : value;
+    return out;
+}
+/**
+ * The graph this draft would publish into: `packet.known_nodes` overlaid by the draft's nodes,
+ * `packet.known_claims` overlaid by the draft's claims by `claim_id`, and one relation per claim, as
+ * `assembleVisual` derives them. §134.16 overlays a drafted node's `properties` over the known node's
+ * key by key (`deep` false); §136.20 merges them all the way down (`deep` true), as publication does, so
+ * a delta that adds one slot to a known shape is checked as the shape it makes. With `filled` null the
+ * view is the known graph alone.
+ */
+function overlayGraph(filled: Row | null, packet: Row, contract: ModuleContract, deep: boolean): ModuleGraph {
     const nodes = new Map<string, Row>(array(packet.known_nodes).filter(object).map(node => {
         const { ready: _ready, ...known } = node;
         return [string(node.node_id), known];
     }));
-    for (const node of filled.nodes as Row[]) {
+    for (const node of array(filled?.nodes)) {
         const known = nodes.get(node.node_id);
-        nodes.set(node.node_id, known ? { ...known, ...node, properties: { ...row(known.properties), ...row(node.properties) } } : node);
+        nodes.set(node.node_id, !known ? node : deep ? deepOverlay(known, node)
+            : { ...known, ...node, properties: { ...row(known.properties), ...row(node.properties) } });
     }
     const claims = new Map<string, Row>(array(packet.known_claims).filter(object).map((claim, i) => [string(claim.claim_id) || `known-${i}`, claim]));
-    for (const claim of filled.claims as Row[]) claims.set(claim.claim_id, claim);
+    for (const claim of array(filled?.claims)) claims.set(claim.claim_id, claim);
     const kinds = array(contract.graph.relation_kinds);
     const relations = [...claims.values()].filter(claim => kinds.includes(claim.predicate)).map(claim => ({
         relation_id: 'rel-' + string(claim.claim_id).replace(/^claim-/, ''), relation_kind: claim.predicate,
         from_node_id: claim.subject_id, to_node_id: row(claim.object).node_id, claim_id: claim.claim_id, properties: {},
     }));
-    const view = new ModuleGraph(string(packet.module_id), { nodes: [...nodes.values()], claims: [...claims.values()], relations }, '', row(contract.graph.actor_dossier));
-    const refusals: Refusal[] = obligationRefusals(view, contract.rules, { starter: false });
+    return new ModuleGraph(string(packet.module_id), { nodes: [...nodes.values()], claims: [...claims.values()], relations }, '', row(contract.graph.actor_dossier));
+}
+
+/** Contract §136.20: an actor's numbers outside `mechanics.profile` do not reach the rules engine. */
+function actorNumbersLaw(props: Row, i: number, contract: ModuleContract): void {
+    const refuse = (path: string, message: string): never => {
+        throw new RpcError('invalid_params', message, {
+            fix: "move the actor's printed numbers into properties.mechanics.profile (characteristics, derived, skills) and delete the loose copy; do not recalculate them",
+            details: { reason: 'reading_failed', path, rule: 'profile_outside_seat' },
+        });
+    };
+    if (['stats', 'skills', 'characteristics', 'derived'].some(key => object(props[key])) && !object(row(props.mechanics).profile))
+        refuse(`/nodes/${i}/properties`, 'put authored NPC numbers in properties.mechanics.profile (characteristics, derived, skills); a standalone stats dictionary does not reach the rules engine');
+    const names = array(contract.rules?.characteristics).map(normalize);
+    const flat = Object.keys(props).find(key => numeric(props[key]) && names.includes(normalize(key)));
+    if (flat !== undefined)
+        refuse(`/nodes/${i}/properties/${flat.replace(/~/g, '~0').replace(/\//g, '~1')}`,
+            `the characteristic ${repr(flat)} is a number beside the stat block; put it in properties.mechanics.profile.characteristics, where the rules engine reads it`);
+}
+/** §136.20 step 1: a node stating a shape cites pages this reader viewed, refused with its path and rule before the generic law. */
+function mechanicsSourceLaw(node: Row, i: number, seen?: ReadonlySet<any>): void {
+    const refs = node.source_refs, id = string(node.node_id);
+    if (!Array.isArray(refs) || !refs.length)
+        refuseMechanics([{ node: id, rule: 'mechanics_unsourced', path: `/nodes/${i}/source_refs`, message: 'a node stating a mechanic cites the page that states it' }]);
+    if (!seen) return;
+    const unviewed = refs.flatMap((ref: any, j: number) => object(ref) && integer(ref.page) && ![...seen].some(page => equal(page, ref.page))
+        ? [{ node: id, rule: 'mechanics_unsourced', path: `/nodes/${i}/source_refs/${j}`, message: `physical page ${ref.page} was not actually viewed by this reader` }] : []);
+    if (unviewed.length) refuseMechanics(unviewed);
+}
+/** Contract §136.20: a shape refusal names its node, its JSON pointer and its stable rule; the fix follows the rules refused. */
+function refuseMechanics(refusals: Row[], extra: Row = {}): never {
+    const first = refusals[0], rules = new Set(refusals.map(refusal => refusal.rule));
+    throw new RpcError('invalid_params', `mechanics ${first.node}: ${first.path}: ${first.message}`, {
+        fix: 'correct the shape against the page it cites (contract 136): '
+            + (rules.has('mechanics_unsourced') ? 'cite only physical pages you viewed that print the mechanic; ' : '')
+            + 'record a value the page does not state as <slot>_unstated: true, never guess one; '
+            + (Object.hasOwn(extra, 'ruleset') ? 'name each skill and characteristic exactly as details.ruleset spells it; ' : '')
+            + (rules.has('shape_dice') ? 'write dice as the bare expression, such as 1D4+2, with any words in book and a damage bonus as adds_damage_bonus: true; ' : '')
+            + (rules.has('mechanics_wrong_kind') || rules.has('mechanics_unknown_shape') ? 'put each shape under its own key on the node that states it, of a kind contract 136.1 admits for that shape; ' : '')
+            + 'if the page states no such mechanic, delete that shape',
+        details: { reason: 'reading_failed', path: first.path, rule: first.rule, refusals, ...extra },
+    });
+}
+/**
+ * §136.20 step 2: the shared validator over the graph this draft would publish into, `starter: false`
+ * (no legacy allowance). A refusal the known graph already earns on its own is not the draft's: the draft
+ * cannot remove a published key, so only the refusals the draft introduces refuse it.
+ */
+function checkMechanics(filled: Row, packet: Row, contract: ModuleContract): void {
+    const view = overlayGraph(filled, packet, contract, true);
+    if (!carriesMechanics(view)) return;
+    if (!contract.rules) {
+        if ((filled.nodes as Row[]).some(statesMechanics))
+            throw new Error('the draft states a mechanic but the content root carries no ruleset tables to check it against');
+        return;
+    }
+    const identity = (refusal: Refusal): string => canonicalJson([string(refusal.node), refusal.rule, refusal.path]);
+    const known = new Set(mechanicsRefusals(overlayGraph(null, packet, contract, true), contract.rules, { starter: false }).map(identity));
+    const refusals = mechanicsRefusals(view, contract.rules, { starter: false }).filter(refusal => !known.has(identity(refusal)));
     if (!refusals.length) return;
-    const located = refusals.map(refusal => drafted.has(string(refusal.node))
-        ? { ...refusal, path: `/nodes/${drafted.get(string(refusal.node))}${pointerTokens(refusal.path)}` } : { ...refusal });
-    located.sort((a, b) => Number(!drafted.has(string(a.node))) - Number(!drafted.has(string(b.node))));
-    refuseObligation(located, located.some(refusal => refusal.rule === 'check_unknown_skill')
-        ? { ruleset: { skills: [...contract.rules.skills], characteristics: [...contract.rules.characteristics] } } : {});
+    const drafted = new Map<string, number>((filled.nodes as Row[]).map((node, i) => [string(node.node_id), i]));
+    const located = locate(refusals, drafted);
+    refuseMechanics(located, located.some(refusal => refusal.rule === 'shape_unknown_skill')
+        ? { ruleset: { skills: [...contract.rules.skills], characteristics: [...contract.rules.characteristics], specialization_groups: Object.keys(contract.rules.groups) } } : {});
 }
 export function checkReview(draft: Row, filled: Row, review: any, count: number, seen: ReadonlySet<number>): void {
     if (!object(review) || !Array.isArray(review.missing) || !Array.isArray(review.checked))
