@@ -194,6 +194,12 @@ const CSS = `
 .coc-mech-object dl{margin:0;display:grid;grid-template-columns:max-content 1fr;gap:2px 12px}
 .coc-mech-object dt{color:var(--muted)}
 .coc-mech-object dd{margin:0;color:var(--text);overflow-wrap:anywhere}
+/* How a held object can be used (the coc-card-patch usage patch), one line per use under its row: the use's name, then the
+   fields the sheet's weapon row shows, under the sheet's own captions. Quiet, like a footnote. */
+.coc-mech-usages{list-style:none;margin:-2px 0 6px 34px;padding:0;font-size:12px;line-height:1.6;color:var(--muted)}
+.coc-mech-usage{overflow-wrap:anywhere}
+.coc-mech-usage-name{color:var(--text);font-weight:550}
+.coc-mech-usage-cap{color:var(--subtle)}
 .coc-mech-fold-body{margin:2px 0 10px 34px;padding:10px 14px;border-left:2px solid var(--border-strong);
   font-family:var(--coc-serif);font-size:13.5px;line-height:1.75;white-space:pre-wrap;color:var(--text);
   max-height:340px;overflow:auto}
@@ -338,6 +344,23 @@ if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
   style.textContent = CSS + SPEAKER_CSS;
   document.head.append(style);
 }
+
+/* >>> weapon fields: shared verbatim between pipicoc/panel.js and pipicoc/mechanics.js <<<
+ * The fields a weapon's use shows, in the order it shows them: each is drawn under the first of its
+ * aliases the row carries, under the sheet's own `item.<key>` caption, and nothing else is drawn. The
+ * possessions box and the delivery card's usage lines (the `coc-card-patch` usage patch) both read this, so the card
+ * never shows a field the sheet would not. The renderers cannot import each other, so it is copied,
+ * and tests/extension/mechanics-usage-lines.test.mjs pins the two copies byte for byte. */
+const WEAPON_FIELDS = [["damage_die","damage"],["base_range_yards","range"],["uses_per_round","attacks"],["magazine"],["ammo"],["malfunction"],["skill"],["adds_damage_bonus"],["special"],["description"]];
+function weaponDetails(item) {
+  const details = [];
+  for (const aliases of WEAPON_FIELDS) {
+    const key = aliases.find(key => item[key] !== undefined && item[key] !== null && item[key] !== "");
+    if (key) details.push({key,value:item[key],wide:["skill","special","description"].includes(key)});
+  }
+  return details;
+}
+/* >>> end weapon fields <<< */
 
 /**
  * A caption from the delivery's own `ui` block: `ui.words[surface][key]`.
@@ -654,6 +677,30 @@ export function createComponent(React) {
       h("div", { className: bodyClass ? `coc-mech-fold-body ${bodyClass}` : "coc-mech-fold-body" }, body));
   }
 
+  /**
+   * How a held object can be used (the `coc-card-patch` usage patch): one line per use under the item row, patched in
+   * after the usage lane lands. The use's name, then its fields exactly as the possessions box draws a
+   * weapon's -- the same fields in the same order (`weaponDetails`), under the sheet's own captions,
+   * valued the way the sheet values them -- so the card never shows what the sheet would not. A row
+   * with no `usages` draws nothing here, and the row itself is drawn exactly as before.
+   */
+  function usageLines(row, key, sheet, term) {
+    const usages = isRecord(row.usages) ? Object.entries(row.usages).filter(([, usage]) => isRecord(usage)) : [];
+    if (!usages.length) return null;
+    const value = (item) => typeof item === "boolean" ? sheet(item ? "itemYes" : "itemNo")
+      : Array.isArray(item) ? item.map(value).join(" / ") : term(text(item));
+    return h("ul", { className: "coc-mech-usages", key: `${key}:usages` }, usages.map(([id, usage]) => {
+      const fields = weaponDetails(isRecord(usage.parameters) ? usage.parameters : {});
+      return h("li", { className: "coc-mech-usage", key: id },
+        h("span", { className: "coc-mech-usage-name" }, term(text(usage.name) || id)),
+        fields.length ? " — " : "",
+        fields.map((field, at) => h("span", { className: "coc-mech-usage-field", "data-field": field.key, key: field.key },
+          at ? " · " : "",
+          h("span", { className: "coc-mech-usage-cap" }, sheet(`item.${field.key}`, term(field.key))), " ",
+          value(field.value))));
+    }));
+  }
+
   /** The waiting mark: the row is real now, only what it opens into is not in hand yet (§129). */
   function Waiting(props) {
     return h("span", { className: "coc-mech-wait", role: "status", "aria-label": props.label, title: props.label });
@@ -922,13 +969,16 @@ export function createComponent(React) {
           owner ? h("span", { className: "coc-mech-delta", "data-down": lost ? "1" : "0", key: "owner" },
             lost ? fill(t("removedFrom"), { name: owner }) : `${t("to")} ${owner}`) : null,
         ];
+        // The usage patch: the ways it can be used sit under the row, whichever of the three shapes below it takes.
+        const uses = usageLines(row, key, sheet, term);
+        const withUses = (drawn) => uses ? [drawn, uses] : drawn;
         // §129: the card never waits for an object's details. Pending draws the name now with a waiting
         // mark and nothing to open; the host redraws this card when they land, and the row opens.
         if (row.definition === "pending")
-          return h(Row, { key, kindKey: "item", kindLabel, family }, ...head, h(Waiting, { key: "wait", label: t("preparing") }));
+          return withUses(h(Row, { key, kindKey: "item", kindLabel, family }, ...head, h(Waiting, { key: "wait", label: t("preparing") })));
         const body = row.definition === "ready" ? objectBody(row.object, sheet, term) : null;
-        if (body) return h(FoldRow, { key, kindKey: "item", kindLabel, body, bodyClass: "coc-mech-object" }, ...head);
-        return h(Row, { key, kindKey: "item", kindLabel, family }, ...head);
+        if (body) return withUses(h(FoldRow, { key, kindKey: "item", kindLabel, body, bodyClass: "coc-mech-object" }, ...head));
+        return withUses(h(Row, { key, kindKey: "item", kindLabel, family }, ...head));
       }
       case "cash": {
         const before = num(row.before);
