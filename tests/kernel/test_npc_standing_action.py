@@ -94,7 +94,7 @@ def test_no_disposition_no_authored_word_and_no_override_is_no_standing(tmp_path
         corbitts_turn(client)
         assert standing(client) is None, "hostile and able, but nothing says how he fights: the Keeper decides"
         card = client.table("look", focus="npc", name="Walter Corbitt")
-        assert card["combat_disposition"] == {"disposition": None, "basis": None}
+        assert card["combat_disposition"]["disposition"] is None and card["combat_disposition"]["basis"] is None
         assert card["combat_action"] == {"action": None, "basis": "rule-default"}
     finally:
         client.close()
@@ -298,5 +298,71 @@ def test_the_standing_action_and_disposition_are_keeper_only(tmp_path):
         for word in ("standing_action", "combat_action", "combat_disposition", "npc_disposition", "avoids_fighting", why):
             assert word not in shown
         assert not any(row.get("kind") == "npc" for row in delivered["mechanics"])
+    finally:
+        client.close()
+
+
+# ---- the inferred source (§11.5.3 source 2) -----------------------------------------------------
+
+DISPOSITIONS = ["fights_to_the_end", "fights_then_flees", "avoids_fighting", "surrenders"]
+
+
+def test_a_card_without_a_disposition_carries_what_one_is_inferred_from(kernel):
+    """The four closed words with the table's own descriptions, and the person's own text parameters under the
+    contract's profile keys: only while the person has no disposition."""
+    open_turn(kernel, "I watch Knott.")
+    card = kernel.table("look", focus="npc", name="Steven Knott")["combat_disposition"]
+    assert card["disposition"] is None and card["basis"] is None
+    table = read_json(CONTENT_DIR / "rulesets" / "coc7" / "rules-json" / "npc-combat-disposition.json")
+    assert card["options"] == {word: table["dispositions"][word]["description"] for word in DISPOSITIONS}
+    assert card["material"] and set(card["material"]) <= {"agenda", "fear", "secret", "voice", "relationship_to_investigators"}
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Steven Knott", "disposition": "surrenders", "why": "He is a landlord, not a brawler."}])
+    assert kernel.table("look", focus="npc", name="Steven Knott")["combat_disposition"] == {"disposition": "surrenders", "basis": "keeper"}
+
+
+def test_an_inferred_disposition_is_a_receipt_is_written_once_and_survives_a_restart(tmp_path):
+    client = client_with(tmp_path)
+    read = ["agenda", "fear", "voice"]
+    try:
+        n = corbitts_turn(client)
+        assert standing(client) is None
+        why = "Inferred once for this campaign from Walter Corbitt's own parameters: agenda, fear, voice."
+        applied = client.table("apply", call_id=f"t1-c{n}", effects=[{"kind": "npc", "name": "Walter Corbitt", "disposition": "fights_to_the_end",
+                                                                       "why": why, "_inferred": {"read": read}}])
+        receipt = next(r for r in client.table("status")["receipts"] if r["id"] in applied["receipts"])
+        assert receipt["disposition"] == "fights_to_the_end" and receipt["basis"] == "inferred" and receipt["read"] == read
+        assert receipt["previous"] is None and receipt["visibility"] == "keeper"
+        assert standing(client)["disposition"] == {"disposition": "fights_to_the_end", "basis": "inferred"}
+        # Never inferred twice: a second inferred write is refused whole, whatever it says.
+        again = client.table_err("apply", call_id=f"t1-c{n + 1}", effects=[{"kind": "npc", "name": "Walter Corbitt", "disposition": "surrenders",
+                                                                            "why": why, "_inferred": {"read": read}}])
+        assert again["code"] == "invalid_params" and again["details"]["reason"] == "disposition_already_set"
+        narrate(client, f"t1-c{n + 1}", "Corbitt's eyes burn.")
+    finally:
+        client.close()
+
+    resumed = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "7"})
+    try:
+        world = read_json(campaign_dir(resumed.workspace) / "world.json")
+        assert world["npc_disposition"][CORBITT] == {"disposition": "fights_to_the_end", "why": why, "turn": 1, "basis": "inferred", "read": read}
+        resumed.table("player_input", text="I back away.")
+        assert standing(resumed) == {"action": "attack", "basis": "rule-default", "disposition": {"disposition": "fights_to_the_end", "basis": "inferred"},
+                                     "read": {"hp_fraction": 1.0, "outnumbered": False, "stance": "hostile"}}
+        assert resumed.table("look", focus="npc", name="Walter Corbitt")["combat_disposition"] == {"disposition": "fights_to_the_end", "basis": "inferred"}
+        # The Keeper may still rewrite it; that is an override, not a second inference.
+        resumed.table("apply", call_id="t2-c1", effects=[{"kind": "npc", "name": "Walter Corbitt", "disposition": "surrenders", "why": "The relic breaks him."}])
+        assert standing(resumed)["disposition"] == {"disposition": "surrenders", "basis": "keeper"}
+    finally:
+        resumed.close()
+
+
+def test_an_inferred_write_over_the_books_disposition_is_refused(tmp_path):
+    client = client_with(tmp_path, {"disposition": "surrenders"})
+    try:
+        n = corbitts_turn(client)
+        refused = client.table_err("apply", call_id=f"t1-c{n}", effects=[{"kind": "npc", "name": "Walter Corbitt", "disposition": "fights_to_the_end",
+                                                                           "why": "x", "_inferred": {"read": ["agenda"]}}])
+        assert refused["details"]["reason"] == "disposition_already_set"
+        assert "material" not in client.table("look", focus="npc", name="Walter Corbitt")["combat_disposition"], "nothing to infer: the book says it"
     finally:
         client.close()

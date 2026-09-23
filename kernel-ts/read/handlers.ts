@@ -10,6 +10,7 @@ import { CampaignSnapshot, loadModule, loadCampaignModule, replayTrail, type Loa
 import { heldHandouts } from "./handout-document.js";
 import { ModuleGraph, recordOf } from "./module-graph.js";
 import { SessionView } from "./session-view.js";
+import { dispositionTable } from "../combat/standing.js";
 import { RuleObservations } from "./rule-facts.js";
 import { buildCapsule } from "./assemble.js";
 import { contextBinding } from "./context.js";
@@ -358,7 +359,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 catch { /* A derived cache that cannot be read says nothing about what the player was told. */
                 }
                 return npcView(graph, world, graph.npc(required(params, "name")), ledger, journal, await campaign.files("turns"), await campaign.log("memory/candidates.jsonl"), {worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)},
-                    row(await campaign.optional("save/combat.json")));
+                    row(await campaign.optional("save/combat.json")), await dispositionTable(context));
             }
             if (focus === "investigator") {
                 campaign.party = await campaign.files("party");

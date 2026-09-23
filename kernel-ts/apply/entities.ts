@@ -14,7 +14,7 @@ import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
 import {archetypeIds,rollArchetypeProfile} from './archetype.js';
 import {VALID_CONDITIONS} from '../combat/engine.js';
-import {DEFENSE_WORDS,DISPOSITION_WORDS,OVERRIDE_ACTION_WORDS} from '../combat/standing.js';
+import {DEFENSE_WORDS,DISPOSITION_WORDS,OVERRIDE_ACTION_WORDS,authoredDisposition} from '../combat/standing.js';
 import {incapacitatedBy} from '../healing/conditions.js';
 import {npcProfileOf} from '../resolve/context.js';
 import type {ApplyContext} from './index.js';
@@ -130,6 +130,17 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const key=field==='action'?'npc_action':'npc_disposition',written=world[key]??={};
         const previous=typeof row(written[handle])[field]==='string'?row(written[handle])[field]:null;
         let scope:Row={};
+        // §11.5.3 source 2: a disposition Jev inferred for the clerk arrives with the host-only `_inferred` marker (the
+        // extension strips it from every model call). It names the parameters read, and it is written once: never over
+        // a disposition this campaign or the book already has.
+        if(effect._inferred!=null){
+            const read=array(row(effect._inferred).read);
+            if(field!=='disposition'||!read.length||read.some(value=>typeof value!=='string'||!value))
+                throw new RpcError('invalid_params','an inferred write is a disposition with the parameters it was read from',{details:{field:'npc._inferred'}});
+            if(previous!==null||authoredDisposition(graph,handle)!==null)
+                throw new RpcError('invalid_params',`${graph.displayName(node)} already has a combat disposition; it is inferred once`,{fix:'read it from the NPC card; only the Keeper rewrites it',details:{field:'npc.disposition',reason:'disposition_already_set'}});
+            scope={basis:'inferred',read:[...read]};
+        }else if(field==='disposition')scope={basis:'keeper'};
         if(word==='hold'){
             const combat=row(await context.campaign.readSave('combat.json'));
             if(combat.status!=='active')throw new RpcError('invalid_params','npc.action hold holds back for this round of a fight, and no fight is running',{fix:'write hold on the round the person holds back; outside a fight, just narrate it',details:{field:'npc.action'}});

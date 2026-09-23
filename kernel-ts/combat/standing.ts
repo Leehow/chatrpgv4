@@ -74,7 +74,7 @@ export function cardTactic(graph: ModuleGraph, world: Row, node: Row): Standing 
 /** The conditions a table row may state: a closed schema, so a row the kernel cannot read is refused at load. */
 const CONDITION_KEYS: readonly string[] = Object.freeze(['hp_fraction_at_most', 'outnumbered', 'stance_in']);
 
-export type DispositionBasis = 'authored' | 'keeper';
+export type DispositionBasis = 'authored' | 'inferred' | 'keeper';
 export interface Disposition { disposition: string; basis: DispositionBasis }
 export type ActionBasis = 'authored' | 'rule-default' | 'keeper';
 export interface StandingAction { action: string; basis: ActionBasis; disposition?: Disposition; read?: Row }
@@ -143,12 +143,22 @@ export function stanceNow(graph: ModuleGraph, ledger: Row, table: Row, turn: Row
     return string(array(table.levels).find(level => initial <= number(row(level).at_most))?.value ?? null) || null;
 }
 
-/** The Keeper's disposition override for this person, else the record's authored one (§11.5.3). */
+/** The record's authored combat disposition (`combat.disposition`), when it is one of the four words. */
+export function authoredDisposition(graph: ModuleGraph, handle: string): string | null {
+    const node = graph.find(handle, ['npc']), word = node ? string(row(recordOf(node).combat).disposition) : '';
+    return DISPOSITION_WORDS.includes(word) ? word : null;
+}
+/**
+ * This person's combat disposition (§11.5.3): the Keeper's override, else the record's authored one, else the one Jev
+ * inferred for this campaign. A written row without a basis predates the inference and is the Keeper's.
+ */
 export function dispositionOf(graph: ModuleGraph, world: Row, handle: string): Disposition | null {
-    const keeper = string(row(row(world.npc_disposition)[handle]).disposition);
-    if (DISPOSITION_WORDS.includes(keeper)) return { disposition: keeper, basis: 'keeper' };
-    const node = graph.find(handle, ['npc']), authored = node ? string(row(recordOf(node).combat).disposition) : '';
-    return DISPOSITION_WORDS.includes(authored) ? { disposition: authored, basis: 'authored' } : null;
+    const written = row(row(world.npc_disposition)[handle]), word = string(written.disposition);
+    const inferred = written.basis === 'inferred';
+    if (DISPOSITION_WORDS.includes(word) && !inferred) return { disposition: word, basis: 'keeper' };
+    const authored = authoredDisposition(graph, handle);
+    if (authored) return { disposition: authored, basis: 'authored' };
+    return DISPOSITION_WORDS.includes(word) ? { disposition: word, basis: 'inferred' } : null;
 }
 /**
  * The Keeper's standing-action override, if one is live. `attack` stands until rewritten; `hold` holds for the combat
@@ -187,9 +197,20 @@ export function standingAction(graph: ModuleGraph, world: Row, handle: string, c
  * The NPC card's two lines (Keeper-only, §11.5.3): the disposition with its basis, and the standing action a card can
  * state without a fight -- the live override or the authored word; otherwise the table decides in the fight.
  */
-export function cardAction(graph: ModuleGraph, world: Row, node: Row, combat: Row | null): { combat_disposition: Row; combat_action: Row } {
+export function cardAction(graph: ModuleGraph, world: Row, node: Row, combat: Row | null, table: Row | null = null): { combat_disposition: Row; combat_action: Row } {
     const handle = graph.handle(node), disposition = dispositionOf(graph, world, handle);
     const keeper = keeperAction(world, handle, combat), authored = keeper ? null : authoredAction(graph, handle);
-    return { combat_disposition: disposition ? { ...disposition } : { disposition: null, basis: null },
+    return { combat_disposition: disposition ? { ...disposition } : { disposition: null, basis: null, ...(table ? inferenceInput(graph, node, table) : {}) },
         combat_action: keeper ? { action: keeper, basis: 'keeper' } : authored ? { action: authored, basis: 'authored' } : { action: null, basis: 'rule-default' } };
+}
+/**
+ * What a disposition is inferred from (§11.5.3 source 2): the closed words with the table's own descriptions, and the
+ * person's own text parameters -- the contract's actor-dossier profile keys (`module-graph-contract-v3.json`), never
+ * a list of this module's -- under the key each came from. Issued on the card only while the person has none.
+ */
+export function inferenceInput(graph: ModuleGraph, node: Row, table: Row): { options: Row; material: Row } {
+    const profile = graph.npcProfile(node), dispositions = row(table.dispositions);
+    const material = Object.fromEntries(array(graph.dossier.profile_keys).map(string).filter(key => key && isJsonObject(profile) && profile[key] != null && profile[key] !== '')
+        .map(key => [key, profile[key]]));
+    return { options: Object.fromEntries(DISPOSITION_WORDS.map(word => [word, string(row(dispositions[word]).description) || word])), material };
 }
