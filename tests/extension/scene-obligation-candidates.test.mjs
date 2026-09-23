@@ -252,6 +252,9 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	assert.equal(ruth.length, 1);
 	assert.deepEqual([ruth[0].clerk, ruth[0].basis.obligation, ruth[0].basis.step], ["stated_obligation", ARCHIVIST, "meet"], "the archivist, open now, states her meeting");
 	assert.deepEqual([ruth[0].bound.name, bindingOf(ruth[0])], ["Ruth Blake", "none"], "a meeting-only obligation is routed, under the book's name");
+	// The archivist guards nothing of her own: her route question names what the gate she follows guards.
+	assert.match(ruth[0].routeFact.target, /is the player's declared action after any of: clue globe-unpublished-story .*clue macario-tragedy/);
+	assert.deepEqual(Object.keys(ruth[0].routeFact.criteria), ["seeks", "not", "unknown"]);
 	assert.match(ruth[0].label, /^The book puts Ruth Blake \(helpful_staff\) here for "The Globe archivist" once "Access to the Globe clippings" is settled: Ruth Blake is met next; /);
 });
 
