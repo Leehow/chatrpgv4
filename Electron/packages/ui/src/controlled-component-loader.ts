@@ -154,7 +154,10 @@ async function loadComponent(
   entry: string,
   loadEntryModule: EntryModuleLoader,
 ): Promise<ComponentType<Record<string, unknown>>> {
-  const mod = await loadEntryModule(entry)
+  return componentOf(await loadEntryModule(entry))
+}
+
+function componentOf(mod: unknown): ComponentType<Record<string, unknown>> {
   if (mod && typeof mod === 'object') {
     const factory = (mod as Record<string, unknown>).createComponent
     if (typeof factory === 'function') {
@@ -166,6 +169,38 @@ async function loadComponent(
   const component = componentFromModule(mod)
   if (!component) throw new Error('entry module did not export a component')
   return component
+}
+
+type SectionCaptions = { label?: string; hint?: string; description?: string }
+/** How long a settings entry may take to name itself before the manifest's title stands. */
+const SECTION_CAPTIONS_WAIT_MS = 3_000
+
+/**
+ * A settings section's own name for the nav, when its entry exports `sectionCaptions(api)`.
+ *
+ * A manifest title is one fixed string, so a pack whose captions are projected into the player's
+ * language (the COC Keeper's, contract §23) had no way to name its own tab except by writing a word
+ * into the manifest by hand. The entry answers from the same words as its body; a missing, failing or
+ * slow answer keeps the manifest's title, so a pack that exports nothing behaves exactly as before.
+ */
+async function sectionCaptionsOf(mod: unknown, api: ExtensionHostAPI): Promise<SectionCaptions | undefined> {
+  const ask = mod && typeof mod === 'object' ? (mod as Record<string, unknown>).sectionCaptions : undefined
+  if (typeof ask !== 'function') return undefined
+  let timer: number | undefined
+  try {
+    const answer = await Promise.race([
+      Promise.resolve((ask as (api: ExtensionHostAPI) => unknown)(api)),
+      new Promise<undefined>(resolve => { timer = window.setTimeout(resolve, SECTION_CAPTIONS_WAIT_MS) }),
+    ])
+    if (!answer || typeof answer !== 'object') return undefined
+    const text = (value: unknown) => typeof value === 'string' && value.trim() ? value : undefined
+    const row = answer as Record<string, unknown>
+    return { label: text(row.label), hint: text(row.hint), description: text(row.description) }
+  } catch {
+    return undefined
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer)
+  }
 }
 
 /**
@@ -415,12 +450,15 @@ export async function loadControlledContributions(
     seenSection.add(section.id)
     const title = section.title ?? section.id
     try {
-      const Component = await loadComponent(entry, loadFileEntryModule)
+      const mod = await loadFileEntryModule(entry)
+      const Component = componentOf(mod)
+      const captions = await sectionCaptionsOf(mod, api)
       disposers.push(registerSettingsSection(descriptor.id, {
         id: section.id,
-        label: title,
-        title,
-        description: section.description ?? '',
+        label: captions?.label ?? title,
+        title: captions?.label ?? title,
+        description: captions?.description ?? section.description ?? '',
+        ...(captions?.hint ? { hint: captions.hint } : {}),
         // The section context (model visibility, host, update center) is the section's data
         // source; without it a controlled picker could not see the 模型管理 catalog.
         render: ctx => createElement(Component, { api, id: section.id, title, ctx }),

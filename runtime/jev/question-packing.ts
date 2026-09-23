@@ -1,8 +1,16 @@
-/** Conservative Jev packing. UTF-8 JSON bytes are a token upper bound, not a tokenizer result. */
+/**
+ * Conservative Jev packing. UTF-8 JSON bytes are a token upper bound, not a tokenizer result: the vendor does
+ * not publish its tokenizer, and a byte-level tokenizer never emits more tokens than bytes.
+ */
 import { ContractError, isPlainRecord, type DecisionBatch, type DecisionDescriptor, type DecisionQuestion, type Json } from './contracts.ts';
 
 export const JEV_MODEL = 'jev-1.13.0';
-export const PROJECT_TOTAL_TOKEN_UPPER_BOUND = 32_768;
+/**
+ * Documented jev-1.13 limits (https://docs.typesafe.ai/models): 64k tokens per request, 32k tokens for `state`
+ * plus the longest question. "k" is read as 1000 so the bound stays conservative.
+ */
+export const JEV_REQUEST_TOKEN_LIMIT = 64_000;
+export const JEV_STATE_QUESTION_TOKEN_LIMIT = 32_000;
 export const PROVIDER_CHOICE_LIMIT = 255;
 export const ESTIMATE_PROVENANCE = 'utf8_json_bytes_token_upper_bound' as const;
 
@@ -18,7 +26,8 @@ export interface PackingEstimate {
   longestQuestionUpperBound: number;
   totalUpperBound: number;
   responseUpperBound: number;
-  projectLimit: number;
+  requestLimit: number;
+  stateQuestionLimit: number;
 }
 export class PackingError extends ContractError {
   readonly failure: 'packing_limit' | 'schema_error';
@@ -100,9 +109,10 @@ export function packDecisionBatch(batch: DecisionBatch): { request: PackedReques
     longestQuestionUpperBound: Math.max(...questionBounds),
     totalUpperBound: bytes(request),
     responseUpperBound: responseUpperBound(batch),
-    projectLimit: PROJECT_TOTAL_TOKEN_UPPER_BOUND,
+    requestLimit: JEV_REQUEST_TOKEN_LIMIT,
+    stateQuestionLimit: JEV_STATE_QUESTION_TOKEN_LIMIT,
   };
-  if (estimate.totalUpperBound > estimate.projectLimit
-    || estimate.stateUpperBound + estimate.longestQuestionUpperBound > estimate.projectLimit) throw new PackingError('packing_limit', estimate);
+  if (estimate.totalUpperBound > estimate.requestLimit
+    || estimate.stateUpperBound + estimate.longestQuestionUpperBound > estimate.stateQuestionLimit) throw new PackingError('packing_limit', estimate);
   return { request, estimate };
 }

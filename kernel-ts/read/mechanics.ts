@@ -1,5 +1,7 @@
 /** Receipt-to-JSON projection. It neither changes receipts nor evaluates story text. */
 import { array, row, number, integer, truth, chars, length, type Row } from "./values.js";
+import { publicDefinition } from "../mods/public-definition.js";
+import { queuedDefinition } from "../mods/queue.js";
 /**
  * A roll receipt's visibility tier (§16.5). Three, not two.
  *
@@ -281,12 +283,60 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
     }
     return null;
 }
-export function mechanics(receipts: Row[], placed: Row = {}, texts: ReadonlyMap<string, string> = new Map()): Row[] {
+/**
+ * Contract §129: an object a card names opens into what it is, and the card never waits for that.
+ * `definition` is three states in the manner of `document` (§59): `ready` carries `object`, the
+ * definition's player view; `pending` says its parameters are still being prepared beside the
+ * delivery and names the definition they will arrive under; absent says nothing.
+ */
+export const DEFINITION_READY = 'ready', DEFINITION_PENDING = 'pending', DEFINITION_NONE = 'none';
+function objectDetails(out: Row, world: Row | undefined, instanceId: any): void {
+    const objects = row(row(world).objects), instance = row(row(objects.instances)[typeof instanceId === "string" ? instanceId : ""]);
+    const definition = row(objects.definitions)[typeof instance.definition === "string" ? instance.definition : ""];
+    if (!definition)
+        return;
+    // §129.4: an instance placed against a placeholder waits on the registration still queued under that
+    // name; a placeholder whose registration was dropped will never open, and the row says so.
+    if (row(definition).placeholder === true) {
+        const name = row(definition).name;
+        if (queuedDefinition(world ?? {}, name)) {
+            out.definition = DEFINITION_PENDING;
+            labeled(out, "definition_name", name);
+        }
+        else
+            out.definition = DEFINITION_NONE;
+        return;
+    }
+    out.definition = DEFINITION_READY;
+    out.object = publicDefinition(definition);
+}
+/**
+ * An adoption enriches gear the investigator already carries (§26), so its receipt is bookkeeping and
+ * stays out of `mechanicsOf` -- the Keeper-facing readers never see it as something to tell. The card
+ * is another matter: it is where the belonging's parameters become readable, so the adoption is drawn
+ * as an item row with nobody handing it over. The adoption the next turn's resume replays is the same
+ * belonging a second time and is not drawn again; the card that named it pending is the one that opens.
+ */
+function adoptionRow(receipt: Row, world: Row | undefined): Row | null {
+    if (typeof receipt.adopted !== "string" || !receipt.adopted || receipt.resumed === true)
+        return null;
+    const out: Row = { kind: "item", receipt: receipt.id ?? null, name: receipt.name ?? null, adopted: receipt.adopted };
+    if (receipt.queued === true) {
+        out.definition = DEFINITION_PENDING;
+        labeled(out, "definition_name", receipt.definition_name);
+    }
+    else
+        objectDetails(out, world, receipt.instance);
+    return out;
+}
+export function mechanics(receipts: Row[], placed: Row = {}, texts: ReadonlyMap<string, string> = new Map(), world?: Row): Row[] {
     const byReceipt = new Map(Object.entries(placed).map(([marker, id]) => [id, marker]));
     return receipts.flatMap(receipt => {
-        const out = mechanicsOf(receipt, texts);
+        const out = receipt.kind === "definition" ? adoptionRow(receipt, world) : mechanicsOf(receipt, texts);
         if (!out)
             return [];
+        if (receipt.kind === "item")
+            objectDetails(out, world, receipt.instance);
         for (const [from, to] of [["call_id", "call"], ["family", "family"]])
             if (typeof receipt[from] === "string" && receipt[from])
                 out[to] = receipt[from];

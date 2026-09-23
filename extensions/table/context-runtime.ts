@@ -1,6 +1,6 @@
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
-import {readJevApiKey} from '../jev/agent/config.js';
-import {preparationBudget} from '../../runtime/jev/preparation-budget.ts';
+import {readJevApiKey,readJevPreselectAllowanceMs} from '../jev/agent/config.js';
+import {preparationBudget,preparationProviderBudget} from '../../runtime/jev/preparation-budget.ts';
 import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {NpcPreparationBridge,PreparedNpcAdvice} from '../npc/index.ts';
@@ -50,7 +50,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let lastFold: string | undefined, lastAttempt: string | undefined, lastDegraded: string | undefined;
     let lastReason = 'context_unavailable';
     let prescreenDeadlineAt=0,prescreenMemo:{key:string;message?:Row}|undefined,reusablePrescreen:Row|undefined;
-    let prescreenProviderBudget={actions:8,inputTokens:400_000,outputTokens:40_000,costUsd:.04};
+    let prescreenProviderBudget=preparationProviderBudget();
     let providerSequence=0,pendingProvider:{requestId:string;prepared?:Row;npc?:Row;outgoingDigest:string}|undefined;
     let npcBridge:NpcPreparationBridge|undefined,npcMemo:{key:string;prepared:PreparedNpcAdvice}|undefined;
     let sessionEnv={...process.env},sharedAdapter:DecisionPort|undefined,sharedBudget:ReturnType<typeof preparationBudget>|undefined;
@@ -105,7 +105,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (Number.isSafeInteger(object(capsule?.turn).number)) observedTurn = object(capsule?.turn).number;
         rawBinding = value.context;
         inputEpoch = nextEpoch;
-        if(previousEpoch!==nextEpoch){resetPreparation();prescreenDeadlineAt=0;prescreenProviderBudget={actions:8,inputTokens:400_000,outputTokens:40_000,costUsd:.04};
+        if(previousEpoch!==nextEpoch){resetPreparation();prescreenDeadlineAt=0;prescreenProviderBudget=preparationProviderBudget();
             prescreenMemo=undefined;reusablePrescreen=undefined;}
         answering = Array.isArray(value.answering) ? value.answering.filter((entry: unknown) => typeof entry === 'string') : undefined;
         sourceCalls.clear(); invalidate();
@@ -153,7 +153,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     });
     pi.on('session_start', async () => {resetPreparation();sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
         lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();prescreenDeadlineAt=0;prescreenMemo=undefined;reusablePrescreen=undefined;
-        prescreenProviderBudget={actions:8,inputTokens:400_000,outputTokens:40_000,costUsd:.04};});
+        prescreenProviderBudget=preparationProviderBudget();});
     pi.on('session_shutdown', async () => {resetPreparation();sharedAdapter=undefined;pi.events.emit?.('coc:npc-preparation-owner',undefined);call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
         prescreenMemo=undefined;reusablePrescreen=undefined;pendingProvider=undefined;prescreenDeadlineAt=0;
         prescreenProviderBudget={actions:0,inputTokens:0,outputTokens:0,costUsd:0};invalidate();});
@@ -448,9 +448,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         let sharedSnapshot:Promise<Row|undefined>|undefined;
         if((materialEnabled||npcWait>0)&&port&&preparationCall&&preparationCampaign&&inputEpoch){
             if(!prescreenDeadlineAt){
-                const parent=foregroundBudget?.();prescreenDeadlineAt=Math.min(Date.now()+(materialEnabled?6000:npcWait),parent?.deadlineAt??Infinity);
+                const parent=foregroundBudget?.();prescreenDeadlineAt=Math.min(Date.now()+(materialEnabled?readJevPreselectAllowanceMs(sessionEnv):npcWait),parent?.deadlineAt??Infinity);
                 sharedBudget=preparationBudget({decision:port,campaign:preparationCampaign,deadlineAt:prescreenDeadlineAt,signal:inputLifetime.signal,parent});
-                record({lane:materialEnabled?'prescreen':'preparation',owner:'keeper-preparation',event:'allowance_started',allowance_ms:materialEnabled?6000:npcWait});
+                record({lane:materialEnabled?'prescreen':'preparation',owner:'keeper-preparation',event:'allowance_started',allowance_ms:materialEnabled?readJevPreselectAllowanceMs(sessionEnv):npcWait,
+                    effective_ms:Math.max(0,prescreenDeadlineAt-Date.now())});
             }
             if(materialEnabled&&npcWait>0&&Date.now()<prescreenDeadlineAt){
                 sharedSnapshot=withinPreparation(preparationCall('table.workspace.read',{campaign:preparationCampaign,preselect:{version:2,mode:'catalog',cursor:0,limit:48},
@@ -469,7 +470,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
 
         if(prescreenEnabled()&&supplementBudget>=512&&preparationCall&&preparationCampaign&&inputEpoch){
-            if(!prescreenDeadlineAt){prescreenDeadlineAt=Date.now()+6000;record({lane:'prescreen',event:'allowance_started',allowance_ms:6000});}
+            if(!prescreenDeadlineAt){const allowance=readJevPreselectAllowanceMs(sessionEnv);prescreenDeadlineAt=Date.now()+allowance;
+                record({lane:'prescreen',event:'allowance_started',allowance_ms:allowance});}
             const memoKey=fingerprint([generation,snapshot.key,baseline.messages,supplementBudget]);
             const query=String(object(snapshot.capsule.turn).player_text??'');
             try{prescreen=await reusePrescreen({call:preparationCall,campaign:preparationCampaign,binding:snapshot.binding,query,

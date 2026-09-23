@@ -85,6 +85,13 @@ const CSS = `
   font-size:10px;transition:transform .12s ease}
 .coc-clue-fold[open]>summary::after{transform:rotate(90deg)}
 .coc-clue-body{padding:0 0 8px;color:var(--muted);line-height:1.6;overflow-wrap:anywhere}
+/* One exchange with a person: where it happened, as a caption on its own line, then what passed
+   between them. The place is a separate element because it is a separate word -- run inline, the
+   scene's name and the lane's sentence read as one run with nothing between them. No separator
+   character: which punctuation divides two phrases belongs to the play language. */
+.coc-npc-exchange{padding:4px 0}
+.coc-npc-exchange+.coc-npc-exchange{border-top:1px dashed var(--border)}
+.coc-npc-exchange-scene{display:block;color:var(--subtle);font-size:11px;font-weight:600;letter-spacing:.02em}
 `;
 
 /* >>> speaker colour: shared verbatim between pipicoc/mechanics.js and pipicoc/board.js <<<
@@ -424,7 +431,8 @@ export function createComponent(React) {
    * written in the play language, and are drawn as they arrive. The name and the scene stamped on
    * an exchange are not: the lane must copy a recordable name exactly and the kernel stamps the
    * scene's display name at the turn it happened, so both are the module graph's words and both go
-   * through the glossary, where the journal lane has projected them. Turn numbers are machine
+   * through the glossary, where the journal lane has projected them -- the host merges that lane
+   * under `view.labels` on every board read, live or cold, as it does for the sheet. Turn numbers are machine
    * context and stay off the page. A dead mark rests next to the name when the ledger closed.
    *
    * The swatch in front of each name is the legend for the delivery card's spoken lines (§40.4):
@@ -464,19 +472,26 @@ export function createComponent(React) {
     const [answer, setAnswer] = useState(undefined);
     const [busy, setBusy] = useState(false);
     const generation = useRef(0);
+    // `running` is the request in flight (0 when none); `again` is one push that arrived meanwhile.
+    const running = useRef(0), again = useRef(false), latest = useRef(null);
     useEffect(() => () => { generation.current++; }, []);
 
-    const load = useCallback(async (retryProjection = false) => {
+    // Only the player's own click shows the busy word and asks for a failed lane run again. Every
+    // other read -- mount, and the pushes of a turn in progress -- runs behind the drawn board:
+    // one turn pushes dozens of events, and a button that flipped to the busy word on each one
+    // flickered for the whole turn.
+    const load = useCallback(async (byPlayer = false) => {
       const request = ++generation.current;
       if (!api.invoke) {
         setAnswer({ status: "error", campaign: null, code: "pack_unreachable", reason: "this host cannot reach the pack" });
         return;
       }
-      setBusy(true);
+      running.current = request;
+      if (byPlayer) setBusy(true);
       try {
         // `retry_projection` is the player asking again for a lane run that failed -- the same word
         // the sheet's own vocabulary lanes take, so one button covers both.
-        const result = await api.invoke("board", retryProjection ? { retry_projection: true } : {});
+        const result = await api.invoke("board", byPlayer ? { retry_projection: true } : {});
         if (request !== generation.current) return;
         if (result && result.ok === true && isRecord(result.data)) setAnswer(result.data);
         else setAnswer({ status: "error", campaign: null, code: "pack_silent", reason: "the pack did not answer" });
@@ -484,17 +499,26 @@ export function createComponent(React) {
         if (request !== generation.current) return;
         setAnswer({ status: "error", campaign: null, code: "", reason: error instanceof Error ? error.message : String(error) });
       } finally {
-        if (request === generation.current) setBusy(false);
+        if (request === generation.current) {
+          running.current = 0;
+          setBusy(false);
+          if (again.current) { again.current = false; void latest.current?.(); }
+        }
       }
     }, [api]);
+    latest.current = load;
 
     useEffect(() => { void load(); }, [load]);
 
     // The pack pushes on every committed turn; any event from it means re-read. The push carries no
-    // payload, so a shape change upstream can never desynchronise the panel.
+    // payload, so a shape change upstream can never desynchronise the panel. A burst of pushes
+    // while a read is in flight folds into one read after it, never a pile of restarted ones.
     useEffect(() => {
       if (!api.subscribeExt) return undefined;
-      const unsubscribe = api.subscribeExt(() => { void load(); });
+      const unsubscribe = api.subscribeExt(() => {
+        if (running.current) { again.current = true; return; }
+        void load();
+      });
       return typeof unsubscribe === "function" ? unsubscribe : undefined;
     }, [api, load]);
 

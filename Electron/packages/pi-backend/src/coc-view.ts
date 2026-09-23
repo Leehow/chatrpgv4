@@ -44,6 +44,187 @@ export type CocUiWords={tag:string; words:Record<string,Record<string,string>>;
 /** What a card reads besides the kernel's answer: the chrome's words, and the campaign's own. */
 export type CocHistoryWords={ui?:CocUiWords; lanes?:Record<string,string>};
 /**
+ * Contract §129: what the host has said about an object's details since a card named them pending,
+ * by definition name. `definition: 'ready'` carries the player view the card opens into; `'none'`
+ * says the preparation was dropped and the row should stop waiting. A later word wins.
+ *
+ * Kept as an input `mechanicsEntry` still accepts; since §132 it is read as one `coc-card-patch`.
+ */
+export type CocObjectDetails=ReadonlyMap<string,Record<string,unknown>>;
+const isDetailsRecord=(value:unknown):value is Record<string,any>=>!!value&&typeof value==='object'&&!Array.isArray(value);
+/** The `coc-object-details` entries a row carries, for one campaign; empty for every other row. */
+export function objectDetailsOf(row:any, campaign?:string):[string,Record<string,unknown>][] {
+  if(row?.type!=='custom'||row.customType!=='coc-object-details'||!Array.isArray(row.data?.objects))return [];
+  if(campaign&&typeof row.data.campaign==='string'&&row.data.campaign!==campaign)return [];
+  return row.data.objects.filter((item:any)=>isDetailsRecord(item)&&typeof item.name==='string'&&item.name
+    &&(item.definition==='ready'&&isDetailsRecord(item.object)||item.definition==='none'))
+    .map((item:any)=>[item.name,item.definition==='ready'?{definition:'ready',object:item.object}:{definition:'none'}]);
+}
+/** The definition names a card is still waiting on; a card that waits on nothing returns none. */
+export function pendingObjectNames(row:any):string[] {
+  if(row?.type!=='custom'||row.customType!=='coc-mechanics'||!Array.isArray(row.data?.mechanics))return [];
+  return row.data.mechanics.filter((item:any)=>isDetailsRecord(item)&&item.kind==='item'&&item.definition==='pending'
+    &&typeof item.definition_name==='string'&&item.definition_name).map((item:any)=>item.definition_name as string);
+}
+/**
+ * Contract §132: which card a `coc-card-patch` is for. `id` is the `coc-mechanics` entry id; `turn` is
+ * the card of that turn; neither is every card whose item rows the patch names.
+ */
+export type CocCardSelector={id?:string; turn?:number};
+/** One patch over a delivery card's `details`, as it was appended, with the lane that wrote it. */
+export type CocCardPatch={card:CocCardSelector; patch:Record<string,unknown>; source:string};
+/**
+ * RFC 7396 JSON merge patch: an object merges key by key, `null` deletes the key, and anything else --
+ * an array included -- replaces the value whole. A patch never writes a `null` into the result.
+ */
+export function mergePatch(target:unknown, patch:unknown):unknown {
+  if(!isDetailsRecord(patch))return patch;
+  const out:Record<string,unknown>=isDetailsRecord(target)?{...target}:{};
+  for(const [key,value] of Object.entries(patch)) {
+    if(key==='__proto__')continue;
+    if(value===null)delete out[key];
+    else out[key]=mergePatch(out[key],value);
+  }
+  return out;
+}
+/** The §129 word read as the §132 patch it is: every name it carries, keyed under `definitions`. */
+function detailsPatch(landed:Iterable<[string,Record<string,unknown>]>):Record<string,unknown> {
+  // `object: null` so a fold that opened and is then dropped closes again, rather than keeping the view.
+  return {definitions:Object.fromEntries([...landed].map(([name,value])=>
+    [name,value.definition==='none'?{definition:'none',object:null}:value]))};
+}
+/**
+ * The patch one transcript row carries for one campaign: a `coc-card-patch`, or a §129
+ * `coc-object-details`, which is the same word under its older name. Anything else carries none.
+ */
+export function cardPatchOf(row:any, campaign?:string):CocCardPatch|undefined {
+  if(row?.type!=='custom')return undefined;
+  if(row.customType==='coc-object-details') {
+    const landed=objectDetailsOf(row,campaign);
+    return landed.length?{card:{},patch:detailsPatch(landed),source:'object-details'}:undefined;
+  }
+  const data=row.customType==='coc-card-patch'?row.data:undefined;
+  if(!isDetailsRecord(data)||typeof data.campaign!=='string'||!data.campaign||campaign&&data.campaign!==campaign)return undefined;
+  if(!isDetailsRecord(data.patch)||!Object.keys(data.patch).length)return undefined;
+  const card=isDetailsRecord(data.card)?data.card:{};
+  return {card:{...(typeof card.id==='string'&&card.id?{id:card.id}:{}),...(Number.isSafeInteger(card.turn)?{turn:card.turn}:{})},
+    patch:data.patch,source:typeof data.source==='string'?data.source:''};
+}
+/** The names a patch addresses rows by: definition names, then object names. */
+function patchNames(patch:Record<string,unknown>):{definitions:string[]; objects:string[]} {
+  return {definitions:isDetailsRecord(patch.definitions)?Object.keys(patch.definitions):[],
+    objects:isDetailsRecord(patch.objects)?Object.keys(patch.objects):[]};
+}
+type CardNames={definitions:Set<string>; objects:Set<string>};
+/** What one card's item rows answer to: a pending row by `definition_name`, every item row by `name`. */
+function cardNames(row:any):CardNames {
+  const names:CardNames={definitions:new Set(),objects:new Set()};
+  for(const item of Array.isArray(row?.data?.mechanics)?row.data.mechanics:[]) {
+    if(!isDetailsRecord(item)||item.kind!=='item')continue;
+    if(typeof item.definition_name==='string'&&item.definition_name)names.definitions.add(item.definition_name);
+    if(typeof item.name==='string'&&item.name)names.objects.add(item.name);
+  }
+  return names;
+}
+type Noted={at:number; patch:CocCardPatch};
+/**
+ * Contract §132: every card a transcript drew and every patch said about one, read in file order.
+ *
+ * One reader for both roads to a card -- the live stream reader and the history page -- so the two
+ * cannot come to disagree about which card a patch lands on:
+ *
+ *  - `id` names the card outright, whether or not it has been read yet;
+ *  - `turn` is the latest card of that turn read before the patch, or, when the patch arrived first,
+ *    the next card of that turn to be read;
+ *  - neither is every card, before or after the patch, with an item row the patch names under
+ *    `definitions` (by the row's `definition_name`) or `objects` (by its `name`).
+ *
+ * A card's patches apply in the order they were read, whichever selector named them.
+ */
+export class CocCardLedger {
+  private read=0;
+  private readonly cards=new Map<string,CardNames>();
+  private readonly byTurn=new Map<number,string>();
+  private readonly waiting=new Map<number,Noted[]>();
+  private readonly bound=new Map<string,Noted[]>();
+  private readonly named:Noted[]=[];
+  private readonly campaign?:string;
+  /** `campaign` is the binding's; a patch for another campaign is not read. */
+  constructor(campaign?:string) {this.campaign=campaign;}
+  /**
+   * Read one transcript row. Returns the ids of the cards a patch changed, whether or not they have
+   * been read; a card row and every other row return none.
+   */
+  note(row:any):string[] {
+    if(row?.type==='custom'&&row.customType==='coc-mechanics'&&typeof row.id==='string'&&row.id) {
+      this.cards.set(row.id,cardNames(row));
+      const turn=row.data?.turn;
+      if(Number.isSafeInteger(turn)) {
+        this.byTurn.set(turn,row.id);
+        const early=this.waiting.get(turn);
+        if(early) {this.waiting.delete(turn);this.bind(row.id,...early);}
+      }
+      return [];
+    }
+    const patch=cardPatchOf(row,this.campaign);
+    if(!patch)return [];
+    const noted={at:++this.read,patch};
+    if(patch.card.id) {this.bind(patch.card.id,noted);return [patch.card.id];}
+    if(patch.card.turn!==undefined) {
+      const id=this.byTurn.get(patch.card.turn);
+      if(id) {this.bind(id,noted);return [id];}
+      const early=this.waiting.get(patch.card.turn)??[];
+      early.push(noted);this.waiting.set(patch.card.turn,early);
+      return [];
+    }
+    const names=patchNames(patch.patch);
+    if(!names.definitions.length&&!names.objects.length)return [];
+    this.named.push(noted);
+    return [...this.cards].filter(([,card])=>this.names(card,patch)).map(([id])=>id);
+  }
+  /** The patches one card is drawn with, in the order they were read. */
+  patchesFor(id:unknown):CocCardPatch[] {
+    if(typeof id!=='string')return [];
+    const card=this.cards.get(id);
+    const found=[...this.bound.get(id)??[],...card?this.named.filter(noted=>this.names(card,noted.patch)):[]];
+    return found.sort((a,b)=>a.at-b.at).map(noted=>noted.patch);
+  }
+  private bind(id:string, ...noted:Noted[]):void {
+    const list=this.bound.get(id)??[];
+    list.push(...noted);this.bound.set(id,list);
+  }
+  private names(card:CardNames, patch:CocCardPatch):boolean {
+    const names=patchNames(patch.patch);
+    return names.definitions.some(name=>card.definitions.has(name))||names.objects.some(name=>card.objects.has(name));
+  }
+}
+/**
+ * One card's details with every patch said about it applied, in order (§132), and the per-row maps
+ * folded onto the rows they name: `definitions[<definition name>]` onto the item row waiting on that
+ * definition, `objects[<object name>]` onto every item row of that name, each as a merge patch. The two
+ * maps are addressing, not content, and do not travel on. A patch is host-written and player-facing by
+ * construction; the Keeper filter and §16.5's concealment still run again over whatever it left.
+ */
+function patchedDetails(details:Record<string,any>, patches:readonly CocCardPatch[]):Record<string,any> {
+  if(!patches.length)return details;
+  let merged:any=details;
+  for(const patch of patches)merged=mergePatch(merged,patch.patch);
+  const {definitions,objects,...rest}=merged as Record<string,any>;
+  const byDefinition=isDetailsRecord(definitions)?definitions:{}, byName=isDetailsRecord(objects)?objects:{};
+  const rows=Array.isArray(rest.mechanics)?rest.mechanics:[];
+  rest.mechanics=rows.filter((row:any)=>isDetailsRecord(row)&&row.visibility!=='keeper').map((row:any)=>{
+    let next=row;
+    if(row.kind==='item') {
+      const pending=typeof row.definition_name==='string'&&Object.hasOwn(byDefinition,row.definition_name)?byDefinition[row.definition_name]:undefined;
+      if(isDetailsRecord(pending))next=mergePatch(next,pending);
+      const named=typeof row.name==='string'&&Object.hasOwn(byName,row.name)?byName[row.name]:undefined;
+      if(isDetailsRecord(named))next=mergePatch(next,named);
+    }
+    return concealFigures(next);
+  });
+  return rest;
+}
+/**
  * The content root a host reads its data from, resolved exactly as `runtime/host.ts` resolves it
  * for the kernel, so a packaged build and a source checkout read the same `languages.json`.
  */
@@ -281,7 +462,7 @@ function wordTable(value:unknown):Record<string,string> {
  *  grammar of §16.6 does not see it. No `g` flag — `test` here must not carry a `lastIndex`. */
 const SAY_TOKEN=/\{\{say:[^{}\n]{1,60}\}\}/;
 export function mechanicsEntry(row:any, language?:string, presentations?:ReadonlyMap<number,Record<string,unknown>>,
-  words:CocHistoryWords={}, current?:Record<string,unknown>): HistoryEntry | undefined {
+  words:CocHistoryWords={}, current?:Record<string,unknown>, patches?:readonly CocCardPatch[]|CocObjectDetails): HistoryEntry | undefined {
   const lanes=wordTable(words.lanes), chrome=words.ui?{ui:words.ui}:{};
   if(row?.type==='custom'&&row.customType==='coc-character-draft'&&row.data?.sheet) {
     // Contract §23.4: the card draws the campaign's current draft, not the revision that appended
@@ -314,9 +495,12 @@ export function mechanicsEntry(row:any, language?:string, presentations?:Readonl
   // the say tokens, and without the card the player reads the braces.
   if(!mechanics.length&&!SAY_TOKEN.test(markedText))return;
   const tag=row.data.play_language??language;
+  // §132 (§129's object details among them): what asynchronous lanes said about this card after it was
+  // drawn, so the live redraw and every re-read of the transcript draw the same card.
+  const said=patches instanceof Map?(patches.size?[{card:{},patch:detailsPatch(patches),source:'object-details'}]:[]):(patches??[]) as readonly CocCardPatch[];
   return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,
-    presentation:{renderer:'coc-mechanics',details:{turn:row.data.turn,mechanics,labels:{...lanes,...wordTable(row.data.labels)},
-      ...marked,...speech,...(tag?{play_language:tag}:{}),...chrome}}};
+    presentation:{renderer:'coc-mechanics',details:patchedDetails({turn:row.data.turn,mechanics,labels:{...lanes,...wordTable(row.data.labels)},
+      ...marked,...speech,...(tag?{play_language:tag}:{}),...chrome},said)}};
 }
 export async function readColdSheet(repo:string, context:CocBinding, previewRevision?:number, env:NodeJS.ProcessEnv=process.env, runtimeOptions:CocColdRuntimeOptions={}):Promise<unknown> {
   // A displayed draft is the host's own fact (contract §98): the card entry in the transcript is

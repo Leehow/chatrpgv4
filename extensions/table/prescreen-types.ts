@@ -30,9 +30,11 @@ export function suppliedContext(messages:readonly Row[]):SuppliedContext {
     }
     return {digest:digest(messages),bytes:sizeOf(messages),keys,locators,contentDigests,materialDigests};
 }
-export function suppliedPreview(messages:readonly Row[],limit=8192):Row {
-    const rows:Row[]=[];let used=0,omitted=0;
+/** `exclude` names custom message types already carried elsewhere in the same decision state (never sent twice). */
+export function suppliedPreview(messages:readonly Row[],limit=8192,exclude:readonly string[]=[]):Row {
+    const rows:Row[]=[];let used=0,omitted=0,excluded=0;
     for(const message of [...messages].reverse()){
+        if(typeof message.customType==='string'&&exclude.includes(message.customType)){excluded++;continue;}
         const raw=typeof message.content==='string'?message.content:JSON.stringify(message.content??null),remaining=Math.max(0,limit-used);
         if(!remaining){omitted++;continue;}
         const parsed=parse(message.content),evidence=message.customType==='coc-workspace'&&Array.isArray(parsed.evidence)?parsed.evidence:
@@ -43,7 +45,8 @@ export function suppliedPreview(messages:readonly Row[],limit=8192):Row {
             ...(content.length<raw.length||coveragePartial?{partial:true}:{})};
         const bytes=sizeOf(row);if(bytes>remaining){omitted++;continue;}rows.push(row);used+=bytes;
     }
-    return {messages:rows.reverse(),omitted,complete:omitted===0&&rows.every(row=>row.partial!==true)};
+    return {messages:rows.reverse(),omitted,complete:omitted===0&&rows.every(row=>row.partial!==true),
+        ...(excluded?{carried_elsewhere:[...exclude]}:{})};
 }
 
 export function candidateOf(value:unknown,index:number):PrescreenCandidate|undefined {

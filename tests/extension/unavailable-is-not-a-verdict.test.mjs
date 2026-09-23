@@ -32,6 +32,8 @@ import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {AUDIT_LIMITS} from '../../kernel-ts/mods/audit-result.ts';
 import modsExtension from '../../extensions/mods/index.ts';
 import {customMessages, openTable, waitForIdle} from './harness.mjs';
+// These cases pin the pre-delivery gate (§36.14, §26.1, §91), which §130 keeps whole as the `pre` mode.
+process.env.PI_COC_CONTINUITY_GATE = 'pre';
 
 const root = resolve(import.meta.dirname, '../..');
 const base = join(root, '.coc/playtests/unavailable-is-not-a-verdict');
@@ -204,7 +206,7 @@ test('a lane that keeps not answering reaches the operator once, and never the p
     assert.equal(statuses.length, 1, JSON.stringify(statuses));
     assert.equal(statuses[0].status, 'unreviewed');
     assert.equal(statuses[0].streak, 2);
-    assert.match(statuses[0].fix, /Lane model/);
+    assert.match(statuses[0].fix, /Fast model/);
     assert.equal(customMessages(session.session, 'coc-delivery').filter(message => message.details?.review_unavailable).length, 0,
         'the player’s turns arrived; a table that plays is not a notice');
 });

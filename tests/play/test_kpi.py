@@ -210,6 +210,26 @@ def test_admission_section_counts_verdicts_reuse_and_unavailability_apart_from_d
     assert kpi.admission([row(1, "apply", call_id="t1-c1")]) == {}
 
 
+def test_admission_section_splits_reviews_by_the_reviewer_that_decided_them():
+    """Contract §32.10: typed and lane reviews are compared by their own rows; a lane review the
+    typed route fell back to counts under the lane, with the fallback reason beside it."""
+    rows = [
+        {"turn": 1, "lane": "admission", "verb": "apply", "ok": True, "verdict": "authorized", "reused": False, "ms": 700, "reviewer": "jev"},
+        {"turn": 1, "lane": "admission", "verb": "apply", "ok": True, "verdict": "authorized", "reused": True, "ms": 0, "reviewer": "jev"},
+        {"turn": 2, "lane": "admission", "verb": "apply", "ok": True, "verdict": "entailed", "reused": False, "ms": 9000,
+         "reviewer": "lane", "jev_fallback": "low_confidence"},
+        {"turn": 3, "lane": "admission", "verb": "resolve", "ok": False, "reason": "timeout", "ms": 120000,
+         "reviewer": "lane", "jev_fallback": "service_error"},
+    ]
+    section = kpi.admission(rows)
+    assert section["by_reviewer"] == {
+        "jev": {"reviews": 1, "unavailable": 0, "fallbacks": {}, "ms": {"total": 700, "max": 700, "mean": 700}},
+        "lane": {"reviews": 2, "unavailable": 1, "fallbacks": {"low_confidence": 1, "service_error": 1},
+                 "ms": {"total": 129000, "max": 120000, "mean": 64500}},
+    }
+    assert "by_reviewer" not in kpi.admission([{k: v for k, v in r.items() if k not in ("reviewer", "jev_fallback")} for r in rows])
+
+
 def test_lane_section_tells_a_lane_that_never_worked_from_one_that_ran_clean():
     """A lane that failed every turn and a lane that never failed read the same way
     everywhere else in this tool, which is how `memory` failed 32 times in one campaign

@@ -829,16 +829,124 @@ def test_pending_identity_removed_before_creator_completion_is_never_resurrected
     # Deferral means not this turn: completing here would put the wait back one tool call later.
     assert kernel.ok("mods.queued", {"campaign":CAMPAIGN}) == {"effects":[], "unfinished":[]}
 
-    narrate(kernel, "t1-c3", "诺特把条件说完，等你开口。")
+    delivered = narrate(kernel, "t1-c3", "诺特把条件说完，等你开口。")
+    # Contract §129: the card names the belonging at once and says what it waits on, rather than dropping
+    # the row as bookkeeping or holding the delivery for its parameters.
+    waiting = [row for row in delivered["mechanics"] if row.get("adopted") == target]
+    assert waiting == [{"kind":"item", "receipt":waiting[0]["receipt"], "name":draft["name"], "adopted":target,
+                        "definition":"pending", "definition_name":draft["name"], "call":"t1-c1"}]
     kernel.table("player_input", text="我接下这单。")
     ready = kernel.ok("mods.queued", {"campaign":CAMPAIGN})
     assert [effect["kind"] for effect in ready["effects"]] == ["define", "object"] and ready["unfinished"] == []
     kernel.table("apply", call_id="t2-c1", effects=ready["effects"])
+    # The replayed adoption is the same belonging; the card that named it pending is the one that opens.
+    assert not [row for row in kernel.table("status")["mechanics"] if row.get("adopted")]
 
     assert kernel.table("look", focus="object", name=draft["name"])["definition"]["name"] == draft["name"]
     # The marker stops standing in for a definition that is now real, and the row stays out of the gap list.
     assert kernel.ok("mods.queued", {"campaign":CAMPAIGN}) == {"effects":[], "unfinished":[]}
     assert target not in [e["name"] for e in kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]]
+
+
+def test_a_placement_beside_a_queued_definition_stands_on_a_placeholder_until_the_resume_replaces_it(kernel):
+    """Contract §129.4: a definition never holds the apply that places its object."""
+    open_turn(kernel)
+    draft = weapon("Queued launcher")
+    request = {"name":draft["name"], "category":"weapon", "description":draft["description"]}
+    job = kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"create", "input":request})
+    kernel.table("apply", call_id="t1-c1", effects=[
+        {"kind":"clue", "clue":"clue-knott-commission", "how":"Fixture."},
+        {"kind":"define", **request, "_queued":job["job"], "_provenance":{"mod":job["mod"], "digest":job["digest"]}},
+        {"kind":"object", "name":"Borrowed launcher", "definition":draft["name"], "to":"Thomas Hayes", "why":"Fixture placement."}])
+
+    folder = campaign_dir(kernel.workspace)
+    world = read_json(folder / "world.json")
+    [(definition_id, stand)] = list(world["objects"]["definitions"].items())
+    # Nothing about the object is invented: the Keeper's own request, no parameters, a view that shows nothing.
+    assert stand["placeholder"] is True and stand["name"] == draft["name"] and stand["category"] == "weapon"
+    assert stand["parameters"] == {} and stand["traits"] == [] and stand["player_view"] == {"description":"", "fields":[]}
+    [(instance_id, item)] = [(key, value) for key, value in world["objects"]["instances"].items() if value["name"] == "Borrowed launcher"]
+    assert item["definition"] == definition_id and item["state"]["ammo"] is None
+    assert not [row for row in read_json(folder / "party" / "thomas-hayes.json")["weapons"] if row.get("object_id") == instance_id]
+    queued = [r for r in read_json(folder / "turn.json")["receipts"] if r["kind"] == "definition"]
+    assert [r["queued"] for r in queued] == [True]
+    # Queued, not written: nothing lands in the turn that queued it.
+    assert kernel.ok("mods.queued", {"campaign":CAMPAIGN}) == {"effects":[], "unfinished":[]}
+    # A usage bound to the placeholder would be stale on arrival.
+    refused = kernel.err("mods.job", {"campaign":CAMPAIGN, "role":"usage",
+                                      "input":{"object":"Borrowed launcher", "name":"Fire", "description":"Fire it."}})
+    assert refused["code"] == "needs" and refused["details"]["reason"] == "definition_pending"
+
+    delivered = narrate(kernel, "t1-c2", "诺特把发射器借给你。")
+    row = next(row for row in delivered["mechanics"] if row["kind"] == "item")
+    assert row["definition"] == "pending" and row["definition_name"] == draft["name"] and "object" not in row
+
+    Path(job["cwd"], "result.json").write_text(json.dumps(draft))
+    kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":job["job"]})
+    kernel.table("player_input", text="我检查发射器。")
+    ready = kernel.ok("mods.queued", {"campaign":CAMPAIGN})
+    # The placement is not replayed: it already stands. Only the definition lands.
+    assert [effect["kind"] for effect in ready["effects"]] == ["define"] and ready["unfinished"] == []
+    kernel.table("apply", call_id="t2-c1", effects=ready["effects"])
+
+    world = read_json(folder / "world.json")
+    assert list(world["objects"]["definitions"]) == [definition_id]
+    landed = world["objects"]["definitions"][definition_id]
+    assert "placeholder" not in landed and landed["parameters"]["damage"] == "1D6" and landed["version"] == 1
+    item = world["objects"]["instances"][instance_id]
+    assert item["definition"] == definition_id and item["owner"]["id"] == "thomas-hayes"
+    assert item["state"]["ammo"] == 1, "what the placement could not read from the placeholder is filled in"
+    receipt = next(r for r in read_json(folder / "turn.json")["receipts"] if r["kind"] == "definition")
+    assert receipt["replaced_placeholder"] is True
+    weapon_row = next(row for row in read_json(folder / "party" / "thomas-hayes.json")["weapons"] if row.get("object_id") == instance_id)
+    assert weapon_row["damage"] == "1D6"
+    assert kernel.ok("mods.queued", {"campaign":CAMPAIGN}) == {"effects":[], "unfinished":[]}
+    assert kernel.table("look", focus="object", name="Borrowed launcher")["definition"]["parameters"]["magazine"] == 1
+
+
+def test_a_usage_batch_can_take_the_registration_behind_a_placeholder_in_the_same_turn(kernel):
+    """Contract §129.4: `mods.queued {now, objects}` is how a usage batch gets its object's parameters first."""
+    open_turn(kernel)
+    draft = weapon("Queued sidearm")
+    request = {"name":draft["name"], "category":"weapon", "description":draft["description"]}
+    job = kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"create", "input":request})
+    other = {"name":"Queued lantern", "category":"item", "description":"A lantern."}
+    lantern = kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"create", "input":other})
+    kernel.table("apply", call_id="t1-c1", effects=[
+        {"kind":"define", **request, "_queued":job["job"], "_provenance":{"mod":job["mod"], "digest":job["digest"]}},
+        {"kind":"define", **other, "_queued":lantern["job"], "_provenance":{"mod":lantern["mod"], "digest":lantern["digest"]}},
+        {"kind":"object", "name":"Borrowed sidearm", "definition":draft["name"], "to":"Thomas Hayes", "why":"Fixture placement."}])
+    # Only the registration behind the named object, and only once its parameters exist.
+    assert kernel.ok("mods.queued", {"campaign":CAMPAIGN, "now":True, "objects":["Borrowed sidearm"]}) == \
+        {"effects":[], "unfinished":[{**request}]}
+    Path(job["cwd"], "result.json").write_text(json.dumps(draft))
+    kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":job["job"]})
+    ready = kernel.ok("mods.queued", {"campaign":CAMPAIGN, "now":True, "objects":["Borrowed sidearm"]})
+    assert [(effect["kind"], effect["name"]) for effect in ready["effects"]] == [("define", draft["name"])]
+    kernel.table("apply", call_id="t1-c2", effects=ready["effects"])
+    world = read_json(campaign_dir(kernel.workspace) / "world.json")
+    by_name = {value["name"]: value for value in world["objects"]["definitions"].values()}
+    assert "placeholder" not in by_name[draft["name"]]
+    # The lantern was placed nowhere: it has no placeholder and stays queued for the ordinary resume.
+    assert other["name"] not in by_name
+    assert [entry["name"] for state in world["mods"]["state"].values() for entry in state.get("queued", {}).values()] == [other["name"]]
+
+
+def test_a_handed_over_object_opens_into_its_player_view_on_the_card(kernel):
+    open_turn(kernel)
+    draft = {**weapon("Card launcher"), "traits":[{"name":"length", "value":91, "unit":"cm", "basis":"Fixture."},
+                                                 {"name":"serial", "value":"X-7", "basis":"Keeper-only fixture."}]}
+    draft["player_view"] = {**draft["player_view"], "traits":["length"]}
+    kernel.table("apply", call_id="t1-c1", effects=[prepared(kernel, draft),
+        {"kind":"object", "name":"Handed launcher", "definition":"Card launcher", "to":"Thomas Hayes", "from":"Steven Knott", "handover":"given", "why":"Knott hands it over"}])
+    delivered = narrate(kernel, "t1-c2", "诺特把它推过桌面。")
+    row = next(row for row in delivered["mechanics"] if row["kind"] == "item")
+    # Contract §129: the definition is in hand, so the row opens at once -- into the player view only.
+    assert row["definition"] == "ready"
+    assert row["object"] == {"category":"weapon", "description":"An improvised launcher.",
+                             "traits":[{"name":"length", "value":91, "unit":"cm", "basis":"Fixture."}],
+                             "parameters":{"damage":"1D6", "magazine":1}}
+    assert "Fixture: a single-shot" not in json.dumps(row) and "X-7" not in json.dumps(row)
 
 
 def test_a_placement_that_omits_its_definition_is_offered_the_names_on_hand(kernel):

@@ -1,11 +1,18 @@
 /** Verify a published graph binding before any read or merge consumes its bytes. */
 import { createHash } from 'node:crypto';
-import { readFile, realpath } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
 import { freezeJson, jsonDigest, parsePythonJson, type JsonValue } from '../json.js';
 import { integer, number, row, type Row } from './values.js';
+
+type Stamp = { size: number; mtimeMs: number; ino: number };
+const PARSED_GRAPHS = 32;
+const parsedGraphs = new Map<string, { stamp: Stamp; digest: string; raw: Row }>();
+const canonicalDigests = new WeakMap<Row, string>();
+/** Test seam: forget every parsed graph in this process. */
+export function forgetParsedGraphs(): void { parsedGraphs.clear(); }
 
 export async function readPublishedGraph(context: KernelContext, path: string, metadata: Row, moduleId: string): Promise<{raw: Row; digest: string}> {
     const published = Object.keys(metadata).length > 0;
@@ -23,26 +30,48 @@ export async function readPublishedGraph(context: KernelContext, path: string, m
         return actual;
     };
     if (published) path = await contained(path, 'graph_path');
-    let bytes: Buffer;
-    try { bytes = await readFile(path); }
+    // Contract §131: the same bytes parse once per process. The stamp (size, mtime, inode) is
+    // the change signal; publication renames a fresh inode into place. Every check below still
+    // runs on every call -- against the cached digest and the cached frozen graph, which is
+    // exactly what a fresh read would have produced from the same bytes.
+    let stamp: Stamp | undefined;
+    try { const info = await stat(path); stamp = { size: info.size, mtimeMs: info.mtimeMs, ino: info.ino }; }
     catch (error) {
         if (published) invalid('graph_unreadable');
         throw error;
     }
-    const digest = createHash('sha256').update(bytes).digest('hex');
-    if (published) {
-        if (typeof metadata.graph_digest !== 'string' || !/^[a-f0-9]{64}$/.test(metadata.graph_digest))
-            invalid('metadata_digest');
-        if (digest !== metadata.graph_digest) invalid('graph_digest', metadata.graph_digest, digest);
-    }
-    let raw: Row;
-    try {
-        const value = parsePythonJson(new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(bytes));
-        if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('graph is not an object');
-        raw = row(freezeJson(value));
-    } catch (error) {
-        if (published) invalid('graph_json');
-        throw error;
+    const hit = parsedGraphs.get(path);
+    let digest: string, raw: Row;
+    if (hit && hit.stamp.size === stamp.size && hit.stamp.mtimeMs === stamp.mtimeMs && hit.stamp.ino === stamp.ino) {
+        ({ digest, raw } = hit);
+        if (published) {
+            if (typeof metadata.graph_digest !== 'string' || !/^[a-f0-9]{64}$/.test(metadata.graph_digest))
+                invalid('metadata_digest');
+            if (digest !== metadata.graph_digest) invalid('graph_digest', metadata.graph_digest, digest);
+        }
+    } else {
+        let bytes: Buffer;
+        try { bytes = await readFile(path); }
+        catch (error) {
+            if (published) invalid('graph_unreadable');
+            throw error;
+        }
+        digest = createHash('sha256').update(bytes).digest('hex');
+        if (published) {
+            if (typeof metadata.graph_digest !== 'string' || !/^[a-f0-9]{64}$/.test(metadata.graph_digest))
+                invalid('metadata_digest');
+            if (digest !== metadata.graph_digest) invalid('graph_digest', metadata.graph_digest, digest);
+        }
+        try {
+            const value = parsePythonJson(new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(bytes));
+            if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('graph is not an object');
+            raw = row(freezeJson(value));
+        } catch (error) {
+            if (published) invalid('graph_json');
+            throw error;
+        }
+        parsedGraphs.delete(path); parsedGraphs.set(path, { stamp, digest, raw });
+        while (parsedGraphs.size > PARSED_GRAPHS) parsedGraphs.delete(parsedGraphs.keys().next().value!);
     }
     if (published) {
         let manifest: Row = {};
@@ -57,7 +86,9 @@ export async function readPublishedGraph(context: KernelContext, path: string, m
         if (!integer(metadata.generation) || !integer(manifest.generation) || number(metadata.generation) < 1 || number(manifest.generation) !== number(metadata.generation))
             invalid('generation', metadata.generation, manifest.generation);
         if (manifest.graph_contract_id !== raw.contract_id) invalid('graph_contract', manifest.graph_contract_id, raw.contract_id);
-        const canonical = jsonDigest(raw);
+        // The canonical digest of a frozen graph never changes; serializing 2 MB again per read did.
+        let canonical = canonicalDigests.get(raw);
+        if (canonical === undefined) { canonical = jsonDigest(raw); canonicalDigests.set(raw, canonical); }
         if (canonical !== manifest.graph_content_digest) invalid('manifest_digest', manifest.graph_content_digest, canonical);
     }
     return {raw, digest};

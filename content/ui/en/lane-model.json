@@ -1,12 +1,15 @@
 {
-  "lead": "Choose the model the Keeper's background lanes use: writing an item's parameters, and auditing an unpublished draft for mechanics it never declared.",
-  "aside": "Nothing these lanes write reaches the player, so a quick model here shortens every turn without touching a word of the prose.",
-  "live": "Both choices take effect on the next lane the table runs — a review, an item's parameters — so a change reaches a table that is already running without restarting it.",
+  "section_title": "Fast model",
+  "section_hint": "Every lane that has to be quick",
+  "section_description": "One quick model for all of the Keeper's background work",
+  "lead": "Choose the fast model: the one quick model all of the Keeper's background work runs on — an item's parameters, reviews of a draft, journals, memory, the verifier, the voices of the people you meet, the interface's words in your language, and an object's uses worked out before they are needed.",
+  "aside": "Nothing these lanes write is the Keeper's prose, so a quick model here shortens every turn without touching a word of the story.",
+  "live": "A change takes effect on the next lane the table runs, so it reaches a table that is already running without restarting it.",
   "auto_title": "Follow the table",
-  "auto_subtitle": "The lanes run on whichever model the Keeper is set to",
-  "thinking_lead": "Choose the reasoning effort those lanes run at. A review has a fixed time budget, and a lane that spends it all thinking delivers nothing — so the lanes do not follow the table's effort; they run at their own steady level unless you pick one here.",
+  "auto_subtitle": "Every lane runs on whichever model the Keeper is set to",
+  "thinking_lead": "Choose the reasoning effort the fast model runs at. A lane that spends its time thinking keeps the player waiting, so the lanes do not follow the table's effort; they run at their own steady level unless you pick one here.",
   "thinking_auto_title": "The lane's own level",
   "current": "In use",
   "empty": "No models in Model Management yet. Sign in a provider there, then come back.",
-  "failed": "Reading or writing the lane model failed; try again."
+  "failed": "Reading or writing the fast model failed; try again."
 }

@@ -13,6 +13,8 @@ import {
 import {HOST_SETTINGS_TAB_IDS} from './ui-registries';
 import {SETTINGS_NAV_HINTS} from './ModelVisibilityModal';
 import {say, ui} from './fixtures/coc-ui-words';
+import {sectionCaptions} from '../../../../pipicoc/settings-lane-model.js';
+import enLaneModel from '../../../../content/ui/en/lane-model.json';
 
 const Section = createComponent(React);
 afterEach(cleanup);
@@ -39,10 +41,16 @@ describe('registration (contract §33.5)', () => {
     expect(SETTINGS_NAV_HINTS['coc-difficulty'].length).toBeGreaterThan(0);
   });
   // Contributing a section is not enough: a tab exists only once its id is admitted, and it reads as
-  // a nameless row until the nav has a hint for it. The lane-model picker needed both.
-  it('admits the lane-model picker and gives it a nav hint too', () => {
+  // a nameless row until the nav has a hint for it. The fast-model picker (contract §37.10.1) names
+  // itself from its own surface instead of a word the host wrote by hand, so the hint follows the
+  // player's language like every other caption.
+  it('admits the fast-model picker, which names its own nav entry from its surface', async () => {
     expect(HOST_SETTINGS_TAB_IDS).toContain('coc-lane-model');
-    expect(SETTINGS_NAV_HINTS['coc-lane-model']?.length).toBeGreaterThan(0);
+    expect(SETTINGS_NAV_HINTS['coc-lane-model']).toBeUndefined();
+    const api = {invoke: vi.fn(async () => ({ok: true, data: {ui: {tag: 'en', words: {'lane-model': enLaneModel}}}}))};
+    expect(await sectionCaptions(api)).toEqual({
+      label: enLaneModel.section_title, hint: enLaneModel.section_hint, description: enLaneModel.section_description});
+    expect(await sectionCaptions({invoke: vi.fn(async () => ({ok: false}))})).toBeUndefined();
   });
   // The Rerank extension's picker is controlled (its model list depends on the chosen vendor), so
   // it needs the same two admissions a tab needs: the whitelist entry and a nav hint.

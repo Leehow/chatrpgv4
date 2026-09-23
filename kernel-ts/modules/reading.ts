@@ -160,6 +160,14 @@ export class Reading {
     async source(meta: Row): Promise<Row> {
         const source = meta.source_document;
         const missing = (message: string): never => { throw new RpcError('needs', message, { fix: 'bind the matching original PDF with module.source.bind', details: { reason: 'needs_source' } }); };
+        // Contract §127.2: a module that never came from a document (a built-in starter) has nothing
+        // to bind. Its refusal names the reads that do work instead of an instruction the Keeper
+        // cannot carry out, and an error's fix is executed literally.
+        if (!object(source) && meta.source !== 'pdf')
+            throw new RpcError('needs', 'this module has no original source document: its authored graph is the whole source', {
+                fix: 'read what the module authored instead: lookup kind=module with a name or the exact handles already in your capsule (several handles may share one query),'
+                    + ' or look focus=npc name=<person>, focus=scene or focus=clues; there is no document to consult or bind for this module',
+                details: { reason: 'no_source_document' } });
         if (!object(source))
             missing('the original PDF is required for further reading');
         let path = childPath(this.store.moduleDir(meta.id), source.path);

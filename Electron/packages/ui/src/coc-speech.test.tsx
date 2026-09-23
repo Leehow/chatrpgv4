@@ -26,6 +26,7 @@ import zhBoard from '../../../../content/ui/zh-Hans/board.json'
 import zhErrors from '../../../../content/ui/zh-Hans/errors.json'
 import { foldMarkedDeliveries, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
 import { ui } from './fixtures/coc-ui-words'
+import { OpenedSlip } from './fixtures/opened-mechanics-slip'
 
 const Card = createComponent(React)
 const Panel = createPanel(React)
@@ -38,7 +39,7 @@ beforeEach(() => { delete (globalThis as Record<string, unknown>)[SLOT_TABLE] })
 afterEach(cleanup)
 
 const Delivery = ({details}: {details: Record<string, unknown>}) =>
-  <Card details={{ui: ui(String(details.play_language ?? 'zh-Hans')), ...details}} />
+  <OpenedSlip><Card details={{ui: ui(String(details.play_language ?? 'zh-Hans')), ...details}} /></OpenedSlip>
 
 const ROLL = {
   kind: 'roll', receipt: 'roll:spot-hidden-t5-c1', actor: 'thomas-hayes', actor_label: '托马斯·海斯',

@@ -46,7 +46,7 @@ export interface LaneTelemetryOptions {
 function outageFix(lane: string, streak: number, reason: string, modelEnv: string): string {
 	const opening = `The ${lane} lane has failed ${streak} times in a row. It records nothing while it is down and the table plays on without it, so no one at the table will report this.`;
 	if (reason === "model_unavailable" || reason === "model_error")
-		return `${opening} Its model is the suspect: check that ${modelEnv} (or the table's lane model setting) names a model this session can actually reach, then reopen the table.`;
+		return `${opening} Its model is the suspect: choose a model this session can actually reach under Fast model in settings (read the next time the lane runs), or set ${modelEnv} to one.`;
 	if (reason === "invalid")
 		return `${opening} Its model keeps producing output the kernel refuses; the detail carries the kernel's own words. A different lane model is the usual repair.`;
 	return `${opening} This is a host or kernel failure rather than anything the player did: the detail carries the kernel's error. The lane's rows are in .coc/campaigns/<campaign>/telemetry.jsonl.`;

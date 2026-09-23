@@ -11,6 +11,7 @@ import { threadSection } from "./thread.js";
 import { pacingSection } from "./pacing.js";
 import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, repr, type Row } from "./values.js";
 import { claimedEquipment, queuedDefinition, queuedRegistrations } from "../mods/queue.js";
+import { publicDefinition, publicUsage } from "../mods/public-definition.js";
 import {CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2} from '../mods/audit-result.js';
 import {USAGE_CAPABILITY, usageViews} from '../mods/usages.js';
 import {publicOffer} from '../mods/object-offer.js';
@@ -625,7 +626,9 @@ export function objectContext(world: Row): Row {
             document: truth(value.document) ? {
                 presentation: value.document.presentation,
                 has_text: truth(value.document.text)
-            } : null
+            } : null,
+            // §129.4: a placement's stand-in for a queued registration; its parameters are not known yet.
+            ...(value.placeholder === true ? { placeholder: true } : {})
         })),
         instances: values(row(data.instances)).slice(-24).map(value => ({
             name: value.name,
@@ -738,15 +741,17 @@ export function publicItems(world: Row, ownerId: string, includeContainedDocumen
             state.ammo = item.state.ammo ?? null;
         if (publicView.fields.includes("charges"))
             state.charges = item.state.charges ?? null;
+        // Contract §129: the card's item row opens into this same view, from the same function.
+        const shown = publicDefinition(definition);
         items.push({
             name: item.name,
             quantity: item.quantity,
             category: definition.category,
             ...publicOffer(item),
-            description: publicView.description,
+            description: shown.description,
             state,
-            traits: array(definition.traits).filter(t => array(publicView.traits).includes(t.name)),
-            parameters: Object.fromEntries(publicView.fields.map((key: string) => [key, definition.parameters[key]])),
+            traits: shown.traits,
+            parameters: shown.parameters,
             ...(truth(item.document) ? {
                 document: {
                     presentation: item.document.presentation,
@@ -764,13 +769,13 @@ function publicUsageWeapon(world: Row, weapon: Row, known: Row | undefined): Row
         instance = row(row(row(world.objects).instances)[string(weapon.object_id)]);
     if (!known || !truth(usage.id) || usage.object_id !== weapon.object_id)
         return identity;
-    const parameters = row(usage.parameters),
-        fields = array(row(usage.player_view).fields),
+    // Contract §132: the card's usage line reads this same view, from the same function.
+    const shown = publicUsage(usage),
         state = row(instance.state);
     return {
         ...identity,
         usage: usage.name,
-        ...Object.fromEntries(fields.filter(key => typeof key === "string" && Object.hasOwn(parameters, key)).map(key => [key, parameters[key]])),
+        ...shown.parameters,
         ...(Object.hasOwn(state, "ammo") ? { ammo: state.ammo ?? null } : {})
     };
 }
@@ -831,6 +836,8 @@ export function objectLook(world: Row, name?: any): Row {
     }
     return {
         definition: pick(definition, ["name", "category", "description", "parameters", "basis", "traits", "document"]),
+        // §129.4: placed against a queued registration; the same answer a queued name gets above.
+        ...(definition.placeholder === true ? { pending: `${repr(string(definition.name))} is registered; its parameters are still being prepared and land at the start of the next turn` } : {}),
         instance: item ? {
             name: item.name,
             owner: item.owner.name,

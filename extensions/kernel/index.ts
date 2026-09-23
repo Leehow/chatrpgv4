@@ -10,7 +10,8 @@ import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
-import { adaptationService } from './adaptation.ts';
+import { adaptationModel, adaptationService } from './adaptation.ts';
+import { fastLaneChoice } from '../lanes/subsession.ts';
 export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
 import { agentHomeOf, openingHelp } from "../ui/hints.ts";
@@ -21,6 +22,7 @@ import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
+import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
 import { createCanonicalOperationDispatcher } from './canonical-operation-dispatcher.ts';
 import { RecallPages } from "./recall-pages.ts";
 import {lookupKeeperSupport} from '../table/keeper-support-lookup.ts';
@@ -29,6 +31,22 @@ import { bindWorkpadPatch, publishWorkpadPatch, takeWorkpadPatch, type WorkpadBi
 import { workpadStoreRoot } from '../table/workspace/workpad-store.ts';
 import { randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
+import { currentPromptHead } from "./prompt-checkpoint.ts";
+import { learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
+import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
+import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
+import { TaskLease } from "../../runtime/jev/task-context.ts";
+import {
+	SPEECH_ATTRIBUTION_DEFAULT_MIN_CONFIDENCE,
+	SPEECH_ATTRIBUTION_FAMILY,
+	SPEECH_ATTRIBUTION_MAX_PASSAGES,
+	type SpeechAttributionInput,
+	runSpeechAttribution,
+	speakerOptions,
+	speechAttributionBindings,
+} from "../../runtime/jev/speech-attribution-domain.ts";
+import { readJevApiKey } from "../jev/agent/config.js";
+import { speechPass } from "../../kernel-ts/write/speech-pass.ts";
 import {
 	type AdmissionContext,
 	type AdmissionDestination,
@@ -39,7 +57,7 @@ import {
 	admissionUnavailable,
 	keyDigest,
 	registeredDestination,
-	reviewAdmission,
+	reviewAdmissionPrimary,
 } from "./admission.ts";
 
 type TurnState = "awaiting_player" | "open" | "acting" | "asked" | "committed";
@@ -179,6 +197,13 @@ interface CampaignRow {
 	status?: string;
 	turn?: number;
 }
+
+/**
+ * A person on stage as the capsule gives them (§128.3): `name` is `present[].name`; `called` and
+ * `address` are the table's own name and form of address (§79); `untold` says the player has not been
+ * told the book's name (§103), and `label` is the epithet the table uses meanwhile.
+ */
+interface RosterPerson { name: string; called?: string; address?: string; untold: boolean; label?: string }
 
 interface TableState {
 	kernel: KernelClient;
@@ -429,6 +454,17 @@ interface TableState {
 	/** The scene underfoot as the player knows it; a `move` to it is a rename and is not reviewed. */
 	scene?: { handle?: string; label?: string };
 	present: string[];
+	/**
+	 * §128.3: the same people with the names the capsule already carries for them (`called`, `untold`),
+	 * for the attribution family's closed set and for the name its say token carries.
+	 */
+	roster: RosterPerson[];
+	/** The quotation-mark pairs this session's delivered lines were written in (§128.2), learned from `speech[]`. */
+	speechMarks: SpeechMarks;
+	/** §128.3: lines this session already delivered (`speech[]`), newest last, the attribution family's material. */
+	spokenLines: Array<{ speaker: string; text: string }>;
+	/** §128.3: what attribution did to the delivery now on its way to the kernel; joins that delivery's speech row. */
+	speechAttribution?: Record<string, unknown>;
 	prologue?: string;
 	/**
 	 * Earlier deliveries as the player saw them (the last four), the review's player-visible
@@ -601,14 +637,46 @@ const FLOOR_STEER =
 	"Use the ordinary narrate or mechanics ask delivery path for this response. Complete only the player's already selected goal. " +
 	"A quiet exchange, clarification, informed refusal or completed goal may return without a new effect, event or question. " +
 	"Do not choose a new destination, action, cost or risk for the player.";
-/** The one host steer of §40 (user ruling 2026-09-15): people are on stage and the draft wraps no spoken line. */
-const SPEECH_STEER =
-	"People are present and this draft wraps no spoken line. Every line anyone says aloud goes inside " +
-	"{{say:Name}}\u2026{{/say}}, Name exactly as present[].name or called.name gives it (the investigator too, when you render " +
+/** The rule both §40 speech steers restate: how a line is wrapped and whose name it carries. */
+const SPEECH_RULE =
+	"Every line anyone says aloud goes inside {{say:Name}}\u2026{{/say}}, with the quotation marks it is written in kept " +
+	"inside the token, Name exactly as present[].name or called.name gives it (the investigator too, when you render " +
 	"the player's words as theirs). For an untold person, first establish an appearance-based epithet with apply person " +
 	"if called.name is absent, and use that epithet until the fiction introduces the name; never reveal the book's name " +
-	"through a speaker title. A person not in present[] takes the label the prose uses for them. Rewrite " +
+	"through a speaker title. A person not in present[] takes the label the prose uses for them.";
+/** The one host steer of §40 (user ruling 2026-09-15): people are on stage and the draft wraps no spoken line. */
+const SPEECH_STEER =
+	`People are present and this draft wraps no spoken line. ${SPEECH_RULE} Rewrite ` +
 	"the same turn with every spoken line wrapped, and close with narrate. The braces never reach the player.";
+/**
+ * §128.2: the draft wraps lines, and passages in the same quotation marks sit outside every token. The
+ * passages are quoted back so the Keeper can find them; whether each one is a spoken line is theirs.
+ */
+function unwrappedSpeechSteer(passages: string[]): string {
+	const shown = passages.slice(0, 4).map((text) => JSON.stringify(text)).join(", ");
+	const more = passages.length > 4 ? ` and ${passages.length - 4} more` : "";
+	return `This draft leaves ${passages.length} passage${passages.length === 1 ? "" : "s"} in the quotation marks its spoken ` +
+		`lines are written in outside every say token: ${shown}${more}. ${SPEECH_RULE} A quoted word, name, title, sign or ` +
+		"document text is not a line: leave it as it is. Rewrite the same turn with every spoken line wrapped and nothing " +
+		"else changed, and close with narrate. The braces never reach the player.";
+}
+
+/** §128.3: how many delivered lines the attribution family is shown as material. */
+const SPOKEN_LINES_KEPT = 12;
+/**
+ * §128.3: cap on the one attribution batch, `PI_COC_SPEECH_ATTRIBUTE_TIMEOUT_MS`. The delivery waits for
+ * it and goes out as written when it expires, so it sits well under the admission family's cap.
+ */
+const DEFAULT_SPEECH_ATTRIBUTE_TIMEOUT_MS = 2_500;
+function speechAttributeTimeoutMs(env: NodeJS.ProcessEnv): number {
+	const value = Number(env.PI_COC_SPEECH_ATTRIBUTE_TIMEOUT_MS?.trim() || NaN);
+	return Number.isFinite(value) && value > 0 ? value : DEFAULT_SPEECH_ATTRIBUTE_TIMEOUT_MS;
+}
+/** §128.3: family minimum confidence, `PI_COC_SPEECH_ATTRIBUTE_MIN_CONFIDENCE`, in (0, 1]. Uncalibrated policy. */
+function speechAttributeMinConfidence(env: NodeJS.ProcessEnv): number {
+	const value = Number(env.PI_COC_SPEECH_ATTRIBUTE_MIN_CONFIDENCE?.trim() || NaN);
+	return Number.isFinite(value) && value > 0 && value <= 1 ? value : SPEECH_ATTRIBUTION_DEFAULT_MIN_CONFIDENCE;
+}
 
 let table: TableState | undefined;
 /** In setup mode there is no table, so the kernel subprocess hangs here on its own (contract §14.4). */
@@ -989,7 +1057,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
     let adaptations: ReturnType<typeof adaptationService> | undefined;
-  let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<void>;
+  let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<ReviewPrepared | void>;
     after?(method: string, payload: Record<string, any>, signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<void>} | undefined;
   pi.events.on("coc:mods-bridge", value => { mods = value as typeof mods; });
 	/**
@@ -1392,9 +1460,10 @@ export default function (pi: ExtensionAPI) {
 		for (const text of wanted) state.mapWordsAsked.add(text);
 		let model: string | undefined, thinking: string | undefined;
 		try {
+			// The runtime resolves a `mod` child's model itself (§37.10); resolving it here through the same
+			// reader is what lets the telemetry row name the model that actually ran, not the table's.
 			const chosen = sessionCtx?.model;
-			model = chosen ? `${chosen.provider}/${chosen.id}` : undefined;
-			thinking = pi.getThinkingLevel?.();
+			({ model, thinking } = fastLaneChoice(sessionCtx, "PI_COC_MOD_MODEL", chosen ? `${chosen.provider}/${chosen.id}` : undefined));
 		} catch { /* the session is gone; the lane still runs on the host's own defaults */ }
 		const began = Date.now();
 		const options: MapWordsOptions = { home: owner.home, resourceRoot: owner.resourceRoot, play_language: tag, model, thinking,
@@ -1556,6 +1625,15 @@ export default function (pi: ExtensionAPI) {
 				const name = asString((row as Record<string, unknown> | null)?.name);
 				return name ? [name] : [];
 			});
+			state.roster = view.present.flatMap((row): RosterPerson[] => {
+				const entry = (row ?? {}) as Record<string, unknown>;
+				const name = asString(entry.name);
+				if (!name) return [];
+				const called = (entry.called ?? {}) as Record<string, unknown>, untold = entry.untold as Record<string, unknown> | undefined;
+				const calledName = asString(called.name), address = asString(called.address), label = asString(untold?.label);
+				return [{ name, untold: !!untold && typeof untold === "object", ...(calledName ? { called: calledName } : {}),
+					...(address ? { address } : {}), ...(label ? { label } : {}) }];
+			});
 		}
 		const sheet = view.known?.investigator;
 		const name = asString(sheet?.name);
@@ -1634,7 +1712,103 @@ export default function (pi: ExtensionAPI) {
 			if (asString(speaker.npc) || asString(speaker.investigator)) resolved += 1;
 			else if (asString(speaker.label)) unresolved += 1;
 		}
-		void record({ lane: "speech", turn, lines: result.speech.length, resolved, unresolved, present: state.present.length });
+		learnSpeechMarks(state.speechMarks, result.speech);
+		for (const row of result.speech) {
+			const line = row as { who?: Record<string, unknown>; text?: unknown } | null;
+			const speaker = asString(line?.who?.name) ?? asString(line?.who?.label), text = asString(line?.text);
+			if (speaker && text) state.spokenLines.push({ speaker, text });
+		}
+		state.spokenLines.splice(0, Math.max(0, state.spokenLines.length - SPOKEN_LINES_KEPT));
+		// §128.3: what the host attributed in this delivery before the kernel read it rides on the same row.
+		const attributed = state.speechAttribution;
+		state.speechAttribution = undefined;
+		// A host-wrapped line that repeats the same person is delivered and counted here, never refused (§128.3).
+		const repeated = (result.repeated_lines as { lines?: unknown[] } | undefined)?.lines?.length ?? 0;
+		void record({ lane: "speech", turn, lines: result.speech.length, resolved, unresolved, present: state.present.length,
+			...(attributed ?? {}), ...(repeated ? { repeated } : {}) });
+	}
+
+	/**
+	 * Contract §128.3. A delivery is about to leave with passages in this table's speech marks outside
+	 * every say token (§128.2 finds them; nothing here reads a word), and the turn's one speech steer is
+	 * spent or not available. One typed Jev batch asks, per passage, who says it aloud -- over the people
+	 * on stage, the party, `not_speech` and `someone_else` -- and a confident person's passage is wrapped
+	 * in their say token, the words untouched, so the kernel's own speech path takes it from there.
+	 * Everything else stays exactly as written: low confidence, not_speech, someone_else, a failure, a
+	 * timeout, the switch `PI_COC_SPEECH_ATTRIBUTE=0`. Never a refusal, never a new word. Returns the
+	 * text the delivery carries, which is the input itself unless something was wrapped, and the
+	 * `speech[]` ordinals the host wrapped (`host_attributed`), which the kernel never refuses as a
+	 * repeat (§113 D) but records as a finding.
+	 */
+	async function attributeUnwrappedSpeech(state: TableState, text: string, signal: AbortSignal | undefined,
+		parent: TaskProviderBudget | undefined): Promise<{ text: string; hostAttributed?: number[] }> {
+		const unchanged = { text };
+		state.speechAttribution = undefined;
+		if (process.env.PI_COC_SPEECH_ATTRIBUTE?.trim() === "0") return unchanged;
+		const found = unwrappedPassages(text, state.speechMarks);
+		if (!found.passages.length) return unchanged;
+		const began = Date.now(), counts = { attributed: 0, not_speech: 0, undecided: 0 };
+		const note = (extra: Record<string, unknown> = {}) => {
+			state.speechAttribution = { ...counts, undecided: found.passages.length - counts.attributed - counts.not_speech,
+				jev_ms: Date.now() - began, ...extra };
+		};
+		const env = process.env;
+		if (!readJevApiKey(env)) { note({ attribute_failure: "unconfigured" }); return unchanged; }
+		const sent = found.passages.slice(0, SPEECH_ATTRIBUTION_MAX_PASSAGES);
+		// The token carries the name the kernel resolves to the same person (§40.1): the table's own name
+		// first (§79), and for a person the player has not been told about, only the table's epithet --
+		// a say token's name reaches the card's title, so the book's name never goes there (§103).
+		const presentTokens = state.roster.map((person) => person.called ?? (person.untold ? person.label : person.name));
+		const input: SpeechAttributionInput = {
+			campaign: state.campaign,
+			turn: state.turn,
+			passages: sent.map((passage) => ({ text: passage.text, ...surroundingSentences(found.text, passage) })),
+			present: state.roster.map((person) => ({ name: person.name,
+				also: [person.called, person.address, person.label].filter((value): value is string => !!value) })),
+			investigators: state.party.map((member) => ({ name: member.name, ...(member.occupation ? { occupation: member.occupation } : {}) })),
+			spoken: [...state.spokenLines, ...speechPass(found.text, (name) => ({ label: name })).speech
+				.map((row) => ({ speaker: String((row.who as { label: string }).label), text: String(row.text) }))],
+		};
+		const tokens = [...presentTokens, ...state.party.map((member) => member.name)];
+		let lease: TaskLease | undefined, accounting: ReturnType<typeof preparationBudget> | undefined;
+		let typed: Awaited<ReturnType<typeof runSpeechAttribution>> | undefined;
+		try {
+			const deadlineAt = Math.min(began + speechAttributeTimeoutMs(env), parent?.deadlineAt ?? Infinity);
+			const outer = signal ?? state.lanes.signal;
+			const bound = parent ? AbortSignal.any([outer, parent.signal]) : outer;
+			const bindings = speechAttributionBindings(input);
+			accounting = preparationBudget({
+				decision: createDecisionAdapter({ env, maxConcurrency: 4, retryPolicies: {
+					[SPEECH_ATTRIBUTION_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } }),
+				campaign: state.campaign, deadlineAt, signal: bound, ...(parent ? { parent } : {}),
+				owner: SPEECH_ATTRIBUTION_FAMILY, goal: "Attribute quoted passages of a delivery to the people present",
+			});
+			lease = new TaskLease({ owner: SPEECH_ATTRIBUTION_FAMILY, goal: "Attribute quoted passages of a delivery to the people present",
+				scope: bindings.scope, capabilities: ["decision"], readSet: bindings.readSet, signal: bound,
+				budget: { deadlineAt, remainingInputTokens: 200_000, remainingOutputTokens: 20_000, remainingCostUsd: 0.02, remainingActions: 2 } });
+			typed = await runSpeechAttribution(input, accounting.decision, lease, { minConfidence: speechAttributeMinConfidence(env) });
+		} catch {
+			typed = undefined;
+		} finally {
+			lease?.close();
+			accounting?.close();
+		}
+		if (!typed || typed.status !== "decided") {
+			note({ attribute_failure: typed?.reason ?? "speech_attribution_owner_error", ...(typed ? { jev_calls: typed.calls } : {}) });
+			return unchanged;
+		}
+		const options = speakerOptions(input), wraps: Array<{ start: number; end: number; name: string }> = [];
+		for (const line of typed.lines) {
+			if (line.outcome === "not_speech") { counts.not_speech += 1; continue; }
+			if (line.outcome !== "attributed") continue;
+			// A person with no name the token may carry (an untold person the table has no epithet for) stays undecided.
+			const name = tokens[options.findIndex((option) => option.key === line.choice)];
+			if (!name || !sayableName(name)) continue;
+			wraps.push({ start: sent[line.passage].start, end: sent[line.passage].end, name });
+		}
+		counts.attributed = wraps.length;
+		note({ jev_calls: typed.calls });
+		return wraps.length ? { text: wrapPassages(found.text, wraps), hostAttributed: wrappedOrdinals(found.text, wraps) } : unchanged;
 	}
 
 	/** A delivery joins the player-visible window the next review reads. */
@@ -1682,7 +1856,7 @@ export default function (pi: ExtensionAPI) {
 			await record({ lane: "admission", verb: tool, ok: true, skipped: "no_player_text", key: digest });
 			return;
 		}
-		const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string): Promise<void> => {
+		const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string, meta: Record<string, unknown> = {}): Promise<void> => {
 			state.admission.set(proposal.key, verdict);
 			const admitted = ADMITTING_VERDICTS.has(verdict.verdict);
 			// A refusal costs the player the whole batch, and until now the row said only which verdict
@@ -1693,7 +1867,9 @@ export default function (pi: ExtensionAPI) {
 			// where a player asked in plain words for the keys and the address he had just been
 			// promised and the batch was refused whole. The grounds and the proposed effects are
 			// what decide between those two readings, so a refusal now carries them.
+			// §32.10: which reviewer decided, and the typed route's own cost, so tables can be compared.
 			await record({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}),
+				...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}), ...meta,
 				...(admitted ? {} : { grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), proposed: proposal.lines }) });
 			if (admitted) return;
 			state.admissionRefused.push(`${proposal.lines.join(" | ")} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
@@ -1720,9 +1896,11 @@ export default function (pi: ExtensionAPI) {
 			landed: state.landed,
 			refused: state.admissionRefused,
 		};
-		const outcome = await reviewAdmission({ ctx, proposal, context, providerBudget, record: (row) => record({ verb: tool, ...row }), ...(signal ? { signal } : {}) });
+		const outcome = await reviewAdmissionPrimary({ campaign: state.campaign, ctx, proposal, context, providerBudget,
+			record: (row) => record({ verb: tool, ...row }), ...(signal ? { signal } : {}) });
 		if (!outcome.ok) {
-			await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}) });
+			await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}),
+				...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), ...outcome.meta });
 			state.admissionOutage += 1;
 			const streak = state.admissionOutage;
 			if (streak >= 2 && !state.admissionOutageNotified) {
@@ -1736,7 +1914,7 @@ export default function (pi: ExtensionAPI) {
 					cause: outcome.reason,
 					detail: outcome.detail.slice(0, 200),
 					...(outcome.model ? { model: outcome.model } : {}),
-					fix: "The action review keeps failing, so player actions keep being refused. Switch the table to another model, or set PI_COC_ADMISSION_MODEL to a healthy provider/model and start a new session.",
+					fix: "The action review keeps failing, so player actions keep being refused. Choose a healthy model under Fast model in settings (the review reads it each time it runs), or set PI_COC_ADMISSION_MODEL to a healthy provider/model and start a new session.",
 				};
 				try {
 					pi.appendEntry("coc-admission-status", status);
@@ -1750,7 +1928,7 @@ export default function (pi: ExtensionAPI) {
 		// A live verdict, admitting or refusing, proves the review is back: the outage streak ends.
 		state.admissionOutage = 0;
 		state.admissionOutageNotified = false;
-		await settle(outcome.verdict, false, outcome.ms, outcome.model);
+		await settle(outcome.verdict, false, outcome.ms, outcome.model, outcome.meta);
 	}
 
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
@@ -1861,20 +2039,23 @@ export default function (pi: ExtensionAPI) {
 	 * erase itself on the very turn it was meant to count. What zeroes this one is a review that
 	 * answered: the next `narrate` or `ask` whose `prepare` returns without an unreviewed report.
 	 */
-	function noteUnreviewedDelivery(state: TableState, unreviewed: {cause: string; service: boolean}): void {
+	function noteUnreviewedDelivery(state: TableState, unreviewed: {cause: string; service: boolean},
+		at: {mode?: ReviewMode; turn?: number} = {}): void {
 		const streak = (state.unreviewedStreak += 1);
-		void record({ lane: "continuity-review", turn: state.turn, ok: true, reason: "delivered_unreviewed",
-			cause: unreviewed.cause, service: unreviewed.service, streak });
+		// §130.6: a post-delivery review learns this after the table has moved on, so it names its own turn.
+		const turn = at.turn ?? state.turn;
+		void record({ lane: "continuity-review", turn, ok: true, reason: "delivered_unreviewed",
+			mode: at.mode ?? "pre", cause: unreviewed.cause, service: unreviewed.service, streak });
 		if (streak < 2 || state.unreviewedNotified) return;
 		state.unreviewedNotified = true;
 		// The operator surface of §38.5 and §56, with the one lever that is real: the lane model is
 		// read when the lane runs (§37.10), so a change reaches the next review without a restart.
 		// The player is told nothing: their turn arrived, and a table that plays is not a notice.
-		const status = { campaign: state.campaign, turn: state.turn, status: "unreviewed", streak,
+		const status = { campaign: state.campaign, turn, status: "unreviewed", streak,
 			cause: unreviewed.cause, service: unreviewed.service,
 			fix: `The continuity review has not judged the last ${streak} deliveries (${unreviewed.cause}), so those turns`
 				+ " were published without it. Play is unaffected. To get the review back, choose a quicker model under"
-				+ " Lane model in settings: the lane reads that choice each time it runs, so a change reaches this table"
+				+ " Fast model in settings: the lane reads that choice each time it runs, so a change reaches this table"
 				+ " on its next review. PI_COC_MOD_MODEL still overrides the setting for the life of a session." };
 		pi.appendEntry("coc-review-status", status);
 		pi.events.emit("coc:review-status", status);
@@ -1884,6 +2065,57 @@ export default function (pi: ExtensionAPI) {
 	function noteReviewAnswered(state: TableState): void {
 		state.unreviewedStreak = 0;
 		state.unreviewedNotified = false;
+	}
+
+	/**
+	 * What `mods.prepare` said about the review, at the moment the tool call learns it (before the
+	 * commit). The pre-delivery gate's answer is final here; a post-delivery review has not run yet, so
+	 * nothing is counted until it answers (§130.6).
+	 */
+	function notePrepared(state: TableState, prepared: ReviewPrepared | void): void {
+		if (prepared?.unreviewed) noteUnreviewedDelivery(state, prepared.unreviewed, { mode: prepared.mode });
+		else if (!prepared?.deferred) noteReviewAnswered(state);
+	}
+
+	/**
+	 * Contract §130: what a delivery's review owes once the delivery has committed. The player already
+	 * has the turn; this only reads, records and warns. A deferred review starts on a zero-delay timer
+	 * the tool call never awaits, so no model work sits between the commit and the published prose,
+	 * and its verdict reaches the delivered turn's record through `table.warn` -- the
+	 * verifier's channel (§12.5) -- where the next capsule carries it forward (§130.5).
+	 */
+	function afterDeliveryReview(state: TableState, prepared: ReviewPrepared | void, turn: number): void {
+		if (!prepared) return;
+		const kernel = state.kernel, campaign = state.campaign, signal = state.lanes.signal;
+		const warn = async (params: Record<string, unknown>): Promise<void> => {
+			if (signal.aborted) return;
+			try {
+				const result = await kernel.call<Record<string, unknown>>("table.warn", { campaign, turn, lane: "continuity-review", ...params });
+				await record({ lane: "continuity-review", turn, event: "recorded", ok: true, mode: params.mode,
+					...(typeof result?.accepted === "number" ? { warnings: result.accepted } : {}) });
+			} catch (error) {
+				await record({ lane: "continuity-review", turn, event: "recorded", ok: false, mode: params.mode, reason: "warn_failed",
+					detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+			}
+		};
+		const deferred = prepared.deferred;
+		if (deferred) {
+			const closedAt = Date.now();
+			const timer = setTimeout(() => {
+				void (async () => {
+					const outcome = await deferred.run({ turn, closedAt, signal });
+					if (signal.aborted) return;
+					if (outcome.unreviewed) noteUnreviewedDelivery(state, outcome.unreviewed, { mode: "post", turn });
+					else noteReviewAnswered(state);
+					await warn(outcome.unreviewed ? { mode: "post", unreviewed: outcome.unreviewed } : { mode: "post", job: outcome.job });
+				})().catch((error) => void record({ lane: "continuity-review", turn, mode: "post", ok: false, reason: "lane_crashed",
+					detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) }));
+			}, 0);
+			timer.unref?.();
+			return;
+		}
+		if (prepared.unreviewed) void warn({ mode: prepared.mode ?? "pre", unreviewed: prepared.unreviewed });
+		else if (prepared.reviewed?.job) void warn({ mode: "pre", job: prepared.reviewed.job });
 	}
 
 	function pauseReview(state: TableState, error: unknown): void {
@@ -1918,7 +2150,7 @@ export default function (pi: ExtensionAPI) {
 		// again. Telling an operator to restart a table they could have kept is its own lost turn.
 		const status = {campaign: state.campaign, turn: state.turn, status: escalate ? 'down' : 'unavailable', streak, cause, service,
 			...(escalate ? {fix: 'The continuity review keeps failing, so finished turns cannot be published. ' +
-				'Choose a faster review model in the Lane model setting: the lane reads that choice each time it runs, ' +
+				'Choose a faster model in the Fast model setting: the lane reads that choice each time it runs, ' +
 				'so a change reaches this table on its next review. ' +
 				'PI_COC_MOD_MODEL still overrides the setting, but an environment variable is fixed for the life of a session.'} : {})};
 		pi.appendEntry('coc-review-status', status);
@@ -2588,10 +2820,22 @@ export default function (pi: ExtensionAPI) {
 				if (!answerOnly) { payload.kind = "module"; payload.canonical_source = true; }
 			}
 			let result: Record<string, unknown>;
+			let prepared: ReviewPrepared | void = undefined;
 			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
 			// proposal pays for no definition agent and reaches no transaction.
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery();
 			if (spec.name === "resolve" || spec.name === "apply") await admitAction(state, spec.name, payload, signal, providerBudget);
+			// Contract §128.3. An explicit narrate is never steered for speech (§128.2), so attribution is
+			// the only leg its unwrapped passages get; it runs before the Mod hooks so the continuity review
+			// reads the text the kernel will commit. An ask carries no attribution of its own.
+			// `host_attributed` is the host's word about its own wraps; the Keeper never supplies it.
+			delete payload.host_attributed;
+			if (spec.name === "ask") state.speechAttribution = undefined;
+			if (spec.name === "narrate" && typeof payload.text === "string") {
+				const attributed = await attributeUnwrappedSpeech(state, payload.text, signal, providerBudget);
+				payload.text = attributed.text;
+				if (attributed.hostAttributed?.length) payload.host_attributed = attributed.hostAttributed;
+			}
       if (mods) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
         if (spec.name === 'narrate' && state.preparationWait) payload.preparation_wait = {
@@ -2599,12 +2843,9 @@ export default function (pi: ExtensionAPI) {
         else if (spec.name === 'narrate' && state.sourceWait) payload.preparation_wait = {
           kind: 'source', ...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})};
         if (spec.name === 'narrate' && state.rebindingRefused) payload.rebinding_refused = {...state.rebindingRefused};
-        const prepared = await mods.prepare(spec.name, payload, signal, providerBudget);
+        prepared = await mods.prepare(spec.name, payload, signal, providerBudget);
         // §91. Only a delivery carries a continuity review, so only a delivery can report one missing.
-        if (spec.name === 'narrate' || spec.name === 'ask') {
-          if (prepared?.unreviewed) noteUnreviewedDelivery(state, prepared.unreviewed);
-          else noteReviewAnswered(state);
-        }
+        if (spec.name === 'narrate' || spec.name === 'ask') notePrepared(state, prepared);
       }
 			try {
                 if (supportAnswer) result = supportAnswer;
@@ -2612,9 +2853,8 @@ export default function (pi: ExtensionAPI) {
                 else if (sourceAnswer) result = { source_answer: sourceAnswer };
                 else if (spec.name === 'lookup' && params.kind === 'adaptation') {
                     if (!runtime) throw new KernelError({code: 'needs', message: 'The adaptation runtime is unavailable'});
-                    adaptations ??= adaptationService(runtime, (method, args) => state.kernel.call(method, args), () => ({
-                        name: process.env.PI_COC_ADAPTATION_MODEL || `${sessionCtx?.model?.provider}/${sessionCtx?.model?.id}`, thinking: pi.getThinkingLevel()
-                    }));
+                    // Contract §37.10.1: the fast model, read each time a creator or reviewer starts.
+                    adaptations ??= adaptationService(runtime, (method, args) => state.kernel.call(method, args), () => adaptationModel(sessionCtx));
                     result = await adaptations.lookup(payload, signal);
                 } else result = (await invokeOperation()) ?? {};
             }
@@ -2654,7 +2894,10 @@ export default function (pi: ExtensionAPI) {
 				} else await ensurePending(read,signal);
 				// Retry the original identity only after the exact source publication; consent and Mod gates run again.
 				if(spec.name==='resolve'||spec.name==='apply')await admitAction(state,spec.name,payload,signal,providerBudget);
-				if(mods)await mods.prepare(spec.name,payload,signal,providerBudget);
+				if(mods){
+					const again=await mods.prepare(spec.name,payload,signal,providerBudget);
+					if(spec.name==='narrate'||spec.name==='ask'){prepared=again;notePrepared(state,again);}
+				}
 				result = (await invokeOperation()) ?? {};
 			}
 			if (spec.name === "recall") result = state.recallPages.accept(result);
@@ -2727,6 +2970,7 @@ export default function (pi: ExtensionAPI) {
 					ok: true,
 					...(state.session?.kind ? { session_kind: state.session.kind } : {}),
 				});
+				afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
 			}
 			// The delivery truly landed: the kernel returned and the bookkeeping above ran. Only now is
 			// the bound patch published; every failure mode — abort, refusal, split delivery, revision
@@ -3050,6 +3294,9 @@ export default function (pi: ExtensionAPI) {
 				lanes: new AbortController(),
 				party: [],
 				present: [],
+				roster: [],
+				speechMarks: new Set(),
+				spokenLines: [],
 				delivered: [],
 				recent: [],
 				admission: new Map(),
@@ -3583,6 +3830,18 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on('tool_call', (event, ctx) => dispatcher.prepare(event, ctx));
+
+	// §128.1: a run the host starts with a message reads the prompt the transcript last recorded on its
+	// first request -- after setup that is the setup guide's. That one request is sent on this session's
+	// own prompt instead; Pi's next-turn refresh persists the durable section patch.
+	let patchedRequests = 0;
+	if (!setupMode) pi.on('context_with_system', (event, ctx) => {
+		const messages = currentPromptHead(event.messages as never, ctx.getSystemPrompt());
+		if (!messages) return;
+		patchedRequests += 1;
+		void record({ lane: 'prompt', event: 'stale_prompt_replaced', requests: patchedRequests });
+		return { messages: messages as never };
+	});
 	async function prepareOperation(event: ToolCallEvent, ctx: ExtensionContext): Promise<ToolCallEventResult | undefined> {
 		const name = event.toolName;
 		if (!COC_TOOL_NAMES.includes(name as never)) return;
@@ -4025,18 +4284,32 @@ export default function (pi: ExtensionAPI) {
 			// PI_COC_SPEECH_STEER=0 turns the steer off for an experiment (a control arm); the product default is on.
 			// A fix already pending (an explicit delivery this turn was refused and its repair steer waits) wins:
 			// the draft goes through the audit like any other, one concern per steer.
-			if (process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && !state.deliveryFix && !state.deliveryTriedThisTurn && state.present.length > 0 && !opening && !state.steeredThisTurn && !/\{\{say:/.test(prose)) {
+			// §128.2 widens it: a draft that wraps some lines but leaves passages in the same quotation marks
+			// outside every token is steered the same way, once. The marks are the ones the Keeper's own
+			// spans are written in (§40.1 keeps them inside the token), so no table of marks or languages is
+			// read, and nothing decides who speaks. This one is not exempt at the opening: the draft itself
+			// shows that someone speaks, where present[] is not yet known to the host.
+			const speechSteerOn = process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && !state.deliveryFix && !state.deliveryTriedThisTurn && !state.steeredThisTurn;
+			const bareOfTokens = state.present.length > 0 && !opening && !/\{\{say:/.test(prose);
+			const unwrapped = speechSteerOn && !bareOfTokens ? unwrappedQuotes(prose, state.speechMarks) : [];
+			if (speechSteerOn && (bareOfTokens || unwrapped.length > 0)) {
 				state.floorDraft = prose;
-				state.deliveryFix = { kind: "speech", text: SPEECH_STEER };
-				await record({ lane: "speech", turn: state.turn, steered: true, present: state.present.length });
+				state.deliveryFix = { kind: "speech", text: bareOfTokens ? SPEECH_STEER : unwrappedSpeechSteer(unwrapped) };
+				await record({ lane: "speech", turn: state.turn, steered: true, present: state.present.length,
+					reason: bareOfTokens ? "no_token" : "unwrapped_quote", ...(bareOfTokens ? {} : { unwrapped: unwrapped.length }) });
 				return { message: { ...event.message, content: blocks.filter((block) => block.type !== "text") } };
 			}
+			// §128.3: past this point the steer is spent, switched off, or had nothing to ask about. Passages
+			// still left outside every token go to the attribution family; the delivery waits at most its cap
+			// and, whatever it answers, goes out with the Keeper's words unchanged.
+			const attributed = await attributeUnwrappedSpeech(state, prose, state.lanes.signal, foregroundProviderBudget?.());
 			const tool = "narrate";
 			const callId = mintCallId(state);
 			const startedAt = new Date().toISOString();
 			const began = Date.now();
 			try {
-				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: prose, implicit: true,
+				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: attributed.text, implicit: true,
+					...(attributed.hostAttributed?.length ? { host_attributed: attributed.hostAttributed } : {}),
 					...(state.preparationWait ? {preparation_wait: {kind: state.preparationWait.kind,
 						...(state.preparationWait.name ? {name: state.preparationWait.name} : {})}}
 						: state.sourceWait ? {preparation_wait: {kind: 'source',
@@ -4046,8 +4319,7 @@ export default function (pi: ExtensionAPI) {
 				await guardTaskDelivery(event.message);
 				const prepared = await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
 				// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
-				if (prepared?.unreviewed) noteUnreviewedDelivery(state, prepared.unreviewed);
-				else noteReviewAnswered(state);
+				notePrepared(state, prepared);
 				await guardTaskDelivery(event.message, 'committing');
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 				// `applyToolSuccess`'s own `narrate` case already projected the mechanics and noted the
@@ -4059,6 +4331,7 @@ export default function (pi: ExtensionAPI) {
 				applyToolSuccess(state, tool, "implicit", result);
 				await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
 				await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
+				afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
 				rendered = asString(result.rendered_text);
 			} catch (error) {
 				const detail = refusalDetail(error);

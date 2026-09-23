@@ -1,0 +1,1603 @@
+{
+  "role": "audit",
+  "input": {
+    "text": "纸页还摊在桌上。你把硬皮记事本拖到近前，笔帽拧开，抬眼看他。{{say:沈默}}「接。不过先说清楚——这房子到底出过什么事？之前住过谁，怎么走的？」{{/say}}\n\n史蒂文·诺特听完“接”这个字，肩头松了一下，随即又把眉拧回去。他用指节敲了敲桌面。{{say:史蒂文·诺特}}「好。二十块一天，从今天算。我要的是能写进租约里的东西：人为什么不敢住，不是鬼故事。」{{/say}}\n\n他从抽屉里摸出一串发暗的钥匙，铁环上系着一小截发黑的麻绳，推到你本子边上，又抽出两张十块，压在钥匙下。{{clue:knott-commission}}{{clue:knott-keys}}{{cash}}{{item}}{{say:史蒂文·诺特}}「大门一把，后门一把。地址我写在纸上，你抄进本子。预付一天，干完再结。」{{/say}}\n\n他往后一靠，声音压低了些，仍是在报账。{{say:史蒂文·诺特}}「上一户姓马卡里奥，一九一八年租进去，没住几天就垮了。一家子吓得连夜搬走。当家的现在还在罗克斯伯里疗养院，话都说不利索。之前还有过住户，我只听见出过意外、生病、还有人自己寻了短见。都是嚼舌根。我没亲眼见过。」{{/say}}{{clue:knott-macario-summary}}\n\n他用下巴点了点你摊开的本子。{{say:史蒂文·诺特}}「再早的名字我这儿没有。你要是记者，去《环球报》的剪报室翻翻；中央图书馆和档案厅里也有产权和诉讼。街坊嘴碎，疗养院那边要是肯见你，比我有用。钥匙在你手里了。你想先查纸，还是先去看房子，自己定。」{{/say}}{{clue:knott-research-leads}}"
+  },
+  "capabilities": [
+    "agents.tools.v1",
+    "audit.continuity.v1",
+    "audit.continuity.v2",
+    "audit.source.v1",
+    "checks.percentile.v1",
+    "context.npc.v1",
+    "context.pacing.v1",
+    "context.thread.v1",
+    "context.workspace.v1",
+    "definitions.v1",
+    "graph.vocabulary.table.v1",
+    "graph.vocabulary.v1",
+    "item-effects.v1",
+    "mods.order.v1",
+    "mods.package-files.v1",
+    "npc.voice.generation.v2",
+    "objects.adopt.v1",
+    "objects.documents.v1",
+    "objects.state.v2",
+    "objects.usages.v1",
+    "objects.v1",
+    "setup.aptitude.v1",
+    "setup.guidance.v1",
+    "spells.v1",
+    "ui.documents.language.v1",
+    "ui.documents.v1",
+    "weapons.profile.v2",
+    "weapons.v1"
+  ],
+  "play_language": "zh-Hans",
+  "mod_settings": {
+    "enhanced-items": {},
+    "narration-audit": {},
+    "natural-npc": {
+      "language_mixing": "light"
+    }
+  },
+  "scene": {
+    "scene": "commission-briefing",
+    "display_name": "Knott's Office",
+    "summary": "Knott's Office",
+    "dramatic_question": "Will the investigators accept Knott's commission and choose where to dig first?",
+    "pressure_moves": [
+      "Knott glances at his watch — every empty day costs him rent",
+      "He slides the house keys across the table and waits for a decision"
+    ],
+    "exits": [
+      {
+        "to": "chapel-of-contemplation-ruins",
+        "display_name": "The Chapel of Contemplation",
+        "unlock_when": {
+          "condition": "clue_discovered: chapel-ruins-location",
+          "met": false
+        },
+        "material": "ready"
+      },
+      {
+        "to": "newspaper-morgue",
+        "display_name": "Boston Globe offices",
+        "unlock_when": {
+          "condition": "clue_discovered: knott-research-leads",
+          "met": true
+        },
+        "material": "ready"
+      },
+      {
+        "to": "central-library",
+        "display_name": "Central Library",
+        "unlock_when": {
+          "condition": "clue_discovered: knott-research-leads",
+          "met": true
+        },
+        "material": "ready"
+      },
+      {
+        "to": "hall-of-records",
+        "display_name": "Hall of Records",
+        "unlock_when": {
+          "condition": "clue_discovered: knott-research-leads",
+          "met": true
+        },
+        "material": "ready"
+      },
+      {
+        "to": "neighborhood-gossip",
+        "unlock_when": {
+          "condition": "clue_discovered: knott-research-leads",
+          "met": true
+        },
+        "material": "ready"
+      },
+      {
+        "to": "previous-tenants",
+        "unlock_when": {
+          "condition": "clue_discovered: knott-research-leads",
+          "met": true
+        },
+        "material": "ready"
+      },
+      {
+        "to": "corbitt-house-ground",
+        "unlock_when": {
+          "condition": "clue_discovered: knott-keys",
+          "met": true
+        },
+        "material": "ready"
+      }
+    ],
+    "back": [],
+    "affordances": [
+      {
+        "id": "confirm-commission-terms",
+        "cue": "Confirm the daily fee, payment terms, scope of the investigation, and the house's address with Knott.",
+        "clue": "knott-commission",
+        "clues": [
+          {
+            "clue": "knott-commission",
+            "gate": "npc_dialogue: check unspecified",
+            "discovered": true
+          }
+        ],
+        "npc": "Steven Knott"
+      },
+      {
+        "id": "accept-commission",
+        "cue": "Accept the commission explicitly and take the key, address, and cash advance.",
+        "clue": "knott-keys",
+        "clues": [
+          {
+            "clue": "knott-keys",
+            "gate": "obvious: check unspecified",
+            "discovered": true
+          }
+        ]
+      },
+      {
+        "id": "ask-research-options",
+        "cue": "Ask which public records or informed witnesses might reveal the house's history.",
+        "clue": "knott-research-leads",
+        "clues": [
+          {
+            "clue": "knott-research-leads",
+            "gate": "npc_dialogue: check unspecified",
+            "discovered": true
+          }
+        ],
+        "npc": "Steven Knott"
+      },
+      {
+        "id": "ask-macario-tragedy",
+        "cue": "Ask what actually happened to the Macario family, the former tenants.",
+        "clue": "knott-macario-summary",
+        "clues": [
+          {
+            "clue": "knott-macario-summary",
+            "gate": "npc_dialogue: check unspecified",
+            "discovered": true
+          }
+        ],
+        "npc": "Steven Knott"
+      }
+    ],
+    "keeper_notes": [
+      "invent café or office details for the meeting",
+      "never_invent that Knott already knows Corbitt is undead",
+      "tone: bureaucratic, uneasy, daylight",
+      "pacing: low / ordinary — Daylight hire; wrongness is only rumor.",
+      "exit condition: clue_discovered: knott-research-leads"
+    ],
+    "assets": [
+      {
+        "name": "Handout 1: Mr. Knott's Commission",
+        "kind": "handout"
+      }
+    ],
+    "places": [],
+    "rules": [],
+    "endings": [],
+    "material": "ready"
+  },
+  "party": [
+    {
+      "schema_version": 1,
+      "id": "investigator",
+      "name": "沈默",
+      "occupation": "Journalist",
+      "era": "1920s",
+      "age": 32,
+      "sex": "男",
+      "characteristics": {
+        "STR": 40,
+        "CON": 50,
+        "SIZ": 80,
+        "DEX": 70,
+        "APP": 60,
+        "INT": 60,
+        "POW": 50,
+        "EDU": 52,
+        "LUCK": 70
+      },
+      "derived": {
+        "HP": 13,
+        "SAN": 50,
+        "MP": 10,
+        "MOV": 7,
+        "DB": "none",
+        "BUILD": 0
+      },
+      "skills": {
+        "Accounting": 5,
+        "Anthropology": 1,
+        "Appraise": 5,
+        "Archaeology": 1,
+        "Art and Craft (Photography)": 50,
+        "Charm": 15,
+        "Climb": 20,
+        "Credit Rating": 9,
+        "Cthulhu Mythos": 0,
+        "Disguise": 5,
+        "Dodge": 35,
+        "Drive Auto": 20,
+        "Electrical Repair": 10,
+        "Fast Talk": 50,
+        "Fighting (Brawl)": 25,
+        "Firearms (Handgun)": 20,
+        "Firearms (Rifle/Shotgun)": 25,
+        "First Aid": 30,
+        "History": 50,
+        "Intimidate": 15,
+        "Jump": 20,
+        "Language (Own)": 52,
+        "Law": 65,
+        "Library Use": 50,
+        "Listen": 41,
+        "Locksmith": 1,
+        "Mechanical Repair": 10,
+        "Medicine": 1,
+        "Natural World": 10,
+        "Navigate": 10,
+        "Occult": 5,
+        "Operate Heavy Machinery": 1,
+        "Persuade": 70,
+        "Pilot": 1,
+        "Psychoanalysis": 1,
+        "Psychology": 50,
+        "Ride": 5,
+        "Science": 1,
+        "Sleight of Hand": 10,
+        "Spot Hidden": 50,
+        "Stealth": 50,
+        "Survival": 10,
+        "Swim": 20,
+        "Throw": 20,
+        "Track": 10
+      },
+      "weapons": [],
+      "equipment": [
+        "街上穿的深色西装",
+        "怀表",
+        "记者证",
+        {
+          "name": "记事本",
+          "quantity": 1,
+          "object_id": "object-item-1",
+          "description": "一本记者随身带的小号硬皮记事本，深色布面封面，书脊磨得发白。内页是浅米色的横格纸，前几页被撕过一角，其余还是空白，随时可以写字；封底内侧有一道折痕，能夹住车票或纸条。"
+        },
+        {
+          "name": "钢笔",
+          "quantity": 1,
+          "object_id": "object-item-2",
+          "description": "我的钢笔：黑色硬橡胶笔身，金属笔夹，金尖，拉杆上墨。笔里墨水是满的，走到哪儿都能掏出来签字、记笔记。"
+        },
+        {
+          "name": "旧相机",
+          "quantity": 1,
+          "object_id": "object-item-3",
+          "description": "你的旧相机。一九二〇年代的便携折叠款，跑新闻时揣在西装口袋里正好。金属机身包着黑皮，边角已经磨白；用的时候把皮腔拉开、支起前组，对准了再按快门。镜头有点划痕，但还清楚。它自己不会出照片——拍不拍得到，得靠你的手艺、光，还有当天的运气。胶卷是另外带的。"
+        },
+        {
+          "name": "胶卷",
+          "quantity": 1,
+          "object_id": "object-item-4",
+          "description": "一卷120规格的黑白胶卷，用防光纸筒卷着，是给那台旧相机配的。装进相机大概能拍八张，每拍一张就少一张；拍完一卷就没了，得换新的。"
+        },
+        {
+          "name": "科比特宅钥匙",
+          "quantity": 1,
+          "object_id": "object-item-5",
+          "description": "一串旧钥匙，两把铁质门钥串在一个发暗的铁环上：一把开科比特宅的大门，一把开后门。钥齿被反复插拔磨得发亮，齿形却还完整，能咬住锁芯。钥匙柄上没有刻字，环上只系着一小截发黑的麻绳，是房东随手做的记号，好让人一眼认出这是哪一串。"
+        }
+      ],
+      "backstory": {
+        "personal_description": "三十出头，脸偏长，眼睛深褐，黑发很短，侧分。左眉尾有一颗小痣，鼻梁略高。深色西装领口，领结松松地搭着，表情像在等下一句话。",
+        "ideology_beliefs": "新闻得先写出去，房租也得先交上。别人的闲话他当线索，不当结论。",
+        "significant_people": "小报编辑老把他当跑腿的，稿费压得很低，但还愿意让他带相机出去。另外常有人找他私下打听：谁欠了谁的钱，谁家出了怪事。",
+        "meaningful_locations": "报社楼下那间总有油墨味的小办公室，他拖着房租的出租屋，以及他常去套话的酒馆。",
+        "treasured_possessions": "一台旧相机，和一本被摩得发亮的记事本。",
+        "traits": "嘴快，脸皮厚，跟谁都能搜上话。身体不怎么样，不打架。怕黑，进没灯的地方会犹豫。",
+        "scenario_bound": "看见招人的启事才来诺特的事务所。房租拖着，什么活都接。还没应下这份工，也没拿到钥匙。他平时就是翻旧报、在酒馆里套话。",
+        "concept": "穷记者，靠帮人打听消息过活：查账、查怪事，翻旧报、在酒馆套话"
+      },
+      "key_connection": {
+        "backstory_field": "significant_people",
+        "summary": "稿费很低的小报编辑，仍把相机和跑腿的差事交给他"
+      },
+      "own_language": "English",
+      "occupation_stated": "波士顿小报社会新闻记者，多半是帮人打听消息",
+      "credit_rating": 9,
+      "cash": "29 USD",
+      "finance": {
+        "credit_rating": 9,
+        "living_standard": "Poor",
+        "cash": {
+          "amount": 29,
+          "currency": "USD",
+          "formula": "CR x 1"
+        },
+        "assets": {
+          "amount": 90,
+          "currency": "USD",
+          "formula": "CR x 10"
+        },
+        "spending_level": {
+          "amount": 2,
+          "currency": "USD"
+        },
+        "period": "1920s",
+        "source": "cash-assets.periods.1920s"
+      },
+      "creation": {
+        "seed": "2984940254646311919",
+        "method": "quick_fire",
+        "characteristics": {
+          "method": "quick_fire",
+          "values": {
+            "SIZ": 80,
+            "DEX": 70,
+            "APP": 60,
+            "INT": 60,
+            "POW": 50,
+            "EDU": 50,
+            "CON": 50,
+            "STR": 40
+          },
+          "assignment_order": [
+            "SIZ",
+            "DEX",
+            "APP",
+            "INT",
+            "POW",
+            "EDU",
+            "CON",
+            "STR"
+          ],
+          "array": [
+            80,
+            70,
+            60,
+            60,
+            50,
+            50,
+            50,
+            40
+          ],
+          "aptitude": {
+            "strong": [],
+            "weak": [
+              "STR",
+              "CON"
+            ],
+            "origin": "player"
+          },
+          "source": "characteristic-dice.generation_methods.quick_fire_array"
+        },
+        "age": {
+          "bracket": "20-39",
+          "source": "age-adjustments.brackets",
+          "edu_reduction": 0,
+          "app_reduction": 0,
+          "characteristic_reductions": [],
+          "edu_improvement_checks": [
+            {
+              "roll": 88,
+              "edu": 50,
+              "improvement": 2
+            }
+          ],
+          "mov_penalty": 0,
+          "luck_rolls_keep_highest": 1
+        },
+        "luck": {
+          "value": 70,
+          "dice": "3D6",
+          "attempts": [
+            {
+              "faces": [
+                5,
+                3,
+                6
+              ],
+              "total": 14
+            }
+          ],
+          "keep_highest": 1,
+          "multiplier": 5,
+          "source": "characteristic-dice.characteristics.Luck"
+        },
+        "derived": {
+          "HP": "derived-attributes.hit_points (CON+SIZ)/10",
+          "SAN": "derived-attributes.sanity (POW)",
+          "MP": "derived-attributes.magic_points (POW)/5",
+          "MOV": "movement-rate.rules both_str_and_dex_less_than_siz - age penalty 0",
+          "DB": "damage-bonus-build STR+SIZ=120",
+          "BUILD": "damage-bonus-build STR+SIZ=120",
+          "LUCK": "characteristic-dice.characteristics.Luck"
+        },
+        "difficulty": {
+          "mode": "preset",
+          "preset": "normal",
+          "custom": {}
+        },
+        "budget": {
+          "occupation": {
+            "total": 260,
+            "spent": 260,
+            "unspent": 0
+          },
+          "interest": {
+            "total": 150,
+            "spent": 150,
+            "unspent": 0
+          },
+          "characteristics": {
+            "total": 460,
+            "spent": 462,
+            "unspent": -2,
+            "source": "characteristic-dice.generation_methods.point_buy_460"
+          },
+          "legal": true,
+          "notes": []
+        },
+        "skills": {
+          "standard_sheet": "skills.standard_sheet.1920s",
+          "cap": {
+            "value": 75,
+            "source": "skills.guided_creation_policy.starting_skill_cap"
+          },
+          "occupation": {
+            "id": "Journalist",
+            "resolved": [
+              "Fast Talk",
+              "Art and Craft (Photography)",
+              "Library Use",
+              "Psychology",
+              "Language (Own)",
+              "History",
+              "Spot Hidden",
+              "Listen"
+            ],
+            "choices_pending": [],
+            "budget": {
+              "formula": "EDU*4",
+              "total": 260,
+              "terms": [
+                "EDU*4"
+              ],
+              "alternative": null
+            },
+            "credit_rating": {
+              "value": 9,
+              "range": [
+                9,
+                30
+              ],
+              "source": "occupations.credit_rating_range[0]"
+            },
+            "points": 251,
+            "spent": 251,
+            "unspent": 0,
+            "allocations": {
+              "Fast Talk": 45,
+              "Art and Craft (Photography)": 45,
+              "Library Use": 30,
+              "Psychology": 40,
+              "History": 45,
+              "Spot Hidden": 25,
+              "Listen": 21
+            },
+            "allocation": "spread",
+            "reserved": []
+          },
+          "interest": {
+            "budget": {
+              "formula": "INT*2",
+              "total": 150,
+              "terms": [
+                "INT*2"
+              ],
+              "alternative": null
+            },
+            "pool": [
+              "Persuade",
+              "Law",
+              "Stealth"
+            ],
+            "spent": 150,
+            "unspent": 0,
+            "allocations": {
+              "Law": 60,
+              "Persuade": 60,
+              "Stealth": 30
+            },
+            "allocation": "spread",
+            "tiers": [
+              50,
+              70
+            ],
+            "source": "steps.json create-investigator.interest_allocation"
+          },
+          "bases": {
+            "Accounting": 5,
+            "Anthropology": 1,
+            "Appraise": 5,
+            "Archaeology": 1,
+            "Charm": 15,
+            "Climb": 20,
+            "Cthulhu Mythos": 0,
+            "Disguise": 5,
+            "Dodge": 35,
+            "Drive Auto": 20,
+            "Electrical Repair": 10,
+            "Fast Talk": 5,
+            "Fighting (Brawl)": 25,
+            "Firearms (Handgun)": 20,
+            "Firearms (Rifle/Shotgun)": 25,
+            "First Aid": 30,
+            "History": 5,
+            "Intimidate": 15,
+            "Jump": 20,
+            "Language (Own)": 52,
+            "Law": 5,
+            "Library Use": 20,
+            "Listen": 20,
+            "Locksmith": 1,
+            "Mechanical Repair": 10,
+            "Medicine": 1,
+            "Natural World": 10,
+            "Navigate": 10,
+            "Occult": 5,
+            "Operate Heavy Machinery": 1,
+            "Persuade": 10,
+            "Pilot": 1,
+            "Psychoanalysis": 1,
+            "Psychology": 10,
+            "Ride": 5,
+            "Science": 1,
+            "Sleight of Hand": 10,
+            "Spot Hidden": 25,
+            "Stealth": 20,
+            "Survival": 10,
+            "Swim": 20,
+            "Throw": 20,
+            "Track": 10,
+            "Art and Craft (Photography)": 5
+          },
+          "custom": []
+        },
+        "allocation": {
+          "policy": "spread",
+          "tiers": [
+            50,
+            70
+          ],
+          "source": "steps.json create-investigator.allocation"
+        },
+        "interest_allocation": {
+          "policy": "spread",
+          "tiers": [
+            50,
+            70
+          ],
+          "source": "steps.json create-investigator.interest_allocation",
+          "applied": "spread"
+        },
+        "finance": {
+          "available": true,
+          "source": "cash-assets.periods.1920s"
+        },
+        "equipment": {
+          "source": null,
+          "note": "equipment.json records carry no occupation field; no default kit is invented"
+        },
+        "pins": {
+          "characteristics": {},
+          "skills": {}
+        }
+      },
+      "current_hp": 13,
+      "current_mp": 10,
+      "current_san": 50,
+      "current_luck": 70
+    }
+  ],
+  "objects": {
+    "queued_registrations": [],
+    "definitions": [
+      {
+        "name": "记事本",
+        "category": "item",
+        "parameters": {
+          "charges": null,
+          "effects": []
+        },
+        "traits": [
+          {
+            "name": "页数",
+            "value": 96,
+            "unit": "页",
+            "basis": "小号口袋本，横格内页，约 96 页，前几页有撕痕"
+          },
+          {
+            "name": "规格",
+            "value": "小号口袋本，约 9 × 14 厘米",
+            "basis": "能塞进西装内袋的记者随身尺寸"
+          },
+          {
+            "name": "封面材质",
+            "value": "硬皮布面",
+            "basis": "request.input 明确其为硬皮，可贴身携带不受折损"
+          },
+          {
+            "name": "重量",
+            "value": 110,
+            "unit": "克",
+            "basis": "硬皮小本连同封面与内页的估重"
+          }
+        ],
+        "document": {
+          "presentation": "notebook",
+          "has_text": false
+        }
+      },
+      {
+        "name": "钢笔",
+        "category": "item",
+        "parameters": {
+          "charges": null,
+          "effects": []
+        },
+        "traits": [
+          {
+            "name": "长度",
+            "value": 13,
+            "unit": "厘米",
+            "basis": "合上笔帽时二十年代钢笔的常见长度。"
+          },
+          {
+            "name": "重量",
+            "value": 18,
+            "unit": "克",
+            "basis": "硬橡胶笔身与金尖的常见重量。"
+          },
+          {
+            "name": "材质",
+            "value": "黑色硬橡胶笔身，金质笔尖，金属笔夹",
+            "basis": "二十年代硬橡胶/赛璐珞笔身、金尖的典型工艺。"
+          },
+          {
+            "name": "墨水量",
+            "value": 1.5,
+            "unit": "毫升",
+            "basis": "拉杆上墨式钢笔满墨时的常见储墨量；当前已吸满。"
+          },
+          {
+            "name": "上墨方式",
+            "value": "拉杆上墨",
+            "basis": "二十年代常见的拉杆式上墨结构。"
+          },
+          {
+            "name": "墨水颜色",
+            "value": "深色（黑或蓝黑）",
+            "basis": "记者日常记笔记、抄录所用的常见墨色。"
+          }
+        ],
+        "document": null
+      },
+      {
+        "name": "旧相机",
+        "category": "item",
+        "parameters": {
+          "charges": null,
+          "effects": []
+        },
+        "traits": [
+          {
+            "name": "长度（折叠后）",
+            "value": 17,
+            "unit": "cm",
+            "basis": "一九二〇年代便携折叠相机的典型折叠尺寸"
+          },
+          {
+            "name": "宽度（折叠后）",
+            "value": 8,
+            "unit": "cm",
+            "basis": "同上"
+          },
+          {
+            "name": "厚度（折叠后）",
+            "value": 4,
+            "unit": "cm",
+            "basis": "同上"
+          },
+          {
+            "name": "重量",
+            "value": 620,
+            "unit": "g",
+            "basis": "金属机身加玻璃镜头的估重，便于手持"
+          },
+          {
+            "name": "机身",
+            "value": "金属机身外覆黑色皮革，边角磨损发白",
+            "basis": "request.description 的'机身旧但能用'"
+          },
+          {
+            "name": "镜片",
+            "value": "玻璃固定焦距镜头，表面有细微擦痕",
+            "basis": "折叠相机的常见构造，且与'旧但能用'一致"
+          },
+          {
+            "name": "皮腔",
+            "value": "皮革折叠皮腔，折角处有补过的痕迹，仍能遮光",
+            "basis": "折叠相机的标志性部件；补痕呼应'旧'"
+          },
+          {
+            "name": "胶片",
+            "value": "使用 120 卷装胶卷，每卷约可拍八张",
+            "basis": "party.equipment 另列有'胶卷'，说明其耗材为胶卷而非本机自带"
+          },
+          {
+            "name": "年代",
+            "value": "1920 年代",
+            "basis": "request.description 与 play_language 设定的年代"
+          }
+        ],
+        "document": null
+      },
+      {
+        "name": "胶卷",
+        "category": "item",
+        "parameters": {
+          "charges": 8,
+          "effects": []
+        },
+        "traits": [
+          {
+            "name": "规格",
+            "value": "120 卷装",
+            "basis": "1920年代旧式相机常用的卷装胶片规格，配沈默的旧相机"
+          },
+          {
+            "name": "片基",
+            "value": "硝酸片基",
+            "basis": "1920年代卷装胶片常用的片基材质"
+          },
+          {
+            "name": "感光",
+            "value": "黑白",
+            "basis": "request 描述为黑白胶卷"
+          },
+          {
+            "name": "可拍摄张数",
+            "value": 8,
+            "unit": "张",
+            "basis": "一卷120卷装胶片按画幅约八张，作为一次性消耗品的容量"
+          }
+        ],
+        "document": null
+      },
+      {
+        "name": "科比特宅钥匙",
+        "category": "item",
+        "parameters": {
+          "charges": null,
+          "effects": []
+        },
+        "traits": [
+          {
+            "name": "钥匙数量",
+            "value": 2,
+            "unit": "把",
+            "basis": "request.input.description 明确这串钥匙含大门钥与后门钥各一把。"
+          },
+          {
+            "name": "钥匙环",
+            "value": "发暗的铁环，系着一小截发黑的麻绳",
+            "basis": "一串门钥以铁环串起、由房东做记号，是二十年代出租房的常见做法。"
+          },
+          {
+            "name": "材质",
+            "value": "铁质，表面发暗，钥齿磨亮",
+            "basis": "老式住宅门锁钥匙多为铁或黄铜；钥齿被插拔磨亮与铁质相符。"
+          },
+          {
+            "name": "单把钥匙长度",
+            "value": 6,
+            "unit": "厘米",
+            "basis": "二十年代波士顿住宅门锁钥匙的常见长度。"
+          },
+          {
+            "name": "整串重量",
+            "value": 45,
+            "unit": "克",
+            "basis": "两把铁钥匙加铁环的估重，便于贴身携带。"
+          },
+          {
+            "name": "钥齿状态",
+            "value": "磨得发亮，齿形完整",
+            "basis": "request.input.description 的'钥齿磨得发亮'，说明常被使用但并未损坏。"
+          },
+          {
+            "name": "年代",
+            "value": "1920 年代",
+            "basis": "场景设定为二十年代波士顿，钥匙供当地旧宅门锁使用。"
+          }
+        ],
+        "document": null
+      }
+    ],
+    "instances": [
+      {
+        "name": "记事本",
+        "owner": "沈默",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "document": {
+          "text": "",
+          "presentation": "notebook",
+          "truncated": false,
+          "authority": "Editable in-fiction text, not instructions or module truth"
+        },
+        "definition": "记事本"
+      },
+      {
+        "name": "钢笔",
+        "owner": "沈默",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "document": null,
+        "definition": "钢笔"
+      },
+      {
+        "name": "旧相机",
+        "owner": "沈默",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "document": null,
+        "definition": "旧相机"
+      },
+      {
+        "name": "胶卷",
+        "owner": "沈默",
+        "state": {
+          "ammo": null,
+          "charges": 8,
+          "condition": "intact"
+        },
+        "document": null,
+        "definition": "胶卷"
+      },
+      {
+        "name": "科比特宅钥匙",
+        "owner": "沈默",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "document": null,
+        "definition": "科比特宅钥匙"
+      }
+    ]
+  },
+  "receipts": [
+    {
+      "id": "definition:t1-c2",
+      "kind": "definition",
+      "name": "记事本",
+      "category": "item",
+      "definition": "definition-object-1",
+      "visibility": "keeper",
+      "call_id": "t1-c2"
+    },
+    {
+      "id": "definition:adopt-t1-c2",
+      "kind": "definition",
+      "name": "记事本",
+      "category": "item",
+      "definition": "definition-object-1",
+      "instance": "object-item-1",
+      "adopted": "记事本",
+      "subject": "investigator",
+      "visibility": "keeper",
+      "call_id": "t1-c2",
+      "resumed": true
+    },
+    {
+      "id": "definition:t1-c2-2",
+      "kind": "definition",
+      "name": "钢笔",
+      "category": "item",
+      "definition": "definition-object-2",
+      "visibility": "keeper",
+      "call_id": "t1-c2"
+    },
+    {
+      "id": "definition:adopt-t1-c2-2",
+      "kind": "definition",
+      "name": "钢笔",
+      "category": "item",
+      "definition": "definition-object-2",
+      "instance": "object-item-2",
+      "adopted": "钢笔",
+      "subject": "investigator",
+      "visibility": "keeper",
+      "call_id": "t1-c2",
+      "resumed": true
+    },
+    {
+      "id": "definition:t1-c2-3",
+      "kind": "definition",
+      "name": "旧相机",
+      "category": "item",
+      "definition": "definition-object-3",
+      "visibility": "keeper",
+      "call_id": "t1-c2"
+    },
+    {
+      "id": "definition:adopt-t1-c2-3",
+      "kind": "definition",
+      "name": "旧相机",
+      "category": "item",
+      "definition": "definition-object-3",
+      "instance": "object-item-3",
+      "adopted": "旧相机",
+      "subject": "investigator",
+      "visibility": "keeper",
+      "call_id": "t1-c2",
+      "resumed": true
+    },
+    {
+      "id": "definition:t1-c2-4",
+      "kind": "definition",
+      "name": "胶卷",
+      "category": "item",
+      "definition": "definition-object-4",
+      "visibility": "keeper",
+      "call_id": "t1-c2"
+    },
+    {
+      "id": "definition:adopt-t1-c2-4",
+      "kind": "definition",
+      "name": "胶卷",
+      "category": "item",
+      "definition": "definition-object-4",
+      "instance": "object-item-4",
+      "adopted": "胶卷",
+      "subject": "investigator",
+      "visibility": "keeper",
+      "call_id": "t1-c2",
+      "resumed": true
+    },
+    {
+      "id": "clue:knott-commission-t1",
+      "kind": "clue",
+      "call_id": "t1-c1",
+      "clue": "knott-commission",
+      "label": "诺特的委托",
+      "summary": "Landlord Steven Knott pays $20/day to examine the Corbitt House, understand the Macario tragedy, and restore the property's name.",
+      "scene": "commission-briefing",
+      "how": "沈默接下诺特已经说清的按天佣金，去查清房子为什么留不住人。",
+      "from": "steven-knott",
+      "at": "2026-09-23T02:26:59Z"
+    },
+    {
+      "id": "clue:knott-macario-summary-t1",
+      "kind": "clue",
+      "call_id": "t1-c1",
+      "clue": "knott-macario-summary",
+      "label": "马卡里奥一家",
+      "summary": "Knott says the Macario family fled after a frightening breakdown and that the father now remains at Roxbury Sanitarium.",
+      "scene": "commission-briefing",
+      "how": "沈默问房子里出过什么事、之前住过谁、人怎么走的，诺特讲了马卡里奥一家的事。",
+      "from": "steven-knott",
+      "at": "2026-09-23T02:26:59Z"
+    },
+    {
+      "id": "clue:knott-research-leads-t1",
+      "kind": "clue",
+      "call_id": "t1-c1",
+      "clue": "knott-research-leads",
+      "label": "查档的去处",
+      "summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper trails before they rush the house.",
+      "scene": "commission-briefing",
+      "how": "诺特说自己只知道这些，更早的住户得去报馆、图书馆和档案馆查。",
+      "from": "steven-knott",
+      "at": "2026-09-23T02:26:59Z"
+    },
+    {
+      "id": "clue:knott-keys-t1",
+      "kind": "clue",
+      "call_id": "t1-c1",
+      "clue": "knott-keys",
+      "label": "钥匙与预付",
+      "summary": "Knott hands over the house keys, the address, and $20 cash in advance.",
+      "scene": "commission-briefing",
+      "how": "沈默接了差事，诺特交出钥匙、地址和一天的预付。",
+      "from": "steven-knott",
+      "at": "2026-09-23T02:26:59Z"
+    },
+    {
+      "id": "cash:t1-c1",
+      "kind": "cash",
+      "call_id": "t1-c1",
+      "resource": "cash",
+      "subject": "investigator",
+      "subject_label": "沈默",
+      "before": 9,
+      "after": 29,
+      "delta": 20,
+      "with": "steven-knott",
+      "with_label": "史蒂文·诺特",
+      "currency": "USD",
+      "source": "quote",
+      "why": "诺特按约定预付一天的佣金二十块。",
+      "at": "2026-09-23T02:26:59Z"
+    },
+    {
+      "id": "handout:the-haunting-handout-1-knott-commission-t1",
+      "kind": "handout",
+      "call_id": "t1-c1",
+      "handout": "the-haunting-handout-1-knott-commission",
+      "name": "Handout 1: Mr. Knott's Commission",
+      "label": "诺特先生的委托",
+      "visibility": "player-safe",
+      "summary": "The commission, payment, keys, address, and suggested research routes.",
+      "attachment": {
+        "handout": "the-haunting-handout-1-knott-commission",
+        "path": null,
+        "media_type": null,
+        "available": false
+      },
+      "at": "2026-09-23T02:26:59Z"
+    },
+    {
+      "id": "definition:t1-c1",
+      "kind": "definition",
+      "name": "科比特宅钥匙",
+      "category": "item",
+      "definition": "definition-object-5",
+      "visibility": "keeper",
+      "call_id": "t1-c1"
+    },
+    {
+      "id": "item:t1-c1",
+      "kind": "item",
+      "name": "科比特宅钥匙",
+      "label": "科比特宅钥匙",
+      "subject": "investigator",
+      "subject_label": "沈默",
+      "quantity": 1,
+      "instance": "object-item-5",
+      "from": "史蒂文·诺特",
+      "weapon": null,
+      "call_id": "t1-c1",
+      "why": "沈默接下差事后，诺特把房子钥匙交给他。",
+      "state": {
+        "ammo": null,
+        "charges": null,
+        "condition": "intact"
+      },
+      "handover": "given"
+    }
+  ],
+  "known_handouts": [],
+  "unregistered_equipment": [
+    {
+      "owner": "沈默",
+      "name": "街上穿的深色西装",
+      "row": "街上穿的深色西装"
+    },
+    {
+      "owner": "沈默",
+      "name": "怀表",
+      "row": "怀表"
+    },
+    {
+      "owner": "沈默",
+      "name": "记者证",
+      "row": "记者证"
+    }
+  ],
+  "present": [
+    {
+      "name": "Steven Knott",
+      "called": {
+        "name": "史蒂文·诺特"
+      },
+      "untold": {
+        "label": "史蒂文·诺特",
+        "use": "Private until introduced: appearance only; apply person, then called.name and say token."
+      },
+      "role": "employer",
+      "wants": "Clear the Corbitt House's reputation so he can rent or sell the inherited property and stop losing money.",
+      "fears": "Being stuck with a worthless haunted white elephant that ruins his credit.",
+      "hides": "He knows only rumor and the Macario tragedy — nothing of Corbitt's undead nature — and will not believe Mythos explanations without hard proof.",
+      "voice": "Practical, impatient, money-minded. Speaks in short offers and deadlines.",
+      "mask": [
+        "讲话短促直白，先谈钱、条件和期限；不耐烦时粗话随口就出，不绕弯子。"
+      ],
+      "in exchange": [
+        "你就是这房子的主人？我想打听打听那栋房。→ 对，房子是我的。空一天我赔一天，想打听就赶紧问，我没耐心陪人磨嘴皮。",
+        "钥匙和工钱怎么算，能现在定下来吗？→ 钥匙和地址这会儿就能交给你，工钱当天结清。拖得越久我亏得越多，别让我干等。",
+        "那屋子是不是闹鬼，以前是不是出过人命？→ 出过人命是有的，剩下的都是些嚼舌根的话。你拿这个来交差，那我就另找人了。给我看得见的东西。"
+      ],
+      "personality": {
+        "description": "Steven Knott is a practical, money-minded employer who treats the Corbitt House as a balance-sheet problem first and a mystery second: his goal is to clear its reputation so he can rent or sell the inherited property and stop bleeding money. His core fear is being stuck with a worthless haunted white elephant that ruins his credit, so he judges everyone and everything by whether it moves the property toward a clean sale, and he pressures investigators with short offers and deadlines rather than patience. He trades on rumor and the Macario tragedy but nothing of Corbitt's undead nature, and he will dismiss Mythos explanations outright until presented with hard, tangible proof — at which point he reweighs the cost of believing against the cost of being wrong.",
+        "origin": "table_supplement"
+      },
+      "knows": [
+        {
+          "clue": "knott-commission",
+          "discovered": true
+        },
+        {
+          "clue": "knott-research-leads",
+          "discovered": true
+        },
+        {
+          "clue": "knott-macario-summary",
+          "discovered": true
+        }
+      ],
+      "keeper_note": "Pays $20/day plus keys and address. Pressures them if research exceeds a day. If an investigator dies, may be brought in as a replacement PC vehicle.",
+      "would_lie_about": [
+        "Start with the papers; we can discuss the rest when you have something concrete."
+      ]
+    }
+  ],
+  "player_text": "“接。不过先说清楚——这房子到底出过什么事？之前住过谁，怎么走的？”我描出笔记本，准备记。",
+  "continuity_review": {
+    "schema": 2,
+    "files": [
+      "original.json",
+      "effective.json",
+      "world.json",
+      "current.json",
+      "history.json",
+      "handouts.json",
+      "notes.json",
+      "memory.json",
+      "context.json"
+    ],
+    "current_input": "“接。不过先说清楚——这房子到底出过什么事？之前住过谁，怎么走的？”我描出笔记本，准备记。",
+    "pending_choice": null,
+    "authority": "Preserve established campaign continuity and player choices. Compatible new fiction is allowed without a literal source quote. Recaps must faithfully report prior delivery; NPC assertions and player hypotheses retain attribution. Corrections supersede earlier claims. Kernel receipts remain authoritative for actions and resources.",
+    "sources": {
+      "draft": [
+        {
+          "alias": "draft:0",
+          "text": "纸页还摊在桌上。"
+        },
+        {
+          "alias": "draft:1",
+          "text": "你把硬皮记事本拖到近前，笔帽拧开，抬眼看他。"
+        },
+        {
+          "alias": "draft:2",
+          "text": "{{say:沈默}}「接。"
+        },
+        {
+          "alias": "draft:3",
+          "text": "不过先说清楚——这房子到底出过什么事？"
+        },
+        {
+          "alias": "draft:4",
+          "text": "之前住过谁，怎么走的？"
+        },
+        {
+          "alias": "draft:5",
+          "text": "」{{/say}}\n"
+        },
+        {
+          "alias": "draft:7",
+          "text": "史蒂文·诺特听完“接”这个字，肩头松了一下，随即又把眉拧回去。"
+        },
+        {
+          "alias": "draft:8",
+          "text": "他用指节敲了敲桌面。"
+        },
+        {
+          "alias": "draft:9",
+          "text": "{{say:史蒂文·诺特}}「好。"
+        },
+        {
+          "alias": "draft:10",
+          "text": "二十块一天，从今天算。"
+        },
+        {
+          "alias": "draft:11",
+          "text": "我要的是能写进租约里的东西：人为什么不敢住，不是鬼故事。"
+        },
+        {
+          "alias": "draft:12",
+          "text": "」{{/say}}\n"
+        },
+        {
+          "alias": "draft:14",
+          "text": "他从抽屉里摸出一串发暗的钥匙，铁环上系着一小截发黑的麻绳，推到你本子边上，又抽出两张十块，压在钥匙下。"
+        },
+        {
+          "alias": "draft:15",
+          "text": "{{clue:knott-commission}}{{clue:knott-keys}}{{cash}}{{item}}{{say:史蒂文·诺特}}「大门一把，后门一把。"
+        },
+        {
+          "alias": "draft:16",
+          "text": "地址我写在纸上，你抄进本子。"
+        },
+        {
+          "alias": "draft:17",
+          "text": "预付一天，干完再结。"
+        },
+        {
+          "alias": "draft:18",
+          "text": "」{{/say}}\n"
+        },
+        {
+          "alias": "draft:20",
+          "text": "他往后一靠，声音压低了些，仍是在报账。"
+        },
+        {
+          "alias": "draft:21",
+          "text": "{{say:史蒂文·诺特}}「上一户姓马卡里奥，一九一八年租进去，没住几天就垮了。"
+        },
+        {
+          "alias": "draft:22",
+          "text": "一家子吓得连夜搬走。"
+        },
+        {
+          "alias": "draft:23",
+          "text": "当家的现在还在罗克斯伯里疗养院，话都说不利索。"
+        },
+        {
+          "alias": "draft:24",
+          "text": "之前还有过住户，我只听见出过意外、生病、还有人自己寻了短见。"
+        },
+        {
+          "alias": "draft:25",
+          "text": "都是嚼舌根。"
+        },
+        {
+          "alias": "draft:26",
+          "text": "我没亲眼见过。"
+        },
+        {
+          "alias": "draft:27",
+          "text": "」{{/say}}{{clue:knott-macario-summary}}\n"
+        },
+        {
+          "alias": "draft:29",
+          "text": "他用下巴点了点你摊开的本子。"
+        },
+        {
+          "alias": "draft:30",
+          "text": "{{say:史蒂文·诺特}}「再早的名字我这儿没有。"
+        },
+        {
+          "alias": "draft:31",
+          "text": "你要是记者，去《环球报》的剪报室翻翻；中央图书馆和档案厅里也有产权和诉讼。"
+        },
+        {
+          "alias": "draft:32",
+          "text": "街坊嘴碎，疗养院那边要是肯见你，比我有用。"
+        },
+        {
+          "alias": "draft:33",
+          "text": "钥匙在你手里了。"
+        },
+        {
+          "alias": "draft:34",
+          "text": "你想先查纸，还是先去看房子，自己定。"
+        },
+        {
+          "alias": "draft:35",
+          "text": "」{{/say}}{{clue:knott-research-leads}}"
+        }
+      ],
+      "current_input": [
+        {
+          "alias": "input:0",
+          "text": "“接。"
+        },
+        {
+          "alias": "input:1",
+          "text": "不过先说清楚——这房子到底出过什么事？"
+        },
+        {
+          "alias": "input:2",
+          "text": "之前住过谁，怎么走的？”"
+        },
+        {
+          "alias": "input:3",
+          "text": "我描出笔记本，准备记。"
+        }
+      ],
+      "speech": [
+        {
+          "alias": "speech:0",
+          "text": "「接。不过先说清楚——这房子到底出过什么事？之前住过谁，怎么走的？」",
+          "speaker": "沈默"
+        },
+        {
+          "alias": "speech:1",
+          "text": "「好。二十块一天，从今天算。我要的是能写进租约里的东西：人为什么不敢住，不是鬼故事。」",
+          "speaker": "史蒂文·诺特"
+        },
+        {
+          "alias": "speech:2",
+          "text": "「大门一把，后门一把。地址我写在纸上，你抄进本子。预付一天，干完再结。」",
+          "speaker": "史蒂文·诺特"
+        },
+        {
+          "alias": "speech:3",
+          "text": "「上一户姓马卡里奥，一九一八年租进去，没住几天就垮了。一家子吓得连夜搬走。当家的现在还在罗克斯伯里疗养院，话都说不利索。之前还有过住户，我只听见出过意外、生病、还有人自己寻了短见。都是嚼舌根。我没亲眼见过。」",
+          "speaker": "史蒂文·诺特"
+        },
+        {
+          "alias": "speech:4",
+          "text": "「再早的名字我这儿没有。你要是记者，去《环球报》的剪报室翻翻；中央图书馆和档案厅里也有产权和诉讼。街坊嘴碎，疗养院那边要是肯见你，比我有用。钥匙在你手里了。你想先查纸，还是先去看房子，自己定。」",
+          "speaker": "史蒂文·诺特"
+        }
+      ],
+      "evidence": [
+        {
+          "alias": "context:0",
+          "file": "context.json",
+          "text": "一本记者随身带的小号硬皮记事本，深色布面封面，书脊磨得发白。"
+        },
+        {
+          "alias": "context:1",
+          "file": "context.json",
+          "text": "内页是浅米色的横格纸，前几页被撕过一角，其余还是空白，随时可以写字；封底内侧有一道折痕，能夹住车票或纸条。"
+        },
+        {
+          "alias": "context:2",
+          "file": "context.json",
+          "text": "记事本"
+        },
+        {
+          "alias": "context:3",
+          "file": "context.json",
+          "text": "我的钢笔：黑色硬橡胶笔身，金属笔夹，金尖，拉杆上墨。"
+        },
+        {
+          "alias": "context:4",
+          "file": "context.json",
+          "text": "笔里墨水是满的，走到哪儿都能掏出来签字、记笔记。"
+        },
+        {
+          "alias": "context:5",
+          "file": "context.json",
+          "text": "钢笔"
+        },
+        {
+          "alias": "context:6",
+          "file": "context.json",
+          "text": "你的旧相机。"
+        },
+        {
+          "alias": "context:7",
+          "file": "context.json",
+          "text": "一九二〇年代的便携折叠款，跑新闻时揣在西装口袋里正好。"
+        },
+        {
+          "alias": "context:8",
+          "file": "context.json",
+          "text": "金属机身包着黑皮，边角已经磨白；用的时候把皮腔拉开、支起前组，对准了再按快门。"
+        },
+        {
+          "alias": "context:9",
+          "file": "context.json",
+          "text": "镜头有点划痕，但还清楚。"
+        },
+        {
+          "alias": "context:10",
+          "file": "context.json",
+          "text": "它自己不会出照片——拍不拍得到，得靠你的手艺、光，还有当天的运气。"
+        },
+        {
+          "alias": "context:11",
+          "file": "context.json",
+          "text": "胶卷是另外带的。"
+        },
+        {
+          "alias": "context:12",
+          "file": "context.json",
+          "text": "旧相机"
+        },
+        {
+          "alias": "context:13",
+          "file": "context.json",
+          "text": "一卷120规格的黑白胶卷，用防光纸筒卷着，是给那台旧相机配的。"
+        },
+        {
+          "alias": "context:14",
+          "file": "context.json",
+          "text": "装进相机大概能拍八张，每拍一张就少一张；拍完一卷就没了，得换新的。"
+        },
+        {
+          "alias": "context:15",
+          "file": "context.json",
+          "text": "胶卷"
+        },
+        {
+          "alias": "context:16",
+          "file": "context.json",
+          "text": "一串旧钥匙，两把铁质门钥串在一个发暗的铁环上：一把开科比特宅的大门，一把开后门。"
+        },
+        {
+          "alias": "context:17",
+          "file": "context.json",
+          "text": "钥齿被反复插拔磨得发亮，齿形却还完整，能咬住锁芯。"
+        },
+        {
+          "alias": "context:18",
+          "file": "context.json",
+          "text": "钥匙柄上没有刻字，环上只系着一小截发黑的麻绳，是房东随手做的记号，好让人一眼认出这是哪一串。"
+        },
+        {
+          "alias": "context:19",
+          "file": "context.json",
+          "text": "科比特宅钥匙"
+        },
+        {
+          "alias": "context:20",
+          "file": "context.json",
+          "text": "沈默"
+        },
+        {
+          "alias": "context:21",
+          "file": "context.json",
+          "text": "knott-macario-summary"
+        },
+        {
+          "alias": "context:22",
+          "file": "context.json",
+          "text": "supports"
+        },
+        {
+          "alias": "context:23",
+          "file": "context.json",
+          "text": "Knott says the Macario family fled after a frightening breakdown and that the father now remains at "
+        }
+      ],
+      "objects": [
+        {
+          "alias": "object:0",
+          "category": "item",
+          "name": "街上穿的深色西装"
+        },
+        {
+          "alias": "object:1",
+          "category": "item",
+          "name": "怀表"
+        },
+        {
+          "alias": "object:2",
+          "category": "item",
+          "name": "记者证"
+        },
+        {
+          "alias": "object:3",
+          "name": "记事本",
+          "category": "item"
+        },
+        {
+          "alias": "object:4",
+          "name": "钢笔",
+          "category": "item"
+        },
+        {
+          "alias": "object:5",
+          "name": "旧相机",
+          "category": "item"
+        },
+        {
+          "alias": "object:6",
+          "name": "胶卷",
+          "category": "item"
+        },
+        {
+          "alias": "object:7",
+          "name": "科比特宅钥匙",
+          "category": "item"
+        },
+        {
+          "alias": "object:8",
+          "category": "item",
+          "name": "记事本"
+        },
+        {
+          "alias": "object:9",
+          "category": "item",
+          "name": "钢笔"
+        },
+        {
+          "alias": "object:10",
+          "category": "item",
+          "name": "旧相机"
+        },
+        {
+          "alias": "object:11",
+          "category": "item",
+          "name": "胶卷"
+        },
+        {
+          "alias": "object:12",
+          "category": "item",
+          "name": "科比特宅钥匙"
+        }
+      ],
+      "scenes": [
+        {
+          "alias": "scene:active",
+          "name": "Knott's Office"
+        },
+        {
+          "alias": "scene:0",
+          "name": "scene basement rites"
+        },
+        {
+          "alias": "scene:1",
+          "name": "scene central library"
+        },
+        {
+          "alias": "scene:2",
+          "name": "scene chapel of contemplation ruins"
+        },
+        {
+          "alias": "scene:3",
+          "name": "Knott's Office"
+        },
+        {
+          "alias": "scene:4",
+          "name": "scene corbitt confrontation"
+        },
+        {
+          "alias": "scene:5",
+          "name": "scene corbitt house ground"
+        },
+        {
+          "alias": "scene:6",
+          "name": "scene hall of records"
+        },
+        {
+          "alias": "scene:7",
+          "name": "scene higher courts central police"
+        },
+        {
+          "alias": "scene:8",
+          "name": "scene neighborhood gossip"
+        },
+        {
+          "alias": "scene:9",
+          "name": "scene newspaper morgue"
+        },
+        {
+          "alias": "scene:10",
+          "name": "scene previous tenants"
+        },
+        {
+          "alias": "scene:11",
+          "name": "scene upper floor bedroom"
+        }
+      ],
+      "reentry": []
+    }
+  }
+}

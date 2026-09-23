@@ -14,6 +14,8 @@ import {EventEmitter} from 'node:events';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable, assistantTexts, customMessages, waitForIdle} from './harness.mjs';
 import {extensionWords} from '../../extensions/ui/words.ts';
+// These cases pin the pre-delivery gate (§36.14, §26.1, §91), which §130 keeps whole as the `pre` mode.
+process.env.PI_COC_CONTINUITY_GATE = 'pre';
 
 const root = resolve(import.meta.dirname, '../..'), base = join(root, '.coc/playtests/continuity-audit-contracts');
 await mkdir(base, {recursive: true});
@@ -876,7 +878,7 @@ test('a service outage still accumulates a streak and still escalates once', asy
     assert.deepEqual(statuses.map(entry => entry.streak), [1, 2]);
     assert.deepEqual(statuses.map(entry => entry.status), ['unavailable', 'down']);
     assert.ok(statuses.every(entry => entry.service === true));
-    assert.match(statuses[1].fix, /Lane model setting/);
+    assert.match(statuses[1].fix, /Fast model setting/);
 });
 
 /**
@@ -961,7 +963,7 @@ test('a service streak never tells the player another attempt is pointless, and 
     // table. The old sentence answered it wrongly and cost a live table the rest of a session.
     assert.doesNotMatch(down, /will not help|no use|pointless/i, down);
     // What a repeated outage is actually evidence for, in the words of the setting that fixes it.
-    assert.match(down, /Lane model/, down);
+    assert.match(down, /Fast model/, down);
     // §37.10: the setting reaches a table that is already running, so the line says so rather than
     // repeating §38.5's withdrawn "and then start a new session".
     assert.match(down, /without restarting/i, down);

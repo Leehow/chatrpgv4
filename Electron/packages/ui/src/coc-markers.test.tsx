@@ -15,6 +15,7 @@ import { afterEach, describe, it, expect } from 'vitest'
 import { createComponent } from '../../../../pipicoc/mechanics.js'
 import { foldMarkedDeliveries, liveDraftMessageId, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
 import { say, ui } from './fixtures/coc-ui-words'
+import { OpenedSlip } from './fixtures/opened-mechanics-slip'
 
 const Card = createComponent(React)
 
@@ -26,7 +27,7 @@ const Card = createComponent(React)
  * a language with a gap in it -- passes its own `ui` and this leaves it alone.
  */
 const Delivery = ({details}: {details: Record<string, unknown>}) =>
-  <Card details={{ui: ui(String(details.play_language ?? 'zh-Hans')), ...details}} />
+  <OpenedSlip><Card details={{ui: ui(String(details.play_language ?? 'zh-Hans')), ...details}} /></OpenedSlip>
 
 afterEach(cleanup)
 
@@ -48,11 +49,15 @@ describe('the card draws a marked delivery', () => {
     }]}} />);
     expect(container.textContent).toContain(`${label} 结束`);
   });
+  // The zh-Hans direction words are the shipped seed's, read from it: the seed is the lane's projection
+  // and is regenerated whole, so a literal copied from one projection pins the test to that run.
+  const removedFrom = say('zh-Hans', 'mechanics', 'removedFrom').replace('{name}', '林远')
+  const handedTo = `${say('zh-Hans', 'mechanics', 'to')} 林远`
   it.each([
-    ['zh-Hans', -1, '从林远的物品中移除'],
-    ['zh-Hans', -2, '从林远的物品中移除'],
+    ['zh-Hans', -1, removedFrom],
+    ['zh-Hans', -2, removedFrom],
     ['en', -2, "removed from 林远's inventory"],
-    ['zh-Hans', 1, '给 林远'],
+    ['zh-Hans', 1, handedTo],
     ['en', 2, 'to 林远'],
   ])('shows signed inventory direction (%s, quantity=%s)', (play_language, quantity, direction) => {
     const {container} = render(<Delivery details={{play_language, turn:57, mechanics:[{
@@ -60,7 +65,7 @@ describe('the card draws a marked delivery', () => {
       quantity, to:'lin-yuan', to_label:'林远',
     }]}} />);
     expect(container.textContent).toContain(`金嵌板${Math.abs(Number(quantity)) > 1 ? ' ×2' : ''} ${direction}`);
-    if (Number(quantity) < 0) expect(container.textContent).not.toContain('给 林远');
+    if (Number(quantity) < 0) expect(container.textContent).not.toContain(handedTo);
   });
 
   it.each([false, undefined])('keeps NPC and legacy names off visible mechanics (identity=%s)', identity => {
@@ -207,11 +212,12 @@ describe('the card draws a marked delivery', () => {
     expect(rendered.getAttribute('title')).toContain('a crow on the sill')
   })
 
-  it('captions the mechanics slip from the delivery, and shows the key for a language that lacks it', () => {
+  it('captions a trailing fold from the delivery, and shows the key for a language that lacks it', () => {
     const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:13,
-      ui: ui('zh-Hans', {mechanics: {mechanics: undefined}}), mechanics:[CLUE]}} />)
-    expect(container.querySelector('.coc-mech-cap')?.textContent).toBe('mechanics')
-    expect(container.textContent).not.toContain(say('en', 'mechanics', 'mechanics'))
+      ui: ui('zh-Hans', {mechanics: {'fold.clue': undefined}}), mechanics:[CLUE]}} />)
+    // The caption word alone: the toggle beside it also counts the rows, which is chrome, not a word.
+    expect(container.querySelector('.coc-mech-cap .coc-mech-list-name')?.textContent).toBe('fold.clue')
+    expect(container.textContent).not.toContain(say('en', 'mechanics', 'fold.clue'))
   })
 
   it('keeps the prose in order and puts each placed receipt at its point', () => {
@@ -383,8 +389,8 @@ describe('a roll says what its difficulty demanded', () => {
     // The numbers are the test; the word is the gloss. A difficulty added to the rules data
     // before a caption exists must not take the figure down with it.
     const { container } = render(
-      <Card details={{ ui: ui('zh-Hans', { mechanics: { 'difficulty.hard': undefined } }), play_language: 'zh-Hans',
-        turn: 12, mechanics: [HARD] }} />,
+      <OpenedSlip><Card details={{ ui: ui('zh-Hans', { mechanics: { 'difficulty.hard': undefined } }), play_language: 'zh-Hans',
+        turn: 12, mechanics: [HARD] }} /></OpenedSlip>,
     )
     expect(container.querySelector('.coc-mech-need')?.textContent).toContain('7')
     expect(container.querySelector('.coc-mech-need')?.textContent).toContain('hard')

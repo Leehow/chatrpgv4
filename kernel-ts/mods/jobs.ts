@@ -11,12 +11,13 @@ import { playLanguageOf } from '../read/languages.js';
 import { recordOf, type ModuleGraph } from '../read/module-graph.js';
 import { presentSection, whereSection } from '../read/capsule.js';
 import { MOD_CAPABILITIES, objectContext, unregisteredEquipment, findNamedObject } from '../read/mods.js';
-import { array, chars, clone, entries, equal, normalize, row, sorted, string, truth, values, type Row } from '../read/values.js';
+import { array, chars, clone, entries, equal, normalize, repr, row, sorted, string, truth, values, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
 import type { createWriteRuntime } from '../write/index.js';
 import { validateDefinition, validateDocumentSeed } from './definition.js';
 import {USAGE_CAPABILITY, findAcceptedUsage, registerUsage, usageObject, usagePhysicalBasis, validateUsage, validateUsageProposal, validateUsageRequest} from './usages.js';
 import {projectInventory} from './projection.js';
+import {isPlaceholder, objectInstance} from './objects.js';
 import {stageModEffect} from './stage.js';
 import type {ApplyContext} from '../apply/index.js';
 import {claimedEquipment,discardRegistrationByJob,queuedRegistrations} from './queue.js';
@@ -187,6 +188,12 @@ export class ModJobs {
         if (!['create', 'usage', 'audit'].includes(role)) throw new RpcError('invalid_params', 'Mod job role must be create, usage or audit');
         if (role === 'usage' && !prefetch) validateUsageRequest(params.input);
         const physicalBasis = role === 'usage' ? usagePhysicalBasis(world, string(params.input.object)) : null;
+        // §129.4: a usage prepared against a placeholder would be bound to parameters that are about to be
+        // replaced -- stale on arrival, and a proposal would mark the object as having a usage for good.
+        if (physicalBasis && isPlaceholder(row(row(world.objects).definitions)[string(physicalBasis.definition)]))
+            throw new RpcError('needs', `${repr(string(params.input.object))} is registered; its parameters are still being prepared`,
+                {details: {reason: 'definition_pending', object: params.input.object},
+                 fix: 'its parameters land at the start of the next turn; prepare its usage then, and settle this action without it'});
         if (role === 'create') {
             const input = params.input;
             if (!isJsonObject(input) || !['weapon', 'spell', 'item'].includes(input.category as string)) throw new RpcError('invalid_params', 'Definition request needs a category and a name');
@@ -221,8 +228,13 @@ export class ModJobs {
             if (preview) request.preview = clone(params.preview);
             request.usage_object = {name:item.name,quantity:item.quantity,state:clone(item.state),definition:clone(row(row(world.objects).definitions)[item.definition])};
         }
+        // §129: a definition request for a registration that is still queued is that marker's own job, whichever
+        // turn asks. Minted under the asking turn it was a different job: its result landed where the marker
+        // never looks, so an unfinished registration was generated again at every later turn and never written.
+        const waiting = role === 'create' ? queuedRegistrations(world).find(entry => typeof entry.job === 'string'
+            && equal(Object.fromEntries(entries(row(entry.define)).filter(([name]) => name !== 'kind')), params.input)) : undefined;
         const identity: Row = prefetch ? this.proposalIdentity(campaign.id,meta.active_worldline ?? null,candidates,params.input,physicalBasis!)
-            : {campaign: campaign.id, turn:turn.turn, worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
+            : {campaign: campaign.id, turn:waiting ? waiting.turn : turn.turn, worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
             packages: candidates.map(mod => ({id: mod.id, digest: mod.digest})), request: role === 'audit' ? request : {input: params.input ?? null, role},
             ...(physicalBasis ? {physical_basis:physicalBasis,usage_request_digest:jsonDigest(request)} : {}),
             ...(evidence ? {source_binding: evidence.binding} : {})};
@@ -247,7 +259,7 @@ export class ModJobs {
             }
             if (role === 'create') {
                 const prior = findNamedObject(row(row(world.objects).definitions), string(params.input.name));
-                if (prior && prior.category === params.input.category) {
+                if (prior && prior.category === params.input.category && !isPlaceholder(prior)) {
                     const definition = Object.fromEntries(['name', 'category', 'description', 'basis', 'parameters', 'player_view', 'traits', 'document'].filter(name => Object.hasOwn(prior, name)).map(name => [name, clone(prior[name])]));
                     await writeJsonAtomic(join(root, 'accepted.json'), {definition, provenance: {mod: packageRow.id, digest: packageRow.digest, job: key, reused_definition: prior.id}});
                 }
@@ -267,6 +279,14 @@ export class ModJobs {
     async queued(params: Row): Promise<Row> {
         const {campaign, world, turn} = await this.load(params), effects: Row[] = [], unfinished: Row[] = [],party=await campaign.party() as Row[];
         let optionalReady=0,changed=false;
+        // §129.4: `now` is for an action that needs an object's parameters in this very turn (a usage batch);
+        // it takes the registrations behind the placeholders of the named instances, whatever turn queued them.
+        const now = truth(params.now), wanted = new Set<string>();
+        if (now) for (const name of array(params.objects)) {
+            const item = typeof name === 'string' ? objectInstance(world, name) : null;
+            const definition = item ? row(row(world.objects).definitions)[string(item.definition)] : null;
+            if (isPlaceholder(definition)) wanted.add(normalize(string(definition.name)));
+        }
         // A registration the host could not complete falls back to the ordinary blocking path rather than
         // leaving a marker that hides its row from the audit: dropped here, the gear reads as unregistered
         // again on the next turn and the Keeper registers it the way it did before any of this existed.
@@ -279,7 +299,7 @@ export class ModJobs {
         for (const entry of queuedRegistrations(world)) {
             // Deferral means not this turn. Completing inside the turn that queued it would put the wait
             // back where it was, one tool call later, which is exactly what the marker exists to avoid.
-            if (equal(entry.turn, turn.turn)) continue;
+            if (now ? !wanted.has(normalize(string(entry.name))) : equal(entry.turn, turn.turn)) continue;
             const define = clone(row(entry.define));
             if(entry.optional_identity===true){const identity=row(entry.identity),sheet=party.find(value=>string(value.id)===identity.owner),
                 item=sheet?array(sheet.equipment).find(value=>isJsonObject(value)&&value.pending_definition===identity.token):undefined;
@@ -296,7 +316,8 @@ export class ModJobs {
             if(entry.optional_identity===true&&params.publish_optional!==true){optionalReady++;continue;}
             const value = row(await this.context.snapshots.readJson(accepted));
             effects.push({...define, _definition: value.definition, _provenance: value.provenance});
-            if (truth(entry.object)) effects.push(clone(row(entry.object)));
+            // §129: host-private like every `_` field; the adopt receipt it produces says it is a replay.
+            if (truth(entry.object)) effects.push({...clone(row(entry.object)), _resumed: true});
         }
         if(changed)await campaign.writeWorld(world);
         return {effects, unfinished,...(optionalReady?{optional_ready:optionalReady}:{})};
@@ -316,12 +337,17 @@ export class ModJobs {
         if ((identity.prefetch === true) !== prefetch) throw new RpcError('invalid_params',
             identity.prefetch === true ? 'Proposal jobs require mods.prefetch.accept' : 'Action jobs require mods.accept',
             {details:{reason:identity.prefetch === true ? 'prefetch_accept_required' : 'action_accept_required'}});
-        const loaded = await this.load(params), {campaign,graph,module,world,turn,meta} = loaded;
+        const loaded = await this.load(params), {campaign,graph,module,world,meta} = loaded;
         // A deferred registration is accepted after delivery, and narrate has already moved the turn on, so
         // the turn is not what pins this job -- the marker the kernel itself wrote is. Campaign, worldline
         // and the package digests below still have to match.
         const deferred = queuedRegistrations(world).some(entry => entry.job === key);
-        if (identity.campaign !== campaign.id || (!prefetch && !deferred && !equal(identity.turn, turn.turn)) || !equal(identity.worldline, meta.active_worldline ?? null))
+        // Contract §130.3: a continuity review read after its delivery closed. The live cursor has moved
+        // on, so the pin is the delivered record itself, and its receipts stand in for the turn's.
+        const afterDelivery = !prefetch && truth(params.after_delivery);
+        const delivered = afterDelivery && Number.isInteger(identity.turn) ? await campaign.readTurnRecord(identity.turn) : null;
+        const turn: Row = delivered ? {...loaded.turn, receipts: array(delivered.receipts)} : loaded.turn;
+        if (identity.campaign !== campaign.id || (!prefetch && !deferred && !afterDelivery && !equal(identity.turn, turn.turn)) || !equal(identity.worldline, meta.active_worldline ?? null))
             throw new RpcError('invalid_params', 'Mod job belongs to another turn or worldline');
         const active = new Map((await this.runtime.active(world)).map(mod => [mod.id, mod]));
         if (!active.has(identity.mod) || active.get(identity.mod)!.digest !== identity.digest) throw new RpcError('invalid_params', 'Mod changed while the job was running');
@@ -335,9 +361,16 @@ export class ModJobs {
             throw new RpcError('needs',request.role === 'audit' ? 'The retained source-audit request changed' : 'The retained Mod preparation request changed',
                 {details:{reason:request.role === 'audit' ? 'mod_audit_evidence' : 'usage_request_changed',file:'request.json'},
                  fix:'Keep this draft unaccepted; inspect the retained preparation request'});
+        if (afterDelivery) {
+            if (request.role !== 'audit') throw new RpcError('invalid_params', 'Only an audit job can be accepted after delivery');
+            if (!delivered || !['narrate', 'ask'].includes(string(delivered.closed_by)) || string(delivered.text) !== string(row(request.input).text))
+                throw new RpcError('needs', 'This review did not read the delivery that turn published', {details: {reason: 'delivery_mismatch', turn: identity.turn ?? null},
+                    fix: 'Record the delivered turn as unreviewed; the published words stand'});
+        }
         const wait = row(row(request.input).preparation_wait), refused = row(row(request.input).rebinding_refused);
-        const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[], continuity, wait, refused) : null;
-        if (evidence) {
+        const evidence = !(sourceAudit || continuity) ? null : afterDelivery ? await this.retainedEvidence(root, request, continuity, identity)
+            : await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[], continuity, wait, refused);
+        if (evidence && !afterDelivery) {
             if (evidence.binding !== identity.source_binding) throw new RpcError('needs', 'Source audit no longer matches the current campaign evidence',
                 {details: {reason: 'mod_audit_stale'}, fix: 'Retry the same narration to prepare a current source audit; do not reroll settled actions'});
             await verifyAuditSources(root, evidence.files);
@@ -436,6 +469,26 @@ export class ModJobs {
         // proposal accepted on disk if those same guards would refuse its ordinary apply path.
         if (prefetch && result.usage !== null) registerUsage(world,string(request.input.object),result.usage,result.physical_basis,result.provenance);
         await writeJsonAtomic(acceptedPath, result); return prefetch ? finishPrefetch(result) : result;
+    }
+    /**
+     * Contract §130.3: the evidence a post-delivery review judged is the evidence the job pinned, read
+     * back from the job directory. Recomputing it would compare the draft with a campaign that already
+     * contains its own delivery; the binding digest proves these are the files the job was bound to.
+     */
+    private async retainedEvidence(root: string, request: Row, continuity: boolean, identity: Row): Promise<{files: Row; binding: string}> {
+        const names = array(row(request[continuity ? 'continuity_review' : 'source_review']).files).map(string).filter(Boolean);
+        const files: Row = {};
+        const refuse = (file: string | null) => new RpcError('needs', 'The retained source-audit evidence changed or is unavailable',
+            {details: {reason: 'mod_audit_evidence', file}, fix: 'Record the delivered turn as unreviewed; the published words stand'});
+        for (const name of names) {
+            try { files[name] = await this.context.snapshots.readJson(join(root, name)) as Row; }
+            catch { throw refuse(name); }
+        }
+        const current = row(files['current.json']);
+        const binding = jsonDigest({files, current: current.turn ?? null, party: current.party ?? null} as any);
+        if (!names.length || binding !== identity.source_binding) throw refuse(null);
+        await verifyAuditSources(root, files);
+        return {files, binding};
     }
     private materializeContinuity(raw: unknown, request: Row, files: Row, identity: Row): Row {
         if (request.continuity_review?.schema !== 2) return row(raw);

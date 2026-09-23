@@ -286,7 +286,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const days = contributions.resources ? await contributions.resources.dayBoundary(context, number(row(transaction.world.clock).minutes)) : null;
             await commitInventorySheets(context,stagedSheets);
             await campaign.writeWorld(staged);
-            if(effects.some(effect=>isJsonObject(effect)&&['object','usage'].includes(string(effect.kind))))await contributions.mods!.projectInventory(campaign as CampaignWriter,staged);
+            // §129.4: a definition that replaced a placeholder changed what instances already on a sheet read.
+            if(effects.some(effect=>isJsonObject(effect)&&['object','usage'].includes(string(effect.kind)))||receipts.some(receipt=>receipt.replaced_placeholder===true))
+                await contributions.mods!.projectInventory(campaign as CampaignWriter,staged);
             for(const note of stagedNotes)await appendJsonl(join(campaign.directory,'notes.jsonl'),note);
             for(const ruling of stagedRulings)await appendJsonl(join(campaign.directory,'rulings.jsonl'),ruling);
             const material = module.material(graph.scene(staged.active_scene).node_id);

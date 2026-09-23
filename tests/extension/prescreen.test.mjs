@@ -63,7 +63,8 @@ test('unavailable decision fails open and changed state never publishes stale su
   const s=snapshot();let reads=0;
   const missing=await api.preparePrescreen({...base(),decision:{decide:async()=>({status:'unavailable',answers:{},attempts:0})},
     call:async method=>{if(method==='table.resolve.options')return {};reads++;assert.equal(method,'table.workspace.read');return s;}});
-  assert.equal(JSON.parse(missing.content).retrieval.stop_reason,'unavailable');assert.equal(JSON.parse(missing.content).check.disposition,'unknown');assert.equal(reads,2);
+  assert.equal(JSON.parse(missing.content).retrieval.stop_reason,'unavailable');assert.equal(JSON.parse(missing.content).check.disposition,'unknown');
+  assert.equal(reads,3,'index, catalog and final check');
   const stale=await api.preparePrescreen({...base(),decision:decider(),call:async(method,params)=>method==='table.workspace.read'
     ?params.binding?{...s,binding:{...s.binding,stateStamp:'changed'}}:s:{ok:true}});
   assert.equal(stale,undefined);

@@ -163,6 +163,23 @@ def test_lookup_module_and_secret(kernel):
     assert kernel.table_err("lookup", kind="weird", query="x")["code"] == "invalid_params"
 
 
+def test_lookup_module_takes_exact_handles_and_a_starter_has_no_source_to_bind(kernel):
+    """Contract §127: real table 2026-09-22 on the built-in starter."""
+    open_turn(kernel)
+    held = kernel.table("lookup", kind="module", query="knott-macario-summary knott-keys knott-research-leads")
+    assert [e["name"] for e in held["entities"]] == ["knott-macario-summary", "knott-keys", "knott-research-leads"]
+    assert "status" not in held
+    # One word that is not a handle keeps the whole query ordinary search text.
+    assert kernel.table("lookup", kind="module", query="knott-keys lantern")["status"] == "not_found"
+
+    error = kernel.err("module.read.request", {"module_id": "the-haunting", "purpose": "detail",
+        "focus": "steven-knott", "question": "What does the commission pay?"})
+    assert error["code"] == "needs"
+    assert error["details"]["reason"] == "no_source_document"
+    assert "module.source.bind" not in error.get("fix", "")
+    assert "lookup kind=module" in error["fix"]
+
+
 def test_recall_transcript(kernel):
     open_turn(kernel, "第一回合的话。")
     recalled = kernel.table("recall", what="transcript")

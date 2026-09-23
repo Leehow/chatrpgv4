@@ -76,6 +76,9 @@ export async function useItem(context: SettleContext, name: string): Promise<Row
     const item = objectInstance(context.world, name);
     if (!item || item.owner.id !== context.actorId) throw new RpcError('needs', 'The acting investigator must own this item instance');
     const definition = objectRegistry(context.world).definitions[item.definition];
+    // §129.4: a placeholder has no effects yet; "no activated effect" would be a verdict about the object.
+    if (definition.placeholder === true) throw new RpcError('needs', `${item.name} is registered; its parameters are still being prepared`, {
+        details: {reason: 'definition_pending'}, fix: 'its parameters land at the start of the next turn; settle this action with an ordinary check instead'});
     if (definition.category !== 'item') throw new RpcError('invalid_params', 'Use combat for weapons and magic:cast-spell for spells');
     const effects = definition.parameters.effects;
     if (!truth(effects)) throw new RpcError('needs', 'This object supplies physical facts, not an automatic activated effect', {

@@ -1,5 +1,5 @@
 /** Python-compatible value operations shared by the immutable read projections. */
-import { PythonFloat, canonicalJson, compareUnicode, isJsonObject, parsePythonJson, pythonJsonDumps, pythonObjectEntries, type ReadonlyJson } from "../json.js";
+import { PythonFloat, canonicalJson, compareUnicode, isJsonObject, orderedObject, parsePythonJson, pythonJsonDumps, pythonObjectEntries, type JsonObject, type JsonValue, type ReadonlyJson } from "../json.js";
 import { pythonStringRepr } from "../errors.js";
 export type Row = Record<string, any>;
 export const row = (value: any): Row => isJsonObject(value) ? value : {};
@@ -45,8 +45,27 @@ export function repr(value: any): string {
         return `{${entries(value).map(([k, v]) => `${pythonStringRepr(k)}: ${repr(v)}`).join(", ")}}`;
     return string(value);
 }
+/**
+ * A structural copy with exactly the shape a `pythonJsonDumps` → `parsePythonJson` round trip
+ * produced (contract §131): key order as `objectKeys` reads it, an integer-valued number stays a
+ * number, any other number becomes a `PythonFloat` (as the serializer would have written it),
+ * bigint and `PythonFloat` pass through (both immutable), and the copy is unfrozen however the
+ * input was. The round trip was 11% of a workspace read; nothing needed the bytes, only the copy.
+ */
 export function clone<T>(value: T): T {
-    return parsePythonJson(pythonJsonDumps(value as ReadonlyJson)) as T;
+    return copy(value as ReadonlyJson) as T;
+}
+function copy(value: ReadonlyJson): JsonValue {
+    if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "bigint" || value instanceof PythonFloat)
+        return value;
+    if (typeof value === "number") {
+        if (Object.is(value, -0) || !Number.isInteger(value)) return new PythonFloat(value);
+        if (!Number.isSafeInteger(value)) throw new TypeError("unsafe integer number: use bigint for Python int or PythonFloat for Python float");
+        return value;
+    }
+    if (Array.isArray(value)) return value.map(copy);
+    if (!isJsonObject(value)) throw new TypeError("unsupported JSON value");
+    return orderedObject(pythonObjectEntries(value as JsonObject).map(([key, child]) => [key, copy(child)] as const));
 }
 export const equal = (a: any, b: any): boolean => {
     if ((numeric(a) || typeof a === "boolean") && (numeric(b) || typeof b === "boolean")) {

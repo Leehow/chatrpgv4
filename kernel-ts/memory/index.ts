@@ -1,4 +1,5 @@
 /** Advisory memory lanes and recall share the campaign writer and its lock. */
+import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import { RpcError } from '../errors.js';
@@ -32,13 +33,87 @@ function revealedClue(graph: ModuleGraph, finding: Row): string | null {
     try { return graph.handle(graph.clue(finding.clue.trim())); }
     catch { return null; }
 }
-async function warn(loaded: { campaign: CampaignWriter; module: { graph: ModuleGraph } }, params: Row): Promise<Row> {
+/**
+ * Contract §130.4: the continuity review's verdict on a delivery the player has already read. Every
+ * row points forward -- the turn is published and stays published -- and none carries the reviewer's
+ * own `fix`, which was written for an unpublished draft and is executed literally if it arrives (§34.7).
+ */
+const CONTINUITY_LANE = 'continuity-review';
+const FORWARD: Readonly<Record<string, string>> = Object.freeze({
+    continuity_conflict: 'Already delivered and read: do not rewrite or retract it. Carry the discrepancy in the fiction from here on.',
+    unsettled_object: 'Narrated without reaching the object: if it still stands, register it with an ordinary apply; otherwise let the fiction account for it.',
+    continuity_finding: 'Already delivered: do not rewrite it. Let the next delivery avoid the same problem.',
+    source_conflict: 'Already delivered and read: do not rewrite or retract it. Reconcile it with the source in the fiction from here on.'
+});
+function continuityRows(accepted: Row, rendered: string): Row[] {
+    const rows: Row[] = [], at = nowIso();
+    const add = (kind: string, quote: unknown, why: string) => {
+        if (rows.length >= 10 || !why.trim()) return;
+        rows.push({ lane: CONTINUITY_LANE, kind, quote: typeof quote === 'string' && quote.trim() && rendered.includes(quote) ? chars(quote, 120) : null,
+            why: chars(why, 200), fix: FORWARD[kind], at });
+    };
+    for (const conflict of array(row(accepted.continuity_review).conflicts)) add('continuity_conflict', conflict.claim, string(conflict.reason));
+    for (const missing of array(accepted.missing)) add('unsettled_object', null, `${string(missing.name)} (${string(missing.category)}): ${string(missing.reason)}`);
+    for (const finding of array(accepted.findings)) add('continuity_finding', null, string(finding.reason));
+    for (const claim of array(row(accepted.source_review).claims)) if (claim.verdict !== 'supported') add('source_conflict', claim.quote, string(claim.reason));
+    return rows;
+}
+function acceptedVerdict(accepted: Row): string {
+    const review = row(accepted.continuity_review);
+    if (typeof review.verdict === 'string') return review.verdict;
+    const source = row(accepted.source_review);
+    return array(accepted.missing).length || array(accepted.findings).length || (Object.keys(source).length && source.verdict !== 'supported') ? 'revise' : 'pass';
+}
+async function warnContinuity(context: KernelContext, campaign: CampaignWriter, params: Row): Promise<Row> {
+    const turn = number(params.turn), mode = params.mode, job = params.job, unreviewed = params.unreviewed;
+    if (!['pre', 'post'].includes(mode as string))
+        unsupported('mode', mode, ['pre', 'post'], `unknown review mode ${repr(mode)}`);
+    const byJob = typeof job === 'string' && /^[0-9a-f]{64}$/.test(job);
+    if (byJob === isJsonObject(unreviewed) || (!byJob && (typeof row(unreviewed).cause !== 'string' || !string(row(unreviewed).cause).trim())))
+        throw new RpcError('invalid_params', 'a continuity record names either the accepted review job or why the delivery went unreviewed', {
+            fix: 'pass job (the review job id) or unreviewed {cause, service}' });
+    const record = await campaign.readTurnRecord(turn);
+    if (!record || !['narrate', 'ask'].includes(string(record.closed_by)))
+        throw new RpcError('invalid_params', `turn ${turn} has no delivery record to anchor the review to`, { details: { turn } });
+    const prior = row(record.continuity_review);
+    // Idempotent for the same job, and a reading that happened is never overwritten by a later report
+    // that nothing was read (a replayed delivery prepares a second pin that can only come back stale).
+    if (byJob ? prior.job === job : prior.reviewed === true)
+        return { turn, lane: CONTINUITY_LANE, accepted: 0, dropped: [], continuity_review: prior };
+    let review: Row, rows: Row[] = [];
+    if (byJob) {
+        const root = join(context.stateRoot, 'mods', 'jobs', string(job));
+        let identity: Row, request: Row, accepted: Row;
+        try {
+            [identity, request, accepted] = await Promise.all(['identity.json', 'request.json', 'accepted.json']
+                .map(async name => row(await context.snapshots.readJson(join(root, name)))));
+        } catch {
+            throw new RpcError('invalid_params', 'the review job has no accepted report', { details: { job } });
+        }
+        if (identity.campaign !== campaign.id || number(identity.turn) !== turn || request.role !== 'audit'
+            || string(row(request.input).text) !== string(record.text))
+            throw new RpcError('invalid_params', 'the review job did not read this delivery', { details: { job, turn } });
+        rows = continuityRows(accepted, string(record.rendered_text || ''));
+        review = { mode, reviewed: true, verdict: acceptedVerdict(accepted), job, warnings: rows.length, at: nowIso() };
+    } else {
+        const cause = row(unreviewed);
+        review = { mode, reviewed: false, cause: chars(string(cause.cause), 200), service: cause.service !== false, warnings: 0, at: nowIso() };
+    }
+    if (rows.length) record.warnings = [...array(record.warnings), ...rows];
+    record.continuity_review = review;
+    await campaign.writeTurnRecord(record);
+    await campaign.telemetry({ lane: CONTINUITY_LANE, event: 'recorded', turn, mode, reviewed: review.reviewed, verdict: review.verdict ?? null, warnings: rows.length });
+    return { turn, lane: CONTINUITY_LANE, accepted: rows.length, dropped: [], continuity_review: review };
+}
+async function warn(context: KernelContext, loaded: { campaign: CampaignWriter; module: { graph: ModuleGraph } }, params: Row): Promise<Row> {
     const { campaign, module } = loaded;
     const turn = params.turn, lane = params.lane, findings = params.findings;
     if (!integer(turn) || number(turn) < 0)
         throw new RpcError('invalid_params', 'params.turn must be a committed turn number');
+    if (lane === CONTINUITY_LANE)
+        return warnContinuity(context, campaign, params);
     if (lane !== 'verifier')
-        unsupported('lane', lane, ['verifier'], `unknown lane ${repr(lane)}`);
+        unsupported('lane', lane, ['verifier', CONTINUITY_LANE], `unknown lane ${repr(lane)}`);
     if (!Array.isArray(findings))
         throw new RpcError('invalid_params', 'params.findings must be a list');
     const record = await campaign.readTurnRecord(number(turn));
@@ -108,7 +183,7 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
             if (!integer(params.turn) || number(params.turn) < 0) throw new RpcError('invalid_params', 'params.turn must be a committed turn number');
             return referencedSource(await writer.campaign(params), number(params.turn));
         },
-        'table.warn': async (params) => warn(await load(params), params),
+        'table.warn': async (params) => warn(context, await load(params), params),
         'memory.job': async (params) => {
             const { campaign, snapshot, module } = await load(params);
             if (params.mode != null && params.mode !== 'referenced') throw new RpcError('invalid_params', 'Unknown memory job protocol');

@@ -121,7 +121,7 @@ export default function npcExtension(pi:ExtensionAPI):void {
                     if(!id||attempted.has(attempt))continue;
                     if(kind==='responses')refreshRequested.delete(name);
                     attempted.add(attempt);
-                    const draft=object(await authorNpc({runtime:host,jobId:id,model:`${model.model.provider}/${model.model.id}`,
+                    const draft=object(await authorNpc({runtime:host,jobId:id,model:`${model.model.provider}/${model.model.id}`,pinned:model.source==='operator',
                         instruction:String(packet.instruction??''),input:{npc:packet.npc},signal}));
                     if(scheduler.stopped||signal.aborted||scheduler.bridge!==bridge)return;
                     await bridge.call(kind==='personality'?'npc.submit':'npc.responses.submit',{campaign:job.campaign,job_id:id,claim,[kind]:draft[kind]});

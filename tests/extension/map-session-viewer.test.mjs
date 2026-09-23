@@ -45,10 +45,22 @@ function createReact() {
 		cursor = 0;
 		tree = Card({ details });
 	}
+	/** The turn's trailing mechanics folds start shut; the player opens them by their own toggles to reach the map. */
+	function openSlip() {
+		const toggles = [];
+		(function walk(node) {
+			if (!node || typeof node !== "object") return;
+			if (node.type === "button" && node.props?.["aria-controls"] && node.props?.["aria-expanded"] === false) toggles.push(node);
+			const value = node.props?.children;
+			for (const child of Array.isArray(value) ? value.flat(Infinity) : [value]) walk(child);
+		})(tree);
+		for (const toggle of toggles) toggle.props.onClick();
+	}
 	return {
 		render(next) {
 			details = next;
 			refresh();
+			openSlip();
 			return tree;
 		},
 		get tree() { return tree; },
@@ -135,7 +147,7 @@ test("floor controls list only known levels and never dump the leftover levels a
 	const body = texts(tree);
 	assert.equal(body.includes("Secret attic"), false);
 	assert.equal(body.includes("/tmp/private-attic.png"), false);
-	const buttons = collect(tree, node => node.type === "button");
+	const buttons = collect(tree, node => node.type === "button" && "aria-pressed" in node.props);
 	assert.deepEqual(buttons.map(node => node.props.title), ["Ground", "Roof"]);
 	assert.equal(buttons.some(node => String(node.props.title).includes("Secret")), false);
 });

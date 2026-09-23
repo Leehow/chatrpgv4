@@ -7,6 +7,7 @@ import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {createHash} from 'node:crypto';
+import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
 
 const root=resolve(import.meta.dirname,'../..');
 await mkdir(join(root,'.tmp'),{recursive:true});
@@ -151,7 +152,9 @@ test('completed initial groups survive a sibling semantic timeout with explicit 
     record:event=>events.push(event),suppliedMessages:[{role:'user',content:capsule.turn.player_text}],byteBudget:8192,call:async()=>view});
   assert(result,JSON.stringify(events));const content=JSON.parse(result.content);
   assert(content.materials.some(row=>row.content==='Exact evidence 0.'));
-  assert(content.gaps.some(row=>row.reason==='loop_timeout'&&row.label==='Evidence 16'));
+  // Both independently necessary reads share the first round now that no decision is spent opening index groups.
+  assert(content.materials.some(row=>row.content==='Exact evidence 16.'));
+  assert(content.gaps.some(row=>row.reason==='loop_timeout'&&row.label==='Evidence 1'),'unread candidates stay explicit unknown gaps');
   assert.equal(content.retrieval.stop_reason,'timeout');
 });
 
@@ -190,7 +193,8 @@ test('complete bound catalog content is reused without a duplicate materializati
   const result=await api.preparePrescreen({campaign:'c1',binding,capsule,decision,signal:new AbortController().signal,record:()=>{},
     suppliedMessages:[],byteBudget:8192,call:async(method,params)=>{calls.push(method==='table.workspace.read'?params.preselect?.mode:method);return view;}});
   assert.equal(JSON.parse(result.content).materials[0].content,'Complete bound text.');
-  assert.deepEqual(calls,['catalog','table.resolve.options','check'],'reuse retains the final owner check');
+  // The query-independent index read precedes discovery (§124.10); an index this fixture cannot supply only skips the locate.
+  assert.deepEqual(calls,['index','catalog','table.resolve.options','check'],'reuse retains the final owner check');
 });
 
 test('host parallel NPC reads retain issued packing order and use one combined decision round',async()=>{
@@ -401,6 +405,7 @@ test('outer deadline still blocks publication when final owner validation cannot
 });
 
 test('real committed memory owner reaches provider payload without private refs or commit hashes',async t=>{
+  await mkdir(join(root,'.coc'),{recursive:true});
   const home=await mkdtemp(join(root,'.coc/prescreen-memory-owner-')),kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),
     seed:'prescreen-memory-owner',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);
   t.after(async()=>{await runtime.close();await rm(home,{recursive:true,force:true});});
@@ -521,7 +526,7 @@ test('first eligible context arms one allowance after delayed mandatory work and
   Date.now=actualNow;const packet=first.messages.find(message=>message.customType===api.PRESCREEN_TYPE);assert(packet,JSON.stringify(events));
   await hooks.get('before_provider_request')({type:'before_provider_request',payload:{input:api.convertToLlm(first.messages)}},{});
   assert.equal(events.findLast(event=>event.lane==='prescreen'&&event.event==='delivered')?.delivered,true);
-  const firstDecisions=decisions;bus.get('coc:source-published')({campaign:'c1'});Date.now=()=>actualNow()+14000;
+  const firstDecisions=decisions;bus.get('coc:source-published')({campaign:'c1'});Date.now=()=>actualNow()+7000+PRESELECT_ALLOWANCE_DEFAULT_MS+1000;
   const second=await hooks.get('context')({messages,type:'context'},ctx);Date.now=actualNow;
   assert(!second.messages.some(message=>message.customType===api.PRESCREEN_TYPE));assert.equal(decisions,firstDecisions);
   assert.equal(events.filter(event=>event.lane==='prescreen'&&event.event==='allowance_started').length,1);
@@ -592,7 +597,7 @@ test('unchanged graph material survives while volatile memory is dropped for ref
   const firstDecisions=decisions;
   await hooks.get('tool_call')({toolName:'apply',toolCallId:'effect',input:{effects:[]}});hp=7;
   await hooks.get('tool_result')({toolName:'apply',toolCallId:'effect',isError:true,details:{}});
-  const actualNow=Date.now;Date.now=()=>actualNow()+7000;t.after(()=>{Date.now=actualNow;});
+  const actualNow=Date.now;Date.now=()=>actualNow()+PRESELECT_ALLOWANCE_DEFAULT_MS+1000;t.after(()=>{Date.now=actualNow;});
   const second=await hooks.get('context')({messages:first.messages,type:'context'},ctx);Date.now=actualNow;
   const secondPacket=JSON.parse(second.messages.find(message=>message.customType===api.PRESCREEN_TYPE).content);
   assert(secondPacket.materials.some(material=>material.content==='Stable authored archive material.'));

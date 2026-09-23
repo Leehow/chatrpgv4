@@ -2,7 +2,7 @@
 import { RpcError } from '../errors.js';
 import { jsonDigest } from '../json.js';
 import { findNamedObject } from '../read/mods.js';
-import { queuedRegistrations } from './queue.js';
+import { queuedDefinition, queuedRegistrations } from './queue.js';
 import { clone, equal, integer, repr, row, string, truth, values, type Row } from '../read/values.js';
 import { asciiSlug } from '../write/text.js';
 import { validateDefinition } from './definition.js';
@@ -18,6 +18,7 @@ export function objectRegistry(world: Row): Row {
 export function objectInstance(world: Row, name: any): Row | null { return findNamedObject(row(row(world.objects).instances), name) ?? null; }
 export function defineObject(world: Row, draft: Row, provenance: Row): Row {
     const value = validateDefinition(draft), definitions = objectRegistry(world).definitions, digest = jsonDigest(value), prior = findNamedObject(definitions, value.name);
+    if (prior?.placeholder === true) return completePlaceholder(world, prior, value, digest, provenance);
     if (prior) {
         if (prior.digest !== digest) throw new RpcError('invalid_params', 'An established definition cannot be regenerated with different parameters',
             {fix: `${repr(value.name)} is already defined as ${string(prior.category)}: keep it as it is, or define the different thing under its own name. To make something already in hand strike, apply item with its name and a rules-table profile in weapon`,
@@ -26,6 +27,43 @@ export function defineObject(world: Row, draft: Row, provenance: Row): Row {
     }
     const id = `definition-${asciiSlug(value.name) || 'object'}-${Object.keys(definitions).length + 1}`;
     const definition = {...value, id, version: 1, digest, provenance: clone(provenance)}; definitions[id] = definition; return definition;
+}
+/**
+ * Contract §129.4. A definition whose parameters are still being generated beside the turn, standing in
+ * for it so that a placement can mint its instance now. Nothing is invented: it carries the Keeper's own
+ * name, category and request wording (Keeper material, like every definition's `description`), no
+ * parameters, no traits, and a player view that shows nothing -- the card draws it pending. It is made
+ * only when a placement asks for a name that is queued, so a batch that places nothing still writes no
+ * definition at all. A spell is never placed, so it never gets one.
+ */
+export function isPlaceholder(definition: any): boolean { return row(definition).placeholder === true; }
+function placeholderDefinition(world: Row, entry: Row): Row {
+    const definitions = objectRegistry(world).definitions, name = string(entry.name), define = row(entry.define);
+    const base = {name, category: string(entry.category), description: typeof define.description === 'string' ? define.description : '',
+        parameters: {}, traits: [], player_view: {description: '', fields: []}};
+    const id = `definition-${asciiSlug(name) || 'object'}-${Object.keys(definitions).length + 1}`;
+    const definition = {...base, id, version: 0, digest: jsonDigest(base), provenance: {job: string(entry.job)}, placeholder: true};
+    definitions[id] = definition; return definition;
+}
+/**
+ * The generated definition takes the placeholder's place under the same id, so every instance minted
+ * against it keeps its identity and its owner. What a placement would have read from the definition and
+ * could not -- initial ammunition, charges, a document -- is filled in now, only where the instance still
+ * holds nothing of its own.
+ */
+function completePlaceholder(world: Row, prior: Row, value: Row, digest: string, provenance: Row): Row {
+    if (prior.category !== value.category) throw new RpcError('invalid_params', 'A queued definition cannot change its category');
+    const data = objectRegistry(world), params = row(value.parameters);
+    const definition: Row = {...value, id: prior.id, version: 1, digest, provenance: clone(provenance)}; data.definitions[prior.id] = definition;
+    let documented = false;
+    for (const item of values(row(data.instances))) {
+        if (item.definition !== prior.id) continue;
+        if (item.state.ammo == null) item.state.ammo = Object.hasOwn(params, 'initial_ammo') ? params.initial_ammo : params.magazine ?? null;
+        if (item.state.charges == null) item.state.charges = params.charges ?? null;
+        if (Object.hasOwn(definition, 'document') && item.document == null) { initializeDocument(item, clone(definition.document)); documented = true; }
+    }
+    if (documented) ownershipChanged(world);
+    return definition;
 }
 /**
  * A container may not end up inside itself, nor inside anything it holds.
@@ -65,7 +103,13 @@ export function moveObject(world: Row, name: string, definitionName: string | nu
     // and cost something real -- Knott hands you the keys, the Keeper is made to drop him, and the receipt
     // records a handover with from:null. The giver rides on the receipt instead. Adoption still refuses a
     // giver, because enriching gear already carried is not something anybody hands over.
-    const template = findNamedObject(data.definitions, definitionName || name);
+    let template = findNamedObject(data.definitions, definitionName || name);
+    // §129.4: a name defined in this batch (or an earlier one) whose parameters are still being generated
+    // resolves to a placeholder, and the next resume replaces it under the same id.
+    if (!template) {
+        const waiting = queuedDefinition(world, definitionName || name);
+        if (waiting && waiting.category !== 'spell') template = placeholderDefinition(world, waiting);
+    }
     // One message for two causes sent the Keeper looking at spells when the definition was simply absent.
     // Naming the miss is still not enough on its own. A Keeper that defines a notebook and places an
     // instance named after its owner, without `definition`, is told to define what it just defined -- so

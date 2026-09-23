@@ -25,7 +25,6 @@ const SETTINGS_NAV_HINTS: Record<string, string> = {
   updates: '运行时版本',
   'image-model': '头像与插图',
   'coc-difficulty': '角色创建与倍率',
-  'coc-lane-model': '后台车道与审查',
   rerank: '供应商与模型',
   jev: 'Shared authentication',
 }
@@ -257,7 +256,7 @@ export function ModelVisibilityModal({ host, productName, visibility, updates, c
                   }}
                 >
                   <span className="model-modal-tab-label">{section.label}</span>
-                  <span className="model-modal-tab-hint">{SETTINGS_NAV_HINTS[section.id] ?? '相关设置'}</span>
+                  <span className="model-modal-tab-hint">{section.hint || SETTINGS_NAV_HINTS[section.id] || '相关设置'}</span>
                 </button>
                 {section.id === 'extensions' && (
                   <div ref={setExtensionsSubnavSlot} className="extensions-subnav-slot" data-testid="extensions-subnav-slot" />

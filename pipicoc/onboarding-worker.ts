@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { readFile, readdir } from 'node:fs/promises';
 import { KernelError, isKernelError } from '../extensions/kernel/client.ts';
 import { composeRuntimeContext, createRuntime, type HostRuntime, type RuntimeContext } from '../runtime/host.ts';
+import { presentationLaneChoice } from '../runtime/tasks.ts';
 import { ReadingService } from '../extensions/module/reading-service.ts';
 import type { ReaderRequest } from '../extensions/module/reader.ts';
 import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from '../extensions/module/character-guidance.ts';
@@ -89,6 +90,12 @@ async function starterCatalog(playLanguage?: string) {
   return rows.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id)).map(({order, ...row}) => row);
 }
 async function main() {
+  // A presentation lane runs on the lane setting (contract §23.1): the caller's model is only the
+  // fallback the host's cold path also falls back to, never a way to pick one by hand.
+  if (action === 'presentation' || action === 'document-presentation') {
+    const {model, thinking} = await presentationLaneChoice(context, input);
+    input = {...input, model, thinking};
+  }
   if (action === 'document-presentation') {
     const document = await call('mods.document.view', {campaign:input.campaign, actor:input.actor, name:input.name});
     if (document.version !== input.version) throw Object.assign(new Error('The document changed; reload before saving'), {code:'revision_conflict'});

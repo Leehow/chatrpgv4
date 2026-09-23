@@ -220,12 +220,26 @@ def admission(rows: list[dict[str, Any]]) -> dict[str, Any]:
     unavailable: dict[str, int] = {}
     reviewed = reused = skipped = 0
     ms: list[int] = []
+    # Contract §32.10: which reviewer decided each live review, and why the typed route fell back.
+    # Only rows that name a reviewer are counted here, so older runs read exactly as before.
+    by_reviewer: dict[str, dict[str, Any]] = {}
     for row in rows:
         if row.get("lane") != "admission":
             continue
         if row.get("skipped"):
             skipped += 1
             continue
+        reviewer = row.get("reviewer") if not row.get("reused") else None
+        if isinstance(reviewer, str):
+            entry = by_reviewer.setdefault(reviewer, {"reviews": 0, "unavailable": 0, "ms": [], "fallbacks": {}})
+            entry["reviews"] += 1
+            if row.get("ok") is False:
+                entry["unavailable"] += 1
+            if isinstance(row.get("ms"), (int, float)):
+                entry["ms"].append(int(row["ms"]))
+            fallback = row.get("jev_fallback")
+            if isinstance(fallback, str):
+                entry["fallbacks"][fallback] = entry["fallbacks"].get(fallback, 0) + 1
         if row.get("ok") is False:
             reason = str(row.get("reason", "unknown"))
             unavailable[reason] = unavailable.get(reason, 0) + 1
@@ -240,11 +254,19 @@ def admission(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 ms.append(int(row["ms"]))
     if not (reviewed or reused or skipped or unavailable):
         return {}
-    return {"reviews": reviewed, "reused": reused, "skipped": skipped,
-            "verdicts": dict(sorted(verdicts.items())),
-            "unavailable": dict(sorted(unavailable.items())),
-            "review_ms": {"total": sum(ms), "max": max(ms) if ms else 0,
-                          "mean": round(sum(ms) / len(ms)) if ms else 0}}
+    section: dict[str, Any] = {"reviews": reviewed, "reused": reused, "skipped": skipped,
+                               "verdicts": dict(sorted(verdicts.items())),
+                               "unavailable": dict(sorted(unavailable.items())),
+                               "review_ms": {"total": sum(ms), "max": max(ms) if ms else 0,
+                                             "mean": round(sum(ms) / len(ms)) if ms else 0}}
+    if by_reviewer:
+        section["by_reviewer"] = {
+            name: {"reviews": entry["reviews"], "unavailable": entry["unavailable"],
+                   "fallbacks": dict(sorted(entry["fallbacks"].items())),
+                   "ms": {"total": sum(entry["ms"]), "max": max(entry["ms"]) if entry["ms"] else 0,
+                          "mean": round(sum(entry["ms"]) / len(entry["ms"])) if entry["ms"] else 0}}
+            for name, entry in sorted(by_reviewer.items())}
+    return section
 
 
 def skills(rows: list[dict[str, Any]], turns: tuple[int, int] | None = None,

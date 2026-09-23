@@ -11,7 +11,7 @@ import {stagedSheet,stagePendingItemIdentity} from '../apply/inventory.js';
 import { required } from '../write/store.js';
 import { validateDefinition } from './definition.js';
 import { initializeDocument, ownershipChanged, writeDocument } from './documents.js';
-import { defineObject, moveObject, objectInstance, objectRegistry } from './objects.js';
+import { defineObject, isPlaceholder, moveObject, objectInstance, objectRegistry } from './objects.js';
 import { objectTransferReceipt, ownerLabel } from './object-transfer.js';
 import { clearOffer, openOffer, recordOffer, receiptsOf, validateDisposition, validateHandover } from './object-offer.js';
 import { divideObject, validateDivision } from './object-division.js';
@@ -73,11 +73,14 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         if (!packageRow || packageRow.digest !== provenance.digest || !truth(packageRow.contributes.materializer)) throw new RpcError('invalid_params', 'Definition provenance is not an active materializer');
         const accepted = await jobs.accept({campaign: campaign.id, job: provenance.job});
         if (canonicalJson(accepted.definition ?? null) !== canonicalJson(draft)) throw new RpcError('invalid_params', 'Definition differs from the accepted Mod job');
+        // §129.4: a placement already minted its instance against a placeholder; this replaces it in place.
+        const replaced = isPlaceholder(findNamedObject(objectRegistry(world).definitions, draft.name));
         const value = defineObject(world, draft, provenance);
         // The registration this definition was queued for is now real, so its marker stops standing in
         // for it -- otherwise the row would stay hidden from the audit that is supposed to notice gaps.
         clearRegistration(world, packageRow.id, string(value.name), string(value.category));
-        return {receipt: {id: mint(`definition:${callId}`), kind: 'definition', name: value.name, category: value.category, definition: value.id, visibility: 'keeper', call_id: callId},
+        return {receipt: {id: mint(`definition:${callId}`), kind: 'definition', name: value.name, category: value.category, definition: value.id, visibility: 'keeper', call_id: callId,
+                ...(replaced ? {replaced_placeholder: true} : {})},
             event: {type: 'definition-created', data: {name: value.name, category: value.category}}};
     }
     if (kind === 'dossier') {
@@ -180,8 +183,9 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                     throw new RpcError('invalid_params', 'Adopt needs an existing investigator equipment name, without from or an existing instance');
                 if (!queueAdoption(world, string(waiting.name), string(waiting.category), {...effect}))
                     throw new RpcError('invalid_params', 'The queued definition for this adoption is no longer registered');
+                // §129: the definition its job is producing is what the card waiting on this row is opened by.
                 return {receipt: {id: mint(`definition:queued-adopt-${callId}`), kind: 'definition', name, category: waiting.category,
-                    queued: true, adopted: effect.adopt, subject: owner.id, visibility: 'keeper', call_id: callId},
+                    queued: true, adopted: effect.adopt, definition_name: string(waiting.name), subject: owner.id, visibility: 'keeper', call_id: callId},
                     event: {type: 'definition-queued', data: {name: string(waiting.name), category: string(waiting.category)}}};
             }
         }
@@ -246,8 +250,9 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 if (value !== null && (!integer(value) || value < 0)) throw new RpcError('invalid_params', 'Recorded ammunition and charges must be nonnegative integers or null');
                 item.state[key] = value;
             }
+            // §129: a resume replaying an adoption a card already named pending says so, so the card is not drawn twice.
             return {receipt: {id: mint(`definition:adopt-${callId}`), kind: 'definition', name, category: definition.category, definition: definition.id,
-                instance: item.id, adopted: effect.adopt, subject: owner.id, visibility: 'keeper', call_id: callId},
+                instance: item.id, adopted: effect.adopt, subject: owner.id, visibility: 'keeper', call_id: callId, ...(effect._resumed === true ? {resumed: true} : {})},
                 event: {type: 'resource-changed', data: {resource: 'equipment_representation', subject: owner.id, item: name}}};
         }
         if (!division && prior && Object.hasOwn(effect, 'document')) return {receipt: {id: mint(`definition:document-${callId}`), kind: 'definition', name, document_changed: true, visibility: 'keeper', call_id: callId},

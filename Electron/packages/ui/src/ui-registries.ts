@@ -102,6 +102,8 @@ export type SettingsSectionContext = {
 export type SettingsSectionContribution = {
   id: string
   label: string
+  /** The line under the label in the settings nav, when the section names its own (else the host's hint). */
+  hint?: string
   title: string | ((ctx: SettingsSectionContext) => string)
   description: string | ((ctx: SettingsSectionContext) => string)
   onActivate?: (ctx: Pick<SettingsSectionContext, 'setView' | 'setExtensionsAddOpen'>) => void

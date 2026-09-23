@@ -1,9 +1,10 @@
 /** Pinned audit occurrences. Reviewers select aliases; only the host owns coordinates. */
 import {createHash} from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
 import {issueSourceRef, resolveSourceRef, splitSourceText, type SourceSnapshot} from '../../runtime/jev/source-ref.ts';
 import {type ScopeBinding, type SourceRef} from '../../runtime/jev/value-contracts.ts';
 import {speechPass} from '../write/speech-pass.ts';
-import type {AuditIssue} from './audit-result.js';
+import {continuityArtifactErrors, normalizeContinuityArtifact, type AuditIssue} from './audit-result.ts';
 
 type Row = Record<string, any>;
 const record = (v: any): v is Row => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -128,13 +129,58 @@ export function buildAuditReferences(request: Row, files: Row, scope: ScopeBindi
     return {sources,speechTexts:speech.map(line => line.text),resolve};
 }
 
-/** Strict shape translation preserves every adverse semantic row, or rejects the whole artifact. */
-export function materializeAuditReferences(value: any, catalog: AuditReferenceCatalog): {value?: Row; errors:AuditIssue[]} {
-    const errors: AuditIssue[] = [], add = (path:string,message:string) => errors.push({path,message});
-    const shape = (v:any, keys:string[], path:string): v is Row => {
+/**
+ * Schema 2 keeps the canonical v1 placement (contract T14, §130.8): every subreview is a field of
+ * `continuity_review`, never a sibling of it. The same sentence is the reviewer prompt, the
+ * `submit_audit` description and the package instructions, so the three cannot drift apart.
+ */
+export const AUDIT_TOP_LEVEL = Object.freeze(['schema','missing','findings','continuity_review']);
+export const AUDIT_SUBREVIEWS = Object.freeze(['intelligibility_review','player_address_review','speech_review','outcome_review','location_review','locus_review','reentry_review']);
+export const AUDIT_SUBREVIEW_PLACEMENT = `Nest every required subreview (${AUDIT_SUBREVIEWS.join(', ')}) inside continuity_review, beside verdict, summary and conflicts; the top level holds only ${AUDIT_TOP_LEVEL.slice(0,-1).join(', ')} and ${AUDIT_TOP_LEVEL.at(-1)}.`;
+// Closed schema renames: the v1 copied field and the schema 2 selector that replaces it in the same object.
+const V1_SELECTORS: Record<string,string> = {quote:'source',claim:'claim_source',evidence:'evidence_sources',claims:'claim_sources',
+    locus:'locus_source',current_scene:'current_scene_source',asserted_elsewhere:'asserted_elsewhere_sources',name:'subject',
+    clue:'evidence_source',relation:'evidence_source'};
+
+/**
+ * A subreview submitted beside `continuity_review` is moved to its schema 2 place, not refused: the
+ * placement is not part of the review's content (§130.8). A copy that equals the one already nested is
+ * dropped; a copy that differs is the only placement error, because choosing between them would be judging.
+ */
+export function placeAuditSubreviews(value: any): {value: any; errors: AuditIssue[]} {
+    if (!record(value) || !record(value.continuity_review)) return {value,errors:[]};
+    const stray = AUDIT_SUBREVIEWS.filter(key => Object.hasOwn(value,key));
+    if (!stray.length) return {value,errors:[]};
+    const top: Row = {...value}, review: Row = {...value.continuity_review}, errors: AuditIssue[] = [];
+    for (const key of stray) {
+        const copy = top[key]; delete top[key];
+        if (!Object.hasOwn(review,key)) review[key] = copy;
+        else if (!isDeepStrictEqual(review[key],copy)) errors.push({path:`/${key}`,
+            message:`Schema 2 places ${key} at /continuity_review/${key}, which already holds a different ${key}; submit it once, only there`});
+    }
+    top.continuity_review = review;
+    return {value:top,errors};
+}
+
+/**
+ * Strict shape translation preserves every adverse semantic row, or rejects the whole artifact. When the
+ * top level and `continuity_review` are objects, `partial` is the best-effort canonical translation even
+ * if some selector failed, so the content rules can still be checked in the same refusal (§130.9).
+ */
+export function materializeAuditReferences(submitted: any, catalog: AuditReferenceCatalog): {value?: Row; partial?: Row; errors:AuditIssue[]} {
+    const placed = placeAuditSubreviews(submitted), value = placed.value;
+    const errors: AuditIssue[] = [...placed.errors], add = (path:string,message:string) => errors.push({path,message});
+    // Every refusal names where the field belongs, so the one targeted repair has something to act on.
+    const unexpected = (key:string, keys:readonly string[], path:string) => {
+        if (AUDIT_SUBREVIEWS.includes(key) && path !== '/continuity_review') return `Unexpected field; schema 2 places ${key} at /continuity_review/${key}`;
+        const selector = V1_SELECTORS[key];
+        if (selector && keys.includes(selector)) return `Copied v1 field is not permitted in schema 2; select an issued alias in ${path}/${selector} instead`;
+        return `Unexpected field; schema 2 expects only ${keys.join(', ')} at ${path || 'the top level'}`;
+    };
+    const shape = (v:any, keys:string[], path:string, allowed:readonly string[] = keys): v is Row => {
         if (!record(v)) {add(path,'Expected an object'); return false;}
         for (const key of keys) if (!Object.hasOwn(v,key)) add(`${path}/${key}`,'Required selector field is missing');
-        for (const key of Object.keys(v)) if (!keys.includes(key)) add(`${path}/${key}`,'Unexpected field; copied v1 fields are not permitted in schema 2');
+        for (const key of Object.keys(v)) if (!keys.includes(key)) add(`${path}/${key}`,unexpected(key,allowed,path));
         return true;
     };
     const select = (alias:any,families:string[],path:string,field='text',nullable=false): any => {
@@ -150,7 +196,7 @@ export function materializeAuditReferences(value: any, catalog: AuditReferenceCa
         const seen = new Set();
         return list(values,path,(v,p) => {if (seen.has(v)) add(p,'Duplicate occurrence selection'); seen.add(v); return select(v,families,p,field);},max);
     };
-    if (!shape(value,['schema','missing','findings','continuity_review'],'')) return {errors};
+    if (!shape(value,[...AUDIT_TOP_LEVEL],'')) return {errors};
     if (value.schema !== 2) add('/schema','Expected schema 2');
     const missingSeen = new Set();
     const output: Row = {missing:list(value.missing,'/missing',(v,p) => {
@@ -161,8 +207,8 @@ export function materializeAuditReferences(value: any, catalog: AuditReferenceCa
         return {name:selected,category:v.category,reason:v.reason};
     },16),findings:value.findings};
     const review = value.continuity_review, path='/continuity_review';
-    const optional = ['intelligibility_review','player_address_review','speech_review','outcome_review','location_review','locus_review','reentry_review'];
-    if (!shape(review,['verdict','summary','conflicts',...optional.filter(key => Object.hasOwn(review ?? {},key))],path)) return {errors};
+    if (!shape(review,['verdict','summary','conflicts',...AUDIT_SUBREVIEWS.filter(key => Object.hasOwn(review ?? {},key))],path,
+        ['verdict','summary','conflicts',...AUDIT_SUBREVIEWS])) return {errors};
     const conflictSeen = new Set();
     const result:Row = {verdict:review.verdict,summary:review.summary,conflicts:list(review.conflicts,`${path}/conflicts`,(v,p) => {
         if (!shape(v,['claim_source','reason','evidence_sources'],p)) return v;
@@ -215,7 +261,51 @@ export function materializeAuditReferences(value: any, catalog: AuditReferenceCa
         }
     }
     output.continuity_review=result;
-    return errors.length ? {errors} : {value:output,errors};
+    return errors.length ? {errors,partial:output} : {value:output,partial:output,errors};
+}
+
+const segments = (path: string) => path.split('/').slice(1);
+/** Path order, with array indices compared as numbers, so `/lines/2` precedes `/lines/10`. */
+function comparePaths(a: string, b: string): number {
+    const x = segments(a), y = segments(b);
+    for (let i = 0; i < Math.min(x.length,y.length); i++) {
+        if (x[i] === y[i]) continue;
+        const m = /^\d+$/.test(x[i]), n = /^\d+$/.test(y[i]);
+        if (m && n) return Number(x[i]) - Number(y[i]);
+        return x[i] < y[i] ? -1 : 1;
+    }
+    return x.length - y.length;
+}
+const covers = (outer: string, inner: string) => inner === outer || inner.startsWith(`${outer}/`);
+
+/**
+ * Every refusal the one targeted repair needs, in one list (§130.9): placement is normalized first, then
+ * the remaining shape/selector errors and the shared content rules are reported together, ordered by
+ * path. A content error at or under a path that already has a shape error is the same fault seen twice
+ * (a failed selector materializes as null) and is left out. `result` is the submission after the one
+ * verdict canonicalization submit_audit has always applied; `checked` is its accepted form when clean.
+ */
+export function auditArtifactIssues(submitted: any, request: Row, files: Row, catalog: AuditReferenceCatalog):
+    {errors: AuditIssue[]; result: any; checked?: Row} {
+    let result = submitted, materialized = materializeAuditReferences(result, catalog);
+    if (materialized.partial) {
+        const normalized = normalizeContinuityArtifact(materialized.partial, files);
+        const verdict = normalized.continuity_review?.verdict;
+        if (verdict !== materialized.partial.continuity_review?.verdict && record(result?.continuity_review)) {
+            result = {...result, continuity_review: {...result.continuity_review, verdict}};
+            materialized = materializeAuditReferences(result, catalog);
+        }
+    }
+    const shapeErrors = materialized.errors;
+    const content = materialized.partial ? auditReferenceIssues(continuityArtifactErrors(normalizeContinuityArtifact(materialized.partial, files),
+        typeof request.input?.text === 'string' ? request.input.text : '', files, catalog.speechTexts)) : [];
+    const seen = new Set<string>(), errors: AuditIssue[] = [];
+    for (const issue of [...shapeErrors, ...content.filter(issue => !shapeErrors.some(shape => covers(shape.path, issue.path)))]) {
+        const key = `${issue.path}\0${issue.message}`;
+        if (!seen.has(key)) { seen.add(key); errors.push(issue); }
+    }
+    errors.sort((a, b) => comparePaths(a.path, b.path));
+    return {errors, result, ...(errors.length ? {} : {checked: materialized.value})};
 }
 
 /** Error paths follow the model's selector schema, while semantic validation stays shared. */

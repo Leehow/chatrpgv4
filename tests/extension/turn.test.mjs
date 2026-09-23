@@ -758,6 +758,110 @@ test("有人在场、草稿里没有 say 记号：宿主催一次 speech，第�
 	assert.equal(rows[0].present, 1);
 });
 
+/**
+ * §128.2 (real table `game-21ac44b7` turn 1, 2026-09-22): the Keeper wrapped the investigator's line
+ * and left Knott's two replies in the same 「」 outside any token. The draft carried `{{say:`, so the
+ * §40 steer never looked, and the player read Knott as narration. The marks are learned from the
+ * draft's own wrapped line; nothing decides who spoke.
+ */
+test("草稿包了一句、同样引号的另一句漏在记号外：宿主催一次 speech，点出漏掉的那句", async (t) => {
+	const partial = "你开口。{{say:沈默}}「接。那房子出过什么事？」{{/say}}\n\n诺特的手指停住。「马卡里奥一家，连夜搬走。」他把钥匙推过来。";
+	const wrapped = "你开口。{{say:沈默}}「接。那房子出过什么事？」{{/say}}\n\n诺特的手指停住。{{say:看门人}}「马卡里奥一家，连夜搬走。」{{/say}}他把钥匙推过来。";
+	const table = await openTable({
+		responses: [
+			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "问房子", method: "交谈", skill: "Psychology" } })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(partial),
+			fauxAssistantMessage(wrapped),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我接下这活，问房子出过什么事");
+	await waitForIdle(table.session);
+
+	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech");
+	assert.equal(steers.length, 1, "one speech steer, no more");
+	assert.match(steers[0].content, /outside every say token/);
+	assert.ok(steers[0].content.includes("「马卡里奥一家，连夜搬走。」"), "the passage left outside is named back to the Keeper");
+	assert.ok(!steers[0].content.includes("「接。那房子"), "the wrapped line is not reported");
+	assert.match(steers[0].content, /not a line: leave it as it is/, "a quoted word is left to the Keeper's judgement");
+	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
+	assert.deepEqual(narrates.map((entry) => entry.params.text), [wrapped], "the partial draft never reached the kernel");
+	assert.ok(!assistantTexts(table.session).includes(partial), "the dropped draft is not in the transcript");
+	const rows = table.telemetry().filter((row) => row.lane === "speech" && row.steered);
+	assert.equal(rows.length, 1);
+	assert.equal(rows[0].reason, "unwrapped_quote");
+	assert.equal(rows[0].unwrapped, 1);
+});
+
+test("say 段里不带引号、记号外也没有同样的引号：不催", async (t) => {
+	// Turn 2 of the same table: the Keeper wrapped Knott and dropped the marks. Nothing to learn,
+	// nothing outside to report, and the draft already carries a token.
+	const prose = "诺特用指节点了两下。{{say:看门人}}先去报社，再去档案厅。{{/say}}他摘下帽子。";
+	const table = await openTable({
+		responses: [
+			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "问去处", method: "交谈", skill: "Psychology" } })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(prose),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("先去哪儿查？");
+	await waitForIdle(table.session);
+
+	assert.deepEqual(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech"), []);
+	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
+	assert.deepEqual(narrates.map((entry) => entry.params.text), [prose]);
+});
+
+test("上一回合交付过带「」的台词：这一回合记号外的「」也会被点出", async (t) => {
+	// The pair is learned from what the table already delivered (`speech[].text`), so a draft whose own
+	// span carries no marks is still read against them.
+	const first = "{{say:看门人}}「钥匙在这儿。」{{/say}}";
+	const second = "他摘下帽子。{{say:看门人}}先去报社。{{/say}}「别急着进门。」他补了一句。";
+	const fixed = "他摘下帽子。{{say:看门人}}先去报社。{{/say}}{{say:看门人}}「别急着进门。」{{/say}}他补了一句。";
+	const table = await openTable({
+		env: { FAKE_KERNEL_SPEECH: JSON.stringify([{ who: { npc: "gatekeeper", name: "看门人" }, text: "「钥匙在这儿。」" }]) },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("narrate", { text: first })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "问去处", method: "交谈", skill: "Psychology" } })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(second),
+			fauxAssistantMessage(fixed),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("钥匙呢");
+	await waitForIdle(table.session);
+	await table.session.prompt("先去哪儿查？");
+	await waitForIdle(table.session);
+
+	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech");
+	assert.equal(steers.length, 1);
+	assert.ok(steers[0].content.includes("「别急着进门。」"));
+	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
+	assert.deepEqual(narrates.map((entry) => entry.params.text), [first, fixed]);
+});
+
+test("开场草稿包了一句、漏了一句：开场也催这一次", async (t) => {
+	// The opening has no capsule, so present[] is unknown to the host and the no-token steer stays
+	// exempt; a draft that wraps a line shows by itself that someone speaks.
+	const partial = "诺特抬起头。{{say:看门人}}「你来了。」{{/say}}他看了看表。「坐吧。」";
+	const wrapped = "诺特抬起头。{{say:看门人}}「你来了。」{{/say}}他看了看表。{{say:看门人}}「坐吧。」{{/say}}";
+	const table = await openTable({
+		env: { FAKE_KERNEL_OPENING: "1" },
+		responses: [fauxAssistantMessage(partial), fauxAssistantMessage(wrapped)],
+	});
+	t.after(() => table.dispose());
+	await waitForIdle(table.session);
+
+	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech");
+	assert.equal(steers.length, 1, "the opening is steered once");
+	assert.ok(steers[0].content.includes("「坐吧。」"));
+	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
+	assert.deepEqual(narrates.map((entry) => entry.params.text), [wrapped]);
+});
+
 test("碰过工具再写散文不催：一次工具调用就够，被拒的也算", async (t) => {
 	const prose = "门框上有一道深深的抓痕。你退后一步。";
 	const table = await openTable({

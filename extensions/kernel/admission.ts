@@ -20,6 +20,18 @@ import { createHash } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runLane } from "../lanes/subsession.ts";
 import { KernelError } from "./client.ts";
+import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
+import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
+import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
+import { TaskLease } from "../../runtime/jev/task-context.ts";
+import {
+	ADMISSION_JEV_DEFAULT_MIN_CONFIDENCE,
+	ADMISSION_JEV_FAMILY,
+	ADMISSION_JEV_MODEL,
+	admissionJevBindings,
+	runAdmissionJev,
+	type AdmissionJevInput,
+} from "../../runtime/jev/admission-domain.ts";
 
 /** The closed set of verdicts; anything else is `bad_output`. The first three admit, the last two refuse. */
 export const ADMITTING_VERDICTS: ReadonlySet<string> = new Set(["authorized", "entailed", "not_player_action"]);
@@ -43,6 +55,31 @@ export interface AdmissionVerdict {
 	verdict: string;
 	grounds: string;
 	missing?: string;
+	/** Which reviewer gave this verdict (§32.10); absent on verdicts from before the typed route. */
+	reviewer?: AdmissionReviewer;
+}
+
+/**
+ * The primary reviewer (§32.10), `PI_COC_ADMISSION_REVIEWER`. `lane` is the §32.2 completion and
+ * stays the default until live agreement evidence exists; `jev` puts the typed family first and
+ * falls back to the lane for every non-verdict. Read per call: a process loads this once per table.
+ */
+export type AdmissionReviewer = "jev" | "lane";
+export function admissionReviewer(env: NodeJS.ProcessEnv = process.env): AdmissionReviewer {
+	return env.PI_COC_ADMISSION_REVIEWER?.trim() === "jev" ? "jev" : "lane";
+}
+
+/** Cap on the typed attempt, `PI_COC_ADMISSION_JEV_TIMEOUT_MS`; its expiry falls back to the lane, never admits. */
+const DEFAULT_ADMISSION_JEV_TIMEOUT_MS = 4_000;
+export function admissionJevTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+	const value = Number(env.PI_COC_ADMISSION_JEV_TIMEOUT_MS?.trim() || NaN);
+	return Number.isFinite(value) && value > 0 ? value : DEFAULT_ADMISSION_JEV_TIMEOUT_MS;
+}
+
+/** Family minimum verdict confidence, `PI_COC_ADMISSION_JEV_MIN_CONFIDENCE`, in (0, 1]. Uncalibrated policy. */
+export function admissionJevMinConfidence(env: NodeJS.ProcessEnv = process.env): number {
+	const value = Number(env.PI_COC_ADMISSION_JEV_MIN_CONFIDENCE?.trim() || NaN);
+	return Number.isFinite(value) && value > 0 && value <= 1 ? value : ADMISSION_JEV_DEFAULT_MIN_CONFIDENCE;
 }
 
 /** One proposal put to review: the tool, a host-owned reuse key, and the lines the reviewer reads. */
@@ -51,6 +88,8 @@ export interface AdmissionProposal {
 	/** Canonical form of what is proposed, for verdict reuse within a turn; never shown to a model. */
 	key: string;
 	lines: string[];
+	/** An `apply` batch's effect kinds, in order: closed contract enums the typed route reads (§32.10). */
+	kinds?: string[];
 }
 
 /**
@@ -214,7 +253,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const signatures = effects.map(signature).map(canonical);
 		const ordered = effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
 		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [] });
-		return { tool: "apply", key, lines: effects.map(describe) };
+		return { tool: "apply", key, lines: effects.map(describe), kinds: effects.map((effect) => text(effect.kind) ?? "?") };
 	}
 	return null;
 }
@@ -335,6 +374,7 @@ export function admissionRefusal(proposal: AdmissionProposal, verdict: Admission
 			grounds: verdict.grounds,
 			proposed: proposal.lines,
 			tool: proposal.tool,
+			...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}),
 		},
 	});
 }
@@ -359,8 +399,8 @@ export function admissionUnavailable(proposal: AdmissionProposal, reason: string
 }
 
 export type AdmissionOutcome =
-	| { ok: true; verdict: AdmissionVerdict; ms: number; model: string }
-	| { ok: false; reason: string; detail: string; ms: number; model?: string };
+	| { ok: true; verdict: AdmissionVerdict; ms: number; model: string; reviewer?: AdmissionReviewer; meta?: Record<string, unknown> }
+	| { ok: false; reason: string; detail: string; ms: number; model?: string; reviewer?: AdmissionReviewer; meta?: Record<string, unknown> };
 
 export interface AdmissionReviewOptions {
 	providerBudget?: import('../../runtime/jev/provider-budget.ts').TaskProviderBudget;
@@ -386,6 +426,91 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 		timeoutMs: options.timeoutMs ?? admissionTimeoutMs(),
 		shape: shapeVerdict,
 	});
-	if (!lane.ok) return { ok: false, reason: lane.reason, detail: lane.detail, ms: lane.ms, ...(lane.model ? { model: lane.model } : {}) };
-	return { ok: true, verdict: lane.value, ms: lane.ms, model: lane.model };
+	if (!lane.ok) return { ok: false, reason: lane.reason, detail: lane.detail, ms: lane.ms, ...(lane.model ? { model: lane.model } : {}), reviewer: "lane" };
+	return { ok: true, verdict: { ...lane.value, reviewer: "lane" }, ms: lane.ms, model: lane.model, reviewer: "lane" };
+}
+
+/**
+ * `apply` kinds whose line carries a number the player may have limited (§32.2's explicit limits
+ * and undisclosed prices). Jev reads numbers as text (docs.typesafe.ai model-jaggedness, jev-1.13),
+ * so such a batch goes straight to the lane. A closed contract enum, never a reading of prose.
+ */
+const LANE_ONLY_KINDS: ReadonlySet<string> = new Set(["cash"]);
+
+export interface PrimaryAdmissionReviewOptions extends AdmissionReviewOptions {
+	campaign: string;
+	env?: NodeJS.ProcessEnv;
+	/** An explicit port for isolated tests and offline replay; production uses the shared adapter. */
+	decision?: DecisionPort;
+}
+
+/**
+ * The primary review (§32.10). With the lane as reviewer this is `reviewAdmission` unchanged.
+ * With Jev first, one typed batch either returns a verdict at or above the family confidence, or
+ * the lane runs exactly as it does alone -- same prompt, same cap, same budget, same refusal on
+ * failure. Never throws.
+ */
+export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOptions): Promise<AdmissionOutcome> {
+	const env = options.env ?? process.env;
+	if (admissionReviewer(env) !== "jev") return reviewAdmission(options);
+	const began = Date.now();
+	const lane = async (fallback: string, jev: Record<string, unknown>): Promise<AdmissionOutcome> => {
+		const outcome = await reviewAdmission(options);
+		return { ...outcome, ms: Date.now() - began, meta: { ...outcome.meta, jev_fallback: fallback, lane_ms: outcome.ms, ...jev } };
+	};
+	if (options.proposal.kinds?.some((kind) => LANE_ONLY_KINDS.has(kind))) return lane("numeric_commitment", { jev_calls: 0, jev_ms: 0 });
+	const context = options.context;
+	const input: AdmissionJevInput = {
+		campaign: options.campaign,
+		turn: context.turn,
+		tool: options.proposal.tool,
+		proposal: [...options.proposal.lines],
+		playerText: context.playerText,
+		...(context.interruptedPlayerText ? { interruptedPlayerText: context.interruptedPlayerText } : {}),
+		investigators: context.investigators.map((row) => ({ name: row.name, ...(row.occupation ? { occupation: row.occupation } : {}) })),
+		...(context.scene ? { scene: context.scene } : {}),
+		present: [...context.present],
+		delivered: context.delivered.map((row) => ({ turn: row.turn, player: row.player ?? null, keeper: row.keeper })),
+		landed: [...context.landed],
+		refused: [...context.refused],
+	};
+	let typed: Awaited<ReturnType<typeof runAdmissionJev>> | undefined;
+	let lease: TaskLease | undefined, accounting: ReturnType<typeof preparationBudget> | undefined;
+	try {
+		const deadlineAt = Math.min(began + admissionJevTimeoutMs(env), options.providerBudget?.deadlineAt ?? Infinity);
+		const outer = options.signal ?? new AbortController().signal;
+		const signal = options.providerBudget ? AbortSignal.any([outer, options.providerBudget.signal]) : outer;
+		const bindings = admissionJevBindings(input);
+		accounting = preparationBudget({
+			decision: options.decision ?? createDecisionAdapter({ env, maxConcurrency: 4, retryPolicies: {
+				[ADMISSION_JEV_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } }),
+			campaign: options.campaign, deadlineAt, signal, ...(options.providerBudget ? { parent: options.providerBudget } : {}),
+			owner: ADMISSION_JEV_FAMILY, goal: "Judge whether the player chose the proposed action",
+		});
+		lease = new TaskLease({ owner: ADMISSION_JEV_FAMILY, goal: "Judge whether the player chose the proposed action",
+			scope: bindings.scope, capabilities: ["decision"], readSet: bindings.readSet, signal,
+			budget: { deadlineAt, remainingInputTokens: 200_000, remainingOutputTokens: 20_000, remainingCostUsd: 0.02, remainingActions: 4 } });
+		typed = await runAdmissionJev(input, accounting.decision, lease, { minConfidence: admissionJevMinConfidence(env) });
+	} catch {
+		typed = undefined;
+	} finally {
+		lease?.close();
+		accounting?.close();
+	}
+	const jev = typed ? {
+		jev_ms: typed.elapsedMs,
+		jev_calls: typed.calls,
+		jev_input_tokens: typed.usage.inputTokens,
+		...(typed.confidence === undefined ? {} : { jev_confidence: typed.confidence }),
+		...(typed.lines ? { line_verdicts: typed.lines.map((line) => line.verdict) } : {}),
+	} : { jev_calls: 0, jev_ms: Date.now() - began };
+	if (!typed || typed.status !== "decided") return lane(typed?.reason ?? "admission_owner_error", jev);
+	return {
+		ok: true,
+		verdict: { verdict: typed.verdict, grounds: typed.grounds, ...(typed.missing ? { missing: typed.missing } : {}), reviewer: "jev" },
+		ms: Date.now() - began,
+		model: ADMISSION_JEV_MODEL,
+		reviewer: "jev",
+		meta: { confidence: typed.confidence, ...jev },
+	};
 }

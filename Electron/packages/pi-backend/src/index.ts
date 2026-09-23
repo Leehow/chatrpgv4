@@ -2,7 +2,7 @@ import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } f
 import { timelineAnchors, transcriptPrefix } from './coc-timeline.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
 import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, laneWords, laneProjection, laneLabels,
-  laneLabelsLoaded, reloadLaneLabels, deliveryWords,
+  laneLabelsLoaded, reloadLaneLabels, deliveryWords, CocCardLedger, type CocCardPatch,
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
@@ -875,6 +875,12 @@ type Live = {
   toolNames: Map<string, string>;
   /** Dedupe for authoritative presentation entries, shared by every reading of the transcript. */
   projectedPresentationIds: Set<string>;
+  /** §132: every card this run read and every `coc-card-patch` said about one (§129's word included). */
+  cocCards?: CocCardLedger;
+  /** §132: the recorded rows of the cards this run drew, by entry id, most recent last; bounded. */
+  cocCardRows?: Map<string, any>;
+  /** §132: what each of those cards was last drawn as, so a patch that changes nothing draws nothing. */
+  cocCardDrawn?: Map<string, string>;
   /** Byte the presentation projection has already read this transcript to; undefined off a table. */
   presentationReadTo?: number;
   /** Turn epoch of the idle-fold nudge's own short turn. Only a
@@ -992,6 +998,12 @@ export function abandonmentStillCoversTheSilence(live: {
 export const TURN_WATCHDOG_TIMEOUT_MS = 120_000;
 export const TURN_WATCHDOG_CHECK_INTERVAL_MS = 30_000;
 const COC_WATCHDOG_RECOVERY_ENV = "PI_COC_WATCHDOG_RECOVERY";
+/**
+ * The effort a fast lane runs at when nobody has chosen one (contract §37.11): `LANE_THINKING_DEFAULT`
+ * in `runtime/fast-model.ts`, copied because this package does not import the runtime's sources;
+ * `tests/extension/fast-model-resolution.test.mjs` pins the two together.
+ */
+const COC_LANE_THINKING_DEFAULT = "low";
 function cocWatchdogRecoveryPath(sessionPath: string): string {
   return `${sessionPath}.coc-watchdog-recovery.json`;
 }
@@ -1514,8 +1526,8 @@ function redactHistoryEntry(entry: HistoryEntry | undefined, secrets: RevealedSe
 type CocHostPaths = {repo: string; contentRoot: string; home: string};
 function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], language?:string,
   presentations?: ReadonlyMap<number, Record<string, unknown>>, words: CocHistoryWords = {},
-  current?: Record<string, unknown>): HistoryEntry | undefined {
-  const mechanics = mechanicsEntry(entry, language, presentations, words, current);
+  current?: Record<string, unknown>, patches?: readonly CocCardPatch[]): HistoryEntry | undefined {
+  const mechanics = mechanicsEntry(entry, language, presentations, words, current, patches);
   if (mechanics) return mechanics;
   if (entry?.type === "message") return redactHistoryEntry(historyEntryFromMessage(entry), secrets);
   if (isVisibleCustomMessage(entry)) {
@@ -1629,6 +1641,8 @@ function historyPage(entries: HistoryEntry[], before: number | string, limit: nu
   return entries.slice(Math.max(0, end - limit), end);
 }
 
+/** §132: how many of its own cards one run keeps for a live redraw; an older card is redrawn by a re-read. */
+const COC_LIVE_CARD_LIMIT = 300;
 /** History is opened on demand and parsed incrementally; listing never reaches this path. */
 async function readHistoryFallback(
   path: string,
@@ -1664,6 +1678,11 @@ async function readHistoryFallback(
     input: jsonlSnapshotStream(path, byteEnd),
     crlfDelay: Infinity,
   });
+  // §132: a patch to a card (§129's object details among them) can land anywhere after the card it
+  // names -- on the next page, or long after this one -- so every row of the file is read into one
+  // ledger first and the page is drawn after, the same card a live redraw would have drawn.
+  const cocCards = new CocCardLedger(cocBinding?.campaign);
+  const wantedRows: any[] = [];
   for await (const line of lines) {
     let entry: any;
     try {
@@ -1671,9 +1690,12 @@ async function readHistoryFallback(
     } catch {
       continue;
     }
-    if (!wanted.has(entry?.id)) continue;
+    cocCards.note(entry);
+    if (wanted.has(entry?.id)) wantedRows.push(entry);
+  }
+  for (const entry of wantedRows) {
     const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
-    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft);
+    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft, cocCards.patchesFor(entry?.id));
     if (!mapped) continue;
     mappedById.set(mapped.id, mapped);
   }
@@ -6133,7 +6155,7 @@ export class PiHostBackend implements HostBackend {
         await host.presentation({
           campaign: binding.campaign, revision, play_language: binding.play_language,
           ...(isRecord(data.labels) ? {labels: data.labels} : {}),
-          model: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel});
+          ...await this.cocFastLane(state)});
       } catch (error) {
         console.warn(`[pipicoc] draft card revision ${revision} never reached the table: ${error instanceof Error ? error.message : String(error)}`);
         return;
@@ -6159,7 +6181,7 @@ export class PiHostBackend implements HostBackend {
    * the held answer. The lanes run one after another rather than together — a turn that both
    * reveals a clue and hands over a document is rare, and they share the vocabulary file.
    */
-  private startDeliveryPresentation(sessionId: string, raw: any): void {
+  private startDeliveryPresentation(sessionId: string, raw: any, live?: Live): void {
     const wanted = deliveryWords(raw);
     if (!Object.keys(wanted).length || !this.managedNodeModulesRoot) return;
     void (async () => {
@@ -6183,7 +6205,7 @@ export class PiHostBackend implements HostBackend {
           this.cocOnboarding = host;
           const state = await this.getModelState(sessionId);
           await host.presentation({campaign: binding.campaign, play_language: binding.play_language, [lane]: true,
-            model: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel});
+            ...await this.cocFastLane(state)});
           this.cocLaneJobs.delete(key);
           landed = true;
         } catch {
@@ -6196,9 +6218,53 @@ export class PiHostBackend implements HostBackend {
       // The history page is cached against the transcript's own size and mtime, which a
       // projection landing beside it does not change.
       this.historyCache.delete(path);
-      const entry = mechanicsEntry(raw, binding.play_language, undefined, this.cocLiveWords(sessionId));
-      if (entry) this.stream({type: "presentation", sessionId, entry});
+      // §132: a card that was patched meanwhile keeps its patches in this redraw.
+      const owner = live ?? this.live.get(sessionId);
+      const entry = mechanicsEntry(raw, binding.play_language, undefined, this.cocLiveWords(sessionId), undefined, owner?.cocCards?.patchesFor(raw?.id));
+      if (entry) {
+        if (owner && typeof raw?.id === "string") owner.cocCardDrawn?.set(raw.id, JSON.stringify(entry.presentation));
+        this.stream({type: "presentation", sessionId, entry});
+      }
     })().catch(() => undefined);
+  }
+  /**
+   * Contract §132. A card this run drew was patched after it was drawn (§129's object details are one
+   * such patch): it is drawn again under the same entry id, which the transcript applies as a
+   * replacement where it sits (`applyStreamEvent`). Only cards this run drew are redrawn -- a card the
+   * player has not loaded is read back from the file with the same patches (`readHistoryFallback`
+   * reads them into the same ledger), and streaming it here would append it at the bottom. A redraw
+   * that would draw what the card already shows is not streamed.
+   */
+  private noteCardRow(live: Live, raw: any): void {
+    const binding = this.cocSessionBindings.get(live.session.id);
+    const ledger = live.cocCards ??= new CocCardLedger(binding?.campaign);
+    if (raw?.customType === "coc-mechanics" && typeof raw?.id === "string") {
+      ledger.note(raw);
+      const rows = live.cocCardRows ??= new Map();
+      rows.delete(raw.id);
+      rows.set(raw.id, raw);
+      // The oldest card this run drew stops being redrawn live; a re-read still draws it patched.
+      for (const id of rows.keys()) {
+        if (rows.size <= COC_LIVE_CARD_LIMIT) break;
+        rows.delete(id);
+        live.cocCardDrawn?.delete(id);
+      }
+      return;
+    }
+    const changed = ledger.note(raw);
+    if (raw?.customType !== "coc-card-patch" && raw?.customType !== "coc-object-details") return;
+    // A page cached before this word would serve the card back without it, whichever card it names.
+    this.historyCache.delete(live.path);
+    for (const id of changed) {
+      const card = live.cocCardRows?.get(id);
+      if (!card) continue;
+      const entry = mechanicsEntry(card, binding?.play_language, undefined, this.cocLiveWords(live.session.id), undefined, ledger.patchesFor(id));
+      if (!entry) continue;
+      const drawn = JSON.stringify(entry.presentation);
+      if (live.cocCardDrawn?.get(id) === drawn) continue;
+      (live.cocCardDrawn ??= new Map()).set(id, drawn);
+      this.stream({type: "presentation", sessionId: live.session.id, entry});
+    }
   }
   private lines(live: Live, chunk: string) {
     if (this.projectionDebugEnabled()) this.projectionDebugLine(`[stream-debug] stdout session=${this.projectionDebugSessionTag(live.session.id)} t=${Date.now()} bytes=${chunk.length}`, "log");
@@ -6224,15 +6290,17 @@ export class PiHostBackend implements HostBackend {
       if (e.entry?.customType === "coc-delivery") this.cocWatchdogPresentationOffsets.delete(live.path);
       if(e.entry?.customType==='coc-setup-exit')live.cocSetupHandoffPending=true;
       if(e.entry?.customType==='coc-character-draft'&&e.entry?.data?.sheet)this.startDraftPresentation(live.session.id,e.entry.data);
-      if(e.entry?.customType==='coc-mechanics')this.startDeliveryPresentation(live.session.id,e.entry);
+      if(e.entry?.customType==='coc-mechanics')this.startDeliveryPresentation(live.session.id,e.entry,live);
+      if(['coc-mechanics','coc-card-patch','coc-object-details'].includes(e.entry?.customType))this.noteCardRow(live,e.entry);
       const entry = isHostDeliveredCustomMessage(e.entry)
         ? visibleHistoryEntry(e.entry,this.sessionSecrets(live.session.id))
-        : mechanicsEntry(e.entry, this.cocSessionBindings.get(live.session.id)?.play_language, undefined, this.cocLiveWords(live.session.id));
+        : mechanicsEntry(e.entry, this.cocSessionBindings.get(live.session.id)?.play_language, undefined, this.cocLiveWords(live.session.id), undefined, live.cocCards?.patchesFor(e.entry?.id));
       if (entry) {
         const presentationId = typeof e.entry?.id === "string" ? e.entry.id : undefined;
         const projected = live.projectedPresentationIds ??= new Set<string>();
         if (!presentationId || !projected.has(presentationId)) {
           if (presentationId) projected.add(presentationId);
+          if (presentationId && live.cocCardRows?.has(presentationId)) (live.cocCardDrawn ??= new Map()).set(presentationId, JSON.stringify(entry.presentation));
           this.stream({type:"presentation",sessionId:live.session.id,entry});
         }
       }
@@ -9186,16 +9254,16 @@ export class PiHostBackend implements HostBackend {
    * absent semantic (the rulebook standard) survives only on the CLI setup path, which passes nothing.
    */
   /**
-   * The model the Keeper's background lanes run on. They followed the table's own model, and a slow
-   * one is paid by the player: one audit on record spent fifty of its fifty-eight seconds inside a
-   * single model turn, and nothing those lanes write ever reaches the table.
+   * The fast model: the one quick model every lane that has to be quick runs on (contract §37.10.1).
+   * The lanes followed the table's own model, and a slow one is paid by the player: one audit on
+   * record spent fifty of its fifty-eight seconds inside a single model turn, and nothing those lanes
+   * write is the Keeper's prose. The stored key keeps its pre-rename name so existing choices survive.
    *
-   * A live session no longer asks this: the lane reads the setting itself when it starts a child
-   * (`runtime/tasks.ts`), because a spawn environment freezes the choice for the life of the session
-   * and this one has to be changeable under a running table. What remains here is the host's own
-   * cold path -- the document-presentation lane it runs outside any session -- where reading the
-   * setting at call time is already live. An explicit environment variable still wins: that is the
-   * operator's override, and it is the only thing `PI_COC_MOD_MODEL` should ever mean.
+   * A live session does not ask this: its lanes read the setting themselves when they start
+   * (`runtime/fast-model.ts`), because a spawn environment freezes the choice for the life of the
+   * session and this one has to be changeable under a running table. What remains here is the host's
+   * own cold path -- the projections it runs outside any session -- where reading the setting at call
+   * time is already live.
    */
   private async cocLaneModel(): Promise<string | undefined> {
     const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
@@ -9204,18 +9272,34 @@ export class PiHostBackend implements HostBackend {
     return model || undefined;
   }
   /**
-   * The reasoning effort those same lanes run at. Choosing the lane's model without choosing its effort
-   * only half-separates it from the table: the lane still rode the Keeper's own chip, so a table set to
-   * `high` ran its continuity review at `high` too, and one such review spent its entire forty-second
-   * budget inside a first thinking stream it never finished — the turn was then refused and the player
-   * was shown nothing. Absent means the lane keeps following the table, which is the old behaviour.
-   * Like the model above, a live session reads this itself; this is the cold path's copy.
+   * The reasoning effort the fast model runs at. Choosing the lane's model without choosing its effort
+   * only half-separates it from the table: a table set to `high` ran its continuity review at `high`
+   * too, and one such review spent its entire forty-second budget inside a first thinking stream it
+   * never finished. Absent is the lane's own level (`COC_LANE_THINKING_DEFAULT`), never the table's
+   * (§37.11). Like the model above, a live session reads this itself; this is the cold path's copy.
    */
   private async cocLaneThinking(): Promise<string | undefined> {
     const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
     const value = values["ext.coc-keeper.laneThinking"];
     const level = isRecord(value) && typeof value.level === "string" ? value.level.trim() : "";
     return level || undefined;
+  }
+  /**
+   * The model and effort a lane this host starts itself runs on (contract §37.10.1): the operator's
+   * own override when the lane has one, then the fast-model setting, then the table's model; the
+   * effort is the override, then the setting, then the lane's own level -- never the table's (§37.11).
+   *
+   * These are the projections that put the table's words into the player's language (the character
+   * card, the sheet's lanes, a delivery's words) and a document's presentation. They used to run on
+   * the table's model and effort: a projection the player waits on, under a presentation deadline,
+   * riding the Keeper's `high`. Module preparation (`onboarding`) is not one of them -- it reads the
+   * book's page images and stays on the table's vision model.
+   */
+  private async cocFastLane(state: ModelState, override: {model?: string; thinking?: string} = {}): Promise<{model: string; thinking: string}> {
+    return {
+      model: override.model || await this.cocLaneModel() || `${state.model.provider}/${state.model.id}`,
+      thinking: override.thinking || await this.cocLaneThinking() || COC_LANE_THINKING_DEFAULT,
+    };
   }
   private async cocDifficultySetting(): Promise<Record<string, unknown> | undefined> {
     const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
@@ -9514,8 +9598,7 @@ export class PiHostBackend implements HostBackend {
           const state = await this.getModelState(sid);
           const host = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
           const reading = host.documentPresentationStatus({campaign:context.campaign,actor:data.actor,name:data.name,version:data.version,play_language:data.play_language,
-            model:this.env.PI_COC_MOD_MODEL?.trim() || await this.cocLaneModel() || `${state.model.provider}/${state.model.id}`,
-            thinking:this.env.PI_COC_MOD_THINKING?.trim() || await this.cocLaneThinking() || state.thinkingLevel});
+            ...await this.cocFastLane(state,{model:this.env.PI_COC_MOD_MODEL?.trim(),thinking:this.env.PI_COC_MOD_THINKING?.trim()})});
           data = reading.pending ? reading : {...data,display_name:reading.display_name,text:reading.text,original:reading.original};
         }
         if (method.startsWith("mods.document.") && data?.editor?.renderer === "paper") {
@@ -9581,8 +9664,8 @@ export class PiHostBackend implements HostBackend {
       if(method==='draft-presentation') {
         const repo=resolve(this.managedNodeModulesRoot,'..');
         this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:binding.home,agentDir:this.sharedProfileDir,env:this.env});
-        const state=await this.getModelState(sid);
-        try {return {ok:true,data:this.cocOnboarding.presentationStatus({campaign:binding.campaign,revision:Number(revision),play_language:binding.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})};}
+        const lane=await this.cocFastLane(await this.getModelState(sid));
+        try {return {ok:true,data:this.cocOnboarding.presentationStatus({campaign:binding.campaign,revision:Number(revision),play_language:binding.play_language,...lane})};}
         catch(error){return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error));}
       }
       try {return {ok:true,data:await readColdSheet(join(this.managedNodeModulesRoot,'..'),binding,Number(revision),this.env,this.cocRuntime)};}
@@ -9832,7 +9915,7 @@ export class PiHostBackend implements HostBackend {
                 if(!this.cocSheetPresentationJobs.has(key)) {
                   this.cocSheetPresentationJobs.set(key,{status:'pending'});
                   const refresh=()=>emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context.campaign}}});
-                  void this.getModelState(sessionId).then(state=>this.cocOnboarding!.presentation({campaign:context.campaign,revision,play_language:context.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})).then(()=>{
+                  void this.getModelState(sessionId).then(async state=>this.cocOnboarding!.presentation({campaign:context.campaign,revision,play_language:context.play_language,...await this.cocFastLane(state)})).then(()=>{
                     this.cocSheetPresentationJobs.delete(key);refresh();
                   },()=>{this.cocSheetPresentationJobs.set(key,{status:'failed'});refresh();});
                 }
@@ -9857,7 +9940,7 @@ export class PiHostBackend implements HostBackend {
                 const repo=resolve(this.managedNodeModulesRoot,'..');
                 this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
                 const state=await this.getModelState(sessionId);
-                const projection=await this.cocOnboarding.presentation({campaign:context.campaign,play_language:context.play_language,standing:true,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel});
+                const projection=await this.cocOnboarding.presentation({campaign:context.campaign,play_language:context.play_language,standing:true,...await this.cocFastLane(state)});
                 names=projection.texts;
               } catch { /* Keep readable card data; the next sheet read retries missing names. */ }
             }
@@ -9866,28 +9949,7 @@ export class PiHostBackend implements HostBackend {
             // traits and the kernel's own condition words, a discovered clue's name and what the
             // book says it is -- are projected by the presenter that projects the card, one lane
             // each, in the background, and merged under the glossary. The read is never held.
-            for(const lane of Object.keys(SHEET_LANES) as SheetLane[]) {
-              try {
-                const repo=resolve(this.managedNodeModulesRoot,'..');
-                const saved=await laneProjection(context,lane,await laneWords(repo,lane,liveView));
-                if(saved.missing.length) {
-                  const key=JSON.stringify([context.home,context.campaign,context.play_language,lane,saved.missing]);
-                  if(isRecord(params)&&params.retry_projection===true)for(const [old,job] of this.cocLaneJobs)if(job.status==='failed')this.cocLaneJobs.delete(old);
-                  if(!this.cocLaneJobs.has(key)) {
-                    this.cocLaneJobs.set(key,{status:'pending'});
-                    this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
-                    const refresh=()=>emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context.campaign}}});
-                    void this.getModelState(sessionId).then(state=>this.cocOnboarding!.presentation({campaign:context.campaign,play_language:context.play_language,[lane]:true,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})).then(()=>{
-                      // The live reader answers from a held copy of these lanes, so a lane that
-                      // lands here must replace it too, or the next delivery draws the words this
-                      // run has just finished replacing.
-                      this.cocLaneJobs.delete(key);void reloadLaneLabels(context).then(refresh,refresh);
-                    },()=>{this.cocLaneJobs.set(key,{status:'failed'});});
-                  }
-                }
-                liveView.labels={...saved.texts,...(isRecord(liveView.labels)?liveView.labels:{})};
-              } catch { /* The sheet reads without that lane's words; the panel falls back to the canonical ones. */ }
-            }
+            await this.cocMergeSheetLanes(sessionId,context,liveView,isRecord(params)&&params.retry_projection===true);
             return {ok:true,data:{status:"ready",view,campaign:context.campaign,...words}};
           } catch(error) {return {ok:true,data:{status:"error",view:null,campaign:context.campaign,
             code:this.cocCode(error),reason:error instanceof Error?error.message:String(error),...words}};}
@@ -9901,8 +9963,16 @@ export class PiHostBackend implements HostBackend {
       // host hop the kernel has no part in (§39 -- the kernel holds no pixels), and the live pack is
       // the leg that already runs that hop for a delivery. So a live session is forwarded there first.
       const live = this.live.get(sessionId);
+      const retry = isRecord(params) && params.retry_projection === true;
       if (live && this.liveProcessUsable(live) && this.extensions.isMounted(sessionId, id)) {
-        return this.enqueueExtInvoke(sessionId, id, method, params);
+        // The pack answers with `table.view` verbatim; the campaign's projected words are the
+        // host's, merged here exactly as a sheet read merges them, so both legs draw one glossary.
+        const answered = await this.enqueueExtInvoke(sessionId, id, method, params);
+        const binding = this.cocSessionBindings.get(sessionId)
+          ?? await this.locate(sessionId).then(found => readCocBinding(found.path)).catch(() => undefined);
+        if (binding && answered.ok && isRecord(answered.data) && answered.data.status === "ready")
+          await this.cocMergeSheetLanes(sessionId, binding, answered.data.view, retry);
+        return answered;
       }
       // Cold -- a restored session with no agent yet. The board still opens: it reads the same
       // player-safe `table.view` the sheet reads, and the map rows without their layers, so a map
@@ -9916,6 +9986,7 @@ export class PiHostBackend implements HostBackend {
         if (!this.managedNodeModulesRoot) throw this.cocRefusal("runtime_unavailable", "Canonical runtime is unavailable");
         const repo = resolve(this.managedNodeModulesRoot, "..");
         const view = await callColdKernel(repo, context.home, "table.view", {campaign:context.campaign}, this.env, this.cocRuntime);
+        await this.cocMergeSheetLanes(sessionId, context, view, retry);
         const rows = await callColdKernel(repo, context.home, "table.maps", {campaign:context.campaign}, this.env, this.cocRuntime)
           .catch(() => ({maps:[]}));
         const maps = (isRecord(rows) && Array.isArray(rows.maps) ? rows.maps : []).filter(isRecord).map(row => ({
@@ -9947,6 +10018,44 @@ export class PiHostBackend implements HostBackend {
       return this.cocDenied("capability_denied", "extension not mounted on session");
     }
     return this.enqueueExtInvoke(sessionId, id, method, params);
+  }
+
+  /**
+   * Merge every `SHEET_LANES` projection this campaign has saved under a `table.view`'s kernel
+   * glossary, and start one background run for each lane whose words the view shows and its file
+   * still lacks (contract §23, §39.3).
+   *
+   * One definition for every panel that draws `table.view`. The case board took the sheet's clue
+   * and people sections over and drew them through `term()` against `view.labels`, but the merge
+   * stayed behind in the sheet read, so the board looked words up in the kernel's rules glossary
+   * alone: a journal exchange's scene -- the kernel's stamp of the book's display name -- reached a
+   * zh-Hans player as `Knott's Office` while the sheet beside it read the same place in Chinese.
+   * The kernel glossary wins every collision, as it does on a mechanics card.
+   */
+  private async cocMergeSheetLanes(sessionId:string, context:CocBinding, view:any, retry:boolean):Promise<void> {
+    if(!this.managedNodeModulesRoot||!isRecord(view))return;
+    const repo=resolve(this.managedNodeModulesRoot,'..');
+    for(const lane of Object.keys(SHEET_LANES) as SheetLane[]) {
+      try {
+        const saved=await laneProjection(context,lane,await laneWords(repo,lane,view));
+        if(saved.missing.length) {
+          const key=JSON.stringify([context.home,context.campaign,context.play_language,lane,saved.missing]);
+          if(retry)for(const [old,job] of this.cocLaneJobs)if(job.status==='failed')this.cocLaneJobs.delete(old);
+          if(!this.cocLaneJobs.has(key)) {
+            this.cocLaneJobs.set(key,{status:'pending'});
+            this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+            const refresh=()=>emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context.campaign}}});
+            void this.getModelState(sessionId).then(async state=>this.cocOnboarding!.presentation({campaign:context.campaign,play_language:context.play_language,[lane]:true,...await this.cocFastLane(state)})).then(()=>{
+              // The live reader answers from a held copy of these lanes, so a lane that
+              // lands here must replace it too, or the next delivery draws the words this
+              // run has just finished replacing.
+              this.cocLaneJobs.delete(key);void reloadLaneLabels(context).then(refresh,refresh);
+            },()=>{this.cocLaneJobs.set(key,{status:'failed'});});
+          }
+        }
+        view.labels={...saved.texts,...(isRecord(view.labels)?view.labels:{})};
+      } catch { /* The panel reads without that lane's words; it falls back to the canonical ones. */ }
+    }
   }
 
   /**

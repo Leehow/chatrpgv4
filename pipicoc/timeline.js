@@ -421,6 +421,8 @@ export function createComponent(React) {
     const [busy, setBusy] = useState(false);
     const [hoverSha, setHoverSha] = useState(null);
     const generation = useRef(0);
+    // `running` is the request in flight (0 when none); `again` is one push that arrived meanwhile.
+    const running = useRef(0), again = useRef(false);
     // The words of the last answer that actually arrived, kept so the chrome of a failure this
     // panel raised itself stays in the language the player was reading a moment ago.
     const [lastUi, setLastUi] = useState(null);
@@ -432,9 +434,12 @@ export function createComponent(React) {
       return result.data;
     }
 
-    async function load() {
+    // Only the player's own click greys the button out. Mount and the pushes of a turn in progress
+    // read behind the drawn graph: a button that disabled itself on every push flickered all turn.
+    async function load(byPlayer = false) {
       const current = ++generation.current;
-      setBusy(true);
+      running.current = current;
+      if (byPlayer) setBusy(true);
       try {
         const data = await request("timeline.graph");
         if (current !== generation.current) return;
@@ -450,7 +455,11 @@ export function createComponent(React) {
         if (current !== generation.current) return;
         setError(refusalOf(err));
       } finally {
-        if (current === generation.current) setBusy(false);
+        if (current === generation.current) {
+          running.current = 0;
+          setBusy(false);
+          if (again.current) { again.current = false; void load(); }
+        }
       }
     }
 
@@ -460,7 +469,10 @@ export function createComponent(React) {
     useEffect(() => {
       if (!api.subscribeExt) return undefined;
       const unsubscribe = api.subscribeExt((event) => {
-        if (!event || !event.type || event.type === "timeline-changed") void load();
+        if (event && event.type && event.type !== "timeline-changed") return;
+        // A burst while a read is in flight folds into one read after it.
+        if (running.current) { again.current = true; return; }
+        void load();
       });
       return typeof unsubscribe === "function" ? unsubscribe : undefined;
     }, [api]);
@@ -494,7 +506,7 @@ export function createComponent(React) {
     const header = h("div", { className: "coc-tl-head" },
       h("span", { className: "coc-tl-title" }, answer ? t("title") : "…"),
       h("button", { type: "button", className: "coc-tl-refresh", disabled: busy,
-        onClick: () => void load() }, answer ? t("refresh") : "…"));
+        onClick: () => void load(true) }, answer ? t("refresh") : "…"));
 
     const errorBlock = error && h("div", { className: "coc-tl-error", role: "alert" },
       h("strong", null, t("errorTitle")), " — ", said(error),

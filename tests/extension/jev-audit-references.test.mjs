@@ -164,6 +164,17 @@ test('real kernel v2 jobs retain selectors, materialize acceptance, replay and r
         await writeFile(join(job.cwd,'accepted.json'),JSON.stringify(tampered));
         await assert.rejects(call('mods.accept',{job:job.job}),/differs from its pinned raw selectors/);
         await writeFile(join(job.cwd,'accepted.json'),JSON.stringify(accepted));
+        // §130.8: the kernel's own accept moves top-level subreviews into place, as submit_audit does.
+        const placedJob=await call('mods.job',{role:'audit',input:{text:'{{say:Knott}}The keys are yours.{{/say}}'}});
+        const placedRequest=JSON.parse(await readFile(join(placedJob.cwd,'request.json'),'utf8')), placedEvidence={};
+        for(const file of placedRequest.continuity_review.files) placedEvidence[file]=JSON.parse(await readFile(join(placedJob.cwd,file),'utf8'));
+        const nested=complete(api.buildAuditReferences(placedRequest,placedEvidence)), {verdict,summary,conflicts,...subreviews}=nested.continuity_review;
+        const topLevel={...nested,continuity_review:{verdict,summary,conflicts},...subreviews};
+        assert.ok(Object.keys(subreviews).length);
+        await writeFile(join(placedJob.cwd,'result.json'),JSON.stringify(topLevel));
+        const placed=await call('mods.accept',{job:placedJob.job});
+        assert.equal(placed.continuity_review.speech_review.lines[0].quote,'The keys are yours.');
+        for(const key of Object.keys(subreviews)) assert.equal(Object.hasOwn(placed,key),false);
         await call('table.apply',{call_id:'t0-c1',effects:[{kind:'time',minutes:1,why:'A chosen wait'}]});
         await assert.rejects(call('mods.accept',{job:job.job}),error=>error.details?.reason==='mod_audit_stale');
     } finally {await runtime.close();}

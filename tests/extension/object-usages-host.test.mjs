@@ -239,10 +239,17 @@ test('definitions default to item and legacy weapon/spell creation stays on its 
     {kind: 'define', name: 'Old spell', category: 'spell', description: 'A legacy spell'},
   ];
   await h.bridge.prepare('apply', {campaign: 'test-campaign', effects});
-  assert.deepEqual(h.jobs.map(job => job.input.category), ['item', 'weapon', 'spell']);
+  // §129.4: the item and the weapon are generated beside the turn; a spell, which nothing places and
+  // everything that reads it reads its costs, is still generated in the call.
+  assert.deepEqual(h.jobs.slice(0, 2).map(job => job.input.category), ['item', 'weapon']);
+  assert.ok(effects.slice(0, 2).every(effect => typeof effect._queued === 'string' && !effect._definition));
+  assert.ok(effects[2]._definition && !effects[2]._queued);
+  // Let the background generation finish before deleting its disposable directory.
+  while (h.operations.filter(operation => operation === 'mods.accept').length < 3) await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(h.jobs.map(job => job.input.category).sort(), ['item', 'item', 'spell', 'weapon', 'weapon']);
   assert.ok(h.jobs.every(job => job.role === 'create'));
   assert.ok(h.checks.every(check => check.kind === 'mod-definition'));
-  assert.ok(effects.every(effect => effect._definition && !effect._usage));
+  assert.ok(effects.every(effect => !effect._usage));
 });
 
 test('pure define/adopt retains background deferral but adding a held usage forces waiting', async t => {

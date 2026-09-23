@@ -4,7 +4,7 @@ import type { KernelContext } from "../context.js";
 import type { HandlerGroup, KernelResult } from "../handlers.js";
 import { RpcError } from "../errors.js";
 import { continuityView } from "./continuity.js";
-import { isJsonObject } from "../json.js";
+import { glossaryOf, RULES_DATA } from "./glossary.js";
 import { playLanguageOf } from "./languages.js";
 import { CampaignSnapshot, loadModule, loadCampaignModule, replayTrail, type LoadedModule } from "./campaign.js";
 import { ModuleGraph, recordOf } from "./module-graph.js";
@@ -49,12 +49,8 @@ const unfinished = (message: string): never => {
     throw new RpcError("not_implemented", message);
 };
 /**
- * The player's glossary: the union of every `localized_labels` row in the rules data for
- * `language`, whatever file or nesting the row sits in, keyed as the panel looks a term up --
- * the row's own key, its `name` and its `abbreviation` (contract §23). No file list, no key
- * whitelist, no tag shortcut: a language whose canonical words are the keys simply has no rows.
- * The first row to claim a key keeps it, in file-name order and then document order, so two
- * files naming one key cannot flicker. Unreadable display data contributes no invented label.
+ * The player's glossary for `language` (contract §23). The visitor lives in `./glossary.ts`, shared
+ * with the UI-words presenter lane, which reads the same rules files with no kernel.
  */
 export function playerGlossary(context: KernelContext, language: string): Promise<Row> {
     if (typeof language !== "string" || !language.trim())
@@ -73,42 +69,18 @@ export function playerGlossary(context: KernelContext, language: string): Promis
 /** Rules data is immutable while a kernel runs, so one read per context and language serves every view. */
 const glossaries = new WeakMap<KernelContext, Map<string, Promise<Row>>>();
 async function readGlossary(context: KernelContext, language: string): Promise<Row> {
-    const result: Row = {};
-    const root = join(context.content, "rulesets", "coc7", "rules-json"),
-        claim = (key: unknown, word: string) => {
-            if (typeof key === "string" && key.trim() && !Object.hasOwn(result, key.trim()))
-                result[key.trim()] = word;
-        },
-        visit = (value: unknown, key: string | null): void => {
-            if (Array.isArray(value)) {
-                for (const item of value)
-                    visit(item, null);
-                return;
-            }
-            if (!isJsonObject(value))
-                return;
-            const word = row(value.localized_labels)[language];
-            if (typeof word === "string" && word.trim()) {
-                claim(key, word.trim());
-                claim(value.name, word.trim());
-                claim(value.abbreviation, word.trim());
-            }
-            for (const [child, inner] of entries(value))
-                if (child !== "localized_labels")
-                    visit(inner, child);
-        };
+    const root = join(context.content, ...RULES_DATA);
     const names = await context.snapshots.sortedChildNames(root, async path => path.endsWith(".json") && await context.snapshots.isFile(path));
+    const documents: unknown[] = [];
     for (const name of names) {
-        let document: unknown;
         try {
-            document = await context.snapshots.readJson(join(root, name));
+            documents.push(await context.snapshots.readJson(join(root, name)));
         }
         catch {
             continue;
         }
-        visit(document, null);
     }
-    return result;
+    return glossaryOf(documents, language);
 }
 export function actor(party: Row[], name?: any): Row {
     if (name == null) {
@@ -328,7 +300,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 turn: turn.turn,
                 state: turn.state,
                 receipts,
-                mechanics: mechanics(receipts, {}, await campaign.handoutTexts(receipts)),
+                mechanics: mechanics(receipts, {}, await campaign.handoutTexts(receipts), campaign.world),
                 // §50: the same glossary a delivery hands its card (§16.2). A turn that could not be
                 // delivered is read back from here, and without the words it would be the one card in
                 // the campaign drawn in the system language.
@@ -430,7 +402,10 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 const expectedKinds = ['scene', 'npc', 'clue', 'object', 'handout'];
                 if (expected != null && (typeof expected !== 'string' || !expectedKinds.includes(expected)))
                     unsupported('expected_kind', expected, expectedKinds, 'unknown expected module entity kind');
-                const entities = graph.search(query, expected ? 64 : 8).filter(node => !expected || node.node_kind === expected).slice(0, 8).map(node => graph.entityView(node));
+                // §127.1: the whole query first, as always; only when it matches nothing is it read as a list
+                // of exact handles the Keeper already holds.
+                const searched = graph.search(query, expected ? 64 : 8);
+                const entities = (searched.length ? searched : graph.handleList(query) ?? []).filter(node => !expected || node.node_kind === expected).slice(0, 8).map(node => graph.entityView(node));
                 const scene = !entities.length && typeof world.active_scene === 'string' ? graph.find(world.active_scene, ['scene']) : null;
                 const sourceNodes = array(row(scene?.campaign_origin).sources).map(id => graph.nodes.get(id)).filter((node): node is Row => node !== undefined);
                 const missingScene = !entities.length && expected === 'scene';

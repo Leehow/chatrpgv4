@@ -395,6 +395,23 @@ function languageRows(sheet) {
     || numberOr(b.value, -1) - numberOr(a.value, -1) || a.name.localeCompare(b.name));
 }
 
+/* >>> weapon fields: shared verbatim between pipicoc/panel.js and pipicoc/mechanics.js <<<
+ * The fields a weapon's use shows, in the order it shows them: each is drawn under the first of its
+ * aliases the row carries, under the sheet's own `item.<key>` caption, and nothing else is drawn. The
+ * possessions box and the delivery card's usage lines (the `coc-card-patch` usage patch) both read this, so the card
+ * never shows a field the sheet would not. The renderers cannot import each other, so it is copied,
+ * and tests/extension/mechanics-usage-lines.test.mjs pins the two copies byte for byte. */
+const WEAPON_FIELDS = [["damage_die","damage"],["base_range_yards","range"],["uses_per_round","attacks"],["magazine"],["ammo"],["malfunction"],["skill"],["adds_damage_bonus"],["special"],["description"]];
+function weaponDetails(item) {
+  const details = [];
+  for (const aliases of WEAPON_FIELDS) {
+    const key = aliases.find(key => item[key] !== undefined && item[key] !== null && item[key] !== "");
+    if (key) details.push({key,value:item[key],wide:["skill","special","description"].includes(key)});
+  }
+  return details;
+}
+/* >>> end weapon fields <<< */
+
 /**
  * Project supplied item and weapon fields into read-only name, quantity and detail rows.
  */
@@ -403,12 +420,7 @@ function itemLine(item, term = value => value) {
   const rawTitle = text(item.label || item.display_name || item.name || item.id);
   const usage = text(item.usage);
   const title = usage && usage !== rawTitle ? `${term(rawTitle)} · ${term(usage)}` : term(rawTitle);
-  const details = [];
-  for (const aliases of [["damage_die","damage"],["base_range_yards","range"],["uses_per_round","attacks"],["magazine"],["ammo"],["malfunction"],["skill"],["adds_damage_bonus"],["special"],["description"]]) {
-    const key = aliases.find(key => item[key] !== undefined && item[key] !== null && item[key] !== "");
-    if (key) details.push({key,value:item[key],wide:["skill","special","description"].includes(key)});
-  }
-  return {title, quantity:numberOr(item.quantity,undefined), details};
+  return {title, quantity:numberOr(item.quantity,undefined), details:weaponDetails(item)};
 }
 
 /**
@@ -878,17 +890,24 @@ export function createComponent(React) {
     // panel raised itself stays in the language the player was reading a moment ago.
     const [lastUi, setLastUi] = useState(null);
 
-    const load = useCallback(async (retryProjection = false) => {
+    // `running` is the request in flight (0 when none); `again` is one push that arrived meanwhile.
+    const running = useRef(0), again = useRef(false), latest = useRef(null);
+    // Only the player's own click shows the busy word and asks for a failed lane run again. Every
+    // other read -- mount, a saved document, and the pushes of a turn in progress -- runs behind
+    // the drawn sheet: one turn pushes dozens of events, and a button that flipped to the busy
+    // word on each one flickered for the whole turn.
+    const load = useCallback(async (byPlayer = false) => {
       const request = ++generation.current;
       if (!api.invoke) {
         setAnswer({ view: null, campaign: null, status: "error",
           error: { code: "pack_unreachable", message: "this host cannot reach the pack" } });
         return;
       }
-      setBusy(true);
+      running.current = request;
+      if (byPlayer) setBusy(true);
       try {
         const result = await api.invoke("sheet", {
-          ...(retryProjection ? {retry_projection:true} : {}),
+          ...(byPlayer ? {retry_projection:true} : {}),
           ...(!identityArt.current ? {include_identity_art:true} : {}),
         });
         if(request !== generation.current) return;
@@ -906,9 +925,14 @@ export function createComponent(React) {
         setAnswer({ view: null, campaign: null, status: "error",
           error: { code: "", message: error instanceof Error ? error.message : String(error) } });
       } finally {
-        if(request === generation.current) setBusy(false);
+        if(request === generation.current) {
+          running.current = 0;
+          setBusy(false);
+          if (again.current) { again.current = false; void latest.current?.(); }
+        }
       }
     }, [api]);
+    latest.current = load;
 
     useEffect(() => { void load(); }, [load]);
 
@@ -924,9 +948,13 @@ export function createComponent(React) {
 
     // The agent half pushes on every committed turn; any event from this pack means re-read.
     // The push carries no payload, so a shape change upstream can never desynchronise the panel.
+    // A burst of pushes while a read is in flight folds into one read after it.
     useEffect(() => {
       if (!api.subscribeExt) return undefined;
-      const unsubscribe = api.subscribeExt(() => { void load(); });
+      const unsubscribe = api.subscribeExt(() => {
+        if (running.current) { again.current = true; return; }
+        void load();
+      });
       return typeof unsubscribe === "function" ? unsubscribe : undefined;
     }, [api, load]);
 

@@ -12,6 +12,8 @@ export function supportChoices(batch,select=()=> 'necessary',{discover=false,qua
     const next=eligible[0]??qualification??index??(discover?operations.find(operation=>operation.tool==='discover'):undefined);
     const result={};
     for(const question of batch.questions){const key=question.key,criteria=Object.keys(question.criteria??{});let value;
+        // A semantic-locate Noul: these controlled helpers locate nothing unless a test supplies its own port.
+        if(question.type==='noul'){result[key]={noul:0};continue;}
         if(key==='operation')value=next?.alias??'finish';
         else if(key==='coverage')value=next?'missing':'sufficient';
         else if(key==='consistency')value='clear';
@@ -35,10 +37,12 @@ export function supportChoices(batch,select=()=> 'necessary',{discover=false,qua
 }
 export function supportDecision(select,options){return{async decide(batch){return{batchId:batch.id,status:'complete',attempts:1,
     usage:{inputTokens:10,outputTokens:2},coverage:{required:[],answered:[],unknown:[]},issues:[],
-    answers:Object.fromEntries(Object.entries(supportChoices(batch,select,options)).map(([key,choice])=>[key,{status:'answered',type:'choice',choice}]))};}};}
+    answers:Object.fromEntries(Object.entries(supportChoices(batch,select,options)).map(([key,choice])=>[key,typeof choice==='object'
+        ?{status:'answered',type:'noul',noul:choice.noul}:{status:'answered',type:'choice',choice}]))};}};}
 export function supportWire(sent,select,options){
     const batch={state:sent.state,questions:Object.entries(sent.questions).map(([key,question])=>({key,...question}))};
     const choices=supportChoices(batch,select,options);
     return {model:sent.model,usage:{input_tokens:10,output_tokens:2},answers:Object.fromEntries(batch.questions.map(question=>[question.key,
+        question.type==='noul'?{type:'noul',noul:choices[question.key].noul}:
         {type:'choice',choice:choices[question.key],confidence:1,probabilities:Object.fromEntries(Object.keys(question.criteria).map(key=>[key,key===choices[question.key]?1:0]))}]))};
 }
