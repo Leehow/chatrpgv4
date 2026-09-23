@@ -7,8 +7,10 @@
  */
 
 import { strict as assert } from "node:assert";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import { extensionWords } from "../../extensions/ui/words.ts";
@@ -182,6 +184,66 @@ test("宿主已经完成建卡时，收尾回合直接交接而不再读取 setu
 		"ready_for_table has no world yet, so the resumed setup process must not enter the play Mod context path");
 	assert.equal(table.entries("coc-setup-exit").length, 1,
 		"the already committed handoff still tells the wrapper to replace setup with play");
+});
+
+/** One cold kernel process over the workspace, as the App's `callColdKernel` runs it: each request in order, every one must succeed. */
+function coldKernel(workspace, requests) {
+	const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+	const input = requests.map(([method, params], index) => JSON.stringify({ id: String(index), method, params })).join("\n");
+	const run = spawnSync(process.execPath, [join(repo, "build/kernel/rpc.mjs"), "--workspace", workspace, "--content", join(repo, "content")],
+		{ cwd: repo, input: `${input}\n`, encoding: "utf8" });
+	const frames = run.stdout.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line)).filter((frame) => !frame.progress);
+	for (const frame of frames) if (!frame.ok) throw new Error(`cold ${requests[Number(frame.id)][0]} failed: ${JSON.stringify(frame.error)}`);
+	return frames.map((frame) => frame.result);
+}
+
+test("a live setup process learns the card button's cold completion from the kernel and hands off (§98)", async (t) => {
+	// Installed build e1b4176d3, 2026-09-23: the setup child had drafted the card and was still
+	// running when the player pressed "Confirm and open the table". The host confirmed and completed
+	// on a cold kernel (ready_for_table, setup.handoff written), then sent its one sentence. The live
+	// child still held its own `completed` from session start, so it asked `mods.context`, which a
+	// ready_for_table campaign refuses; that set the guidance block, the Keeper's confirm came back
+	// "Guidance review did not pass", agent_end returned without a handoff, and the table never opened.
+	const campaign = "live-setup";
+	const profile = {name: "Helen", occupation: "Journalist", age: 29, sex: "female",
+		concept: "A cautious local reporter seeking rent money.", own_language: "English",
+		occupation_skills: ["Art and Craft (Photography)", "History", "Language (Own)", "Library Use", "Psychology", "Persuade", "Spot Hidden", "Listen"],
+		interest_skills: ["Accounting", "Law", "First Aid", "Drive Auto"],
+		backstory: {personal_description: "A practical coat", ideology_beliefs: "Evidence before rumors",
+			significant_people: "An editor friend", scenario_bound: "Meeting Knott about the house investigation"},
+		key_connection: {backstory_field: "significant_people", summary: "The editor friend"},
+		equipment: ["Press card", "Notebook", "Camera", "Flashlight"]};
+	const table = await openTable({
+		mode: "setup", campaign, realKernel: true, seedCampaign: false,
+		prepareWorkspace: (workspace) => coldKernel(workspace, [
+			["campaign.create", {id: campaign, module: "the-haunting", play_language: "en"}],
+			["setup.draft", {campaign, profile}],
+		]),
+		responses: [setupCall({step: "revise", profile: {age: 30}}), fauxAssistantMessage("The card is on the table; confirm it or tell me what to change.")],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("Make her thirty.");
+	await waitForIdle(table.session);
+	assert.equal(setupResults(table.session).at(-1).ok, true, "the live process revises the card: nothing is blocked before the button");
+	assert.equal(table.entries("coc-setup-exit").length, 0, "nothing is confirmed yet, so setup is still running");
+
+	const [{state: {draft: {revision}}}] = coldKernel(table.workspace, [["setup.steps", {campaign}]]);
+	const [, completed] = coldKernel(table.workspace, [
+		["setup.confirm", {campaign, revision, consent: "approved"}],
+		["setup.complete", {campaign}],
+	]);
+	assert.equal(completed.status, "ready_for_table", "the button's cold completion is the kernel's, before the sentence arrives");
+
+	// The Keeper on the installed build answered the sentence with confirm-investigator; the same call here.
+	table.faux.setResponses([setupCall({step: "confirm-investigator", consent: "approved"}), fauxAssistantMessage("The table is opening.")]);
+	await table.session.prompt("Confirmed from the card. Open the table.");
+	await waitForIdle(table.session);
+
+	const refusals = setupResults(table.session).filter((row) => /Guidance review/.test(String(row.error ?? "")));
+	assert.deepEqual(refusals, [], "a completed setup is not a guidance failure");
+	assert.equal(table.entries("coc-setup-exit").length, 1,
+		"the live setup process exits so the launcher relaunches play on the ready_for_table campaign");
 });
 
 test("选内置 starter 就是 starter 来源，不是 pdf，也不会被要资料包（#32）", async (t) => {
