@@ -1,0 +1,16 @@
+{
+ "derived_from": "turn3",
+ "source_tarball_sha256": "26f4689e55dbe5be832c53c7db69755989bba28aedc3d40d616925908fe51aea",
+ "change": "module slice re-registered from the starter by module.register",
+ "module": "the-haunting",
+ "registered": {
+  "module_id": "the-haunting",
+  "status": "installed",
+  "generation": 3,
+  "graph_digest": "cfc354e1a43b48da178fc208be3ee56f3bcf8f2ffadead717111dc5428060d96",
+  "title": "The Haunting"
+ },
+ "starter_sha256": "cfc354e1a43b48da178fc208be3ee56f3bcf8f2ffadead717111dc5428060d96",
+ "starter_commit": "e2b9520c69b3ada2a8c1bed8606cd73faaa3a5de",
+ "unchanged_outside_modules": 369
+}

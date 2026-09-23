@@ -126,15 +126,21 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
       const key = operation.verb === 'apply' ? effectKey(bound) : resolveKey(bound);
       for (const call of calls) {
         if (!call.ok) continue;
+        // The note asks for the verb "with the bound values as given and the needed parameters filled in" (§135.4): the
+        // recorded call supplies what the live Keeper filled in, and the bound values ride on it as given (SO-04: an
+        // obligation check's `action.obligation`, which the live Keeper never had to send).
         if (operation.verb === 'apply' && call.name === 'apply') {
           const effect = array(call.arguments.effects).find((value: Row) => effectKey(value) === key);
-          if (effect && !done.has(key!)) { const item = {name: 'apply', arguments: {effects: [effect]}}; record(item); return answer([item], 'bind'); }
+          if (effect && !done.has(key!)) { const item = {name: 'apply', arguments: {effects: [{...effect, ...bound}]}}; record(item); return answer([item], 'bind'); }
         }
         // A resolve binds by its decision and who acts or is acted on (a defence names its actor, an attack its target).
         const action = object(call.arguments.action), norm = (value: unknown) => String(value ?? '').toLowerCase().replace(/\s+/g, '-');
         if (operation.verb === 'resolve' && call.name === 'resolve' && action.decision === bound.decision
           && (norm(action.actor) === norm(bound.actor) && !!bound.actor || norm(action.target) === norm(bound.target) && !!bound.target)
-          && !done.has(resolveKey(action))) { record(call); return answer([call], 'bind'); }
+          && !done.has(resolveKey(action))) {
+          const item = {name: 'resolve', arguments: {...call.arguments, action: {...action, ...bound}}};
+          record(item); return answer([item], 'bind');
+        }
       }
       log({replay: 'bind:not_recorded', key});
     }
@@ -152,22 +158,51 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
   };
 }
 
-/** The admission lane as a replay of the live table's verdicts, per verb, in order. */
+/**
+ * The admission lane as a replay of the live table's verdicts. Each live review is paired with the live call it judged
+ * (the i-th review of a verb with the i-th call of that verb the live kernel took). A review is answered with the
+ * verdict of the live call it names -- the call's decision or skill and its target for a resolve, an effect's target
+ * for an apply, read as strings in the review request -- preferring a live review not yet replayed; else with the next
+ * live review of the verb in order; else with the last one replayed for that verb. SO-04: the clerk's claimed Persuade
+ * is a review the live table never had, and in order it took the verdict meant for the next call (Ruth's first
+ * impression, which was then refused for want of one); paired by what it names, it takes the live Persuade's verdict.
+ */
 function admissionReplay(baseline: Row, log: (row: Row) => void) {
-  const queue: Record<string, Row[]> = {apply: [], resolve: []};
-  for (const row of array(baseline.admissions)) if (queue[row.verb]) queue[row.verb].push(row);
+  const calls = liveCalls(baseline).filter(call => call.ok);
+  const records: Record<string, Array<Row & {names: string[]; used: boolean}>> = {apply: [], resolve: []};
+  const byVerb: Record<string, Row[]> = {apply: calls.filter(call => call.name === 'apply'), resolve: calls.filter(call => call.name === 'resolve')};
+  // A live call the review did not see (a person-only apply is exempt) is skipped by pairing reviews with calls that name something reviewable.
+  const reviewable = (call: Row): boolean => call.name === 'resolve' || array(call.arguments.effects).some((effect: Row) => effect.kind !== 'person');
+  const cursor: Record<string, number> = {apply: 0, resolve: 0};
+  for (const row of array(baseline.admissions)) {
+    const verb = row.verb, list = byVerb[verb];
+    if (!list) continue;
+    while (cursor[verb] < list.length && !reviewable(list[cursor[verb]])) cursor[verb]++;
+    const call = list[cursor[verb]++];
+    const action = object(call?.arguments.action);
+    const names = verb === 'resolve' ? [String(action.decision ?? action.skill ?? ''), String(action.target ?? '')].filter(Boolean)
+      : array(call?.arguments.effects).map((effect: Row) => String(effect.to ?? effect.clue ?? effect.name ?? '')).filter(Boolean);
+    records[verb].push({...row, names, used: false});
+  }
+  const last: Record<string, Row | undefined> = {};
   return (context: Row): Row => {
     const request = JSON.stringify(context.messages ?? []);
     const verb = request.includes('resolve (roll the dice') ? 'resolve' : 'apply';
-    const next = queue[verb].shift();
-    log({admission_replay: verb, verdict: next?.verdict ?? null, live_ms: next?.ms ?? null});
+    const list = records[verb];
+    const names = (record: Row & {names: string[]}) => record.names.length > 0 && (verb === 'resolve' ? record.names.every(name => request.includes(name)) : record.names.some(name => request.includes(name)));
+    let next = list.find(record => !record.used && names(record)), pairing = 'identity';
+    if (!next) { next = list.find(record => names(record)); pairing = 'identity_reused'; }
+    if (!next) { next = list.find(record => !record.used); pairing = 'order'; }
+    if (!next) { next = last[verb] as typeof next; pairing = 'reuse_last'; }
+    if (next) { next.used = true; last[verb] = next; }
+    log({admission_replay: verb, pairing: next ? pairing : null, verdict: next?.verdict ?? null, live_ms: next?.ms ?? null});
     if (!next) return fauxAssistantMessage('no recorded verdict for this review');
     return fauxAssistantMessage(JSON.stringify({verdict: next.verdict, grounds: `replayed live verdict (${next.ms} ms live)`}));
   };
 }
 
 export interface ProductRunSummary {
-  run: number; fixture: string; admission: string; wall_ms: number; status: string | null; reason: string | null;
+  run: number; fixture: string; admission: string; seed: string | null; wall_ms: number; status: string | null; reason: string | null;
   steps: Record<string, number>; llm_steps: number; llm_purposes: string[]; jev_calls: number; route_rows: number;
   calls: Row[]; match: Row[]; admissions: Row[]; clerk: Row[]; misses: Row[];
 }
@@ -197,7 +232,7 @@ function matchBaseline(baseline: Row, calls: Row[]): Row[] {
   });
 }
 
-export async function productReplayOnce(name: string, run: number, outDir: string, admission: 'lane' | 'jev'): Promise<ProductRunSummary> {
+export async function productReplayOnce(name: string, run: number, outDir: string, admission: 'lane' | 'jev', seed?: string): Promise<ProductRunSummary> {
   const {turn: fixture, baseline} = readFixture(name);
   const workspace = materialize(name), campaign = fixture.campaign as string;
   const gitDir = join(workspace, '.coc/repos', `${campaign}.git`), workTree = join(workspace, '.coc/campaigns', campaign);
@@ -216,6 +251,9 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
     PI_COC_MODE: 'play', PI_OFFLINE: '1', PI_COC_LOOP_ENGINE: 'hybrid-v1', PI_COC_MEMORY_BACKFILL: '0',
     PI_COC_VERIFIER_MODEL: 'verifier/v1', PI_COC_MEMORY_MODEL: 'memory/m1', PI_COC_ADMISSION_MODEL: 'admission/a1',
     PI_COC_ADMISSION_REVIEWER: admission, PI_COC_JEV_PRESELECT: '1',
+    // SO-04: the kernel's dice are seeded (the kernel subprocess inherits this), so a passing and a failing roll are
+    // both reproducible; the seed is recorded in the summary.
+    COC_KERNEL_SEED: seed,
   });
   const trace: Row[] = [], log = (row: Row) => trace.push({at: new Date().toISOString(), ...row});
   const calls: Row[] = [];
@@ -241,7 +279,10 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
         {name: 'replay-probe', factory: (pi: any) => {
           pi.on('tool_call', (event: Row) => { pending.set(event.toolCallId, {tool: event.toolName, id: event.toolCallId, origin: String(event.toolCallId).startsWith('clerk:') ? 'policy' : 'model', input: structuredClone(event.input)}); });
           pi.on('tool_result', (event: Row) => { const call = pending.get(event.toolCallId); if (!call) return; pending.delete(event.toolCallId);
-            calls.push({...call, ok: !event.isError && !object(event.details).coc_error, error: object(object(event.details).coc_error).code ?? null}); });
+            const details = object(event.details);
+            calls.push({...call, ok: !event.isError && !details.coc_error, error: object(details.coc_error).code ?? null,
+              ...(details.obligation ? {obligation: details.obligation} : {}), ...(details.obligation_open ? {obligation_open: details.obligation_open} : {}),
+              ...(object(details.outcome).passed !== undefined ? {passed: object(details.outcome).passed, level: object(details.outcome).level ?? null} : {})}); });
         }},
         {name: 'coc-hybrid-engine', factory: engine.extension},
       ]});
@@ -280,9 +321,11 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
     confidence: row.confidence ?? null, jev_fallback: row.jev_fallback ?? null, basis: row.basis ?? null}));
   const clerk = own.filter(row => row.origin === 'policy' && row.tool).map(row => ({tool: row.tool, call_id: row.call_id, ok: row.ok, ms: row.ms, clerk: row.clerk, basis: row.basis}));
   const misses = routeRows.filter(row => ['low_confidence', 'jev_unavailable', 'jev_no_answer', 'repeated_question'].includes(String(row.reason)));
-  const summary: ProductRunSummary = {run, fixture: name, admission, wall_ms: wall, status: end?.status ?? null, reason: end?.reason ?? null,
+  const summary: ProductRunSummary = {run, fixture: name, admission, seed: seed ?? null, wall_ms: wall, status: end?.status ?? null, reason: end?.reason ?? null,
     steps: stepCounts, llm_steps: llmPurposes.length, llm_purposes: llmPurposes, jev_calls: jevCalls, route_rows: routeRows.length,
-    calls: calls.map(call => ({tool: call.tool, origin: call.origin, ok: call.ok, error: call.error, input: call.input})), match: matchBaseline(baseline, calls),
+    calls: calls.map(call => ({tool: call.tool, origin: call.origin, ok: call.ok, error: call.error, input: call.input,
+      ...(call.obligation ? {obligation: call.obligation} : {}), ...(call.obligation_open ? {obligation_open: call.obligation_open} : {}),
+      ...(call.passed !== undefined ? {passed: call.passed, level: call.level} : {})})), match: matchBaseline(baseline, calls),
     admissions, clerk, misses};
   mkdirSync(outDir, {recursive: true});
   writeFileSync(join(outDir, `run${run}.trace.jsonl`), [...trace.map(row => ({lane: 'replay', ...row})), ...events.map(row => ({lane: 'event', ...row})), ...own].map(row => JSON.stringify(row)).join('\n') + '\n');
@@ -293,14 +336,15 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
 export async function main(argv: string[]): Promise<void> {
   const arg = (name: string, fallback: string) => { const index = argv.indexOf(name); return index >= 0 ? argv[index + 1] : fallback; };
   const name = arg('--fixture', 'turn3'), runs = Number(arg('--runs', '1')), admission = arg('--admission', 'lane') as 'lane' | 'jev';
+  const seed = argv.includes('--seed') ? arg('--seed', '') : undefined;
   const outDir = arg('--out', join(REPO, 'experiments/single-loop-routing/results', `${new Date().toISOString().replace(/[:.]/g, '-')}-product-${name}-${admission}`));
   const summaries: ProductRunSummary[] = [];
   for (let run = 1; run <= runs; run++) {
-    const summary = await productReplayOnce(name, run, outDir, admission);
+    const summary = await productReplayOnce(name, run, outDir, admission, seed);
     summaries.push(summary);
-    console.log(JSON.stringify({run, fixture: name, admission, wall_ms: summary.wall_ms, status: summary.status, reason: summary.reason, steps: summary.steps,
+    console.log(JSON.stringify({run, fixture: name, admission, seed: summary.seed, wall_ms: summary.wall_ms, status: summary.status, reason: summary.reason, steps: summary.steps,
       llm_steps: summary.llm_steps, llm_purposes: summary.llm_purposes, jev_calls: summary.jev_calls, route_rows: summary.route_rows,
-      executed: summary.calls.map(call => `${call.origin === 'policy' ? 'H' : 'M'}:${call.tool}${call.ok ? '' : `!${call.error}`}`),
+      executed: summary.calls.map(call => `${call.origin === 'policy' ? 'H' : 'M'}:${call.tool}${call.ok ? '' : `!${call.error}`}${call.obligation ? `[${call.obligation.handle}:${call.obligation.settled ? 'settled' : 'open'}]` : ''}`),
       match: summary.match.map(row => `${row.baseline}: ${row.matched === null ? 'n/a' : row.matched ? `yes(${row.origin})` : 'NO'}`),
       admissions: summary.admissions.map(row => `${row.origin}/${row.verb}:${row.skipped ?? row.verdict}${row.reviewer ? `@${row.reviewer}` : ''}${row.ms !== null ? ` ${row.ms}ms` : ''}`)}));
   }
