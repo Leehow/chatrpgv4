@@ -24,6 +24,7 @@ Move table evidence (the prescreen), ordinary resolve/apply and the routing fan-
 - Clerk steps are committed at once and listed in the capsule as "clerk did"; reversal is an explicit Keeper operation.
 - Research item (decide by measurement, report before closing): whether a fully-bound, kernel-issued, Jev-selected operation still passes §32 admission, or whether §32.10's typed admission (or none) is enough for policy-origin operations.
 - The compose step streams raw prose; the delivery card replaces it in place when the turn closes.
+- **Parameters-only steps never go to the LLM** (spec ruling of the same name): the combat/chase session families are candidates built from the kernel's session view (`turn_of`, `actions[]`, `pending_defense.options`), not an LLM proposal path. Determined steps (one legal action, damage, initiative advance) are `direct`; closed choices (the NPC's defence, its target when several) are `decide(bind)`; the LLM is asked only when the player's words leave the target or weapon open, or for the prose. Acceptance adds: a replay of a fight round from the 打斗测试 table closes with one LLM step (the compose) when the player names the target, and every non-prose step carries the kernel's issued row as its basis.
 
 ## Scene obligations (scheduled here; owner, 2026-09-23)
 
@@ -35,5 +36,5 @@ Move table evidence (the prescreen), ordinary resolve/apply and the routing fan-
 
 ## Acceptance (design §13 SL-02 gate)
 
-- A simple turn has no forced LLM plan; the turn-3 replay reproduces 8/8 live actions with ≤ 5 LLM steps against the product driver; special families still reach an LLM proposal path; every route distribution is in telemetry.
+- A simple turn has no forced LLM plan; the turn-3 replay reproduces 8/8 live actions with ≤ 5 LLM steps against the product driver; special families reach the LLM only for open parameters and the prose (see the parameters-only ruling); every route distribution is in telemetry.
 - With SO-01/SO-02/SO-04 on the branch (ruling Q6): on the fixture variant with the morgue pair authored, the meeting with Arty and the gatekeeper's check are selected `now` in 3/3 runs; a passing roll closes in ≤ 3 LLM steps (target 2); a failing roll is recorded as the Keeper improvising past an open obligation, not scored.
