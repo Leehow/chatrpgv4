@@ -23,7 +23,7 @@ export function keeperDefense(world: Row, handle: string): string | null {
 }
 /** The book's tactic for this person: the record's `combat.defense`, when it is a defence word (source 1). */
 export function authoredDefense(graph: ModuleGraph, handle: string): string | null {
-    const node = graph.find(handle, ['npc']);
+    const node = graph.actor(handle);
     return node ? word(row(recordOf(node).combat).defense) : null;
 }
 /**
@@ -50,7 +50,7 @@ export function cardTactic(graph: ModuleGraph, world: Row, node: Row): Standing 
     if (keeper) return { defense: keeper, basis: 'keeper' };
     const authored = word(row(recordOf(node).combat).defense);
     if (authored) return { defense: authored, basis: 'authored' };
-    const book = row(recordOf(node).mechanics).profile, pinned = row(world.npc_profiles)[handle];
+    const book = graph.mechanicsOf(node).profile, pinned = row(world.npc_profiles)[handle];
     const profile = isJsonObject(book) ? book : isJsonObject(pinned) ? pinned : null;
     if (!profile) return { defense: null, basis: 'rule-default' };
     const skills = npcDefenceSkills(profile);

@@ -638,9 +638,13 @@ function moduleNamesIt(candidate: Row, fold: string): boolean {
 }
 export function moduleSpellRecords(graph: ModuleGraph, world?: Row): Row[] {
     const records = graph.kind("spell").map(node => {
+        // Contract §136.14: the typed `mechanics.spell`, else the flat-key bridge `mechanicsOf` owns. A cost the
+        // shape leaves unstated or to the caster's choice is missing: the cast refuses rather than price it at zero.
         const props = row(node.properties),
-            fields = pick(props, ["cost_mp", "cost_sanity", "cost_pow"]),
-            missing = ["cost_mp", "cost_sanity"].filter(key => !Object.hasOwn(fields, key));
+            stated = row(graph.mechanicsOf(node).spell),
+            fields = pick(stated, ["cost_mp", "cost_sanity", "cost_pow"]),
+            missing = ["cost_mp", "cost_sanity"].filter(key => !Object.hasOwn(fields, key)),
+            chosen = stated.cost_mp_chosen === true && !Object.hasOwn(fields, "cost_mp") ? ["cost_mp"] : [];
         return {
             ...catalogRecord({
                 kind: "spell",
@@ -660,7 +664,8 @@ export function moduleSpellRecords(graph: ModuleGraph, world?: Row): Row[] {
                 costs: {
                     authored: missing.length === 0,
                     fields,
-                    missing
+                    missing,
+                    ...(chosen.length ? { chosen } : {})
                 }
             }
         };

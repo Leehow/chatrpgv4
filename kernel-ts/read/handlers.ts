@@ -461,19 +461,26 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                     // nothing read it until now, so the Keeper -- told to read the source rewards
                     // before settling -- had to guess one (contract §32.9). An empty list is the
                     // answer that this module declares none, and an undeclared reward is omitted.
-                    endings: graph.kind("scene").flatMap(node => {
+                    // The typed `reward` shapes of the rules a conclusion scene or an ending links by uses-rule
+                    // (contract §136.17) ride as `rewards`; a row without any is exactly as before.
+                    endings: [...graph.kind("scene").flatMap(node => {
                         const contract = row(recordOf(node).conclusion_contract);
                         if (!truth(contract))
                             return [];
+                        const rewards = graph.statedRewards(node);
                         return [{
                             scene: graph.handle(node),
                             conclusion: contract.conclusion_id ?? null,
                             sanity_reward: row(contract.sanity_reward).die ?? null,
                             rule: row(contract.sanity_reward).rule_ref ?? null,
                             requires: contract.requires_combat_outcome ?? null,
-                            ends_session: contract.session_ending === true
+                            ends_session: contract.session_ending === true,
+                            ...(rewards.length ? { rewards } : {})
                         }];
-                    })
+                    }), ...graph.kind("ending").flatMap(node => {
+                        const rewards = graph.statedRewards(node);
+                        return rewards.length ? [{ ending: graph.handle(node), rewards }] : [];
+                    })]
                 };
             await campaign.preload("people");
             const scene = graph.scene(world.active_scene),
