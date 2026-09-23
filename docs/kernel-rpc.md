@@ -4697,7 +4697,8 @@ one more sentence and not an arbitrary direct world mutation.
 #### Same-turn prepare and later slices
 
 Define/adopt-only bookkeeping may still take the existing background `mods.queued`
-defer and resume next turn. A usage the current action depends on must not. The
+defer and resume next turn. (Since §129.4 every `define` outside a usage batch, spells aside, does, and a
+placement beside it stands on a placeholder.) A usage the current action depends on must not. The
 host prepares that usage on its own concurrent job, waits for `mods.accept`, and
 returns the result to the Keeper who is still handling the same action so the
 original `resolve` can continue. It does not ask the player for a second input
@@ -15293,13 +15294,101 @@ The card opens when the job's accepted draft is in hand — before the next turn
 **127.3 What still waits, and why.**
 
 - *`usage` batches stay in-turn.* The `resolve` that consumes a usage cannot settle without it, which is §26's "a usage the current action depends on must not [defer]". The host has no structural fact that separates a usage the current action needs from one it does not: a usage preparation batch exists because an action needs it (the combat refusal names `apply usage`), and a usage nobody needs yet is already the independent background prefetch path. Deferring one would mean inferring intent. The wait keeps §26's `mods-progress` `role: "usage"` line; no card exists to hold yet, because the card is drawn at `narrate`, after the usage was accepted.
-- *A `define` beside a placement stays in-turn.* Only define/adopt bookkeeping is deferred. A batch that places or hands over a new object needs its definition to mint the instance (`initial_ammo`/`magazine`, `charges`, the one-instance weapon rule), and the object must exist for the next verb of the same turn. Deferring it would mean queueing the placement as well and leaving the object absent from the world until the next turn — a change of what the world holds, not of how a card is drawn, and not made here.
+- *A `define` beside a placement stays in-turn.* **Superseded 2026-09-23 by §129.4:** a placement now stands on a placeholder and nothing about the world waits a turn; what follows is the reasoning that held until then. Only define/adopt bookkeeping is deferred. A batch that places or hands over a new object needs its definition to mint the instance (`initial_ammo`/`magazine`, `charges`, the one-instance weapon rule), and the object must exist for the next verb of the same turn. Deferring it would mean queueing the placement as well and leaving the object absent from the world until the next turn — a change of what the world holds, not of how a card is drawn, and not made here.
 - *Changed: an unfinished registration no longer blocks the next turn.* A queued registration whose job has no accepted result at the next resume (the session died between the marker and its parameters, or its background generation failed) used to be generated inside the first verb of that turn, on the foreground budget. It is now started beside the turn exactly like the original deferral — tracked as the one outstanding batch, no foreground budget — and announced when it lands; the next resume writes it. Entries already accepted still land in that same resume.
 - *Fixed on the way: the regeneration never landed.* `mods.job` keyed a `create` job by the asking turn, so a registration regenerated in a later turn was accepted under a new job while its marker kept naming the old one; `mods.queued` looked only at the marker's job, reported it unfinished again, and every later turn paid for the same child once more (inside the verb, before this section). A `create` request whose input equals a queued registration's `define` is now minted under that registration's turn, which is the marker's own job, so the result lands where the marker looks. A request after the marker is gone (discarded) is minted as before and its acceptance refuses as another turn's job, so a generation still in flight when its markers are discarded cannot reopen the card.
 
 The zh-Hans seed's `mechanics.preparing` is the lane's own output, projected from this one gap (a content root holding only that caption, `xai/grok-4.6`) and harvested into the seed; nothing else in the seed moved.
 
 Tests: `Electron/packages/ui/src/coc-object-details.test.tsx` (pending row draws a waiting mark and nothing to open; the in-place redraw opens it), `Electron/packages/pi-backend/test/coc-object-details.test.ts` (live redraw under the same id; re-read merge; a lane-word redraw keeps landed details), `tests/extension/object-details-pairing.test.mjs` (real kernel row → host word → backend projection; the replayed adoption is not a second row; an unfinished registration is regenerated beside the turn under its own marker and then written; discard closes the fold; a generation in flight at discard does not reopen it), `tests/kernel/test_mods.py::test_registration_can_be_queued_past_delivery_and_completed_afterwards` and `::test_a_handed_over_object_opens_into_its_player_view_on_the_card`.
+
+### 129.4 A definition never holds the apply that places its object (2026-09-23)
+
+User direction (standing): apply runs in the background wherever it can; anything that shows an object's
+parameters shows the text with a waiting mark and opens when ready; the main content is never blocked.
+
+Retained evidence: installed build 67a281c3e, starter `the-haunting`, Keeper `grok-4.7-build-fast`. Turn 0's
+opening batch (define + adopt) was deferred as §129 specifies: the apply returned in 49 ms and 651 ms, the
+card drew four belongings waiting, and three creator children ran 17–20 s each beside the turn. Turn 1's
+apply carried `clue` ×4, `cash`, `handout` and a `define` + `object` placement for the house keys in one
+batch. It was not registration-only, so it took the blocking path: one creator child of 43.3 s ran inside the
+call, which returned after 47.4 s (`{"tool":"apply","ms":47417}`), admission 3.0 s of it. The player waited
+44 s for nothing they could see.
+
+**The rule.** Every `define` in an `apply` is generated beside the turn (§129's `beside`, one outstanding
+batch, no foreground budget, announced through `coc-object-details`), in any batch shape, except:
+
+- *a `usage` batch* — unchanged (§129.3): the `resolve` that consumes the usage needs it now;
+- *a `spell`, and every `define` of a batch carrying an `ability`* — nothing places a spell, and everything that
+  reads one (ability acquisition, `magic:learn-spell`, casting) reads its costs; a stand-in without costs would
+  make a free spell. Spells were 1 of 25 definitions on record.
+
+A job the kernel reports already `accepted` (the name was defined before; a retry of a batch whose generation
+has since landed) is attached in the same call instead of being queued.
+
+**The placeholder.** The kernel still queues the registration exactly as §129 did (`definition:queued-*`
+receipt, `queued: true`, the marker in `world.mods.state.<mod>.queued`). What is new is what a placement
+finds. When `moveObject` looks for a definition name that is not accepted but is queued (and not a spell), it
+writes a placeholder into `world.objects.definitions` and mints the instance against it:
+
+```
+{name, category, description: <the Keeper's request wording, or "">, parameters: {}, traits: [],
+ player_view: {description: "", fields: []}, id, version: 0, digest, provenance: {job}, placeholder: true}
+```
+
+Nothing is invented: the name, category and request wording are what the Keeper wrote (the request wording is
+Keeper material, like every definition's `description`, and the player view shows none of it); the parameters
+are absent until they are generated. It is written only when a placement asks for the name, so a batch that
+places nothing still writes no definition, and an adoption is still queued and replayed (§129.1), unchanged.
+The one-instance weapon rule reads the placeholder's category. Initial ammunition, charges and a document
+seed from the definition are not known yet, so the instance holds `null` for them.
+
+**The replacement.** The next resume is §129's, unchanged in shape: `mods.queued` returns the landed `define`
+(the placement is not replayed; it already stands) and the host applies it. `defineObject` finding a placeholder
+under the name replaces it **under the same id** (`version: 1`, the generated digest and provenance), so every
+instance keeps its id, owner and definition pointer. For each instance on that id, ammunition and charges still
+`null` take the definition's initial values, and a definition document initializes an instance that has none.
+The receipt says `replaced_placeholder: true`, and `apply` re-projects the inventory for it (weapon rows, the
+sheet's equipment description) as it does for `object` and `usage` effects. A placement against a placeholder
+therefore survives the replacement with its identity.
+
+**Who else reads a placeholder, and what each is told.**
+
+| reader | before the replacement |
+| --- | --- |
+| card (`mechanics`, `objectDetails`) | the item row is `definition: "pending"` with `definition_name` while the registration is queued; `none` once the registration was dropped (§129.2 discard) |
+| sheet (`publicItems`) | the name, an empty description, no parameters |
+| Keeper and audit (`objectContext`) | the definition row carries `placeholder: true`; `queued_registrations` keeps §129's wording |
+| `look` focus object | the definition, plus `pending: "<name> is registered; its parameters are still being prepared and land at the start of the next turn"` |
+| `mods.job` role `usage` (action or proposal) | `needs`, `reason: "definition_pending"`: a usage bound to the placeholder would be stale on arrival, and a prefetched proposal would mark the object as having a usage for good |
+| `resolve` item use (`useItem`) | `needs`, `reason: "definition_pending"`, not "no activated effect" |
+| combat weapon rows | none (a placeholder has no `skill`/`damage`), so combat asks for a usage |
+| `mods.job` role `create` | a placeholder is never reused as an accepted definition |
+
+**A usage batch in the same turn.** The usage path waits anyway (§26), so when the kernel answers a usage
+job with `definition_pending` the host takes the object's parameters there and then: it awaits the outstanding
+generation, calls `mods.queued {now: true, objects: [<usage objects>]}` — which returns, whatever turn queued
+them, only the registrations behind the placeholders of the named instances — generates one still unfinished
+on the call's clock (under its marker's own job, §129.3), applies the landed definitions (announced `ready`
+like any resume), and prepares the usage again. A usage batch whose objects stand on no placeholder makes
+exactly the calls it made before.
+
+**Failure.** Unchanged from §129: a failed generation is reported unfinished by the next resume and started
+again beside the turn; a resume that cannot land discards the markers and announces `none`. The placement still
+stands; its placeholder stays (`placeholder: true`, no marker), the card says `none`, and a later `define` of
+the same name is queued again and replaces it.
+
+The audit is told nothing new beyond the truth: the `definition:queued-*` receipt already says the registration
+is queued, the placement's `item` receipt is real (the instance exists), and the definition the audit's object
+context lists says it is a placeholder. No review is widened or weakened.
+
+Tests: `tests/extension/apply-defer-any-batch.test.mjs` (a clue + cash + define + placement batch returns from
+`prepare` with its creator held, the placement resolves on a placeholder, the card is pending, the next resume
+replaces it in place and fills charges; a failed generation leaves the placement standing and a dropped
+registration's card reads `none`; a usage batch in the same turn completes the placeholder first; an already
+accepted definition attaches in the call with no child and no placeholder),
+`tests/kernel/test_mods.py::test_a_placement_beside_a_queued_definition_stands_on_a_placeholder_until_the_resume_replaces_it`
+and `::test_a_usage_batch_can_take_the_registration_behind_a_placeholder_in_the_same_turn`.
 
 ## 130. The player reads first; the continuity review reads after (2026-09-22, amends §12.8, §36.14 and §91)
 

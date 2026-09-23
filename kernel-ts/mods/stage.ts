@@ -11,7 +11,7 @@ import { stagedSheet } from '../apply/inventory.js';
 import { required } from '../write/store.js';
 import { validateDefinition } from './definition.js';
 import { initializeDocument, ownershipChanged, writeDocument } from './documents.js';
-import { defineObject, moveObject, objectInstance, objectRegistry } from './objects.js';
+import { defineObject, isPlaceholder, moveObject, objectInstance, objectRegistry } from './objects.js';
 import { objectTransferReceipt, ownerLabel } from './object-transfer.js';
 import { clearOffer, openOffer, recordOffer, receiptsOf, validateDisposition, validateHandover } from './object-offer.js';
 import { divideObject, validateDivision } from './object-division.js';
@@ -72,11 +72,14 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         if (!packageRow || packageRow.digest !== provenance.digest || !truth(packageRow.contributes.materializer)) throw new RpcError('invalid_params', 'Definition provenance is not an active materializer');
         const accepted = await jobs.accept({campaign: campaign.id, job: provenance.job});
         if (canonicalJson(accepted.definition ?? null) !== canonicalJson(draft)) throw new RpcError('invalid_params', 'Definition differs from the accepted Mod job');
+        // §129.4: a placement already minted its instance against a placeholder; this replaces it in place.
+        const replaced = isPlaceholder(findNamedObject(objectRegistry(world).definitions, draft.name));
         const value = defineObject(world, draft, provenance);
         // The registration this definition was queued for is now real, so its marker stops standing in
         // for it -- otherwise the row would stay hidden from the audit that is supposed to notice gaps.
         clearRegistration(world, packageRow.id, string(value.name), string(value.category));
-        return {receipt: {id: mint(`definition:${callId}`), kind: 'definition', name: value.name, category: value.category, definition: value.id, visibility: 'keeper', call_id: callId},
+        return {receipt: {id: mint(`definition:${callId}`), kind: 'definition', name: value.name, category: value.category, definition: value.id, visibility: 'keeper', call_id: callId,
+                ...(replaced ? {replaced_placeholder: true} : {})},
             event: {type: 'definition-created', data: {name: value.name, category: value.category}}};
     }
     if (kind === 'dossier') {

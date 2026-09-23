@@ -1,6 +1,7 @@
 /** Receipt-to-JSON projection. It neither changes receipts nor evaluates story text. */
 import { array, row, number, integer, truth, chars, length, type Row } from "./values.js";
 import { publicDefinition } from "../mods/public-definition.js";
+import { queuedDefinition } from "../mods/queue.js";
 /**
  * A roll receipt's visibility tier (§16.5). Three, not two.
  *
@@ -288,12 +289,24 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
  * definition's player view; `pending` says its parameters are still being prepared beside the
  * delivery and names the definition they will arrive under; absent says nothing.
  */
-export const DEFINITION_READY = 'ready', DEFINITION_PENDING = 'pending';
+export const DEFINITION_READY = 'ready', DEFINITION_PENDING = 'pending', DEFINITION_NONE = 'none';
 function objectDetails(out: Row, world: Row | undefined, instanceId: any): void {
     const objects = row(row(world).objects), instance = row(row(objects.instances)[typeof instanceId === "string" ? instanceId : ""]);
     const definition = row(objects.definitions)[typeof instance.definition === "string" ? instance.definition : ""];
     if (!definition)
         return;
+    // §129.4: an instance placed against a placeholder waits on the registration still queued under that
+    // name; a placeholder whose registration was dropped will never open, and the row says so.
+    if (row(definition).placeholder === true) {
+        const name = row(definition).name;
+        if (queuedDefinition(world ?? {}, name)) {
+            out.definition = DEFINITION_PENDING;
+            labeled(out, "definition_name", name);
+        }
+        else
+            out.definition = DEFINITION_NONE;
+        return;
+    }
     out.definition = DEFINITION_READY;
     out.object = publicDefinition(definition);
 }
