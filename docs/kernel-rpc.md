@@ -15596,11 +15596,46 @@ any other unexpected field is told the complete set of fields its object takes.
 *Three ends (§31).* Writer: the private reviewer through `submit_audit`. Reader: `materializeAuditReferences`
 in both `submit_audit` and `mods.accept`. Actor: the §130.4 `table.warn` rows the accepted verdict becomes.
 
-Not done: a shape error still hides the semantic errors behind it (the repair sees them one stage at a
-time), and the unavailable status keeps only its reason, not the last error list. Live re-validation needs
-a repackaged App. Tests: `tests/extension/audit-subreview-placement.test.mjs` (the two retained submissions
+Both gaps this subsection first left open — a shape error hiding the content errors behind it, and an
+unavailable status that kept only its reason — are closed by §130.9. Live re-validation needs a
+repackaged App. Tests: `tests/extension/audit-subreview-placement.test.mjs` (the two retained submissions
 as fixtures under `tests/extension/fixtures/audit-subreview-placement/`) and the real-kernel accept case in
 `tests/extension/jev-audit-references.test.mjs`.
+
+### 130.9 One refusal carries every error, and the last one outlives the job (2026-09-23)
+
+`submit_audit` promises "Invalid fields are returned together for one targeted repair", but validation ran
+in stages: any shape or selector error returned before the shared content rules (`continuityArtifactErrors`)
+ran, so the reviewer spent its one repair on the first stage and met the second only when no repair was left.
+That is how the §130.8 job ended: its nested resubmission failed two content rules its first refusal had never
+named.
+
+`auditArtifactIssues` (`kernel-ts/mods/audit-references.ts`) is now the whole schema 2 check, and
+`submit_audit` calls it:
+
+1. placement is normalized (§130.8);
+2. selectors are materialized; when the top level and `continuity_review` are objects, a best-effort canonical
+   translation (`partial`) is kept even though some selector failed;
+3. submit_audit's existing verdict canonicalization (a structured `revise` overrides an aggregate `pass`) is
+   applied once, as before;
+4. the shared content rules run on that translation;
+5. the refusal is the union, deduplicated and ordered by path (array indices compared as numbers). A content
+   error at or under a path that already has a shape error is omitted: a failed selector materializes as
+   null, and reporting the rule that null breaks would name one fault twice.
+
+A clean report is still accepted exactly as before, and `mods.accept` is unchanged (it refuses on any error
+and runs only after a checked submission). What is refused is unchanged; only when it is said changes.
+
+When the repair allowance is exhausted, the last refusal is kept: `audit-status-N.json` carries it as
+`errors` (at most 64 rows), and `unavailable` becomes `The audit artifact still has invalid fields after its
+targeted repair: <path>: <message>; …` (at most about 1500 characters, then `and N more`). That string is
+what the host passes to `reviewUnavailable`, so it is the `continuity-review` telemetry row's `cause` without
+further wiring, and a failed job reads without its agent transcript.
+
+Tests: `tests/extension/audit-subreview-placement.test.mjs` — the retained first submission with one
+leftover v1 field and one differing duplicate gets the placement, shape and both content errors in a single
+response, in path order, and the repaired report is accepted on the second call; a failed selector is
+reported once; an exhausted repair leaves the list on the status and in the cause.
 
 ## 131. A file parses once per process; a copy is a copy (2026-09-22)
 

@@ -8,7 +8,7 @@ import {mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import auditSubmit from '../../extensions/mods/audit-submit.ts';
-import {AUDIT_SUBREVIEWS, AUDIT_SUBREVIEW_PLACEMENT, buildAuditReferences, materializeAuditReferences, placeAuditSubreviews,
+import {AUDIT_SUBREVIEWS, AUDIT_SUBREVIEW_PLACEMENT, auditArtifactIssues, buildAuditReferences, materializeAuditReferences, placeAuditSubreviews,
     auditReferenceIssues} from '../../kernel-ts/mods/audit-references.ts';
 import {continuityArtifactErrors, normalizeContinuityArtifact} from '../../kernel-ts/mods/audit-result.ts';
 
@@ -28,12 +28,12 @@ function semanticPaths(value, request, files, catalog) {
     return auditReferenceIssues(continuityArtifactErrors(normalized, request.input.text, files, catalog.speechTexts)).map(issue => issue.path).sort();
 }
 
-async function submitTool(request, files) {
+async function submitTool(request, files, control = {max_requests: 6, max_artifact_repairs: 1, status_file: 'status.json'}) {
     const cwd = await mkdtemp(join(tmpdir(), 'audit-placement-'));
     // The retained request names nine evidence files; the review reads only the focused context here.
     await writeFile(join(cwd, 'request.json'), JSON.stringify({...request, continuity_review: {...request.continuity_review, files: ['context.json']}}));
     await writeFile(join(cwd, 'context.json'), JSON.stringify(files['context.json']));
-    await writeFile(join(cwd, 'control.json'), JSON.stringify({max_requests: 6, max_artifact_repairs: 1, status_file: 'status.json'}));
+    await writeFile(join(cwd, 'control.json'), JSON.stringify(control));
     const tools = new Map(), priorCwd = process.cwd(), priorControl = process.env.PI_COC_AUDIT_CONTROL;
     try {
         process.chdir(cwd);
@@ -134,4 +134,51 @@ test('the prompt, the tool description and the package state one placement sente
     assert.ok(schema2.includes('${AUDIT_SUBREVIEW_PLACEMENT}'), 'the schema 2 brief interpolates the shared sentence');
     const auditor = await readFile(new URL('../../mods/narration-audit/auditor.md', import.meta.url), 'utf8');
     assert.ok(auditor.includes(AUDIT_SUBREVIEW_PLACEMENT), 'a changed sentence needs a re-issued narration-audit package');
+});
+
+// §130.9: the retained first submission, plus one leftover v1 field and one differing duplicate.
+async function everyFaultAtOnce() {
+    const submitted = await load('submitted-top-level.json');
+    submitted.intelligibility_review.quote = null;
+    submitted.continuity_review.speech_review = structuredClone(submitted.speech_review);
+    submitted.continuity_review.speech_review.lines[0].reason = 'A different judgment.';
+    return submitted;
+}
+const EVERY_FAULT = ['/continuity_review/intelligibility_review/quote', '/continuity_review/locus_review/locus_source',
+    '/continuity_review/verdict', '/speech_review'];
+
+test('one refusal carries placement, shape and content errors ordered by path; the repair is accepted next', async () => {
+    const {request, files} = await retained(), {cwd, submit} = await submitTool(request, files);
+    const first = await submit.execute('first', {result: await everyFaultAtOnce()});
+    assert.equal(first.isError, true);
+    assert.deepEqual(first.details.errors.map(issue => issue.path), EVERY_FAULT, 'every fault, in path order, in the first response');
+    assert.equal(JSON.parse(first.content[0].text).errors.length, EVERY_FAULT.length);
+    const repaired = await load('submitted-top-level.json');
+    repaired.locus_review.locus_source = null;
+    repaired.continuity_review.verdict = 'revise';
+    const second = await submit.execute('repair', {result: repaired});
+    assert.equal(second.details.kind, 'audit_submission');
+    assert.equal(JSON.parse(await readFile(join(cwd, 'status.json'), 'utf8')).artifact_repairs, 1);
+});
+
+test('a failed selector is reported once, not again as the content rule it breaks', async () => {
+    const {request, files, catalog} = await retained(), submitted = await load('submitted-top-level.json');
+    submitted.locus_review.locus_source = null;
+    submitted.continuity_review.verdict = 'revise';
+    submitted.continuity_review.conflicts = [{claim_source: 'input:0', reason: 'Contradicts the record.', evidence_sources: ['context:0']}];
+    assert.deepEqual(auditArtifactIssues(submitted, request, files, catalog).errors.map(issue => issue.path),
+        ['/continuity_review/conflicts/0/claim_source']);
+});
+
+test('an exhausted repair keeps the last error list on the status and in the unavailable cause', async () => {
+    const {request, files} = await retained(), {cwd, submit} = await submitTool(request, files);
+    const bad = await everyFaultAtOnce();
+    assert.equal((await submit.execute('first', {result: bad})).details.kind, 'audit_artifact_error');
+    const last = await submit.execute('second', {result: bad});
+    assert.equal(last.details.kind, 'audit_unavailable');
+    assert.equal(last.terminate, true);
+    const status = JSON.parse(await readFile(join(cwd, 'status.json'), 'utf8'));
+    assert.deepEqual(status.errors.map(issue => issue.path), EVERY_FAULT);
+    for (const path of EVERY_FAULT) assert.ok(status.unavailable.includes(path), `the cause names ${path}`);
+    assert.equal(last.details.unavailable, status.unavailable);
 });

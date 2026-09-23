@@ -4,7 +4,7 @@ import {isDeepStrictEqual} from 'node:util';
 import {issueSourceRef, resolveSourceRef, splitSourceText, type SourceSnapshot} from '../../runtime/jev/source-ref.ts';
 import {type ScopeBinding, type SourceRef} from '../../runtime/jev/value-contracts.ts';
 import {speechPass} from '../write/speech-pass.ts';
-import type {AuditIssue} from './audit-result.js';
+import {continuityArtifactErrors, normalizeContinuityArtifact, type AuditIssue} from './audit-result.ts';
 
 type Row = Record<string, any>;
 const record = (v: any): v is Row => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -162,8 +162,12 @@ export function placeAuditSubreviews(value: any): {value: any; errors: AuditIssu
     return {value:top,errors};
 }
 
-/** Strict shape translation preserves every adverse semantic row, or rejects the whole artifact. */
-export function materializeAuditReferences(submitted: any, catalog: AuditReferenceCatalog): {value?: Row; errors:AuditIssue[]} {
+/**
+ * Strict shape translation preserves every adverse semantic row, or rejects the whole artifact. When the
+ * top level and `continuity_review` are objects, `partial` is the best-effort canonical translation even
+ * if some selector failed, so the content rules can still be checked in the same refusal (§130.9).
+ */
+export function materializeAuditReferences(submitted: any, catalog: AuditReferenceCatalog): {value?: Row; partial?: Row; errors:AuditIssue[]} {
     const placed = placeAuditSubreviews(submitted), value = placed.value;
     const errors: AuditIssue[] = [...placed.errors], add = (path:string,message:string) => errors.push({path,message});
     // Every refusal names where the field belongs, so the one targeted repair has something to act on.
@@ -257,7 +261,51 @@ export function materializeAuditReferences(submitted: any, catalog: AuditReferen
         }
     }
     output.continuity_review=result;
-    return errors.length ? {errors} : {value:output,errors};
+    return errors.length ? {errors,partial:output} : {value:output,partial:output,errors};
+}
+
+const segments = (path: string) => path.split('/').slice(1);
+/** Path order, with array indices compared as numbers, so `/lines/2` precedes `/lines/10`. */
+function comparePaths(a: string, b: string): number {
+    const x = segments(a), y = segments(b);
+    for (let i = 0; i < Math.min(x.length,y.length); i++) {
+        if (x[i] === y[i]) continue;
+        const m = /^\d+$/.test(x[i]), n = /^\d+$/.test(y[i]);
+        if (m && n) return Number(x[i]) - Number(y[i]);
+        return x[i] < y[i] ? -1 : 1;
+    }
+    return x.length - y.length;
+}
+const covers = (outer: string, inner: string) => inner === outer || inner.startsWith(`${outer}/`);
+
+/**
+ * Every refusal the one targeted repair needs, in one list (§130.9): placement is normalized first, then
+ * the remaining shape/selector errors and the shared content rules are reported together, ordered by
+ * path. A content error at or under a path that already has a shape error is the same fault seen twice
+ * (a failed selector materializes as null) and is left out. `result` is the submission after the one
+ * verdict canonicalization submit_audit has always applied; `checked` is its accepted form when clean.
+ */
+export function auditArtifactIssues(submitted: any, request: Row, files: Row, catalog: AuditReferenceCatalog):
+    {errors: AuditIssue[]; result: any; checked?: Row} {
+    let result = submitted, materialized = materializeAuditReferences(result, catalog);
+    if (materialized.partial) {
+        const normalized = normalizeContinuityArtifact(materialized.partial, files);
+        const verdict = normalized.continuity_review?.verdict;
+        if (verdict !== materialized.partial.continuity_review?.verdict && record(result?.continuity_review)) {
+            result = {...result, continuity_review: {...result.continuity_review, verdict}};
+            materialized = materializeAuditReferences(result, catalog);
+        }
+    }
+    const shapeErrors = materialized.errors;
+    const content = materialized.partial ? auditReferenceIssues(continuityArtifactErrors(normalizeContinuityArtifact(materialized.partial, files),
+        typeof request.input?.text === 'string' ? request.input.text : '', files, catalog.speechTexts)) : [];
+    const seen = new Set<string>(), errors: AuditIssue[] = [];
+    for (const issue of [...shapeErrors, ...content.filter(issue => !shapeErrors.some(shape => covers(shape.path, issue.path)))]) {
+        const key = `${issue.path}\0${issue.message}`;
+        if (!seen.has(key)) { seen.add(key); errors.push(issue); }
+    }
+    errors.sort((a, b) => comparePaths(a.path, b.path));
+    return {errors, result, ...(errors.length ? {} : {checked: materialized.value})};
 }
 
 /** Error paths follow the model's selector schema, while semantic validation stays shared. */
