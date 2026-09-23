@@ -209,9 +209,11 @@ export const LANE_HTTP_IDLE_TIMEOUT_MS = 25_000;
  */
 export async function presentationLaneChoice(context: Pick<RuntimeContext, "agentHome" | "env">,
   requested: { model?: unknown; thinking?: unknown }): Promise<{ model?: string; thinking?: string }> {
-  const chosen = await laneChoice(context.agentHome);
+  // Through the one reader (`runtime/fast-model.ts`, §37.10.1): the operator's variable, then the
+  // fast-model setting, then the caller's model (which is itself the table's when nothing else is).
+  const chosen = await readFastModelChoice(context.agentHome);
   const own = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : undefined;
-  const model = own(context.env.PI_COC_MOD_MODEL) || chosen.model || own(requested.model);
+  const { model } = resolveFastModel({ override: own(context.env.PI_COC_MOD_MODEL), choice: chosen, table: own(requested.model) });
   const thinking = own(context.env.PI_COC_MOD_THINKING) || chosen.thinking || own(requested.thinking);
   return { ...(model ? { model } : {}), ...(thinking ? { thinking } : {}) };
 }
