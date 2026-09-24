@@ -21,13 +21,14 @@ import { runDriver } from "./pi-agent-core.mjs";
 import { SENTENCE_MAX } from "../../extensions/kernel/tools.ts";
 import { buildCandidates, keeperCall } from "../../runtime/jev/candidates.ts";
 import { highestOffered, obligationCandidates } from "../../runtime/jev/obligation-candidates.ts";
+import { interpretOrdinaryRoute } from "../../runtime/jev/ordinary-resolve-domain.ts";
 import { composeSentence } from "../../runtime/jev/composed-arguments.ts";
 import { admissionBindings, bindRecords, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { compileAdmission } from "../../extensions/kernel/admission.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import {
-	BIND_FAMILY, CLERK_AUTHORITY, createStepPolicy, initialView, interpretBind, itemsFor, next, settleBind, settleExecute, settleOrdinaryBind, settleRead, startStep,
+	BIND_FAMILY, CLERK_AUTHORITY, ORDINARY_CHECK_KEY, consumedByResolve, createStepPolicy, initialView, interpretBind, itemsFor, next, settleBind, settleExecute, settleOrdinaryBind, settleRead, startStep,
 } from "../../runtime/jev/step-policy.ts";
 
 const scope = { owner: "campaign:test", campaign: "test", worldline: "main", loop: 0, audience: "keeper" };
@@ -500,4 +501,92 @@ test("§135.28 at the engine: the bind row names every parameter's path; the Kee
 	assert.equal(leftNote.complete, undefined, "never the parameter-filling request of an infer(bind)");
 	assert.deepEqual(rows.filter((row) => row.event === "bind").at(-1).outcome, "keeper");
 	assert.ok(!rows.some((row) => row.event === "llm_bound"));
+});
+
+// ---- SL-26 (§135.30.3): the ordinary check's bind records, and the Keeper's roll taking the check ----------------------
+
+test("SL-26 (§135.30.3): the ordinary binder's bind records -- decision and single actor stated, the intent the compile's, the skill Jev's with whether it cleared", () => {
+	const candidate = { key: ORDINARY_CHECK_KEY, verb: "resolve", family: "core-check", label: "check", source: "table.resolve.options", clerk: "declared_check",
+		bound: { decision: "core-check:ordinary-check", actor: "Hayes", intent: "investigate" },
+		unbound: [{ name: "profile, difficulty and modifiers", required: true, vocabulary: "closed", binder: "ordinary-resolve" }],
+		basis: { compile: { predicate: "ordinary_check", features: { act: "investigate" }, bound: { intent: { value: "investigate", confidence: 0.7, distribution: { act_1: 0.72, act_3: 0.21 } } } } } };
+	const action = { actor: "Hayes", intent: "social", goal: "x", method: "x", skill: "Spot Hidden", decision: "core-check:ordinary-check",
+		modifiers: { difficulty: "regular", bonus_dice: 0, penalty_dice: 0, reason: "x" } };
+	const bindWith = (skill) => {
+		const view = initialView({ runId: "r", rawInput: "x", context, candidates: [candidate], readFirst: false });
+		settleOrdinaryBind(view, 1, candidate, { disposition: "ordinary", action, unresolved: [], calls: 2, ms: 5, ...(skill ? { skill } : {}) }, 5, 0.6);
+		const [item] = view.pending;
+		assert.deepEqual([item.kind, item.purpose], ["direct", "execute"]);
+		return { item, records: Object.fromEntries(item.bindings.map((entry) => [entry.name, entry])) };
+	};
+	const { item, records } = bindWith({ choice: "Spot Hidden", confidence: 0.9, probabilities: { "Spot Hidden": 0.92, unknown: 0.08 } });
+	assert.equal(item.extra.intent, "investigate", "the compile's act replaces the binder's own reading (social)");
+	assert.deepEqual(Object.fromEntries(Object.entries(records).map(([name, entry]) => [name, entry.path])),
+		{ actor: "stated", intent: "jev", goal: "composed", method: "composed", skill: "jev", decision: "stated", modifiers: "jev" });
+	assert.deepEqual([records.intent.confidence, records.intent.distribution], [0.7, { act_1: 0.72, act_3: 0.21 }], "the intent carries the compile's answer");
+	assert.deepEqual([records.skill.confidence, records.skill.distribution, records.skill.cleared], [0.9, { "Spot Hidden": 0.92, unknown: 0.08 }, true]);
+	assert.equal(records.actor.cleared, undefined, "only the skill carries the flag");
+	assert.equal(bindWith({ choice: "Spot Hidden", confidence: 0.5, probabilities: { "Spot Hidden": 0.72, Listen: 0.2 } }).records.skill.cleared, true, "the margin rule clears it too");
+	assert.equal(bindWith({ choice: "Spot Hidden", confidence: 0.45, probabilities: { "Spot Hidden": 0.5, Listen: 0.45 } }).records.skill.cleared, false, "under both gates");
+	assert.equal(bindWith(undefined).records.skill.cleared, false, "no evidence from the binder: not known to have cleared");
+	assert.equal(bindWith({ choice: "Listen", confidence: 0.95 }).records.skill.cleared, false, "evidence about another skill is not this skill's");
+	// A route-selected check (no compile record) keeps the binder's intent.
+	const plain = { ...candidate, bound: { decision: "core-check:ordinary-check", actor: "Hayes" }, basis: {} };
+	const view = initialView({ runId: "r", rawInput: "x", context, candidates: [plain], readFirst: false });
+	settleOrdinaryBind(view, 1, plain, { disposition: "ordinary", action, unresolved: [], calls: 2, ms: 5 }, 5, 0.6);
+	assert.equal(view.pending[0].extra.intent, "social");
+	assert.deepEqual(admissionBindings(bindWith({ choice: "Spot Hidden", confidence: 0.45, probabilities: { "Spot Hidden": 0.5, Listen: 0.45 } }).item.bindings, {})
+		.find((entry) => entry.name === "skill"), { name: "skill", path: "jev", cleared: false }, "admission reads the flag");
+});
+
+test("SL-26 (§135.30.3): a Keeper resolve the kernel took consumes the ordinary check for the run; a refused one does not", () => {
+	const check = { key: ORDINARY_CHECK_KEY, verb: "resolve", family: "core-check", label: "check", source: "t", clerk: "declared_check",
+		bound: { decision: "core-check:ordinary-check" }, unbound: [{ name: "profile, difficulty and modifiers", required: true, vocabulary: "closed", binder: "ordinary-resolve" }] };
+	for (const [ok, consumed] of [[true, true], [false, false]]) {
+		const view = initialView({ runId: "r", rawInput: "x", context, candidates: [check], readFirst: false });
+		settleExecute(view, 1, { kind: "direct", purpose: "execute", call: { method: "resolve", params: { action: { skill: "Listen", intent: "investigate" } }, label: "resolve" } },
+			{ ok, summary: {} }, { context, candidates: [check] }, 0);
+		assert.equal(view.consumed.includes(ORDINARY_CHECK_KEY), consumed);
+		assert.equal(view.candidates.some((candidate) => candidate.key === ORDINARY_CHECK_KEY), !consumed, ok ? "not offered again this run" : "still offered");
+	}
+	assert.deepEqual(consumedByResolve("apply"), []);
+});
+
+test("SL-26 (owner ruling 2026-09-24): a compile-selected check whose binder said no_roll is rolled when the skill cleared, and stays unrolled when it did not; a route-selected one is unchanged", () => {
+	const compiled = { predicate: "ordinary_check", features: { act: "investigate" }, bound: { intent: { value: "investigate", confidence: 1, distribution: { act_1: 1 } } } };
+	const make = (basis) => ({ key: ORDINARY_CHECK_KEY, verb: "resolve", family: "core-check", label: "check", source: "t", clerk: "declared_check",
+		bound: { decision: "core-check:ordinary-check", actor: "Hayes" }, unbound: [{ name: "profile, difficulty and modifiers", required: true, vocabulary: "closed", binder: "ordinary-resolve" }], basis });
+	const action = { actor: "Hayes", intent: "investigate", goal: "x", method: "x", skill: "Spot Hidden", decision: "core-check:ordinary-check",
+		modifiers: { difficulty: "regular", bonus_dice: 0, penalty_dice: 0, reason: "x" } };
+	const noRoll = { choice: "no_roll", confidence: 0.44, probabilities: { no_roll: 0.52, ordinary: 0.46 } };
+	const run = (candidate, skill) => {
+		const view = initialView({ runId: "r", rawInput: "x", context, candidates: [candidate], readFirst: false });
+		const row = settleOrdinaryBind(view, 1, candidate, { disposition: "ordinary", action, unresolved: [], calls: 2, ms: 5, skill, route: noRoll }, 5, 0.6);
+		return { view, row };
+	};
+	const cleared = run(make({ compile: compiled }), { choice: "Spot Hidden", confidence: 0.9 });
+	assert.deepEqual([cleared.view.pending[0]?.purpose, cleared.row.reason], ["execute", "ordinary_compile_act"]);
+	assert.deepEqual(cleared.view.pending[0].candidate.basis.roll, { rule: "compile_act", binder: "no_roll", confidence: 0.44 });
+	const under = run(make({ compile: compiled }), { choice: "Spot Hidden", confidence: 0.45, probabilities: { "Spot Hidden": 0.5, Listen: 0.45 } });
+	assert.deepEqual([under.view.pending.length, under.row.reason, under.view.consumed.includes(ORDINARY_CHECK_KEY)], [0, "ordinary_no_roll", true], "the binder's no_roll stands");
+	// Without the compile's selection the binder never reaches a profile on no_roll (no `compiled`), and nothing here changes.
+	const plain = run(make({}), { choice: "Spot Hidden", confidence: 0.9 });
+	assert.deepEqual([plain.view.pending[0]?.purpose, plain.row.reason, plain.view.pending[0].candidate.basis.roll], ["execute", "ordinary_ordinary", undefined]);
+});
+
+test("SL-26 (§135.30.3): for the check the compile selected the binder's route reads roll-or-not, the intent and a single issued actor as settled", () => {
+	const options = { version: 1, profiles: [{ alias: "p0", actor: "Hayes", skill: "Spot Hidden", availability: "bound", value: 60 }],
+		decisions: [{ name: "core-check:ordinary-check", family: "core-check", description: null, capability: null }], revision: "r", world_revision: "w", context: {} };
+	const answers = (values) => ({ batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
+		answers: Object.fromEntries(Object.entries(values).map(([key, choice]) => [key, { status: "answered", type: "choice", choice, confidence: 0.5 }])) });
+	// The long gate's turn-12 shapes: no_roll by a hair; the actor question at 0.10-0.19 answered unknown.
+	const shaky = answers({ route: "no_roll", consent: "authorized", actor: "unknown", intent: "unknown", difficulty: "regular", bonus: "none", penalty: "none" });
+	assert.deepEqual(interpretOrdinaryRoute(options, shaky), { disposition: "no_roll", needs: [] }, "without the compile: as before");
+	assert.deepEqual(interpretOrdinaryRoute(options, answers({ route: "ordinary", consent: "authorized", actor: "unknown", intent: "investigate", difficulty: "regular", bonus: "none", penalty: "none" })).disposition,
+		"unknown", "without the compile an unknown actor still leaves it unbound");
+	assert.deepEqual(interpretOrdinaryRoute(options, shaky, { intent: "investigate" }),
+		{ disposition: "ordinary", actor: "Hayes", intent: "investigate", difficulty: "regular", bonus: "none", penalty: "none", needs: [] });
+	assert.equal(interpretOrdinaryRoute({ ...options, profiles: [...options.profiles, { ...options.profiles[0], alias: "p1", actor: "Ruth" }] }, shaky, { intent: "investigate" }).disposition,
+		"unknown", "two actors: the actor is still Jev's");
+	assert.equal(interpretOrdinaryRoute(options, answers({ route: "no_roll", consent: "unselected" }), { intent: "investigate" }).disposition, "needs_player", "consent still decides");
 });

@@ -269,8 +269,15 @@ test("§135.30 addendum (live gate #4, turn 1): an exit the Keeper's clue unlock
 	assert.ok(!firstCandidates.some((candidate) => candidate.family === "move"), "no move is issued: the exits wait on the commission's clue");
 	const view = initialView({ runId: "r", rawInput: words, context: scene, candidates: [], readFirst: false });
 	settleRead(view, 1, { materials: [], summary: {} }, { context: scene, candidates: firstCandidates, rows: firstRows }, 0);
+	// §135.30.3 (SL-26): the ordinary check is reachable at every read outside a session, so this read owes a compile now
+	// (at the table there was none: no move was issued). It reads the act as a move: nothing fires, the check falls through.
+	const opening = next(view);
+	assert.deepEqual([opening.kind, opening.purpose], ["decide", "compile"], "the ordinary check owes the compile at the first read");
+	const openingBatch = compileBatch(view, scope, [], []);
+	const opened_ = settleCompile(view, startStep(view, opening), openingBatch, answer({ act: [alias(openingBatch, "act", "move", view.rows), 0.9] }), 5, 0.6);
+	assert.deepEqual([opened_.detail.selected, opened_.detail.decided, opened_.detail.fell_through.includes("resolve:core-check:ordinary-check")], [[], [], true]);
 	const route = next(view);
-	assert.deepEqual([route.kind, route.purpose], ["decide", "route"], "nothing a predicate can select: the route, as at the table");
+	assert.deepEqual([route.kind, route.purpose], ["decide", "route"], "nothing a predicate selected: the route, as at the table");
 	const { batch, offered } = routeBatch(view, scope, []);
 	settleRoute(view, startStep(view, route), batch, offered, answer({ exit: ["ask_llm", 0.83] }), 5, 0.6);
 	const adjudicate = next(view);
@@ -494,4 +501,75 @@ test("§135.30 at the engine: the compile row carries each feature's distributio
 	// §32.12: the bind records travel to admission on the host origin, computed before the dispatch.
 	assert.deepEqual(clerk.origin.bindings, [{ name: "to", path: "stated" }]);
 	assert.ok(!families.slice(0, 2).includes(ROUTE_FAMILY) || families.indexOf(ROUTE_FAMILY) > 0, "no route before the compile");
+});
+
+// ---- SL-26 (§135.30.3): the declared ordinary check ----------------------------------------------------------------
+
+/** The long gate's bedroom (turn 12), reduced: two exits, one person present, an open obligation, the ordinary check offered. */
+function bedroom({ obligation = false } = {}) {
+	return {
+		capsule: { where: { scene: "upper-floor-bedroom" }, present: [{ name: "Corbitt", role: "spirit", called: { name: "the presence" } }],
+			known: { investigator: { name: "Hayes" } } },
+		applyOptions: { candidates: [
+			{ effect: { kind: "move", to: "corbitt-house-ground" }, description: { display_name: "Ground floor" } },
+			{ effect: { kind: "move", to: "commission-briefing" }, description: { display_name: "Knott's office" } },
+			{ effect: { kind: "clue", clue: "poltergeist-bed" }, description: { summary: "The bed moves by itself." } }],
+		obligations: obligation ? [{ handle: "calm", name: "Calm the presence", who: "Corbitt", state: "open", trigger: { kind: "attempt", guards: {} },
+			next: { kind: "check", target: "Corbitt", selection: "approach", approaches: [{ skill: "Persuade" }], difficulty: "regular" } }] : [],
+		context: { present: ["Corbitt"] } },
+		resolveOptions: { profiles: [{ actor: "Hayes", skill: "Spot Hidden", value: 60, availability: "bound" }, { actor: "Hayes", skill: "Listen", value: 50, availability: "bound" },
+			{ actor: "Hayes", skill: "Persuade", value: 40, availability: "bound" }],
+			decisions: [{ name: "core-check:ordinary-check", family: "core-check", description: "One ordinary skill check." }] },
+	};
+}
+const ORDINARY = "resolve:core-check:ordinary-check";
+const bedroomView = (reads = bedroom()) => { const candidates = buildCandidates(reads, "我在主卧里搜床底、床垫和衣柜。"), rows = compileRows(reads);
+	return initialView({ runId: "r", rawInput: "我在主卧里搜床底、床垫和衣柜。", context: { scene: "upper-floor-bedroom", clock: null, present: [], receipts: [] }, candidates, rows, readFirst: false }); };
+
+test("SL-26 (§135.30.3): the ordinary check owes a compile; investigate at the gate selects it with the act as its intent; the bind comes next", () => {
+	const view = bedroomView();
+	assert.ok(view.candidates.some((candidate) => candidate.key === ORDINARY), "the builder offers the check");
+	assert.equal(predicateOf(view.candidates.find((candidate) => candidate.key === ORDINARY), view.rows)?.name, "ordinary_check");
+	// Only the check is reachable (no move offered): the compile is still owed.
+	const alone = initialView({ runId: "r", rawInput: "x", context, candidates: view.candidates.filter((candidate) => candidate.key === ORDINARY), rows: view.rows, readFirst: false });
+	assert.equal(compileDue(alone), true, "the check alone owes the compile");
+	// The long gate's turn 12: act investigate 1.0, destination none 0.96.
+	const { row } = compileWith(view, { act: ["investigate", 1], destination: [NONE, 0.96, { none: 0.97, unclear: 0.03 }] });
+	assert.deepEqual(row.detail.selected, [ORDINARY]);
+	assert.deepEqual(row.detail.fired, [{ predicate: "ordinary_check", candidate: ORDINARY, features: { destination: null, act: "investigate" } }]);
+	const head = next(view);
+	assert.deepEqual([head.kind, head.purpose, head.item?.candidate?.key], ["decide", "bind", ORDINARY], "the binder next, no route question before it");
+	const chosen = head.item.candidate;
+	assert.equal(chosen.bound.intent, "investigate", "the act the compile read is the check's intent");
+	assert.deepEqual([chosen.basis.compile.bound.intent.value, chosen.basis.compile.bound.intent.confidence], ["investigate", 1], "with the act answer's confidence");
+	assert.equal(Object.values(chosen.basis.compile.bound.intent.distribution)[0], 1, "and its distribution");
+	assert.deepEqual(chosen.basis.compile.read_features, { act: { row: "investigate", confidence: 1, cleared: true }, addressee: { row: null, confidence: null, cleared: false },
+		ask: { row: null, confidence: null, cleared: false }, destination: { row: null, confidence: 0.96, cleared: true } }, "every family it reads, the unanswered guards as not cleared");
+	assert.ok(chosen.unbound.some((value) => value.binder === "ordinary-resolve"), "the profile is still the binder's");
+	assert.ok(!view.consumed.includes(ORDINARY));
+});
+
+test("SL-26 (§135.30.3): the predicate fires only on investigate, or social aimed at someone present; never below the gate, with a destination, or on an obligation's demand; never decided", () => {
+	const cases = [
+		["investigate under the gate (0.5 against move 0.4)", { act: ["investigate", 0.5, { investigate: 0.5, move: 0.4 }] }, false],
+		["social with no addressee", { act: ["social", 0.9] }, false],
+		["social aimed at no one (a cleared none)", { act: ["social", 0.9], addressee: [NONE, 0.9] }, false],
+		["social at the presence", { act: ["social", 0.9], addressee: ["Corbitt", 0.9] }, true],
+		["move", { act: ["move", 0.9] }, false],
+		["investigate with a destination: the check is the destination's", { act: ["investigate", 0.9], destination: ["corbitt-house-ground", 0.9] }, false],
+		["investigate with the ask unclear", { act: ["investigate", 0.9], ask: [UNCLEAR, 0.9] }, true],
+		["unclear", { act: [UNCLEAR, 0.9] }, false],
+	];
+	for (const [label, choices, fires] of cases) {
+		const { view, row } = compileWith(bedroomView(), choices);
+		assert.equal(row.detail.selected.includes(ORDINARY), fires, label);
+		assert.ok(!row.detail.decided.includes(ORDINARY), `${label}: never decided`);
+		if (!fires) assert.ok(row.detail.fell_through.includes(ORDINARY) && view.candidates.some((candidate) => candidate.key === ORDINARY), `${label}: left to the route`);
+	}
+	// The destination case: the move fires, the check falls through to the scene the declaration ends in.
+	const { row: moved } = compileWith(bedroomView(), { act: ["investigate", 0.9], destination: ["corbitt-house-ground", 0.9] });
+	assert.deepEqual(moved.detail.selected, ["apply:move:corbitt-house-ground"]);
+	// An ask on an open obligation's demand: that obligation's check is the declared check, not the ordinary one.
+	const { row: owed } = compileWith(bedroomView(bedroom({ obligation: true })), { act: ["social", 0.9], addressee: ["Corbitt", 0.9], ask: ["obligation:calm", 0.9] });
+	assert.deepEqual(owed.detail.selected, ["resolve:obligation:calm"], "the obligation's check, alone");
 });

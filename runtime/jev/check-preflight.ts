@@ -12,11 +12,25 @@ export interface CheckPreflightAdvice {kind:'check_preflight';disposition:Ordina
   unresolved:string[];authorization:'advisory_only';settled:false;basis?:Array<{role:'player'|'keeper';text:string}>}
 export interface CheckPreflightCheckpoint {version:2;campaign:string;turn:number;worldline:string;loop:number;input_revision:string;world_revision:string;options_revision:string;
   profiles_revision:string;rules_revision:string;context_revision:string;public_context_revision:string}
-export interface CheckPreflightResult {advice:CheckPreflightAdvice;checkpoint?:CheckPreflightCheckpoint;decisionCalls:number;
+/**
+ * The profile answer behind the advised skill (contract §135.30.3, SL-26): its choice, confidence and distribution, by skill
+ * name. A report beside the advice, which it does not change; the single-loop clerk reads it to say whether the skill cleared.
+ */
+export type CheckPreflightAnswer={choice:string;confidence:number|null;probabilities:Record<string,number>|null};
+/** `route` and `consent`: the binder's own route and consent answers, reported for the record (they decide the disposition). */
+export interface CheckPreflightEvidence {profile?:CheckPreflightAnswer;route?:CheckPreflightAnswer;consent?:CheckPreflightAnswer;
+  /** The route batch's other answers (actor, intent, difficulty, bonus, penalty), reported for the record. */
+  parameters?:Record<string,CheckPreflightAnswer>}
+export interface CheckPreflightResult {advice:CheckPreflightAdvice;checkpoint?:CheckPreflightCheckpoint;decisionCalls:number;evidence?:CheckPreflightEvidence;
   check(signal?:AbortSignal,deadlineAt?:number):Promise<{status:'current'}|{status:'stale'|'unavailable';reason:string}>}
 export interface CheckPreflightInput {campaign:string;turn:number;rawInput:string;goal?:string;scope:ScopeBinding;readSet:ReadSet;
   publicContext?:Array<{role:'player'|'keeper';text:string}>;
-  call(method:string,params:Record<string,unknown>):Promise<unknown>;decision:DecisionPort;lease:TaskLease;signal?:AbortSignal}
+  call(method:string,params:Record<string,unknown>):Promise<unknown>;decision:DecisionPort;lease:TaskLease;signal?:AbortSignal;
+  /**
+   * §135.30.3: the check the compile selected, with the act it read: roll-or-not and the intent are settled, so a `no_roll`
+   * route answer still asks the profile (reported in `evidence.route`); a single issued actor is stated.
+   */
+  compiled?:{intent:'investigate'|'social'}}
 
 function unknown(reason:string,calls=0):CheckPreflightResult {
   return{advice:{kind:'check_preflight',disposition:'unknown',unresolved:[reason],authorization:'advisory_only',settled:false},decisionCalls:calls,
@@ -59,6 +73,24 @@ export async function recheckPreflight(input:Pick<CheckPreflightInput,'campaign'
   }catch(error){return{status:'unavailable',reason:input.signal.aborted?'cancelled':error instanceof Error?error.message:'resolve_options_unavailable'};}
 }
 
+/** A choice answer as the record keeps it. */
+function answerRecord(result:DecisionResult,key:string):CheckPreflightAnswer|undefined {
+  const value=result.answers?.[key];if(value?.status!=='answered'||value.type!=='choice')return undefined;
+  return{choice:value.choice,confidence:typeof value.confidence==='number'?value.confidence:null,probabilities:value.probabilities??null};
+}
+function routeEvidence(result:DecisionResult):CheckPreflightEvidence {
+  const route=answerRecord(result,'route'),consent=answerRecord(result,'consent');
+  const parameters=Object.fromEntries(['actor','intent','difficulty','bonus','penalty'].flatMap(key=>{const value=answerRecord(result,key);return value?[[key,value]]:[];}));
+  return{...(route?{route}:{}),...(consent?{consent}:{}),...(Object.keys(parameters).length?{parameters}:{})};
+}
+/** The profile answer by skill name: the question's aliases (`profile_<index>` over the actor's own rows) read back. */
+function profileEvidence(options:OrdinaryResolveOptions,actor:string,result:DecisionResult):CheckPreflightEvidence|undefined {
+  const value=result.answers?.profile;if(value?.status!=='answered'||value.type!=='choice')return undefined;
+  const skills=Object.fromEntries(options.profiles.filter(row=>row.actor===actor).map((row,index)=>[`profile_${index}`,row.skill]));
+  const name=(alias:string)=>skills[alias]??alias;
+  return{profile:{choice:name(value.choice),confidence:typeof value.confidence==='number'?value.confidence:null,
+    probabilities:value.probabilities?Object.fromEntries(Object.entries(value.probabilities).map(([alias,p])=>[name(alias),p])):null}};
+}
 export async function prepareCheckPreflight(input:CheckPreflightInput):Promise<CheckPreflightResult> {
   const goal=input.goal?.trim()||input.rawInput,lease=input.lease,signal=input.signal?AbortSignal.any([input.signal,lease.signal]):lease.signal;let calls=0;
   try{
@@ -78,15 +110,16 @@ export async function prepareCheckPreflight(input:CheckPreflightInput):Promise<C
     const routeRequest=batch(ordinaryRouteBatch({rawInput:input.rawInput,goal,options:decisionOptions}),input.scope,input.readSet,0);calls++;
     const routeResult=await bounded(()=>input.decision.decide(routeRequest,lease),signal,lease.context.budget.deadlineAt);signal.throwIfAborted();lease.assertActive();
     if(routeResult.status!=='complete')return make({kind:'check_preflight',disposition:'unknown',unresolved:[failure(routeResult)],authorization:'advisory_only',settled:false});
-    const route=interpretOrdinaryRoute(options,routeResult);
-    if(route.disposition!=='ordinary')return make({kind:'check_preflight',disposition:route.disposition,unresolved:route.needs,authorization:'advisory_only',settled:false});
+    const route=interpretOrdinaryRoute(options,routeResult,input.compiled),routed=routeEvidence(routeResult);
+    if(route.disposition!=='ordinary')return{...make({kind:'check_preflight',disposition:route.disposition,unresolved:route.needs,authorization:'advisory_only',settled:false}),evidence:routed};
     const profileSpec=ordinaryProfileBatch({rawInput:input.rawInput,goal,options:decisionOptions,route});if(!profileSpec)
       return make({kind:'check_preflight',disposition:'unknown',unresolved:['ordinary_profile_unavailable'],authorization:'advisory_only',settled:false});
     const profileRequest=batch(profileSpec,input.scope,input.readSet,1);calls++;
     const profileResult=await bounded(()=>input.decision.decide(profileRequest,lease),signal,lease.context.budget.deadlineAt);signal.throwIfAborted();lease.assertActive();
     if(profileResult.status!=='complete')return make({kind:'check_preflight',disposition:'unknown',unresolved:[failure(profileResult)],authorization:'advisory_only',settled:false});
     const profile=selectOrdinaryProfile(options,route,profileResult),action=profile&&ordinaryActionTemplate({rawInput:input.rawInput,goal,options,route,profile});
-    return action?make({kind:'check_preflight',disposition:'ordinary',action,unresolved:[],authorization:'advisory_only',settled:false})
+    const evidence={...routed,...profileEvidence(options,route.actor!,profileResult)};
+    return action?{...make({kind:'check_preflight',disposition:'ordinary',action,unresolved:[],authorization:'advisory_only',settled:false}),evidence}
       :make({kind:'check_preflight',disposition:'unknown',unresolved:['ordinary_profile_unavailable'],authorization:'advisory_only',settled:false});
   }catch(error){return unknown(signal?.aborted||lease.signal.aborted?'cancelled':error instanceof Error?error.message:'check_preflight_unavailable',calls);}
 }
