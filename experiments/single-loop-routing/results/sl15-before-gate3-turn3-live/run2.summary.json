@@ -1,0 +1,434 @@
+{
+ "run": 2,
+ "fixture": "/Users/haoli/leehow/code/chatrpgv4-wt-sl15/experiments/single-loop-routing/fixtures/gate3-turn3",
+ "admission": "lane",
+ "keeper": "live grok-build/grok-4.7-build-fast",
+ "thinking": "low",
+ "arm": "after",
+ "latency": false,
+ "seed": null,
+ "wall_ms": 46004,
+ "budget": {
+  "turn": 3,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d1ab-10eb-7722-8868-707fc6710128",
+  "budget_ms": 45000,
+  "elapsed_ms": 43890,
+  "elapsed_at_compose": 39693,
+  "over_budget": false,
+  "deferred_by_budget": [],
+  "run_id": "bbfa03a7-7dd4-4eb1-98f1-95e9b947bc49"
+ },
+ "status": "delivered",
+ "reason": "implicit_narrate",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 5826,
+   "ttfb_ms": 1528,
+   "input": 46186,
+   "cache_read": 1152,
+   "cache_write": 0,
+   "output": 329,
+   "reasoning": 193,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 3203,
+   "ttfb_ms": 1730,
+   "input": 642,
+   "cache_read": 47232,
+   "cache_write": 0,
+   "output": 227,
+   "reasoning": 88,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 1732,
+   "ttfb_ms": 748,
+   "input": 1076,
+   "cache_read": 47872,
+   "cache_write": 0,
+   "output": 127,
+   "reasoning": 26,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 4,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 4278,
+   "ttfb_ms": 1178,
+   "input": 4595,
+   "cache_read": 47872,
+   "cache_write": 0,
+   "output": 348,
+   "reasoning": 257,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 5,
+   "turn": 0,
+   "purpose": "compose",
+   "ms": 1447,
+   "ttfb_ms": 882,
+   "input": 4972,
+   "cache_read": 48128,
+   "cache_write": 0,
+   "output": 120,
+   "reasoning": 41,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 6,
+   "turn": 0,
+   "purpose": "compose",
+   "ms": 6770,
+   "ttfb_ms": 1300,
+   "input": 3408,
+   "cache_read": 48128,
+   "cache_write": 0,
+   "output": 701,
+   "reasoning": 506,
+   "tools": [],
+   "stop": "stop",
+   "effort": "low"
+  },
+  {
+   "step": 7,
+   "turn": 0,
+   "purpose": "compose",
+   "ms": 4182,
+   "ttfb_ms": 842,
+   "input": 1598,
+   "cache_read": 50304,
+   "cache_write": 0,
+   "output": 243,
+   "reasoning": 65,
+   "tools": [],
+   "stop": "stop",
+   "effort": "low"
+  }
+ ],
+ "steps": {
+  "operate": 11,
+  "decide": 4,
+  "infer": 7,
+  "finish": 1
+ },
+ "llm_steps": 7,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "compose",
+  "compose",
+  "compose"
+ ],
+ "jev_calls": 16,
+ "route_rows": 3,
+ "calls": [
+  {
+   "tool": "apply",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "move",
+      "to": "commission-briefing"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": false,
+   "error": "needs",
+   "input": {
+    "action": {
+     "intent": "combat",
+     "goal": "Grab Steven Knott by the collar and punch him once to force him to say who died in the Corbitt House",
+     "method": "One unarmed punch after seizing his collar in his office",
+     "target": "Steven Knott",
+     "weapon": "unarmed",
+     "stakes": "If the punch fails, Knott breaks free and the commission is at risk",
+     "skill": "Fighting (Brawl)"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "npc",
+      "name": "Steven Knott",
+      "archetype": "ordinary_adult",
+      "why": "A landlord with no printed combat numbers, not a fighter."
+     },
+     {
+      "kind": "npc",
+      "name": "Steven Knott",
+      "reunion": {
+       "background": [
+        "He stayed in the office after Hayes left for the Globe, watching the clock and the unpaid rent on the empty house."
+       ],
+       "reports": [],
+       "open_threads": [
+        "He is waiting to hear whether the Globe turned up anything concrete."
+       ]
+      },
+      "why": "Hayes returns after the Globe refusal; Knott has been waiting in the office."
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "goal": "Grab Steven Knott by the collar and punch him once to force him to say who died in the Corbitt House",
+     "method": "One unarmed punch after seizing his collar in his office",
+     "target": "Steven Knott",
+     "weapon": "unarmed",
+     "stakes": "If the punch fails, Knott breaks free and the commission is at risk",
+     "skill": "Fighting (Brawl)"
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "defense": "dodge",
+     "decision": "combat:defend",
+     "actor": "steven-knott",
+     "goal": "combat:defend",
+     "method": "combat:defend"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "npc",
+      "name": "Steven Knott",
+      "disposition": "avoids_fighting",
+      "why": "A landlord protecting his hire, not a fighter; he pulls away rather than trade blows."
+     },
+     {
+      "kind": "npc",
+      "name": "Steven Knott",
+      "stance": "wary",
+      "why": "Hayes grabbed him and swung; the commission is still open but the welcome is gone."
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "goal": "Knott refuses to trade blows and the punch never lands, so the scuffle ends",
+     "method": "He steps back behind the desk and holds, ending the fight",
+     "target": "Steven Knott",
+     "actor": "Steven Knott",
+     "decision": "combat:end",
+     "outcome": "stalemate"
+    }
+   }
+  }
+ ],
+ "match": [],
+ "admissions": [
+  {
+   "verb": "apply",
+   "origin": "policy",
+   "clerk": "declared_bookkeeping",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 411,
+   "jev_ms": 402,
+   "confidence": null,
+   "jev_fallback": "low_confidence",
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[8]",
+    "row": {
+     "alias": "effect:8",
+     "effect": {
+      "kind": "move",
+      "to": "commission-briefing"
+     },
+     "description": {
+      "kind": "move",
+      "to": "commission-briefing",
+      "display_name": "Knott's Office",
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    }
+   },
+   "path": "lane",
+   "fast_path": true,
+   "jev_confidence": 0.69,
+   "line_verdicts": [
+    "authorized"
+   ],
+   "lane_ms": 9
+  },
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 8,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null,
+   "path": "lane",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null
+  },
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 0,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null,
+   "path": null,
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null
+  }
+ ],
+ "clerk": [
+  {
+   "tool": "apply",
+   "call_id": "t3-c1",
+   "ok": true,
+   "ms": 542,
+   "clerk": "declared_bookkeeping",
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[8]",
+    "row": {
+     "alias": "effect:8",
+     "effect": {
+      "kind": "move",
+      "to": "commission-briefing"
+     },
+     "description": {
+      "kind": "move",
+      "to": "commission-briefing",
+      "display_name": "Knott's Office",
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "call_id": "t3-c5",
+   "ok": true,
+   "ms": 528,
+   "clerk": "session_step",
+   "basis": {
+    "read": "table.resolve.options",
+    "path": "context.session.pending_defense",
+    "row": {
+     "for": "npc",
+     "actor": "steven-knott",
+     "attack_command_id": "t3-c4",
+     "revision": 2,
+     "attacker": "thomas-hayes",
+     "options": [
+      "dodge",
+      "fight_back",
+      "none"
+     ],
+     "standing": {
+      "defense": "dodge",
+      "basis": "rule-default"
+     }
+    },
+    "standing": {
+     "defense": "dodge",
+     "basis": "rule-default"
+    }
+   }
+  }
+ ],
+ "misses": []
+}

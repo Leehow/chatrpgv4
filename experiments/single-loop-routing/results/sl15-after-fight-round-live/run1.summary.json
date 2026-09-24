@@ -1,0 +1,442 @@
+{
+ "run": 1,
+ "fixture": "fight-round",
+ "admission": "lane",
+ "keeper": "live grok-build/grok-4.7-build-fast",
+ "thinking": "low",
+ "arm": "after",
+ "latency": false,
+ "seed": null,
+ "wall_ms": 39904,
+ "budget": {
+  "turn": 6,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d1a7-c67b-7682-8709-630691d8e1c4",
+  "budget_ms": 45000,
+  "elapsed_ms": 34617,
+  "elapsed_at_compose": 30587,
+  "over_budget": false,
+  "deferred_by_budget": [],
+  "run_id": "98e10435-594c-4b33-b6c0-6017d028b16b"
+ },
+ "status": "delivered",
+ "reason": "delivery_accepted",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 6101,
+   "ttfb_ms": 1096,
+   "input": 46100,
+   "cache_read": 1152,
+   "cache_write": 0,
+   "output": 424,
+   "reasoning": 240,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 3450,
+   "ttfb_ms": 719,
+   "input": 2039,
+   "cache_read": 47232,
+   "cache_write": 0,
+   "output": 321,
+   "reasoning": 134,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 2034,
+   "ttfb_ms": 1171,
+   "input": 2411,
+   "cache_read": 47232,
+   "cache_write": 0,
+   "output": 135,
+   "reasoning": 72,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 4,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 2533,
+   "ttfb_ms": 923,
+   "input": 2338,
+   "cache_read": 48000,
+   "cache_write": 0,
+   "output": 169,
+   "reasoning": 51,
+   "tools": [
+    "narrate"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  }
+ ],
+ "steps": {
+  "operate": 7,
+  "decide": 4,
+  "infer": 4,
+  "finish": 1
+ },
+ "llm_steps": 4,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 11,
+ "route_rows": 4,
+ "calls": [
+  {
+   "tool": "resolve",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "weapon": "unarmed",
+     "decision": "combat:attack",
+     "target": "steven-knott",
+     "goal": "继续揍他",
+     "method": "继续揍他"
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "defense": "dodge",
+     "decision": "combat:defend",
+     "actor": "steven-knott",
+     "goal": "combat:defend",
+     "method": "combat:defend"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "npc",
+      "name": "steven-knott",
+      "disposition": "fights_then_flees",
+      "why": "他已被打伤，只想把人赶出门，不会打到底。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": false,
+   "error": "needs",
+   "input": {
+    "action": {
+     "intent": "flee",
+     "goal": "诺特被打伤后退向门口，不再和你缠斗",
+     "method": "侧身挤向门口，一边护着脸一边退",
+     "actor": "steven-knott",
+     "target": "investigator",
+     "decision": "combat:flee"
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "goal": "诺特退出这场缠斗，退向门口",
+     "method": "他不再还手，侧身挤向门口",
+     "actor": "steven-knott",
+     "decision": "combat:end",
+     "outcome": "fled"
+    }
+   }
+  },
+  {
+   "tool": "narrate",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "text": "你再挥一拳，脚下一滑，拳头砸在桌沿上，木屑飞起来。诺特也没躲开，他往后一退，后背撞上抽屉。{{session:combat}}\n\n他没再还手。一只手捂着已经肿起来的脸，另一只手把那串钥匙按在胸口，侧身挤到门口。\n\n{{say:史蒂文·诺特}}别打了。再打我喊楼里的人。钥匙不给你。{{/say}}"
+   }
+  }
+ ],
+ "match": [
+  {
+   "baseline": "resolve combat:attack vs Steven Knott",
+   "matched": true,
+   "origin": "policy"
+  },
+  {
+   "baseline": "resolve combat:defend vs investigator",
+   "matched": true,
+   "origin": "policy",
+   "defense": "dodge"
+  },
+  {
+   "baseline": "resolve combat:attack vs investigator",
+   "matched": false
+  },
+  {
+   "baseline": "ask",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "ask",
+   "matched": true,
+   "origin": "model"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "resolve",
+   "origin": "policy",
+   "clerk": "session_step",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 8,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": {
+    "read": "table.resolve.options",
+    "path": "context.session.actions[0]",
+    "row": {
+     "decision": "combat:attack",
+     "actor": "investigator",
+     "targets": [
+      "steven-knott"
+     ],
+     "weapons": [
+      "unarmed"
+     ]
+    }
+   },
+   "path": "lane",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null
+  }
+ ],
+ "clerk": [
+  {
+   "tool": "resolve",
+   "call_id": "t6-c1",
+   "ok": true,
+   "ms": 799,
+   "clerk": "session_step",
+   "basis": {
+    "read": "table.resolve.options",
+    "path": "context.session.actions[0]",
+    "row": {
+     "decision": "combat:attack",
+     "actor": "investigator",
+     "targets": [
+      "steven-knott"
+     ],
+     "weapons": [
+      "unarmed"
+     ]
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "call_id": "t6-c2",
+   "ok": true,
+   "ms": 971,
+   "clerk": "session_step",
+   "basis": {
+    "read": "table.resolve.options",
+    "path": "context.session.pending_defense",
+    "row": {
+     "for": "npc",
+     "actor": "steven-knott",
+     "attack_command_id": "t6-c1",
+     "revision": 9,
+     "attacker": "investigator",
+     "options": [
+      "dodge",
+      "fight_back",
+      "none"
+     ],
+     "standing": {
+      "defense": "dodge",
+      "basis": "rule-default"
+     }
+    },
+    "standing": {
+     "defense": "dodge",
+     "basis": "rule-default"
+    }
+   }
+  }
+ ],
+ "misses": [
+  {
+   "turn": 6,
+   "lane": "route",
+   "purpose": "route",
+   "run": "run-01a0d1a7-c67b-7682-8709-630691d8e1c4",
+   "step": "run-01a0d1a7-c67b-7682-8709-630691d8e1c4:s8",
+   "status": "complete",
+   "ms": 854,
+   "offered": [],
+   "selected": [],
+   "exit": "finish",
+   "reason": "low_confidence",
+   "answers": {
+    "exit": {
+     "choice": "finish",
+     "confidence": 0.21,
+     "probabilities": {
+      "continue": 0.21,
+      "read_more": 0.02,
+      "ask_llm": 0.37,
+      "finish": 0.4
+     }
+    }
+   },
+   "run_id": "98e10435-594c-4b33-b6c0-6017d028b16b"
+  },
+  {
+   "turn": 6,
+   "lane": "route",
+   "purpose": "route",
+   "run": "run-01a0d1a7-c67b-7682-8709-630691d8e1c4",
+   "step": "run-01a0d1a7-c67b-7682-8709-630691d8e1c4:s13",
+   "status": "complete",
+   "ms": 682,
+   "offered": [
+    "apply:move:newspaper-morgue",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:corbitt-house-ground",
+    "resolve:core-check:ordinary-check"
+   ],
+   "selected": [],
+   "exit": "finish",
+   "reason": "low_confidence",
+   "answers": {
+    "need_1": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "now": 0,
+      "later": 1
+     }
+    },
+    "need_2": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "now": 0,
+      "later": 1
+     }
+    },
+    "need_3": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "now": 0,
+      "later": 1
+     }
+    },
+    "need_4": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "now": 0,
+      "later": 1
+     }
+    },
+    "need_5": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "now": 0,
+      "later": 1
+     }
+    },
+    "need_6": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "unknown": 0,
+      "now": 0,
+      "later": 1
+     }
+    },
+    "need_7": {
+     "choice": "later",
+     "confidence": 0.98,
+     "probabilities": {
+      "unknown": 0,
+      "now": 0.01,
+      "later": 0.99
+     }
+    },
+    "exit": {
+     "choice": "finish",
+     "confidence": 0.29,
+     "probabilities": {
+      "continue": 0.14,
+      "read_more": 0.01,
+      "ask_llm": 0.38,
+      "finish": 0.47
+     }
+    }
+   },
+   "run_id": "98e10435-594c-4b33-b6c0-6017d028b16b"
+  }
+ ]
+}
