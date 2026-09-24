@@ -157,7 +157,10 @@ function passagesCarried(requests) {
 	return out;
 }
 
-async function hybridTable({ route, responses, allowanceMs = "12000", preselect = "1" }) {
+// The allowance is generous on purpose: these tests are about what the first model step carries, not about the
+// prescreen's budget (SL-22 has its own tests). Under a loaded 12-way test run the 12 s default expired on the second
+// read of the move test (status "fallback"), which said nothing about the carrying.
+async function hybridTable({ route, responses, allowanceMs = "60000", preselect = "1" }) {
 	const requests = [];
 	const port = { async decide(batch) {
 		if (batch.family === ROUTE_FAMILY) return route(batch);
@@ -219,8 +222,9 @@ test("§135.31.1 at the extension seam: a run that stays carries its scene's pas
 	await table.table.session.prompt("I look over Knott's desk for anything about the house.");
 	const carried = passagesCarried(table.requests);
 	assert.deepEqual(carried.map((entry) => entry.scene), ["commission-briefing"], "once, on the first model step");
-	// The Haunting is a built-in starter: its capsule has no `reading` (§22), so the head says its graph is its whole source.
-	assert.equal(clerkNotes(table.requests[0]).at(-1).carried.head, `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD} ${CARRIED_NO_DOCUMENT}`);
+	// The Haunting reads its built-in window (§14.16, SL-28): its capsule has `reading`, so the head says the original
+	// document answers what the passages do not cover (it said no_source_document before the window shipped).
+	assert.equal(clerkNotes(table.requests[0]).at(-1).carried.head, `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD} ${CARRIED_DOCUMENT}`);
 	assert.equal(Object.keys(carried[0].view)[0], "scene:commission-briefing");
 	assert.equal(table.requests.length, 2, "two model steps");
 	assert.ok((clerkNotes(table.requests[0]).at(-1)?.carried?.views ?? []).some((view) => view.focus === "source"), "the first step's note carries them");

@@ -482,7 +482,7 @@ test("SL-21 (§32.12): the check the compile selected keeps its evidence through
  * Jev for the ordinary check at the office: the compile reads `investigate` 0.95 and no destination (0.96); the ordinary
  * binder answers an ordinary Spot Hidden (its profile answer as given); every route: finish.
  */
-function ordinaryJev(profile, route = ["ordinary", 0.9]) {
+function ordinaryJev(profile, route = ["ordinary", 0.9], answers = {}) {
 	return { decide: async (batch) => {
 		if (batch.family === COMPILE_FAMILY)
 			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(question.key === "act"
@@ -490,7 +490,8 @@ function ordinaryJev(profile, route = ["ordinary", 0.9]) {
 				: question.key === "destination" ? ["none", 0.96] : ["unclear", 0.9])])));
 		if (batch.family === "ordinary-resolve")
 			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(question.key === "profile"
-				? profile(question) : question.key === "route" ? route : [({ consent: "authorized", actor: "actor_0", intent: "social", difficulty: "regular", bonus: "none", penalty: "none" })[question.key] ?? "unknown", 0.9])])));
+				? profile(question) : question.key === "route" ? route : answers[question.key]
+					?? [({ consent: "authorized", actor: "actor_0", intent: "social", difficulty: "regular", bonus: "none", penalty: "none" })[question.key] ?? "unknown", 0.9])])));
 		return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
 			choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9])])));
 	} };
@@ -564,5 +565,48 @@ test("SL-26 (owner ruling 2026-09-24): with the compile's act cleared, the binde
 			assert.deepEqual(row.basis.roll, { rule: "compile_act", binder: "no_roll", confidence: 0.44 }, "the clerk says whose word decided the roll");
 			assert.equal(row.path, "compile");
 		}
+	});
+});
+
+// ---- SL-31 (§135.28): the ordinary binder's rules defaults ------------------------------------------------------------------
+
+test("SL-31 (§135.28): long gate #2's STR shape -- the binder's difficulty `unknown`, its actor `unknown`: the clerk still rolls, regular by the rules default, stamped on the bind row and the basis", async (t) => {
+	// Turn 14 of longgate2-haunting-0830 ("我下楼回厨房，撬开那个锁着的储物柜。"): the binder's route answers, as recorded.
+	const turn14 = { actor: ["unknown", 0.28, { unknown: 0.64, actor_0: 0.36 }], intent: ["investigate", 0.47, { investigate: 0.73, move: 0.27 }],
+		difficulty: ["unknown", 0.49, { unknown: 0.62, regular: 0.37, hard: 0.01, extreme: 0 }],
+		bonus: ["none", 0.92, { none: 0.96, unknown: 0.04 }], penalty: ["none", 0.88, { none: 0.94, unknown: 0.06 }] };
+	const cleared = (question) => [spotHidden(question), 0.9, { [spotHidden(question)]: 0.92, unknown: 0.08 }];
+	for (const [label, answers, expected] of [
+		["difficulty unknown (0.62 on unknown): regular by the default", turn14,
+			{ difficulty: "regular", path: "rule-default", rule: "regular_difficulty", confidence: 0.49, defaults: { difficulty: { value: "regular", rule: "regular_difficulty" } } }],
+		["difficulty hard under the gate (0.45 / 0.40): the default, not the uncleared lead", { ...turn14, difficulty: ["hard", 0.45, { hard: 0.45, regular: 0.4, unknown: 0.15 }] },
+			{ difficulty: "regular", path: "rule-default", rule: "regular_difficulty", confidence: 0.45, defaults: { difficulty: { value: "regular", rule: "regular_difficulty" } } }],
+		["difficulty hard cleared (0.85): Jev's cleared answer overrides the default", { ...turn14, difficulty: ["hard", 0.85, { hard: 0.9, regular: 0.1 }] },
+			{ difficulty: "hard", path: "jev", rule: undefined, confidence: 0.85, defaults: undefined }],
+		["a die under the gate (penalty one 0.4): no modifier by the default", { ...turn14, penalty: ["one", 0.4, { one: 0.45, none: 0.4, unknown: 0.15 }] },
+			{ difficulty: "regular", path: "rule-default", rule: "regular_difficulty", confidence: 0.49,
+				defaults: { difficulty: { value: "regular", rule: "regular_difficulty" }, penalty: { value: "none", rule: "no_modifier" } }, penalty: "rule-default" }],
+	]) await t.test(label, async (tt) => {
+		const table = await hybrid(tt, { prepare: tookTheJob, compile: () => undefined, engine: { decision: ordinaryJev(cleared, ["ordinary", 0.59], answers) }, responses: narrateOnly("柜门开了。") });
+		await table.session.prompt("我把诺特办公室那个锁着的柜子撬开。");
+		const telemetry = table.telemetry("test-camp");
+		const binder = telemetry.find((row) => row.lane === "route" && row.purpose === "bind-ordinary");
+		assert.equal(binder.disposition, "ordinary", "no longer ordinary_unknown");
+		assert.deepEqual([binder.paths.difficulty.path, binder.paths.difficulty.value], [expected.path, expected.difficulty], "the binder's row says how it took the difficulty");
+		const roll = telemetry.find((row) => row.tool === "resolve" && row.origin === "policy");
+		assert.ok(roll?.ok, "the clerk executed the check");
+		const bind = telemetry.find((row) => row.lane === "run" && row.event === "bind" && row.candidate === "resolve:core-check:ordinary-check");
+		assert.equal(bind.outcome, undefined, "not handed to the Keeper");
+		const records = Object.fromEntries(bind.bindings.map((entry) => [entry.name, entry]));
+		assert.equal(records.actor.path, "stated", "the single investigator the kernel issues, whatever the actor question answered");
+		assert.deepEqual([records.difficulty.path, records.difficulty.value, records.difficulty.rule, records.difficulty.confidence],
+			[expected.path, expected.difficulty, expected.rule, expected.confidence], "the difficulty's record, with the answer it replaced");
+		assert.deepEqual(records.difficulty.distribution, answers.difficulty[2]);
+		assert.deepEqual([records.bonus.path, records.penalty.path], ["jev", expected.penalty ?? "jev"]);
+		assert.equal(records.modifiers.path, expected.defaults ? "rule-default" : "jev", "the action's modifiers follow their parts");
+		assert.equal(records.modifiers.value.difficulty, expected.difficulty, "the executed check's difficulty");
+		const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "resolve");
+		assert.deepEqual([row.basis.binding, row.basis.rule_default], [expected.defaults ? "rule-default" : undefined, expected.defaults], "the basis carries each default");
+		assert.equal(row.path, "compile", "a rules default is an exempt path: admitted on the compile's evidence");
 	});
 });

@@ -1,0 +1,2403 @@
+[
+ {
+  "run": 1,
+  "fixture": "longgate2-t18",
+  "admission": "lane",
+  "lane": "replay",
+  "keeper": "replay",
+  "thinking": "off",
+  "arm": "after",
+  "latency": false,
+  "seed": "1",
+  "wall_ms": 6965,
+  "budget": {
+   "turn": 18,
+   "lane": "run",
+   "event": "budget",
+   "decision": "summary",
+   "run": "run-01a0d392-a99f-74ae-b01e-ec108809091b",
+   "budget_ms": 45000,
+   "elapsed_ms": 5784,
+   "elapsed_at_compose": 5498,
+   "over_budget": false,
+   "deferred_by_budget": [],
+   "decision_budget": {
+    "jev_calls": 6,
+    "jev_ms": 2074,
+    "max_jev_calls": 24,
+    "max_jev_ms": 12000,
+    "spent": false
+   },
+   "prescreen": {
+    "reads": 1,
+    "jev_calls": 7,
+    "ms": 2502
+   },
+   "run_id": "6463e42c-7463-4727-b8da-c89e3526858e"
+  },
+  "compile": "on",
+  "compile_row": {
+   "turn": 18,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d392-a99f-74ae-b01e-ec108809091b",
+   "step": "run-01a0d392-a99f-74ae-b01e-ec108809091b:s2",
+   "status": "complete",
+   "ms": 367,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "upper-floor-bedroom",
+      "destination_2": "basement-rites",
+      "destination_3": "newspaper-morgue",
+      "destination_4": "central-library",
+      "destination_5": "hall-of-records",
+      "destination_6": "neighborhood-gossip",
+      "destination_7": "previous-tenants",
+      "destination_8": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.85,
+     "probabilities": {
+      "unclear": 0.08,
+      "destination_3": 0,
+      "destination_2": 0.05,
+      "destination_1": 0,
+      "destination_5": 0,
+      "destination_8": 0,
+      "destination_7": 0,
+      "destination_4": 0,
+      "destination_6": 0,
+      "none": 0.87
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:corbitt-diaries"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.73,
+     "probabilities": {
+      "unclear": 0.15,
+      "ask_1": 0.03,
+      "none": 0.82
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_1",
+     "row": "investigate",
+     "confidence": 0.89,
+     "probabilities": {
+      "act_1": 0.9,
+      "act_4": 0,
+      "act_6": 0,
+      "act_7": 0,
+      "act_10": 0,
+      "act_5": 0,
+      "unclear": 0,
+      "act_11": 0,
+      "act_8": 0,
+      "act_3": 0.1,
+      "act_9": 0,
+      "none": 0,
+      "act_2": 0
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "私人侦探徽章",
+      "item_5": "科比特宅的钥匙"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.88,
+     "probabilities": {
+      "item_1": 0,
+      "item_3": 0,
+      "item_2": 0,
+      "unclear": 0.09,
+      "none": 0.91,
+      "item_4": 0,
+      "item_5": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "ordinary_check",
+     "candidate": "resolve:core-check:ordinary-check",
+     "features": {
+      "destination": null,
+      "ask": null,
+      "act": "investigate",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "resolve:core-check:ordinary-check"
+   ],
+   "decided": [
+    "apply:move:upper-floor-bedroom",
+    "apply:move:newspaper-morgue",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "apply:clue:corbitt-diaries"
+   ],
+   "reason": "selected_1",
+   "run_id": "6463e42c-7463-4727-b8da-c89e3526858e"
+  },
+  "selections": [
+   {
+    "by": "compile",
+    "keys": [
+     "resolve:core-check:ordinary-check"
+    ]
+   }
+  ],
+  "compile_rows": [
+   {
+    "turn": 18,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d392-a99f-74ae-b01e-ec108809091b",
+    "step": "run-01a0d392-a99f-74ae-b01e-ec108809091b:s2",
+    "status": "complete",
+    "ms": 367,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "upper-floor-bedroom",
+       "destination_2": "basement-rites",
+       "destination_3": "newspaper-morgue",
+       "destination_4": "central-library",
+       "destination_5": "hall-of-records",
+       "destination_6": "neighborhood-gossip",
+       "destination_7": "previous-tenants",
+       "destination_8": "commission-briefing"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.85,
+      "probabilities": {
+       "unclear": 0.08,
+       "destination_3": 0,
+       "destination_2": 0.05,
+       "destination_1": 0,
+       "destination_5": 0,
+       "destination_8": 0,
+       "destination_7": 0,
+       "destination_4": 0,
+       "destination_6": 0,
+       "none": 0.87
+      },
+      "cleared": true
+     },
+     "ask": {
+      "rows": {
+       "ask_1": "clue:corbitt-diaries"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.73,
+      "probabilities": {
+       "unclear": 0.15,
+       "ask_1": 0.03,
+       "none": 0.82
+      },
+      "cleared": true
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_1",
+      "row": "investigate",
+      "confidence": 0.89,
+      "probabilities": {
+       "act_1": 0.9,
+       "act_4": 0,
+       "act_6": 0,
+       "act_7": 0,
+       "act_10": 0,
+       "act_5": 0,
+       "unclear": 0,
+       "act_11": 0,
+       "act_8": 0,
+       "act_3": 0.1,
+       "act_9": 0,
+       "none": 0,
+       "act_2": 0
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "开锁工具",
+       "item_3": "手电筒",
+       "item_4": "私人侦探徽章",
+       "item_5": "科比特宅的钥匙"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.88,
+      "probabilities": {
+       "item_1": 0,
+       "item_3": 0,
+       "item_2": 0,
+       "unclear": 0.09,
+       "none": 0.91,
+       "item_4": 0,
+       "item_5": 0
+      },
+      "cleared": true
+     }
+    },
+    "fired": [
+     {
+      "predicate": "ordinary_check",
+      "candidate": "resolve:core-check:ordinary-check",
+      "features": {
+       "destination": null,
+       "ask": null,
+       "act": "investigate",
+       "item": null
+      }
+     }
+    ],
+    "selected": [
+     "resolve:core-check:ordinary-check"
+    ],
+    "decided": [
+     "apply:move:upper-floor-bedroom",
+     "apply:move:newspaper-morgue",
+     "apply:move:central-library",
+     "apply:move:hall-of-records",
+     "apply:move:neighborhood-gossip",
+     "apply:move:previous-tenants",
+     "apply:move:commission-briefing"
+    ],
+    "fell_through": [
+     "apply:clue:corbitt-diaries"
+    ],
+    "reason": "selected_1",
+    "run_id": "6463e42c-7463-4727-b8da-c89e3526858e"
+   }
+  ],
+  "prescreen": "on",
+  "reads": [
+   {
+    "scene": "corbitt-house-ground",
+    "prescreen": "prepared",
+    "materials": 6,
+    "jev_calls": 7,
+    "ms": 2502
+   }
+  ],
+  "status": "delivered",
+  "reason": "delivery_accepted",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 46904,
+    "cache_read": 0,
+    "cache_write": 46904,
+    "output": 59,
+    "reasoning": null,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 331,
+    "cache_read": 46904,
+    "cache_write": 331,
+    "output": 40,
+    "reasoning": null,
+    "tools": [
+     "apply"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 3,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 1500,
+    "cache_read": 47235,
+    "cache_write": 1501,
+    "output": 57,
+    "reasoning": null,
+    "tools": [
+     "narrate"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   }
+  ],
+  "steps": {
+   "operate": 5,
+   "decide": 5,
+   "infer": 3,
+   "finish": 1
+  },
+  "llm_steps": 3,
+  "llm_purposes": [
+   "adjudicate",
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 13,
+  "route_rows": 5,
+  "calls": [
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "investigate",
+      "skill": "Spot Hidden",
+      "modifiers": {
+       "difficulty": "regular",
+       "bonus_dice": 0,
+       "penalty_dice": 0,
+       "reason": "我把柜子挪开，看后面的墙和地面。"
+      },
+      "decision": "core-check:ordinary-check",
+      "actor": "托马斯·海斯",
+      "goal": "我把柜子挪开，看后面的墙和地面。",
+      "method": "我把柜子挪开，看后面的墙和地面。"
+     }
+    },
+    "passed": false,
+    "level": "failure"
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "investigate",
+      "goal": "把储物柜从墙边挪开，看清柜后的墙和地板",
+      "method": "用肩膀和身体把沉重的木柜从墙根推开",
+      "actor": "托马斯·海斯",
+      "skill": "STR",
+      "stakes": "柜子挪不动，柜后的墙和地板仍被挡住",
+      "modifiers": {
+       "difficulty": "regular",
+       "reason": "一人推一只沉重木柜，柜门钉死但柜体本身未钉在地上"
+      }
+     }
+    },
+    "passed": false,
+    "level": "failure"
+   },
+   {
+    "tool": "apply",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "flag",
+       "name": "cupboard-shifted",
+       "value": "true",
+       "why": "海斯把储物柜从墙根推开，柜后的墙和地板露出来。"
+      },
+      {
+       "kind": "time",
+       "minutes": 5,
+       "why": "把沉重的储物柜从墙边推开。"
+      }
+     ]
+    }
+   },
+   {
+    "tool": "narrate",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "text": "你把肩膀抵在储物柜侧面，脚在厨房地板上踩稳，整个人往外推。{{check:str}}柜子离开墙根，柜脚在灰上拖出两道印，停在扫把柄和那只缺了耳的铁桶旁边。{{time}}\n\n手电筒照上刚才被柜背挡住的墙。墙上一块木板严丝合缝地钉着，钉子从里面钉进去，钉头齐整。板下的地板条也还钉着，缝没有开，下面没有台阶，也没有能钻下去的空洞。柜门仍旧钉死，缝里那排歪钉子还在原处。\n\n楼上传来一下沉闷的撞击，跟着又静了。"
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "resolve STR vs null",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "flag cupboard-shifted",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "time 5",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "narrate",
+    "matched": true,
+    "origin": "model"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "resolve",
+    "origin": "policy",
+    "clerk": "declared_check",
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "compile",
+    "ms": 0,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "decisions",
+     "row": {
+      "name": "core-check:ordinary-check",
+      "family": "core-check"
+     },
+     "compile": {
+      "predicate": "ordinary_check",
+      "features": {
+       "destination": null,
+       "ask": null,
+       "act": "investigate",
+       "item": null
+      },
+      "read_features": {
+       "act": {
+        "row": "investigate",
+        "confidence": 0.89,
+        "cleared": true
+       },
+       "ask": {
+        "row": null,
+        "confidence": 0.73,
+        "cleared": true
+       },
+       "destination": {
+        "row": null,
+        "confidence": 0.85,
+        "cleared": true
+       }
+      },
+      "bound": {
+       "intent": {
+        "value": "investigate",
+        "confidence": 0.89,
+        "distribution": {
+         "act_1": 0.9,
+         "act_4": 0,
+         "act_6": 0,
+         "act_7": 0,
+         "act_10": 0,
+         "act_5": 0,
+         "unclear": 0,
+         "act_11": 0,
+         "act_8": 0,
+         "act_3": 0.1,
+         "act_9": 0,
+         "none": 0,
+         "act_2": 0
+        }
+       }
+      }
+     },
+     "binding": "rule-default",
+     "rule_default": {
+      "difficulty": {
+       "value": "regular",
+       "rule": "regular_difficulty"
+      }
+     },
+     "roll": {
+      "rule": "compile_act",
+      "binder": "no_roll",
+      "confidence": 0.81
+     }
+    },
+    "path": "compile",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": "ordinary_check",
+    "features": {
+     "act": {
+      "row": "investigate",
+      "confidence": 0.89
+     },
+     "ask": {
+      "row": null,
+      "confidence": 0.73
+     },
+     "destination": {
+      "row": null,
+      "confidence": 0.85
+     }
+    },
+    "binding_paths": {
+     "actor": "stated",
+     "intent": "jev",
+     "goal": "composed",
+     "method": "composed",
+     "skill": "jev",
+     "decision": "stated",
+     "modifiers": "rule-default",
+     "difficulty": "rule-default",
+     "bonus": "jev",
+     "penalty": "jev"
+    },
+    "compile_refused": null,
+    "first_byte_ms": null,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "compile: ordinary_check fired on act=investigate, ask=null, destination=null",
+    "proposed": [
+     "resolve (roll the dice for an action): actor=\"托马斯·海斯\"; intent=\"investigate\"; goal=\"我把柜子挪开，看后面的墙和地面。\"; method=\"我把柜子挪开，看后面的墙和地面。\"; skill=\"Spot Hidden\""
+    ]
+   },
+   {
+    "verb": "resolve",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "entailed",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 11,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": null,
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": 10,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 9,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "replayed live verdict (2445 ms live)",
+    "proposed": [
+     "resolve (roll the dice for an action): actor=\"托马斯·海斯\"; intent=\"investigate\"; goal=\"把储物柜从墙边挪开，看清柜后的墙和地板\"; method=\"用肩膀和身体把沉重的木柜从墙根推开\"; skill=\"STR\"; stakes=\"柜子挪不动，柜后的墙和地板仍被挡住\""
+    ]
+   },
+   {
+    "verb": "apply",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 2,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": "lane_first",
+    "basis": null,
+    "path": "lane",
+    "fast_path": true,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": 2,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 2,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "replayed live verdict (2500 ms live)",
+    "proposed": [
+     "apply flag: name=\"cupboard-shifted\"; value=\"true\"; why=\"海斯把储物柜从墙根推开，柜后的墙和地板露出来。\"",
+     "apply time: minutes=5; why=\"把沉重的储物柜从墙边推开。\""
+    ]
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "resolve",
+    "call_id": "t18-c1",
+    "ok": true,
+    "ms": 103,
+    "clerk": "declared_check",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "decisions",
+     "row": {
+      "name": "core-check:ordinary-check",
+      "family": "core-check"
+     },
+     "compile": {
+      "predicate": "ordinary_check",
+      "features": {
+       "destination": null,
+       "ask": null,
+       "act": "investigate",
+       "item": null
+      },
+      "read_features": {
+       "act": {
+        "row": "investigate",
+        "confidence": 0.89,
+        "cleared": true
+       },
+       "ask": {
+        "row": null,
+        "confidence": 0.73,
+        "cleared": true
+       },
+       "destination": {
+        "row": null,
+        "confidence": 0.85,
+        "cleared": true
+       }
+      },
+      "bound": {
+       "intent": {
+        "value": "investigate",
+        "confidence": 0.89,
+        "distribution": {
+         "act_1": 0.9,
+         "act_4": 0,
+         "act_6": 0,
+         "act_7": 0,
+         "act_10": 0,
+         "act_5": 0,
+         "unclear": 0,
+         "act_11": 0,
+         "act_8": 0,
+         "act_3": 0.1,
+         "act_9": 0,
+         "none": 0,
+         "act_2": 0
+        }
+       }
+      }
+     },
+     "binding": "rule-default",
+     "rule_default": {
+      "difficulty": {
+       "value": "regular",
+       "rule": "regular_difficulty"
+      }
+     },
+     "roll": {
+      "rule": "compile_act",
+      "binder": "no_roll",
+      "confidence": 0.81
+     }
+    }
+   }
+  ],
+  "misses": []
+ },
+ {
+  "run": 2,
+  "fixture": "longgate2-t18",
+  "admission": "lane",
+  "lane": "replay",
+  "keeper": "replay",
+  "thinking": "off",
+  "arm": "after",
+  "latency": false,
+  "seed": "1",
+  "wall_ms": 5086,
+  "budget": {
+   "turn": 18,
+   "lane": "run",
+   "event": "budget",
+   "decision": "summary",
+   "run": "run-01a0d392-c5b7-74ae-b01e-ec157c1f11c8",
+   "budget_ms": 45000,
+   "elapsed_ms": 4146,
+   "elapsed_at_compose": 3837,
+   "over_budget": false,
+   "deferred_by_budget": [],
+   "decision_budget": {
+    "jev_calls": 6,
+    "jev_ms": 2045,
+    "max_jev_calls": 24,
+    "max_jev_ms": 12000,
+    "spent": false
+   },
+   "prescreen": {
+    "reads": 1,
+    "jev_calls": 2,
+    "ms": 910
+   },
+   "run_id": "baa74935-0c6d-419f-86ac-3ab7ec7c13fb"
+  },
+  "compile": "on",
+  "compile_row": {
+   "turn": 18,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d392-c5b7-74ae-b01e-ec157c1f11c8",
+   "step": "run-01a0d392-c5b7-74ae-b01e-ec157c1f11c8:s2",
+   "status": "complete",
+   "ms": 316,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "upper-floor-bedroom",
+      "destination_2": "basement-rites",
+      "destination_3": "newspaper-morgue",
+      "destination_4": "central-library",
+      "destination_5": "hall-of-records",
+      "destination_6": "neighborhood-gossip",
+      "destination_7": "previous-tenants",
+      "destination_8": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.86,
+     "probabilities": {
+      "destination_1": 0,
+      "destination_3": 0,
+      "none": 0.87,
+      "destination_6": 0,
+      "destination_4": 0,
+      "destination_7": 0,
+      "destination_5": 0,
+      "unclear": 0.07,
+      "destination_8": 0,
+      "destination_2": 0.06
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:corbitt-diaries"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.67,
+     "probabilities": {
+      "ask_1": 0.04,
+      "none": 0.78,
+      "unclear": 0.18
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_1",
+     "row": "investigate",
+     "confidence": 0.91,
+     "probabilities": {
+      "act_9": 0,
+      "none": 0,
+      "act_3": 0.08,
+      "act_4": 0,
+      "act_6": 0,
+      "act_8": 0,
+      "act_1": 0.92,
+      "act_2": 0,
+      "act_5": 0,
+      "act_10": 0,
+      "unclear": 0,
+      "act_7": 0,
+      "act_11": 0
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "私人侦探徽章",
+      "item_5": "科比特宅的钥匙"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.86,
+     "probabilities": {
+      "item_2": 0,
+      "none": 0.89,
+      "item_3": 0,
+      "item_1": 0,
+      "item_4": 0,
+      "unclear": 0.11,
+      "item_5": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "ordinary_check",
+     "candidate": "resolve:core-check:ordinary-check",
+     "features": {
+      "destination": null,
+      "ask": null,
+      "act": "investigate",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "resolve:core-check:ordinary-check"
+   ],
+   "decided": [
+    "apply:move:upper-floor-bedroom",
+    "apply:move:newspaper-morgue",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "apply:clue:corbitt-diaries"
+   ],
+   "reason": "selected_1",
+   "run_id": "baa74935-0c6d-419f-86ac-3ab7ec7c13fb"
+  },
+  "selections": [
+   {
+    "by": "compile",
+    "keys": [
+     "resolve:core-check:ordinary-check"
+    ]
+   }
+  ],
+  "compile_rows": [
+   {
+    "turn": 18,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d392-c5b7-74ae-b01e-ec157c1f11c8",
+    "step": "run-01a0d392-c5b7-74ae-b01e-ec157c1f11c8:s2",
+    "status": "complete",
+    "ms": 316,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "upper-floor-bedroom",
+       "destination_2": "basement-rites",
+       "destination_3": "newspaper-morgue",
+       "destination_4": "central-library",
+       "destination_5": "hall-of-records",
+       "destination_6": "neighborhood-gossip",
+       "destination_7": "previous-tenants",
+       "destination_8": "commission-briefing"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.86,
+      "probabilities": {
+       "destination_1": 0,
+       "destination_3": 0,
+       "none": 0.87,
+       "destination_6": 0,
+       "destination_4": 0,
+       "destination_7": 0,
+       "destination_5": 0,
+       "unclear": 0.07,
+       "destination_8": 0,
+       "destination_2": 0.06
+      },
+      "cleared": true
+     },
+     "ask": {
+      "rows": {
+       "ask_1": "clue:corbitt-diaries"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.67,
+      "probabilities": {
+       "ask_1": 0.04,
+       "none": 0.78,
+       "unclear": 0.18
+      },
+      "cleared": true
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_1",
+      "row": "investigate",
+      "confidence": 0.91,
+      "probabilities": {
+       "act_9": 0,
+       "none": 0,
+       "act_3": 0.08,
+       "act_4": 0,
+       "act_6": 0,
+       "act_8": 0,
+       "act_1": 0.92,
+       "act_2": 0,
+       "act_5": 0,
+       "act_10": 0,
+       "unclear": 0,
+       "act_7": 0,
+       "act_11": 0
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "开锁工具",
+       "item_3": "手电筒",
+       "item_4": "私人侦探徽章",
+       "item_5": "科比特宅的钥匙"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.86,
+      "probabilities": {
+       "item_2": 0,
+       "none": 0.89,
+       "item_3": 0,
+       "item_1": 0,
+       "item_4": 0,
+       "unclear": 0.11,
+       "item_5": 0
+      },
+      "cleared": true
+     }
+    },
+    "fired": [
+     {
+      "predicate": "ordinary_check",
+      "candidate": "resolve:core-check:ordinary-check",
+      "features": {
+       "destination": null,
+       "ask": null,
+       "act": "investigate",
+       "item": null
+      }
+     }
+    ],
+    "selected": [
+     "resolve:core-check:ordinary-check"
+    ],
+    "decided": [
+     "apply:move:upper-floor-bedroom",
+     "apply:move:newspaper-morgue",
+     "apply:move:central-library",
+     "apply:move:hall-of-records",
+     "apply:move:neighborhood-gossip",
+     "apply:move:previous-tenants",
+     "apply:move:commission-briefing"
+    ],
+    "fell_through": [
+     "apply:clue:corbitt-diaries"
+    ],
+    "reason": "selected_1",
+    "run_id": "baa74935-0c6d-419f-86ac-3ab7ec7c13fb"
+   }
+  ],
+  "prescreen": "on",
+  "reads": [
+   {
+    "scene": "corbitt-house-ground",
+    "prescreen": "prepared",
+    "materials": 6,
+    "jev_calls": 2,
+    "ms": 910
+   }
+  ],
+  "status": "delivered",
+  "reason": "delivery_accepted",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 46905,
+    "cache_read": 0,
+    "cache_write": 46905,
+    "output": 59,
+    "reasoning": null,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 331,
+    "cache_read": 46905,
+    "cache_write": 331,
+    "output": 40,
+    "reasoning": null,
+    "tools": [
+     "apply"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 3,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 1500,
+    "cache_read": 47236,
+    "cache_write": 1501,
+    "output": 57,
+    "reasoning": null,
+    "tools": [
+     "narrate"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   }
+  ],
+  "steps": {
+   "operate": 5,
+   "decide": 5,
+   "infer": 3,
+   "finish": 1
+  },
+  "llm_steps": 3,
+  "llm_purposes": [
+   "adjudicate",
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 8,
+  "route_rows": 5,
+  "calls": [
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "investigate",
+      "skill": "Spot Hidden",
+      "modifiers": {
+       "difficulty": "regular",
+       "bonus_dice": 0,
+       "penalty_dice": 0,
+       "reason": "我把柜子挪开，看后面的墙和地面。"
+      },
+      "decision": "core-check:ordinary-check",
+      "actor": "托马斯·海斯",
+      "goal": "我把柜子挪开，看后面的墙和地面。",
+      "method": "我把柜子挪开，看后面的墙和地面。"
+     }
+    },
+    "passed": false,
+    "level": "failure"
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "investigate",
+      "goal": "把储物柜从墙边挪开，看清柜后的墙和地板",
+      "method": "用肩膀和身体把沉重的木柜从墙根推开",
+      "actor": "托马斯·海斯",
+      "skill": "STR",
+      "stakes": "柜子挪不动，柜后的墙和地板仍被挡住",
+      "modifiers": {
+       "difficulty": "regular",
+       "reason": "一人推一只沉重木柜，柜门钉死但柜体本身未钉在地上"
+      }
+     }
+    },
+    "passed": false,
+    "level": "failure"
+   },
+   {
+    "tool": "apply",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "flag",
+       "name": "cupboard-shifted",
+       "value": "true",
+       "why": "海斯把储物柜从墙根推开，柜后的墙和地板露出来。"
+      },
+      {
+       "kind": "time",
+       "minutes": 5,
+       "why": "把沉重的储物柜从墙边推开。"
+      }
+     ]
+    }
+   },
+   {
+    "tool": "narrate",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "text": "你把肩膀抵在储物柜侧面，脚在厨房地板上踩稳，整个人往外推。{{check:str}}柜子离开墙根，柜脚在灰上拖出两道印，停在扫把柄和那只缺了耳的铁桶旁边。{{time}}\n\n手电筒照上刚才被柜背挡住的墙。墙上一块木板严丝合缝地钉着，钉子从里面钉进去，钉头齐整。板下的地板条也还钉着，缝没有开，下面没有台阶，也没有能钻下去的空洞。柜门仍旧钉死，缝里那排歪钉子还在原处。\n\n楼上传来一下沉闷的撞击，跟着又静了。"
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "resolve STR vs null",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "flag cupboard-shifted",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "time 5",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "narrate",
+    "matched": true,
+    "origin": "model"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "resolve",
+    "origin": "policy",
+    "clerk": "declared_check",
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "compile",
+    "ms": 0,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "decisions",
+     "row": {
+      "name": "core-check:ordinary-check",
+      "family": "core-check"
+     },
+     "compile": {
+      "predicate": "ordinary_check",
+      "features": {
+       "destination": null,
+       "ask": null,
+       "act": "investigate",
+       "item": null
+      },
+      "read_features": {
+       "act": {
+        "row": "investigate",
+        "confidence": 0.91,
+        "cleared": true
+       },
+       "ask": {
+        "row": null,
+        "confidence": 0.67,
+        "cleared": true
+       },
+       "destination": {
+        "row": null,
+        "confidence": 0.86,
+        "cleared": true
+       }
+      },
+      "bound": {
+       "intent": {
+        "value": "investigate",
+        "confidence": 0.91,
+        "distribution": {
+         "act_9": 0,
+         "none": 0,
+         "act_3": 0.08,
+         "act_4": 0,
+         "act_6": 0,
+         "act_8": 0,
+         "act_1": 0.92,
+         "act_2": 0,
+         "act_5": 0,
+         "act_10": 0,
+         "unclear": 0,
+         "act_7": 0,
+         "act_11": 0
+        }
+       }
+      }
+     },
+     "binding": "rule-default",
+     "rule_default": {
+      "difficulty": {
+       "value": "regular",
+       "rule": "regular_difficulty"
+      }
+     },
+     "roll": {
+      "rule": "compile_act",
+      "binder": "no_roll",
+      "confidence": 0.78
+     }
+    },
+    "path": "compile",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": "ordinary_check",
+    "features": {
+     "act": {
+      "row": "investigate",
+      "confidence": 0.91
+     },
+     "ask": {
+      "row": null,
+      "confidence": 0.67
+     },
+     "destination": {
+      "row": null,
+      "confidence": 0.86
+     }
+    },
+    "binding_paths": {
+     "actor": "stated",
+     "intent": "jev",
+     "goal": "composed",
+     "method": "composed",
+     "skill": "jev",
+     "decision": "stated",
+     "modifiers": "rule-default",
+     "difficulty": "rule-default",
+     "bonus": "jev",
+     "penalty": "jev"
+    },
+    "compile_refused": null,
+    "first_byte_ms": null,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "compile: ordinary_check fired on act=investigate, ask=null, destination=null",
+    "proposed": [
+     "resolve (roll the dice for an action): actor=\"托马斯·海斯\"; intent=\"investigate\"; goal=\"我把柜子挪开，看后面的墙和地面。\"; method=\"我把柜子挪开，看后面的墙和地面。\"; skill=\"Spot Hidden\""
+    ]
+   },
+   {
+    "verb": "resolve",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "entailed",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 2,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": null,
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": 2,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 2,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "replayed live verdict (2445 ms live)",
+    "proposed": [
+     "resolve (roll the dice for an action): actor=\"托马斯·海斯\"; intent=\"investigate\"; goal=\"把储物柜从墙边挪开，看清柜后的墙和地板\"; method=\"用肩膀和身体把沉重的木柜从墙根推开\"; skill=\"STR\"; stakes=\"柜子挪不动，柜后的墙和地板仍被挡住\""
+    ]
+   },
+   {
+    "verb": "apply",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 3,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": "lane_first",
+    "basis": null,
+    "path": "lane",
+    "fast_path": true,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": 3,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 2,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "replayed live verdict (2500 ms live)",
+    "proposed": [
+     "apply flag: name=\"cupboard-shifted\"; value=\"true\"; why=\"海斯把储物柜从墙根推开，柜后的墙和地板露出来。\"",
+     "apply time: minutes=5; why=\"把沉重的储物柜从墙边推开。\""
+    ]
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "resolve",
+    "call_id": "t18-c1",
+    "ok": true,
+    "ms": 110,
+    "clerk": "declared_check",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "decisions",
+     "row": {
+      "name": "core-check:ordinary-check",
+      "family": "core-check"
+     },
+     "compile": {
+      "predicate": "ordinary_check",
+      "features": {
+       "destination": null,
+       "ask": null,
+       "act": "investigate",
+       "item": null
+      },
+      "read_features": {
+       "act": {
+        "row": "investigate",
+        "confidence": 0.91,
+        "cleared": true
+       },
+       "ask": {
+        "row": null,
+        "confidence": 0.67,
+        "cleared": true
+       },
+       "destination": {
+        "row": null,
+        "confidence": 0.86,
+        "cleared": true
+       }
+      },
+      "bound": {
+       "intent": {
+        "value": "investigate",
+        "confidence": 0.91,
+        "distribution": {
+         "act_9": 0,
+         "none": 0,
+         "act_3": 0.08,
+         "act_4": 0,
+         "act_6": 0,
+         "act_8": 0,
+         "act_1": 0.92,
+         "act_2": 0,
+         "act_5": 0,
+         "act_10": 0,
+         "unclear": 0,
+         "act_7": 0,
+         "act_11": 0
+        }
+       }
+      }
+     },
+     "binding": "rule-default",
+     "rule_default": {
+      "difficulty": {
+       "value": "regular",
+       "rule": "regular_difficulty"
+      }
+     },
+     "roll": {
+      "rule": "compile_act",
+      "binder": "no_roll",
+      "confidence": 0.78
+     }
+    }
+   }
+  ],
+  "misses": [
+   {
+    "turn": 18,
+    "lane": "route",
+    "purpose": "route",
+    "run": "run-01a0d392-c5b7-74ae-b01e-ec157c1f11c8",
+    "step": "run-01a0d392-c5b7-74ae-b01e-ec157c1f11c8:s8",
+    "status": "complete",
+    "ms": 422,
+    "offered": [
+     "apply:clue:corbitt-diaries"
+    ],
+    "selected": [],
+    "exit": "ask_llm",
+    "reason": "low_confidence",
+    "answers": {
+     "need_1": {
+      "choice": "later",
+      "confidence": 0.98,
+      "probabilities": {
+       "now": 0,
+       "later": 0.99,
+       "unknown": 0.01
+      }
+     },
+     "exit": {
+      "choice": "ask_llm",
+      "confidence": 0.38,
+      "probabilities": {
+       "read_more": 0.06,
+       "continue": 0.09,
+       "ask_llm": 0.54,
+       "finish": 0.31
+      }
+     }
+    },
+    "run_id": "baa74935-0c6d-419f-86ac-3ab7ec7c13fb"
+   }
+  ]
+ },
+ {
+  "run": 3,
+  "fixture": "longgate2-t18",
+  "admission": "lane",
+  "lane": "replay",
+  "keeper": "replay",
+  "thinking": "off",
+  "arm": "after",
+  "latency": false,
+  "seed": "1",
+  "wall_ms": 5016,
+  "budget": {
+   "turn": 18,
+   "lane": "run",
+   "event": "budget",
+   "decision": "summary",
+   "run": "run-01a0d392-db74-74ae-b01e-ec18ea397451",
+   "budget_ms": 45000,
+   "elapsed_ms": 4071,
+   "elapsed_at_compose": 3791,
+   "over_budget": false,
+   "deferred_by_budget": [],
+   "decision_budget": {
+    "jev_calls": 6,
+    "jev_ms": 1992,
+    "max_jev_calls": 24,
+    "max_jev_ms": 12000,
+    "spent": false
+   },
+   "prescreen": {
+    "reads": 1,
+    "jev_calls": 2,
+    "ms": 887
+   },
+   "run_id": "4a8b4c4f-fffc-440d-8867-de69a1001539"
+  },
+  "compile": "on",
+  "compile_row": {
+   "turn": 18,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d392-db74-74ae-b01e-ec18ea397451",
+   "step": "run-01a0d392-db74-74ae-b01e-ec18ea397451:s2",
+   "status": "complete",
+   "ms": 328,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "upper-floor-bedroom",
+      "destination_2": "basement-rites",
+      "destination_3": "newspaper-morgue",
+      "destination_4": "central-library",
+      "destination_5": "hall-of-records",
+      "destination_6": "neighborhood-gossip",
+      "destination_7": "previous-tenants",
+      "destination_8": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.86,
+     "probabilities": {
+      "destination_3": 0,
+      "destination_2": 0.06,
+      "destination_4": 0,
+      "destination_6": 0,
+      "none": 0.88,
+      "unclear": 0.06,
+      "destination_5": 0,
+      "destination_7": 0,
+      "destination_1": 0,
+      "destination_8": 0
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:corbitt-diaries"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.72,
+     "probabilities": {
+      "unclear": 0.16,
+      "none": 0.81,
+      "ask_1": 0.03
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_1",
+     "row": "investigate",
+     "confidence": 0.91,
+     "probabilities": {
+      "act_10": 0,
+      "act_9": 0,
+      "act_5": 0,
+      "act_11": 0,
+      "act_8": 0,
+      "act_3": 0.07,
+      "act_4": 0,
+      "act_6": 0,
+      "unclear": 0,
+      "none": 0,
+      "act_2": 0,
+      "act_7": 0,
+      "act_1": 0.93
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "私人侦探徽章",
+      "item_5": "科比特宅的钥匙"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.84,
+     "probabilities": {
+      "none": 0.87,
+      "item_2": 0,
+      "item_3": 0,
+      "unclear": 0.13,
+      "item_4": 0,
+      "item_5": 0,
+      "item_1": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "ordinary_check",
+     "candidate": "resolve:core-check:ordinary-check",
+     "features": {
+      "destination": null,
+      "ask": null,
+      "act": "investigate",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "resolve:core-check:ordinary-check"
+   ],
+   "decided": [
+    "apply:move:upper-floor-bedroom",
+    "apply:move:newspaper-morgue",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "apply:clue:corbitt-diaries"
+   ],
+   "reason": "selected_1",
+   "run_id": "4a8b4c4f-fffc-440d-8867-de69a1001539"
+  },
+  "selections": [
+   {
+    "by": "compile",
+    "keys": [
+     "resolve:core-check:ordinary-check"
+    ]
+   }
+  ],
+  "compile_rows": [
+   {
+    "turn": 18,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d392-db74-74ae-b01e-ec18ea397451",
+    "step": "run-01a0d392-db74-74ae-b01e-ec18ea397451:s2",
+    "status": "complete",
+    "ms": 328,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "upper-floor-bedroom",
+       "destination_2": "basement-rites",
+       "destination_3": "newspaper-morgue",
+       "destination_4": "central-library",
+       "destination_5": "hall-of-records",
+       "destination_6": "neighborhood-gossip",
+       "destination_7": "previous-tenants",
+       "destination_8": "commission-briefing"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.86,
+      "probabilities": {
+       "destination_3": 0,
+       "destination_2": 0.06,
+       "destination_4": 0,
+       "destination_6": 0,
+       "none": 0.88,
+       "unclear": 0.06,
+       "destination_5": 0,
+       "destination_7": 0,
+       "destination_1": 0,
+       "destination_8": 0
+      },
+      "cleared": true
+     },
+     "ask": {
+      "rows": {
+       "ask_1": "clue:corbitt-diaries"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.72,
+      "probabilities": {
+       "unclear": 0.16,
+       "none": 0.81,
+       "ask_1": 0.03
+      },
+      "cleared": true
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_1",
+      "row": "investigate",
+      "confidence": 0.91,
+      "probabilities": {
+       "act_10": 0,
+       "act_9": 0,
+       "act_5": 0,
+       "act_11": 0,
+       "act_8": 0,
+       "act_3": 0.07,
+       "act_4": 0,
+       "act_6": 0,
+       "unclear": 0,
+       "none": 0,
+       "act_2": 0,
+       "act_7": 0,
+       "act_1": 0.93
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "开锁工具",
+       "item_3": "手电筒",
+       "item_4": "私人侦探徽章",
+       "item_5": "科比特宅的钥匙"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.84,
+      "probabilities": {
+       "none": 0.87,
+       "item_2": 0,
+       "item_3": 0,
+       "unclear": 0.13,
+       "item_4": 0,
+       "item_5": 0,
+       "item_1": 0
+      },
+      "cleared": true
+     }
+    },
+    "fired": [
+     {
+      "predicate": "ordinary_check",
+      "candidate": "resolve:core-check:ordinary-check",
+      "features": {
+       "destination": null,
+       "ask": null,
+       "act": "investigate",
+       "item": null
+      }
+     }
+    ],
+    "selected": [
+     "resolve:core-check:ordinary-check"
+    ],
+    "decided": [
+     "apply:move:upper-floor-bedroom",
+     "apply:move:newspaper-morgue",
+     "apply:move:central-library",
+     "apply:move:hall-of-records",
+     "apply:move:neighborhood-gossip",
+     "apply:move:previous-tenants",
+     "apply:move:commission-briefing"
+    ],
+    "fell_through": [
+     "apply:clue:corbitt-diaries"
+    ],
+    "reason": "selected_1",
+    "run_id": "4a8b4c4f-fffc-440d-8867-de69a1001539"
+   }
+  ],
+  "prescreen": "on",
+  "reads": [
+   {
+    "scene": "corbitt-house-ground",
+    "prescreen": "prepared",
+    "materials": 6,
+    "jev_calls": 2,
+    "ms": 887
+   }
+  ],
+  "status": "delivered",
+  "reason": "delivery_accepted",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 46905,
+    "cache_read": 0,
+    "cache_write": 46905,
+    "output": 59,
+    "reasoning": null,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 331,
+    "cache_read": 46905,
+    "cache_write": 331,
+    "output": 40,
+    "reasoning": null,
+    "tools": [
+     "apply"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 3,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 1500,
+    "cache_read": 47236,
+    "cache_write": 1501,
+    "output": 57,
+    "reasoning": null,
+    "tools": [
+     "narrate"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   }
+  ],
+  "steps": {
+   "operate": 5,
+   "decide": 5,
+   "infer": 3,
+   "finish": 1
+  },
+  "llm_steps": 3,
+  "llm_purposes": [
+   "adjudicate",
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 8,
+  "route_rows": 5,
+  "calls": [
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "investigate",
+      "skill": "Spot Hidden",
+      "modifiers": {
+       "difficulty": "regular",
+       "bonus_dice": 0,
+       "penalty_dice": 0,
+       "reason": "我把柜子挪开，看后面的墙和地面。"
+      },
+      "decision": "core-check:ordinary-check",
+      "actor": "托马斯·海斯",
+      "goal": "我把柜子挪开，看后面的墙和地面。",
+      "method": "我把柜子挪开，看后面的墙和地面。"
+     }
+    },
+    "passed": false,
+    "level": "failure"
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "investigate",
+      "goal": "把储物柜从墙边挪开，看清柜后的墙和地板",
+      "method": "用肩膀和身体把沉重的木柜从墙根推开",
+      "actor": "托马斯·海斯",
+      "skill": "STR",
+      "stakes": "柜子挪不动，柜后的墙和地板仍被挡住",
+      "modifiers": {
+       "difficulty": "regular",
+       "reason": "一人推一只沉重木柜，柜门钉死但柜体本身未钉在地上"
+      }
+     }
+    },
+    "passed": false,
+    "level": "failure"
+   },
+   {
+    "tool": "apply",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "flag",
+       "name": "cupboard-shifted",
+       "value": "true",
+       "why": "海斯把储物柜从墙根推开，柜后的墙和地板露出来。"
+      },
+      {
+       "kind": "time",
+       "minutes": 5,
+       "why": "把沉重的储物柜从墙边推开。"
+      }
+     ]
+    }
+   },
+   {
+    "tool": "narrate",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "text": "你把肩膀抵在储物柜侧面，脚在厨房地板上踩稳，整个人往外推。{{check:str}}柜子离开墙根，柜脚在灰上拖出两道印，停在扫把柄和那只缺了耳的铁桶旁边。{{time}}\n\n手电筒照上刚才被柜背挡住的墙。墙上一块木板严丝合缝地钉着，钉子从里面钉进去，钉头齐整。板下的地板条也还钉着，缝没有开，下面没有台阶，也没有能钻下去的空洞。柜门仍旧钉死，缝里那排歪钉子还在原处。\n\n楼上传来一下沉闷的撞击，跟着又静了。"
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "resolve STR vs null",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "flag cupboard-shifted",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "time 5",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "narrate",
+    "matched": true,
+    "origin": "model"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "resolve",
+    "origin": "policy",
+    "clerk": "declared_check",
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "compile",
+    "ms": 0,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "decisions",
+     "row": {
+      "name": "core-check:ordinary-check",
+      "family": "core-check"
+     },
+     "compile": {
+      "predicate": "ordinary_check",
+      "features": {
+       "destination": null,
+       "ask": null,
+       "act": "investigate",
+       "item": null
+      },
+      "read_features": {
+       "act": {
+        "row": "investigate",
+        "confidence": 0.91,
+        "cleared": true
+       },
+       "ask": {
+        "row": null,
+        "confidence": 0.72,
+        "cleared": true
+       },
+       "destination": {
+        "row": null,
+        "confidence": 0.86,
+        "cleared": true
+       }
+      },
+      "bound": {
+       "intent": {
+        "value": "investigate",
+        "confidence": 0.91,
+        "distribution": {
+         "act_10": 0,
+         "act_9": 0,
+         "act_5": 0,
+         "act_11": 0,
+         "act_8": 0,
+         "act_3": 0.07,
+         "act_4": 0,
+         "act_6": 0,
+         "unclear": 0,
+         "none": 0,
+         "act_2": 0,
+         "act_7": 0,
+         "act_1": 0.93
+        }
+       }
+      }
+     },
+     "binding": "rule-default",
+     "rule_default": {
+      "difficulty": {
+       "value": "regular",
+       "rule": "regular_difficulty"
+      }
+     },
+     "roll": {
+      "rule": "compile_act",
+      "binder": "no_roll",
+      "confidence": 0.83
+     }
+    },
+    "path": "compile",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": "ordinary_check",
+    "features": {
+     "act": {
+      "row": "investigate",
+      "confidence": 0.91
+     },
+     "ask": {
+      "row": null,
+      "confidence": 0.72
+     },
+     "destination": {
+      "row": null,
+      "confidence": 0.86
+     }
+    },
+    "binding_paths": {
+     "actor": "stated",
+     "intent": "jev",
+     "goal": "composed",
+     "method": "composed",
+     "skill": "jev",
+     "decision": "stated",
+     "modifiers": "rule-default",
+     "difficulty": "rule-default",
+     "bonus": "jev",
+     "penalty": "jev"
+    },
+    "compile_refused": null,
+    "first_byte_ms": null,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "compile: ordinary_check fired on act=investigate, ask=null, destination=null",
+    "proposed": [
+     "resolve (roll the dice for an action): actor=\"托马斯·海斯\"; intent=\"investigate\"; goal=\"我把柜子挪开，看后面的墙和地面。\"; method=\"我把柜子挪开，看后面的墙和地面。\"; skill=\"Spot Hidden\""
+    ]
+   },
+   {
+    "verb": "resolve",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "entailed",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 3,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": null,
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": 2,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 2,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "replayed live verdict (2445 ms live)",
+    "proposed": [
+     "resolve (roll the dice for an action): actor=\"托马斯·海斯\"; intent=\"investigate\"; goal=\"把储物柜从墙边挪开，看清柜后的墙和地板\"; method=\"用肩膀和身体把沉重的木柜从墙根推开\"; skill=\"STR\"; stakes=\"柜子挪不动，柜后的墙和地板仍被挡住\""
+    ]
+   },
+   {
+    "verb": "apply",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 2,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": "lane_first",
+    "basis": null,
+    "path": "lane",
+    "fast_path": true,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": 2,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 2,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "replayed live verdict (2500 ms live)",
+    "proposed": [
+     "apply flag: name=\"cupboard-shifted\"; value=\"true\"; why=\"海斯把储物柜从墙根推开，柜后的墙和地板露出来。\"",
+     "apply time: minutes=5; why=\"把沉重的储物柜从墙边推开。\""
+    ]
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "resolve",
+    "call_id": "t18-c1",
+    "ok": true,
+    "ms": 109,
+    "clerk": "declared_check",
+    "basis": {
+     "read": "table.resolve.options",
+     "path": "decisions",
+     "row": {
+      "name": "core-check:ordinary-check",
+      "family": "core-check"
+     },
+     "compile": {
+      "predicate": "ordinary_check",
+      "features": {
+       "destination": null,
+       "ask": null,
+       "act": "investigate",
+       "item": null
+      },
+      "read_features": {
+       "act": {
+        "row": "investigate",
+        "confidence": 0.91,
+        "cleared": true
+       },
+       "ask": {
+        "row": null,
+        "confidence": 0.72,
+        "cleared": true
+       },
+       "destination": {
+        "row": null,
+        "confidence": 0.86,
+        "cleared": true
+       }
+      },
+      "bound": {
+       "intent": {
+        "value": "investigate",
+        "confidence": 0.91,
+        "distribution": {
+         "act_10": 0,
+         "act_9": 0,
+         "act_5": 0,
+         "act_11": 0,
+         "act_8": 0,
+         "act_3": 0.07,
+         "act_4": 0,
+         "act_6": 0,
+         "unclear": 0,
+         "none": 0,
+         "act_2": 0,
+         "act_7": 0,
+         "act_1": 0.93
+        }
+       }
+      }
+     },
+     "binding": "rule-default",
+     "rule_default": {
+      "difficulty": {
+       "value": "regular",
+       "rule": "regular_difficulty"
+      }
+     },
+     "roll": {
+      "rule": "compile_act",
+      "binder": "no_roll",
+      "confidence": 0.83
+     }
+    }
+   }
+  ],
+  "misses": [
+   {
+    "turn": 18,
+    "lane": "route",
+    "purpose": "route",
+    "run": "run-01a0d392-db74-74ae-b01e-ec18ea397451",
+    "step": "run-01a0d392-db74-74ae-b01e-ec18ea397451:s8",
+    "status": "complete",
+    "ms": 346,
+    "offered": [
+     "apply:clue:corbitt-diaries"
+    ],
+    "selected": [],
+    "exit": "ask_llm",
+    "reason": "low_confidence",
+    "answers": {
+     "need_1": {
+      "choice": "later",
+      "confidence": 0.99,
+      "probabilities": {
+       "later": 1,
+       "unknown": 0,
+       "now": 0
+      }
+     },
+     "exit": {
+      "choice": "ask_llm",
+      "confidence": 0.31,
+      "probabilities": {
+       "finish": 0.37,
+       "ask_llm": 0.48,
+       "read_more": 0.05,
+       "continue": 0.1
+      }
+     }
+    },
+    "run_id": "4a8b4c4f-fffc-440d-8867-de69a1001539"
+   }
+  ]
+ }
+]

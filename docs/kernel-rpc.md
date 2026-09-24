@@ -1385,6 +1385,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 ### 14.2 PDF 资料包与 `module.bind`
 
+> 2026-09-24（§14.16）：内置 starter 所指的那段书页走同一条来源登记：the Haunting 的原书页窗（规则书 PDF 索引 446–462）按业主裁定随 starter 包内置，建战役即有来源存储、阅读车道与 `lookup kind=source`，不需登记；别的 starter 也可声明由用户登记整本书后绑定的页窗。
+
 资料包由宿主的外部 PDF 技能产出（本仓库的 `skills/trpg-pdf-ingest` 契约不变；在这台机器上宿主就是 Claude Code 自己读 PDF 写 Markdown），仓库不 import 任何 PDF 解析库（保留旧树的契约测试）。目录形状：
 
 ```
@@ -1529,6 +1531,33 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 - 每条闭合词表的拒绝同时给 `fix` 与 `details.options`（实体名用 `details.candidates`）。本票补齐：`campaign.create` 的 `play_language`/`register`、`table.look` 的 `scope`、`resolve` 的 `action.defense`/`action.mode`、`apply npc` 的 `to`、会话族的 `combat`/`chase`/`sanity` 命令词、`state.end_session` 的 ending kind、`setup.investigator` 的 `allocation`，以及 §14.14 的 `start_scene`。
 - **拒绝的可照做部分必须活过每一层投影**：`extensions/onboarding` 的工具结果现在带 `fix` 与 `details`。任何把内核错误压成 `{code, message}` 的地方都是同一个缺陷。
+
+### 14.16 A built-in starter reads the book it names (2026-09-24, SL-28; amends §14.9, §14.12, §22.1, §22.6 and §127.2)
+
+Owner rulings of 2026-09-24 (`docs/specs/pi-native-single-loop.md`, "A built-in starter reads the same book a PDF module does", with the same day's amendment). The Haunting's graph names its source -- `source-document-keeper-rulebook-40th-the-haunting`, PDF indices 446–462 of the Keeper Rulebook 40th, and `properties.source_binding.file_sha256` on its module node -- but no campaign from it had the pages: `lookup kind=source` answered `no_source_document`, the prescreen had no source, and the Keeper was told the module has no document. An imported PDF module has four things the starter did not: `source.pdf` in its module directory, `module.json` `reading_version: 1` with `source_document {path, file_sha256, page_count}` (§22.1), a reading state and queue that `module.read.request` works on, and therefore a capsule `reading` section and native-text material for the prescreen. A starter that names a window of a book gets exactly those, through the same store, with no second source store.
+
+**14.16.1 The declaration.** `content/starters/<id>/source-binding.json`:
+
+```
+{"contract_id": "coc.starter-source-binding.v1", "schema_version": 1,
+ "source_id": "<the source_id the graph's source_refs cite>",
+ "book": {"title"?: "...", "file_sha256": "<sha256 of the whole book>", "pages": [first, last]},
+ "built_in"?: {"path": "source.pdf", "file_sha256": "<sha256 of the shipped window>", "page_count": last - first + 1, "extractor"?: "..."}}
+```
+
+`pages` are the book's 0-based `pdf_index`, both ends inclusive: the coordinates the graph's `source_refs` already use. When the graph's module node carries `properties.source_binding`, its `source_id` and `file_sha256` must equal the declaration's (`invalid_params` at registration otherwise). The declaration sits beside the graph instead of in it on purpose: bundled character guidance pins the graph file's digest (§23), so the graph is never rewritten to state its window. With `built_in` the window ships in the starter package; without it the window is bound when the user registers the book (14.16.3). The Haunting ships its window built in (owner, 2026-09-24): `scripts/build-starter-source.ts <id> <book.pdf>` extracts `pages` from the owner's copy with the import pipeline's own PDF.js extractor (`extensions/module/source.ts` `sourceWindow`, `extractPages`; page labels survive, so the book's printed numbers 435–451 stay visible) and records the extract in `built_in`. The extract carries PDF.js's creation date, so re-running it yields new bytes; the committed file and its recorded digest are the shipped identity.
+
+**14.16.2 Binding at registration (built in).** Every starter registration (`module.register`, the registration inside `campaign.create`, and a campaign fork's seed) binds a built-in window: it checks the shipped file's sha256 against `built_in.file_sha256`, copies it to `modules/<id>/source.pdf`, and writes on `module.json` what an imported module has -- `reading_version: 1`, `source_document {path: "source.pdf", file_sha256, page_count, window {source_id, file_sha256: <book>, pages}}`, `page_count`, and a reading state in which the authored graph is recorded as `verification: "legacy"` material (§22.5's rule for a source bound after its graph) -- plus an empty `deepen-queue.json` and `sections.json`. `source` stays `starter` and no top-level `file_sha256` is written: the starter's identity, catalogue row, opening rules and the guidance fingerprint are its graph's. Idempotent: a matching binding with its file present is left alone; a new graph generation (whose metadata starts over) is re-bound with a fresh reading state; a changed built-in extract replaces the old file, which is kept as `source-replaced-<uuid>.pdf`. A package that lost its shipped file registers unbound (14.16.5 then says so); a shipped file whose bytes differ from its declaration is a broken package and registration is refused.
+
+**14.16.3 Registering a book a starter names.** The host registration every import uses (`extensions/module/source-registration.ts` `registerSourcePdf`: `/coc module parse`, setup's `prepare-module` and the App's import) is `sourceInfo` then `module.source.bind {source}`. When `source.file_sha256` is a starter's `book.file_sha256`, `module.source.bind` never creates a `book-N` module. If every starter naming the book ships its window, or is already bound to it, the answer is `{module_id: <first starter>, replayed: true, starters: [...]}`. Otherwise it refuses `needs`, `details.reason: "source_window_required"`, `details.windows: [{module_id, source_id, file_sha256, pages, physical_pages}]`, and nothing is written. The host then extracts each window with `sourceWindow` (physical pages `pages[0]+1 … pages[1]+1`) into a temporary file, binds it with `module.source.bind {source: <the extract's info>, window: {module_id, file_sha256: <book>, pages}}`, and removes the temporary file. The kernel checks the window against the declaration and `page_count == pages[1] - pages[0] + 1`, and binds as in 14.16.2; the same book and window already bound with intact bytes replays. The kernel still parses nothing: the extract's provenance and page count are the host's statement, as a PDF's page count is in §22.1. `prepare-module` on such a book returns `{ok, module_id, opening_ready: true, starters}` without reading: the starter's authored graph is already installed.
+
+**14.16.4 Coordinates.** The bound document is the window: its physical pages are `1 … n`, its page labels the book's printed numbers. Reading publications, checked answers and native text cite `pdf:<module_id>` with window-relative `pdf_index`, as for any imported module; the authored graph keeps the book's coordinates under its own `source_id`; `source_document.window` maps one to the other (book `pdf_index` = `pages[0]` + window `pdf_index`). `module.source.snapshot`, `module.source.materials.snapshot` and `module.status` carry `window` (`source_window` in status), and the prescreen translates authored references through it when it chooses which native pages to read.
+
+**14.16.5 What changes for a bound starter, and what does not.** `module.read.request`, `lookup kind=source` in both modes, the reading lane (detail, answer), the prescreen's source candidates, the capsule's `reading` section and the carried head behave exactly as for an imported module. What does not change is who owns the starter's playable material: `reading_version` had meant both "this module has a bound document" and "this module's material is published by the visual reading lane"; the second is now `playsFromReading(meta)` (`reading_version` and `source` not `starter`, `kernel-ts/modules/bound-source.ts`) and alone gates opening readiness at `campaign.create`/`setup.complete`, the way-on repair, the `resolve`/`apply` material gates, read-ahead and `table.open`'s `module_reading`, and the accepted-guidance check. A starter's graph is authored and installed; binding its document neither makes it wait for a reader nor forks its campaigns for prefetch. Binding writes the reading index by machine from the authored graph: one §22.1 row per scene whose own `source_refs` cite the window (`name`: the scene's display name, else its handle; `pages`: its window-relative ranges; `topics`, `entities`, `references` empty), `index_complete: true`, `index_source: "authored_graph"`, and one `legacy` material per indexed scene with that name as `focus`, so the capsule rows say `read`. No reader is spent re-indexing pages the graph already covers, on any campaign. The index job is queued for any module with a bound `source_document` whose index is incomplete (it was `source == "pdf"`); an index publication does not rename a starter or change its languages (only a PDF module takes its title from its first page); a bound starter's `module.status` keeps the starter shape (`source: "starter"`, `sections`, `playability`) and adds `source_window` and `reading {state, index_complete, sections}` (the index's row count; `sections` keeps meaning the build lane's). The capsule's existing 512-byte `reading` budget empties the rows' page lists before it drops rows (§90.5 behaviour, unchanged): the Haunting's twelve rows arrive as names with `read: true`, the tail cut to fit. A starter that declares a registered window whose book is not bound keeps §127.2's refusal and fix, with a message that says the document it names is not bound on this installation and `details.source_declared {source_id, pdf_index, built_in}`; its capsule has no `reading` section and the carried head says the module has no document, which is true for that table. A starter with no declaration is unchanged.
+
+**14.16.6 Campaigns.** A campaign that has not forked follows the library (§22.6) and reads the bound window; a fork copies `source.pdf` as every fork does. A fork made before its starter was bound keeps its own workspace: §22.6 forks do not follow later library publications, and a new campaign is how a table reads the book (a campaign is a compile snapshot).
+
+**14.16.7 The three ends (§31).** Producer: registration (built in) or the window bind (registered), both through `kernel-ts/modules/bound-source.ts` `bindStarterSource`. Reader: `Reading.source` and the two source snapshots, the capsule `reading` section. Adoption: `lookup kind=source`, the prescreen's `native_text` / `reviewed_source` candidates, the reading lane's jobs. Tests: `tests/extension/starter-source-binding.test.mjs` (real kernel runtime, a fixture book the suite writes, both modes, the refusal, replay, the capsule and the carried head's input), `tests/kernel/test_capsule.py` (the shipped Haunting reads its window; a starter without a declaration still answers `no_source_document`).
 
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
@@ -2359,6 +2388,8 @@ remains pending, and legacy synthetic fold tests are not gameplay evidence.
 
 > 历史设计，生产实现已退役。当前唯一 PDF 准备流程见 §22；保留本节用于理解历史证据，不提供 OCR 或资料包导入兼容入口。
 
+> 2026-09-24（§14.16）：内置 starter 声明的原书页窗与导入的 PDF 走同一存储形状（`source.pdf` + `source_document`）；页窗由宿主的 PDF.js 抽页器取出，内核仍不解析 PDF。the Haunting 的页窗随包内置。
+
 用户 2026-09-06 的更正与拍板：`@firecrawl/pdf-inspector` 是**本地**原生库（NAPI，按平台带预编译二进制），不是网络服务；OCR 外包给百度飞桨（PaddleOCR AI Studio 的 OCR Jobs API）；库已更新到 1.17.0，用新的，不用 `~/.pi/coc-tools/pdf-inspector` 里那份 1.12.0 的部署。
 
 今天的缺口不是能力是接线：建卡第二步 `build-bundle` 让助手「告诉玩家怎么用宿主的 PDF 技能产出资料包」，仓库里却没有任何东西说得出怎么；装包器 `bundle_from_pages.py` 躺在 `tests/play/`，不在产品路径上。已装的那本 20 页的书是手工装包的。
@@ -2414,6 +2445,39 @@ remains pending, and legacy synthetic fold tests are not gameplay evidence.
 - 断网（或不给 token）重跑：需 OCR 的页记 `ocr_unavailable`，其余页照常成书，作业不整体失败，缺页在可玩性简报里点名。
 - 同一本再跑一次：页文件复用，飞桨零调用。
 - 真桌：用这本书新建战役开三回合，开场材料来自构建而不是临场翻书。
+
+### §20 addendum — an unread book: the first reading comes before anything reads a graph (2026-09-24, SL-32)
+
+The production import is §22, not the historical `ingest` above; this addendum states the order the
+App's import (`inspect` → `guidance` → `opening` → `converse`, `pipicoc/onboarding-worker.ts` run by
+`Electron/packages/pi-backend/src/coc-onboarding.ts` through `runtime/preparation.ts`) owes a book
+nobody has read yet.
+
+- **`inspect` registers the source and publishes no graph.** After `module.source.bind` a fresh book
+  has `module.json` with `file_sha256` and `generation: 0`, and no `module-graph.json`.
+- **The `guidance` reading is that book's first reading** (§22.9). It publishes the first graph and
+  the accepted guidance together, under the module metadata lock. Nothing on the import path reads
+  `module-graph.json` before that reading lands: not the worker, not the guidance key, not a check.
+- **The guidance key is computed before the reading, so it binds only what exists before it** —
+  §22.9's source-file binding: the source's `file_sha256`, the selector protocol
+  (`setup-guidance-reference-v2`), the opening *as requested* (empty when the reading is to name it),
+  the play language, the occupation catalog and the author/reviewer/visual-guidance prompts. It never
+  binds the graph. Reading the graph for it failed every unread import with `ENOENT` before any
+  reader started (SL-29A, 血色公路, 2026-09-24; the last good import was 2026-09-18, and `d552e5f77`
+  removed the branch that skipped the read); binding the graph once it exists would re-key the same
+  book after its first reading, so a retry or a second campaign would read its guidance again.
+- **A starter ships its graph and skips the reading, as before.** Its key binds the graph's digest,
+  the opening scene resolved on it and the opening NPCs the author selects a guide from — what
+  `d552e5f77` introduced with the v2 reference protocol, and what the shipped
+  `character-guidance/<tag>.json` bundles are stamped with. That branch is unchanged. The two are
+  told apart by the module having a source file (`file_sha256`), the same discriminator the key used
+  before `d552e5f77` and the one that adds `visual-guidance.md` to the key's prompts.
+
+Tests: `tests/extension/onboarding-worker-unread-pdf.test.mjs` runs the built worker, the emitted
+kernel and the source helper on a PDF the test writes: `inspect` leaves no graph, `guidance` reaches a
+guidance reading (a stand-in reader records its task) instead of `ENOENT`, the queued job's key is the
+source-bound one, and a first graph written afterwards does not change it. It dies on the pre-fix
+order (the `ENOENT` of SL-29A) and on a variant that tolerates a missing graph but binds it once present.
 
 ## 21. 调查员库：建一次，之后哪一局都能用（切片 12，票 #31）
 
@@ -2553,6 +2617,16 @@ The host-private PDF tool has four mutually exclusive navigation/page operations
 
 去重键由内核取来源摘要、purpose、归一化 focus 和原样 question 生成。只归并完全相同的待办或已经满足且未失效的请求；不做语义相似度去重。出现不同问题时，旧 section 已 accepted 不构成跳过理由。已满足请求在 `module.json.reading.materials` 保存 `{purpose, focus?, question?, node_ids, source_refs, generation}`；来源或被依赖事实改变时失效，单纯新增不相关事实不引发重读。
 
+### 22.2.1 One reading of a focus at a time (2026-09-24, SL-33)
+
+Evidence (SL-29A, 血色公路, `book-1`): the index publication's read-ahead (§90.5) queued a way-on repair `read-4` on focus `xu-mu` while the opening reading `read-3` of the same scene, requested as `序幕`, was still running. The keys differed -- a repair is its own identity and the focus was spelled once by name and once by handle -- so both read pages 6-17: 18 calls and 286K tokens, cancelled when the worker exited. The worker's re-entry after its 120 s foreground wait was not the duplicate: it rejoins its own in-process request and the same kernel key (22.4).
+
+- `module.read.request` for a purpose that reads graph material of a named focus -- `opening` (a repair included) and `detail` -- does not queue a job while another job of those purposes is `running` on the same focus. It attaches: the reply is that job's `{state: "reading", job_id}` with `attached: true`; a foreground request promotes it as it would promote its own. A request while the other job is only `queued` queues as its own identity, as 22.2 has it (only identical requests merge).
+- `module.read.claim` never starts a job while a running job reads the same focus. That rule existed and compared the spelled, normalized focus, so `序幕` and `xu-mu` passed it; it now uses the focus identity below, for every purpose (an empty focus is its own identity, as before).
+- Focus identity is structural: the graph nodes a focus names by id, handle, name or alias (the normalized-name match `materialReady` already uses), else the normalized focus itself; two foci are one focus when those sets meet. No semantic similarity.
+- The attached request is judged afresh once that reading settles: ready material answers it, and an identity the settled reading did not answer (a question, a repair still owed) queues then. The read-ahead after an opening publication re-judges the way on, so a repair the opening itself delivered is never queued.
+- A host wait attached to another identity's job only releases its wait when cancelled; it never cancels that job (22.4: a shared task is not killed for one caller). An owned source preparation (22.4.1 ownership, `_task_prepare`) keeps the job identity it binds and does not attach. Index, skeleton, guidance and answer jobs are outside the rule: no focus, or no graph material.
+
 ### 22.3 读者输出与图谱发布
 
 读者仍为带 `read/write/edit/bash` 的子 Pi：`--no-extensions --no-context-files --no-session`；沿用 repo-local Pi home，删除游玩模式与 campaign 环境。模型须声明图片输入，并由步骤 1 的真实图片读取验证通道；不支持时返回 `vision_required`，不回落到 OCR。读者不能派生另一层读者或内核。
@@ -2576,6 +2650,19 @@ The host-private PDF tool has four mutually exclusive navigation/page operations
 结构门继续检查语义 id、闭合词表、引用目标、作者/玩家可见性和玩法关系。局部就绪判定只要求本次可玩范围及其依赖成立；全书未细读页不导致全图失败，也不被标为 absent。跨向未准备区域的名字可以留在索引，但不能因为有一个名字就执行该处的作者规则。
 
 **Mechanical shapes (2026-09-23, §136.26).** The reader writes a stated mechanic as a typed shape in `properties.mechanics` of the node that states it (the closed catalog of §136.1), never as an ad-hoc prose key; the draft check runs the shared validator with no legacy allowance and adds every leaf of every shape, strings included, to `required_review`; an actor's loose characteristic numbers on an `npc` or `creature` node are refused.
+
+### 22.3.1 The same span read twice is one fact (2026-09-24, SL-33, amends 22.3)
+
+Evidence (SL-29A, `book-1`, both refusals in the attempts' `findings.json`): guidance published the module node's `investigator_hook` with two misreadings of one sentence (卡片 for 车卡, 轰蹭 for 轰趴). Both opening readings read the same pages (6, 7, 8, 16) more accurately and their reviewers supported the corrected sentence; the merge refused each as "the new reading contradicts a published value", not retryable, and the App's retry failed the same way. Whether an import succeeded depended on whether the second reader copied the first one's errors. 22.3's "different values keep both sources and resolve the conflict; no last-write-wins" is kept, and made precise:
+
+- **A field's span** is the set of original-page anchors `{page, box?}` its value was read from. Two spans are **the same span** when they share an anchor: the same physical page and, when both carry a box, overlapping boxes. The judgement is structural. The values' words are never compared, and there is no similarity threshold.
+- **Publication records spans.** The graph keeps a top-level `field_spans` map from `/nodes/<node_id><field>` or `/claims/<claim_id><field>` -- `<field>` a top-level key, or `/properties/<key>`, or a deeper pointer a re-transcription replaced -- to the runtime refs of the reading that wrote it. An equal value adds its reading's refs to the span (the same fact read again); a replacement takes the replacing reading's refs. A field published before this section has no recorded span and answers with its node's or claim's `source_refs` (the whole set it was published with), and is recorded from its next publication. The lookup takes the longest recorded prefix. The claim packet carries the recorded spans in page form as `field_spans`, and the host's `task.json` copies them, so the draft check and the reader see what publication sees.
+- **The proposed span** of a drafted field is its drafted node's or claim's `source_refs`.
+- **Same span, different value = re-transcription.** Where 22.3's merge would neither agree, union a list, nor recurse into an object, and the spans are the same, the draft check adds that pointer to `required_review`: a fresh reviewer must name and support it against the page. Publication then replaces the published value and appends `{path, previous, value, source_refs, job_id, generation}` to `module.json` `reading.retranscriptions`. A replacement publication meets that no review covers (the pointer or an ancestor in `required_review`) -- a graph that moved since the claim -- is refused as a contradiction. "The later, reviewed reading replaces"; a silent or unreviewed replacement is still forbidden.
+- **Different span, different value = contradiction.** `needs_choice`, as before, now with `details {path, existing, proposed, existing_pages, proposed_pages}`, a message naming both page sets and a fix: keep the published value exactly; to correct how that same passage was transcribed, re-read the page it was read from, cite it and let the reviewer check it there. It is refused at the draft check when both spans are known, so the reader meets it in its own `check`, before any review is spent. Where the check cannot see the published item's references (the host task omits a claim's `source_refs`), the pointer is only added to `required_review` and publication judges it. A field with no span at all (an item published without references) is a contradiction. The placeholder module node of an unread book (no `source_refs`) is not judged.
+- **The refusal reaches the player.** A failed reading's structured refusal -- the refused pointer, the gate's message and its `rule`/`reason` when it has them, the same record `findings.json` holds -- travels in `module.read.finish {outcome: "failed", refusal}`; the kernel keeps it on the job (bounded strings; a malformed record is dropped, never allowed to keep a failed job from being released), and a blocked `module.read.request` reply returns it as `refusal`. The reading service turns it into one sentence, `The reading of "<focus>" was refused at <path>: <message>.`, and brands it `said` where it writes it (§48.1), so the preparation overlay shows it instead of `PREPARATION_STOPPED`.
+
+Producer: the reviewed publication writes `field_spans` and `reading.retranscriptions`; the host writes the refusal it also puts in `findings.json`. Reader: the claim packet, `task.json`, the draft check and the next publication read the spans; the blocked request reads the refusal. Adoption: the reader either copies a published value or re-reads its page, and the reviewer names each re-transcribed pointer; the player sees which field stopped the preparation and why. Tests: `tests/extension/same-span-retranscription.test.mjs`.
 
 ### 22.4 七动词与等待
 
@@ -2711,6 +2798,8 @@ invalidate reuse. Concurrent identical page requests share rendering; persisted 
 require their content hash before delivery. Publication and player-facing source gates are unchanged.
 
 ### 22.9. Early character guidance and background opening (2026-09-08)
+
+> **Order on an unread book: §20 addendum (2026-09-24, SL-32).** The PDF guidance key below is computed before the first reading and never reads the graph.
 
 `module.read.request` additionally accepts purpose `guidance`, `play_language`
 (`zh-Hans` or `en`) and host-owned `guidance_key`. The key binds source bytes,
@@ -6414,7 +6503,7 @@ What is **not** put to review, decided by closed contract enums and never by rea
 - a `resolve` that settles the closed option the player was just asked (`ask` offered `dodge`/`fight_back`/`none`/`push`/`spend_luck`, the player answered in their own words, the Keeper writes `defense`, `push: true` or `luck` accordingly): the answer is the player's own choice, in whatever words it came. The second real table paid a full review, and two of its four timeouts, on exactly these combat rounds before this exemption existed;
 - a turn with no player text (the opening). The skip is a telemetry row, not a silence.
 
-A batch is reviewed whole and refused whole: a `clue` beside a `move` is admitted only when the player's
+A batch is reviewed whole and refused whole *(amended by §32.12.3, 2026-09-24: lines the typed answer admits at the fast-path confidence are admitted on their own, and the rest is reviewed as its own proposal)*: a `clue` beside a `move` is admitted only when the player's
 words authorise both. The review authorises the affected voluntary action, never its outcome, and never
 asks that the player knew or approved a hidden danger.
 
@@ -7243,6 +7332,131 @@ suites updated for concurrency):
 - a resend past the hard cap is `review_timeout`, and a third identical call is refused from the turn's verdict;
 - the `admission-late` row.
 Mutations are in the SL-24 ticket.
+
+#### 32.12.3 A batch is admitted line by line (2026-09-24, SL-30; amends §32.1, §32.10, §32.11 and §32.12.2)
+
+**Why.** Long gate #2 (`longgate2-haunting-0830`, lane `opencode-go/deepseek-v4.1-flash`). Turn 14's `apply threat` + `apply time`
+was typed `not_player_action` / `entailed` at 0.57, the lane gave no verdict in 13.0 s, the call went `review_pending`, and its
+resend ended `review_timeout` at the 26 s hard cap: the ten minutes of prying never happened for the kernel. Turn 6's
+`person` + `time` + `clue` waited 10.1 s. Owner ruling, 2026-09-24: the lines of a batch the typed reviewer admits at the
+fast-path confidence go through at once with their own receipts; only the remaining lines wait for the lane; a remainder
+that times out is returned pending on its own. The measurement is in the SL-30 ticket's Comments.
+
+**What the measurement says** (both long tables' 25 Keeper `apply` batches, 72 lines; typed 3 runs, the lane on each whole
+batch 3 runs and on each line alone 2 runs, uncapped):
+- The typed reviewer rarely reaches 0.87 on a line: 10 of 207 clearable line-runs (4.8%). `time` lines typed 0.68 p50, 4 of
+  53 at 0.87; `clue` 6 of 56; `threat`, `person`, `move`, `handout` none. Gate #2's turn 14 `time` line: 0.68–0.75; turn 6's
+  best line 0.75. So on the two batches that motivated the ruling, no line clears and nothing changes. Where it does fire
+  (gate #1 turn 13, gate #2 turn 12), no cleared line was refused by the lane on its own (0 of 10).
+- The lane is not slow on one line of any kind: medians 3.0–3.8 s (`threat` 3.0, `person` 3.7, `time` 3.3, `clue` 3.7). On
+  whole batches the tail is where a `person` line sits beside others: every one of the 6 rounds over 13 s carried a
+  `person` line (4 of them also a `move`); batches carrying a `threat` line had p90 6.4 s and none over 13 s. Turn 14's
+  whole batch answered in 4.5–10.5 s here: its live 13 s and 26 s were the provider's tail.
+
+**Lines no reviewer reads (owner ruling, 2026-09-24, amending this section the same day).** An `apply` effect §32.1 does not put
+to review on its own -- `person`, `threat`, `npc`, `flag`, `note`, `ruling`, `define`, `damage` and the rest of that class, a
+`move` that only renames the scene underfoot, an `object` adoption or same-owner edit -- is **not sent to the lane or to the
+typed reviewer at all**. `admissionRequest` builds a batch's lines from its reviewed effects only (`proposal.effects` maps each
+line to its effect); the key stays the whole batch's (§32.4). The unreviewed effects land with the batch on the same call:
+with the whole batch when its reviewed lines are admitted; with the cleared lines when a split's remainder does not land; not
+at all when the reviewed lines are refused (the call is refused, as before). *Why:* they are staging of what the book
+states, and the lane's verdict never turned on them (every `threat` line alone `not_player_action`, 18 of 18), while the
+lane's tail lived on the batches that carried them: rounds on batches with a `person` line had p90 34.9 s against 6.6 s
+for batches with neither, and all 6 rounds over 13 s carried one. The lane reviews only `move`, `clue`, `handout`, `time`,
+`cash`, `item`, `object`, `usage` and `map` lines; `resolve` is unchanged. Because both reviewers read the same lines
+(§32.10), the typed answer is also over the reviewed lines only. The line-level machinery below is unchanged; its
+non-triggering half of `lineClearable` no longer has lines to clear and stays for the rule's shape.
+
+**Which lines the typed answer may admit on their own** (`lineClearable`, `clearedLines` in `extensions/kernel/admission.ts`;
+closed contract enums, never the prose). A line of an `apply` batch is **cleared** when all of these hold:
+- its kind is one of §32.11's (`move`, `clue`, `handout`, `time`) or one §32.1 does not put to review (`threat`, `person`,
+  `npc`, `flag`, `note`, `define`, `damage`, ...). Never `cash` (§32.10's numeric commitment), `item`, `object`, `usage` or
+  `map` (§32.11's consent-bearing kinds): those lines always stay with the lane;
+- its typed line verdict admits (`authorized`, `entailed`, `not_player_action`). A typed refusal of a line never refuses, as
+  on the fast path: the line stays behind;
+- its line confidence is at the fast-path confidence or above (`PI_COC_ADMISSION_FAST_MIN_CONFIDENCE`, 0.87, §32.11). The
+  measurement does not move it. `off` turns line-level admission off with the fast path.
+
+A `resolve` is one line and is never split.
+
+**The split.** In `reviewAdmissionPrimary`, when the typed answer is in and no verdict stands for the whole batch (§32.12.2's
+sufficiency: the fast path, the family rule, a lane verdict with grounds), and some lines are cleared but not all, the
+review ends `ok: "split"` and the batch's lane round is aborted. It does not split after the lane has answered the batch,
+and a typed verdict that stands for the whole batch (every line cleared on a bookkeeping batch) is §32.11's fast path, not
+a split. `admitAction` (`extensions/kernel/index.ts`) then:
+1. admits the cleared lines on the typed answer (`path: "typed"`), keeping that verdict for the turn under the key a call
+   of only those lines would have (§32.4);
+2. takes the **remainder** (the other lines, in the batch's order) as a proposal of its own, with the key a call of only
+   those lines would have (its move targets' `registered_destination` and nothing else). If it carries no §32.1 triggering
+   kind it is not reviewed (a call of only those lines would not be), and the batch lands whole. Otherwise it goes through
+   the same steps any proposal does: §32.4 reuse, a kept pending review for its key, and the review;
+3. reviews the remainder with the lane alone: a fresh round on the remainder's lines, the cleared lines shown to the reviewer
+   under "Already settled this turn" as `admitted in this same call: <line>`, and the batch's typed answer carried as the
+   remainder's typed reading (`remainderAttempt`: the remainder's line verdicts, mapped as §32.10 maps a batch, the lowest
+   confidence; no new typed call). The pre-registered rule chose the fresh round over letting the batch's round decide the
+   remainder: the lane on single lines is not slower than on whole batches (3.4 s against 4.0 s at the median), and the
+   remainder's verdict is then about the lines it decides. The remainder is never split again;
+4. measures the remainder's cap and hard cap from the batch's review start (§32.12.2: the cap is the longest one call waits).
+   At the cap §32.12.2 applies to the remainder as to any proposal: a late admission when the remainder is bookkeeping-only
+   and its typed reading admits every remaining line at 0.70, otherwise `review_pending` for the remainder alone.
+
+**What lands.** One kernel call, the tool call's own `call_id`, the batch's order:
+- the remainder admitted (by the lane, late, by reuse, or unreviewed): the whole batch lands, as it would have;
+- the remainder refused (a lane verdict with grounds), returned `review_pending`, ended `review_timeout`, or unavailable:
+  `payload.effects` is narrowed to the cleared lines, which land alone with their receipts. The call is a success.
+
+The cleared lines are decided at once and are not held by the remainder's verdict; they land in this same call when it
+returns, which is when the Keeper could read them anyway. A cleared line that needs a remainder line to be valid (a `clue`
+beside the `move` that makes it discoverable) is refused by the kernel on its own terms (`not_here`), as it would be sent
+alone; that refusal carries `details.admission` (`attempted`: the cleared lines; `not_landed`: the remainder's own refusal), so
+the Keeper learns that nothing of the batch landed. Clerk (policy-origin) writes are single effects (`runtime/jev/candidates.ts`), so they are never split.
+
+**What the Keeper reads.** When the remainder did not land, the result carries
+`admission: {landed: [<lines>], not_landed: {lines: [<lines>], code, message, fix, details}}` (`not_landed` is the
+remainder's own refusal: `action_not_authorized`, `review_pending`, `review_timeout` or `admission_unavailable`, with its
+`details` as §32.2 and §32.12.2 give them) and a `note` naming what landed and what did not, saying the refusal's `fix`
+applies to those lines only, and, for `review_pending`, to resend exactly the lines in `admission.not_landed.lines` as one
+`apply` call, unchanged. §78 applies: a delivery written behind the call in the same message did not know part of it failed,
+and is refused once.
+
+**Resends.** The remainder's resend (those lines alone) has the remainder's key, so it collects the kept review, or reuses
+its verdict, exactly as §32.12.2 says. A resend of the **whole batch** after a split whose remainder did not land is
+recognised by the batch's key (`state.admissionSplit`, cleared with the next player input): the lines that already landed
+are dropped from it (matched by their identifying fields, `effectSignature`, §32.4's key fields) and the rest is admitted
+as the remainder; the result carries `admission.already_landed`. No line lands twice. When the remainder is admitted, the
+whole batch's key keeps its verdict for the turn like any.
+
+**Telemetry (amends §32.7).**
+- The cleared lines' row: `path: "typed"`, `reviewer: "jev"`, `line_level: "admitted"`, `lines` (1-based), `of_lines`,
+  `confidence` (their lowest), `line_min_confidence`, the typed attempt's `jev_*` fields and `line_verdicts` (every line's),
+  `key` the batch's, `proposed` the cleared lines.
+- Every row of the remainder's review (verdict, pending, late, outage, resend, `admission-late`): `line_level: "remainder"`,
+  `lines`, `of_lines`, `batch_key`; its `proposed` are the lines still waiting, `key` the remainder's own. A remainder with no
+  triggering kind leaves `skipped: "not_triggering"`.
+- A whole-batch resend that dropped landed lines: `skipped: "already_landed"`, `line_level: "resend"`, `already_landed`.
+
+**What this is not.** It does not change what §32.1 puts to review (a remainder is judged by the same rule a call of only
+those lines would be), what the lane judges, the fast path, the family rule, the late admission, or what refuses. The only
+lines no lane judged are the cleared lines, admitted at the fast-path confidence, which §32.11 already lets settle a whole
+bookkeeping batch alone. On the long tables it fires on 4.8% of line-runs; it does not help turns 6 and 14 of long gate #2,
+whose lines type at 0.68–0.75. What changed those two turns is the owner's amendment above (the lane no longer reads their
+`threat` and `person` lines): replayed, their lane rounds took 3.7–7.0 s and every line landed (SL-30 ticket).
+
+**Three ends (§31).** *Writer:* the typed answer's line verdicts (`clearedLines`), the remainder's lane round. *Reader:*
+`admitAction`, which narrows the batch, and the kept split (`state.admissionSplit`) for a whole-batch resend. *Actor:* the
+Keeper, through the result's `admission` block and `note`, the remainder's own refusal and its resend; the operator, through
+`line_level` rows.
+
+*Tests* (`tests/extension/admission-line-level.test.mjs`; `admission-fast-path.test.mjs`'s typed-refusal and item tests now
+assert the split): the owner's amendment (turn 14's `threat` + `time`: the lane and the typed reviewer read only the `time` line and
+both land, on the fake and the emitted kernel; a `person` + `move` batch: the lane sees only the move; a refusal of the reviewed
+lines lands nothing; a split whose rest is refused lands the cleared and the unreviewed lines); the pure rules (the kinds, the threshold at 0.87 and under it, refusing lines, fast path off, a resolve,
+mismatched lines, the remainder's typed reading); turn 14's shape (the threat left unreviewed, the batch whole, no lane
+call), on the fake kernel and on the emitted kernel with its receipts; nothing cleared at 0.86 (the whole batch reviewed);
+the remainder reviewed alone with the cleared line shown as admitted in this call and no second typed call; a remainder the
+lane refuses (the cleared line alone lands, the `admission` block and note); a remainder past the cap returned pending
+alone and collected by its own resend; a whole-batch resend applying only what did not land; §78 for a delivery behind a
+partial landing. Mutations are in the SL-30 ticket.
 
 ## 33. Creation difficulty: an extension setting scaled into chargen (2026-09-11)
 
@@ -9645,6 +9859,10 @@ player-bound failure:
   — in front of the player. That stderr is now appended to the import's own
   `events.jsonl` as a `diagnostic` event, where the rest of the worker's account
   already goes, and the refusal carries the host's sentence.
+
+- `extensions/module/reading-service.ts` (2026-09-24, SL-33, §22.3.1) — a reading the publication
+  gate refused carries the kernel's kept refusal back; the service writes one sentence naming the
+  refused field and the gate's reason and brands it `said`, so it passes the worker whole.
 
 `PREPARATION_STOPPED` is spelled in both the worker and the host because either
 may be the one that has to speak and they are separate programs; that duplication
@@ -13575,7 +13793,8 @@ exits, so that table read nothing ahead. Two rules:
   not evidence of a story connection; prose substring matches do not schedule semantic work.
   Run this at setup handoff, table re-entry and after a reading publication, as well as scene
   movement. A finished repair must therefore hand off to ordinary adjacent reading without
-  another setup or player collision. Queue identities suppress duplicate and failed work;
+  another setup or player collision. Queue identities suppress duplicate and failed work,
+  and a repair or prefetch of a focus another reading is still reading attaches to it (§22.2.1);
   there is no automatic retry loop. Missing source files do not revoke playable material.
   The capsule carries bounded `reading {index_complete, sections: [{name, pages, read}]}`;
   `read` means accepted prepared material for that section, never merely viewed pages.
@@ -14543,6 +14762,14 @@ Cases: `tests/extension/setup.test.mjs`, one per kind. Each dies when the cause 
 generic sentence returns the three refusals to one text, an always-on text filter hides the
 explanation §26 lets the Keeper give, and a cause-blind `agent_end` reports the package read as a
 failed review.
+
+### §98 addendum 5 — setup on an imported book starts from the guidance its first reading accepted (2026-09-24, SL-32)
+
+Setup (`campaign.create` with the pinned `guidance_key`, then §98's card) needs accepted guidance, and on
+a PDF book nobody has read yet that guidance is the book's first reading (§20 addendum 2026-09-24): the
+host keys it from the source file, the reading publishes the first graph with it, and the key it was
+accepted under is the one `converse` pins. No setup step computes a key from, or waits on, a graph that
+the first reading has not published. A starter's setup is unchanged: its key binds its shipped graph.
 
 ## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
 
@@ -16161,7 +16388,7 @@ Real table 2026-09-22 (installed App, built-in starter `the-haunting`, turn 1). 
 
 The module owner already records where a module came from (`module.json` `source`: `pdf` or `starter`). When a source read (`module.read.request`, and through it `lookup kind=source` in either mode) reaches a module whose `source` is not `pdf` and which has no bound `source_document`, the kernel refuses with `needs`, `details.reason: "no_source_document"`, and a fix that names what does work: the authored graph is this module's whole source, read by `lookup kind=module` with a name or the exact handles already in the capsule, and by `look` (`focus=npc name=…`, `focus=scene`, `focus=clues`). A PDF module whose original is missing keeps `needs_source` and its bind fix: there the host can bind it.
 
-The reason travels unchanged through the extension's source refusal rewrite (which only rewrites `reading_failed`/`reading_timeout`) and the tool projection, so the Keeper reads `no_source_document` and its fix, never the bind instruction. The tool description states this as a conditional ("a module without an original document answers no_source_document"), not as an untimed claim that source reading is unavailable.
+(§14.16.5, 2026-09-24: a starter bound to a window of its book is not "a module without an original document"; one that names a window this installation has not bound keeps this refusal and says which document it names.) The reason travels unchanged through the extension's source refusal rewrite (which only rewrites `reading_failed`/`reading_timeout`) and the tool projection, so the Keeper reads `no_source_document` and its fix, never the bind instruction. The tool description states this as a conditional ("a module without an original document answers no_source_document"), not as an untimed claim that source reading is unavailable.
 
 Out of scope: whether the Keeper should have looked anything up at all when Jev preload had already delivered the same entity is an adoption question (§31 third end), not a lookup defect.
 ## 128. A spoken line reaches the Keeper's rule and the Keeper's rule reaches the line (2026-09-22, amends §40.5)
@@ -18360,7 +18587,7 @@ required open parameter, and every closed one Jev did not settle, to `infer(bind
 | path | what | where |
 | --- | --- | --- |
 | `jev` | a closed parameter Jev answers above the gate (`decide(bind)`; the ordinary check's binder) | `interpretBind` / `settleOrdinaryBind` (`runtime/jev/step-policy.ts`) |
-| `rule-default` | a closed parameter Jev answers `unknown`, below the gate, or is not asked (unavailable, or the run's Jev budget is spent); for the approach, Jev's leading skill under the gate (`jev_lead`, SL-21) | the default rides on the parameter (`Unbound.ruleDefault`), computed by the builder; `clerkBind` applies it |
+| `rule-default` | a closed parameter Jev answers `unknown`, below the gate, or is not asked (unavailable, or the run's Jev budget is spent); for the approach, Jev's leading skill under the gate (`jev_lead`, SL-21); the ordinary check's difficulty and dice (SL-31) | the default rides on the parameter (`Unbound.ruleDefault`), computed by the builder; `clerkBind` applies it; the ordinary binder's own (`ORDINARY_RULE_DEFAULTS`) inside `interpretOrdinaryRoute`, recorded by `settleOrdinaryBind` |
 | `stated` | a value the kernel row issues: a single target, weapon, actor or approach, a standing's word, a difficulty, an obligation handle | the candidate builder (`candidates.ts`, `obligation-candidates.ts`) |
 | `composed` | an explanatory argument composed by code from the candidate's source and the player's words, quoted | `runtime/jev/composed-arguments.ts` (`composeSentence`) |
 
@@ -18391,6 +18618,46 @@ words:
   The ordinary check has no approach default: its skill is the player's method, which the binder never picks by value
   (§135.3 (c): an ambiguous one is the Keeper's).
 - **Dice modifiers** (`bonus`, `penalty`): `no_modifier`, the dice word `none`.
+- **The ordinary check's difficulty, dice and actor** (amended 2026-09-24 by SL-31, the spec's ruling "The ordinary
+  check's difficulty and dice have rules defaults"). The ordinary binder (`bind-ordinary`) asks its route batch's
+  `difficulty`, `bonus` and `penalty` as before and takes each answer only when it **clears** §135.2's gates (`clears`:
+  the confidence gate or the margin rule, against the policy's gate, which the policy puts on the `bind-ordinary`
+  question as `gate`). Otherwise -- an answer under the gates, `unknown`, an answer outside the vocabulary, or none -- the
+  parameter takes its default: `difficulty` → `regular` (rule **`regular_difficulty`**), `bonus` and `penalty` → `none`
+  (rule `no_modifier`). The actor: when the kernel issues a single investigator (`table.resolve.options` profiles name one
+  actor) that investigator is the actor, whatever the actor question answered, recorded `stated` as §135.28's table
+  already has it (SL-26 did this only for a compile-selected check; it now holds for every clerk binding of the check);
+  with several, the actor stays Jev's with no default, and an unsettled one leaves the check to the Keeper. The skill
+  keeps no default (above), and the intent is the compile's act (§135.30.3) or the binder's answer, as before. Until
+  this amendment an `unknown` on any one of these ended the binding with "An actor, difficulty or modifier is not
+  bound." (`ordinary_unknown`, the Keeper's turn), and an answer under the gates was executed as given; the clerk's
+  binder now names what it could not bind ("The ordinary check's actor is not bound.").
+  - **"Unless the book states one."** The ordinary-check row issues no difficulty (`table.resolve.options` has none,
+    and the candidate binds only `decision` and a single actor), so there is no stated value to prefer today. The book
+    states a difficulty for an ordinary check only as an open obligation's: the obligation's own check is the stated
+    obligation candidate (`stated`, §135.26), and an ordinary check on its person and approach is folded by the kernel
+    into the obligation's attempt with the obligation's difficulty over the binder's (§134.17). A kernel that issues a
+    difficulty on the ordinary row makes it the stated value without a change to the binder's rule.
+  - **Recorded.** Each of the three is its own bind record on the `event: "bind"` row (`difficulty`, `bonus`,
+    `penalty`): `path: "jev"` with the answer's confidence and distribution when it cleared, else `path: "rule-default"`
+    with the `rule` and the confidence and distribution of the answer it replaced. The action's `modifiers` record
+    (assembled from the three) is `rule-default` when any of them is, else `jev`. The executed candidate's basis carries
+    `binding: "rule-default"` and `rule_default: {<parameter>: {value, rule}}` for the defaulted ones (beside
+    `basis.compile` and `basis.roll`), so every row of the call, admission (the path is exempt, §32.12) and the Keeper's
+    `clerk_did[].binding` line ("difficulty regular (a regular difficulty; nothing stated makes it harder)") show it.
+    The `lane: "route"`, `purpose: "bind-ordinary"` row gains `paths` (the three as the binder took them).
+  - **Scope.** The single-loop clerk's binder only: `prepareCheckPreflight` with `defaults: {gate}`, which the hybrid
+    engine passes for `bind-ordinary`; `interpretOrdinaryRoute(options, result, compiled?, defaults?)`,
+    `ORDINARY_RULE_DEFAULTS` (`runtime/jev/ordinary-resolve-domain.ts`); the records and the stamp in
+    `ordinaryBindings` / `settleOrdinaryBind` (`runtime/jev/step-policy.ts`). The legacy prescreen's advisory preflight
+    and the ordinary-resolve task domain pass no `defaults` and are unchanged.
+  - **Evidence.** Long live gate #2 (`longgate2-haunting-0830` in the integration worktree's `.coc`): five
+    compile-selected ordinary checks (turns 7, 8, 10, 14, 18) ended `ordinary_unknown` with empty bindings. On every one
+    the binder's `difficulty` answered `unknown` (0.61–0.75 on `unknown`, 0.25–0.39 on `regular`); `bonus` and `penalty`
+    answered `none` at 0.88–0.96; the actor question answered `unknown` on turns 8, 10 and 14, which the compile's
+    single stated actor already covered; the intent was the compile's. The difficulty alone left the five unbound. On
+    turns 14 and 18 the Keeper then rolled STR `regular` itself; on turns 9, 12 and 15 the binder's `regular` led
+    (0.52–0.68) and the clerk rolled.
 - **The intent:** the one the obligation, the Mod or the session declares. A session step binds its intent from the
   session view (never asked). **Neither an obligation row (§134.9) nor a Mod contact row (§28) declares an intent
   today**, so an obligation check's or a Mod check's intent is Jev's alone and has no default; a kernel that issues a
@@ -18477,7 +18744,11 @@ and every Jev outcome that no clerk candidate becomes an `infer(bind)`; the vend
 throws on an `infer(bind)`; the engine's bind row and note), `tests/extension/scene-obligation-candidates.test.mjs` (the
 default on the emitted kernel's own profiles at the morgue, and at the extension seam with Jev answering `unknown`),
 `tests/extension/single-loop-candidates.test.mjs`. The mutation record and the pre-registered replays are in the SL-12
-ticket's Comments and `experiments/single-loop-routing/RESULTS-20260923.md`.
+ticket's Comments and `experiments/single-loop-routing/RESULTS-20260923.md`. SL-31: `single-loop-binding.test.mjs` (the
+binder's defaults on long gate #2's turn-14 and turn-18 answers, cleared answers overriding, the records and the stamp,
+the gate on the question and in the engine's binder, the Keeper's line) and `admission-within-turn.test.mjs` (the
+turn-14 shape at the extension seam with the emitted kernel: rolled by the clerk, admitted `path: "compile"`); its
+mutations and replays are in the SL-31 ticket's Comments.
 
 ### 135.29 A provider attempt ends when its stream stops producing events (2026-09-24, SL-02 live-gate finding; amends the SL-01 attempts of `docs/specs/pi-native-single-loop-tickets/01-run-driver.md` and the premise of `runtime/launch.ts`'s idle timeout)
 
@@ -18798,7 +19069,8 @@ rolled). For a check the compile selected, the binder's `no_roll` does not end t
 already give: the intent is the compile's act (the binder's intent answer does not decide, as the policy's override already
 said), and a single actor the kernel issues is stated (§135.28), whatever the actor question answered (the turn-12 replays
 answered it at 0.10–0.19, and one run's `unknown` left the check unbound). Consent, difficulty and the dice are the binder's
-as before. Then `settleOrdinaryBind` decides: when
+as before (SL-31: the difficulty and the dice with their rules defaults when the binder's answer does not clear, §135.28).
+Then `settleOrdinaryBind` decides: when
 the binder answered `no_roll` and the skill **cleared** the gates, the check is rolled, reason `ordinary_compile_act`, and the
 executed candidate's basis carries `roll: {rule: "compile_act", binder: "no_roll", confidence}` (every row of the call and the
 Keeper's `clerk_did` show whose word decided the roll); when the skill did not clear, the binder's `no_roll` stands
@@ -18809,7 +19081,8 @@ check the route selected is bound exactly as before (no `rollSettled`).
 kernel's decision row), `actor` `stated` when the kernel issued one actor, else `jev`; `intent` `jev` with the compile's
 confidence and distribution; `skill` `jev` with the profile answer's **confidence**, **distribution** (by skill name)
 and **`cleared`** (the profile answer against §135.2's gates, the policy's own gate); `modifiers` `jev` (the binder's
-difficulty and dice); `goal` and `method` `composed`. The engine carries the profile answer from the binder
+difficulty and dice; since SL-31 `rule-default` when one of them took its default, with `difficulty`, `bonus` and
+`penalty` records of their own, §135.28); `goal` and `method` `composed`. The engine carries the profile answer from the binder
 (`CheckPreflightResult.evidence.profile`, a report beside the advisory action, which it does not change) onto
 `OrdinaryBinding.skill`; a binder result without it records `cleared: false`. The `lane: "route"`,
 `purpose: "bind-ordinary"` row gains `skill: {value, confidence, distribution}` and the binder's own `route` and `consent`

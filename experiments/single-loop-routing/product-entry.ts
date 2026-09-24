@@ -178,7 +178,10 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
     // that obeys the budget note. The resend is answered at once (no Keeper latency), the pessimistic case for the overlap.
     const messages = array(context.messages);
     const lastResult = [...messages].reverse().find((message: Row) => message.role === 'toolResult');
-    if (lastResult && object(object(object(lastResult.details).coc_error).details).reason === 'review_pending' && !state.resent?.has(lastResult.toolCallId)) {
+    // SL-30 (§32.12.3): a batch that landed only its typed-admitted lines and returned the rest pending says so in its
+    // result's `admission` block; the replayed Keeper resends the whole call once (the host applies only what did not land).
+    const pendingPart = object(object(object(object(lastResult?.details).admission).not_landed).details).reason === 'review_pending';
+    if (lastResult && (pendingPart || object(object(object(lastResult.details).coc_error).details).reason === 'review_pending') && !state.resent?.has(lastResult.toolCallId)) {
       (state.resent ??= new Set()).add(lastResult.toolCallId);
       const original = messages.flatMap((message: Row) => message.role === 'assistant' ? array(message.content) : [])
         .find((block: Row) => block.type === 'toolCall' && block.id === lastResult.toolCallId);
@@ -299,6 +302,11 @@ export interface ProductRunOptions {
   then?: string[];
   /** SO-04: `COC_KERNEL_SEED` for the kernel subprocess, recorded in the summary. */
   seed?: string;
+  /**
+   * SL-30: `PI_COC_ADMISSION_FAST_MIN_CONFIDENCE` for the run (default: unset, the product's 0.87). It moves the whole-batch
+   * fast path (§32.11) and the line threshold (§32.12.3) together; an exploratory arm, never the product setting.
+   */
+  fastMin?: string;
   /** SL-13: `off` runs the engine without the typed-feature compile (§135.30), the SL-12 policy: the control arm. */
   compile?: 'on' | 'off';
   /**
@@ -409,7 +417,7 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
     PI_COC_VERIFIER_MODEL: 'verifier/v1', PI_COC_MEMORY_MODEL: 'memory/m1', PI_COC_ADMISSION_MODEL: laneLive ? laneModel : 'admission/a1',
     PI_COC_LANE_THINKING: laneLive ? 'low' : undefined,
     PI_COC_ADMISSION_REVIEWER: admission, PI_COC_JEV_PRESELECT: options.prescreen === 'off' ? '0' : '1', PI_GROK_BUILD_IMAGE_TOOLS: '0',
-    PI_COC_TURN_BUDGET_MS: arm === 'before' ? '3600000' : undefined, PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: arm === 'before' ? 'off' : undefined,
+    PI_COC_TURN_BUDGET_MS: arm === 'before' ? '3600000' : undefined, PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: arm === 'before' ? 'off' : options.fastMin,
     // SO-04: the kernel's dice are seeded (the kernel subprocess inherits this), so a passing and a failing roll are
     // both reproducible; the seed is recorded in the summary.
     COC_KERNEL_SEED: options.seed,
@@ -528,7 +536,9 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
     first_byte_ms: row.first_byte_ms ?? null, timed_out: row.timed_out ?? null,
     // SL-24 (§32.12.2): the late decision, a pending return and its resend.
     cause: row.cause ?? null, late_rule: row.late_rule ?? null, resend: row.resend ?? null, resend_wait_ms: row.resend_wait_ms ?? null,
-    typed: row.typed ?? null, grounds: row.grounds ?? null, proposed: row.proposed ?? null}));
+    typed: row.typed ?? null, grounds: row.grounds ?? null, proposed: row.proposed ?? null,
+    // SL-30 (§32.12.3): a line-level row, which lines it covers.
+    line_level: row.line_level ?? null, lines: row.lines ?? null, of_lines: row.of_lines ?? null, line_confidences: row.line_confidences ?? null}));
   const budgetRow = own.filter(row => row.lane === 'run' && row.event === 'budget' && row.decision === 'summary').at(-1) ?? null;
   const clerk = own.filter(row => row.origin === 'policy' && row.tool).map(row => ({tool: row.tool, call_id: row.call_id, ok: row.ok, ms: row.ms, clerk: row.clerk, basis: row.basis}));
   const misses = routeRows.filter(row => ['low_confidence', 'jev_unavailable', 'jev_no_answer', 'repeated_question'].includes(String(row.reason)));
@@ -562,6 +572,7 @@ export async function main(argv: string[]): Promise<void> {
   const keeper = arg('--keeper', 'replay') as 'replay' | 'live', thinking = argv.includes('--thinking') ? arg('--thinking', 'low') : undefined;
   const model = argv.includes('--model') ? arg('--model', '') : undefined;
   const seed = argv.includes('--seed') ? arg('--seed', '') : undefined;
+  const fastMin = argv.includes('--fast-min') ? arg('--fast-min', '') : undefined;
   const compile = arg('--compile', 'on') as 'on' | 'off';
   const prescreen = arg('--prescreen', 'on') as 'on' | 'off';
   const lane = arg('--lane', 'replay') as 'replay' | 'live', laneModel = argv.includes('--lane-model') ? arg('--lane-model', '') : undefined;
@@ -569,7 +580,7 @@ export async function main(argv: string[]): Promise<void> {
   const outDir = arg('--out', join(REPO, 'experiments/single-loop-routing/results', `${new Date().toISOString().replace(/[:.]/g, '-')}-product-${name.split('/').filter(Boolean).at(-1)}-${admission}${keeper === 'live' ? `-live-${thinking ?? 'low'}` : ''}`));
   const summaries: ProductRunSummary[] = [];
   for (let run = 1; run <= runs; run++) {
-    const summary = await productReplayOnce(name, run, outDir, admission, {keeper, arm, latency, compile, prescreen, lane, ...(laneModel ? {laneModel} : {}), ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {}), ...(seed ? {seed} : {})});
+    const summary = await productReplayOnce(name, run, outDir, admission, {keeper, arm, latency, compile, prescreen, lane, ...(laneModel ? {laneModel} : {}), ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {}), ...(seed ? {seed} : {}), ...(fastMin ? {fastMin} : {})});
     summaries.push(summary);
     console.log(JSON.stringify({run, fixture: name, admission, keeper: summary.keeper, thinking: summary.thinking, arm, latency, seed: summary.seed, wall_ms: summary.wall_ms,
       budget: summary.budget ? {elapsed_at_compose: summary.budget.elapsed_at_compose, over: summary.budget.over_budget, deferred: array(summary.budget.deferred_by_budget).map((value: Row) => value.key)} : null,

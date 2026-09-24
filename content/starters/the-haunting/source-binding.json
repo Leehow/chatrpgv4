@@ -1,0 +1,19 @@
+{
+  "contract_id": "coc.starter-source-binding.v1",
+  "schema_version": 1,
+  "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+  "book": {
+    "title": "Call of Cthulhu Keeper Rulebook, 40th Anniversary Edition",
+    "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb",
+    "pages": [
+      446,
+      462
+    ]
+  },
+  "built_in": {
+    "path": "source.pdf",
+    "file_sha256": "31e36f72d0ac9a3654b61a09b1f071d3d82f25d78641e5069bfe343e44c5c7db",
+    "page_count": 17,
+    "extractor": "pdfjs-6.3.289:extract-pages-v1"
+  }
+}

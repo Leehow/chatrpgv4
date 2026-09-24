@@ -30,6 +30,7 @@ import {
 	ADMISSION_JEV_MODEL,
 	admissionJevBindings,
 	runAdmissionJev,
+	batchVerdict,
 	type AdmissionJevInput,
 } from "../../runtime/jev/admission-domain.ts";
 import { COMPILE_PREDICATES } from "../../runtime/jev/route-compile.ts";
@@ -140,6 +141,11 @@ export interface AdmissionProposal {
 	lines: string[];
 	/** An `apply` batch's effect kinds, in order: closed contract enums the typed route reads (§32.10). */
 	kinds?: string[];
+	/**
+	 * §32.12.3: `lines[i]` is the batch's effect `effects[i]`. An `apply` proposal's lines are only the effects §32.1 puts to
+	 * review; the others (a `person`, a `threat`, a scene rename, ...) are not shown to either reviewer and land with the batch.
+	 */
+	effects?: number[];
 }
 
 /**
@@ -242,6 +248,16 @@ export function keyDigest(key: string): string {
 }
 
 /**
+ * One effect's identifying fields as the reuse key reads them (§32.4): `why`, `how` and the other rationale fields are
+ * outside it. Also how a resend of a split batch recognises the lines that already landed (§32.12.3).
+ */
+export function effectSignature(effect: Record<string, unknown>): string {
+	const kind = text(effect.kind) ?? "?";
+	const keys = ["to", "label", "travel_minutes", "clue", "minutes", "delta", "name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object", "description", "category", "adopt", "condition", "weapon", "definition", "offer", "handover", "check", "settlement", "source", "price_id", "currency"];
+	return canonical({ kind, ...Object.fromEntries(keys.map((k) => [k, effect[k]]).filter(([, v]) => v !== undefined && v !== null && v !== "")) });
+}
+
+/**
  * Decide whether a call is put to review, and if so, what the reviewer reads. `null` means the
  * call is not a proposed voluntary investigator action and goes straight on: a pending choice
  * being settled (the player's own answer), a sanity or development settlement, an NPC actor, an
@@ -274,7 +290,9 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const effects = Array.isArray(payload.effects) ? (payload.effects as Array<Record<string, unknown>>) : [];
 		const here = [scope.scene?.handle, scope.scene?.label].filter(Boolean).map(norm);
 		const destination = (effect: Record<string, unknown>) => scope.destinations?.find(value => norm(value.requested) === norm(effect.to));
-		const triggers = effects.some((effect) => {
+		// §32.1: whether one effect is put to review on its own. Since §32.12.3's amendment (the owner's ruling after SL-30's
+		// measurement) this also decides which lines the reviewers read: the others land with the batch unreviewed.
+		const reviewed = (effect: Record<string, unknown>): boolean => {
 			const kind = text(effect?.kind);
 			if (!kind || !TRIGGER_KINDS.has(kind)) return false;
 			if (kind === "move" && here.includes(norm(effect.to)) && !text(effect.label)) return false;
@@ -283,8 +301,9 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 				if (!text(effect.to) || text(effect.adopt) || text(effect.from) && norm(effect.from) === norm(effect.to)) return false;
 			}
 			return true;
-		});
-		if (!triggers) return null;
+		};
+		const shown = effects.flatMap((effect, index) => reviewed(effect) ? [index] : []);
+		if (!shown.length) return null;
 		const describe = (effect: Record<string, unknown>): string => {
 			const kind = text(effect.kind) ?? "?";
 			const fields = Object.entries(effect)
@@ -295,15 +314,11 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 					...(registered.canonical_name ? {canonical_name: registered.canonical_name} : {}), ...(registered.aliases?.length ? {also_called: registered.aliases} : {}),
 					...(registered.access ? {access: registered.access} : {})})}` : ''}`;
 		};
-		const signature = (effect: Record<string, unknown>): Record<string, unknown> => {
-			const kind = text(effect.kind) ?? "?";
-			const keys = ["to", "label", "travel_minutes", "clue", "minutes", "delta", "name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object", "description", "category", "adopt", "condition", "weapon", "definition", "offer", "handover", "check", "settlement", "source", "price_id", "currency"];
-			return { kind, ...Object.fromEntries(keys.map((k) => [k, effect[k]]).filter(([, v]) => v !== undefined && v !== null && v !== "")) };
-		};
-		const signatures = effects.map(signature).map(canonical);
+		const signatures = effects.map(effectSignature);
 		const ordered = effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
 		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [] });
-		return { tool: "apply", key, lines: effects.map(describe), kinds: effects.map((effect) => text(effect.kind) ?? "?") };
+		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
+		return { tool: "apply", key, lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown };
 	}
 	return null;
 }
@@ -502,7 +517,13 @@ export type AdmissionOutcome =
 	 * hard cap) or the lane answered without grounds (`cause: "no_grounds"`, nothing running). The caller decides between
 	 * the late admission and `review_pending`. Never an admit by itself.
 	 */
-	| { ok: "late"; cause: "cap" | "no_grounds"; ms: number; capMs: number; hardCapMs: number; typed?: TypedReading; lane?: Promise<AdmissionOutcome>; meta: Record<string, unknown> };
+	| { ok: "late"; cause: "cap" | "no_grounds"; ms: number; capMs: number; hardCapMs: number; typed?: TypedReading; lane?: Promise<AdmissionOutcome>; meta: Record<string, unknown> }
+	/**
+	 * §32.12.3: the typed answer admitted some lines of an `apply` batch at the fast-path confidence and not the rest, and no
+	 * sufficient verdict stood for the whole. `cleared` are the admitted lines' indices; the batch's lane round has been
+	 * aborted, and the caller reviews the remainder on its own (`remainderAttempt` carries the typed answer to it).
+	 */
+	| { ok: "split"; cleared: number[]; ms: number; attempt: TypedAttempt; capMs: number; hardCapMs: number; startedAt: number; meta: Record<string, unknown> };
 
 export interface AdmissionReviewOptions {
 	providerBudget?: import('../../runtime/jev/provider-budget.ts').TaskProviderBudget;
@@ -559,9 +580,61 @@ export interface PrimaryAdmissionReviewOptions extends AdmissionReviewOptions {
 	env?: NodeJS.ProcessEnv;
 	/** An explicit port for isolated tests and offline replay; production uses the shared adapter. */
 	decision?: DecisionPort;
+	/** §32.12.3: an `apply` batch's typed answer may admit its lines one by one (`ok: "split"`). The caller's top-level review only. */
+	lineLevel?: boolean;
+	/** §32.12.3: a typed answer already in hand (the remainder's share of the batch's); no typed call is made. */
+	typedAttempt?: TypedAttempt;
+	/** When the call's review began: the cap and the hard cap are measured from it (§32.12.2), across a split (§32.12.3). */
+	startedAt?: number;
+	/** The lane round's deadline, measured from `startedAt`; default twice the cap. */
+	hardCapMs?: number;
 }
 
-type TypedAttempt = { typed: Awaited<ReturnType<typeof runAdmissionJev>> | undefined; meta: Record<string, unknown> };
+/** One typed answer as the review keeps it: Jev's result (or none) and its telemetry. */
+export type TypedAttempt = { typed: Awaited<ReturnType<typeof runAdmissionJev>> | undefined; meta: Record<string, unknown> };
+
+/**
+ * §32.12.3: the kinds whose line the typed reviewer may admit on its own inside a batch -- §32.11's fast-path kinds and
+ * §32.1's non-triggering kinds (which need no review on their own). Never `cash` (§32.10's numeric commitment), `item`,
+ * `object`, `usage` or `map` (§32.11). A closed contract enum, never a reading of the prose.
+ */
+export function lineClearable(kind: string): boolean {
+	return FAST_PATH_KINDS.has(kind) || !TRIGGER_KINDS.has(kind);
+}
+/**
+ * Pure (§32.12.3). The lines of an `apply` batch the typed answer admits on their own: a clearable kind, an admitting line
+ * verdict, and a line confidence at the fast-path confidence or above. Empty when the batch is not an `apply`, the answer
+ * has no lines, or the fast path is off.
+ */
+export function clearedLines(proposal: AdmissionProposal, typed: TypedAttempt["typed"] | undefined, minConfidence: number | undefined): number[] {
+	if (proposal.tool !== "apply" || minConfidence === undefined || !proposal.kinds?.length) return [];
+	const lines = typed?.lines;
+	if (!lines || lines.length !== proposal.lines.length) return [];
+	return lines.flatMap((line, index) => lineClearable(proposal.kinds![index] ?? "?") && ADMITTING_VERDICTS.has(line.verdict)
+		&& line.confidence >= minConfidence ? [index] : []);
+}
+/**
+ * §32.12.3: the typed answer the remainder of a split batch is reviewed with -- the batch's own answer on the lines that
+ * stayed behind, mapped as §32.10 maps a batch (the first refusing line decides; the confidence is the lowest). Where the
+ * batch's deciding line is among them, its host-derived grounds and missing choice are kept. No new typed call.
+ */
+export function remainderAttempt(attempt: TypedAttempt, keep: number[]): TypedAttempt {
+	const answer = attempt.typed;
+	if (!answer?.lines || !keep.length) return { typed: undefined, meta: { jev_calls: 0 } };
+	const lines = keep.map((index) => answer.lines![index]!);
+	const verdict = batchVerdict(lines.map((line) => line.verdict));
+	const confidence = Math.min(...lines.map((line) => line.confidence));
+	const deciding = answer.lines.findIndex((line) => line.verdict === verdict);
+	const inherited = answer.status === "decided" && answer.verdict === verdict && keep.includes(deciding);
+	const described = lines.map((line, n) => `line ${keep[n]! + 1} ${line.verdict} ${line.confidence}`).join("; ");
+	const grounds = inherited && answer.status === "decided" ? answer.grounds : `typed review of the lines still under review: ${described}`;
+	const missing = REFUSING_VERDICTS.has(verdict) ? (inherited && answer.status === "decided" && answer.missing ? answer.missing
+		: verdict === "uncertain" ? "whether the player chose this is not clear from their words" : "the player has not chosen this action") : undefined;
+	return {
+		typed: { status: "decided", verdict, grounds, ...(missing ? { missing } : {}), confidence, lines, calls: 0, elapsedMs: 0, usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 } },
+		meta: { jev_calls: 0, jev_confidence: confidence, line_verdicts: lines.map((line) => line.verdict), line_confidences: lines.map((line) => line.confidence), jev_carried: true },
+	};
+}
 
 /** One typed attempt (§32.10's family) under the review's own signal, budget and deadline. Never throws. */
 async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.ProcessEnv, began: number, minConfidence: number): Promise<TypedAttempt> {
@@ -609,6 +682,8 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 		jev_input_tokens: typed.usage.inputTokens,
 		...(typed.confidence === undefined ? {} : { jev_confidence: typed.confidence }),
 		...(typed.lines ? { line_verdicts: typed.lines.map((line) => line.verdict) } : {}),
+		// §32.12.3: each line's own confidence, so a line-level decision (and one that did not happen) can be read back.
+		...(typed.lines ? { line_confidences: typed.lines.map((line) => line.confidence) } : {}),
 	} : { jev_calls: 0, jev_ms: Date.now() - began };
 	return { typed, meta };
 }
@@ -641,15 +716,21 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	const reviewer = admissionReviewer(env), familyMin = admissionJevMinConfidence(env);
 	const fastMin = bookkeepingBatch(options.proposal) ? admissionFastMinConfidence(env) : undefined;
 	const numeric = options.proposal.kinds?.some((kind) => LANE_ONLY_KINDS.has(kind)) ?? false;
-	const capMs = options.timeoutMs ?? admissionTimeoutMs(env), hardCapMs = admissionHardCapMs(capMs);
-	const began = Date.now();
+	const capMs = options.timeoutMs ?? admissionTimeoutMs(env), hardCapMs = options.hardCapMs ?? admissionHardCapMs(capMs);
+	const began = options.startedAt ?? Date.now();
 	const fast = fastMin === undefined ? {} : { fast_path: true, fast_min_confidence: fastMin };
+	// §32.12.3: the line threshold is the fast-path confidence, on any `apply` batch; the fast path's `off` turns it off too.
+	const lineMin = options.lineLevel && options.proposal.tool === "apply" ? admissionFastMinConfidence(env) : undefined;
 	// Whether a typed answer could stand at all on this batch; when it could not, the row names no typed fallback.
-	const primary = fastMin !== undefined || reviewer === "jev";
+	const primary = fastMin !== undefined || reviewer === "jev" || lineMin !== undefined || options.typedAttempt !== undefined;
 	const stop = new AbortController();
-	const lane = reviewAdmission({ ...options, signal: options.signal ? AbortSignal.any([options.signal, stop.signal]) : stop.signal, timeoutMs: hardCapMs });
+	// A review that began here waits its whole cap (timers may fire a millisecond early against the clock, so it is never
+	// shortened); a remainder resumed from a split waits only what is left of the batch's (§32.12.3).
+	const left = (ms: number) => options.startedAt === undefined ? ms : Math.max(1, ms - (Date.now() - began));
+	const lane = reviewAdmission({ ...options, signal: options.signal ? AbortSignal.any([options.signal, stop.signal]) : stop.signal,
+		timeoutMs: left(hardCapMs) });
 	// The typed attempt reads every answer (minimum 0) and this function applies each threshold itself: one call serves all.
-	const typed = typedAttempt(options, env, began, 0);
+	const typed = options.typedAttempt ? Promise.resolve(options.typedAttempt) : typedAttempt(options, env, began, 0);
 	const stands = (attempt: TypedAttempt): string | undefined => {
 		const answer = attempt.typed;
 		if (answer?.status !== "decided") return undefined;
@@ -696,12 +777,21 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 		if (laneDone.ok === false) return { ...laneDone, ms: Date.now() - began, meta: { ...laneDone.meta, ...jevMeta(attempt), lane_ms: laneDone.ms } };
 		return late("cap", attempt, laneDone);
 	};
+	// §32.12.3: some lines admitted on their own and not all -- the batch's lane round is dropped and the caller reviews the
+	// rest. Only where nothing sufficient stood for the whole batch, and never after the lane has answered it.
+	const split = (attempt: TypedAttempt): AdmissionOutcome | undefined => {
+		const cleared = clearedLines(options.proposal, attempt.typed, lineMin);
+		if (!cleared.length || cleared.length >= options.proposal.lines.length) return undefined;
+		stop.abort();
+		return { ok: "split", cleared, ms: Date.now() - began, attempt, capMs, hardCapMs, startedAt: began,
+			meta: { ...jevMeta(attempt), line_min_confidence: lineMin } };
+	};
 	type Event = { kind: "lane"; value: AdmissionOutcome } | { kind: "typed"; value: TypedAttempt } | { kind: "cap" };
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const waiting = new Map<string, Promise<Event>>([
 		["lane", lane.then((value): Event => ({ kind: "lane", value }))],
 		["typed", typed.then((value): Event => ({ kind: "typed", value }))],
-		["cap", new Promise<Event>((settle) => { timer = setTimeout(() => settle({ kind: "cap" }), capMs); timer.unref?.(); })],
+		["cap", new Promise<Event>((settle) => { timer = setTimeout(() => settle({ kind: "cap" }), left(capMs)); timer.unref?.(); })],
 	]);
 	let laneDone: AdmissionOutcome | undefined, typedDone: TypedAttempt | undefined;
 	try {
@@ -713,6 +803,8 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 				const rule = stands(typedDone);
 				if (rule) return typedVerdict(typedDone, rule);
 				if (laneDone) return afterLane(laneDone, typedDone);
+				const parted = split(typedDone);
+				if (parted) return parted;
 				continue;
 			}
 			if (event.kind === "lane") {
@@ -726,7 +818,8 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 			typedDone ??= await typed;
 			const rule = stands(typedDone);
 			if (rule) return typedVerdict(typedDone, rule);
-			return laneDone ? afterLane(laneDone, typedDone) : late("cap", typedDone);
+			if (laneDone) return afterLane(laneDone, typedDone);
+			return split(typedDone) ?? late("cap", typedDone);
 		}
 	} finally {
 		if (timer) clearTimeout(timer);

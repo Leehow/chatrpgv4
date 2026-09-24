@@ -1,0 +1,2681 @@
+[
+ {
+  "run": 1,
+  "fixture": "longgate30-t6",
+  "admission": "lane",
+  "lane": "live opencode-go/deepseek-v4.1-flash",
+  "keeper": "replay",
+  "thinking": "off",
+  "arm": "after",
+  "latency": false,
+  "seed": "1",
+  "wall_ms": 25176,
+  "budget": {
+   "turn": 6,
+   "lane": "run",
+   "event": "budget",
+   "decision": "summary",
+   "run": "run-01a0d3a1-403a-76e1-b9d1-cccda220ff0d",
+   "budget_ms": 45000,
+   "elapsed_ms": 23677,
+   "elapsed_at_compose": 23376,
+   "over_budget": false,
+   "deferred_by_budget": [],
+   "decision_budget": {
+    "jev_calls": 4,
+    "jev_ms": 1636,
+    "max_jev_calls": 24,
+    "max_jev_ms": 12000,
+    "spent": false
+   },
+   "prescreen": {
+    "reads": 2,
+    "jev_calls": 17,
+    "ms": 6435
+   },
+   "run_id": "86e09a9a-0de2-4d59-ba4f-5f67ddb854b0"
+  },
+  "compile": "on",
+  "compile_row": {
+   "turn": 6,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d3a1-403a-76e1-b9d1-cccda220ff0d",
+   "step": "run-01a0d3a1-403a-76e1-b9d1-cccda220ff0d:s2",
+   "status": "complete",
+   "ms": 370,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "newspaper-morgue",
+      "destination_2": "central-library",
+      "destination_3": "hall-of-records",
+      "destination_4": "previous-tenants",
+      "destination_5": "corbitt-house-ground",
+      "destination_6": "commission-briefing"
+     },
+     "choice": "destination_4",
+     "row": "previous-tenants",
+     "confidence": 1,
+     "probabilities": {
+      "unclear": 0,
+      "destination_3": 0,
+      "destination_2": 0,
+      "destination_1": 0,
+      "destination_5": 0,
+      "destination_4": 1,
+      "destination_6": 0,
+      "none": 0
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Mr. Dooley"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.92,
+     "probabilities": {
+      "unclear": 0.01,
+      "none": 0.94,
+      "addressee_1": 0.05
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_2",
+     "row": "social",
+     "confidence": 0.83,
+     "probabilities": {
+      "act_1": 0.08,
+      "act_4": 0,
+      "act_6": 0,
+      "unclear": 0,
+      "act_10": 0.02,
+      "act_5": 0,
+      "act_7": 0,
+      "act_11": 0,
+      "act_8": 0,
+      "act_3": 0.05,
+      "none": 0,
+      "act_9": 0,
+      "act_2": 0.85
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "私人侦探徽章",
+      "item_5": "科比特宅的钥匙"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.91,
+     "probabilities": {
+      "item_1": 0,
+      "item_3": 0,
+      "item_2": 0,
+      "unclear": 0.07,
+      "none": 0.93,
+      "item_4": 0,
+      "item_5": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "move",
+     "candidate": "apply:move:previous-tenants",
+     "features": {
+      "destination": "previous-tenants",
+      "addressee": null,
+      "act": "social",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "apply:move:previous-tenants"
+   ],
+   "decided": [
+    "apply:move:newspaper-morgue",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:corbitt-house-ground",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "selected_1",
+   "run_id": "86e09a9a-0de2-4d59-ba4f-5f67ddb854b0"
+  },
+  "selections": [
+   {
+    "by": "compile",
+    "keys": [
+     "apply:move:previous-tenants"
+    ]
+   },
+   {
+    "by": "compile",
+    "keys": [
+     "resolve:core-check:ordinary-check"
+    ]
+   }
+  ],
+  "compile_rows": [
+   {
+    "turn": 6,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d3a1-403a-76e1-b9d1-cccda220ff0d",
+    "step": "run-01a0d3a1-403a-76e1-b9d1-cccda220ff0d:s2",
+    "status": "complete",
+    "ms": 370,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "newspaper-morgue",
+       "destination_2": "central-library",
+       "destination_3": "hall-of-records",
+       "destination_4": "previous-tenants",
+       "destination_5": "corbitt-house-ground",
+       "destination_6": "commission-briefing"
+      },
+      "choice": "destination_4",
+      "row": "previous-tenants",
+      "confidence": 1,
+      "probabilities": {
+       "unclear": 0,
+       "destination_3": 0,
+       "destination_2": 0,
+       "destination_1": 0,
+       "destination_5": 0,
+       "destination_4": 1,
+       "destination_6": 0,
+       "none": 0
+      },
+      "cleared": true
+     },
+     "addressee": {
+      "rows": {
+       "addressee_1": "Mr. Dooley"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.92,
+      "probabilities": {
+       "unclear": 0.01,
+       "none": 0.94,
+       "addressee_1": 0.05
+      },
+      "cleared": true
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_2",
+      "row": "social",
+      "confidence": 0.83,
+      "probabilities": {
+       "act_1": 0.08,
+       "act_4": 0,
+       "act_6": 0,
+       "unclear": 0,
+       "act_10": 0.02,
+       "act_5": 0,
+       "act_7": 0,
+       "act_11": 0,
+       "act_8": 0,
+       "act_3": 0.05,
+       "none": 0,
+       "act_9": 0,
+       "act_2": 0.85
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "开锁工具",
+       "item_3": "手电筒",
+       "item_4": "私人侦探徽章",
+       "item_5": "科比特宅的钥匙"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.91,
+      "probabilities": {
+       "item_1": 0,
+       "item_3": 0,
+       "item_2": 0,
+       "unclear": 0.07,
+       "none": 0.93,
+       "item_4": 0,
+       "item_5": 0
+      },
+      "cleared": true
+     }
+    },
+    "fired": [
+     {
+      "predicate": "move",
+      "candidate": "apply:move:previous-tenants",
+      "features": {
+       "destination": "previous-tenants",
+       "addressee": null,
+       "act": "social",
+       "item": null
+      }
+     }
+    ],
+    "selected": [
+     "apply:move:previous-tenants"
+    ],
+    "decided": [
+     "apply:move:newspaper-morgue",
+     "apply:move:central-library",
+     "apply:move:hall-of-records",
+     "apply:move:corbitt-house-ground",
+     "apply:move:commission-briefing"
+    ],
+    "fell_through": [
+     "resolve:core-check:ordinary-check"
+    ],
+    "reason": "selected_1",
+    "run_id": "86e09a9a-0de2-4d59-ba4f-5f67ddb854b0"
+   },
+   {
+    "turn": 6,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d3a1-403a-76e1-b9d1-cccda220ff0d",
+    "step": "run-01a0d3a1-403a-76e1-b9d1-cccda220ff0d:s5",
+    "status": "complete",
+    "ms": 329,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "newspaper-morgue",
+       "destination_2": "central-library",
+       "destination_3": "hall-of-records",
+       "destination_4": "neighborhood-gossip",
+       "destination_5": "corbitt-house-ground",
+       "destination_6": "commission-briefing"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 1,
+      "probabilities": {
+       "destination_4": 0,
+       "destination_1": 0,
+       "unclear": 0,
+       "destination_5": 0,
+       "destination_3": 0,
+       "none": 1,
+       "destination_6": 0,
+       "destination_2": 0
+      },
+      "cleared": true
+     },
+     "addressee": {
+      "rows": {
+       "addressee_1": "Gabriela Macario",
+       "addressee_2": "Vittorio Macario"
+      },
+      "choice": "addressee_2",
+      "row": "Vittorio Macario",
+      "confidence": 1,
+      "probabilities": {
+       "addressee_2": 1,
+       "unclear": 0,
+       "none": 0,
+       "addressee_1": 0
+      },
+      "cleared": true
+     },
+     "ask": {
+      "rows": {
+       "ask_1": "clue:vittorio-bible-weapon",
+       "ask_2": "clue:gabriela-night-visitor",
+       "ask_3": "clue:boys-burning-eyes"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.31,
+      "probabilities": {
+       "ask_1": 0.04,
+       "ask_3": 0.36,
+       "none": 0.45,
+       "unclear": 0.1,
+       "ask_2": 0.05
+      },
+      "cleared": false
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_2",
+      "row": "social",
+      "confidence": 0.95,
+      "probabilities": {
+       "act_2": 0.96,
+       "act_4": 0,
+       "act_8": 0,
+       "act_5": 0,
+       "act_6": 0,
+       "act_10": 0.01,
+       "act_7": 0,
+       "act_3": 0.02,
+       "unclear": 0,
+       "none": 0,
+       "act_1": 0.01,
+       "act_11": 0,
+       "act_9": 0
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "开锁工具",
+       "item_3": "手电筒",
+       "item_4": "私人侦探徽章",
+       "item_5": "科比特宅的钥匙"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.96,
+      "probabilities": {
+       "item_1": 0,
+       "unclear": 0.04,
+       "none": 0.96,
+       "item_4": 0,
+       "item_3": 0,
+       "item_5": 0,
+       "item_2": 0
+      },
+      "cleared": true
+     }
+    },
+    "fired": [
+     {
+      "predicate": "ordinary_check",
+      "candidate": "resolve:core-check:ordinary-check",
+      "features": {
+       "destination": null,
+       "addressee": "Vittorio Macario",
+       "act": "social",
+       "item": null
+      }
+     }
+    ],
+    "selected": [
+     "resolve:core-check:ordinary-check"
+    ],
+    "decided": [
+     "apply:move:neighborhood-gossip"
+    ],
+    "fell_through": [
+     "apply:clue:vittorio-bible-weapon",
+     "apply:clue:gabriela-night-visitor",
+     "apply:clue:boys-burning-eyes",
+     "resolve:natural-npc:first-impression:托马斯·海斯:Gabriela Macario",
+     "resolve:natural-npc:first-impression:托马斯·海斯:Vittorio Macario"
+    ],
+    "reason": "selected_1",
+    "run_id": "86e09a9a-0de2-4d59-ba4f-5f67ddb854b0"
+   }
+  ],
+  "prescreen": "on",
+  "reads": [
+   {
+    "scene": "neighborhood-gossip",
+    "prescreen": "prepared",
+    "materials": 12,
+    "jev_calls": 9,
+    "ms": 4084
+   },
+   {
+    "scene": "previous-tenants",
+    "prescreen": "prepared",
+    "materials": 10,
+    "jev_calls": 8,
+    "ms": 2351
+   }
+  ],
+  "status": "delivered",
+  "reason": "implicit_narrate",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "compose",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 49176,
+    "cache_read": 0,
+    "cache_write": 49176,
+    "output": 44,
+    "reasoning": null,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 3805,
+    "cache_read": 49176,
+    "cache_write": 3806,
+    "output": 75,
+    "reasoning": null,
+    "tools": [
+     "apply"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 3,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 4064,
+    "cache_read": 50809,
+    "cache_write": 4065,
+    "output": 105,
+    "reasoning": null,
+    "tools": [],
+    "stop": "stop",
+    "effort": null
+   }
+  ],
+  "steps": {
+   "operate": 6,
+   "decide": 4,
+   "infer": 3,
+   "finish": 1
+  },
+  "llm_steps": 3,
+  "llm_purposes": [
+   "compose",
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 21,
+  "route_rows": 4,
+  "calls": [
+   {
+    "tool": "apply",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "move",
+       "to": "previous-tenants"
+      }
+     ]
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "social",
+      "goal": "第一次面对面见到维托里奥·马卡里奥",
+      "method": "请求探视后走进病房",
+      "target": "Vittorio Macario",
+      "actor": "托马斯·海斯",
+      "decision": "natural-npc:first-impression"
+     }
+    },
+    "passed": false,
+    "level": "failure"
+   },
+   {
+    "tool": "apply",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "person",
+       "who": "Vittorio Macario",
+       "name": "维托里奥·马卡里奥",
+       "why": "探视名单上写着这个名字，护士按这个称呼带路。"
+      },
+      {
+       "kind": "time",
+       "minutes": 40,
+       "why": "从科比特宅那条街赶到罗克斯伯里疗养院，并在门口办探视。"
+      },
+      {
+       "kind": "clue",
+       "clue": "vittorio-bible-weapon",
+       "from": "Vittorio Macario",
+       "how": "维托里奥把圣经翻开，指着一行不是经文的句子。",
+       "label": "他自己的武器"
+      }
+     ]
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "move previous-tenants",
+    "matched": true,
+    "origin": "policy"
+   },
+   {
+    "baseline": "resolve natural-npc:first-impression vs Vittorio Macario",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "person Vittorio Macario",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "time 40",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "clue vittorio-bible-weapon",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "narrate",
+    "matched": true,
+    "origin": "implicit"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "apply",
+    "origin": "policy",
+    "clerk": "declared_bookkeeping",
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "compile",
+    "ms": 0,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.apply.options",
+     "path": "candidates[3]",
+     "row": {
+      "alias": "effect:3",
+      "effect": {
+       "kind": "move",
+       "to": "previous-tenants"
+      },
+      "description": {
+       "kind": "move",
+       "to": "previous-tenants",
+       "display_name": "Roxbury Sanitarium",
+       "material": "ready",
+       "destination": {
+        "names": [
+         "the Roxbury Sanitarium",
+         "the sanitarium in Roxbury"
+        ],
+        "where": [
+         "previous tenants",
+         "macario",
+         "former occupants",
+         "tenants",
+         "lodging",
+         "hospital",
+         "clinic",
+         "institutional"
+        ],
+        "people": [
+         "Gabriela Macario",
+         "Vittorio Macario"
+        ]
+       },
+       "authority": "available_route_not_player_choice"
+      }
+     },
+     "compile": {
+      "predicate": "move",
+      "features": {
+       "destination": "previous-tenants",
+       "addressee": null,
+       "act": "social",
+       "item": null
+      },
+      "read_features": {
+       "destination": {
+        "row": "previous-tenants",
+        "confidence": 1,
+        "cleared": true
+       }
+      }
+     }
+    },
+    "path": "compile",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": "move",
+    "features": {
+     "destination": {
+      "row": "previous-tenants",
+      "confidence": 1
+     }
+    },
+    "binding_paths": {
+     "to": "stated"
+    },
+    "compile_refused": null,
+    "first_byte_ms": null,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "compile: move fired on destination=previous-tenants",
+    "proposed": [
+     "apply move: to=\"previous-tenants\"; registered_destination={\"handle\":\"previous-tenants\",\"label\":\"previous-tenants\",\"summary\":\"scene previous tenants\",\"canonical_name\":\"Roxbury Sanitarium\",\"also_called\":[\"the Roxbury Sanitarium\",\"the sanitarium in Roxbury\"]}"
+    ],
+    "line_level": null,
+    "lines": null,
+    "of_lines": null
+   },
+   {
+    "verb": "resolve",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 3715,
+    "jev_ms": 310,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": null,
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": 0.65,
+    "line_verdicts": [
+     "authorized"
+    ],
+    "lane_ms": 3714,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 2488,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "玩家明说“我去罗克斯伯里疗养院，请求探视维托里奥·马卡里奥，问他在那房子里看见了什么”，选择了探视与面见马卡里奥这一社交行动。",
+    "proposed": [
+     "resolve (roll the dice for an action): actor=\"托马斯·海斯\"; intent=\"social\"; goal=\"第一次面对面见到维托里奥·马卡里奥\"; method=\"请求探视后走进病房\"; target=\"Vittorio Macario\""
+    ],
+    "line_level": null,
+    "lines": null,
+    "of_lines": null
+   },
+   {
+    "verb": "apply",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "not_player_action",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 9877,
+    "jev_ms": 669,
+    "confidence": null,
+    "jev_fallback": "typed_refusal",
+    "basis": null,
+    "path": "lane",
+    "fast_path": true,
+    "jev_confidence": 0.46,
+    "line_verdicts": [
+     "authorized",
+     "entailed",
+     "not_authorized"
+    ],
+    "lane_ms": 9877,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 1849,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "Player chose \"我去罗克斯伯里疗养院，请求探视维托里奥·马卡里奥，问他在那房子里看见了什么\"; the 40-min trip is entailed travel, and the person record and bible disclosure are Vittorio's own answer, not an investigator choice.",
+    "proposed": [
+     "apply person: who=\"Vittorio Macario\"; name=\"维托里奥·马卡里奥\"; why=\"探视名单上写着这个名字，护士按这个称呼带路。\"",
+     "apply time: minutes=40; why=\"从科比特宅那条街赶到罗克斯伯里疗养院，并在门口办探视。\"",
+     "apply clue: clue=\"vittorio-bible-weapon\"; from=\"Vittorio Macario\"; how=\"维托里奥把圣经翻开，指着一行不是经文的句子。\"; label=\"他自己的武器\""
+    ],
+    "line_level": null,
+    "lines": null,
+    "of_lines": null
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "apply",
+    "call_id": "t6-c1",
+    "ok": true,
+    "ms": 89,
+    "clerk": "declared_bookkeeping",
+    "basis": {
+     "read": "table.apply.options",
+     "path": "candidates[3]",
+     "row": {
+      "alias": "effect:3",
+      "effect": {
+       "kind": "move",
+       "to": "previous-tenants"
+      },
+      "description": {
+       "kind": "move",
+       "to": "previous-tenants",
+       "display_name": "Roxbury Sanitarium",
+       "material": "ready",
+       "destination": {
+        "names": [
+         "the Roxbury Sanitarium",
+         "the sanitarium in Roxbury"
+        ],
+        "where": [
+         "previous tenants",
+         "macario",
+         "former occupants",
+         "tenants",
+         "lodging",
+         "hospital",
+         "clinic",
+         "institutional"
+        ],
+        "people": [
+         "Gabriela Macario",
+         "Vittorio Macario"
+        ]
+       },
+       "authority": "available_route_not_player_choice"
+      }
+     },
+     "compile": {
+      "predicate": "move",
+      "features": {
+       "destination": "previous-tenants",
+       "addressee": null,
+       "act": "social",
+       "item": null
+      },
+      "read_features": {
+       "destination": {
+        "row": "previous-tenants",
+        "confidence": 1,
+        "cleared": true
+       }
+      }
+     }
+    }
+   }
+  ],
+  "misses": []
+ },
+ {
+  "run": 2,
+  "fixture": "longgate30-t6",
+  "admission": "lane",
+  "lane": "live opencode-go/deepseek-v4.1-flash",
+  "keeper": "replay",
+  "thinking": "off",
+  "arm": "after",
+  "latency": false,
+  "seed": "1",
+  "wall_ms": 20662,
+  "budget": {
+   "turn": 6,
+   "lane": "run",
+   "event": "budget",
+   "decision": "summary",
+   "run": "run-01a0d3a1-a337-76e1-b9d1-ccd16fd9e7a6",
+   "budget_ms": 45000,
+   "elapsed_ms": 19720,
+   "elapsed_at_compose": 19427,
+   "over_budget": false,
+   "deferred_by_budget": [],
+   "decision_budget": {
+    "jev_calls": 4,
+    "jev_ms": 1857,
+    "max_jev_calls": 24,
+    "max_jev_ms": 12000,
+    "spent": false
+   },
+   "prescreen": {
+    "reads": 2,
+    "jev_calls": 7,
+    "ms": 4423
+   },
+   "run_id": "68c8f87f-3381-4de9-802f-eae1151b73a3"
+  },
+  "compile": "on",
+  "compile_row": {
+   "turn": 6,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d3a1-a337-76e1-b9d1-ccd16fd9e7a6",
+   "step": "run-01a0d3a1-a337-76e1-b9d1-ccd16fd9e7a6:s2",
+   "status": "complete",
+   "ms": 365,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "newspaper-morgue",
+      "destination_2": "central-library",
+      "destination_3": "hall-of-records",
+      "destination_4": "previous-tenants",
+      "destination_5": "corbitt-house-ground",
+      "destination_6": "commission-briefing"
+     },
+     "choice": "destination_4",
+     "row": "previous-tenants",
+     "confidence": 1,
+     "probabilities": {
+      "destination_5": 0,
+      "destination_4": 1,
+      "none": 0,
+      "destination_1": 0,
+      "destination_3": 0,
+      "destination_2": 0,
+      "unclear": 0,
+      "destination_6": 0
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Mr. Dooley"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.93,
+     "probabilities": {
+      "addressee_1": 0.04,
+      "none": 0.96,
+      "unclear": 0
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_2",
+     "row": "social",
+     "confidence": 0.83,
+     "probabilities": {
+      "act_8": 0,
+      "act_3": 0.05,
+      "none": 0,
+      "act_6": 0,
+      "act_9": 0,
+      "act_2": 0.85,
+      "act_11": 0,
+      "act_1": 0.07,
+      "act_5": 0,
+      "act_7": 0,
+      "act_4": 0,
+      "act_10": 0.03,
+      "unclear": 0
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "私人侦探徽章",
+      "item_5": "科比特宅的钥匙"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.91,
+     "probabilities": {
+      "item_4": 0,
+      "item_2": 0,
+      "none": 0.93,
+      "unclear": 0.07,
+      "item_3": 0,
+      "item_1": 0,
+      "item_5": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "move",
+     "candidate": "apply:move:previous-tenants",
+     "features": {
+      "destination": "previous-tenants",
+      "addressee": null,
+      "act": "social",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "apply:move:previous-tenants"
+   ],
+   "decided": [
+    "apply:move:newspaper-morgue",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:corbitt-house-ground",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "selected_1",
+   "run_id": "68c8f87f-3381-4de9-802f-eae1151b73a3"
+  },
+  "selections": [
+   {
+    "by": "compile",
+    "keys": [
+     "apply:move:previous-tenants"
+    ]
+   },
+   {
+    "by": "compile",
+    "keys": [
+     "resolve:core-check:ordinary-check"
+    ]
+   }
+  ],
+  "compile_rows": [
+   {
+    "turn": 6,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d3a1-a337-76e1-b9d1-ccd16fd9e7a6",
+    "step": "run-01a0d3a1-a337-76e1-b9d1-ccd16fd9e7a6:s2",
+    "status": "complete",
+    "ms": 365,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "newspaper-morgue",
+       "destination_2": "central-library",
+       "destination_3": "hall-of-records",
+       "destination_4": "previous-tenants",
+       "destination_5": "corbitt-house-ground",
+       "destination_6": "commission-briefing"
+      },
+      "choice": "destination_4",
+      "row": "previous-tenants",
+      "confidence": 1,
+      "probabilities": {
+       "destination_5": 0,
+       "destination_4": 1,
+       "none": 0,
+       "destination_1": 0,
+       "destination_3": 0,
+       "destination_2": 0,
+       "unclear": 0,
+       "destination_6": 0
+      },
+      "cleared": true
+     },
+     "addressee": {
+      "rows": {
+       "addressee_1": "Mr. Dooley"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.93,
+      "probabilities": {
+       "addressee_1": 0.04,
+       "none": 0.96,
+       "unclear": 0
+      },
+      "cleared": true
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_2",
+      "row": "social",
+      "confidence": 0.83,
+      "probabilities": {
+       "act_8": 0,
+       "act_3": 0.05,
+       "none": 0,
+       "act_6": 0,
+       "act_9": 0,
+       "act_2": 0.85,
+       "act_11": 0,
+       "act_1": 0.07,
+       "act_5": 0,
+       "act_7": 0,
+       "act_4": 0,
+       "act_10": 0.03,
+       "unclear": 0
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "开锁工具",
+       "item_3": "手电筒",
+       "item_4": "私人侦探徽章",
+       "item_5": "科比特宅的钥匙"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.91,
+      "probabilities": {
+       "item_4": 0,
+       "item_2": 0,
+       "none": 0.93,
+       "unclear": 0.07,
+       "item_3": 0,
+       "item_1": 0,
+       "item_5": 0
+      },
+      "cleared": true
+     }
+    },
+    "fired": [
+     {
+      "predicate": "move",
+      "candidate": "apply:move:previous-tenants",
+      "features": {
+       "destination": "previous-tenants",
+       "addressee": null,
+       "act": "social",
+       "item": null
+      }
+     }
+    ],
+    "selected": [
+     "apply:move:previous-tenants"
+    ],
+    "decided": [
+     "apply:move:newspaper-morgue",
+     "apply:move:central-library",
+     "apply:move:hall-of-records",
+     "apply:move:corbitt-house-ground",
+     "apply:move:commission-briefing"
+    ],
+    "fell_through": [
+     "resolve:core-check:ordinary-check"
+    ],
+    "reason": "selected_1",
+    "run_id": "68c8f87f-3381-4de9-802f-eae1151b73a3"
+   },
+   {
+    "turn": 6,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d3a1-a337-76e1-b9d1-ccd16fd9e7a6",
+    "step": "run-01a0d3a1-a337-76e1-b9d1-ccd16fd9e7a6:s5",
+    "status": "complete",
+    "ms": 374,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "newspaper-morgue",
+       "destination_2": "central-library",
+       "destination_3": "hall-of-records",
+       "destination_4": "neighborhood-gossip",
+       "destination_5": "corbitt-house-ground",
+       "destination_6": "commission-briefing"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 1,
+      "probabilities": {
+       "none": 1,
+       "destination_4": 0,
+       "destination_3": 0,
+       "unclear": 0,
+       "destination_5": 0,
+       "destination_2": 0,
+       "destination_1": 0,
+       "destination_6": 0
+      },
+      "cleared": true
+     },
+     "addressee": {
+      "rows": {
+       "addressee_1": "Gabriela Macario",
+       "addressee_2": "Vittorio Macario"
+      },
+      "choice": "addressee_2",
+      "row": "Vittorio Macario",
+      "confidence": 1,
+      "probabilities": {
+       "none": 0,
+       "addressee_2": 1,
+       "unclear": 0,
+       "addressee_1": 0
+      },
+      "cleared": true
+     },
+     "ask": {
+      "rows": {
+       "ask_1": "clue:vittorio-bible-weapon",
+       "ask_2": "clue:gabriela-night-visitor",
+       "ask_3": "clue:boys-burning-eyes"
+      },
+      "choice": "ask_3",
+      "row": "clue:boys-burning-eyes",
+      "confidence": 0.25,
+      "probabilities": {
+       "none": 0.38,
+       "ask_2": 0.06,
+       "unclear": 0.11,
+       "ask_3": 0.4,
+       "ask_1": 0.05
+      },
+      "cleared": false
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_2",
+      "row": "social",
+      "confidence": 0.95,
+      "probabilities": {
+       "none": 0,
+       "act_8": 0,
+       "act_6": 0,
+       "unclear": 0,
+       "act_2": 0.96,
+       "act_5": 0,
+       "act_9": 0,
+       "act_10": 0.01,
+       "act_3": 0.02,
+       "act_1": 0.01,
+       "act_7": 0,
+       "act_11": 0,
+       "act_4": 0
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "开锁工具",
+       "item_3": "手电筒",
+       "item_4": "私人侦探徽章",
+       "item_5": "科比特宅的钥匙"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.95,
+      "probabilities": {
+       "none": 0.96,
+       "item_1": 0,
+       "item_4": 0,
+       "unclear": 0.04,
+       "item_5": 0,
+       "item_3": 0,
+       "item_2": 0
+      },
+      "cleared": true
+     }
+    },
+    "fired": [
+     {
+      "predicate": "ordinary_check",
+      "candidate": "resolve:core-check:ordinary-check",
+      "features": {
+       "destination": null,
+       "addressee": "Vittorio Macario",
+       "act": "social",
+       "item": null
+      }
+     }
+    ],
+    "selected": [
+     "resolve:core-check:ordinary-check"
+    ],
+    "decided": [
+     "apply:move:neighborhood-gossip"
+    ],
+    "fell_through": [
+     "apply:clue:vittorio-bible-weapon",
+     "apply:clue:gabriela-night-visitor",
+     "apply:clue:boys-burning-eyes",
+     "resolve:natural-npc:first-impression:托马斯·海斯:Gabriela Macario",
+     "resolve:natural-npc:first-impression:托马斯·海斯:Vittorio Macario"
+    ],
+    "reason": "selected_1",
+    "run_id": "68c8f87f-3381-4de9-802f-eae1151b73a3"
+   }
+  ],
+  "prescreen": "on",
+  "reads": [
+   {
+    "scene": "neighborhood-gossip",
+    "prescreen": "prepared",
+    "materials": 12,
+    "jev_calls": 4,
+    "ms": 2902
+   },
+   {
+    "scene": "previous-tenants",
+    "prescreen": "prepared",
+    "materials": 10,
+    "jev_calls": 3,
+    "ms": 1521
+   }
+  ],
+  "status": "delivered",
+  "reason": "implicit_narrate",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "compose",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 49160,
+    "cache_read": 0,
+    "cache_write": 49160,
+    "output": 44,
+    "reasoning": null,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 3805,
+    "cache_read": 49160,
+    "cache_write": 3806,
+    "output": 75,
+    "reasoning": null,
+    "tools": [
+     "apply"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 3,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 4065,
+    "cache_read": 50793,
+    "cache_write": 4065,
+    "output": 105,
+    "reasoning": null,
+    "tools": [],
+    "stop": "stop",
+    "effort": null
+   }
+  ],
+  "steps": {
+   "operate": 6,
+   "decide": 4,
+   "infer": 3,
+   "finish": 1
+  },
+  "llm_steps": 3,
+  "llm_purposes": [
+   "compose",
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 11,
+  "route_rows": 4,
+  "calls": [
+   {
+    "tool": "apply",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "move",
+       "to": "previous-tenants"
+      }
+     ]
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "social",
+      "goal": "第一次面对面见到维托里奥·马卡里奥",
+      "method": "请求探视后走进病房",
+      "target": "Vittorio Macario",
+      "actor": "托马斯·海斯",
+      "decision": "natural-npc:first-impression"
+     }
+    },
+    "passed": false,
+    "level": "failure"
+   },
+   {
+    "tool": "apply",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "person",
+       "who": "Vittorio Macario",
+       "name": "维托里奥·马卡里奥",
+       "why": "探视名单上写着这个名字，护士按这个称呼带路。"
+      },
+      {
+       "kind": "time",
+       "minutes": 40,
+       "why": "从科比特宅那条街赶到罗克斯伯里疗养院，并在门口办探视。"
+      },
+      {
+       "kind": "clue",
+       "clue": "vittorio-bible-weapon",
+       "from": "Vittorio Macario",
+       "how": "维托里奥把圣经翻开，指着一行不是经文的句子。",
+       "label": "他自己的武器"
+      }
+     ]
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "move previous-tenants",
+    "matched": true,
+    "origin": "policy"
+   },
+   {
+    "baseline": "resolve natural-npc:first-impression vs Vittorio Macario",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "person Vittorio Macario",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "time 40",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "clue vittorio-bible-weapon",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "narrate",
+    "matched": true,
+    "origin": "implicit"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "apply",
+    "origin": "policy",
+    "clerk": "declared_bookkeeping",
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "compile",
+    "ms": 1,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.apply.options",
+     "path": "candidates[3]",
+     "row": {
+      "alias": "effect:3",
+      "effect": {
+       "kind": "move",
+       "to": "previous-tenants"
+      },
+      "description": {
+       "kind": "move",
+       "to": "previous-tenants",
+       "display_name": "Roxbury Sanitarium",
+       "material": "ready",
+       "destination": {
+        "names": [
+         "the Roxbury Sanitarium",
+         "the sanitarium in Roxbury"
+        ],
+        "where": [
+         "previous tenants",
+         "macario",
+         "former occupants",
+         "tenants",
+         "lodging",
+         "hospital",
+         "clinic",
+         "institutional"
+        ],
+        "people": [
+         "Gabriela Macario",
+         "Vittorio Macario"
+        ]
+       },
+       "authority": "available_route_not_player_choice"
+      }
+     },
+     "compile": {
+      "predicate": "move",
+      "features": {
+       "destination": "previous-tenants",
+       "addressee": null,
+       "act": "social",
+       "item": null
+      },
+      "read_features": {
+       "destination": {
+        "row": "previous-tenants",
+        "confidence": 1,
+        "cleared": true
+       }
+      }
+     }
+    },
+    "path": "compile",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": "move",
+    "features": {
+     "destination": {
+      "row": "previous-tenants",
+      "confidence": 1
+     }
+    },
+    "binding_paths": {
+     "to": "stated"
+    },
+    "compile_refused": null,
+    "first_byte_ms": null,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "compile: move fired on destination=previous-tenants",
+    "proposed": [
+     "apply move: to=\"previous-tenants\"; registered_destination={\"handle\":\"previous-tenants\",\"label\":\"previous-tenants\",\"summary\":\"scene previous tenants\",\"canonical_name\":\"Roxbury Sanitarium\",\"also_called\":[\"the Roxbury Sanitarium\",\"the sanitarium in Roxbury\"]}"
+    ],
+    "line_level": null,
+    "lines": null,
+    "of_lines": null
+   },
+   {
+    "verb": "resolve",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 4794,
+    "jev_ms": 310,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": null,
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": 0.61,
+    "line_verdicts": [
+     "authorized"
+    ],
+    "lane_ms": 4794,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 1665,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "player: \"我去罗克斯伯里疗养院，请求探视维托里奥·马卡里奥，问他在那房子里看见了什么\" — names destination, target and the social attempt",
+    "proposed": [
+     "resolve (roll the dice for an action): actor=\"托马斯·海斯\"; intent=\"social\"; goal=\"第一次面对面见到维托里奥·马卡里奥\"; method=\"请求探视后走进病房\"; target=\"Vittorio Macario\""
+    ],
+    "line_level": null,
+    "lines": null,
+    "of_lines": null
+   },
+   {
+    "verb": "apply",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "not_player_action",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 7311,
+    "jev_ms": 677,
+    "confidence": null,
+    "jev_fallback": "typed_refusal",
+    "basis": null,
+    "path": "lane",
+    "fast_path": true,
+    "jev_confidence": 0.49,
+    "line_verdicts": [
+     "authorized",
+     "entailed",
+     "not_authorized"
+    ],
+    "lane_ms": 7311,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 1524,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "Player: \"我去罗克斯伯里疗养院，请求探视维托里奥·马卡里奥\" — the move already landed; person record, the 40 minutes, and Vittorio opening his Bible to show a line are Keeper bookkeeping, elapsed time, and NPC initiative, not",
+    "proposed": [
+     "apply person: who=\"Vittorio Macario\"; name=\"维托里奥·马卡里奥\"; why=\"探视名单上写着这个名字，护士按这个称呼带路。\"",
+     "apply time: minutes=40; why=\"从科比特宅那条街赶到罗克斯伯里疗养院，并在门口办探视。\"",
+     "apply clue: clue=\"vittorio-bible-weapon\"; from=\"Vittorio Macario\"; how=\"维托里奥把圣经翻开，指着一行不是经文的句子。\"; label=\"他自己的武器\""
+    ],
+    "line_level": null,
+    "lines": null,
+    "of_lines": null
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "apply",
+    "call_id": "t6-c1",
+    "ok": true,
+    "ms": 62,
+    "clerk": "declared_bookkeeping",
+    "basis": {
+     "read": "table.apply.options",
+     "path": "candidates[3]",
+     "row": {
+      "alias": "effect:3",
+      "effect": {
+       "kind": "move",
+       "to": "previous-tenants"
+      },
+      "description": {
+       "kind": "move",
+       "to": "previous-tenants",
+       "display_name": "Roxbury Sanitarium",
+       "material": "ready",
+       "destination": {
+        "names": [
+         "the Roxbury Sanitarium",
+         "the sanitarium in Roxbury"
+        ],
+        "where": [
+         "previous tenants",
+         "macario",
+         "former occupants",
+         "tenants",
+         "lodging",
+         "hospital",
+         "clinic",
+         "institutional"
+        ],
+        "people": [
+         "Gabriela Macario",
+         "Vittorio Macario"
+        ]
+       },
+       "authority": "available_route_not_player_choice"
+      }
+     },
+     "compile": {
+      "predicate": "move",
+      "features": {
+       "destination": "previous-tenants",
+       "addressee": null,
+       "act": "social",
+       "item": null
+      },
+      "read_features": {
+       "destination": {
+        "row": "previous-tenants",
+        "confidence": 1,
+        "cleared": true
+       }
+      }
+     }
+    }
+   }
+  ],
+  "misses": []
+ },
+ {
+  "run": 3,
+  "fixture": "longgate30-t6",
+  "admission": "lane",
+  "lane": "live opencode-go/deepseek-v4.1-flash",
+  "keeper": "replay",
+  "thinking": "off",
+  "arm": "after",
+  "latency": false,
+  "seed": "1",
+  "wall_ms": 20946,
+  "budget": {
+   "turn": 6,
+   "lane": "run",
+   "event": "budget",
+   "decision": "summary",
+   "run": "run-01a0d3a1-f5fb-76e1-b9d1-ccd483b6cfcb",
+   "budget_ms": 45000,
+   "elapsed_ms": 20052,
+   "elapsed_at_compose": 19782,
+   "over_budget": false,
+   "deferred_by_budget": [],
+   "decision_budget": {
+    "jev_calls": 4,
+    "jev_ms": 1880,
+    "max_jev_calls": 24,
+    "max_jev_ms": 12000,
+    "spent": false
+   },
+   "prescreen": {
+    "reads": 2,
+    "jev_calls": 7,
+    "ms": 3708
+   },
+   "run_id": "e05b34bf-44a1-499a-800c-382b220e7fd3"
+  },
+  "compile": "on",
+  "compile_row": {
+   "turn": 6,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d3a1-f5fb-76e1-b9d1-ccd483b6cfcb",
+   "step": "run-01a0d3a1-f5fb-76e1-b9d1-ccd483b6cfcb:s2",
+   "status": "complete",
+   "ms": 380,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "newspaper-morgue",
+      "destination_2": "central-library",
+      "destination_3": "hall-of-records",
+      "destination_4": "previous-tenants",
+      "destination_5": "corbitt-house-ground",
+      "destination_6": "commission-briefing"
+     },
+     "choice": "destination_4",
+     "row": "previous-tenants",
+     "confidence": 1,
+     "probabilities": {
+      "destination_3": 0,
+      "none": 0,
+      "destination_1": 0,
+      "destination_5": 0,
+      "destination_2": 0,
+      "destination_6": 0,
+      "destination_4": 1,
+      "unclear": 0
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Mr. Dooley"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.93,
+     "probabilities": {
+      "none": 0.96,
+      "addressee_1": 0.04,
+      "unclear": 0
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_2",
+     "row": "social",
+     "confidence": 0.81,
+     "probabilities": {
+      "act_5": 0,
+      "act_9": 0,
+      "act_8": 0,
+      "act_10": 0.03,
+      "act_1": 0.08,
+      "act_4": 0,
+      "none": 0,
+      "act_11": 0,
+      "act_7": 0,
+      "act_6": 0,
+      "act_3": 0.06,
+      "act_2": 0.83,
+      "unclear": 0
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "私人侦探徽章",
+      "item_5": "科比特宅的钥匙"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.92,
+     "probabilities": {
+      "none": 0.9400000000000001,
+      "item_1": 0,
+      "item_4": 0,
+      "item_2": 0,
+      "item_5": 0,
+      "item_3": 0,
+      "unclear": 0.06
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "move",
+     "candidate": "apply:move:previous-tenants",
+     "features": {
+      "destination": "previous-tenants",
+      "addressee": null,
+      "act": "social",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "apply:move:previous-tenants"
+   ],
+   "decided": [
+    "apply:move:newspaper-morgue",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:corbitt-house-ground",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "selected_1",
+   "run_id": "e05b34bf-44a1-499a-800c-382b220e7fd3"
+  },
+  "selections": [
+   {
+    "by": "compile",
+    "keys": [
+     "apply:move:previous-tenants"
+    ]
+   },
+   {
+    "by": "compile",
+    "keys": [
+     "resolve:core-check:ordinary-check"
+    ]
+   }
+  ],
+  "compile_rows": [
+   {
+    "turn": 6,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d3a1-f5fb-76e1-b9d1-ccd483b6cfcb",
+    "step": "run-01a0d3a1-f5fb-76e1-b9d1-ccd483b6cfcb:s2",
+    "status": "complete",
+    "ms": 380,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "newspaper-morgue",
+       "destination_2": "central-library",
+       "destination_3": "hall-of-records",
+       "destination_4": "previous-tenants",
+       "destination_5": "corbitt-house-ground",
+       "destination_6": "commission-briefing"
+      },
+      "choice": "destination_4",
+      "row": "previous-tenants",
+      "confidence": 1,
+      "probabilities": {
+       "destination_3": 0,
+       "none": 0,
+       "destination_1": 0,
+       "destination_5": 0,
+       "destination_2": 0,
+       "destination_6": 0,
+       "destination_4": 1,
+       "unclear": 0
+      },
+      "cleared": true
+     },
+     "addressee": {
+      "rows": {
+       "addressee_1": "Mr. Dooley"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.93,
+      "probabilities": {
+       "none": 0.96,
+       "addressee_1": 0.04,
+       "unclear": 0
+      },
+      "cleared": true
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_2",
+      "row": "social",
+      "confidence": 0.81,
+      "probabilities": {
+       "act_5": 0,
+       "act_9": 0,
+       "act_8": 0,
+       "act_10": 0.03,
+       "act_1": 0.08,
+       "act_4": 0,
+       "none": 0,
+       "act_11": 0,
+       "act_7": 0,
+       "act_6": 0,
+       "act_3": 0.06,
+       "act_2": 0.83,
+       "unclear": 0
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "开锁工具",
+       "item_3": "手电筒",
+       "item_4": "私人侦探徽章",
+       "item_5": "科比特宅的钥匙"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.92,
+      "probabilities": {
+       "none": 0.9400000000000001,
+       "item_1": 0,
+       "item_4": 0,
+       "item_2": 0,
+       "item_5": 0,
+       "item_3": 0,
+       "unclear": 0.06
+      },
+      "cleared": true
+     }
+    },
+    "fired": [
+     {
+      "predicate": "move",
+      "candidate": "apply:move:previous-tenants",
+      "features": {
+       "destination": "previous-tenants",
+       "addressee": null,
+       "act": "social",
+       "item": null
+      }
+     }
+    ],
+    "selected": [
+     "apply:move:previous-tenants"
+    ],
+    "decided": [
+     "apply:move:newspaper-morgue",
+     "apply:move:central-library",
+     "apply:move:hall-of-records",
+     "apply:move:corbitt-house-ground",
+     "apply:move:commission-briefing"
+    ],
+    "fell_through": [
+     "resolve:core-check:ordinary-check"
+    ],
+    "reason": "selected_1",
+    "run_id": "e05b34bf-44a1-499a-800c-382b220e7fd3"
+   },
+   {
+    "turn": 6,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d3a1-f5fb-76e1-b9d1-ccd483b6cfcb",
+    "step": "run-01a0d3a1-f5fb-76e1-b9d1-ccd483b6cfcb:s5",
+    "status": "complete",
+    "ms": 377,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "newspaper-morgue",
+       "destination_2": "central-library",
+       "destination_3": "hall-of-records",
+       "destination_4": "neighborhood-gossip",
+       "destination_5": "corbitt-house-ground",
+       "destination_6": "commission-briefing"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 1,
+      "probabilities": {
+       "destination_3": 0,
+       "destination_1": 0,
+       "destination_6": 0,
+       "destination_5": 0,
+       "unclear": 0,
+       "destination_4": 0,
+       "none": 1,
+       "destination_2": 0
+      },
+      "cleared": true
+     },
+     "addressee": {
+      "rows": {
+       "addressee_1": "Gabriela Macario",
+       "addressee_2": "Vittorio Macario"
+      },
+      "choice": "addressee_2",
+      "row": "Vittorio Macario",
+      "confidence": 1,
+      "probabilities": {
+       "unclear": 0,
+       "addressee_2": 1,
+       "none": 0,
+       "addressee_1": 0
+      },
+      "cleared": true
+     },
+     "ask": {
+      "rows": {
+       "ask_1": "clue:vittorio-bible-weapon",
+       "ask_2": "clue:gabriela-night-visitor",
+       "ask_3": "clue:boys-burning-eyes"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.26,
+      "probabilities": {
+       "ask_1": 0.05,
+       "unclear": 0.15,
+       "none": 0.39999999999999997,
+       "ask_3": 0.34,
+       "ask_2": 0.06
+      },
+      "cleared": false
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_2",
+      "row": "social",
+      "confidence": 0.94,
+      "probabilities": {
+       "act_3": 0.02,
+       "act_6": 0,
+       "act_5": 0,
+       "act_8": 0,
+       "act_11": 0,
+       "act_1": 0.01,
+       "act_10": 0.02,
+       "act_9": 0,
+       "unclear": 0,
+       "none": 0,
+       "act_4": 0,
+       "act_7": 0,
+       "act_2": 0.95
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "开锁工具",
+       "item_3": "手电筒",
+       "item_4": "私人侦探徽章",
+       "item_5": "科比特宅的钥匙"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.95,
+      "probabilities": {
+       "item_5": 0,
+       "item_2": 0,
+       "unclear": 0.04,
+       "none": 0.96,
+       "item_4": 0,
+       "item_1": 0,
+       "item_3": 0
+      },
+      "cleared": true
+     }
+    },
+    "fired": [
+     {
+      "predicate": "ordinary_check",
+      "candidate": "resolve:core-check:ordinary-check",
+      "features": {
+       "destination": null,
+       "addressee": "Vittorio Macario",
+       "act": "social",
+       "item": null
+      }
+     }
+    ],
+    "selected": [
+     "resolve:core-check:ordinary-check"
+    ],
+    "decided": [
+     "apply:move:neighborhood-gossip"
+    ],
+    "fell_through": [
+     "apply:clue:vittorio-bible-weapon",
+     "apply:clue:gabriela-night-visitor",
+     "apply:clue:boys-burning-eyes",
+     "resolve:natural-npc:first-impression:托马斯·海斯:Gabriela Macario",
+     "resolve:natural-npc:first-impression:托马斯·海斯:Vittorio Macario"
+    ],
+    "reason": "selected_1",
+    "run_id": "e05b34bf-44a1-499a-800c-382b220e7fd3"
+   }
+  ],
+  "prescreen": "on",
+  "reads": [
+   {
+    "scene": "neighborhood-gossip",
+    "prescreen": "prepared",
+    "materials": 12,
+    "jev_calls": 4,
+    "ms": 2314
+   },
+   {
+    "scene": "previous-tenants",
+    "prescreen": "prepared",
+    "materials": 10,
+    "jev_calls": 3,
+    "ms": 1394
+   }
+  ],
+  "status": "delivered",
+  "reason": "implicit_narrate",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "compose",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 49176,
+    "cache_read": 0,
+    "cache_write": 49176,
+    "output": 44,
+    "reasoning": null,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 3805,
+    "cache_read": 49176,
+    "cache_write": 3806,
+    "output": 75,
+    "reasoning": null,
+    "tools": [
+     "apply"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 3,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 4064,
+    "cache_read": 50809,
+    "cache_write": 4065,
+    "output": 105,
+    "reasoning": null,
+    "tools": [],
+    "stop": "stop",
+    "effort": null
+   }
+  ],
+  "steps": {
+   "operate": 6,
+   "decide": 4,
+   "infer": 3,
+   "finish": 1
+  },
+  "llm_steps": 3,
+  "llm_purposes": [
+   "compose",
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 11,
+  "route_rows": 4,
+  "calls": [
+   {
+    "tool": "apply",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "move",
+       "to": "previous-tenants"
+      }
+     ]
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "social",
+      "goal": "第一次面对面见到维托里奥·马卡里奥",
+      "method": "请求探视后走进病房",
+      "target": "Vittorio Macario",
+      "actor": "托马斯·海斯",
+      "decision": "natural-npc:first-impression"
+     }
+    },
+    "passed": false,
+    "level": "failure"
+   },
+   {
+    "tool": "apply",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "person",
+       "who": "Vittorio Macario",
+       "name": "维托里奥·马卡里奥",
+       "why": "探视名单上写着这个名字，护士按这个称呼带路。"
+      },
+      {
+       "kind": "time",
+       "minutes": 40,
+       "why": "从科比特宅那条街赶到罗克斯伯里疗养院，并在门口办探视。"
+      },
+      {
+       "kind": "clue",
+       "clue": "vittorio-bible-weapon",
+       "from": "Vittorio Macario",
+       "how": "维托里奥把圣经翻开，指着一行不是经文的句子。",
+       "label": "他自己的武器"
+      }
+     ]
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "move previous-tenants",
+    "matched": true,
+    "origin": "policy"
+   },
+   {
+    "baseline": "resolve natural-npc:first-impression vs Vittorio Macario",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "person Vittorio Macario",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "time 40",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "clue vittorio-bible-weapon",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "narrate",
+    "matched": true,
+    "origin": "implicit"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "apply",
+    "origin": "policy",
+    "clerk": "declared_bookkeeping",
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "compile",
+    "ms": 0,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.apply.options",
+     "path": "candidates[3]",
+     "row": {
+      "alias": "effect:3",
+      "effect": {
+       "kind": "move",
+       "to": "previous-tenants"
+      },
+      "description": {
+       "kind": "move",
+       "to": "previous-tenants",
+       "display_name": "Roxbury Sanitarium",
+       "material": "ready",
+       "destination": {
+        "names": [
+         "the Roxbury Sanitarium",
+         "the sanitarium in Roxbury"
+        ],
+        "where": [
+         "previous tenants",
+         "macario",
+         "former occupants",
+         "tenants",
+         "lodging",
+         "hospital",
+         "clinic",
+         "institutional"
+        ],
+        "people": [
+         "Gabriela Macario",
+         "Vittorio Macario"
+        ]
+       },
+       "authority": "available_route_not_player_choice"
+      }
+     },
+     "compile": {
+      "predicate": "move",
+      "features": {
+       "destination": "previous-tenants",
+       "addressee": null,
+       "act": "social",
+       "item": null
+      },
+      "read_features": {
+       "destination": {
+        "row": "previous-tenants",
+        "confidence": 1,
+        "cleared": true
+       }
+      }
+     }
+    },
+    "path": "compile",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": "move",
+    "features": {
+     "destination": {
+      "row": "previous-tenants",
+      "confidence": 1
+     }
+    },
+    "binding_paths": {
+     "to": "stated"
+    },
+    "compile_refused": null,
+    "first_byte_ms": null,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "compile: move fired on destination=previous-tenants",
+    "proposed": [
+     "apply move: to=\"previous-tenants\"; registered_destination={\"handle\":\"previous-tenants\",\"label\":\"previous-tenants\",\"summary\":\"scene previous tenants\",\"canonical_name\":\"Roxbury Sanitarium\",\"also_called\":[\"the Roxbury Sanitarium\",\"the sanitarium in Roxbury\"]}"
+    ],
+    "line_level": null,
+    "lines": null,
+    "of_lines": null
+   },
+   {
+    "verb": "resolve",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 4550,
+    "jev_ms": 319,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": null,
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": 0.64,
+    "line_verdicts": [
+     "authorized"
+    ],
+    "lane_ms": 4550,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 2575,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "Player: \"我去罗克斯伯里疗养院，请求探视维托里奥·马卡里奥，问他在那房子里看见了什么\" — chooses actor, goal, target and method; the social roll resolves that chosen encounter.",
+    "proposed": [
+     "resolve (roll the dice for an action): actor=\"托马斯·海斯\"; intent=\"social\"; goal=\"第一次面对面见到维托里奥·马卡里奥\"; method=\"请求探视后走进病房\"; target=\"Vittorio Macario\""
+    ],
+    "line_level": null,
+    "lines": null,
+    "of_lines": null
+   },
+   {
+    "verb": "apply",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "not_player_action",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 8684,
+    "jev_ms": 659,
+    "confidence": null,
+    "jev_fallback": "typed_refusal",
+    "basis": null,
+    "path": "lane",
+    "fast_path": true,
+    "jev_confidence": 0.49,
+    "line_verdicts": [
+     "authorized",
+     "entailed",
+     "not_authorized"
+    ],
+    "lane_ms": 8684,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 2377,
+    "timed_out": null,
+    "cause": null,
+    "late_rule": null,
+    "resend": null,
+    "resend_wait_ms": null,
+    "typed": null,
+    "grounds": "player said '我去罗克斯伯里疗养院，请求探视维托里奥·马卡里奥，问他在那房子里看见了什么'; the move is already landed. Name recording, 40 elapsed minutes and Vittorio's own act of opening his Bible are Keeper bookkeeping, time passing and",
+    "proposed": [
+     "apply person: who=\"Vittorio Macario\"; name=\"维托里奥·马卡里奥\"; why=\"探视名单上写着这个名字，护士按这个称呼带路。\"",
+     "apply time: minutes=40; why=\"从科比特宅那条街赶到罗克斯伯里疗养院，并在门口办探视。\"",
+     "apply clue: clue=\"vittorio-bible-weapon\"; from=\"Vittorio Macario\"; how=\"维托里奥把圣经翻开，指着一行不是经文的句子。\"; label=\"他自己的武器\""
+    ],
+    "line_level": null,
+    "lines": null,
+    "of_lines": null
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "apply",
+    "call_id": "t6-c1",
+    "ok": true,
+    "ms": 56,
+    "clerk": "declared_bookkeeping",
+    "basis": {
+     "read": "table.apply.options",
+     "path": "candidates[3]",
+     "row": {
+      "alias": "effect:3",
+      "effect": {
+       "kind": "move",
+       "to": "previous-tenants"
+      },
+      "description": {
+       "kind": "move",
+       "to": "previous-tenants",
+       "display_name": "Roxbury Sanitarium",
+       "material": "ready",
+       "destination": {
+        "names": [
+         "the Roxbury Sanitarium",
+         "the sanitarium in Roxbury"
+        ],
+        "where": [
+         "previous tenants",
+         "macario",
+         "former occupants",
+         "tenants",
+         "lodging",
+         "hospital",
+         "clinic",
+         "institutional"
+        ],
+        "people": [
+         "Gabriela Macario",
+         "Vittorio Macario"
+        ]
+       },
+       "authority": "available_route_not_player_choice"
+      }
+     },
+     "compile": {
+      "predicate": "move",
+      "features": {
+       "destination": "previous-tenants",
+       "addressee": null,
+       "act": "social",
+       "item": null
+      },
+      "read_features": {
+       "destination": {
+        "row": "previous-tenants",
+        "confidence": 1,
+        "cleared": true
+       }
+      }
+     }
+    }
+   }
+  ],
+  "misses": []
+ }
+]

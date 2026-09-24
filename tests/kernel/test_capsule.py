@@ -58,8 +58,14 @@ def test_player_input_capsule_has_all_sections(kernel):
     assert {"name": "Spot Hidden", "value": 55} in investigator["skills_of_note"]
 
     assert capsule["recent"] == [{"turn": 0, "player": None, "keeper": "开场。\n\n诺特把钥匙拍在桌上。", "closed": "explicit", "receipts": 0}]
+    # §14.16: the Haunting reads its built-in window, so the capsule carries the book's navigation. The
+    # index is its authored scenes, each prepared; twelve rows do not fit 512 bytes, so the tail is cut.
+    reading = capsule["reading"]
+    assert reading["index_complete"] is True
+    assert reading["sections"][0]["name"] == "Knott's Office"
+    assert all(section["read"] for section in reading["sections"])
     # the slice-0 sections fit untouched; the first-turn briefing (#22) shortened its roster lines to its own 2KB
-    assert capsule.get("truncated", []) == ["module"]
+    assert capsule.get("truncated", []) == ["reading", "module"]
     for name, budget in BUDGETS.items():
         assert size(capsule[name]) <= budget, name
 
@@ -164,8 +170,8 @@ def test_lookup_module_and_secret(kernel):
     assert kernel.table_err("lookup", kind="weird", query="x")["code"] == "invalid_params"
 
 
-def test_lookup_module_takes_exact_handles_and_a_starter_has_no_source_to_bind(kernel):
-    """Contract §127: real table 2026-09-22 on the built-in starter."""
+def test_lookup_module_takes_exact_handles_and_a_starter_reads_only_the_book_it_has(kernel):
+    """Contract §127: real table 2026-09-22 on the built-in starter; §14.16: the Haunting now ships its window."""
     open_turn(kernel)
     held = kernel.table("lookup", kind="module", query="knott-macario-summary knott-keys knott-research-leads")
     assert [e["name"] for e in held["entities"]] == ["knott-macario-summary", "knott-keys", "knott-research-leads"]
@@ -173,8 +179,15 @@ def test_lookup_module_takes_exact_handles_and_a_starter_has_no_source_to_bind(k
     # One word that is not a handle keeps the whole query ordinary search text.
     assert kernel.table("lookup", kind="module", query="knott-keys lantern")["status"] == "not_found"
 
-    error = kernel.err("module.read.request", {"module_id": "the-haunting", "purpose": "detail",
+    # The Haunting's built-in window answers a source question through the reading lane.
+    asked = kernel.ok("module.read.request", {"module_id": "the-haunting", "purpose": "detail",
         "focus": "steven-knott", "question": "What does the commission pay?"})
+    assert asked["state"] == "queued" and asked["job_id"]
+
+    # A starter that names no source still has none, and the refusal names the reads that work.
+    kernel.ok("module.register", {"module_id": "voice-bench"})
+    error = kernel.err("module.read.request", {"module_id": "voice-bench", "purpose": "detail",
+        "focus": "sanyi-teahouse", "question": "Who keeps the teahouse?"})
     assert error["code"] == "needs"
     assert error["details"]["reason"] == "no_source_document"
     assert "module.source.bind" not in error.get("fix", "")

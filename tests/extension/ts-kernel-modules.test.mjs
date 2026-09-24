@@ -113,6 +113,21 @@ async function compare(name, cases, t) {
       assert.ok(expected[i].value, 'the oracle published it: this is the post-freeze change');
       return;
     }
+    // Contract §22.3.1 (SL-33) post-dates the frozen oracle twice. A differing summary read from the same
+    // page is a re-transcription the draft check sends to review by pointer, where the oracle refused it;
+    // and publication records each written field's span in `graph.field_spans`, a key the oracle never
+    // wrote. Assert both here and compare the rest; the oracle's bytes are never touched.
+    if (item.name === 'prepared summary remains stable') {
+      assert.equal(expected[i].error?.code, 'needs_choice', 'the oracle refused it: this is the post-freeze change');
+      assert.ok(actual[i].value?.required_review.includes('/nodes/0/summary'), `Evidence: ${evidence}`);
+      return;
+    }
+    if (actual[i].value?.graph?.field_spans) {
+      const { field_spans: spans, ...graph } = actual[i].value.graph;
+      assert.equal(expected[i].value?.graph?.field_spans, undefined, 'the oracle recorded no spans: this is the post-freeze addition');
+      assert.deepEqual(spans['/nodes/scene-dock/properties/is_entrance'], [{ source_id: 'pdf:book-1', pdf_index: 0 }]);
+      actual[i] = { ...actual[i], value: { ...actual[i].value, graph } };
+    }
     // Contract §90 also post-dates the frozen oracle: `way_on` is a readiness entry the historical
     // implementation had no concept of. Assert the new requirement here -- it is carried exactly
     // when the produced graph's start scene publishes no way out and the book does not end there --

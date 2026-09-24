@@ -9,6 +9,7 @@ import { RuleObservations } from '../read/rule-facts.js';
 import { activeMods } from '../read/mods.js';
 import { SessionView } from '../read/session-view.js';
 import { array, clone, integer, normalize, number, repr, row, string, truth, type Row } from '../read/values.js';
+import { playsFromReading } from '../modules/bound-source.js';
 import { RuleTables } from '../rules/tables.js';
 import { SkillResolver } from '../rules/skills.js';
 import { nowIso } from '../write/store.js';
@@ -244,7 +245,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             if (!NONE_INTENTS.has(intent)) {
                 if (contributions.requireMaterial)
                     await contributions.requireMaterial(graph, [transaction.world.active_scene, action.actor, action.target]);
-                else if (truth(module.meta.reading_version))
+                else if (playsFromReading(module.meta))
                     throw new RpcError('not_implemented', 'The source material gate is not implemented in the TypeScript resolve runtime');
             }
             const { arithmetic, observations } = await engine();
