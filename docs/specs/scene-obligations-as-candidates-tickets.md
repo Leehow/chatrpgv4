@@ -94,6 +94,15 @@ Depends on: SO-04's replay meeting the Q6 line.
 
 **Acceptance.** SO-01's validator cases and goldens; the police and neighbourhood scenes' capsule and options rows; every other starter byte-identical; `test:ext` and pytest green.
 
+---
+
+## SO-06 — An ordinary check on an obligation's approach is its attempt (pointer to SL-14)
+
+Status: ready-for-human (implemented as SL-14 of the single-loop plan; see `docs/specs/pi-native-single-loop-tickets/14-obligation-attempt-folding.md`)
+Depends on: SO-02 merged.
+
+**What.** The owner's ruling of 2026-09-24 (`docs/specs/pi-native-single-loop.md`, Rulings: "An ordinary check on an obligation's approach is the obligation's attempt") amends SO-02's settlement: §134.11's "a `resolve` without `action.obligation` settles nothing" (spec D4) no longer holds for an investigator's ordinary check whose target is an open obligation's `next.target` and whose skill is among its approaches — the kernel resolves it as that obligation's attempt (contract §134.17). The work is scheduled and recorded under the single-loop plan as SL-14; this entry exists so the obligations tickets name the amendment. Decisions, the mutation record and the suite counts are in SL-14's Comments.
+
 ## Comments
 
 ### 2026-09-23 — SO-02 implemented (kernel issuance and settlement)

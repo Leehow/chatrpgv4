@@ -22,7 +22,8 @@ import {actor as selectActor} from '../read/handlers.js';
 import type {ModResolveInput,ModResolveResult} from '../mods/resolve.js';
 import type {FixedFamilies} from './families.js';
 import {trackResolveReceipts} from '../runtime/receipt-advance.js';
-import { bindObligation, continuedClaim, crossedByTarget, settleClaim, type ObligationClaim } from './obligation.js';
+import { bindObligation, continuedClaim, crossedByTarget, foldCandidate, settleClaim, type Fold, type ObligationClaim } from './obligation.js';
+import { ambiguityNote } from '../read/obligations.js';
 import { bindRule, continuedRule, settleRule, type RuleClaim } from './rule.js';
 import { statedEndingReward } from '../read/stated.js';
 import { latestCheckReceipt as latestCheck } from './context.js';
@@ -326,6 +327,11 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             const sessions = new SessionView(snapshot, graph, snapshot.party, transaction.world);
             const actor = resolveActor(snapshot.party, graph, sessions, action);
             refuseIncapacitated(actor, action);
+            // Contract §134.17: an investigator's ordinary check that fits one open obligation's check is its attempt.
+            // Found here, before the roll; applied only if the decision the pipeline settles is the ordinary check.
+            let fold: Fold | null = null;
+            if (!claim && !ruleClaim && !actor.npcInSession && string(actor.actor.id) === actor.actingId)
+                fold = await foldCandidate({ kernel, tables, graph, world: transaction.world, transaction, action, intent, sheet: actor.actor });
             const resolver = await SkillResolver.create(tables, actor.actor);
             const target = typeof action.target === 'string' ? snapshot.party.find(sheet => [normalize(sheet.id),normalize(sheet.name)].includes(normalize(action.target))) : undefined;
             let subject = actor.actor;
@@ -349,7 +355,11 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                 ruleClaim = continuedRule(graph, ruleClaim, sourceReceipt);
             }
             const pipeline = new ResolvePipeline(context, resolver, rollModifiers, actor.npcInSession, contributions);
+            if (fold?.kind === 'fold')
+                pipeline.fold = { skill: fold.skill, modifiers: modifiers(fold.modifiers, arithmetic, action.intent), declared: fold.modifiers };
             const settled = await pipeline.run(beforeExecute);
+            if (!claim && fold?.kind === 'fold' && pipeline.folded)
+                claim = fold.claim;
             if (settled.kind === 'none')
                 return noneResult(settled.note);
             const level = row(settled.outcome).level, pushed = truth(row(settled.outcome).pushed) || truth(action.push);
@@ -371,6 +381,11 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                 const crossed = crossedByTarget(graph, transaction.world, action.target);
                 if (crossed)
                     result.obligation_open = crossed;
+                // §134.17: an ordinary check that fits two open obligations counts as neither, and says so.
+                if (fold?.kind === 'ambiguous' && settled.decision === 'core-check:ordinary-check') {
+                    result.obligation_ambiguous = fold.handles;
+                    result.note = ambiguityNote(fold.handles);
+                }
             }
             await transaction.commitResolve({
                 callId: start.callId,

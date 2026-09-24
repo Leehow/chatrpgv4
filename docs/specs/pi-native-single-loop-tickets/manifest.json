@@ -83,7 +83,7 @@
     {
       "id": "SL-14",
       "file": "14-obligation-attempt-folding.md",
-      "status": "ready-for-agent"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-15",
@@ -101,7 +101,8 @@
         "SO-02": "ready-for-agent",
         "SO-03": "ready-for-agent",
         "SO-04": "ready-for-agent after SL-02 policy",
-        "SO-05": "needs-triage"
+        "SO-05": "needs-triage",
+        "SO-06": "ready-for-human (implemented as SL-14)"
       }
     }
   ]
