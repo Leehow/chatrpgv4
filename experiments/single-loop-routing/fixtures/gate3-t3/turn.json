@@ -1,0 +1,13 @@
+{
+ "campaign": "gate3-haunting-2329",
+ "module": "the-haunting",
+ "turn": 3,
+ "commit_before": "cecf84b",
+ "commit_after": "1e321ff",
+ "player_input": "我回诺特办公室，揪住他的领子一拳打过去，逼他说清这房子到底死过什么人。",
+ "tarball": "../gate3/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/gate3-haunting-2329",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/gate3-haunting-2329-20260924T032940Z"
+ }
+}

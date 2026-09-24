@@ -18,8 +18,10 @@ export const LIVE_HOME=join(homedir(),'Library/Application Support/Pipi/pipicoc/
 /** A fixture by name under fixtures/, or by a directory path (a scratch fixture; its baseline.json is optional). */
 export function readFixture(name){
   const dir=name.includes('/')?resolve(name):join(FIXTURES,name),baseline=join(dir,'baseline.json');
-  return {dir,turn:JSON.parse(readFileSync(join(dir,'turn.json'),'utf8')),baseline:existsSync(baseline)?JSON.parse(readFileSync(baseline,'utf8')):{},
-    tarball:join(dir,'workspace.tar.gz')};
+  const turn=JSON.parse(readFileSync(join(dir,'turn.json'),'utf8'));
+  // SL-13: the turns of one live gate share one workspace tarball (turn.json's `tarball`, relative to the fixture).
+  return {dir,turn,baseline:existsSync(baseline)?JSON.parse(readFileSync(baseline,'utf8')):{},
+    tarball:typeof turn.tarball==='string'?resolve(dir,turn.tarball):join(dir,'workspace.tar.gz')};
 }
 
 function writable(path){
