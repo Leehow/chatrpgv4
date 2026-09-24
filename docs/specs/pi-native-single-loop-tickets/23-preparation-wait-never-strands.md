@@ -4,7 +4,7 @@ Spec: docs/specs/pi-native-single-loop.md (Ruling: "A preparation wait never str
 
 # SL-23 — A preparation wait never strands a turn, and never blocks the next one
 
-## Evidence (long live gate, campaign longgate-haunting-1010 under chatrpgv4-wt-integ-sl/.coc/campaigns, turn 19, run run-01a0d301-c8da-7552-937e-4f223e5bd6a9)
+## Evidence (long live gate, campaign longgate-haunting-0624 under chatrpgv4-wt-integ-sl/.coc/campaigns, turn 19, run run-01a0d301-c8da-7552-937e-4f223e5bd6a9)
 - The Keeper called `lookup kind: adaptation action: prepare purpose: new_destination name: corbitt-house-front` (12.2 s inside the turn) after a failed `look object "Corbitt Diaries"` (unknown_entity) and a module lookup.
 - Drops: `text_beside_tool_calls`, then `preparation_wait` twice; turn_close steer `adaptation-wait` spent; `unsent_fix: adaptation-wait`; run_end `turn_close_steer_spent:no_delivered_evidence`; turn 0019 `closed_by: stranded`, the player saw the unfinished notice.
 - Turn 20: the clerk's compile-selected `apply:move:commission-briefing` was refused `blocked: preparation_wait`; the Keeper's own apply then took an 11.8 s lane review.
@@ -18,7 +18,7 @@ Spec: docs/specs/pi-native-single-loop.md (Ruling: "A preparation wait never str
 
 ### 2026-09-24 — implemented on `claude/sl23-20260924` (from `1dccf4578`)
 
-**Evidence read.** The ticket's "longgate-haunting-1010" is campaign `longgate-haunting-0624` (playtest
+**Evidence read.** The ticket's "longgate-haunting-0624" is campaign `longgate-haunting-0624` (playtest
 `longgate-haunting-0624-20260924T102454Z`) under `chatrpgv4-wt-integ-sl/.coc`; copied, never written. Turn 19's telemetry rows
 2721–2786 and the event log's text deltas show the chain: `prepare` 12 243 ms `pending` → the diaries' `apply` (`define` +
 `object`, nothing to do with the street) `blocked: preparation_wait` with its process talk dropped (`text_beside_tool_calls`) →

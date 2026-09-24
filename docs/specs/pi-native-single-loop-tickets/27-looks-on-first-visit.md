@@ -4,7 +4,7 @@ Spec: docs/specs/pi-native-single-loop.md (Ruling: "The Keeper is shown what the
 
 # SL-27 — Looks on a first visit: carry the scene's source passages; resolve clue labels
 
-## Evidence (long live gate, campaign longgate-haunting-1010)
+## Evidence (long live gate, campaign longgate-haunting-0624)
 - 18 look/lookup/recall calls in 20 turns (turns 1, 6, 10, 11, 15, 16, 19, 20), each a model round; kinds: `source` (book passages, 6), `module` (scene/handle queries, 5), `rule` (1), `adaptation` (3), `look scene` (3), `look object "Corbitt Diaries"` (unknown_entity: the clue is `corbitt-diaries`).
 - The prescreen already locates source passages for the scene (read rows: `located` cards) and SL-15 carries scene/person/session views but not source text.
 

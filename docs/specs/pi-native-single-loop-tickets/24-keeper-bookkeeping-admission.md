@@ -5,7 +5,7 @@ Contract: docs/kernel-rpc.md §32.12.2 (amends §32.2, §32.7, §32.10, §32.11,
 
 # SL-24 — Keeper bookkeeping admission: concurrent reviewers, no silent refusals, a cap that bounds waiting
 
-## Evidence (long live gate, campaign longgate-haunting-1010)
+## Evidence (long live gate, campaign longgate-haunting-0624)
 - `review_timeout` ×4: turn 1 (commission apply: clue, cash, item, handout, move), turns 6 and 7 (apply move to previous-tenants, twice: the Keeper then narrated the player as still on the street and the sanatorium visit never happened for the kernel), turn 14 (clue corbitt-diaries + time + threat: the diaries never existed; turn 19's `look object "Corbitt Diaries"` was unknown_entity).
 - `not_player_action` ×4 with `grounds: None` and `proposed: None` (turns 10, 13 ×2, 15): refusals the Keeper cannot act on; turn 15's was the basement search.
 - Lane latency for Keeper writes on this table: 2.4–7.4 s typical, 4 over 12 s; `path: typed` never; §32.11's fast path needs 0.87 and observed 0.72–0.80.
