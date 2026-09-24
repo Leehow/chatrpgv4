@@ -18,6 +18,8 @@ const KEY = { EXT_JEV_APIKEY: "test-jev-key" };
 const kernelCalls = (table, method) => table.kernelRequests().filter((entry) => entry.method === method);
 const admissionRows = (table) => table.telemetry().filter((row) => row.lane === "admission");
 const verdict = (row) => fauxAssistantMessage(JSON.stringify(row));
+/** §32.12.2: the lane and the typed answer race; a lane answer delayed past Jev's makes the order the test's own. */
+const slowVerdict = (row, ms) => async () => { await new Promise((resolve) => setTimeout(resolve, ms)); return fauxAssistantMessage(JSON.stringify(row)); };
 
 function distribution(keys, chosen, confidence) {
 	const rest = keys.length > 1 ? (1 - confidence) / (keys.length - 1) : 0;
@@ -58,14 +60,15 @@ test("the fast-path threshold is the measured 0.87, read per review, and `off` t
 	assert.equal(admissionFastMinConfidence({ PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: "off" }), undefined);
 });
 
-test("a bookkeeping batch typed admitting at or above the threshold settles with no lane call, and its row says path typed", async (t) => {
+test("a bookkeeping batch typed admitting at or above the threshold settles without the lane's verdict, and its row says path typed", async (t) => {
 	const requests = installJev(t, [{ verdict: "authorized", confidence: 0.9 }, { verdict: "entailed", confidence: 0.88 }]);
-	const table = await openTable({ responses: turn(bookkeeping), env: KEY });
+	const table = await openTable({ responses: turn(bookkeeping), env: KEY,
+		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "a lane that would refuse", missing: "x" }, 1500)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 
 	assert.equal(requests.length, 1, "one typed batch");
-	assert.equal(table.lanes.admission.requests().length, 0, "the lane was never asked");
+	// §32.12.2: the lane starts beside it and is abandoned; its (slow) refusal never lands.
 	assert.equal(kernelCalls(table, "table.apply").length, 1, "the admitted batch reached the kernel");
 	const [row] = admissionRows(table);
 	assert.equal(row.path, "typed");
@@ -81,7 +84,7 @@ test("a bookkeeping batch typed admitting at or above the threshold settles with
 test("below the threshold the lane decides, and its refusal stands", async (t) => {
 	installJev(t, [{ verdict: "authorized", confidence: 0.86 }]);
 	const table = await openTable({ responses: turn(bookkeeping), env: KEY,
-		laneResponses: { admission: [verdict({ verdict: "not_authorized", grounds: "only interest", missing: "which archive to visit" })] } });
+		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "only interest", missing: "which archive to visit" }, 300)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt("那看看报纸");
 
@@ -98,7 +101,7 @@ test("below the threshold the lane decides, and its refusal stands", async (t) =
 test("a typed refusal on any line escalates to the lane, however confident; it never refuses on its own here", async (t) => {
 	installJev(t, [{ verdict: "authorized", confidence: 0.99 }, { verdict: "not_authorized", confidence: 0.99 }]);
 	const table = await openTable({ responses: turn(bookkeeping), env: KEY,
-		laneResponses: { admission: [verdict({ verdict: "authorized", grounds: "the player named the Globe morgue" })] } });
+		laneResponses: { admission: [slowVerdict({ verdict: "authorized", grounds: "the player named the Globe morgue" }, 300)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 
@@ -113,39 +116,40 @@ test("a typed refusal on any line escalates to the lane, however confident; it n
 test("an uncertain line escalates too", async (t) => {
 	installJev(t, [{ verdict: "uncertain", confidence: 0.95 }]);
 	const table = await openTable({ responses: turn(bookkeeping), env: KEY,
-		laneResponses: { admission: [verdict({ verdict: "entailed", grounds: "the search takes the time" })] } });
+		laneResponses: { admission: [slowVerdict({ verdict: "entailed", grounds: "the search takes the time" }, 300)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 	assert.equal(table.lanes.admission.requests().length, 1);
 	assert.equal(admissionRows(table)[0].jev_fallback, "typed_refusal");
 });
 
-test("a resolve on an investigator is not on the fast path: no typed request, the lane decides", async (t) => {
-	const requests = installJev(t, [{ verdict: "authorized", confidence: 0.99 }]);
+test("a resolve on an investigator is not on the fast path: however confident the typed answer, the lane decides (§32.12.2: both run)", async (t) => {
+	installJev(t, [{ verdict: "authorized", confidence: 0.99 }]);
 	const table = await openTable({ env: KEY,
 		responses: [
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "翻剪报", method: "用图书馆使用查旧闻" } })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "你翻着剪报。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
-		laneResponses: { admission: [verdict({ verdict: "authorized", grounds: "the player said so" })] } });
+		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "the player only asked about clippings", missing: "which method" }, 300)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻剪报");
-	assert.equal(requests.length, 0);
 	assert.equal(table.lanes.admission.requests().length, 1);
+	assert.equal(kernelCalls(table, "table.resolve").length, 0, "the lane's refusal stood over a typed 0.99 admission");
 	const [row] = admissionRows(table);
 	assert.equal(row.path, "lane");
 	assert.equal(row.fast_path, undefined);
+	assert.equal(row.jev_fallback, undefined, "the typed answer could not stand here, so no fallback is named");
 });
 
-test("a batch carrying a kind §32 ties to consent (an item) is not a bookkeeping batch: no typed request by default", async (t) => {
-	const requests = installJev(t, [{ verdict: "authorized", confidence: 0.99 }]);
+test("a batch carrying a kind §32 ties to consent (an item) is not a bookkeeping batch: a confident typed admission does not stand, the lane decides", async (t) => {
+	installJev(t, [{ verdict: "authorized", confidence: 0.99 }]);
 	const table = await openTable({ env: KEY,
 		responses: turn([{ kind: "clue", clue: "globe-unpublished-story" }, { kind: "item", name: "剪报", quantity: 1, why: "带走" }]),
-		laneResponses: { admission: [verdict({ verdict: "authorized", grounds: "the player asked for it" })] } });
+		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "taking the clippings away was not asked", missing: "whether to take them" }, 300)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
-	assert.equal(requests.length, 0);
 	assert.equal(table.lanes.admission.requests().length, 1);
+	assert.equal(kernelCalls(table, "table.apply").length, 0, "the lane's refusal stood");
 	assert.equal(admissionRows(table)[0].path, "lane");
 });

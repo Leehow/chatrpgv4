@@ -18,6 +18,8 @@ const JEV_ENV = { PI_COC_ADMISSION_REVIEWER: "jev", EXT_JEV_APIKEY: "test-jev-ke
 const kernelCalls = (table, method) => table.kernelRequests().filter((entry) => entry.method === method);
 const admissionRows = (table) => table.telemetry().filter((row) => row.lane === "admission");
 const verdict = (row) => fauxAssistantMessage(JSON.stringify(row));
+/** §32.12.2: the lane and the typed answer race; a lane answer delayed past Jev's makes the order the test's own. */
+const slowVerdict = (row, ms) => async () => { await new Promise((resolve) => setTimeout(resolve, ms)); return fauxAssistantMessage(JSON.stringify(row)); };
 
 function toolResultTexts(session, tool) {
 	return session.messages
@@ -74,14 +76,13 @@ function newspaperTurn() {
 	];
 }
 
-test("a confident typed admission settles the batch with no lane call, and the row says which reviewer decided", async (t) => {
+test("a confident typed admission settles the batch without the lane's verdict, and the row says which reviewer decided", async (t) => {
 	const requests = installJev(t, uniform("authorized"));
-	const table = await openTable({ responses: newspaperTurn(), env: JEV_ENV });
+	const table = await openTable({ responses: newspaperTurn(), env: JEV_ENV, laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "a lane that would refuse", missing: "x" }, 1500)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt("我去环球报的剪报室查那栋房子的旧闻");
 
-	assert.equal(kernelCalls(table, "table.apply").length, 1, "the admitted apply reached the kernel");
-	assert.equal(table.lanes.admission.requests().length, 0, "the lane was never asked");
+	assert.equal(kernelCalls(table, "table.apply").length, 1, "the admitted apply reached the kernel; the slow lane's refusal never landed");
 	assert.equal(requests.length, 1, "one typed batch");
 	// The batch reads the player's exact words and the proposal, one verdict question per line.
 	const [body] = requests;
@@ -107,7 +108,7 @@ test("a confident typed admission settles the batch with no lane call, and the r
 test("an unavailable typed service falls back to the lane, which decides exactly as it does alone", async (t) => {
 	const requests = installJev(t, { status: 503 });
 	const table = await openTable({ responses: newspaperTurn(), env: JEV_ENV,
-		laneResponses: { admission: [verdict({ verdict: "authorized", grounds: "the player named the Globe morgue" })] } });
+		laneResponses: { admission: [slowVerdict({ verdict: "authorized", grounds: "the player named the Globe morgue" }, 300)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt("我去环球报的剪报室查那栋房子的旧闻");
 
@@ -124,7 +125,7 @@ test("an unavailable typed service falls back to the lane, which decides exactly
 test("a typed answer under the family confidence is not a verdict: the lane decides", async (t) => {
 	installJev(t, uniform("authorized", { confidence: 0.6 }));
 	const table = await openTable({ responses: newspaperTurn(), env: JEV_ENV,
-		laneResponses: { admission: [verdict({ verdict: "not_authorized", grounds: "only interest", missing: "which archive to visit" })] } });
+		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "only interest", missing: "which archive to visit" }, 300)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt("那看看报纸");
 
@@ -146,12 +147,12 @@ test("a confident typed refusal refuses the whole batch with host-derived ground
 		if (key.startsWith("missing_")) return { choice: "none", confidence: 0.9 };
 		return { choice: state.playerWords[0].alias, confidence: 0.9 };
 	});
-	const table = await openTable({ responses: newspaperTurn(), env: JEV_ENV });
+	const table = await openTable({ responses: newspaperTurn(), env: JEV_ENV,
+		laneResponses: { admission: [slowVerdict({ verdict: "authorized", grounds: "a lane that would admit" }, 1500)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt("那看看报纸");
 
-	assert.equal(kernelCalls(table, "table.apply").length, 0, "nothing reached the kernel");
-	assert.equal(table.lanes.admission.requests().length, 0, "the lane was never asked");
+	assert.equal(kernelCalls(table, "table.apply").length, 0, "nothing reached the kernel: the typed refusal stood, not the slow lane's admission");
 	const [text] = toolResultTexts(table.session, "apply");
 	assert.match(text, /^needs: The player has not chosen this action$/m);
 	// `missing` is the closed kind rendered by the host plus the line it is about.
@@ -194,21 +195,23 @@ test("with both reviewers down the review still refuses as unavailable, and a re
 	assert.ok(rows.every((row) => row.reviewer === "lane" && row.reason === "bad_output" && row.jev_fallback === "service_error"), JSON.stringify(rows));
 });
 
-test("the typed route is opt-in: by default no typed request is made (outside the bookkeeping fast path, §32.11)", async (t) => {
-	const requests = installJev(t, uniform("authorized"));
-	// A move-and-clue batch is a bookkeeping batch, which §32.11 puts to the typed reviewer first by default; with the
-	// fast path off it is the §32.10 opt-in this test pins.
-	const table = await openTable({ responses: newspaperTurn(), env: { EXT_JEV_APIKEY: "test-jev-key", PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: "off" } });
+test("the typed route is opt-in: by default a typed verdict never stands, however confident (outside the bookkeeping fast path, §32.11)", async (t) => {
+	installJev(t, uniform("authorized"));
+	// A move-and-clue batch is a bookkeeping batch, which §32.11 lets a typed admission settle by default; with the fast
+	// path off it is the §32.10 opt-in this test pins. §32.12.2: the typed attempt runs beside the lane (its reading is
+	// what a pending call carries), but only the configured reviewer decides.
+	const table = await openTable({ responses: newspaperTurn(), env: { EXT_JEV_APIKEY: "test-jev-key", PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: "off" },
+		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "only interest", missing: "which archive to visit" }, 300)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt("我去环球报的剪报室查那栋房子的旧闻");
 
-	assert.equal(requests.length, 0);
 	assert.equal(table.lanes.admission.requests().length, 1);
+	assert.equal(kernelCalls(table, "table.apply").length, 0, "the lane's refusal stood over a typed 0.97 admission");
 	assert.equal(admissionRows(table)[0].reviewer, "lane");
 });
 
-test("a batch carrying cash goes to the lane without a typed call: numbers are the lane's to compare", async (t) => {
-	const requests = installJev(t, uniform("authorized"));
+test("a batch carrying cash is the lane's to decide: a confident typed answer never stands on it, numbers are the lane's to compare", async (t) => {
+	installJev(t, uniform("authorized"));
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "cash", delta: -5, source: "quote", with: "Clerk" }] })], { stopReason: "toolUse" }),
@@ -216,12 +219,13 @@ test("a batch carrying cash goes to the lane without a typed call: numbers are t
 			fauxAssistantMessage("after"),
 		],
 		env: JEV_ENV,
+		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "no price was told or accepted", missing: "the price" }, 300)] },
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("加满油");
 
-	assert.equal(requests.length, 0);
 	assert.equal(table.lanes.admission.requests().length, 1);
+	assert.equal(kernelCalls(table, "table.apply").length, 0, "the lane's refusal stood over a typed 0.97 admission");
 	const [row] = admissionRows(table);
 	assert.equal(row.reviewer, "lane");
 	assert.equal(row.jev_fallback, "numeric_commitment");
@@ -237,6 +241,7 @@ test("a typed verdict is reused for the same proposal within the turn, with no s
 			fauxAssistantMessage("after"),
 		],
 		env: JEV_ENV,
+		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "a lane that would refuse", missing: "x" }, 1500)] },
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻翻抽屉");
@@ -246,5 +251,6 @@ test("a typed verdict is reused for the same proposal within the turn, with no s
 	assert.equal(rows.length, 2);
 	assert.equal(rows[1].reused, true);
 	assert.equal(rows[1].reviewer, "jev");
-	assert.equal(table.lanes.admission.requests().length, 0);
+	assert.ok(table.lanes.admission.requests().length <= 1, "at most the one lane round abandoned for the typed verdict; the reuse started none");
+	assert.equal(kernelCalls(table, "table.resolve").length, 2);
 });
