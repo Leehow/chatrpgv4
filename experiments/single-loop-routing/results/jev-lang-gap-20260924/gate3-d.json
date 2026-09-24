@@ -1,0 +1,452 @@
+{
+ "label": "ask cut to obligation + none only",
+ "rows": {
+  "destination": [
+   {
+    "id": "central-library",
+    "describe": {
+     "place": "Central Library",
+     "handle": "central-library"
+    }
+   },
+   {
+    "id": "hall-of-records",
+    "describe": {
+     "place": "Hall of Records",
+     "handle": "hall-of-records"
+    }
+   },
+   {
+    "id": "neighborhood-gossip",
+    "describe": {
+     "place": "neighborhood-gossip"
+    }
+   },
+   {
+    "id": "previous-tenants",
+    "describe": {
+     "place": "previous-tenants"
+    }
+   },
+   {
+    "id": "corbitt-house-ground",
+    "describe": {
+     "place": "corbitt-house-ground"
+    }
+   },
+   {
+    "id": "commission-briefing",
+    "describe": {
+     "place": "Knott's Office",
+     "handle": "commission-briefing"
+    }
+   }
+  ],
+  "addressee": [
+   {
+    "id": "Arty Wilmot",
+    "describe": {
+     "label": "戴绿眼罩的编辑",
+     "role": "gatekeeper"
+    }
+   },
+   {
+    "id": "Ruth Blake",
+    "describe": {
+     "label": "整理剪报的女人",
+     "role": "helpful_staff"
+    }
+   }
+  ],
+  "ask": [
+   {
+    "id": "obligation:globe-clippings-access",
+    "describe": {
+     "demand": "Access to the Globe clippings",
+     "guards": [
+      "clue globe-unpublished-story (An unpublished 1918 feature lists prior tenants ruined by accidents, illness, and suicide; the Macarios fled under mysterious circumstances.)",
+      "clue macario-tragedy (The Macario family rented in 1918 and left almost immediately under mysterious circumstances; they are now linked to Roxbury Sanitarium.)"
+     ]
+    }
+   }
+  ],
+  "act": [
+   {
+    "id": "investigate",
+    "describe": "investigate: An investigative, observational or technical action."
+   },
+   {
+    "id": "social",
+    "describe": "social: An interpersonal action."
+   },
+   {
+    "id": "move",
+    "describe": "move: An uncertain movement action or obstacle."
+   },
+   {
+    "id": "combat",
+    "describe": "combat"
+   },
+   {
+    "id": "flee",
+    "describe": "flee"
+   },
+   {
+    "id": "cast",
+    "describe": "cast"
+   },
+   {
+    "id": "idle",
+    "describe": "idle"
+   },
+   {
+    "id": "meta",
+    "describe": "meta"
+   },
+   {
+    "id": "stuck",
+    "describe": "stuck"
+   },
+   {
+    "id": "ambiguous",
+    "describe": "ambiguous"
+   },
+   {
+    "id": "montage",
+    "describe": "montage"
+   }
+  ],
+  "target": [],
+  "item": [
+   {
+    "id": "笔记本",
+    "describe": {
+     "item": "笔记本"
+    }
+   },
+   {
+    "id": "开锁工具",
+    "describe": {
+     "item": "开锁工具"
+    }
+   },
+   {
+    "id": "手电筒",
+    "describe": {
+     "item": "手电筒"
+    }
+   },
+   {
+    "id": "徽章",
+    "describe": {
+     "item": "徽章"
+    }
+   },
+   {
+    "id": "科比特宅钥匙",
+    "describe": {
+     "item": "科比特宅钥匙"
+    }
+   }
+  ]
+ },
+ "results": [
+  {
+   "run": 1,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.22,
+    "probabilities": {
+     "unclear": 0.09,
+     "none": 0.43,
+     "ask_1": 0.48
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.59,
+    "probabilities": {
+     "unclear": 0.69,
+     "addressee_1": 0.18,
+     "none": 0.01,
+     "addressee_2": 0.12
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 2,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.29,
+    "probabilities": {
+     "unclear": 0.1,
+     "ask_1": 0.52,
+     "none": 0.38
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.56,
+    "probabilities": {
+     "addressee_1": 0.19,
+     "addressee_2": 0.13,
+     "unclear": 0.67,
+     "none": 0.01
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 3,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.3,
+    "probabilities": {
+     "unclear": 0.09,
+     "ask_1": 0.54,
+     "none": 0.37
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.58,
+    "probabilities": {
+     "unclear": 0.68,
+     "addressee_1": 0.19,
+     "addressee_2": 0.12,
+     "none": 0.01
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 4,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.39,
+    "probabilities": {
+     "none": 0.33,
+     "unclear": 0.07,
+     "ask_1": 0.6
+    },
+    "cleared": true
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.51,
+    "probabilities": {
+     "none": 0.01,
+     "addressee_2": 0.13,
+     "unclear": 0.64,
+     "addressee_1": 0.22
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 5,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.32,
+    "probabilities": {
+     "none": 0.36,
+     "ask_1": 0.55,
+     "unclear": 0.09
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.63,
+    "probabilities": {
+     "addressee_1": 0.17,
+     "addressee_2": 0.1,
+     "none": 0.01,
+     "unclear": 0.72
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 6,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.2,
+    "probabilities": {
+     "unclear": 0.08,
+     "ask_1": 0.47,
+     "none": 0.45
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.56,
+    "probabilities": {
+     "unclear": 0.66,
+     "none": 0.01,
+     "addressee_2": 0.11,
+     "addressee_1": 0.22
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 7,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.3,
+    "probabilities": {
+     "unclear": 0.08,
+     "ask_1": 0.54,
+     "none": 0.38
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.59,
+    "probabilities": {
+     "unclear": 0.7,
+     "addressee_1": 0.21,
+     "addressee_2": 0.09,
+     "none": 0
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 8,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.4,
+    "probabilities": {
+     "ask_1": 0.6,
+     "none": 0.34,
+     "unclear": 0.06
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.54,
+    "probabilities": {
+     "addressee_1": 0.21,
+     "addressee_2": 0.13,
+     "none": 0.01,
+     "unclear": 0.65
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 9,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.23,
+    "probabilities": {
+     "unclear": 0.1,
+     "ask_1": 0.48,
+     "none": 0.42
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.57,
+    "probabilities": {
+     "unclear": 0.68,
+     "none": 0.01,
+     "addressee_2": 0.07,
+     "addressee_1": 0.24
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 10,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.38,
+    "probabilities": {
+     "none": 0.35,
+     "unclear": 0.07,
+     "ask_1": 0.58
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.52,
+    "probabilities": {
+     "none": 0.01,
+     "unclear": 0.64,
+     "addressee_1": 0.22,
+     "addressee_2": 0.13
+    },
+    "cleared": true
+   }
+  }
+ ],
+ "summary": {
+  "n": 10,
+  "obligation": {
+   "mean": 0.5359999999999999,
+   "spread": 0.13,
+   "values": [
+    0.48,
+    0.52,
+    0.54,
+    0.6,
+    0.55,
+    0.47,
+    0.54,
+    0.6,
+    0.48,
+    0.58
+   ],
+   "cleared_at_gate": 1
+  },
+  "addressee_arty": {
+   "mean": 0.20500000000000002,
+   "spread": 0.06999999999999998,
+   "values": [
+    0.18,
+    0.19,
+    0.19,
+    0.22,
+    0.17,
+    0.22,
+    0.21,
+    0.21,
+    0.24,
+    0.22
+   ],
+   "cleared_at_gate": 0
+  }
+ }
+}

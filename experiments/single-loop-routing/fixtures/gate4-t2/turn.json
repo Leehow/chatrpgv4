@@ -1,0 +1,12 @@
+{
+ "campaign": "gate4-haunting-0214",
+ "module": "the-haunting",
+ "turn": 2,
+ "commit_after": "28b1a51",
+ "player_input": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。",
+ "tarball": "../gate4/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/gate4-haunting-0214",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/gate4-haunting-0214-20260924T061454Z"
+ }
+}

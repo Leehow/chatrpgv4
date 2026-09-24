@@ -1,0 +1,481 @@
+{
+ "label": "translated input (en), same rows",
+ "rows": {
+  "destination": [
+   {
+    "id": "central-library",
+    "describe": {
+     "place": "Central Library",
+     "handle": "central-library"
+    }
+   },
+   {
+    "id": "hall-of-records",
+    "describe": {
+     "place": "Hall of Records",
+     "handle": "hall-of-records"
+    }
+   },
+   {
+    "id": "neighborhood-gossip",
+    "describe": {
+     "place": "neighborhood gossip",
+     "handle": "neighborhood-gossip"
+    }
+   },
+   {
+    "id": "previous-tenants",
+    "describe": {
+     "place": "previous tenants",
+     "handle": "previous-tenants"
+    }
+   },
+   {
+    "id": "corbitt-house-ground",
+    "describe": {
+     "place": "Corbitt house grounds",
+     "handle": "corbitt-house-ground"
+    }
+   },
+   {
+    "id": "commission-briefing",
+    "describe": {
+     "place": "Knott's Office",
+     "handle": "commission-briefing"
+    }
+   }
+  ],
+  "addressee": [
+   {
+    "id": "Arty Wilmot",
+    "describe": {
+     "label": "阿蒂·威尔莫特",
+     "role": "gatekeeper"
+    }
+   },
+   {
+    "id": "Ruth Blake",
+    "describe": {
+     "name": "Ruth Blake",
+     "role": "clippings clerk"
+    }
+   }
+  ],
+  "ask": [
+   {
+    "id": "obligation:globe-clippings-access",
+    "describe": {
+     "demand": "Access to the Globe clippings",
+     "guards": [
+      "clue globe-unpublished-story (An unpublished 1918 feature lists prior tenants ruined by accidents, illness, and suicide; the Macarios fled under mysterious circumstances.)",
+      "clue macario-tragedy (The Macario family rented in 1918 and left almost immediately under mysterious circumstances; they are now linked to Roxbury Sanitarium.)"
+     ]
+    }
+   },
+   {
+    "id": "clue:globe-fire-cutoff",
+    "describe": {
+     "clue": "Globe files go back no further than a fire in 1878 — earlier Corbitt House mentions are not here."
+    }
+   },
+   {
+    "id": "handout:Boston Globe City Desk Copy — Held from Print (1918)",
+    "describe": {
+     "handout": "Boston Globe City Desk Copy — Held from Print (1918)"
+    }
+   }
+  ],
+  "act": [
+   {
+    "id": "investigate",
+    "describe": "investigate: An investigative, observational or technical action."
+   },
+   {
+    "id": "social",
+    "describe": "social: An interpersonal action."
+   },
+   {
+    "id": "move",
+    "describe": "move: An uncertain movement action or obstacle."
+   },
+   {
+    "id": "combat",
+    "describe": "combat"
+   },
+   {
+    "id": "flee",
+    "describe": "flee"
+   },
+   {
+    "id": "cast",
+    "describe": "cast"
+   },
+   {
+    "id": "idle",
+    "describe": "idle"
+   },
+   {
+    "id": "meta",
+    "describe": "meta"
+   },
+   {
+    "id": "stuck",
+    "describe": "stuck"
+   },
+   {
+    "id": "ambiguous",
+    "describe": "ambiguous"
+   },
+   {
+    "id": "montage",
+    "describe": "montage"
+   }
+  ],
+  "target": [],
+  "item": [
+   {
+    "id": "笔记本",
+    "describe": {
+     "item": "笔记本"
+    }
+   },
+   {
+    "id": "开锁工具",
+    "describe": {
+     "item": "开锁工具"
+    }
+   },
+   {
+    "id": "手电筒",
+    "describe": {
+     "item": "手电筒"
+    }
+   },
+   {
+    "id": "徽章",
+    "describe": {
+     "item": "徽章"
+    }
+   }
+  ]
+ },
+ "results": [
+  {
+   "run": 1,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.33,
+    "probabilities": {
+     "ask_3": 0.05,
+     "none": 0.22,
+     "unclear": 0.1,
+     "ask_1": 0.47000000000000003,
+     "ask_2": 0.16
+    },
+    "cleared": true
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.84,
+    "probabilities": {
+     "none": 0.01,
+     "addressee_1": 0.04,
+     "addressee_2": 0.08,
+     "unclear": 0.87
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 2,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.2,
+    "probabilities": {
+     "ask_3": 0.07,
+     "unclear": 0.1,
+     "ask_1": 0.35,
+     "none": 0.32,
+     "ask_2": 0.16
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.82,
+    "probabilities": {
+     "addressee_1": 0.03,
+     "addressee_2": 0.1,
+     "unclear": 0.86,
+     "none": 0.01
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 3,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.27,
+    "probabilities": {
+     "ask_2": 0.17,
+     "none": 0.22,
+     "unclear": 0.14,
+     "ask_3": 0.05,
+     "ask_1": 0.42
+    },
+    "cleared": true
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.81,
+    "probabilities": {
+     "none": 0.01,
+     "unclear": 0.85,
+     "addressee_1": 0.04,
+     "addressee_2": 0.1
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 4,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.22,
+    "probabilities": {
+     "ask_2": 0.17,
+     "ask_3": 0.07,
+     "ask_1": 0.38,
+     "none": 0.28,
+     "unclear": 0.1
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.82,
+    "probabilities": {
+     "none": 0.01,
+     "addressee_2": 0.1,
+     "addressee_1": 0.03,
+     "unclear": 0.86
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 5,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.28,
+    "probabilities": {
+     "unclear": 0.1,
+     "none": 0.26,
+     "ask_1": 0.42,
+     "ask_3": 0.05,
+     "ask_2": 0.17
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.85,
+    "probabilities": {
+     "addressee_2": 0.08,
+     "unclear": 0.88,
+     "none": 0.01,
+     "addressee_1": 0.03
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 6,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.34,
+    "probabilities": {
+     "none": 0.21,
+     "ask_2": 0.17,
+     "ask_1": 0.47,
+     "unclear": 0.1,
+     "ask_3": 0.05
+    },
+    "cleared": true
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.82,
+    "probabilities": {
+     "addressee_2": 0.1,
+     "none": 0.01,
+     "unclear": 0.85,
+     "addressee_1": 0.04
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 7,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.4,
+    "probabilities": {
+     "unclear": 0.1,
+     "ask_1": 0.52,
+     "none": 0.21,
+     "ask_3": 0.05,
+     "ask_2": 0.12
+    },
+    "cleared": true
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.82,
+    "probabilities": {
+     "unclear": 0.86,
+     "addressee_1": 0.03,
+     "addressee_2": 0.1,
+     "none": 0.01
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 8,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.31,
+    "probabilities": {
+     "unclear": 0.09,
+     "ask_1": 0.44,
+     "none": 0.22,
+     "ask_3": 0.06,
+     "ask_2": 0.19
+    },
+    "cleared": true
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.85,
+    "probabilities": {
+     "unclear": 0.88,
+     "addressee_1": 0.02,
+     "none": 0.01,
+     "addressee_2": 0.09
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 9,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.25,
+    "probabilities": {
+     "none": 0.24,
+     "ask_2": 0.19,
+     "ask_1": 0.4,
+     "unclear": 0.11,
+     "ask_3": 0.06
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.83,
+    "probabilities": {
+     "none": 0,
+     "addressee_1": 0.02,
+     "addressee_2": 0.1,
+     "unclear": 0.88
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 10,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.26,
+    "probabilities": {
+     "ask_3": 0.05,
+     "ask_2": 0.2,
+     "none": 0.23,
+     "unclear": 0.12,
+     "ask_1": 0.39999999999999997
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.86,
+    "probabilities": {
+     "unclear": 0.9,
+     "none": 0.01,
+     "addressee_1": 0.02,
+     "addressee_2": 0.07
+    },
+    "cleared": true
+   }
+  }
+ ],
+ "summary": {
+  "n": 10,
+  "obligation": {
+   "mean": 0.42699999999999994,
+   "spread": 0.17000000000000004,
+   "values": [
+    0.47000000000000003,
+    0.35,
+    0.42,
+    0.38,
+    0.42,
+    0.47,
+    0.52,
+    0.44,
+    0.4,
+    0.39999999999999997
+   ],
+   "cleared_at_gate": 5
+  },
+  "addressee_arty": {
+   "mean": 0.030000000000000006,
+   "spread": 0.02,
+   "values": [
+    0.04,
+    0.03,
+    0.04,
+    0.03,
+    0.03,
+    0.04,
+    0.03,
+    0.02,
+    0.02,
+    0.02
+   ],
+   "cleared_at_gate": 0
+  }
+ }
+}
