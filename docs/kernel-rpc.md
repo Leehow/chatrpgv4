@@ -7075,6 +7075,39 @@ fast path's typed call; a Keeper-origin write of the same turn reviewed by the l
 `basis.compile`, an unrecorded parameter, a path outside the four). Mutations and the gate3-t2 replays are in the SL-18
 ticket's Comments.
 
+#### 32.12.1 Addendum (2026-09-24, SL-21): the compile's evidence survives the step the book puts first
+
+**Evidence** (live gate #7, `gate7-haunting-0534`, turn 2, run `run-01a0d2c6-2549-7171-a3d9-b9ee6eaddf9a`, the `lane: "route"`,
+`lane: "run"` and `lane: "admission"` rows of its `telemetry.jsonl`). The compile (s2) selected
+`resolve:obligation:globe-clippings-access` (`ask` 0.91, `addressee` Arty 0.51 cleared by the margin, `act` social 0.97).
+Arty was not on stage, so the check carried the meeting the book puts before it (§135.26 `before`): the clerk staged Arty
+(s3), Jev bound the check (s4), the clerk executed it (s5). The admission row of s5 was `path: "lane"` with **no
+`compile_refused`**, and its `basis` had `obligation`, `step`, `row`, `binding`, `rule_default` and no `compile`.
+
+**Cause.** `settleExecute` (`runtime/jev/step-policy.ts`) hands a carried step on to the candidate it was carried for **as
+the fresh read re-issues it** (`view.candidates.find(value => value.key === item.candidate.then)`). That is the builder's
+candidate: `basis.compile` (and any parameter the compile settled) lives only on the candidate `interpretCompile` returned,
+which `itemsFor` replaced by its `before` step, keeping only the key in `then`. The bind then stamped its default on a
+basis without the compile, the host origin carried none, and `compileAdmission` answered "not a compile selection" (no
+`basis.compile`), so the review ran and there was no refusal reason to record. Not a gate-3 shape: at gates #3 and #6 Arty
+was already on stage, so the check had no `before` and kept the compile's candidate.
+
+**Rule.** A carried step carries the compile's record of the candidate it was carried for (`thenCompile`: the selected
+candidate's `basis.compile`), and the hand-on re-applies it to the re-issued candidate: `basis.compile` is put on the
+fresh read's basis (whose kernel row -- `row`, `obligation`, `step` -- is the fresh one), and each parameter the compile
+settled (`basis.compile.bound`) is bound again when the re-issued candidate still offers that value; when it no longer
+does, the record is not carried and the check is an ordinary clerk write, reviewed (fail closed). The compile's reading
+of the player's words does not change because the clerk staged the person the book puts first. Everything §32.12 says
+of the exemption then applies unchanged: admitted `path: "compile"` when every fired-on feature cleared and every bound
+parameter has a recorded path; otherwise reviewed with `compile_refused`. A candidate the route (not the compile)
+selected carries no `thenCompile` and is reviewed as before.
+
+*Tests.* `tests/extension/admission-within-turn.test.mjs`: the gate #7 shape at the seam (the emitted kernel, Arty not yet
+staged, the compile at 0.91 / 0.51 by the margin / 0.97): the meeting then the check, the check's admission row `path:
+"compile"` with `basis.compile` and no lane request, both with Jev's approach above the gate (`jev`) and under it
+(`jev_lead`, §135.28); `tests/extension/single-loop-binding.test.mjs`: the hand-on at the policy keeps `basis.compile`
+and re-binds a compile-settled parameter, and drops the record when the re-issued candidate no longer offers the value.
+
 ## 33. Creation difficulty: an extension setting scaled into chargen (2026-09-11)
 
 A difficulty setting for character creation, owned by the COC Keeper extension's
@@ -18054,20 +18087,36 @@ required open parameter, and every closed one Jev did not settle, to `infer(bind
 | path | what | where |
 | --- | --- | --- |
 | `jev` | a closed parameter Jev answers above the gate (`decide(bind)`; the ordinary check's binder) | `interpretBind` / `settleOrdinaryBind` (`runtime/jev/step-policy.ts`) |
-| `rule-default` | a closed parameter Jev answers `unknown`, below the gate, or is not asked (unavailable, or the run's Jev budget is spent) | the default rides on the parameter (`Unbound.ruleDefault`), computed by the builder; `clerkBind` applies it |
+| `rule-default` | a closed parameter Jev answers `unknown`, below the gate, or is not asked (unavailable, or the run's Jev budget is spent); for the approach, Jev's leading skill under the gate (`jev_lead`, SL-21) | the default rides on the parameter (`Unbound.ruleDefault`), computed by the builder; `clerkBind` applies it |
 | `stated` | a value the kernel row issues: a single target, weapon, actor or approach, a standing's word, a difficulty, an obligation handle | the candidate builder (`candidates.ts`, `obligation-candidates.ts`) |
 | `composed` | an explanatory argument composed by code from the candidate's source and the player's words, quoted | `runtime/jev/composed-arguments.ts` (`composeSentence`) |
 
 **Rules defaults** (`Unbound.ruleDefault = {rule, value?, by?}`), arithmetic over values the kernel issued, never over
 words:
 
-- **The approach** (`skill` of an obligation check with several approaches, §135.26): `highest_offered_skill`, the
-  actor's highest current value among the offered approaches, read from the `value` of the actor's
-  `table.resolve.options` profile rows (`availability: "bound"` only; a value the kernel does not bind is not compared).
-  A tie goes to the first in the book's stated order. When the actor is itself still a closed choice, the default is one
-  value per actor (`by: {name: "actor", values}`) and follows the actor Jev bound. No bound value among the approaches:
-  no default. The ordinary check has no approach default: its skill is the player's method, which the binder never
-  picks by value (§135.3 (c): an ambiguous one is the Keeper's).
+- **The approach** (`skill` of an obligation check with several approaches, §135.26): **`jev_lead`**, then
+  `highest_offered_skill` (amended 2026-09-24 by SL-21, the spec's ruling "The approach follows the declaration's
+  manner, not the actor's numbers"; the SL-12 default below was the whole rule until then).
+  - **`jev_lead`**: when Jev's bind answer for the approach leads with one of the offered skills (the answer's `choice`
+    is an offered skill, not `unknown`), that skill is the approach at any confidence: below the gate and below the
+    margin rule included. It is recorded `path: "rule-default"`, `rule: "jev_lead"`, with the answer's confidence and
+    distribution, and stamped `rule_default: {skill: {value, rule: "jev_lead"}}` on the basis. The approach is a matter of
+    what the player did, which Jev reads from the words; a skill value cannot pick a manner. Above the gate the answer
+    is the ordinary `jev` path, as for every closed parameter.
+  - **`highest_offered_skill`**, the fallback, only when Jev answers `unknown` or does not answer (the batch unavailable
+    or failed, the question unanswered, the run's Jev budget spent so nothing was asked): the actor's highest current
+    value among the offered approaches, read from the `value` of the actor's `table.resolve.options` profile rows
+    (`availability: "bound"` only; a value the kernel does not bind is not compared). A tie goes to the first in the
+    book's stated order. When the actor is itself still a closed choice, the fallback is one value per actor (`by:
+    {name: "actor", values}`) and follows the actor Jev bound. No bound value among the approaches: no fallback, so an
+    `unknown` (or no answer) leaves the approach to the Keeper, while a leading skill still binds by `jev_lead`.
+  - On the parameter the builder writes `ruleDefault: {rule: "jev_lead", fallback?: {rule: "highest_offered_skill",
+    value | by}}`; `clerkBind` reads the rule, never a skill name. Evidence: live gate #7 (`gate7-haunting-0534`, turn 2,
+    run `run-01a0d2c6-2549-7171-a3d9-b9ee6eaddf9a`): "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。", Jev's approach Persuade 0.67 /
+    `unknown` 0.31 / Intimidate 0 at confidence 0.59; the old default took Intimidate (the investigator's highest of the
+    four) and the §32 lane refused the clerk's check: "explaining purpose and asking a favor; nothing chooses coercion".
+  The ordinary check has no approach default: its skill is the player's method, which the binder never picks by value
+  (§135.3 (c): an ambiguous one is the Keeper's).
 - **Dice modifiers** (`bonus`, `penalty`): `no_modifier`, the dice word `none`.
 - **The intent:** the one the obligation, the Mod or the session declares. A session step binds its intent from the
   session view (never asked). **Neither an obligation row (§134.9) nor a Mod contact row (§28) declares an intent
@@ -18083,7 +18132,9 @@ and a default it took is stamped on the operation's `basis` beside `obligation` 
 and `rule_default: {<parameter>: {value, rule}}`. That basis is the one every row of the call carries (the tool row and
 each `lane: "admission"` row, §135.7) and the one the Keeper's `coc-clerk` note shows (`clerk_did[].basis`), with one
 line (`clerk_did[].binding`): "rules default: skill Persuade (the investigator's highest of the offered skills); the
-player's words did not settle it. If the fiction calls for another choice, settle it with your own operation." The
+player's words did not settle it. If the fiction calls for another choice, settle it with your own operation." (Since
+SL-21 a `jev_lead` approach reads "skill Persuade (Jev's leading reading of the player's words, under the confidence
+gate)".) The
 Keeper overrides with an ordinary operation of its own (its own receipt); there is no new verb and no pending state.
 
 **Composed explanations** (`composeSentence(lead, quote?)`): one sentence, `<lead>; player: "<the declaration>"`,
@@ -18290,7 +18341,8 @@ question (§135.2, and §135.26's fact question for an obligation whose `ask` di
 ordinary check, a session step other than the investigator's attack). The exit question stays with the route. A
 selected candidate's `basis` gains `compile: {predicate, features}` (the cleared rows it fired on; since 2026-09-24 also
 `read_features`, each family the predicate can read with its row, confidence and whether it cleared; admission reads the
-records of the features the predicate fired on, §32.12), which every row of the
+records of the features the predicate fired on, §32.12; since SL-21 it survives the meeting a selected check carries and
+is re-applied to the check the fresh read re-issues, §32.12.1), which every row of the
 call and the Keeper's `clerk_did` carry (§135.7, §135.8).
 
 **It replaces the first fan-out.** When the compile selects, its candidates are the run's pending steps in the route's
