@@ -22,7 +22,7 @@
  * Labels carry the demand and what it guards. The page, the handle's kernel tags and `authority` strings stay in
  * `basis`, which Jev and the model never read.
  *
- * Binding never goes to the LLM (§135.27): the approach among several and the dice words are closed Jev binds with a
+ * Binding never goes to the LLM (§135.28): the approach among several and the dice words are closed Jev binds with a
  * rules default each (the actor's highest current value among the offered approaches, first in the stated order on a
  * tie; no modifier), and the meeting's `why` is composed from the demand and the player's words, quoted.
  */
@@ -169,7 +169,7 @@ function available(reads: ObligationReads, approaches: Row[], actor: string | un
 }
 
 /**
- * The rules default of the approach (§135.27): the actor's highest current value among the offered approaches, read from
+ * The rules default of the approach (§135.28): the actor's highest current value among the offered approaches, read from
  * the profiles the kernel issues in `table.resolve.options` (a value the kernel does not bind is not compared); a tie goes
  * to the first in the book's stated order. Arithmetic over issued values, never over words. None when no offered approach
  * has a bound value.
@@ -217,7 +217,7 @@ function check(reads: ObligationReads, row: Row, index: number, rawInput: string
       unbound.push({name, required: true, vocabulary: 'closed', options: Object.keys(DICE), descriptions: descriptors(name), instruction: ORDINARY_CHOICES[name].instructions,
         ruleDefault: {rule: 'no_modifier', value: 'none'}});
   }
-  // The obligation row declares no intent (§134.9 issues none), so the intent is Jev's alone: no rules default (§135.27).
+  // The obligation row declares no intent (§134.9 issues none), so the intent is Jev's alone: no rules default (§135.28).
   unbound.push({name: 'intent', required: true, vocabulary: 'closed', options: CHECK_INTENTS, descriptions: descriptors('intent'), instruction: ORDINARY_CHOICES.intent.instructions});
   const {words, detail} = guarded(reads, row);
   const how = approach ? listed(skills, 'or') : `the higher of ${listed(skills, 'and')}`;

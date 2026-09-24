@@ -81,7 +81,7 @@ test("candidates come from the kernel's own reads: each carries its clerk author
 	assert.deepEqual(candidates.filter((candidate) => candidate.family === "move").map((candidate) => candidate.key), available);
 	assert.ok(state.applyOptions.candidates.some((row) => row.description?.unlock_when?.met === false), "the fresh campaign does have gated moves");
 	// The person present and not yet introduced, with no label of the table's own: no data source gives the name (an
-	// improvised name), so staging him is the Keeper's to propose and is not issued to the clerk (§135.27).
+	// improvised name), so staging him is the Keeper's to propose and is not issued to the clerk (§135.28).
 	assert.equal(candidates.find((candidate) => candidate.key === "apply:person:Steven Knott"), undefined);
 	// With the table's own label he is the clerk's, bound whole: the name is the label, the why is composed.
 	const labelled = buildCandidates({ ...state, capsule: { ...state.capsule, present: state.capsule.present.map((row) =>
@@ -174,7 +174,7 @@ test("an NPC's pending defence without a standing keeps the closed choice: sever
 	const answer = (choice, confidence = 0.9) => ({ batchId: batch.id, status: "complete", issues: [], coverage: { required: ["defense"], answered: ["defense"], unknown: [] },
 		answers: { defense: { status: "answered", type: "choice", choice, confidence } } });
 	assert.deepEqual(interpretBind(defend, batch, answer("fight_back"), 0.6).pending.map((item) => [item.kind, item.purpose, item.extra?.defense]), [["direct", "execute", "fight_back"]]);
-	// §135.27: a defence among several has no rules default, so Jev's unknown hands the turn to the Keeper -- never an LLM bind.
+	// §135.28: a defence among several has no rules default, so Jev's unknown hands the turn to the Keeper -- never an LLM bind.
 	assert.deepEqual(interpretBind(defend, batch, answer("unknown"), 0.6).pending.map((item) => [item.kind, item.purpose, item.reason, item.extra?.unresolved]),
 		[["infer", "adjudicate", "clerk_unbound", ["defense"]]]);
 	// One legal option: bound at build time, run directly.
@@ -225,7 +225,7 @@ test("an NPC's own turn is a closed bind over the actions the kernel issues it; 
 	const attack = interpretBind(turnCandidate, batch, answer("combat:attack"), 0.6).pending;
 	assert.deepEqual(attack.map((item) => [item.kind, item.purpose]), [["direct", "execute"]]);
 	assert.deepEqual([attack[0].candidate.bound.target, attack[0].candidate.bound.weapon, attack[0].candidate.key], ["thomas-hayes", "unarmed", turnCandidate.key]);
-	// A manoeuvre's kind is not in the session view: no data source gives it, so the choice is the Keeper's (§135.27).
+	// A manoeuvre's kind is not in the session view: no data source gives it, so the choice is the Keeper's (§135.28).
 	assert.deepEqual(interpretBind(turnCandidate, batch, answer("combat:maneuver"), 0.6).pending.map((item) => [item.kind, item.purpose, item.reason, item.extra?.unresolved]),
 		[["infer", "adjudicate", "clerk_unbound", ["goal"]]]);
 });
@@ -375,7 +375,7 @@ test("SL-08: an NPC's turn without a disposition is a forced closed bind that in
 	assert.equal(tool, "apply");
 	assert.deepEqual(Object.keys(args.effects[0]).sort(), ["disposition", "kind", "name", "why"], "the model-visible shape: the host-only marker is added by the kernel extension, not here");
 	// Below the gate the Keeper completes the same write (the operation-completion path).
-	// Below the gate the disposition has no rules default: the Keeper is asked once and writes it (§135.27, never an LLM bind).
+	// Below the gate the disposition has no rules default: the Keeper is asked once and writes it (§135.28, never an LLM bind).
 	assert.deepEqual(interpretBind(inference, batch, answer("fights_then_flees", 0.4), 0.6).pending.map((item) => [item.kind, item.purpose, item.reason]),
 		[["infer", "adjudicate", "clerk_unbound"]]);
 	// Once written, the card has it and nothing is inferred again: the next read issues the standing instead.

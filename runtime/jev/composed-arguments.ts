@@ -1,5 +1,5 @@
 /**
- * Explanatory arguments the clerk composes by code (contract §135.27; the spec's ruling "Parameter binding never goes
+ * Explanatory arguments the clerk composes by code (contract §135.28; the spec's ruling "Parameter binding never goes
  * to the LLM"). An explanatory parameter of a clerk write (`why` on a person, a meeting or a combat disposition) is
  * never generated: it is put together from what the candidate already carries -- the obligation's demand, the table's
  * own label, the parameters a disposition was read from -- and the player's declaration, quoted as typed.

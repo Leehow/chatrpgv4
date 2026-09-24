@@ -71,7 +71,7 @@ export async function runTurn(ports: LoopPorts, initial: RunView, options: {gate
     }
     if (request.kind === 'decide') {
       const candidate = request.item.candidate!;
-      // §135.27: a clerk bind past the Jev budget is settled without asking Jev (rules defaults, else the Keeper).
+      // §135.28: a clerk bind past the Jev budget is settled without asking Jev (rules defaults, else the Keeper).
       const offline = request.purpose === 'bind' ? request.offline : undefined;
       if (candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve')) {
         const bound = offline ? {disposition: 'unavailable', unresolved: [offline], calls: 0, ms: 0} : await ports.bindOrdinary(view, candidate), ms = ports.now() - began;

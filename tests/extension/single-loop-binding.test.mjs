@@ -1,5 +1,5 @@
 /**
- * SL-12, binding without the LLM (contract §135.27; the spec's ruling "Parameter binding never goes to the LLM").
+ * SL-12, binding without the LLM (contract §135.28; the spec's ruling "Parameter binding never goes to the LLM").
  *
  * - Rules defaults (pure): a closed parameter Jev does not settle takes its rules default -- the approach is the actor's
  *   highest current value among the offered approaches (ties: the first in the stated order), the dice words `none` --
@@ -53,7 +53,7 @@ const answer = (choices) => ({ batchId: "b", status: "complete", issues: [], cov
 const unavailable = { batchId: "b", status: "unavailable", answers: {}, issues: [], coverage: { required: [], answered: [], unknown: [] }, failure: { code: "x", retryable: false } };
 const summary = (pending) => pending.map((item) => [item.kind, item.purpose, item.reason ?? null]);
 
-test("§135.27: the approach Jev does not settle is the actor's highest offered value, stamped rule-default; the dice default to none; no LLM step", () => {
+test("§135.28: the approach Jev does not settle is the actor's highest offered value, stamped rule-default; the dice default to none; no LLM step", () => {
 	const check = checkOf(morgue());
 	const skill = check.unbound.find((value) => value.name === "skill");
 	assert.deepEqual(skill.ruleDefault, { rule: "highest_offered_skill", value: "Persuade" }, "Persuade 70 is the highest of the four");
@@ -77,7 +77,7 @@ test("§135.27: the approach Jev does not settle is the actor's highest offered 
 	assert.deepEqual(dice.pending[0].candidate.basis.rule_default, { bonus: { value: "none", rule: "no_modifier" }, penalty: { value: "none", rule: "no_modifier" } });
 });
 
-test("§135.27: Jev's confident answer is the value even when it is not the highest; a tie goes to the first in the stated order", () => {
+test("§135.28: Jev's confident answer is the value even when it is not the highest; a tie goes to the first in the stated order", () => {
 	const check = checkOf(morgue());
 	const confident = interpretBind(check, { questions: [] }, answer({ skill: ["Intimidate", 0.9], bonus: ["none", 0.9], penalty: ["none", 0.9], intent: ["social", 0.9] }), 0.6);
 	assert.equal(confident.pending[0].extra.skill, "Intimidate");
@@ -94,7 +94,7 @@ test("§135.27: Jev's confident answer is the value even when it is not the high
 		[["infer", "adjudicate", "clerk_unbound"]]);
 });
 
-test("§135.27: with several investigators the approach default follows the actor Jev bound; an actor Jev cannot tell has no default", () => {
+test("§135.28: with several investigators the approach default follows the actor Jev bound; an actor Jev cannot tell has no default", () => {
 	const check = checkOf(morgue({ actors: ["Shen", "Ada"], values: { Shen: { Persuade: 70, Intimidate: 15, Charm: 15, "Fast Talk": 50 }, Ada: { Persuade: 20, Intimidate: 65, Charm: 15, "Fast Talk": 50 } } }));
 	assert.deepEqual(check.unbound.find((value) => value.name === "skill").ruleDefault, { rule: "highest_offered_skill", by: { name: "actor", values: { Shen: "Persuade", Ada: "Intimidate" } } });
 	const rest = { skill: ["unknown", 0.9], bonus: ["none", 0.9], penalty: ["none", 0.9], intent: ["social", 0.9] };
@@ -104,7 +104,7 @@ test("§135.27: with several investigators the approach default follows the acto
 	assert.deepEqual(unknownActor.pending[0].extra.unresolved.sort(), ["actor", "skill"]);
 });
 
-test("§135.27: a target among several has no rules default: Jev's unknown hands the turn to the Keeper and drops the candidate for the run", () => {
+test("§135.28: a target among several has no rules default: Jev's unknown hands the turn to the Keeper and drops the candidate for the run", () => {
 	const session = { kind: "combat", status: "active", round: 2, turn_of: "tom", pending_defense: null,
 		actions: [{ decision: "combat:attack", actor: "tom", targets: ["knott", "ruth"], weapons: ["unarmed"] }],
 		participants: [{ name: "tom", side: "investigator" }, { name: "knott", side: "npc" }, { name: "ruth", side: "npc" }] };
@@ -130,7 +130,7 @@ test("§135.27: a target among several has no rules default: Jev's unknown hands
 	assert.deepEqual(all.map((candidate) => candidate.bound.decision), ["combat:attack"]);
 });
 
-test("§135.27: a why is composed from the candidate's source and the player's words, quoted, in one sentence under the ceiling", () => {
+test("§135.28: a why is composed from the candidate's source and the player's words, quoted, in one sentence under the ceiling", () => {
 	assert.equal(composeSentence("The book puts Arty here", "let me in"), 'The book puts Arty here; player: "let me in"');
 	// Whitespace runs are one space: one sentence, not the player's paragraph layout.
 	assert.equal(composeSentence("Lead", "a\n\n  b"), 'Lead; player: "a b"');
@@ -173,7 +173,7 @@ function shapes(clerk) {
 }
 const inferBind = (items) => items.filter((item) => item.kind === "infer" && item.purpose === "bind");
 
-test("§135.27 structure: no transition of the policy turns a clerk candidate into an infer(bind), for every authority, shape and Jev outcome", () => {
+test("§135.28 structure: no transition of the policy turns a clerk candidate into an infer(bind), for every authority, shape and Jev outcome", () => {
 	const outcomes = [
 		unavailable,
 		answer({ target: ["unknown", 0.9], skill: ["unknown", 0.9], decision: ["unknown", 0.9] }),
@@ -267,7 +267,7 @@ const routeAll = (batch) => answer(Object.fromEntries(batch.questions.map((quest
 	[question.key === "exit" ? "finish" : question.criteria.seeks ? "seeks" : "now", 0.95]])));
 const unknownAll = (batch) => answer(Object.fromEntries(batch.questions.map((question) => [question.key, ["unknown", 0.8]])));
 
-test("§135.27 on the driver: Jev unknown on every closed parameter -- the clerk rolls the defaulted approach, the fake infer(bind) port is never asked", async () => {
+test("§135.28 on the driver: Jev unknown on every closed parameter -- the clerk rolls the defaulted approach, the fake infer(bind) port is never asked", async () => {
 	const check = checkOf(morgue());
 	// The intent is Jev's alone: give it an answer, as SO-04's replay did (social 0.84), and nothing else.
 	const { log, inferred } = await drive({ candidates: [check],
@@ -281,7 +281,7 @@ test("§135.27 on the driver: Jev unknown on every closed parameter -- the clerk
 	assert.deepEqual(inferred, ["compose"], "one model step, the compose: no bind");
 });
 
-test("§135.27 on the driver: a clerk candidate without a default goes to the Keeper as an adjudication; a spent Jev budget binds by default with no Jev question", async () => {
+test("§135.28 on the driver: a clerk candidate without a default goes to the Keeper as an adjudication; a spent Jev budget binds by default with no Jev question", async () => {
 	const check = checkOf(morgue());
 	const unknown = await drive({ candidates: [check], decide: (batch) => batch.family === BIND_FAMILY ? unknownAll(batch) : routeAll(batch), infer: prose });
 	assert.ok(!unknown.log.some((entry) => entry.clerk), "the intent has no default: nothing executed");
@@ -296,7 +296,7 @@ test("§135.27 on the driver: a clerk candidate without a default goes to the Ke
 	assert.ok(!spent.inferred.includes("bind"));
 });
 
-test("§135.27 at the engine: the bind row names every parameter's path; the Keeper's note carries the default, or what the clerk left to it", async () => {
+test("§135.28 at the engine: the bind row names every parameter's path; the Keeper's note carries the default, or what the clerk left to it", async () => {
 	const handlers = new Map(), rows = [];
 	const bus = { on: (name, handler) => handlers.set(name, handler), emit: (name, value) => handlers.get(name)?.(value) };
 	const engine = createHybridEngine({ env: {}, decision: null, record: (row) => rows.push(row) });

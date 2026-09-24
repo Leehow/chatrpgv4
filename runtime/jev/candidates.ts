@@ -95,7 +95,7 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
   const participants = array(session.participants).map(object);
   const label = (id: string): string => text(participants.find(value => text(value.name) === id)?.label) || id;
   const investigator = (id: string): boolean => participants.find(value => text(value.name) === id)?.side === 'investigator';
-  // The player's own action carries the player's words (composed, §135.27); an NPC's carries the kernel row it came from.
+  // The player's own action carries the player's words (composed, §135.28); an NPC's carries the kernel row it came from.
   const words = (actor: string, decision: string): {goal: string; method: string} =>
     investigator(actor) ? {goal: rawInput, method: rawInput} : {goal: decision, method: decision};
   const composedWords = (actor: string): Partial<Candidate> => investigator(actor) ? {composed: ['goal', 'method']} : {};
@@ -153,7 +153,7 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
       if (decision === 'combat:attack' && !strings(action.targets).length) continue;
       // What the session view does not issue is not invented here: a manoeuvre's kind and an ending's outcome. No data
       // source gives them, so the player's manoeuvre or ending is the Keeper's to propose and is not issued to the clerk
-      // (§135.27); an NPC's stays one of its issued actions, and choosing it hands the turn to the Keeper.
+      // (§135.28); an NPC's stays one of its issued actions, and choosing it hands the turn to the Keeper.
       if (decision === 'combat:maneuver') { delete bound.goal; unbound.push({name: 'goal', required: true, vocabulary: 'open'}); }
       if (decision === 'combat:end') unbound.push({name: 'outcome', required: true, vocabulary: 'open'});
       if (investigator(actor) && unbound.some(value => value.required && value.vocabulary === 'open')) continue;
@@ -302,7 +302,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   // already carries the table's own label for a person not yet introduced (`untold.label`); a person already
   // introduced needs no staging; anyone off the roster is never a candidate. Nothing is invented: without a label
   // the name has no data source (an improvised name), so staging that person is the Keeper's to propose and is not
-  // issued to the clerk (§135.27). The `why` is composed: the table's label and the player's words, quoted.
+  // issued to the clerk (§135.28). The `why` is composed: the table's label and the player's words, quoted.
   for (const [index, person] of array(capsule.present).map(object).entries()) {
     if (!text(person.name) || text(object(person.called).name) || guards.people.has(text(person.name))) continue;
     // The person the book puts here as an obligation's meeting: the stated candidate replaces this one (§135.26).
@@ -327,7 +327,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     push({key: `resolve:${decision}:${actor}:${target}`, verb: 'resolve', family: 'mod_check', source: 'capsule.mods.pending_contacts',
       label: `${decision} for ${actor} meeting ${target} (${text(contact.when)})`,
       bound: {decision, ...(actor ? {actor} : {}), target, goal: rawInput, method: rawInput},
-      // The Mod's declaration issues no intent, so the intent is Jev's alone: it has no rules default (§135.27).
+      // The Mod's declaration issues no intent, so the intent is Jev's alone: it has no rules default (§135.28).
       unbound: [{name: 'intent', required: true, vocabulary: 'closed', options: resolveIntents()}], composed: ['goal', 'method'],
       clerk: 'mod_contact', basis: {read: 'table.capsule', path: `mods.pending_contacts[${index}]`, row: contact as Json}});
   }

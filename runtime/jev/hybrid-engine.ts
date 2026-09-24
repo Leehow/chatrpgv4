@@ -21,7 +21,7 @@
  *   the kernel extension's one ordinal. Only a candidate with clerk authority is run; a committed `narrate`/`ask`
  *   is the delivery, and the clerk never writes one;
  * - projection: before each model step, one `coc-clerk` message: what the clerk did this turn (committed, with
- *   receipts, the kernel row each came from and any rules default it took, §135.27), the operation the clerk could not
+ *   receipts, the kernel row each came from and any rules default it took, §135.28), the operation the clerk could not
  *   bind and left to the Keeper (`left_to_you`), or the batch step that returned to it;
  * - record: every run/step event as a `lane: "run"` telemetry row of the campaign;
  * - turn close (§135.11): before a run with no delivery evidence finishes, the policy's `turn_close` operation asks the
@@ -157,11 +157,11 @@ interface ClerkStep {step: string; operation: string; label: string; clerk?: str
   obligation?: string;
   /** §135.26 (owner ruling Q5): the open obligation whose guard this step crossed, in one line. */
   obligation_open?: string;
-  /** §135.27: the parameters the clerk took by the rules default, in one line (the Keeper may settle it otherwise). */
+  /** §135.28: the parameters the clerk took by the rules default, in one line (the Keeper may settle it otherwise). */
   binding?: string}
 
 /**
- * §135.27: how each parameter of a clerk write got its value. The bind step's records (`jev`, `rule-default`) come with
+ * §135.28: how each parameter of a clerk write got its value. The bind step's records (`jev`, `rule-default`) come with
  * the step; every other bound parameter is the candidate's own: `composed` when the builder composed it, else `stated`
  * (read from the kernel row the candidate came from). The effect kind is structure, not a parameter.
  */
@@ -171,7 +171,7 @@ export function bindRecords(candidate: Candidate, extra: Record<string, Json>, s
     .map(([name, value]) => ({name, path: composed.has(name) ? 'composed' : 'stated', value}));
   return [...shape, ...settled];
 }
-/** The Keeper's line for a clerk write that took a rules default (§135.27), or none. */
+/** The Keeper's line for a clerk write that took a rules default (§135.28), or none. */
 function defaultLine(candidate: Candidate): string | undefined {
   const basis = object(candidate.basis), defaults = object(basis.rule_default);
   if (basis.binding !== 'rule-default' || !Object.keys(defaults).length) return undefined;
@@ -390,7 +390,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const {goal: _goal, method: _method, ...shown} = object(tool === 'resolve' ? args.action : {}) as Row;
     const obligation = obligationClerkLine(candidate, ok, result, packet.receipts), crossed = ok ? obligationCrossing(candidate, result, packet.receipts) : undefined;
     const binding = defaultLine(candidate);
-    // §135.27: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
+    // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
     record({lane: 'run', event: 'bind', run: run.runId, step: invocation.stepId, candidate: candidate.key, clerk: candidate.clerk, call_id: callId, status: packet.status,
       bindings: bindRecords(candidate, extra, array(params.bindings) as BindRecord[])});
     run.clerkDid.push({step: invocation.stepId, operation: tool, label: candidate.label, clerk: candidate.clerk, call_id: callId, status: packet.status,
@@ -431,7 +431,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   async function decide(run: RunState, request: {runId: string; stepId: string; purpose: string; question: unknown; signal: AbortSignal}) {
     const question = object(request.question);
     if (request.purpose === 'locate') return {status: 'ok' as const, artifact: {kind: 'locate', calls: 0, ms: 0, summary: {folded_into: 'read'}} as StepArtifact};
-    // §135.27: a clerk bind the policy settles without Jev (its budget is spent) asks nothing here.
+    // §135.28: a clerk bind the policy settles without Jev (its budget is spent) asks nothing here.
     if (question.offline) return {status: 'unavailable' as const, artifact: {reason: `offline_${text(question.offline)}`}};
     if (request.purpose === 'bind-ordinary') {
       const candidate = question.candidate as Candidate | undefined;
@@ -527,7 +527,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (step.purpose === 'bind' && operation) Object.assign(content, {complete: operation,
       instruction: 'The clerk chose this operation from the player\'s declared action. Call its verb once, with the bound values as given and '
         + 'the needed parameters filled in; decide nothing else in this response.'});
-    // §135.27: a clerk candidate the clerk could not bind is the Keeper's turn, never a parameter-filling request.
+    // §135.28: a clerk candidate the clerk could not bind is the Keeper's turn, never a parameter-filling request.
     const unbound = object(request.clerk_unbound);
     if (step.reason === 'clerk_unbound' && operation) {
       record({lane: 'run', event: 'bind', run: run.runId, step: stepId, candidate: request.candidate ?? null, outcome: 'keeper', cause: unbound.cause ?? null,

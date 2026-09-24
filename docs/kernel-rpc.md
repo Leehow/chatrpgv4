@@ -16995,7 +16995,7 @@ located, and nothing else. It never classifies text.
   is in `table.apply.options.context.handouts_shown` is not offered either. A handout already handed over is
   consumed by world state, never by its words;
 - people in `capsule.present` without `called`, staged under the capsule's own `untold.label`. Without a label
-  the name is an open parameter, and only the LLM fills it (amended by §135.27: such a person is not issued to the
+  the name is an open parameter, and only the LLM fills it (amended by §135.28: such a person is not issued to the
   clerk; staging them is the Keeper's to propose). Anyone off the roster is never a candidate. **Exception
   (owner ruling 2026-09-23, SO-04, §135.26):** a scene obligation's `meet` step is data — the book names the person — so a
   stated meeting is staged under `untold.label` when the kernel issued one, else under the person's record `name`, with no
@@ -17084,7 +17084,7 @@ still open (`run_input_stale`).
 §135.6) and closed bind (`single-loop-bind`, and the ordinary-check binder). When Jev chose an operation that
 has an open parameter, the run asks the LLM to fill it (`infer(bind)`). The projection names the operation, its
 bound values and what is missing. The LLM's answer is one call of that verb, executed as a model-origin call.
-Amended by §135.27: a clerk candidate never reaches `infer(bind)`; a parameter the clerk cannot bind (Jev, a rules
+Amended by §135.28: a clerk candidate never reaches `infer(bind)`; a parameter the clerk cannot bind (Jev, a rules
 default, stated or composed) hands the candidate to the Keeper as `infer(adjudicate)`, reason `clerk_unbound`.
 
 ### 135.5 Keeper batches; the plan is an artifact, never a second executor
@@ -17517,7 +17517,7 @@ holds it; `buildCandidates` calls it. Nothing is read from `on_enter`, a module'
   to the kernel (§134.11). `intent` is always a closed bind over the ordinary binder's intents (`investigate`,
   `social`, `move`): the resolve verb requires one and the kernel issues none, so a single-approach check is a
   one-question Jev bind, never an invented intent. Below the gates the operation goes to the LLM (`infer(bind)`, the
-  Keeper fills it). Amended by §135.27: below the gates the approach and the dice take their rules defaults, and an
+  Keeper fills it). Amended by §135.28: below the gates the approach and the dice take their rules defaults, and an
   intent Jev does not settle hands the check to the Keeper (`clerk_unbound`), never an `infer(bind)`. The dice words become `modifiers.bonus_dice`/`penalty_dice`; a die carries `modifiers.reason` =
   the player's declaration, as the ordinary binder's template does (§113). No candidate is issued for a step with
   `served_by` (the Mod contact candidate is its candidate, §134.13), `approaches_unstated` or `difficulty_unstated`
@@ -17575,9 +17575,9 @@ policy over the emitted kernel's own reads at the morgue, and over stub reads fo
 state) and the clerk-refusal case at the extension seam; the mutation record is in the SO-04 ticket's Comments. The
 turn-3 replay on the obligation fixture variant is in `experiments/single-loop-routing/RESULTS-20260923.md`.
 
-### 135.27 Binding never goes to the LLM: rules defaults, stated and composed parameters, and the Keeper's turn (2026-09-23, SL-12; amends §135.2, §135.4, §135.25, §135.26)
+### 135.28 Binding never goes to the LLM: rules defaults, stated and composed parameters, and the Keeper's turn (2026-09-23, SL-12; amends §135.2, §135.4, §135.25, §135.26)
 
-SL-12 takes §135.27 (§135.11–§135.26 are taken; §-numbers are stable ids). It applies to `PI_COC_LOOP_ENGINE=hybrid-v1`
+SL-12 takes §135.28 (§135.11–§135.27 are taken, §135.27 by the thinking schedule on the same base; §-numbers are stable ids). It applies to `PI_COC_LOOP_ENGINE=hybrid-v1`
 only; the legacy engine reads none of it. The spec's ruling "Parameter binding never goes to the LLM" (owner,
 2026-09-23) binds it.
 

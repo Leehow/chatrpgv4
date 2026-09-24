@@ -120,7 +120,7 @@ test("at the morgue the gate's check carries its meeting in place of the roster 
 	assert.equal(labelled.find((candidate) => candidate.family === "obligation_check").before.bound.name, "城市版编辑");
 	assert.deepEqual(ofObligation(candidates, ARCHIVIST), [], "a blocked obligation issues nothing");
 	// Ruth is on the roster without the table's own label and her obligation is blocked: no data source names her here, so
-	// staging her is the Keeper's to propose, not the clerk's to issue (§135.27).
+	// staging her is the Keeper's to propose, not the clerk's to issue (§135.28).
 	assert.equal(candidates.find((candidate) => candidate.key === "apply:person:Ruth Blake"), undefined);
 
 	// The guarded clues keep their rows in the options (with guarded_by) and are withheld from the clerk, however offered.
@@ -170,7 +170,7 @@ test("seeks on the gate's check carries its meeting directly first, under the bo
 	assert.equal(tool, "apply");
 	assert.deepEqual(args.effects, [{ kind: "person", who: "Arty Wilmot", name: "Arty Wilmot",
 		why: `The book puts Arty Wilmot here for "Access to the Globe clippings", under the book's name; player: "${INPUT}"` }],
-	"the book's name, and a why composed from the demand and the player's words (§135.27): no open parameter");
+	"the book's name, and a why composed from the demand and the player's words (§135.28): no open parameter");
 	assert.deepEqual(meeting.composed, ["why"]);
 	view.pending.push(...routed.pending);
 	assert.equal(next(view).kind, "direct");
@@ -234,7 +234,7 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 		answers: Object.fromEntries(Object.entries(choices).map(([key, choice]) => [key, { status: "answered", type: "choice", choice, confidence }])) });
 	const bound = interpretBind(check, batch, answer({ skill: "Persuade", bonus: "one", penalty: "none", intent: "social" }), 0.6);
 	assert.deepEqual(bound.pending.map((item) => [item.kind, item.purpose]), [["direct", "execute"]]);
-	// §135.27: an approach the words do not settle takes the rules default -- the investigator's highest current value
+	// §135.28: an approach the words do not settle takes the rules default -- the investigator's highest current value
 	// among the offered approaches, read from the kernel's own profiles; Intimidate and Fast Talk tie at 45, and the tie
 	// goes to the first in the book's stated order -- stamped on the operation's basis; no LLM step.
 	const profile = (skill) => state.resolveOptions.profiles.find((row) => row.actor === check.bound.actor && row.skill === skill)?.value;
@@ -523,7 +523,7 @@ test("seeks at arrival: the meeting is carried directly under the book's name, t
 	assert.ok(decisions.some((batch) => batch.family === BIND_FAMILY && batch.questions.some((question) => question.key === "skill")), "the check's approach was a Jev bind");
 });
 
-test("SL-12 (§135.27): Jev cannot tell the approach -- the clerk rolls the rules default, the first of the investigator's highest, with no LLM step", async (t) => {
+test("SL-12 (§135.28): Jev cannot tell the approach -- the clerk rolls the rules default, the first of the investigator's highest, with no LLM step", async (t) => {
 	const { table, calls, requests } = await arrival({ fact: "seeks", bind: { skill: "unknown", bonus: "none", penalty: "none", intent: "social" },
 		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());

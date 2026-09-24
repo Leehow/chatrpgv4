@@ -107,7 +107,7 @@ test("SL-01 gate: a policy-origin read and a Jev decision run before one real mo
 	assert.equal(decisions[0].batch.family, ROUTE_FAMILY);
 	// SL-02: the route asks one need per host-issued candidate plus the exit. The fake kernel's capsule has one person
 	// present and not yet introduced, without the table's own label (and no apply/resolve options): no data source names
-	// him, so staging him is the Keeper's to propose and is not issued to the clerk (§135.27). The route is its exit alone.
+	// him, so staging him is the Keeper's to propose and is not issued to the clerk (§135.28). The route is its exit alone.
 	assert.deepEqual(decisions[0].batch.questions.map((question) => question.key), ["exit"]);
 	assert.ok(!JSON.stringify(decisions[0].batch.questions).includes("看门人"));
 
