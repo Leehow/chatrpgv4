@@ -1,5 +1,5 @@
 Status: ready (filed 2026-09-24 from SL-35's report; next batch)
-Stage: SL-41 (P1, in-play reading on PDF modules)
+Stage: SL-41 (P1, in-play reading on PDF modules; confirmed live on SL-29A batch-4 table: `budget_input_tokens` at 1,000,000 on the detail read; with SL-45)
 Spec: docs/kernel-rpc.md §20 addendum 2, §98 addendum 6 (SL-35), §22
 
 # SL-41 — Reads during play (detail, answer, map) get the same sized lease as the import stages

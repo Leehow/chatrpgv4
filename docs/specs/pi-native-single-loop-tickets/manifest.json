@@ -173,7 +173,7 @@
     {
       "id": "SL-34",
       "file": "34-a-map-is-orientation-not-a-door.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-35",
@@ -183,12 +183,12 @@
     {
       "id": "SL-36",
       "file": "36-source-answers-do-not-hold-the-turn.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-37",
       "file": "37-a-reading-wait-still-delivers-fiction.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-38",
@@ -214,6 +214,21 @@
       "id": "SL-42",
       "file": "42-bookkeeping-of-the-scene-just-left.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-43",
+      "file": "43-one-declaration-one-check.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-44",
+      "file": "44-prescreen-fallbacks-source-revision-and-allowance.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-45",
+      "file": "45-background-reads-do-not-hold-a-foreground-slot.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
