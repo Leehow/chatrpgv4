@@ -1,0 +1,308 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z/events.jsonl",
+  "record": ".coc/repos/longgate-haunting-0624.git 6bea683:turns/0011.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我上二楼，先站在楼梯口听一会儿，再去主卧。",
+ "llm_calls": 7,
+ "llm_ms_total": 58913,
+ "calls": [
+  {
+   "at": "2026-09-24T10:34:48.042Z",
+   "provider_ms": 4617,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 12159,
+    "output": 229,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "lookup",
+     "arguments": {
+      "kind": "source",
+      "source_mode": "answer",
+      "query": "upper-floor-bedroom",
+      "question": "What rooms are on the upper floor of the Corbitt house, and what happens when investigators go upstairs and enter the bedroom?"
+     },
+     "id": "call-05e4b08e-8032-4090-9c07-61a7adb0091a-0|fc_a1c63c15-ea18-9d79-bae4-7ee5beaa291b_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:34:52.772Z",
+   "provider_ms": 10832,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 14621,
+    "output": 802,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "lookup",
+     "arguments": {
+      "kind": "module",
+      "query": "upper-floor-bedroom poltergeist-bed mythos-reek blood-pool-manifest"
+     },
+     "id": "call-c82ed3f8-55e0-411c-8a00-567c2f2129e4-1|fc_f890d98f-45d6-9407-8c4b-889f050addc8_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:35:03.714Z",
+   "provider_ms": 3556,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 16023,
+    "output": 178,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "lookup",
+     "arguments": {
+      "kind": "rule",
+      "query": "bed-attack floating bed"
+     },
+     "id": "call-61adfec9-7b81-40d7-84a8-4370624b6a60-2|fc_a8dbe924-5e42-995a-83c4-79184ca7cd61_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:35:07.387Z",
+   "provider_ms": 4162,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 4759,
+    "output": 353,
+    "cache_read": 45696
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "investigate",
+       "goal": "在上楼楼梯口听清楼上的声音来自哪间房",
+       "method": "站在楼梯口不动，用耳朵辨别闷响和刮擦声的方向",
+       "skill": "Listen",
+       "stakes": "听不准房间，只知道声音在楼上"
+      }
+     },
+     "id": "call-ac2f8087-d6e0-4206-ace4-6359c37de41c-3|fc_7ec10bf9-d923-92cb-b04b-a928011fdf74_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:35:15.506Z",
+   "provider_ms": 4037,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 5214,
+    "output": 345,
+    "cache_read": 45696
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "move",
+        "to": "upper-floor-bedroom",
+        "label": "科比特宅二楼",
+        "travel_minutes": 0,
+        "via": "从一层楼梯口走上二楼主卧"
+       },
+       {
+        "kind": "time",
+        "minutes": 5,
+        "why": "在楼梯口听了一会儿，再走上二楼"
+       },
+       {
+        "kind": "threat",
+        "name": "corbitt-haunting",
+        "clock": "corbitt-awareness",
+        "segments": 1,
+        "why": "海斯在楼梯口停留后走进楼上房间，房子对他有了反应"
+       }
+      ]
+     },
+     "id": "call-56b950f0-a9e2-4ef9-8da7-2d9f776d4d6f-4|fc_405e1f2b-0bd5-9a12-9ad2-3e9c575cce39_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:35:27.727Z",
+   "provider_ms": 15578,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 8844,
+    "output": 402,
+    "cache_read": 48384
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "investigate",
+       "goal": "走进科比特的旧卧室时发觉窗边的异样",
+       "method": "用手电照房间，眼睛扫过窗和床",
+       "rule": "The bed attack",
+       "step": 0,
+       "skill": "Spot Hidden"
+      }
+     },
+     "id": "call-608881f1-0feb-4e1e-8a74-2950d42bcf56-5|fc_2eec74f0-6288-9cdf-8ccd-d63d0ac8451c_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:35:46.183Z",
+   "provider_ms": 16131,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 9562,
+    "output": 471,
+    "cache_read": 48384
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "lookup",
+   "call_id": "call-05e4b08e-8032-4090-9c07-61a7adb0091a-0|fc_a1c63c15-ea18-9d79-bae4-7ee5beaa291b_0",
+   "ok": false
+  },
+  {
+   "tool": "lookup",
+   "call_id": "call-c82ed3f8-55e0-411c-8a00-567c2f2129e4-1|fc_f890d98f-45d6-9407-8c4b-889f050addc8_0",
+   "ok": true
+  },
+  {
+   "tool": "lookup",
+   "call_id": "call-61adfec9-7b81-40d7-84a8-4370624b6a60-2|fc_a8dbe924-5e42-995a-83c4-79184ca7cd61_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-ac2f8087-d6e0-4206-ace4-6359c37de41c-3|fc_7ec10bf9-d923-92cb-b04b-a928011fdf74_0",
+   "ok": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-56b950f0-a9e2-4ef9-8da7-2d9f776d4d6f-4|fc_405e1f2b-0bd5-9a12-9ad2-3e9c575cce39_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-608881f1-0feb-4e1e-8a74-2950d42bcf56-5|fc_2eec74f0-6288-9cdf-8ccd-d63d0ac8451c_0",
+   "ok": true
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "resolve",
+   "verdict": "authorized",
+   "ms": 3057,
+   "origin": "model"
+  },
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 5684,
+   "origin": "model"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "entailed",
+   "ms": 2624,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "lookup"
+  },
+  {
+   "verb": "lookup"
+  },
+  {
+   "verb": "resolve",
+   "skill": "Listen",
+   "target": null,
+   "intent": "investigate",
+   "modifiers": null
+  },
+  {
+   "verb": "apply",
+   "kind": "move",
+   "target": "upper-floor-bedroom"
+  },
+  {
+   "verb": "apply",
+   "kind": "time",
+   "target": null,
+   "minutes": 5
+  },
+  {
+   "verb": "apply",
+   "kind": "threat",
+   "target": "corbitt-haunting"
+  },
+  {
+   "verb": "resolve",
+   "skill": "Spot Hidden",
+   "target": null,
+   "intent": "investigate",
+   "modifiers": null
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "roll:listen-t11-c1",
+   "kind": "roll",
+   "decision": null,
+   "skill": "Listen",
+   "npc": null,
+   "level": "failure"
+  },
+  {
+   "id": "move:upper-floor-bedroom-t11-c2",
+   "kind": "move",
+   "to": "upper-floor-bedroom"
+  },
+  {
+   "id": "time:t11-c2",
+   "kind": "time"
+  },
+  {
+   "id": "threat:corbitt-haunting-corbitt-t11-c2",
+   "kind": "threat"
+  },
+  {
+   "id": "roll:spot-hidden-t11-c3",
+   "kind": "roll",
+   "decision": null,
+   "skill": "Spot Hidden",
+   "npc": null,
+   "level": "regular"
+  }
+ ]
+}

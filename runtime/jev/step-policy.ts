@@ -646,7 +646,7 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
   observe(view, {kind: 'decide', purpose: 'compile', status: result.status, ...(keys.length ? {choice: keys.join(' + ')} : {}), reason: outcome.reason});
   return {step, kind: 'decide', purpose: 'compile', choice: keys.length ? keys.join(' + ') : null, confidence: null, ms, jev_calls: 1, reason: outcome.reason,
     detail: {features: outcome.features, fired: selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
-      selected: keys, decided: outcome.decided, fell_through: outcome.fellThrough, family: batch.family} as unknown as Json};
+      selected: keys, decided: outcome.decided, fell_through: outcome.fellThrough, ...(outcome.guarded ? {guarded: outcome.guarded} : {}), family: batch.family} as unknown as Json};
 }
 
 export function settleLocate(view: RunView, step: number, located: {calls: number; ms: number; summary: Json}, ms: number): TelemetryRow {

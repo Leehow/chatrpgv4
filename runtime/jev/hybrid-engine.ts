@@ -47,7 +47,7 @@ import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev
 import type { HostOperationContext, OperationIdentity } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 import { buildCandidates, keeperCall } from './candidates.ts';
 import { compileRows } from './compile-rows.ts';
-import { interpretCompile, type FeatureRows } from './route-compile.ts';
+import { interpretCompile, type FeatureRows, type GuardedDestination } from './route-compile.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import { carriedSection, namedPeople, readCarriedViews } from './carried-views.ts';
@@ -269,6 +269,9 @@ interface RunState {
   issued?: Candidate[];
   /** §135.31: what the Keeper was already shown this run: scenes, people (names and card ids), the last session view's digest. */
   shown: {scenes: Set<string>; people: Set<string>; session?: string};
+  /** §135.30.4: the cleared destinations the kernel held back, with their guards; the Keeper is told each once. */
+  guarded: GuardedDestination[];
+  guardedShown: number;
 }
 
 /**
@@ -588,9 +591,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         ...(request.purpose === 'route' ? {offered: offered.map(candidate => candidate.key), selected: routed?.selected ?? [], exit: routed?.exit ?? null, reason: routed?.reason ?? null,
           ...(settled.length ? {settled} : {})}
           : compiled ? {features: compiled.features, fired: compiled.selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
-            selected: compiled.selected.map(entry => entry.candidate.key), decided: compiled.decided, fell_through: compiled.fellThrough, reason: compiled.reason}
+            selected: compiled.selected.map(entry => entry.candidate.key), decided: compiled.decided, fell_through: compiled.fellThrough, reason: compiled.reason,
+            ...(compiled.guarded ? {guarded: compiled.guarded} : {})}
             : {candidate: question.candidate ?? null}),
         ...(compiled ? {} : {answers})});
+      // §135.30.4: a cleared destination the kernel holds back goes to the Keeper with its guard, once, in the next note.
+      if (compiled?.guarded) run.guarded.push(...compiled.guarded.filter(entry => !run.guarded.some(seen => seen.to === entry.to)));
       return {status: result.status === 'complete' ? 'ok' as const : 'unavailable' as const, artifact: {kind: request.purpose, result} as StepArtifact};
     } finally { lease.close(); }
   }
@@ -683,6 +689,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (fresh.length) Object.assign(content, {clerk_did: fresh,
       note: 'The host (the clerk) settled these this turn before asking you, from the kernel\'s own options. They are committed, not pending: '
         + 'narrate what happened, do not redo them, and undo one only with a real operation of your own (its own receipt and time cost).'});
+    // §135.30.4: the place the player declared that the kernel holds back, with the book's own guard, once each.
+    const guarded = run.guarded.slice(run.guardedShown);
+    run.guardedShown = run.guarded.length;
+    if (guarded.length) Object.assign(content, {guarded,
+      guarded_note: 'The player\'s declaration goes to this place, but the way there is closed by the book\'s own condition (guard), so '
+        + 'nothing was executed for it. The guard says what opens it and where the book puts that: play toward it, open the way '
+        + 'with your own write when the fiction does, or narrate the way shut.'});
     // §135.26 (owner ruling Q5): a clerk step that crossed an open obligation's guard, one line each, beside "clerk did".
     const crossings = fresh.map(value => value.obligation_open).filter((value): value is string => !!value);
     if (crossings.length) content.obligation_open = crossings;
@@ -754,7 +767,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const allowance = readJevPreselectAllowanceMs(options.env as NodeJS.ProcessEnv), startedAt = now(), budgetMs = turnBudgetMs(options.env);
       const run: RunState = {runId: context.runId, rawInput: context.rawInput, inputRevision: context.inputRevision, session: context.session as unknown as Row,
         startedAt, allowanceDeadline: Date.now() + allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
-        identities: new Map(), budgetMs, deferred: [], investigators: [], named: [], shown: {scenes: new Set(), people: new Set()},
+        identities: new Map(), budgetMs, deferred: [], investigators: [], named: [], shown: {scenes: new Set(), people: new Set()}, guarded: [], guardedShown: 0,
         prescreenSpent: {reads: 0, jev_calls: 0, ms: 0}};
       const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
         ...(options.compile === false ? {compile: false} : {})});
