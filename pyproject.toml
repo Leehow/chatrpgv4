@@ -13,6 +13,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
+addopts = "-n auto --maxprocesses=12"  # pytest-xdist: the suite is per-test isolated (tmp workspaces, no shared fixtures); 22 min -> ~3 min on 16 threads
 testpaths = ["tests/kernel", "tests/play"]
 
 [tool.uv]
