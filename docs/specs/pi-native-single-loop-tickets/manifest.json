@@ -208,7 +208,7 @@
     {
       "id": "SL-41",
       "file": "41-in-play-reads-share-the-stage-lease.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-42",
@@ -228,11 +228,16 @@
     {
       "id": "SL-45",
       "file": "45-background-reads-do-not-hold-a-foreground-slot.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-46",
       "file": "46-google-adapter-rejects-the-lane-thinking-option.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-47",
+      "file": "47-a-scene-text-read-outlasts-the-foreground-wait.md",
       "status": "ready"
     }
   ],
