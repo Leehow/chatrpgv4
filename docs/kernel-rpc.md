@@ -3106,9 +3106,10 @@ and the move lands:
   0, blocking: true})`): it keeps its blocking class (§22.4.6) until it settles, because the party stands in that scene;
   §61's demotion does not apply to it. Nothing waits on it: the call returns at once.
 - The Keeper gets the text once. On the hybrid engine the next model step's note carries a view `{focus: "scene_text",
-  name: <scene>, view: {pages: [{page, pdf_label?, text}]}}` under its own ceiling `SCENE_TEXT_VIEW_BYTES` (8 KiB,
-  `runtime/jev/carried-views.ts`, cut like every carried view and marked), served after the session and before the
-  people, sharing the message's 12 KiB. On the legacy engine the same pages ride in the apply result's `scene_text`. The
+  name: <scene>, view: {"page <n> (<label>)": <text>, …}}` under its own ceiling `SCENE_TEXT_VIEW_BYTES` (8 KiB,
+  `runtime/jev/carried-views.ts`): whole pages in the book's order while they fit; a page that does not fit is dropped whole
+  and named in `omitted_fields` (the view marked `truncated`), and only a first page larger than the ceiling is cut; served
+  after the session and before the people, sharing the message's 12 KiB. On the legacy engine the same pages ride in the apply result's `scene_text`. The
   head says: this is the book's own text for a scene whose reviewed record (its exits, the people there, the things and
   clues) is still being read; narrate the arrival from it; do not invent exits, people, clues or numbers it does not state;
   the record lands on a later note.
@@ -3132,11 +3133,15 @@ the book's text, leaves the unknown unknown, and meets the record on a later ste
 
 *Tests.* `tests/extension/scene-text-landing.test.mjs`: on the emitted kernel, a move into an unread scene with index
 pages refuses with `details.index`, lands with `_land_on_index` and writes `index_scenes`, a resolve there passes the gate,
-and a scene without index pages still refuses even when flagged; at the extension seam (hybrid-v1, faux Keeper, the
+and a place without index pages (an index entity no graph node names) still refuses even when flagged; at the extension seam (hybrid-v1, faux Keeper, the
 emitted kernel, a stub reading bridge over a real text PDF's pages) the move lands in one call, the next step's note
 carries the pages once and the pending row names the scene, and after the read lands the next turn's first step carries
 the record once; a scene with no index text still waits; the reading service extracts a real PDF's pages
-(`sourcePages`) and a blocking ensure is not demoted when its waiter leaves. Mutations in the SL-47 ticket's Comments.
+(`sourcePages`) and a blocking ensure is not demoted when its waiter leaves; the scene text's ceiling keeps a whole first
+page and drops the next whole. Mutations in the SL-47 ticket's Comments.
+
+*Note.* A scene node published by a reading always cites a page (the publication gate requires `source_refs`), so on a read
+PDF the wait of §22.4 for a move remains in practice only where the pages carry no native text or the extraction fails.
 
 ### 22.5 开场、失败与旧数据
 

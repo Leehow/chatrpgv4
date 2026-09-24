@@ -34,6 +34,11 @@ const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value
 export const CARRIED_VIEW_BYTES = 4 * 1024;
 /** All carried views of one `coc-clerk` message (§135.31). */
 export const CARRIED_VIEWS_BYTES = 12 * 1024;
+/**
+ * §22.4.7 (SL-47): a scene's book text, carried once when a move lands on it. A page of a PDF book is 3.5-4.6 KB of
+ * native text; this holds about two, and the message's 12 KiB is shared.
+ */
+export const SCENE_TEXT_VIEW_BYTES = 8 * 1024;
 
 /** The wrapper keys of a view whose own fields are the view's fields for the cut (`where.scene`, `session.round`, …). */
 const WRAPPERS: readonly string[] = Object.freeze(['where', 'session']);
@@ -119,7 +124,7 @@ export function fitView(view: Row, max = CARRIED_VIEW_BYTES, first: readonly str
 
 /** One carried view as the host keeps it: `look`'s focus, the name `look` gives, the view, the cut marks and its read. */
 export interface CarriedView {
-  focus: 'scene' | 'npc' | 'session' | 'source' | 'source_answer';
+  focus: 'scene' | 'npc' | 'session' | 'source' | 'source_answer' | 'scene_text' | 'scene_record';
   name?: string;
   /** The npc's own id from its card (the host's dedupe key); host-side only. */
   id?: string;
@@ -147,7 +152,10 @@ export interface CarriedViews {
  * active (then `look focus=session` is read). Read-only.
  */
 export async function readCarriedViews(input: {call: Call; scene?: string; people: readonly string[]; skip?: ReadonlySet<string>;
-  session?: Row | 'read'; passages?: {scene: string; view: Row}; answers?: Array<{name: string; view: Row}>; pending?: Row[]}): Promise<CarriedViews> {
+  session?: Row | 'read'; passages?: {scene: string; view: Row}; answers?: Array<{name: string; view: Row}>; pending?: Row[];
+  /** §22.4.7: the book's text of scenes a move landed on (once each), and the records of scenes that settled away from the party. */
+  sceneTexts?: Array<{scene: string; pages: Array<{page: number; pdf_label?: string; text: string}>}>;
+  sceneRecords?: Array<{scene: string; view: Row}>}): Promise<CarriedViews> {
   const began = Date.now();
   let reads = 0;
   const read = async (method: string, params: Row): Promise<{ok: true; value: Row} | {ok: false; code: string}> => {
@@ -155,7 +163,7 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
     try { return {ok: true, value: object(await input.call(method, params))}; }
     catch (error) { return {ok: false, code: text(object(error).code) || text(object(object(error).error).code) || 'read_failed'}; }
   };
-  const due: Array<Omit<CarriedView, 'view'> & {view?: Row; reason?: 'read_failed' | 'not_found'}> = [];
+  const due: Array<Omit<CarriedView, 'view'> & {view?: Row; reason?: 'read_failed' | 'not_found'; dropped?: string[]}> = [];
   const resolved: CarriedViews['resolved'] = [];
   if (input.session === 'read') {
     const params = {focus: 'session'}, answer = await read('table.look', params);
@@ -164,6 +172,19 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
   } else if (input.session) due.push({focus: 'session', view: input.session, read: null});
   // §135.31.2: a consultation the Keeper asked for that has since landed, next after the session; nothing is read for it.
   for (const answer of input.answers ?? []) due.push({focus: 'source_answer', name: answer.name, view: answer.view, read: null});
+  // §22.4.7: the book's text of a scene a move landed on, next; nothing is read for it (the host extracted it).
+  // Whole pages in the book's order while they fit the ceiling; a page that does not fit is dropped and named, so the first
+  // page arrives whole (a long string cut mid-page would lose the page's end, where the scene's own lines often are).
+  for (const entry of input.sceneTexts ?? []) {
+    const view: Row = {}, dropped: string[] = [];
+    for (const page of entry.pages) {
+      const key = `page ${page.page}${page.pdf_label ? ` (${page.pdf_label})` : ''}`;
+      if (Object.keys(view).length && bytes({...view, [key]: page.text}) > SCENE_TEXT_VIEW_BYTES) { dropped.push(key); continue; }
+      view[key] = page.text;
+    }
+    due.push({focus: 'scene_text', name: entry.scene, read: null, view, ...(dropped.length ? {dropped} : {})});
+  }
+  for (const entry of input.sceneRecords ?? []) due.push({focus: 'scene_record', name: entry.scene, view: entry.view, read: null});
   const skip = new Set(input.skip ?? []);
   const cards = await Promise.all(input.people.filter(name => !skip.has(name)).map(async name => {
     const params = {focus: 'npc', name};
@@ -192,9 +213,10 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
   for (const item of due) {
     const named = item.name ? {name: item.name} : {};
     if (item.reason || !item.view) { omitted.push({focus: item.focus, ...named, reason: item.reason ?? 'read_failed'}); continue; }
-    const fitted = fitView(item.view, CARRIED_VIEW_BYTES, FIELD_ORDER[item.focus] ?? []);
+    const fitted = fitView(item.view, item.focus === 'scene_text' ? SCENE_TEXT_VIEW_BYTES : CARRIED_VIEW_BYTES, FIELD_ORDER[item.focus] ?? []);
+    const omittedFields = [...(item.dropped ?? []), ...(fitted.omitted_fields ?? [])];
     const entry: CarriedView = {focus: item.focus, ...named, ...(item.id ? {id: item.id} : {}), view: fitted.view, read: item.read,
-      ...(fitted.truncated ? {truncated: true as const} : {}), ...(fitted.omitted_fields ? {omitted_fields: fitted.omitted_fields} : {})};
+      ...(fitted.truncated || item.dropped?.length ? {truncated: true as const} : {}), ...(omittedFields.length ? {omitted_fields: omittedFields} : {})};
     // The budget is what the Keeper reads (focus, name, view and the cut marks), not the host's id and read.
     const size = bytes(keeperView(entry));
     if (total + size > CARRIED_VIEWS_BYTES) { omitted.push({focus: item.focus, ...named, reason: 'budget'}); continue; }
@@ -224,6 +246,17 @@ export const CARRIED_ANSWERS_HEAD = 'A view with focus source_answer is a source
   + 'checked answer with its question, carried once and kept in the campaign memo (the same lookup returns it at once). It is a source '
   + 'consultation, not prepared material. One marked unavailable could not be read: that is the clerk\'s business, never the fiction or the '
   + 'player\'s; play on without it.';
+/** §22.4.7 (SL-47): what the Keeper is told about a scene's book text (`focus: "scene_text"`). */
+export const CARRIED_SCENE_TEXT_HEAD = 'A view with focus scene_text is the book\'s own text for a scene a move just landed on, page by page, carried '
+  + 'once: the scene\'s reviewed record (its exits, the people there, the things and clues) is still being read. Narrate the arrival from it; do '
+  + 'not invent exits, people, clues or numbers it does not state. The record lands on a later note.';
+/** §22.4.7: what the Keeper is told about a scene record that settled (`focus: "scene_record"`, or the scene view itself). */
+export const CARRIED_SCENE_RECORD_HEAD = 'A view with focus scene_record says a scene\'s reviewed record has landed (look focus=scene when the party '
+  + 'is there) or could not be read (the clerk\'s business, never the fiction); a scene view of a scene you were given as scene_text is its '
+  + 'reviewed record, carried once.';
+/** §22.4.7: what the Keeper is told when a pending row names a scene. */
+export const CARRIED_PENDING_SCENE_HEAD = 'A pending row with a scene is that scene\'s reviewed record (its exits, the people there, the things and '
+  + 'clues): not known yet; do not invent them.';
 /** §135.31.2: what the Keeper is told about the consultations still being read (`pending`). */
 export const CARRIED_PENDING_HEAD = 'pending lists source consultations still being read: their answers are not here yet and will be carried once '
   + 'they land. Use the passages and what you already know, narrate what the investigator does meanwhile, and do not ask for them again this turn.';
@@ -237,12 +270,15 @@ function keeperView(entry: CarriedView): Row {
  * The Keeper-facing `carried` section of the `coc-clerk` message, or none. `document`: whether the module has an original
  * document (the capsule's `reading` section), when the read knows it; it only chooses the passages' last sentence.
  */
-export function carriedSection(carried: CarriedViews, options: {document?: boolean} = {}): Json | undefined {
+export function carriedSection(carried: CarriedViews, options: {document?: boolean; record?: boolean} = {}): Json | undefined {
   if (!carried.views.length && !carried.omitted.length && !carried.pending?.length) return undefined;
   const source = options.document === false ? ` ${CARRIED_NO_DOCUMENT}` : options.document === true ? ` ${CARRIED_DOCUMENT}` : '';
   const head = [carried.views.some(entry => entry.focus === 'source') ? `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD}${source}` : CARRIED_VIEWS_HEAD,
     ...(carried.views.some(entry => entry.focus === 'source_answer') ? [CARRIED_ANSWERS_HEAD] : []),
-    ...(carried.pending?.length ? [CARRIED_PENDING_HEAD] : [])].join(' ');
+    ...(carried.views.some(entry => entry.focus === 'scene_text') ? [CARRIED_SCENE_TEXT_HEAD] : []),
+    ...(options.record || carried.views.some(entry => entry.focus === 'scene_record') ? [CARRIED_SCENE_RECORD_HEAD] : []),
+    ...(carried.pending?.length ? [CARRIED_PENDING_HEAD] : []),
+    ...(carried.pending?.some(row => typeof row.scene === 'string') ? [CARRIED_PENDING_SCENE_HEAD] : [])].join(' ');
   return {head, views: carried.views.map(keeperView),
     ...(carried.omitted.length ? {omitted: carried.omitted} : {}), ...(carried.pending?.length ? {pending: carried.pending} : {})} as Json;
 }

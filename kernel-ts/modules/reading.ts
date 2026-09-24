@@ -48,6 +48,18 @@ const ANSWER_MEMO_LIMIT = 4;
  */
 export const READING_SLOTS = 3;
 /**
+ * §22.4.7 (SL-47): at most this many pages of the book's text are a scene's index text -- what a move into a scene not yet
+ * read lands on. A page of a PDF book is 3.5-4.6 KB of native text; the carried view holds about two of them.
+ */
+export const SCENE_INDEX_PAGES = 3;
+/** §22.4.7: what `requireMaterial` is told about the batch it gates. */
+export interface MaterialGate {
+    /** Move destinations by the name the batch gives `requireMaterial`: the effect's index, and whether the host asked it to land on the index text. */
+    moves?: Map<unknown, {effect: number; land: boolean}>;
+    /** Scenes the party entered on their index text (`world.index_scenes`): the party's place passes the gate. */
+    entered?: ReadonlySet<string>;
+}
+/**
  * §22.4.6: a job enters its present class (queued, promoted, demoted or yielded) at this moment; the slot wait counts from
  * it, so it keeps milliseconds (the host's `slot_wait_ms`), unlike the second-precision `at`.
  */
@@ -401,15 +413,40 @@ export class Reading {
             return recovered;
         });
     }
-    async requireMaterial(graph: ModuleGraph, names: any[]): Promise<void> {
+    /**
+     * §22.4.7 (SL-47): the pages of the bound document that are a scene's index text, structure only: the pages the scene
+     * node's own `source_refs` cite (`pdf:<module>`), then the pages of every §22.1 index row whose name or one of whose
+     * entities meets the scene's focus identity, in order, at most `SCENE_INDEX_PAGES`. 1-based physical pages.
+     */
+    async sceneIndexPages(graph: ModuleGraph, node: Row): Promise<number[]> {
+        const mid = graph.moduleId, pages: number[] = [];
+        const add = (page: number) => { if (Number.isSafeInteger(page) && page >= 1 && !pages.includes(page) && pages.length < SCENE_INDEX_PAGES) pages.push(page); };
+        for (const ref of array(node.source_refs))
+            if (ref?.source_id === `pdf:${mid}` && integer(ref.pdf_index)) add(number(ref.pdf_index) + 1);
+        const identity = await this.focusIdentity(mid), wanted = identity(graph.handle(node));
+        for (const section of await this.store.sections(mid)) {
+            const named = [section.name, ...array(section.entities)].filter(value => typeof value === 'string');
+            if (!named.some(value => Reading.meet(identity(value), wanted))) continue;
+            for (const range of array(section.pages)) {
+                const [first, last] = Array.isArray(range) ? [number(range[0]), number(range[1] ?? range[0])] : [number(range), number(range)];
+                for (let index = first; index <= last && pages.length < SCENE_INDEX_PAGES; index++) add(index + 1);
+            }
+        }
+        return pages;
+    }
+    /**
+     * The material gate. Returns the move destinations it let through on their index text (§22.4.7): the host asked
+     * (`land`) and the scene has index pages.
+     */
+    async requireMaterial(graph: ModuleGraph, names: any[], gate: MaterialGate = {}): Promise<Array<{name: string; focus: string; pages: number[]}>> {
         if (graph.materialOverride) {
             for (const name of names) if (typeof name === 'string' && graph.find(name) && graph.materialOverride(name) !== 'ready')
                 throw new RpcError('needs', 'The pinned source material is not prepared; read the source and prepare a reviewed rebase', {details: {reason: 'adaptation_material_missing', focus: name}});
-            return;
+            return [];
         }
-        const mid = graph.moduleId;
+        const mid = graph.moduleId, landed: Array<{name: string; focus: string; pages: number[]}> = [];
         if (!await this.store.exists(mid) || !playsFromReading(await this.store.module(mid)))
-            return;
+            return landed;
         const indexed = new Set((await this.store.sections(mid)).flatMap(section => [section.name ?? '', ...array(section.entities)]).filter(value => typeof value === 'string').map(normalize));
         for (const name of names) {
             if (typeof name !== 'string' || !name || await this.materialReady(mid, name))
@@ -418,11 +455,21 @@ export class Reading {
             if (node === null && !indexed.has(normalize(name)))
                 continue;
             const focus = node ? graph.handle(node) : name;
+            // §22.4.7: the party's place, entered on its index text, is not held while its record is read.
+            if (node && node.node_kind === 'scene' && gate.entered?.has(focus))
+                continue;
+            const move = gate.moves?.get(name), pages = move && node && node.node_kind === 'scene' ? await this.sceneIndexPages(graph, node) : [];
+            if (move?.land && pages.length) {
+                landed.push({ name, focus, pages });
+                continue;
+            }
             throw new RpcError('needs', `the source material for ${repr(focus)} is not prepared`, {
                 fix: 'read the required material before retrying this unchanged action',
-                details: { reason: 'material_pending', read: { purpose: 'detail', focus } },
+                details: { reason: 'material_pending', read: { purpose: 'detail', focus },
+                    ...(pages.length ? { index: { pages }, effect: move!.effect } : {}) },
             });
         }
+        return landed;
     }
     async queueAdjacentReading(graph: ModuleGraph, scene: Row): Promise<string[]> {
         if (graph.materialOverride) return [];

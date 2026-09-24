@@ -36,7 +36,7 @@ export type { SettlementPort } from './settlement.js';
 const INTENTS = ['ambiguous', 'cast', 'combat', 'flee', 'idle', 'investigate', 'meta', 'montage', 'move', 'social', 'stuck'];
 const NONE_INTENTS = new Set(['idle', 'meta', 'stuck', 'ambiguous']);
 export interface ResolveContributions extends FixedFamilies {
-    requireMaterial?: (graph: ModuleGraph, names: any[]) => Promise<void>;
+    requireMaterial?: (graph: ModuleGraph, names: any[], gate?: {entered?: ReadonlySet<string>}) => Promise<unknown>;
     beforeMain?: (input:ModResolveInput)=>Promise<ModResolveResult|null>;
 }
 function modifiers(input: any, arithmetic: CheckArithmetic, intent: unknown = null): [
@@ -244,7 +244,9 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             }
             if (!NONE_INTENTS.has(intent)) {
                 if (contributions.requireMaterial)
-                    await contributions.requireMaterial(graph, [transaction.world.active_scene, action.actor, action.target]);
+                    // §22.4.7: a scene the party entered on its index text is not held while its record is read.
+                    await contributions.requireMaterial(graph, [transaction.world.active_scene, action.actor, action.target],
+                        { entered: new Set(array(transaction.world.index_scenes).filter((value): value is string => typeof value === 'string')) });
                 else if (playsFromReading(module.meta))
                     throw new RpcError('not_implemented', 'The source material gate is not implemented in the TypeScript resolve runtime');
             }

@@ -49,6 +49,7 @@ import {
 } from "../../runtime/jev/speech-attribution-domain.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
 import { PendingAnswers, memoAnswer, pendingAnswer, sourceAnswerAllowanceMs } from "./source-answers.ts";
+import { SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
 import { speechPass } from "../../kernel-ts/write/speech-pass.ts";
 import {
 	type AdmissionContext,
@@ -1181,8 +1182,10 @@ export default function (pi: ExtensionAPI) {
 	// A background projection has written this tag's captions (contract §23): drop the authored
 	// words this extension was standing on, so the next line it notifies with is the player's.
 	pi.events.on("coc:ui-words", (data) => { surface.refresh((data as { tag?: unknown } | undefined)?.tag); });
-	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal, options?: {providerBudget?: TaskProviderBudget; allowanceMs?: number}): Promise<any>;
-		reading?(moduleId: string, params: Record<string, unknown>): boolean } | undefined;
+	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal, options?: {providerBudget?: TaskProviderBudget; allowanceMs?: number; blocking?: boolean}): Promise<any>;
+		reading?(moduleId: string, params: Record<string, unknown>): boolean;
+		/** §22.4.7 (SL-47): the native text of pages of the module's bound document. */
+		sourcePages?(moduleId: string, pages: number[], params?: Record<string, unknown>, signal?: AbortSignal): Promise<Array<{page: number; pdf_label?: string; text: string}>> } | undefined;
 	let readingModule: string | undefined;
 	let nativeSource: ((request: {moduleId: string; campaign: string; toolCallId: string; question: string}, signal?: AbortSignal) => Promise<Record<string, any>>) | undefined;
 	pi.events.on('coc:native-source-consult', value => { nativeSource = typeof value === 'function' ? value as typeof nativeSource : undefined; });
@@ -1206,6 +1209,8 @@ export default function (pi: ExtensionAPI) {
 	 * Written through the unwrapped telemetry sink: a background reading lands after its turn, and its row names that turn.
 	 */
 	const pendingAnswers = new PendingAnswers((row) => { void record(row); });
+	/** §22.4.7 (SL-47): the scenes entered on their index text whose record is still being read, per campaign, until carried once. */
+	const sceneReadings = new SceneReadings((row) => { void record(row); });
 	/** §135.31: the run step each model tool call came from, announced by the single-loop engine just before it runs. */
 	const modelSteps = new Map<string, { run: string; step: string }>();
 	pi.events.on("coc:model-step", (value) => {
@@ -3109,6 +3114,51 @@ export default function (pi: ExtensionAPI) {
 	 * a museum he was not in. Shaped after §32.2's `admissionUnavailable`: name what is unsettled,
 	 * keep what already settled, and never ask the player to resend words that were never the problem.
 	 */
+	/**
+	 * Contract §22.4.7 (SL-47). The kernel refused a move with `material_pending` and named the destination's index pages
+	 * (`details.index`, `details.effect`). When those pages have native text, the same call is sent again with
+	 * `_land_on_index` on that move: it lands, the scene's reading is queued blocking with no waiter, and the pages are kept
+	 * for the Keeper, carried once (the engine's note; the legacy result). Anything short of that -- no pages, no text, no
+	 * extraction, another refusal -- answers undefined and the caller keeps §22.4's wait.
+	 */
+	async function landOnIndex(state: TableState, failure: KernelError, payload: Record<string, unknown>, signal: AbortSignal | undefined,
+		invoke: () => Promise<Record<string, unknown> | undefined>): Promise<Record<string, unknown> | undefined> {
+		const details = failure.details ?? {}, read = (details.read ?? {}) as Record<string, unknown>, focus = asString(read.focus);
+		const pages = Array.isArray((details.index as { pages?: unknown } | undefined)?.pages)
+			? ((details.index as { pages: unknown[] }).pages).filter((page): page is number => Number.isSafeInteger(page) && (page as number) >= 1) : [];
+		const effects = Array.isArray(payload.effects) ? payload.effects as unknown[] : undefined, index = details.effect;
+		const target = effects && typeof index === "number" ? effects[index] as Record<string, unknown> | undefined : undefined;
+		if (!focus || !pages.length || !target || target.kind !== "move" || !reading?.sourcePages || !readingModule) return undefined;
+		let texts: Array<{page: number; pdf_label?: string; text: string}>;
+		try { texts = (await reading.sourcePages(readingModule, pages, {}, signal)).filter((page) => page.text.trim().length > 0); }
+		catch (error) {
+			void record({ lane: "reading", event: "scene_text_unavailable", turn: state.turn, scene: focus, detail: error instanceof Error ? error.message : String(error) });
+			return undefined;
+		}
+		if (!texts.length) {
+			void record({ lane: "reading", event: "scene_text_unavailable", turn: state.turn, scene: focus, detail: "no native text on the index pages" });
+			return undefined;
+		}
+		effects![index as number] = { ...target, _land_on_index: true };
+		let result: Record<string, unknown>;
+		try { result = (await invoke()) ?? {}; }
+		finally { effects![index as number] = target; }
+		// The scene's reading, blocking and waited on by nobody: the call returns at once, the record lands later.
+		let settled: Promise<any>;
+		try {
+			const reply = await reading.ensure(readingModule, { ...read, foreground: true }, undefined, { allowanceMs: 0, blocking: true });
+			settled = reply?.state === "pending" && reply.settled ? reply.settled : Promise.resolve(reply);
+		} catch (error) { settled = Promise.reject(error); }
+		settled.catch(() => undefined);
+		sceneReadings.register(state.campaign, focus, texts, state.turn, settled);
+		void record({ lane: "reading", event: "scene_text", turn: state.turn, scene: focus, pages: texts.map((page) => page.page),
+			bytes: Buffer.byteLength(JSON.stringify(texts), "utf8") });
+		const landed = Array.isArray(result.scene_text) ? result.scene_text as Array<Record<string, unknown>> : [{ scene: focus, pages }];
+		return { ...result, scene_text: landed.map((entry) => ({ ...entry, note: SCENE_TEXT_NOTE,
+			// On the hybrid engine the pages ride the next note once; the legacy engine has no note, so they ride here.
+			...(!drivenEngine && entry.scene === focus ? { text: texts } : {}) })) };
+	}
+
 	function sourceWaitInstruction(state: TableState, wait: NonNullable<TableState["sourceWait"]>): string {
 		const named = wait.focus ? ` for ${wait.focus}` : "";
 		const landed = state.landed.length > 0
@@ -3413,6 +3463,11 @@ export default function (pi: ExtensionAPI) {
 						details: { reason: unusable ? 'map_unusable' : 'map_preparing', read: { ...(failure.details.read as Record<string, unknown>) },
 							...(typeof queued.job_id === 'string' ? { job_id: queued.job_id } : {}) } });
 				}
+				// §22.4.7 (SL-47): a move into a scene not yet read lands on the book's text for it when the kernel names the scene's
+				// index pages and they have native text; the scene's reading goes on on a blocking slot and its record lands later.
+				const landing = spec.name === 'apply' && !ownedPreparation ? await landOnIndex(state, failure, payload, signal, invokeOperation) : undefined;
+				if (landing) result = landing;
+				else {
 				const readKey = JSON.stringify([read.purpose ?? "", read.material ?? "", read.focus ?? "", read.question ?? "", read.guidance_key ?? ""]);
 				// This exact material already refused this turn: refuse again at once rather than rejoining
 				// the same pending job for another full wait. The Keeper was told not to ask again.
@@ -3445,6 +3500,7 @@ export default function (pi: ExtensionAPI) {
 					if(spec.name==='narrate'||spec.name==='ask'){prepared=again;notePrepared(state,again);}
 				}
 				result = (await invokeOperation()) ?? {};
+				}
 			}
 			if (spec.name === "recall") result = state.recallPages.accept(result);
 			// Deferred Mod bookkeeping completes after the verb that opened this turn, never before it.
@@ -3960,7 +4016,10 @@ export default function (pi: ExtensionAPI) {
 			// §135.31.2 (SL-36): a consultation that went pending is carried to the Keeper once, when it lands, through this port.
 			// §22.4.4 (SL-37): a text read this turn is still waiting on rides as pending too, while the reading service says it is in flight.
 			pi.events.emit('coc:source-answers', Object.freeze({ campaign, take: () => {
-				const taken = pendingAnswers.take(campaign), wait = table?.campaign === campaign ? table.sourceWait : undefined;
+				const answers = pendingAnswers.take(campaign), wait = table?.campaign === campaign ? table.sourceWait : undefined;
+				// §22.4.7 (SL-47): a scene entered on its index text -- its pages once, its pending read (naming the scene), its record once.
+				const scenes = sceneReadings.take(campaign);
+				const taken = { ...answers, pending: [...answers.pending, ...scenes.pending], texts: scenes.texts, records: scenes.records };
 				let inFlight = false;
 				try { inFlight = !!(wait?.focus && readingModule && reading?.reading?.(readingModule, { focus: wait.focus, question: wait.question ?? "" })); }
 				catch { inFlight = false; }
