@@ -240,3 +240,49 @@ test("§135.30.5 on the emitted kernel: gate #3 turn 1's sentence at the office 
 	const tools = table.telemetry("test-camp").filter((row) => row.tool === "apply" && row.origin === "policy");
 	assert.deepEqual(tools.slice(0, 2).map((row) => row.ok), [true, true], "the kernel took both");
 });
+
+// ---------------------------------------------------------------------------------------------------
+// SL-42 (§135.30.7): the Keeper's bookkeeping of the scene the clerk's move left is accepted at that scene.
+// ---------------------------------------------------------------------------------------------------
+
+test("§135.30.7 on the emitted kernel: after the clerk's clue and move, the Keeper's accept -- Knott, the keys, the cash, the key, the handout -- lands with receipts", async (t) => {
+	const graph = JSON.parse(readFileSync(join(REPO, "content/starters/the-haunting/module-graph.json"), "utf8"));
+	const leads = graph.nodes.find((node) => node.node_id === "clue-knott-research-leads").summary;
+	const decide = async (batch) => {
+		if (batch.family === COMPILE_FAMILY) return complete(Object.fromEntries(batch.questions.map((question) => {
+			const pick = question.key === "destination" ? [aliasWhere(question, (value) => value?.handle === "newspaper-morgue"), 1]
+				: question.key === "ask" ? [aliasWhere(question, (value) => value?.clue === leads), 0.9]
+					: question.key === "act" ? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("investigate")), 0.95] : [];
+			return [question.key, choice(pick[0] ?? "unclear", pick[0] ? pick[1] : 0.9)];
+		})));
+		return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
+			choice(question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9)])));
+	};
+	// The recorded Keeper's first batch at gate #3 turn 1, less what the clerk already did (the leads clue and the move).
+	const accept = [{ kind: "person", who: "Steven Knott", name: "史蒂文·诺特", why: "上一回他已自报姓名。" },
+		{ kind: "clue", clue: "knott-keys", how: "你接下委托，诺特把钥匙、地址和预付的二十美元交给你。", from: "Steven Knott", label: "科比特宅的钥匙与预付" },
+		{ kind: "cash", delta: 20, source: "quote", with: "Steven Knott", why: "诺特按事先说好的条件，预付一天的二十美元。" },
+		{ kind: "item", name: "Corbitt House key", from: "Steven Knott", label: "科比特宅钥匙", why: "诺特把压在账簿下的黄铜钥匙推过来。" },
+		{ kind: "handout", name: "Handout 1: Mr. Knott's Commission", label: "诺特先生的委托" }];
+	let workspace;
+	const engine = createHybridEngine({ env: process.env, decision: { decide } });
+	const table = await openTable({ realKernel: true, prepareWorkspace: (at) => { workspace = at; kernelSteps(at, [
+		["table.open", {}], ["table.player_input", { text: "我听他说完。" }], ["table.narrate", { call_id: "t1-c1", text: "诺特把委托说了一遍。" }]]); },
+		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
+		responses: [fauxAssistantMessage([fauxToolCall("apply", { effects: accept })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "你收下钥匙和预付，出门去了报馆。" })], { stopReason: "toolUse" })] });
+	t.after(() => table.dispose());
+	await table.session.prompt(INPUT);
+
+	const tools = table.telemetry("test-camp").filter((row) => row.tool === "apply");
+	assert.deepEqual(tools.map((row) => [row.origin ?? "model", row.ok]), [["policy", true], ["policy", true], ["model", true]],
+		"the clerk's clue and move, then the Keeper's accept, all taken");
+	const record = JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns/0002.json"), "utf8"));
+	const kinds = record.receipts.map((receipt) => [receipt.kind, receipt.clue ?? receipt.to ?? receipt.who ?? receipt.name ?? receipt.resource ?? null]);
+	for (const expected of [["clue", "knott-research-leads"], ["move", "newspaper-morgue"], ["person", "steven-knott"], ["clue", "knott-keys"], ["cash", "cash"], ["handout", "Handout 1: Mr. Knott's Commission"]])
+		assert.ok(kinds.some(([kind, name]) => kind === expected[0] && String(name).toLowerCase().replace(/\s+/g, "-") === String(expected[1]).toLowerCase().replace(/\s+/g, "-")), `${expected.join(" ")} has a receipt`);
+	assert.ok(record.receipts.some((receipt) => receipt.kind === "item"), "the key item has a receipt");
+	const keys = record.receipts.find((receipt) => receipt.kind === "clue" && receipt.clue === "knott-keys");
+	assert.deepEqual([keys.scene, keys.left_this_turn], ["commission-briefing", true], "recorded at the office the clerk's move left");
+	assert.equal(record.receipts.find((receipt) => receipt.kind === "clue" && receipt.clue === "knott-research-leads").left_this_turn, undefined);
+});

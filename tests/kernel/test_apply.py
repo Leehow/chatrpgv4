@@ -99,6 +99,48 @@ def test_move_retraces_the_trail(kernel):
     assert world(kernel)["scene_trail"] == [OPENING_SCENE, "newspaper-morgue", "corbitt-house-ground"]
 
 
+def _clue_receipt(kernel, clue):
+    [receipt] = [r for r in kernel.table("status")["receipts"] if r["kind"] == "clue" and r["clue"] == clue]
+    return receipt
+
+
+def test_a_clue_of_the_scene_left_this_turn_lands_at_that_scene(kernel):
+    """Contract §135.30.7 (SL-42): after the party leaves the office this turn, the office's keys clue is accepted and
+    recorded at the office; a clue of a scene never visited is still not_here, and so is the office's next turn."""
+    open_turn(kernel, "我接。先去《环球报》剪报室。")
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "clue", "clue": "knott-research-leads"}])
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind": "move", "to": "newspaper-morgue"}])
+
+    never = kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "clue", "clue": "chapel-eye-symbol"}])
+    assert never["code"] == "not_here" and never["details"]["scene"] == "newspaper-morgue"
+
+    kernel.table("apply", call_id="t1-c3", effects=[{"kind": "clue", "clue": "knott-keys", "from": "Steven Knott"}])
+    receipt = _clue_receipt(kernel, "knott-keys")
+    assert receipt["scene"] == OPENING_SCENE and receipt["left_this_turn"] is True
+    assert "knott-keys" in world(kernel)["discovered_clues"]
+    assert world(kernel)["active_scene"] == "newspaper-morgue", "the party stays where it went"
+    event = [e for e in read_jsonl(campaign_dir(kernel.workspace) / "events.jsonl")
+             if e["type"] == "clue-discovered" and e["data"]["clue"] == "knott-keys"][0]
+    assert event["data"]["scene"] == OPENING_SCENE
+    # A clue found where the party is carries no departure mark.
+    assert "left_this_turn" not in _clue_receipt(kernel, "knott-research-leads")
+
+    narrate(kernel, "t1-c4", "你收下钥匙，去了报馆。")
+    kernel.table("player_input", text="我在报馆里四处看看。")
+    later = kernel.table_err("apply", call_id="t2-c1", effects=[{"kind": "clue", "clue": "knott-macario-summary"}])
+    assert later["code"] == "not_here", "a scene left on an earlier turn is not this turn's departure"
+
+
+def test_a_move_then_the_old_scenes_clue_in_one_batch_lands(kernel):
+    """Contract §135.30.7: a move earlier in the same batch is a departure of this turn."""
+    open_turn(kernel, "我接下委托，拿了钥匙就去报馆。")
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "clue", "clue": "knott-research-leads"},
+                                                    {"kind": "move", "to": "newspaper-morgue"},
+                                                    {"kind": "clue", "clue": "knott-keys"}])
+    assert _clue_receipt(kernel, "knott-keys")["scene"] == OPENING_SCENE
+    assert world(kernel)["active_scene"] == "newspaper-morgue"
+
+
 def test_clue_here_not_here_and_duplicate(kernel):
     open_turn(kernel)
     error = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "clue", "clue": "chapel-eye-symbol"}])
