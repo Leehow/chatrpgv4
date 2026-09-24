@@ -10,11 +10,12 @@
  * - the session: `{session, pending_choice}`, which the fresh read already holds from `table.resolve.options`.
  *
  * When each is due (once per scene, once per person, the session whenever it changed) is the engine's; this module reads
- * the views it is asked for and bounds them with §135.20's ceilings and cuts: one view like one candidate body, all views
- * of one message like one read's bodies; a cut is marked, and a view that does not fit, could not be read or does not
- * resolve is listed with its reason. Never a silent cut.
+ * the views it is asked for and bounds them with ceilings of their own (owner decision 2026-09-24: §135.20's 1 KiB cut
+ * dropped what a view is for -- a card's `mechanics`, a scene's exits and people), cut the way §135.20 cuts a body; a cut
+ * is marked, and a view that does not fit, could not be read or does not resolve is listed with its reason. Never a silent
+ * cut. §135.20's own ceilings stay for the issued bodies.
  */
-import {CANDIDATE_BODIES_BYTES, CANDIDATE_BODY_BYTES, fitBody} from './candidate-bodies.ts';
+import {fitBody} from './candidate-bodies.ts';
 import type {Candidate, Json} from './step-policy.ts';
 
 type Row = Record<string, any>;
@@ -22,6 +23,11 @@ type Call = (method: string, params: Row) => Promise<unknown>;
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8');
+
+/** One carried view (§135.31): a whole scene view or card on the gate state is 4.0-4.5 KB before this cut. */
+export const CARRIED_VIEW_BYTES = 4 * 1024;
+/** All carried views of one `coc-clerk` message (§135.31). */
+export const CARRIED_VIEWS_BYTES = 12 * 1024;
 
 /** The wrapper keys of a view whose own fields are the view's fields for the cut (`where.scene`, `session.round`, …). */
 const WRAPPERS: readonly string[] = Object.freeze(['where', 'session']);
@@ -52,7 +58,7 @@ export function namedPeople(candidate: Pick<Candidate, 'family' | 'bound'> & Par
  * (so the scene keeps `where.scene` and drops `present` and `where`'s tail first); cut fields are named with their
  * wrapper (`where.affordances`).
  */
-export function fitView(view: Row, max = CANDIDATE_BODY_BYTES): {view: Row; truncated?: true; omitted_fields?: string[]} {
+export function fitView(view: Row, max = CARRIED_VIEW_BYTES): {view: Row; truncated?: true; omitted_fields?: string[]} {
   if (bytes(view) <= max) return {view};
   const flat: Row = {};
   for (const [key, value] of Object.entries(view)) {
@@ -143,12 +149,12 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
   for (const item of due) {
     const named = item.name ? {name: item.name} : {};
     if (item.reason || !item.view) { omitted.push({focus: item.focus, ...named, reason: item.reason ?? 'read_failed'}); continue; }
-    const fitted = fitView(item.view, CANDIDATE_BODY_BYTES);
+    const fitted = fitView(item.view, CARRIED_VIEW_BYTES);
     const entry: CarriedView = {focus: item.focus, ...named, ...(item.id ? {id: item.id} : {}), view: fitted.view, read: item.read,
       ...(fitted.truncated ? {truncated: true as const} : {}), ...(fitted.omitted_fields ? {omitted_fields: fitted.omitted_fields} : {})};
     // The budget is what the Keeper reads (focus, name, view and the cut marks), not the host's id and read.
     const size = bytes(keeperView(entry));
-    if (total + size > CANDIDATE_BODIES_BYTES) { omitted.push({focus: item.focus, ...named, reason: 'budget'}); continue; }
+    if (total + size > CARRIED_VIEWS_BYTES) { omitted.push({focus: item.focus, ...named, reason: 'budget'}); continue; }
     total += size;
     views.push(entry);
   }

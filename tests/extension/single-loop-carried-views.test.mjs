@@ -19,8 +19,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { createRealCampaign, openTable } from "./harness.mjs";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
-import { CANDIDATE_BODIES_BYTES, CANDIDATE_BODY_BYTES } from "../../runtime/jev/candidate-bodies.ts";
-import { CARRIED_VIEWS_HEAD, carriedSection, fitView, namedPeople, readCarriedViews } from "../../runtime/jev/carried-views.ts";
+import { CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, CARRIED_VIEWS_HEAD, carriedSection, fitView, namedPeople, readCarriedViews } from "../../runtime/jev/carried-views.ts";
 import { readArguments } from "../../extensions/kernel/index.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
 
@@ -106,7 +105,7 @@ const toldWhereToDig = (workspace) => kernelSteps(workspace, [
 	["table.narrate", { call_id: "t1-c2", text: "他递给你一张写着地方的纸。" }],
 ]);
 
-test("§135.31 after a clerk move: the scene the run moved into and the people the fresh read's candidates name, each as look returns it, cut to 1 KiB and marked", async (t) => {
+test("§135.31 after a clerk move: the scene the run moved into and the people the fresh read's candidates name, each as look returns it, whole under the carried view's own 4 KiB", async (t) => {
 	let routes = 0;
 	const table = await hybridTable({
 		prepareWorkspace: toldWhereToDig,
@@ -127,15 +126,15 @@ test("§135.31 after a clerk move: the scene the run moved into and the people t
 	const byFocus = (focus) => carried.views.filter((entry) => entry.focus === focus);
 
 	// The scene: the run began at Knott's office and the clerk moved it to the Globe, so its view is carried: look's own
-	// `{where, present}`, cut over where's fields in order, the cut named.
+	// `{where, present}`, whole (the Globe's is under 4 KiB): exits, affordances and the people there travel with it.
 	const [scene] = byFocus("scene");
 	assert.equal(scene?.name, "newspaper-morgue");
 	const [lookScene, lookArty, lookRuth] = kernelSteps(table.table.workspace, [["table.look", { focus: "scene" }],
 		["table.look", { focus: "npc", name: "Arty Wilmot" }], ["table.look", { focus: "npc", name: "Ruth Blake" }]]);
-	assert.deepEqual(scene.view, fitView(lookScene).view, "the scene view is look focus=scene, cut the way a body is cut");
-	assert.equal(scene.view.where.scene, "newspaper-morgue");
-	assert.equal(scene.truncated, true);
-	assert.ok(scene.omitted_fields.includes("present") && scene.omitted_fields.every((field) => field === "present" || field.startsWith("where.")));
+	assert.equal(scene.truncated, undefined, `the Globe's scene view is ${size(lookScene)} bytes: carried whole`);
+	assert.deepEqual(scene.view.where, lookScene.where, "the scene view is look focus=scene");
+	assert.deepEqual(scene.view.present.map((person) => person.name), lookScene.present.map((person) => person.name));
+	assert.ok(scene.view.where.affordances.length > 0 && scene.view.where.exits.length > 0);
 
 	// The people: the gatekeeper the Globe's obligation puts in the way (its carried meeting) and the archivist the Mod's
 	// first-impression check targets; the investigator is never among them.
@@ -145,14 +144,15 @@ test("§135.31 after a clerk move: the scene the run moved into and the people t
 		const { kind: _kind, ...card } = look;
 		assert.deepEqual(pick(entry.view, ["name", "id", "role", "wants", "fears", "hides", "voice"]), pick(card, ["name", "id", "role", "wants", "fears", "hides", "voice"]),
 			"a person's view is look focus=npc");
-		assert.equal(entry.truncated, true, "a card is about 4 KB: cut to 1 KiB and marked");
-		assert.ok(entry.omitted_fields.includes("mechanics") && entry.omitted_fields.every((field) => Object.hasOwn(card, field)));
+		assert.equal(entry.truncated, undefined, `a card of ${size(card)} bytes travels whole`);
+		assert.deepEqual(Object.keys(entry.view), Object.keys(card), "every field of the card, mechanics and the combat fields among them");
+		assert.ok(Object.hasOwn(entry.view, "mechanics"));
 	}
 	assert.ok(!JSON.stringify(carried.views).includes('"id":"thomas-hayes"'));
 
-	// §135.20's ceilings: one view at most 1 KiB, the message's views at most 8 KiB; the telemetry row says what went.
-	for (const entry of carried.views) assert.ok(size(entry.view) <= CANDIDATE_BODY_BYTES, `${entry.focus} ${entry.name} is ${size(entry.view)} bytes`);
-	assert.ok(size(carried.views) <= CANDIDATE_BODIES_BYTES);
+	// The carried section's own ceilings: one view at most 4 KiB, the message's views at most 12 KiB; the row says what went.
+	for (const entry of carried.views) assert.ok(size(entry.view) <= CARRIED_VIEW_BYTES, `${entry.focus} ${entry.name} is ${size(entry.view)} bytes`);
+	assert.ok(size(carried.views) <= CARRIED_VIEWS_BYTES);
 	const rows = table.table.telemetry(CAMPAIGN).filter((row) => row.lane === "run" && row.event === "carried");
 	assert.equal(rows.length, 1);
 	assert.deepEqual(rows[0].views.map((view) => view.focus).sort(), ["npc", "npc", "scene"]);
@@ -185,8 +185,9 @@ test("§135.31 at a pending defence: the defender's card and the session view, b
 	assert.equal(knott.view.id, "steven-knott");
 	const { kind: _kind, ...card } = lookKnott;
 	assert.deepEqual(pick(knott.view, ["name", "id", "role", "wants"]), pick(card, ["name", "id", "role", "wants"]));
-	assert.equal(knott.truncated, true, "his card is 4 KB: cut to 1 KiB and marked");
-	assert.ok(knott.omitted_fields.includes("mechanics"));
+	assert.equal(knott.truncated, undefined, `his card (${size(card)} bytes) travels whole`);
+	assert.deepEqual(Object.keys(knott.view), Object.keys(card));
+	assert.ok(Object.hasOwn(knott.view, "mechanics"), "the field that says whether he has a stat block");
 	assert.deepEqual(carried.views.map((entry) => entry.focus), ["session", "npc"], "served session, then people; no scene: the run did not move");
 	assert.equal(carried.views.filter((entry) => entry.focus === "npc").length, 1, "the investigator (the attacker, the target) is not a person here");
 	assert.equal(carried.omitted, undefined);
@@ -280,25 +281,27 @@ test("§135.31 in the kernel: keeper_reads is host-only, shape-checked, and outs
 	} finally { rmSync(workspace, { recursive: true, force: true }); }
 });
 
-test("§135.31 ceilings: each view at most 1 KiB and the message's at most 8 KiB, served session, people, scene; a cut is named and what does not fit or resolve is listed", async () => {
+test("§135.31 ceilings: each view at most 4 KiB and the message's at most 12 KiB (not §135.20's 1/8 KiB), served session, people, scene; a cut is named and what does not fit or resolve is listed", async () => {
 	const big = (n) => "w".repeat(n);
-	const card = (name) => ({ kind: "npc", name, id: name.toLowerCase(), role: "r", wants: big(300), fears: big(300), hides: big(300), mechanics: { hp: 9 }, properties: { note: big(2000) } });
+	const card = (name) => ({ kind: "npc", name, id: name.toLowerCase(), role: "r", wants: big(1200), fears: big(1200), hides: big(1200), mechanics: { hp: 9 }, properties: { note: big(2000) } });
 	const calls = [];
 	const call = async (method, params) => {
 		calls.push([method, params]);
-		if (params.focus === "scene") return { where: { scene: "hall", display_name: "Hall", summary: "s", exits: [{ to: "a" }], affordances: big(3000) }, present: [{ name: "P", note: big(2000) }] };
+		if (params.focus === "scene") return { where: { scene: "hall", display_name: "Hall", summary: "s", exits: [{ to: "a" }], affordances: big(6000) }, present: [{ name: "P", note: big(2000) }] };
 		if (params.name === "Nobody") { const error = new Error("no npc"); error.code = "unknown_entity"; throw error; }
 		if (params.name === "Broken") throw new Error("kernel down");
 		return card(params.name);
 	};
 	const names = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "Nobody", "Broken"];
-	const session = { session: { kind: "combat", round: 1, participants: [{ name: "a", note: big(3000) }] }, pending_choice: null };
+	const session = { session: { kind: "combat", round: 1, participants: [{ name: "a", note: big(6000) }] }, pending_choice: null };
 	const carried = await readCarriedViews({ call, scene: "hall", people: names, skip: new Set(["A9"]), session });
 	assert.equal(carried.views[0].focus, "session");
-	assert.ok(carried.views.every((entry) => size(entry.view) <= CANDIDATE_BODY_BYTES));
+	assert.ok(carried.views.every((entry) => size(entry.view) <= CARRIED_VIEW_BYTES));
+	assert.ok(carried.views.some((entry) => size(entry.view) > 1024), "not §135.20's 1 KiB body ceiling");
 	const section = carriedSection(carried);
-	assert.ok(size(section.views) <= CANDIDATE_BODIES_BYTES, `the message's views are ${size(section.views)} bytes`);
-	assert.ok(carried.bytes <= CANDIDATE_BODIES_BYTES);
+	assert.ok(size(section.views) <= CARRIED_VIEWS_BYTES, `the message's views are ${size(section.views)} bytes`);
+	assert.ok(size(section.views) > 8 * 1024, "not §135.20's 8 KiB section ceiling");
+	assert.ok(carried.bytes <= CARRIED_VIEWS_BYTES);
 	// A wrapper's fields are the view's fields for the cut: the trailing `pending_choice` goes first, then (the first three
 	// fields are kept, as fitBody keeps a body's identity) long strings are clipped.
 	assert.deepEqual(carried.views[0].omitted_fields, ["pending_choice"]);
@@ -318,10 +321,10 @@ test("§135.31 ceilings: each view at most 1 KiB and the message's at most 8 KiB
 	assert.ok(!calls.some(([, params]) => params.name === "A9"), "a person already shown is not read again");
 	assert.ok(!JSON.stringify(section).includes('"read"'), "the host's reads stay off the Keeper's section");
 	// The scene alone: cut over where's fields in order, present first to go.
-	const scene = fitView({ where: { scene: "hall", display_name: "Hall", summary: "s", exits: [{ to: "a" }], affordances: big(3000) }, present: [{ name: "P" }] });
+	const scene = fitView({ where: { scene: "hall", display_name: "Hall", summary: "s", exits: [{ to: "a" }], affordances: big(6000) }, present: [{ name: "P" }] });
 	assert.deepEqual(scene.view.where.scene, "hall");
 	assert.deepEqual(scene.omitted_fields, ["where.affordances", "present"]);
-	assert.ok(size(scene.view) <= CANDIDATE_BODY_BYTES);
+	assert.ok(size(scene.view) <= CARRIED_VIEW_BYTES);
 });
 
 test("§135.31 who a candidate names: closed fields of its structure, never its words", () => {
