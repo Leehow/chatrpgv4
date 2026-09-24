@@ -215,6 +215,7 @@ function defaultLine(candidate: Candidate): string | undefined {
   if (basis.binding !== 'rule-default' || !Object.keys(defaults).length) return undefined;
   const rules: Record<string, string> = {jev_lead: 'Jev\'s leading reading of the player\'s words, under the confidence gate',
     highest_offered_skill: 'the investigator\'s highest of the offered skills', no_modifier: 'no modifier',
+    regular_difficulty: 'a regular difficulty; nothing stated makes it harder',
     card_disposition: 'the combat tactic their card states, through the combat disposition table'};
   // The card's word stands in for a person's own parameters, not for the player's words (§11.5.3 amendment).
   const card = Object.values(defaults).every(value => text(object(value).rule) === 'card_disposition');
@@ -572,17 +573,21 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         const result = await prepareCheckPreflight({campaign: bridge.campaign, turn: run.turn, rawInput: run.rawInput, goal: run.rawInput, scope: run.scope,
           readSet: run.readSet, publicContext: [{role: 'player', text: run.rawInput}], call: (method, params) => bridge!.call!(method, params), decision: jev!, lease,
           // §135.30.3 (owner ruling 2026-09-24): the compile's cleared act settled roll-or-not; the binder's own answer is recorded.
-          ...(compiledCheck(candidate) ? {compiled: compiledCheck(candidate)} : {})});
+          ...(compiledCheck(candidate) ? {compiled: compiledCheck(candidate)} : {}),
+          // SL-31 (§135.28): the clerk's binder takes the difficulty and the dice from Jev only past the policy's gate, else
+          // their rules defaults; a single issued investigator is the actor.
+          defaults: {gate: Number(question.gate) || DEFAULT_CONFIDENCE_GATE}});
         // §135.30.3 (SL-26): the profile answer behind the skill rides with the action, so the bind record says whether it cleared.
         const skill = result.evidence?.profile;
         const bound = {disposition: result.advice.disposition, ...(result.advice.action ? {action: result.advice.action as unknown as Record<string, Json>} : {}),
           unresolved: result.advice.unresolved, calls: result.decisionCalls, ms: Date.now() - began, ...(skill ? {skill} : {}),
-          ...(result.evidence?.route ? {route: result.evidence.route} : {})};
+          ...(result.evidence?.route ? {route: result.evidence.route} : {}), ...(result.evidence?.paths ? {paths: result.evidence.paths} : {})};
         record({lane: 'route', purpose: 'bind-ordinary', run: run.runId, step: request.stepId, candidate: candidate.key, disposition: bound.disposition,
           unresolved: bound.unresolved, ms: bound.ms, jev_calls: bound.calls,
           ...(skill ? {skill: {value: skill.choice, confidence: skill.confidence, distribution: skill.probabilities}} : {}),
           ...(result.evidence?.route ? {route: result.evidence.route} : {}), ...(result.evidence?.consent ? {consent: result.evidence.consent} : {}),
-          ...(result.evidence?.parameters ? {parameters: result.evidence.parameters} : {})});
+          ...(result.evidence?.parameters ? {parameters: result.evidence.parameters} : {}),
+          ...(result.evidence?.paths ? {paths: result.evidence.paths} : {})});
         return {status: 'ok' as const, artifact: {kind: 'bind-ordinary', bound} as StepArtifact};
       } finally { lease.close(); }
     }

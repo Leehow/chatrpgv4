@@ -21,7 +21,7 @@ import { runDriver } from "./pi-agent-core.mjs";
 import { SENTENCE_MAX } from "../../extensions/kernel/tools.ts";
 import { buildCandidates, keeperCall } from "../../runtime/jev/candidates.ts";
 import { highestOffered, obligationCandidates } from "../../runtime/jev/obligation-candidates.ts";
-import { interpretOrdinaryRoute } from "../../runtime/jev/ordinary-resolve-domain.ts";
+import { ORDINARY_RULE_DEFAULTS, interpretOrdinaryRoute } from "../../runtime/jev/ordinary-resolve-domain.ts";
 import { composeSentence } from "../../runtime/jev/composed-arguments.ts";
 import { admissionBindings, bindRecords, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { compileAdmission } from "../../extensions/kernel/admission.ts";
@@ -589,4 +589,132 @@ test("SL-26 (§135.30.3): for the check the compile selected the binder's route 
 	assert.equal(interpretOrdinaryRoute({ ...options, profiles: [...options.profiles, { ...options.profiles[0], alias: "p1", actor: "Ruth" }] }, shaky, { intent: "investigate" }).disposition,
 		"unknown", "two actors: the actor is still Jev's");
 	assert.equal(interpretOrdinaryRoute(options, answers({ route: "no_roll", consent: "unselected" }), { intent: "investigate" }).disposition, "needs_player", "consent still decides");
+});
+
+// ---- SL-31 (§135.28): the ordinary binder's rules defaults --------------------------------------------------------------
+
+/** The binder's route answers: `values[key]` = [choice, confidence, probabilities]. */
+const routeAnswers = (values) => ({ batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
+	answers: Object.fromEntries(Object.entries(values).map(([key, [choice, confidence, probabilities]]) => [key,
+		{ status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } }])) });
+const STR_KITCHEN = { version: 1, profiles: [{ alias: "p0", actor: "Hayes", skill: "STR", availability: "bound", value: 60 }, { alias: "p1", actor: "Hayes", skill: "Spot Hidden", availability: "bound", value: 70 }],
+	decisions: [{ name: "core-check:ordinary-check", family: "core-check", description: null, capability: null }], revision: "r", world_revision: "w", context: {} };
+/** Long gate #2's turns 14 and 18 (STR to pry and to shift the cupboard), the binder's answers as recorded. */
+const TURN14 = { route: ["ordinary", 0.59], consent: ["authorized", 0.9], actor: ["unknown", 0.28, { unknown: 0.64, actor_0: 0.36 }],
+	intent: ["investigate", 0.47, { investigate: 0.73, move: 0.27 }], difficulty: ["unknown", 0.49, { unknown: 0.62, regular: 0.37, hard: 0.01, extreme: 0 }],
+	bonus: ["none", 0.92, { none: 0.96, unknown: 0.04 }], penalty: ["none", 0.88, { none: 0.94, unknown: 0.06 }] };
+const TURN18 = { ...TURN14, route: ["no_roll", 0.79, { no_roll: 0.84, ordinary: 0.16 }], actor: ["actor_0", 0.49, { actor_0: 0.7, unknown: 0.3 }],
+	intent: ["investigate", 0.95], difficulty: ["unknown", 0.5, { unknown: 0.63, regular: 0.37, hard: 0, extreme: 0 }], bonus: ["none", 0.96], penalty: ["none", 0.94] };
+
+test("SL-31 (§135.28): the ordinary binder's defaults -- regular difficulty and no modifier unless Jev's answer clears; the single investigator; recorded per parameter", () => {
+	const gate = { gate: 0.6 }, compiled = { intent: "investigate" };
+	assert.deepEqual(ORDINARY_RULE_DEFAULTS, { difficulty: { value: "regular", rule: "regular_difficulty" }, bonus: { value: "none", rule: "no_modifier" }, penalty: { value: "none", rule: "no_modifier" } });
+	for (const [turn, answers] of [[14, TURN14], [18, TURN18]]) {
+		// As the long gate ran (no defaults): the difficulty's `unknown` left the check to the Keeper.
+		assert.deepEqual(interpretOrdinaryRoute(STR_KITCHEN, routeAnswers(answers), compiled), { disposition: "unknown", needs: ["An actor, difficulty or modifier is not bound."] }, `turn ${turn} before`);
+		const route = interpretOrdinaryRoute(STR_KITCHEN, routeAnswers(answers), compiled, gate);
+		assert.deepEqual([route.disposition, route.actor, route.intent, route.difficulty, route.bonus, route.penalty], ["ordinary", "Hayes", "investigate", "regular", "none", "none"], `turn ${turn}`);
+		assert.deepEqual(route.paths.difficulty, { path: "rule-default", value: "regular", rule: "regular_difficulty", confidence: answers.difficulty[1], distribution: answers.difficulty[2] });
+		assert.deepEqual([route.paths.bonus.path, route.paths.penalty.path], ["jev", "jev"], "the dice cleared at 0.88-0.96: Jev's");
+	}
+	// `route: true` reads the answers as for a route-selected check (no compile record).
+	const take = (overrides, options = STR_KITCHEN, route = false) => interpretOrdinaryRoute(options, routeAnswers({ ...TURN14, ...overrides }), route ? undefined : compiled, gate);
+	// Jev's cleared answer overrides the default; an answer that does not clear does not.
+	assert.deepEqual([take({ difficulty: ["hard", 0.8, { hard: 0.85, regular: 0.15 }] }).difficulty, take({ difficulty: ["hard", 0.8, { hard: 0.85, regular: 0.15 }] }).paths.difficulty.path], ["hard", "jev"]);
+	assert.equal(take({ difficulty: ["extreme", 0.5, { extreme: 0.7, regular: 0.2, unknown: 0.1 }] }).difficulty, "extreme", "the margin rule clears it too");
+	const under = take({ difficulty: ["hard", 0.45, { hard: 0.45, regular: 0.4, unknown: 0.15 }] });
+	assert.deepEqual([under.difficulty, under.paths.difficulty.path, under.paths.difficulty.confidence], ["regular", "rule-default", 0.45], "an uncleared lead is not taken");
+	assert.equal(take({ difficulty: ["impossible", 0.99] }).difficulty, "regular", "an answer outside the vocabulary is not taken");
+	const dice = take({ bonus: ["one", 0.9, { one: 0.92, none: 0.08 }], penalty: ["one", 0.4, { one: 0.45, none: 0.4, unknown: 0.15 }] });
+	assert.deepEqual([dice.bonus, dice.paths.bonus.path, dice.penalty, dice.paths.penalty], ["one", "jev", "none",
+		{ path: "rule-default", value: "none", rule: "no_modifier", confidence: 0.4, distribution: { one: 0.45, none: 0.4, unknown: 0.15 } }]);
+	assert.equal(take({ bonus: ["unknown", 0.7] }).paths.bonus.rule, "no_modifier");
+	// The route-selected check (no compile) gets the same defaults and the single investigator.
+	const routed = take({ intent: ["investigate", 0.47] }, STR_KITCHEN, true);
+	assert.deepEqual([routed.disposition, routed.actor, routed.difficulty], ["ordinary", "Hayes", "regular"]);
+	// Several investigators: the actor has no default -- Jev's answer, or the check is unbound and says what is missing.
+	const party = { ...STR_KITCHEN, profiles: [...STR_KITCHEN.profiles, { alias: "p2", actor: "Ruth", skill: "STR", availability: "bound", value: 45 }] };
+	assert.deepEqual(take({}, party), { disposition: "unknown", needs: ["The ordinary check's actor is not bound."] });
+	assert.equal(take({ actor: ["actor_1", 0.9] }, party).actor, "Ruth");
+	assert.deepEqual(take({ intent: ["unknown", 0.9] }, party, true).needs, ["The ordinary check's actor, intent are not bound."]);
+	// The advisory binder (no defaults) is as before: every answer taken as given, no paths.
+	const advisory = interpretOrdinaryRoute(STR_KITCHEN, routeAnswers({ ...TURN14, actor: ["actor_0", 0.3], difficulty: ["hard", 0.3] }));
+	assert.deepEqual([advisory.difficulty, advisory.paths], ["hard", undefined]);
+});
+
+test("SL-31 (§135.28): the binder's defaults on the bind records and the basis -- each of difficulty, bonus, penalty; the modifiers follow; no default, no stamp", () => {
+	const candidate = { key: ORDINARY_CHECK_KEY, verb: "resolve", family: "core-check", label: "check", source: "table.resolve.options", clerk: "declared_check",
+		bound: { decision: "core-check:ordinary-check", actor: "Hayes" }, unbound: [{ name: "profile, difficulty and modifiers", required: true, vocabulary: "closed", binder: "ordinary-resolve" }],
+		basis: { compile: { predicate: "ordinary_check", features: { act: "investigate" }, bound: { intent: { value: "investigate", confidence: 1, distribution: { act_1: 1 } } } } } };
+	const action = { actor: "Hayes", intent: "investigate", goal: "x", method: "x", skill: "STR", decision: "core-check:ordinary-check",
+		modifiers: { difficulty: "regular", bonus_dice: 0, penalty_dice: 0, reason: "x" } };
+	const jevPath = (value, confidence) => ({ path: "jev", value, confidence, distribution: { [value]: confidence } });
+	const defaulted = { difficulty: { path: "rule-default", value: "regular", rule: "regular_difficulty", confidence: 0.49, distribution: { unknown: 0.62, regular: 0.37 } },
+		bonus: jevPath("none", 0.92), penalty: jevPath("none", 0.88) };
+	const settle = (paths, route) => {
+		const view = initialView({ runId: "r", rawInput: "x", context, candidates: [candidate], readFirst: false });
+		settleOrdinaryBind(view, 1, candidate, { disposition: "ordinary", action, unresolved: [], calls: 2, ms: 5, skill: { choice: "STR", confidence: 0.9 }, paths, ...(route ? { route } : {}) }, 5, 0.6);
+		const [item] = view.pending;
+		assert.deepEqual([item.kind, item.purpose], ["direct", "execute"]);
+		return { item, records: Object.fromEntries(item.bindings.map((entry) => [entry.name, entry])) };
+	};
+	const { item, records } = settle(defaulted);
+	assert.deepEqual(records.difficulty, { name: "difficulty", path: "rule-default", value: "regular", rule: "regular_difficulty", confidence: 0.49, distribution: { unknown: 0.62, regular: 0.37 } });
+	assert.deepEqual([records.bonus.path, records.bonus.confidence, records.penalty.path], ["jev", 0.92, "jev"]);
+	assert.equal(records.modifiers.path, "rule-default", "the action's modifiers carry a default part");
+	assert.deepEqual([item.candidate.basis.binding, item.candidate.basis.rule_default], ["rule-default", { difficulty: { value: "regular", rule: "regular_difficulty" } }]);
+	assert.equal(item.candidate.basis.compile.predicate, "ordinary_check", "the compile's evidence is kept beside the stamp");
+	assert.deepEqual(admissionBindings(item.bindings, item.extra).filter((entry) => entry.path === null), [], "every parameter the call carries has a path");
+	assert.equal(compileAdmission({ origin: "policy", basis: { compile: { predicate: "ordinary_check", features: { act: "investigate" },
+		read_features: { act: { row: "investigate", confidence: 1, cleared: true } } } }, bindings: admissionBindings(item.bindings, item.extra) })?.ok, true, "a rules default is an exempt path");
+	// Every part Jev's: no stamp, and the modifiers are Jev's.
+	const cleared = settle({ difficulty: jevPath("regular", 0.8), bonus: jevPath("none", 0.92), penalty: jevPath("none", 0.88) });
+	assert.deepEqual([cleared.records.modifiers.path, cleared.item.candidate.basis.binding, cleared.item.candidate.basis.rule_default], ["jev", undefined, undefined]);
+	// Both stamps: the compile's roll-or-not and the defaults.
+	const both = settle(defaulted, { choice: "no_roll", confidence: 0.79 });
+	assert.deepEqual([both.item.candidate.basis.roll?.rule, both.item.candidate.basis.rule_default?.difficulty?.rule], ["compile_act", "regular_difficulty"]);
+	// A binder that reports no paths (the records as SL-26 wrote them).
+	assert.deepEqual([settle(undefined).records.modifiers.path, settle(undefined).records.difficulty], ["jev", undefined]);
+});
+
+test("SL-31 (§135.28): the bind-ordinary question carries the policy's gate, and the engine's binder decides the difficulty against it; the Keeper's note names the default", async () => {
+	// The policy: the gate rides on the question.
+	const candidate = { key: ORDINARY_CHECK_KEY, verb: "resolve", family: "core-check", label: "check", source: "table.resolve.options", clerk: "declared_check",
+		bound: { decision: "core-check:ordinary-check", actor: "Hayes" }, unbound: [{ name: "profile, difficulty and modifiers", required: true, vocabulary: "closed", binder: "ordinary-resolve" }] };
+	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [candidate], readFirst: false });
+	view.pending = itemsFor(candidate);
+	const request = createStepPolicy({ context, scope, candidates: [] }).next({ pendingProposals: [], policyState: { view, gate: 0.75 }, observations: [], steps: 0, pendingRequirements: [] });
+	assert.deepEqual([request.kind, request.purpose, request.question.gate], ["decide", "bind-ordinary", 0.75]);
+	// The engine: the same answer (regular 0.9, a thin lead over unknown) is Jev's at 0.6 and the default at 0.95.
+	const bindAt = async (gate) => {
+		const handlers = new Map(), rows = [];
+		const bus = { on: (name, handler) => handlers.set(name, handler), emit: (name, value) => handlers.get(name)?.(value) };
+		const jev = { decide: async (batch) => routeAnswers(Object.fromEntries(batch.questions.map((question) => [question.key, question.key === "profile" ? ["profile_0", 0.9]
+			: { ...TURN14, difficulty: ["regular", 0.9, { regular: 0.5, unknown: 0.45, hard: 0.05 }] }[question.key]]))) };
+		const engine = createHybridEngine({ env: {}, decision: jev, record: (row) => rows.push(row) });
+		engine.extension({ events: bus, on: () => {}, getActiveTools: () => [], setActiveTools: () => {} });
+		bus.emit("coc:kernel-bridge", { campaign: "c", call: async (method) => method === "table.capsule"
+			? { where: { scene: "kitchen" }, present: [], _context: { version: 1, campaign: "c", worldline: "main", loop: 0, turn: 3, source_revision: "a".repeat(64) } }
+			: method === "table.status" ? { turn: 3, state: "open", receipts: [] }
+				: method === "table.resolve.options" ? { ...STR_KITCHEN, context: { _binding: { campaign: "c", worldline: "main", loop: 0, turn: 3 }, declared_action: INPUT } } : {} });
+		bus.emit("coc:operation-dispatcher", { dispatch: async () => ({ status: "succeeded", receipts: ["roll-1"], result: { outcome: { skill: "STR", passed: true } } }) });
+		const plan = engine.runDriver.prepare({ runId: "run-1", inputRevision: "rev", rawInput: INPUT, session: {} });
+		const invocation = (step) => ({ runId: "run-1", stepId: step, operationId: `${step}/op1`, origin: "policy", inputRevision: "rev", scopeId: "root", signal: new AbortController().signal });
+		await plan.ports.read.read({ origin: "policy", operation: "read", readOnly: true }, invocation("s1"));
+		const decided = await plan.ports.decision.decide({ runId: "run-1", stepId: "run-1:s2", purpose: "bind-ordinary", question: { candidate, gate }, signal: new AbortController().signal });
+		return { bound: decided.artifact.bound, row: rows.find((entry) => entry.purpose === "bind-ordinary"), plan, invocation, rows };
+	};
+	const low = await bindAt(0.6), high = await bindAt(0.95);
+	assert.deepEqual([low.bound.disposition, low.bound.paths.difficulty.path, low.row.paths.difficulty.path], ["ordinary", "jev", "jev"]);
+	assert.deepEqual([high.bound.disposition, high.bound.paths.difficulty.path, high.row.paths.difficulty.rule, high.bound.action.modifiers.difficulty],
+		["ordinary", "rule-default", "regular_difficulty", "regular"]);
+	// The Keeper's note: the clerk's check carries the default's line.
+	const settledView = initialView({ runId: "run-1", rawInput: INPUT, context, candidates: [candidate], readFirst: false });
+	settleOrdinaryBind(settledView, 2, candidate, high.bound, 5, 0.95);
+	const [item] = settledView.pending;
+	await high.plan.ports.operations.execute({ origin: "policy", operation: "execute", params: { candidate: item.candidate, extra: item.extra, bindings: item.bindings } }, high.invocation("s3"));
+	const bind = high.rows.find((row) => row.event === "bind");
+	assert.equal(bind.bindings.find((entry) => entry.name === "difficulty").rule, "regular_difficulty", "the bind row records the default");
+	const [message] = await high.plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s4", step: { kind: "infer", purpose: "compose", reason: "finish" } });
+	assert.match(JSON.parse(message.content).clerk_did[0].binding, /^rules default: difficulty regular \(a regular difficulty; nothing stated makes it harder\); the player's words did not settle it/);
 });

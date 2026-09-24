@@ -3,13 +3,27 @@ import {isPlainRecord,type DecisionBatch,type DecisionQuestion,type DecisionDesc
 import type {TaskDomain,TaskStep,TaskView} from './task-runtime.ts';
 import {JEV_MODEL,packDecisionBatch} from './question-packing.ts';
 import {withAttemptKeys,mutationOutcome} from './domain-attempt.ts';
+import {clears} from './decision-gate.ts';
 
 export const ORDINARY_RESOLVE_VERSION='2';
 export type OrdinaryDisposition='ordinary'|'no_roll'|'incumbent'|'needs_player'|'unknown';
 export type OrdinaryProfile={alias:string;actor:string;skill:string;availability:'bound'|'unknown';value:number|null};
 export type OrdinaryDecision={name:string;family:string;description:string|null;capability:string|null};
 export type OrdinaryResolveOptions={version:1;profiles:OrdinaryProfile[];decisions:OrdinaryDecision[];revision:string;world_revision:string;context:Record<string,Json>};
-export type OrdinaryRouteChoice={disposition:OrdinaryDisposition;actor?:string;intent?:'investigate'|'social'|'move';difficulty?:'regular'|'hard'|'extreme';bonus?:'none'|'one'|'two';penalty?:'none'|'one'|'two';needs:string[]};
+/**
+ * How the single-loop binder took one of its defaulted parameters (contract §135.28, SL-31): Jev's answer when it cleared
+ * the gates (`jev`), else the rules default (`rule-default`, with the rule), each with the answer's confidence and distribution.
+ */
+export type OrdinaryParameterPath={path:'jev'|'rule-default';value:string;rule?:string;confidence:number|null;distribution:Record<string,number>|null};
+export type OrdinaryRouteChoice={disposition:OrdinaryDisposition;actor?:string;intent?:'investigate'|'social'|'move';difficulty?:'regular'|'hard'|'extreme';bonus?:'none'|'one'|'two';penalty?:'none'|'one'|'two';needs:string[];
+  /** SL-31: the defaulted parameters (`difficulty`, `bonus`, `penalty`) as the binder took them; only with `defaults`. */
+  paths?:Record<string,OrdinaryParameterPath>};
+/**
+ * The ordinary binder's rules defaults (contract §135.28, SL-31; the spec's ruling "The ordinary check's difficulty and dice
+ * have rules defaults"): a regular difficulty (the ordinary-check row states none; a book's stated difficulty reaches the
+ * check through the kernel's obligation fold, §134.17) and no dice modifier. Jev's cleared answer overrides each.
+ */
+export const ORDINARY_RULE_DEFAULTS={difficulty:{value:'regular',rule:'regular_difficulty'},bonus:{value:'none',rule:'no_modifier'},penalty:{value:'none',rule:'no_modifier'}} as const;
 export type OrdinaryActionTemplate={actor:string;intent:'investigate'|'social'|'move';goal:string;method:string;skill:string;decision:'core-check:ordinary-check';modifiers:{difficulty:'regular'|'hard'|'extreme';bonus_dice:number;penalty_dice:number;reason:string}};
 
 const finish=(status:'complete'|'partial'|'unresolved'|'needs_player',needs:string[]=[]):TaskStep=>({kind:'finish',status,remainingNeeds:needs});
@@ -66,8 +80,13 @@ export function ordinaryRouteBatch(input:{rawInput:string;goal:string;plan?:Json
  * that the declared action is rolled (owner ruling 2026-09-24), so the route answer `no_roll` does not end the binding here
  * (the caller decides with the skill's answer), and it settled the intent, so the binder's intent answer does not decide
  * either. A single actor the kernel issues is stated (§135.28), whatever the actor question answered.
+ *
+ * `defaults` (contract §135.28, SL-31): the single-loop clerk's binder. The difficulty and the two dice take Jev's answer only
+ * when it clears the gates (`gate`, the policy's), else their rules default (`ORDINARY_RULE_DEFAULTS`), and the single
+ * investigator the kernel issues is the actor whatever the actor question answered. Without it (the legacy prescreen's
+ * advice, the task domain) every answer is taken as given and an `unknown` leaves the check unbound, as before.
  */
-export function interpretOrdinaryRoute(options:OrdinaryResolveOptions,result:DecisionResult|undefined,compiled?:{intent:'investigate'|'social'}):OrdinaryRouteChoice {
+export function interpretOrdinaryRoute(options:OrdinaryResolveOptions,result:DecisionResult|undefined,compiled?:{intent:'investigate'|'social'},defaults?:{gate:number}):OrdinaryRouteChoice {
   const rollSettled=compiled!==undefined;
   if(options.context.pending_choice)return{disposition:'needs_player',needs:['The existing pending mechanical choice must be resolved by its owner.']};
   if(options.context.session)return{disposition:'incumbent',needs:['The active subsystem requires its existing resolution owner.']};
@@ -78,12 +97,26 @@ export function interpretOrdinaryRoute(options:OrdinaryResolveOptions,result:Dec
   if(route==='incumbent')return{disposition:'incumbent',needs:['Use the existing resolution owner for this specialized rule family.']};
   if((route!=='ordinary'&&!(rollSettled&&route==='no_roll'))||consent!=='authorized')return{disposition:'unknown',needs:[consent==='unknown'?'Action authorization remains unknown.':'The required ordinary rule family remains unresolved.']};
   const actors=[...new Set(options.profiles.map(value=>value.actor))],actorChoice=answer(result,'actor'),
-    actor=compiled&&actors.length===1?actors[0]:actors.find((_,index)=>actorChoice===`actor_${index}`),
-    intent=compiled?compiled.intent:answer(result,'intent'),difficulty=answer(result,'difficulty'),bonus=answer(result,'bonus'),penalty=answer(result,'penalty');
-  if(!actor||!['investigate','social','move'].includes(intent??'')||!['regular','hard','extreme'].includes(difficulty??'')
-    ||!['none','one','two'].includes(bonus??'')||!['none','one','two'].includes(penalty??''))return{disposition:'unknown',needs:['An actor, difficulty or modifier is not bound.']};
+    actor=(compiled||defaults)&&actors.length===1?actors[0]:actors.find((_,index)=>actorChoice===`actor_${index}`),
+    intent=compiled?compiled.intent:answer(result,'intent');
+  const values={difficulty:['regular','hard','extreme'],bonus:['none','one','two'],penalty:['none','one','two']} as const,paths:Record<string,OrdinaryParameterPath>={};
+  const taken=(key:keyof typeof values):string|undefined=>{
+    const value=answer(result,key);if(!defaults)return value;
+    const given=result?.answers[key],confidence=given?.status==='answered'&&given.type==='choice'&&typeof given.confidence==='number'?given.confidence:null,
+      distribution=given?.status==='answered'&&given.type==='choice'?given.probabilities??null:null;
+    if(value!==undefined&&(values[key] as readonly string[]).includes(value)&&clears(result,key,value,confidence??undefined,defaults.gate)){
+      paths[key]={path:'jev',value,confidence,distribution};return value;
+    }
+    const fallback=ORDINARY_RULE_DEFAULTS[key];paths[key]={path:'rule-default',value:fallback.value,rule:fallback.rule,confidence,distribution};return fallback.value;
+  };
+  const difficulty=taken('difficulty'),bonus=taken('bonus'),penalty=taken('penalty');
+  const unbound=[...(actor?[]:['actor']),...(['investigate','social','move'].includes(intent??'')?[]:['intent']),
+    ...((values.difficulty as readonly string[]).includes(difficulty??'')?[]:['difficulty']),
+    ...((values.bonus as readonly string[]).includes(bonus??'')?[]:['bonus']),...((values.penalty as readonly string[]).includes(penalty??'')?[]:['penalty'])];
+  // SL-31: the clerk's binder names what it could not bind (the long gate's rows said only the generic line below).
+  if(unbound.length)return{disposition:'unknown',needs:[defaults?`The ordinary check's ${unbound.join(', ')} ${unbound.length===1?'is':'are'} not bound.`:'An actor, difficulty or modifier is not bound.']};
   return{disposition:'ordinary',actor,intent:intent as OrdinaryRouteChoice['intent'],difficulty:difficulty as OrdinaryRouteChoice['difficulty'],
-    bonus:bonus as OrdinaryRouteChoice['bonus'],penalty:penalty as OrdinaryRouteChoice['penalty'],needs:[]};
+    bonus:bonus as OrdinaryRouteChoice['bonus'],penalty:penalty as OrdinaryRouteChoice['penalty'],needs:[],...(defaults?{paths}:{})};
 }
 
 export function ordinaryProfileBatch(input:{rawInput:string;goal:string;options:OrdinaryResolveOptions;route:OrdinaryRouteChoice}):Omit<DecisionBatch,'id'|'scope'|'readSet'>|undefined {
