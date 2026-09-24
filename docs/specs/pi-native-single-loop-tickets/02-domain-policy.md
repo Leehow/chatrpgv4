@@ -395,3 +395,113 @@ draft was gone, and the run ended `turn_close_steer_spent:no_delivered_evidence`
   of their own.
 - The fallback draft goes through §128.3 attribution. With Jev unreachable, that draft goes out without the say
   tokens the steer asked for.
+### 2026-09-24 — live gate #5 finding: a post-turn lane's write voided the read's whole prescreen (fixed on `claude/sl17-20260924`, from `a575e01e6`; contract §124.11, §135.6 addendum)
+
+**What happened.** Campaign `gate5-haunting-0259`, turn 2, run `run-01a0d238-db4d-72e1-ae72-5c2b2105bb58`, read s1. The prescreen
+took 6.8 s and 12 Jev calls. The locate judged 277 cards, and the loop took five steps (follows `globe-clippings-access`,
+`arty-wilmot`, `globe-archivist` and `ruth-blake`, and one rule read) and then finished `sufficient`. It ended as
+`{status: "fallback", fallback: "binding_changed"}` with 0 materials. The compile then ran without material: the ask feature
+got none 0.2 and addressee unclear 0.21, so the clerk did nothing.
+
+**Which key changed, and who wrote it.**
+
+- The key was `stateStamp`. It was not `memory_revision`, `npc_revision` or `records_revision`: turn 1's journal and memory
+  lanes landed at 07:01:39Z and 07:01:41Z (events 38–39), before turn 2 started at 07:02:16Z.
+- The writer was the npc-voice lane. Arty Wilmot's voice job was queued after turn 1, and its model call started at 07:01:53Z.
+  The lane finished it at 07:02:23.429Z (`telemetry.jsonl` line 266). `voice.submit` (`kernel-ts/voice/index.ts:55-57`) writes the package's dossier into `world.json`
+  (`kernel-ts/voice/jobs.ts:241`, `campaign.writeWorld`). That is event 42, `dossier-established` at 07:02:23Z, and the
+  `npc-voice/.../arty-wilmot.json` mtime is 07:02:23Z. `world` is part of `stateStamp` (`kernel-ts/read/workspace.ts`
+  `stateStamp()`).
+- The prescreen's `fallback` row (line 269) came about 50 ms later, after the round-6 `finish`. Its `validation_ms` was 0, so the throw
+  came from the final validation.
+- The owner's check over the retained keys (graph units and a rule clause, which depend on `source_revision` and
+  `rules_revision`) passes when only `stateStamp` moved. The host's own comparison at `extensions/table/prescreen.ts:633-634`
+  re-imposed `stateStamp` and threw the result away.
+- The other writes in the window (`npc/responses/*.json` at 07:02:19Z, `npc/jobs/*.json` at 07:02:20Z) are in no binding.
+- The dispatch hypothesis, "turn 1's memory, npc or records lanes", was wrong on the lane. It was right on the shape: a
+  post-turn lane landing during the next read.
+
+**Fix (contract first: §124.11, and the §135.6 addendum).**
+
+- *Run keys void the result:* campaign, worldline, loop, turn, `source_revision`, `rules_revision`, scene and adapter, plus
+  `catalog_revision` on a page. The fallback row, and the read row, name the key.
+- *Volatile keys are re-checked per material:* `stateStamp`, `memory_revision`, `npc_revision` and `records_revision`.
+  - Loop pages are bound to the run keys only, so a lane's write does not refuse a page.
+  - The final owner check runs over the full original binding. The kernel's stale answer now names `stale_keys`, the
+    requested material keys a change reaches.
+  - The host drops exactly those materials. Each becomes a public gap `binding_changed` with its read, and the key is recorded
+    privately in `gap_details` and `pending_reads`. A memory finisher's `refresh` drops the memory materials it covers.
+  - That one check is the only re-check. There is no retry.
+- *Legacy v1 catalog:* still voided by any change.
+- *Read row:* `jev_calls` counted only a prepared prescreen, so gate #5 said 0 while 12 had run, and the run's `jevCalls` budget
+  undercounted. It now counts the calls of a prescreen that fell back too. The prepared row carries `binding_refresh`.
+
+**Tests.** `tests/extension/prescreen-binding-drift.test.mjs` runs the real kernel on the Haunting's opening. The lane writes go
+through `voice.submit` and `table.apply`. It has six cases, and all six fail on `a575e01e6`:
+
+- the gate #5 shape publishes;
+- a page after the write is served;
+- only the stale investigator `look` is dropped;
+- a move voids the result with `key: "scene"`;
+- the owner's `stale_keys`;
+- on the hybrid engine, the read row shows `key: "scene"` and the discarded prescreen's call count.
+
+Two older tests encoded the old whole-discard rule, and I updated both to the contract:
+
+- `prescreen-request-supply`'s memory-refresh case now asserts that the memory is dropped and never published.
+- `keeper-support-lookup`'s stale case now uses an owner-faithful stale check, and a scene change still rejects.
+
+**Mutations.** All were killed by the new file and `keeper-support-lookup`:
+
+| Mutation | Tests that fail |
+|---|---|
+| The final check compares `stateStamp` again | 4 |
+| The fallback row loses `key` | 2 |
+| Pages bound to the full binding | 1 |
+| `stale_keys` ignored | 2 |
+| The read row counts prepared calls only | 1 |
+| The read row loses `key` | 1 |
+| The kernel omits `stale_keys` | 2 |
+
+**`loop_packing failure: packing_limit` (not changed; follow-up).**
+
+It is a halving step inside a decision, not a loop stop: the run's `stop_reason` was `sufficient`. The mechanics:
+
+- Every decision starts from the 48-operation frontier page plus navigation (49).
+- The state is measured as UTF-8 JSON bytes, the §124.10 token upper bound. That state plus the operation question must be at
+  most 32,000.
+- On gate #5 the first decision packed at 25 offered, and every later one at 13. The 49 offer measured 33,962–39,109 bytes of
+  state, and the 25 offer 29,964–33,524.
+- So 36–45 issued operations were left off every round. They were reachable only through the navigation operation, which costs
+  a decision.
+
+What is packed, estimated from the row differences:
+
+- 24 plain operations cost about 7.0 KB, about 290 B each. The first 16 carry 320-character previews, at about 450 B each.
+- The non-operation state (retained materials up to the 16 KB packet, the capsule overview up to 8 KB, the supplied preview up
+  to 4 KB, and gaps) was about 20 KB at decision 2 and about 24 KB by decision 6. That leaves 8–12 KB for operations.
+- The operation question lists every offered alias with its label again: 4.8 KB at 49.
+
+Why this is not a clear bug:
+
+- The bound is computed on what the contract says. `JSON.stringify` keeps CJK raw, so it is not an escaping inflation.
+- It is conservative: the provider reported 97,186 input tokens against an upper bound of 299,588 for the same 12 calls, a
+  ratio of 0.32.
+
+Follow-up options, each needing its own measurement:
+
+1. Calibrate the bound with the measured ratio (a contract change to §124.10's "provable" bound).
+2. Budget the packet's materials and the context jointly against the 32 K state limit, instead of independently (16 KB + 12 KB
+   of 32 KB).
+3. Size the operation page to the remaining budget instead of halving from 48. Halving costs two failed trials and two
+   telemetry rows per decision.
+4. Stop repeating labels in the operation question's criteria.
+
+**Suites (leehow-pc).**
+
+- `ext`: `tests 2854 / pass 2854 / fail 0` (exit 0, 111 s).
+- `loop`: `tests 110 / pass 110 / fail 0` (exit 0, 27 s).
+- `py`: `1709 passed, 2 skipped` (exit 0, 174 s). It ran because `kernel-ts/read/workspace.ts` changed.
+
+**Not verified.** No live table and no replay of gate #5. The context-hook reuse path (`reusePrescreen`) is unchanged: it already
+used the owner's per-key check and drops volatile memory as `owner_refresh_required`.
