@@ -23,7 +23,8 @@ import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts'
 import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
 import {answerOf, clears} from './decision-gate.ts';
-import {carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, ORDINARY_CHECK, reachable, type FeatureRows} from './route-compile.ts';
+import {carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, ORDINARY_CHECK, reachable, unlockedRow,
+  type FeatureRows, type GuardedDestination} from './route-compile.ts';
 
 type Row = Record<string, any>;
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
@@ -64,7 +65,9 @@ export interface BindRecord {name: string; path: BindingPath; value: Json; confi
    * §135.30.3 (SL-26): whether the Jev answer behind a `jev` record passed §135.2's gates, when the binder executes its answer
    * at any confidence (the ordinary binder's skill). `false` refuses the compile's admission exemption (§32.12).
    */
-  cleared?: boolean}
+  cleared?: boolean;
+  /** §135.28.1 (SL-40): the ordinary check's skill -- whether the sheet holds it, and whether the declaration named it. */
+  held?: boolean; named?: boolean}
 /** One shape a candidate takes once its `decision` is bound: the chosen action with its own parameters. */
 export interface CandidateVariant {label: string; bound: Record<string, Json>; unbound: Unbound[]; basis?: Json}
 /**
@@ -224,7 +227,15 @@ export interface RunView {
    * the next model step clears it (once the Keeper is asked, it carries the run as before).
    */
   settled?: string[];
+  /**
+   * §135.30.5 (SL-38): the moves a compile staged after a step of its batch whose effect unlocks their guard. When the step
+   * `after` lands, the move runs next if the fresh read issues it, with the compile's record; otherwise it is `unlockMissed`.
+   */
+  unlocks?: StagedUnlock[];
+  /** §135.30.5: the staged moves the fresh read did not issue (or whose step was refused), as §135.30.4's guarded entries. */
+  unlockMissed?: GuardedDestination[];
 }
+export interface StagedUnlock {after: string; to: string; compile: Json; guarded: GuardedDestination}
 export type StepRequest =
   | {kind: 'direct'; item: PendingItem}
   | {kind: 'decide'; purpose: 'route'; digest: string}
@@ -642,11 +653,18 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
   const selected = [...outcome.selected].sort((a, b) => rank(a.candidate) - rank(b.candidate));
   for (const {candidate} of selected) view.pending.push(...itemsFor(candidate));
   const keys = selected.map(entry => entry.candidate.key);
-  if (keys.length) view.compileSelected = [...new Set([...(view.compileSelected ?? []), ...keys])];
+  // §135.30.5 (SL-38): a held destination this batch unlocks is staged after the step that unlocks it; the move is the
+  // declaration's own step too (SL-20).
+  const unlocked = outcome.unlocked ?? [];
+  if (unlocked.length) view.unlocks = [...(view.unlocks ?? []), ...unlocked.map(entry => ({after: entry.after, to: entry.to, compile: entry.compile,
+    guarded: {to: entry.to, place: entry.place, guard: entry.guard}}))];
+  const declared = [...keys, ...unlocked.map(entry => `apply:move:${entry.to}`)];
+  if (declared.length) view.compileSelected = [...new Set([...(view.compileSelected ?? []), ...declared])];
   observe(view, {kind: 'decide', purpose: 'compile', status: result.status, ...(keys.length ? {choice: keys.join(' + ')} : {}), reason: outcome.reason});
   return {step, kind: 'decide', purpose: 'compile', choice: keys.length ? keys.join(' + ') : null, confidence: null, ms, jev_calls: 1, reason: outcome.reason,
     detail: {features: outcome.features, fired: selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
-      selected: keys, decided: outcome.decided, fell_through: outcome.fellThrough, ...(outcome.guarded ? {guarded: outcome.guarded} : {}), family: batch.family} as unknown as Json};
+      selected: keys, decided: outcome.decided, fell_through: outcome.fellThrough, ...(outcome.guarded ? {guarded: outcome.guarded} : {}),
+      ...(unlocked.length ? {unlocked: unlocked.map(unlockedRow)} : {}), family: batch.family} as unknown as Json};
 }
 
 export function settleLocate(view: RunView, step: number, located: {calls: number; ms: number; summary: Json}, ms: number): TelemetryRow {
@@ -660,7 +678,7 @@ export function settleLocate(view: RunView, step: number, located: {calls: numbe
  * and distribution by skill name, reported by the binder beside its action so the bind record can say whether it cleared.
  */
 export interface OrdinaryBinding {disposition: string; action?: Record<string, Json>; unresolved: string[]; calls: number; ms: number;
-  skill?: {choice: string; confidence?: number | null; probabilities?: Record<string, number> | null};
+  skill?: {choice: string; confidence?: number | null; probabilities?: Record<string, number> | null; held?: boolean; named?: boolean};
   /** The binder's own roll-or-not answer (§135.30.3): recorded; for a compile-selected check it does not decide. */
   route?: {choice: string; confidence?: number | null; probabilities?: Record<string, number> | null};
   /**
@@ -693,7 +711,8 @@ export function ordinaryBindings(candidate: Candidate, action: Record<string, Js
       const probabilities = skill.probabilities ?? undefined, confidence = skill.confidence ?? undefined;
       const result = {answers: {skill: {status: 'answered', type: 'choice', choice: skill.choice, confidence, probabilities}}} as unknown as DecisionResult;
       return {name, value, path: 'jev', confidence: confidence ?? null, distribution: probabilities ?? null,
-        cleared: confidence !== undefined && clears(result, 'skill', skill.choice, confidence, gate)};
+        cleared: confidence !== undefined && clears(result, 'skill', skill.choice, confidence, gate),
+        ...(typeof skill.held === 'boolean' ? {held: skill.held} : {}), ...(skill.named ? {named: true} : {})};
     }
     return {name, value, path: 'jev'};
   }), ...parts];
@@ -853,6 +872,29 @@ export function consumedByResolve(method: string): string[] {
   return method === 'resolve' ? [ORDINARY_CHECK_KEY] : [];
 }
 
+/**
+ * §135.30.5 (SL-38): the moves staged after the clerk step `key`. `landed`: the step was taken and a fresh read followed.
+ * A move the fresh read issues runs next, carrying the compile's record (`carryCompile`: the fresh kernel row, the compile's
+ * `basis.compile` with `unlocked_by`); one it does not issue, or any staged after a refused step, is a missed unlock, which the
+ * Keeper is told as §135.30.4's guarded entry.
+ */
+function settleUnlocks(view: RunView, key: string, landed: boolean): void {
+  const staged = (view.unlocks ?? []).filter(entry => entry.after === key);
+  if (!staged.length) return;
+  view.unlocks = (view.unlocks ?? []).filter(entry => entry.after !== key);
+  for (const entry of [...staged].reverse()) {
+    const found = landed ? view.candidates.find(value => value.key === `apply:move:${entry.to}`) : undefined;
+    if (found) view.pending.unshift(...itemsFor(carryCompile(found, entry.compile)));
+    else view.unlockMissed = [...(view.unlockMissed ?? []), entry.guarded];
+  }
+}
+/**
+ * §135.30.5: what the Keeper is told of the staged moves that did not happen: those missed at their step, and those whose
+ * step never ran as the clerk's (its key consumed without an execution: the Keeper's turn, a refused bind).
+ */
+export function missedUnlocks(view: Pick<RunView, 'unlocks' | 'unlockMissed' | 'consumed'>): GuardedDestination[] {
+  return [...(view.unlockMissed ?? []), ...(view.unlocks ?? []).filter(entry => view.consumed.includes(entry.after)).map(entry => entry.guarded)];
+}
 export function settleExecute(view: RunView, step: number, item: PendingItem, executed: {ok: boolean; summary: Json}, fresh: Fresh | undefined, ms: number): TelemetryRow {
   if (item.call) {
     if (item.candidate) view.consumed.push(item.candidate.key);
@@ -884,6 +926,9 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     const follow = found && carryCompile(found, item.candidate!.thenCompile);
     if (follow) view.pending.unshift(...itemsFor(follow));
   }
+  // §135.30.5 (SL-38): the guard of a move staged after this clerk step is evaluated now, by the fresh read after its
+  // effect: the kernel issues the move when the effect met it, and the move runs next with the compile's record of it.
+  if (!item.call && item.candidate) settleUnlocks(view, item.candidate.key, executed.ok && !!fresh);
   if (item.call) {
     observe(view, {kind: 'direct', purpose: 'execute', status: executed.ok ? 'ok' : 'refused', choice: item.call.label, summary: {...(executed.summary as Row), params: item.call.params} as Json});
     return {step, kind: 'direct', purpose: 'execute', choice: item.call.label, confidence: null, ms, jev_calls: 0,

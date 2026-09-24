@@ -193,7 +193,7 @@
     {
       "id": "SL-38",
       "file": "38-a-guard-unlocked-by-the-same-declaration.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-39",
@@ -203,7 +203,7 @@
     {
       "id": "SL-40",
       "file": "40-a-guard-is-a-condition-the-place-exists.md",
-      "status": "ready"
+      "status": "ready-for-human"
     }
   ],
   "relatedSpecs": [

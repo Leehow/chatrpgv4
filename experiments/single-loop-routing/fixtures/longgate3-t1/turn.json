@@ -1,0 +1,13 @@
+{
+ "campaign": "longgate3-haunting-1058",
+ "module": "the-haunting",
+ "turn": 1,
+ "commit_before": "08771d5",
+ "commit_after": "838e7ac",
+ "player_input": "我接。先去《环球报》剪报室，翻科比特宅这些年的旧报道。",
+ "tarball": "../longgate3/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/longgate3-haunting-1058",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate3-haunting-1058-20260924T145842Z"
+ }
+}

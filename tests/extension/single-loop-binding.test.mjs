@@ -28,7 +28,7 @@ import { compileAdmission } from "../../extensions/kernel/admission.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import {
-	BIND_FAMILY, CLERK_AUTHORITY, ORDINARY_CHECK_KEY, consumedByResolve, createStepPolicy, initialView, interpretBind, itemsFor, next, settleBind, settleExecute, settleOrdinaryBind, settleRead, startStep,
+	BIND_FAMILY, CLERK_AUTHORITY, ORDINARY_CHECK_KEY, consumedByResolve, ordinaryBindings, createStepPolicy, initialView, interpretBind, itemsFor, next, settleBind, settleExecute, settleOrdinaryBind, settleRead, startStep,
 } from "../../runtime/jev/step-policy.ts";
 
 const scope = { owner: "campaign:test", campaign: "test", worldline: "main", loop: 0, audience: "keeper" };
@@ -717,4 +717,85 @@ test("SL-31 (§135.28): the bind-ordinary question carries the policy's gate, an
 	assert.equal(bind.bindings.find((entry) => entry.name === "difficulty").rule, "regular_difficulty", "the bind row records the default");
 	const [message] = await high.plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s4", step: { kind: "infer", purpose: "compose", reason: "finish" } });
 	assert.match(JSON.parse(message.content).clerk_did[0].binding, /^rules default: difficulty regular \(a regular difficulty; nothing stated makes it harder\); the player's words did not settle it/);
+});
+
+// ---- SL-40 (§135.28.1): the ordinary check's skill is one the investigator holds, unless the declaration names another ----
+
+/**
+ * Book A's investigator (SL-29A, 血色公路 turn 5) in the kernel's profile-row shape: the sheet's skills (Accounting at its base
+ * value is still listed, so held), the characteristics (held), and catalog skills the sheet does not list (`held: false`,
+ * at their base chance). The bridge check rolled Engineering, which the sheet does not list.
+ */
+const BRIDGE = "过那座旧木桥之前我先下车，看看桥板和桥桩结不结实。";
+const RAY = "雷·卡特";
+const rayRows = (held = true) => [["Spot Hidden", 50, true], ["Mechanical Repair", 50, true], ["Drive Auto", 55, true], ["Accounting", 5, true],
+	["Engineering", 1, false], ["Craft (Carpentry)", 5, false], ["STR", 63, true]]
+	.map(([skill, value, sheet], index) => ({ alias: `profile:${index}`, actor: RAY, skill, availability: "bound", value, ...(held ? { held: sheet } : {}) }));
+const rayOptions = (held = true) => ({ version: 1, profiles: rayRows(held),
+	decisions: [{ name: "core-check:ordinary-check", family: "core-check", description: "Ordinary check", capability: "check" }], revision: "r1", world_revision: "w1",
+	context: { _binding: { campaign: "c1", worldline: "main", loop: 0, turn: 5 }, scene: "序幕", pending_choice: null, session: null, conditions: [], current_receipts: [], declared_action: BRIDGE } });
+/** The binder's two batches, answered: the route batch as the binder answers it at the bridge; the profile batch by `answers`. */
+async function bindBridge({ answers, defaults = { gate: 0.6 }, held = true }) {
+	const { prepareCheckPreflight } = await import("../../runtime/jev/check-preflight.ts");
+	const { TaskLease } = await import("../../runtime/jev/task-context.ts");
+	const { bindDecisionAnswers } = await import("../../runtime/jev/contracts.ts");
+	const readSet = [{ kind: "world", resource: "c1", revision: "w1" }];
+	const lease = new TaskLease({ owner: "sl40", goal: BRIDGE, scope: { ...scope, campaign: "c1" }, capabilities: ["decision"], readSet,
+		budget: { deadlineAt: Date.now() + 10_000, remainingInputTokens: 100_000, remainingOutputTokens: 10_000, remainingCostUsd: 1, remainingActions: 4 } });
+	const seen = [];
+	const route = { route: "ordinary", consent: "authorized", actor: "actor_0", intent: "investigate", difficulty: "regular", bonus: "none", penalty: "none" };
+	const decision = { decide: async (batch) => {
+		seen.push(structuredClone(batch));
+		const alias = (question, skill) => Object.entries(question.criteria).find(([, value]) => value?.skill === skill)?.[0] ?? skill;
+		return bindDecisionAnswers(batch, Object.fromEntries(batch.questions.map((question) => {
+			const given = answers[question.key];
+			const [choice, confidence] = given ? [alias(question, given[0]), given[1]] : [route[question.key] ?? "unknown", 0.9];
+			return [question.key, { status: "answered", type: "choice", choice, confidence }];
+		})), { inputTokens: 1, outputTokens: 1, costUsd: 0 });
+	} };
+	try {
+		const result = await prepareCheckPreflight({ campaign: "c1", turn: 5, rawInput: BRIDGE, scope: { ...scope, campaign: "c1" }, readSet, lease,
+			call: async () => structuredClone(rayOptions(held)), decision, compiled: { intent: "investigate" }, ...(defaults ? { defaults } : {}) });
+		return { result, profileBatch: seen[1] };
+	} finally { lease.close(); }
+}
+const offered = (question) => Object.values(question.criteria).map((value) => value?.skill ?? value);
+
+test("SL-40 (§135.28.1): the single-loop binder's profile question offers only the skills the sheet holds; the ones it does not are asked only as named", async () => {
+	const { result, profileBatch } = await bindBridge({ answers: { profile: ["Spot Hidden", 0.8], named: ["none", 0.95] } });
+	assert.deepEqual(profileBatch.questions.map((question) => question.key), ["profile", "named"], "still one Jev call: one batch, two questions");
+	const [profile, named] = profileBatch.questions;
+	assert.deepEqual(offered(profile).slice(0, -1), ["Spot Hidden", "Mechanical Repair", "Drive Auto", "Accounting", "STR"],
+		"held rows only (a listed base-value skill and a characteristic included), then unknown");
+	assert.ok(Object.hasOwn(profile.criteria, "unknown"));
+	assert.ok(!offered(profile).includes("Engineering"), "a skill off the sheet is never the default");
+	assert.deepEqual(offered(named).slice(0, -1), ["Engineering", "Craft (Carpentry)"], "named: the rows the sheet does not hold, then none");
+	assert.ok(Object.hasOwn(named.criteria, "none"));
+	assert.equal(profileBatch.state.act, "investigate", "the act feature rides on the question");
+	assert.equal(result.advice.action.skill, "Spot Hidden", "the declaration names no skill: the held skill that fits");
+	assert.deepEqual([result.evidence.profile.choice, result.evidence.profile.held, result.evidence.profile.named], ["Spot Hidden", true, undefined]);
+	assert.equal(result.evidence.named.choice, "none");
+});
+
+test("SL-40 (§135.28.1): a skill off the sheet is chosen only when the declaration names it -- named clearing the gate binds it, recorded named; under the gate it does not", async () => {
+	const named = await bindBridge({ answers: { profile: ["Mechanical Repair", 0.7], named: ["Engineering", 0.9] } });
+	assert.equal(named.result.advice.action.skill, "Engineering");
+	assert.deepEqual([named.result.evidence.profile.choice, named.result.evidence.profile.held, named.result.evidence.profile.named], ["Engineering", false, true]);
+	const candidate = { key: ORDINARY_CHECK_KEY, bound: { decision: "core-check:ordinary-check", actor: RAY }, basis: {} };
+	const records = ordinaryBindings(candidate, named.result.advice.action, named.result.evidence.profile, 0.6);
+	assert.deepEqual(records.find((entry) => entry.name === "skill"), { name: "skill", value: "Engineering", path: "jev", confidence: 0.9, distribution: null,
+		cleared: true, held: false, named: true }, "the bind record says the sheet does not hold it and the declaration named it");
+	const under = await bindBridge({ answers: { profile: ["Mechanical Repair", 0.7], named: ["Engineering", 0.4] } });
+	assert.equal(under.result.advice.action.skill, "Mechanical Repair", "a named answer under the gate is not the declaration naming it");
+	assert.deepEqual([under.result.evidence.profile.held, under.result.evidence.profile.named], [true, undefined]);
+});
+
+test("SL-40 (§135.28.1): the advisory binder, and rows that do not say which the sheet holds, ask the one question over every row, as before", async () => {
+	for (const [label, options] of [["advisory (no defaults)", { defaults: null }], ["rows without held", { held: false }]]) {
+		const { result, profileBatch } = await bindBridge({ answers: { profile: ["Engineering", 0.9] }, ...options });
+		assert.deepEqual(profileBatch.questions.map((question) => question.key), ["profile"], label);
+		assert.ok(offered(profileBatch.questions[0]).includes("Engineering"), `${label}: every row is offered`);
+		assert.equal(result.advice.action.skill, "Engineering", label);
+		assert.equal(result.evidence.named, undefined, label);
+	}
 });

@@ -47,12 +47,12 @@ import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev
 import type { HostOperationContext, OperationIdentity } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 import { buildCandidates, keeperCall } from './candidates.ts';
 import { compileRows } from './compile-rows.ts';
-import { interpretCompile, type FeatureRows, type GuardedDestination } from './route-compile.ts';
+import { interpretCompile, unlockedRow, type FeatureRows, type GuardedDestination } from './route-compile.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
-import { carriedSection, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
+import { CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
 import {
-  CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, interpretRoute, overRun, ROUTE_FAMILY,
+  CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, interpretRoute, missedUnlocks, overRun, ROUTE_FAMILY,
   type BindRecord, type Budget, type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
 } from './step-policy.ts';
 
@@ -62,6 +62,28 @@ const array = (value: unknown): any[] => Array.isArray(value) ? value : [];
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8');
+
+/**
+ * §135.30.6 (SL-40): what the Keeper is told with a held destination. The guard is a pacing condition: the place and its
+ * entrance exist (the guard's `exists`), so the Keeper narrates the entrance as the book has it and what is missing, never
+ * the place or the way as absent. Keeper-only, system language.
+ */
+export const GUARDED_NOTE = 'The player\'s declaration goes to this place. The book\'s own condition (guard) holds the way now, so nothing '
+  + 'was executed for it. The guard is a pacing condition, not a wall: the place and its entrance exist (guard.exists, from the scene '
+  + 'it names). Narrate the entrance as the book has it (entrance.passages, where given) and what is missing -- the guard\'s unlock '
+  + 'and where the book puts it -- and never the place or its way as absent (no blank wall, no missing stairs). Play toward the '
+  + 'unlock, or open the way with your own write when the fiction does.';
+/**
+ * §135.30.6 (SL-40): a held destination with what this run's prescreen located about it (§135.31.1's passages for its
+ * handle: the book's passages of a read made there, its own entity and every entity naming its handle, such as the scene
+ * whose edge leads there), fitted to one carried view's ceiling; unchanged where nothing was located. Nothing is read.
+ */
+export function withEntrance(entry: GuardedDestination, passages: readonly PassageSource[]): GuardedDestination {
+  const view = scenePassages(passages, entry.to);
+  if (!view) return entry;
+  const fitted = fitView(view, CARRIED_VIEW_BYTES);
+  return {...entry, entrance: {passages: fitted.view, ...(fitted.truncated ? {truncated: true, omitted_fields: fitted.omitted_fields ?? []} : {})} as Json};
+}
 
 /** The kernel extension's bus payload (`coc:kernel-bridge`, contract §12.8). */
 export interface KernelBridge {
@@ -584,7 +606,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           ...(result.evidence?.route ? {route: result.evidence.route} : {}), ...(result.evidence?.paths ? {paths: result.evidence.paths} : {})};
         record({lane: 'route', purpose: 'bind-ordinary', run: run.runId, step: request.stepId, candidate: candidate.key, disposition: bound.disposition,
           unresolved: bound.unresolved, ms: bound.ms, jev_calls: bound.calls,
-          ...(skill ? {skill: {value: skill.choice, confidence: skill.confidence, distribution: skill.probabilities}} : {}),
+          ...(skill ? {skill: {value: skill.choice, confidence: skill.confidence, distribution: skill.probabilities,
+            ...(typeof skill.held === 'boolean' ? {held: skill.held} : {}), ...(skill.named ? {named: true} : {})}} : {}),
+          ...(result.evidence?.named ? {named: result.evidence.named} : {}),
           ...(result.evidence?.route ? {route: result.evidence.route} : {}), ...(result.evidence?.consent ? {consent: result.evidence.consent} : {}),
           ...(result.evidence?.parameters ? {parameters: result.evidence.parameters} : {}),
           ...(result.evidence?.paths ? {paths: result.evidence.paths} : {})});
@@ -615,7 +639,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           ...(settled.length ? {settled} : {})}
           : compiled ? {features: compiled.features, fired: compiled.selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
             selected: compiled.selected.map(entry => entry.candidate.key), decided: compiled.decided, fell_through: compiled.fellThrough, reason: compiled.reason,
-            ...(compiled.guarded ? {guarded: compiled.guarded} : {})}
+            ...(compiled.guarded ? {guarded: compiled.guarded} : {}), ...(compiled.unlocked ? {unlocked: compiled.unlocked.map(unlockedRow)} : {})}
             : {candidate: question.candidate ?? null}),
         ...(compiled ? {} : {answers})});
       // §135.30.4: a cleared destination the kernel holds back goes to the Keeper with its guard, once, in the next note.
@@ -717,13 +741,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (fresh.length) Object.assign(content, {clerk_did: fresh,
       note: 'The host (the clerk) settled these this turn before asking you, from the kernel\'s own options. They are committed, not pending: '
         + 'narrate what happened, do not redo them, and undo one only with a real operation of your own (its own receipt and time cost).'});
-    // §135.30.4: the place the player declared that the kernel holds back, with the book's own guard, once each.
-    const guarded = run.guarded.slice(run.guardedShown);
+    // §135.30.5 (SL-38): a move the batch staged after its unlocking step that did not happen is reported as guarded.
+    for (const entry of missedUnlocks(view.policyState?.view ?? {consumed: []}))
+      if (!run.guarded.some(seen => seen.to === entry.to)) run.guarded.push(entry);
+    // §135.30.4: the place the player declared that the kernel holds back, with the book's own guard, once each; §135.30.6
+    // (SL-40): with what this run's prescreen located about the place (its entrance as the book has it), where it did.
+    const guarded = run.guarded.slice(run.guardedShown).map(entry => withEntrance(entry, run.passages));
     run.guardedShown = run.guarded.length;
-    if (guarded.length) Object.assign(content, {guarded,
-      guarded_note: 'The player\'s declaration goes to this place, but the way there is closed by the book\'s own condition (guard), so '
-        + 'nothing was executed for it. The guard says what opens it and where the book puts that: play toward it, open the way '
-        + 'with your own write when the fiction does, or narrate the way shut.'});
+    if (guarded.length) Object.assign(content, {guarded, guarded_note: GUARDED_NOTE});
     // §135.26 (owner ruling Q5): a clerk step that crossed an open obligation's guard, one line each, beside "clerk did".
     const crossings = fresh.map(value => value.obligation_open).filter((value): value is string => !!value);
     if (crossings.length) content.obligation_open = crossings;

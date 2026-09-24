@@ -76,6 +76,21 @@ def test_options_is_read_only_and_uses_canonical_sheet_and_rule_vocabulary(kerne
     assert ordinary["description"]
 
 
+def test_profile_rows_say_which_skills_the_sheet_holds(kernel):
+    """Contract §135.28.1 (SL-40): a row is `held` when the investigator's sheet lists the skill (whatever its value) or it
+    is a characteristic; a catalog skill the sheet does not list is `held: false` at its base chance. Read from the sheet."""
+    open_turn(kernel)
+    sheet = read_json(campaign_dir(kernel.workspace) / "party" / "thomas-hayes.json")
+    rows = options(kernel)["profiles"]
+    assert all(isinstance(row["held"], bool) for row in rows)
+    held = {row["skill"] for row in rows if row["held"]}
+    characteristics = {"STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK"}
+    assert held == set(sheet["skills"]) | ({row["skill"] for row in rows} & characteristics)
+    catalog = [row for row in rows if not row["held"]]
+    assert catalog, "the catalog offers skills the sheet does not list, so the flag is under test"
+    assert all(row["skill"] not in sheet["skills"] for row in catalog)
+
+
 def test_missing_characteristic_dependencies_stay_unknown_instead_of_becoming_numbers(kernel):
     open_turn(kernel)
     sheet_path = campaign_dir(kernel.workspace) / "party" / "thomas-hayes.json"

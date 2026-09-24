@@ -11,7 +11,7 @@ import {fulfillmentHandlers, fulfillmentPromiseNavigation} from './fulfillment-o
 import {array, string, type Row} from '../read/values.js';
 import {obligationNodes, openGuards, sceneObligations} from '../read/obligations.js';
 import {activeMods} from '../read/mods.js';
-import {destinationView, unlockGuard} from '../read/destination-rows.js';
+import {destinationView, guardedWay, unlockGuard} from '../read/destination-rows.js';
 
 export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
     return {...fulfillmentHandlers(context), 'table.apply.options': async params => {
@@ -35,7 +35,8 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
             destinations.add(exit.to);
             const node=graph.find(exit.to,['scene']),unlock=exit.unlock_when;
             const destination=node?destinationView(graph,campaign.world,node,string(exit.display_name||exit.to)):{};
-            const guarded=unlock&&unlock.met===false?{unlock_when:{...unlock,...unlockGuard(graph,campaign.world,conditions.get(exit.to))}}:{};
+            // §135.30.6 (SL-40): an unmet unlock also says the place and the way to it from here exist.
+            const guarded=unlock&&unlock.met===false?{unlock_when:{...unlock,...unlockGuard(graph,campaign.world,conditions.get(exit.to)),...guardedWay(graph,campaign.world,scene)}}:{};
             add({kind:'move',to:exit.to},{kind:'move',...exit,...guarded,...(Object.keys(destination).length?{destination}:{}),authority:'available_route_not_player_choice'},
                 guards.exits.get(string(node?.node_id)));
         }

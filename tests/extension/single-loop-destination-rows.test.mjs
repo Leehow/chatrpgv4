@@ -23,7 +23,8 @@ import { openTable } from "./harness.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY, NONE, compileBatch, guardedDestinations, interpretCompile } from "../../runtime/jev/route-compile.ts";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { GUARDED_NOTE, createHybridEngine, withEntrance } from "../../runtime/jev/hybrid-engine.ts";
+import { CARRIED_VIEW_BYTES } from "../../runtime/jev/carried-views.ts";
 import { initialView, next, settleCompile, startStep } from "../../runtime/jev/step-policy.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -162,8 +163,10 @@ test("§135.30.4 on the emitted kernel: heading for the house before the keys, t
 	assert.ok(destination, "the compile was asked (the research exits are reachable)");
 	const house = Object.values(destination.criteria).find((words) => words?.handle === "corbitt-house-ground");
 	assert.equal(house.place, "The Corbitt House", "the house by the name the book gives it, not its file name");
+	// §135.30.6 (SL-40): the guard also says the place and its entrance exist, from the office the party is in.
 	const guard = { condition: "clue_discovered: knott-keys", clue: { clue: "knott-keys", says: node("clue-knott-keys").summary,
-		found_at: [{ scene: "commission-briefing", display_name: "Knott's Office", cues: keysCues }] } };
+		found_at: [{ scene: "commission-briefing", display_name: "Knott's Office", cues: keysCues }] },
+		exists: { place: true, entrance: true, from: "commission-briefing", from_place: "Knott's Office" } };
 	assert.ok(keysCues.length, "the book grants the keys at the office");
 	const compiled = rows.find((row) => row.lane === "route" && row.purpose === "compile");
 	assert.deepEqual(compiled.guarded, [{ to: "corbitt-house-ground", place: "The Corbitt House", guard }], "the compile row reports the guard");
@@ -173,6 +176,45 @@ test("§135.30.4 on the emitted kernel: heading for the house before the keys, t
 	const notes = [...new Map(requests.flatMap(clerkNotes).filter((note) => note.guarded).map((note) => [JSON.stringify(note), note])).values()];
 	assert.equal(notes.length, 1, "the Keeper is told once");
 	assert.ok(clerkNotes(requests[0]).some((note) => note.guarded), "before the first model step");
-	assert.deepEqual(notes[0].guarded, compiled.guarded, "the note carries the kernel's guard, not a sentence of the host's");
-	assert.match(notes[0].guarded_note, /closed by the book's own condition/);
+	assert.deepEqual(notes[0].guarded, compiled.guarded, "the note carries the kernel's guard (no prescreen here: no entrance passages)");
+	assert.equal(notes[0].guarded_note, GUARDED_NOTE, "with the §135.30.6 guidance");
 });
+
+// ---------------------------------------------------------------------------------------------------
+// SL-40 (§135.30.6): a guard is a pacing condition; the place and its entrance exist.
+// ---------------------------------------------------------------------------------------------------
+
+test("§135.30.6: the guarded entry carries what this run's prescreen located about the place -- the entrance as the book has it -- and nothing when it located nothing", () => {
+	const entry = { to: "basement-rites", place: "Corbitt House basement", guard: { condition: "clue_discovered: corbitt-diaries", exists: { place: true, entrance: true, from: "corbitt-house-ground", from_place: "The Corbitt House" } } };
+	const entity = (name, kind, units) => ({ kind: "graph_entity", label: `${kind} ${name}`, provenance: { locator: `${kind}:${name}` }, content: JSON.stringify({ entity: { name, kind }, ...units }) });
+	const passages = [
+		// The ground floor's own entity names the basement as an edge's target: what the module authored about the way down.
+		{ scene: "corbitt-house-ground", material: entity("corbitt-house-ground", "scene", { relations: [{ kind: "unlock", to: "basement-rites" }] }) },
+		{ scene: "corbitt-house-ground", material: entity("basement-rites", "scene", { authored: { affordances: [{ id: "descend-stairs" }] } }) },
+		// A book passage read at the ground floor is that scene's (§135.31.1), not the basement's; an unrelated entity is left out.
+		{ scene: "corbitt-house-ground", material: { kind: "source", label: "p.455", content: "The ground floor.", authority: "book" } },
+		{ scene: "corbitt-house-ground", material: entity("upper-floor-bedroom", "scene", { relations: [{ kind: "unlock", to: "corbitt-house-ground" }] }) },
+	];
+	const shown = withEntrance(entry, passages);
+	assert.deepEqual(Object.keys(shown.entrance.passages), ["scene:basement-rites", "scene:corbitt-house-ground"], "the place's own entity first, then the scene whose edge leads there");
+	assert.deepEqual(shown.entrance.passages["scene:corbitt-house-ground"].relations, [{ kind: "unlock", to: "basement-rites" }]);
+	assert.equal(shown.entrance.truncated, undefined);
+	assert.deepEqual({ ...shown, entrance: undefined }, { ...entry, entrance: undefined }, "the guard and the place are unchanged");
+	assert.equal(withEntrance(entry, passages.slice(2)), entry, "nothing located about the place: no entrance key");
+	// Fitted to one carried view's ceiling, and marked when cut.
+	const long = [{ scene: "x", material: entity("basement-rites", "scene", { authored: { prose: "x".repeat(CARRIED_VIEW_BYTES * 2) } }) }];
+	const cut = withEntrance(entry, long);
+	assert.equal(cut.entrance.truncated, true);
+	assert.ok(Buffer.byteLength(JSON.stringify(cut.entrance.passages)) <= CARRIED_VIEW_BYTES);
+});
+
+test("§135.30.6: the unmet unlock's exists travels with the destination row's guard and never into Jev's words", () => {
+	const reads = house();
+	const exists = { place: true, entrance: true, from: "house", from_place: "The House" };
+	reads.applyOptions.candidates[1].description.unlock_when = { ...CELLAR_GUARD, exists, met: false };
+	const rows = compileRows(reads);
+	assert.deepEqual(rows.destination[1].guard, { ...CELLAR_GUARD, exists });
+	const batch = compileBatch(initialView({ runId: "r", rawInput: INPUT, context, candidates: buildCandidates(reads, INPUT), rows }), scope, [], []);
+	assert.ok(!JSON.stringify(batch).includes("from_place"), "the guard's exists never reaches Jev");
+});
+

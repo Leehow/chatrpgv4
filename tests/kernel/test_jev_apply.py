@@ -162,6 +162,23 @@ def test_unmet_unlock_names_the_clue_its_words_and_where_the_book_puts_it(kernel
     assert house["unlock_when"]["clue"]["says"] == nodes["clue-knott-keys"]["summary"]
 
 
+def test_unmet_unlock_says_the_place_and_its_entrance_exist_from_where_the_party_is(kernel):
+    """Contract §135.30.6 (SL-40): a held exit is a pacing condition. Its unlock says the place and the way to it exist, from
+    the scene the party is in; a met unlock says nothing more. At the ground floor the basement's way is the ground floor's."""
+    open_turn(kernel)
+    unlock = _move(options(kernel), "newspaper-morgue")["unlock_when"]
+    assert unlock["met"] is False
+    assert unlock["exists"] == {"place": True, "entrance": True, "from": "commission-briefing", "from_place": "Knott's Office"}
+    house = _move(options(kernel), "corbitt-house-ground")["display_name"]
+
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "clue", "clue": "knott-research-leads"}, {"kind": "clue", "clue": "knott-keys"}])
+    assert "exists" not in _move(options(kernel), "newspaper-morgue")["unlock_when"]
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind": "move", "to": "corbitt-house-ground"}])
+    basement = _move(options(kernel), "basement-rites")["unlock_when"]
+    assert basement["met"] is False and basement["clue"]["clue"] == "corbitt-diaries"
+    assert basement["exists"] == {"place": True, "entrance": True, "from": "corbitt-house-ground", "from_place": house}
+
+
 def test_destination_people_by_this_tables_name_and_things_without_the_places_media(kernel):
     """Contract §135.30.4: a person is named as this table calls them (§79); `things` are what the place holds, never the
     maps and pictures of it (graph nodes of kind `asset`)."""

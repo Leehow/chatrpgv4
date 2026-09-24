@@ -97,12 +97,18 @@ export interface CompilePredicate {
   features: readonly FeatureFamily[];
   /** The candidates this predicate reads. */
   reads(candidate: Candidate): boolean;
-  /** The compile can reach this candidate: the families it turns on have rows. */
-  askable(rows: FeatureRows): boolean;
+  /**
+   * The compile can reach this candidate: the families it turns on have rows (`candidate`: the one asked about, for a
+   * predicate that reaches only some of the candidates it reads, §135.30.5's `guard_unlock`).
+   */
+  askable(rows: FeatureRows, candidate?: Candidate): boolean;
   /** The compile settled this candidate one way or the other: the features it turns on cleared (a row or `none`). */
   decided(cleared: Cleared, candidate: Candidate): boolean;
-  /** The predicate over cleared rows and the candidate's own values: selects the candidate, or not. */
-  fires(candidate: Candidate, cleared: Cleared): Fired | undefined;
+  /**
+   * The predicate over cleared rows and the candidate's own values: selects the candidate, or not. `rows`: the compile's
+   * feature rows, for a predicate that reads a cleared row's kernel data (§135.30.5: the destination's guard).
+   */
+  fires(candidate: Candidate, cleared: Cleared, rows?: FeatureRows): Fired | undefined;
   /**
    * The only selector of the candidates it reads (§135.30, addendum 2026-09-24): the route's own question about them
    * (§135.26's fact question, or `need`) is still asked and recorded, but never selects them; unselected, they are the
@@ -126,6 +132,12 @@ const attackTargets = (candidate: Candidate): string[] => typeof candidate.bound
 export const ORDINARY_CHECK = 'core-check:ordinary-check';
 /** The acts an ordinary check the compile selects may carry (§135.30.3): the ruling's investigate and social. */
 const ORDINARY_ACTS: readonly string[] = ['investigate', 'social'];
+/** The clue an issued clue candidate files. */
+const clueOf = (candidate: Candidate): string => text(candidate.bound.clue);
+/** The clue a destination row's guard names: the kernel's typed unmet unlock (§135.30.4's `clue.clue`), else none. */
+const guardClue = (row: FeatureRow | undefined): string => text(object(object(row?.guard).clue).clue);
+/** The obligation a destination row is held behind (§135.30.4's `{obligation, demand}` guard), else none. */
+const guardObligation = (row: FeatureRow | undefined): string => text(object(row?.guard).obligation);
 
 export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
   {name: 'move', features: ['destination'], askable: rows => has(rows, 'destination'),
@@ -173,6 +185,19 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
   // present; a cleared destination leaves the check to the scene the declaration ends in, and an ask on an obligation's
   // demand leaves it to that obligation's check. The intent is the act the compile read. Never decided: when it does not
   // fire the route's `need` question still reads the check, as before.
+  // §135.30.5 (SL-38): the clue the declaration files, when it opens the destination the same compile cleared. The ask
+  // cleared on the clue's row and the destination on a row whose kernel guard names that clue; the move follows it (the
+  // policy stages it after this step). Never decided: a clue it does not fire on falls through to the route as before.
+  {name: 'guard_unlock', features: ['ask', 'destination'],
+    askable: (rows, candidate) => !!candidate && (rows.ask ?? []).some(row => row.id === `clue:${clueOf(candidate)}`)
+      && (rows.destination ?? []).some(row => guardClue(row) === clueOf(candidate)),
+    reads: candidate => candidate.verb === 'apply' && candidate.family === 'clue' && candidate.clerk === 'declared_bookkeeping' && !!clueOf(candidate),
+    decided: () => false,
+    fires: (candidate, cleared, rows) => {
+      const clue = clueOf(candidate), to = cleared.destination?.row;
+      if (cleared.ask?.row !== `clue:${clue}` || !to) return undefined;
+      return guardClue(rows?.destination?.find(row => row.id === to)) === clue ? {} : undefined;
+    }},
   {name: 'ordinary_check', features: ['act', 'addressee', 'ask', 'destination'], askable: rows => has(rows, 'act'),
     reads: candidate => candidate.clerk === 'declared_check' && candidate.bound.decision === ORDINARY_CHECK,
     decided: () => false,
@@ -189,7 +214,7 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
 /** The predicate that reads a candidate, if any, when its features have rows. */
 export function predicateOf(candidate: Candidate, rows: FeatureRows | undefined): CompilePredicate | undefined {
   const predicate = COMPILE_PREDICATES.find(value => value.reads(candidate));
-  return predicate && rows && predicate.askable(rows) ? predicate : undefined;
+  return predicate && rows && predicate.askable(rows, candidate) ? predicate : undefined;
 }
 /** The offered candidates a predicate can select with these rows. */
 export function reachable(candidates: Candidate[], rows: FeatureRows | undefined): Candidate[] {
@@ -273,8 +298,28 @@ export interface CompileOutcome {
   reason: string;
   /** §135.30.4: the cleared destination the kernel holds back (no issued move goes there), with the kernel's guard. */
   guarded?: GuardedDestination[];
+  /**
+   * §135.30.5 (SL-38): the cleared destination a step of this batch unlocks (`after`: that step's key), with the compile's
+   * record of the move the policy runs once the fresh read after that step issues it. Never also `guarded`.
+   */
+  unlocked?: UnlockedDestination[];
 }
-export interface GuardedDestination {to: string; place: string; guard: Json}
+/** `entrance` (§135.30.6, the engine's): what this run's prescreen located about the place, for the Keeper's note. */
+export interface GuardedDestination {to: string; place: string; guard: Json; entrance?: Json}
+export interface UnlockedDestination extends GuardedDestination {after: string; compile: Json}
+
+/**
+ * §135.30.5 (SL-38): the selected step whose effect meets a held destination's guard: the clue `guard_unlock` files for a
+ * guard naming that clue, or the obligation check `obligation_check` selected for a row held behind that obligation.
+ */
+export function unlockingStep(guard: Json, selected: readonly CompileSelection[]): CompileSelection | undefined {
+  const row: FeatureRow = {id: '', describe: null, guard};
+  const clue = guardClue(row), obligation = guardObligation(row);
+  return selected.find(entry => (clue && entry.predicate === 'guard_unlock' && clueOf(entry.candidate) === clue)
+    || (obligation && entry.predicate === 'obligation_check' && text(basisOf(entry.candidate).obligation) === obligation));
+}
+/** The recorded shape of an unlocked destination (the compile row, the policy's step): without the move's record. */
+export const unlockedRow = ({compile: _compile, ...entry}: UnlockedDestination): Json => entry as unknown as Json;
 
 /**
  * §135.30.4: `destination` cleared on a row whose move no issued candidate carries, and the row names the kernel's
@@ -298,7 +343,7 @@ export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows'>,
   const selected: CompileSelection[] = [], decided: string[] = [], fellThrough: string[] = [];
   for (const candidate of view.candidates) {
     const predicate = predicateOf(candidate, view.rows);
-    const fired = predicate?.fires(candidate, cleared);
+    const fired = predicate?.fires(candidate, cleared, view.rows);
     if (predicate && fired) {
       const read = Object.fromEntries(FEATURE_FAMILIES.filter(family => cleared[family]).map(family => [family, cleared[family]!.row]));
       const bound = fired.bound ?? {};
@@ -317,9 +362,19 @@ export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows'>,
     } else if (predicate?.decided(cleared, candidate)) decided.push(candidate.key);
     else fellThrough.push(candidate.key);
   }
-  const guarded = guardedDestinations(view.rows, view.candidates, cleared);
+  // §135.30.5 (SL-38): a held destination a step of this batch unlocks is evaluated after that step (the policy stages the
+  // move); every other held destination is reported with its guard as §135.30.4 says.
+  const guarded: GuardedDestination[] = [], unlocked: UnlockedDestination[] = [];
+  for (const entry of guardedDestinations(view.rows, view.candidates, cleared)) {
+    const step = unlockingStep(entry.guard, selected);
+    if (!step) { guarded.push(entry); continue; }
+    const read = Object.fromEntries(FEATURE_FAMILIES.filter(family => cleared[family]).map(family => [family, cleared[family]!.row]));
+    const destination = features.destination;
+    unlocked.push({...entry, after: step.candidate.key, compile: {predicate: 'move', features: read,
+      read_features: {destination: {row: destination.row, confidence: destination.confidence, cleared: destination.cleared}}, unlocked_by: step.candidate.key} as Json});
+  }
   return {selected, decided, fellThrough, features, reason: selected.length ? `selected_${selected.length}` : decided.length ? 'decided_none' : 'fell_through',
-    ...(guarded.length ? {guarded} : {})};
+    ...(guarded.length ? {guarded} : {}), ...(unlocked.length ? {unlocked} : {})};
 }
 
 /**

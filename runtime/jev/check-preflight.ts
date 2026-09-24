@@ -4,7 +4,7 @@ import {isPlainRecord,type DecisionBatch,type DecisionResult,type Json,type Read
 import type {DecisionPort} from './decision-port.ts';
 import type {TaskLease} from './task-context.ts';
 import {packDecisionBatch} from './question-packing.ts';
-import {interpretOrdinaryRoute,ordinaryActionTemplate,ordinaryProfileBatch,ordinaryRouteBatch,selectOrdinaryProfile,
+import {interpretOrdinaryRoute,ordinaryActionTemplate,ordinaryProfileBatch,ordinaryRouteBatch,pickOrdinaryProfile,
   validateOrdinaryResolveOptions,type OrdinaryActionTemplate,type OrdinaryDisposition,type OrdinaryParameterPath,type OrdinaryResolveOptions} from './ordinary-resolve-domain.ts';
 
 const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -16,11 +16,15 @@ export interface CheckPreflightCheckpoint {version:2;campaign:string;turn:number
  * The profile answer behind the advised skill (contract §135.30.3, SL-26): its choice, confidence and distribution, by skill
  * name. A report beside the advice, which it does not change; the single-loop clerk reads it to say whether the skill cleared.
  */
-export type CheckPreflightAnswer={choice:string;confidence:number|null;probabilities:Record<string,number>|null};
+export type CheckPreflightAnswer={choice:string;confidence:number|null;probabilities:Record<string,number>|null;
+  /** §135.28.1 (SL-40): on the profile answer taken, whether the sheet holds the skill, and whether the declaration named it. */
+  held?:boolean;named?:true};
 /** `route` and `consent`: the binder's own route and consent answers, reported for the record (they decide the disposition). */
 export interface CheckPreflightEvidence {profile?:CheckPreflightAnswer;route?:CheckPreflightAnswer;consent?:CheckPreflightAnswer;
   /** The route batch's other answers (actor, intent, difficulty, bonus, penalty), reported for the record. */
   parameters?:Record<string,CheckPreflightAnswer>;
+  /** §135.28.1 (SL-40): the `named` answer (the skill the declaration names among those the sheet does not hold), for the record. */
+  named?:CheckPreflightAnswer;
   /** SL-31 (§135.28): with `defaults`, how the difficulty and the dice were taken: Jev's cleared answer or the rules default. */
   paths?:Record<string,OrdinaryParameterPath>}
 export interface CheckPreflightResult {advice:CheckPreflightAdvice;checkpoint?:CheckPreflightCheckpoint;decisionCalls:number;evidence?:CheckPreflightEvidence;
@@ -90,13 +94,22 @@ function routeEvidence(result:DecisionResult):CheckPreflightEvidence {
   const parameters=Object.fromEntries(['actor','intent','difficulty','bonus','penalty'].flatMap(key=>{const value=answerRecord(result,key);return value?[[key,value]]:[];}));
   return{...(route?{route}:{}),...(consent?{consent}:{}),...(Object.keys(parameters).length?{parameters}:{})};
 }
-/** The profile answer by skill name: the question's aliases (`profile_<index>` over the actor's own rows) read back. */
-function profileEvidence(options:OrdinaryResolveOptions,actor:string,result:DecisionResult):CheckPreflightEvidence|undefined {
-  const value=result.answers?.profile;if(value?.status!=='answered'||value.type!=='choice')return undefined;
+/**
+ * The profile answer by skill name: the question's aliases (`profile_<index>` over the actor's own rows) read back. With
+ * §135.28.1's two questions, `profile` is the answer the binder took (`from`), with the row's `held` and `named: true` when
+ * it came from `named`; `named` is that question's answer either way.
+ */
+function profileEvidence(options:OrdinaryResolveOptions,actor:string,result:DecisionResult,from:'profile'|'named'='profile',taken?:{held?:boolean}):CheckPreflightEvidence|undefined {
   const skills=Object.fromEntries(options.profiles.filter(row=>row.actor===actor).map((row,index)=>[`profile_${index}`,row.skill]));
   const name=(alias:string)=>skills[alias]??alias;
-  return{profile:{choice:name(value.choice),confidence:typeof value.confidence==='number'?value.confidence:null,
-    probabilities:value.probabilities?Object.fromEntries(Object.entries(value.probabilities).map(([alias,p])=>[name(alias),p])):null}};
+  const read=(key:string):CheckPreflightAnswer|undefined=>{
+    const value=result.answers?.[key];if(value?.status!=='answered'||value.type!=='choice')return undefined;
+    return{choice:name(value.choice),confidence:typeof value.confidence==='number'?value.confidence:null,
+      probabilities:value.probabilities?Object.fromEntries(Object.entries(value.probabilities).map(([alias,p])=>[name(alias),p])):null};
+  };
+  const profile=read(from),named=result.answers?.named?read('named'):undefined;
+  if(!profile&&!named)return undefined;
+  return{...(profile?{profile:{...profile,...(typeof taken?.held==='boolean'?{held:taken.held}:{}),...(from==='named'?{named:true as const}:{})}}:{}),...(named?{named}:{})};
 }
 export async function prepareCheckPreflight(input:CheckPreflightInput):Promise<CheckPreflightResult> {
   const goal=input.goal?.trim()||input.rawInput,lease=input.lease,signal=input.signal?AbortSignal.any([input.signal,lease.signal]):lease.signal;let calls=0;
@@ -120,13 +133,15 @@ export async function prepareCheckPreflight(input:CheckPreflightInput):Promise<C
     const route=interpretOrdinaryRoute(options,routeResult,input.compiled,input.defaults),
       routed={...routeEvidence(routeResult),...(route.paths?{paths:route.paths}:{})};
     if(route.disposition!=='ordinary')return{...make({kind:'check_preflight',disposition:route.disposition,unresolved:route.needs,authorization:'advisory_only',settled:false}),evidence:routed};
-    const profileSpec=ordinaryProfileBatch({rawInput:input.rawInput,goal,options:decisionOptions,route});if(!profileSpec)
+    // §135.28.1 (SL-40): the single-loop binder (with `defaults`) chooses among the skills the sheet holds, unless named.
+    const profileSpec=ordinaryProfileBatch({rawInput:input.rawInput,goal,options:decisionOptions,route,held:!!input.defaults});if(!profileSpec)
       return make({kind:'check_preflight',disposition:'unknown',unresolved:['ordinary_profile_unavailable'],authorization:'advisory_only',settled:false});
     const profileRequest=batch(profileSpec,input.scope,input.readSet,1);calls++;
     const profileResult=await bounded(()=>input.decision.decide(profileRequest,lease),signal,lease.context.budget.deadlineAt);signal.throwIfAborted();lease.assertActive();
     if(profileResult.status!=='complete')return make({kind:'check_preflight',disposition:'unknown',unresolved:[failure(profileResult)],authorization:'advisory_only',settled:false});
-    const profile=selectOrdinaryProfile(options,route,profileResult),action=profile&&ordinaryActionTemplate({rawInput:input.rawInput,goal,options,route,profile});
-    const evidence={...routed,...profileEvidence(options,route.actor!,profileResult)};
+    const picked=pickOrdinaryProfile(options,route,profileResult,input.defaults),profile=picked.profile,
+      action=profile&&ordinaryActionTemplate({rawInput:input.rawInput,goal,options,route,profile});
+    const evidence={...routed,...profileEvidence(options,route.actor!,profileResult,picked.from,profile)};
     return action?{...make({kind:'check_preflight',disposition:'ordinary',action,unresolved:[],authorization:'advisory_only',settled:false}),evidence}
       :make({kind:'check_preflight',disposition:'unknown',unresolved:['ordinary_profile_unavailable'],authorization:'advisory_only',settled:false});
   }catch(error){return unknown(signal?.aborted||lease.signal.aborted?'cancelled':error instanceof Error?error.message:'check_preflight_unavailable',calls);}
