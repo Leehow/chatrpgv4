@@ -60,16 +60,21 @@ async function* utf8Lines(input: Readable): AsyncGenerator<string> {
   if (buffered) yield buffered;
 }
 
-/** Arrival order, response writes and EOF draining all belong to one loop. */
-export async function serve(input: Readable, output: Writable, methods: HandlerGroup, diagnostic: Diagnostic = () => {}): Promise<void> {
+/**
+ * Arrival order, response writes and EOF draining all belong to one loop. `methods` is the group
+ * itself, or a function read once per line: a retargetable process (§137) swaps its group between
+ * two lines and never inside one.
+ */
+export async function serve(input: Readable, output: Writable, methods: HandlerGroup | (() => HandlerGroup), diagnostic: Diagnostic = () => {}): Promise<void> {
   const writeLine = (value: ReadonlyJson) => new Promise<void>((resolve, reject) =>
     output.write(utf8Bytes(pythonJsonDumps(value) + "\n"), error => error ? reject(error) : resolve()));
+  const current = typeof methods === "function" ? methods : () => methods;
   for await (const line of utf8Lines(input)) {
     if (isBlankLine(line)) continue;
     // Frames fire while the handler still runs; the stream keeps every frame ahead of the
     // response that settles the call.
     const writes: Promise<void>[] = [];
-    const response = await handleLine(line, methods, diagnostic, frame => { writes.push(writeLine(frame)); });
+    const response = await handleLine(line, current(), diagnostic, frame => { writes.push(writeLine(frame)); });
     writes.push(writeLine(response));
     await Promise.all(writes);
   }

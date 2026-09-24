@@ -8,6 +8,8 @@ export const WORKSPACE_ADAPTER = 'static-evidence-v2';
 const SOURCE_FIELDS = ['prose', 'description', 'summary', 'agenda', 'fear', 'secret', 'voice',
     'relationship', 'keeper_note', 'keeper_notes', 'social_role', 'dramatic_question', 'background'];
 const indexes = new Map<string, {postings: Map<string, string[]>; exact: Map<string, string[]>}>();
+/** The index is keyed by module id and revision, not by file identity, so a retarget drops it (§137). */
+export function forgetCandidateIndexes(): void { indexes.clear(); }
 const terms = (text: string): string[] => {
     const normalized = text.normalize('NFKC').toLocaleLowerCase();
     // Generic character pairs are lexical retrieval keys, never an intent or language classifier.

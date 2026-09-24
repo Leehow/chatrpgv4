@@ -11,8 +11,10 @@ type Stamp = { size: number; mtimeMs: number; ino: number };
 const PARSED_GRAPHS = 32;
 const parsedGraphs = new Map<string, { stamp: Stamp; digest: string; raw: Row }>();
 const canonicalDigests = new WeakMap<Row, string>();
-/** Test seam: forget every parsed graph in this process. */
-export function forgetParsedGraphs(): void { parsedGraphs.clear(); }
+/** Forget every parsed graph in this process, or every one `keep` does not claim (§137). */
+export function forgetParsedGraphs(keep?: (path: string) => boolean): void {
+    for (const path of [...parsedGraphs.keys()]) if (!keep?.(path)) parsedGraphs.delete(path);
+}
 
 export async function readPublishedGraph(context: KernelContext, path: string, metadata: Row, moduleId: string): Promise<{raw: Row; digest: string}> {
     const published = Object.keys(metadata).length > 0;
