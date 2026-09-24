@@ -1,0 +1,639 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>Pi CoC × Jev · 完整设计</title><style>
+:root{--nav:#142736;--ink:#172c3a;--muted:#61747f;--accent:#11746d;--line:#dce5e9;--soft:#f0f5f7;--bg:#eef3f5;--white:#fff;--bad:#a23f37;--badbg:#fff6f4;--good:#216957;--goodbg:#f1f9f5;--bound:#83621a;--boundbg:#fffaf0}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.8 -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif}a{color:var(--accent);text-underline-offset:3px}a:hover{text-decoration:none}button,input,select{font:inherit}button{cursor:pointer}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #d7a33e;outline-offset:3px}h1,h2,h3{line-height:1.4;letter-spacing:-.025em}h1{font-size:38px;margin:0 0 18px}h2{font-size:25px;margin:45px 0 20px}h3{font-size:19px;margin:29px 0 14px}p{margin:13px 0}code{font:13px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;background:#ecf2f5;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#142d3b;color:#e1edf2;border-radius:9px;padding:22px;line-height:1.6;font-size:13px;overflow:auto}pre code{padding:0;background:none;color:inherit}blockquote{border-left:3px solid var(--accent);padding:10px 20px;margin:22px 0;background:#f1f7f7}blockquote p{margin:7px 0}.kicker{font-size:12px;letter-spacing:.13em;font-weight:750;color:var(--accent);margin-bottom:15px}.muted{color:var(--muted)}.small{font-size:13px}.badge{display:inline-block;font-size:11px;letter-spacing:.03em;border:1px solid var(--line);border-radius:5px;padding:3px 8px;background:#f9fbfc;color:var(--muted);vertical-align:middle}.badge.warn{border-color:#d8bd7b;background:#fff9eb;color:#7c5f22}.table-scroll{overflow-x:auto;margin:22px 0;border:1px solid var(--line);border-radius:8px}table{border-collapse:collapse;width:100%;font-size:13px;min-width:610px}th,td{padding:12px 14px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:#edf5f5;font-weight:700}tr:last-child td{border:0}tr:nth-child(even) td{background:#fbfcfd}ul,ol{padding-left:24px}li{margin:7px 0}.notice{padding:15px 19px;border:1px solid #d2e1e5;border-radius:8px;background:#f4f8fa;font-size:14px}.navlink{font-size:13px;display:inline-block;margin-right:18px}.doc-sidebar{position:fixed;inset:0 auto 0 0;width:260px;background:var(--nav);color:#dceaf0;overflow-y:auto;padding:31px 20px}.doc-sidebar .brand{font-size:23px;font-weight:750;color:#fff}.doc-sidebar .sub{font-size:12px;color:#a8c0cd;margin:7px 0 23px}.doc-sidebar a{display:block;text-decoration:none;color:#c8dbe4;font-size:12px;line-height:1.55;padding:7px 9px;margin:2px 0;border-radius:5px}.doc-sidebar a:hover{background:#284352;color:#fff}.doc-sidebar .toplinks{border-top:1px solid #36505c;border-bottom:1px solid #36505c;padding:10px 0;margin:15px 0}.document{max-width:1080px;margin:28px 30px 60px 290px;background:#fff;padding:46px 58px;border:1px solid var(--line);border-radius:12px}.document h2{border-top:1px solid var(--line);padding-top:28px}.document h1+ p{color:var(--muted)}.document a{overflow-wrap:anywhere}.app-shell{max-width:1240px;margin:auto;padding:36px 30px 60px}.app-header{display:flex;align-items:flex-start;justify-content:space-between;gap:25px}.header-aside{text-align:right;flex-shrink:0;padding-top:7px}.header-aside a{display:block;font-size:13px;margin-bottom:8px}.stat-row{display:flex;gap:10px;margin:26px 0}.stat{flex:1;background:var(--white);border:1px solid var(--line);border-radius:8px;padding:17px 20px}.stat strong{display:block;font-size:26px;font-weight:750;line-height:1.4}.stat span{font-size:12px;color:var(--muted)}.controls{background:var(--white);border:1px solid var(--line);border-radius:10px;padding:20px;margin:23px 0}.filter-row{display:grid;grid-template-columns:minmax(250px,2fr) 1fr 1fr;gap:14px}.controls label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px}.controls input,.controls select{height:44px;border:1px solid #c9d8df;border-radius:6px;padding:8px 11px;background:#fff;color:var(--ink);width:100%;min-width:0;font-size:14px}.controls input::placeholder{color:#879aa5}.chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:16px}.chip{border:1px solid var(--line);border-radius:6px;padding:6px 11px;background:#f8fafb;font-size:12px;color:#476170}.chip.active{background:var(--accent);border-color:var(--accent);color:white}.results-bar{display:flex;justify-content:space-between;align-items:center;margin:20px 1px 13px;font-size:13px;color:var(--muted)}.results-bar button{background:none;border:0;color:var(--accent);font-size:13px;padding:4px 7px}.card{background:#fff;border:1px solid var(--line);border-radius:10px;margin:0 0 12px;scroll-margin-top:22px}.card>summary{list-style:none;cursor:pointer;padding:19px 23px;display:flex;align-items:flex-start;gap:17px}.card>summary::-webkit-details-marker{display:none}.card>summary::before{content:'+';font:22px/1.4 ui-monospace,monospace;color:var(--accent);flex-shrink:0;margin-top:2px}.card[open]>summary::before{content:'−'}.summary-main{min-width:0;flex:1}.card-id{font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--muted)}.card-title{font-size:18px;font-weight:720;line-height:1.5;margin:4px 0}.card-desc{font-size:13px;color:var(--muted);line-height:1.65}.summary-meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;max-width:190px;justify-content:flex-end}.sev-blocker{color:#963c38;background:#fff2ef;border-color:#f0d3cd}.sev-major{color:#88641e;background:#fff9ed;border-color:#e6d9b9}.sev-minor{color:#46647b;background:#eff5f8;border-color:#d8e3e9}.card-body{padding:0 25px 23px 61px}.context{background:#f4f7f9;border:1px solid #e2e9ed;border-radius:7px;padding:15px 17px;margin-bottom:17px;font-size:14px}.eyebrow{font-size:11px;letter-spacing:.07em;font-weight:750;color:var(--muted);margin-bottom:7px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}.example{border-radius:7px;padding:17px 18px;border:1px solid}.example.bad{background:var(--badbg);border-color:#eed6d0}.example.good{background:var(--goodbg);border-color:#d1e6da}.bad .eyebrow{color:var(--bad)}.good .eyebrow{color:var(--good)}.sample{font-size:16px;line-height:1.9;margin:0 0 13px;white-space:pre-wrap}.reason{font-size:13px;line-height:1.75;margin:0;padding-top:12px;border-top:1px solid #0000000d}.boundary{margin:15px 0;background:var(--boundbg);border:1px solid #eadfc2;border-radius:7px;padding:16px 18px}.boundary .eyebrow{color:var(--bound)}.boundary .sample{margin:10px 0;font-size:15px}.boundary-context{font-size:13px;color:#776a4d}.metadata{font-size:12px;color:var(--muted);padding-top:9px;display:flex;gap:8px 17px;flex-wrap:wrap}.metadata a{font:12px/1.8 ui-monospace,monospace}.empty{padding:50px;text-align:center;border:1px dashed #bccdd6;border-radius:8px;color:var(--muted)}.footer{margin-top:35px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:19px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(min-width:1500px){.document{margin-left:320px}}@media(max-width:1000px){.doc-sidebar{width:210px;padding:25px 12px}.document{margin:20px 18px 45px 228px;padding:35px 28px}h1{font-size:31px}.summary-meta{max-width:130px}}@media(max-width:720px){.doc-sidebar{position:relative;width:auto;padding:22px}.doc-sidebar nav{max-height:210px;overflow-y:auto}.doc-sidebar .toplinks{display:flex;gap:15px}.document{margin:12px 10px 30px;padding:27px 20px}.document h1{font-size:27px}.app-shell{padding:25px 14px 35px}.app-header{display:block}.header-aside{text-align:left;display:flex;gap:16px;margin:8px 0}.header-aside a{font-size:12px}.stat-row{gap:7px;margin:20px 0}.stat{padding:12px}.stat strong{font-size:23px}.stat span{font-size:11px}.filter-row{grid-template-columns:1fr 1fr}.filter-row>div:first-child{grid-column:1/-1}.controls{padding:16px}.chip{padding:5px 8px;font-size:11px}.card>summary{padding:16px 14px;gap:10px}.card-title{font-size:16px}.summary-meta{max-width:85px;gap:4px}.badge{font-size:10px;padding:2px 5px}.card-body{padding:0 14px 18px}.pair{grid-template-columns:1fr}.sample{font-size:15px}.results-bar{align-items:flex-start}.results-bar>div{white-space:nowrap}h1{font-size:29px}pre{padding:15px}}
+@media print{body{background:white;font-size:10.5pt}.doc-sidebar,.header-aside,.controls,.results-bar button{display:none}.document{margin:0;padding:0;max-width:none;border:0}.app-shell{padding:0}.stat-row{display:none}h1{font-size:25pt}h2{font-size:18pt;break-after:avoid}h3{font-size:13pt;break-after:avoid}.card,.example,.boundary{break-inside:avoid}pre{background:#f1f3f5;color:black}.table-scroll{overflow:visible}table{min-width:0;font-size:9pt}thead{display:table-header-group}.card>summary::before{display:none}.card-body{padding:0 18px 18px}a{color:inherit}}
+</style></head><body><aside class="doc-sidebar"><div class="brand">Pi CoC × Jev</div><div class="sub">表达计划 · 正反例诊断 · 有限修复<br>设计 v1.0 / 2026.09.23</div><div class="toplinks"><a href="card_browser.html">查看 144 张卡片 →</a><a href="README.md">文件包说明</a></div><nav aria-label="设计目录"><a href="#section-1">Pi CoC × Jev：可控表达与正反例诊断系统</a><a href="#section-2">1. 结论与范围</a><a href="#section-5">2. 必须守住的六条边界</a><a href="#section-7">3. 与已有优化总册的关系</a><a href="#section-8">4. “数值化”具体指什么</a><a href="#section-10">5. 卡片资产模型</a><a href="#section-12">6. 数据结构与权威事实胶囊</a><a href="#section-13">7. 前置表达计划</a><a href="#section-14">8. 当前文本的反例诊断</a><a href="#section-18">9. 证据定位：由模型选，由代码引用</a><a href="#section-19">10. 正例选择与修复合同</a><a href="#section-22">11. Pi 内循环集成</a><a href="#section-24">12. 四种运行模式</a><a href="#section-26">13. 流式输出与不可逆披露</a><a href="#section-27">14. 串行调用预算与依赖</a><a href="#section-28">15. 置信度、校准与弃权</a><a href="#section-29">16. 缓存、分支与失效</a><a href="#section-30">17. 超时、取消与失败路径</a><a href="#section-31">18. 数据、权限与运维</a><a href="#section-32">19. 测试：不能用卡库自证有效</a><a href="#section-37">20. 必须包含的破坏性回归</a><a href="#section-38">21. 实施顺序与交付门</a><a href="#section-39">22. 实际出站请求与采用收据</a><a href="#section-40">23. 交付包文件与使用边界</a><a href="#section-41">来源与证据边界</a><a href="#section-42">当前文本诊断与正例修复演示</a><a href="#section-43">1. 当前权威材料</a><a href="#section-44">2. 待审文本</a><a href="#section-45">3. 期望定位</a><a href="#section-46">4. 取出的正例不是可直接替换的当前事实</a><a href="#section-47">5. 一次修复后的候选稿</a><a href="#section-48">6. 同一原句为什么可能不再是反例</a><a href="#section-49">7. 本包如何运行</a><a href="#section-50">交给编码 Agent 的实施任务书</a><a href="#section-51">开始前必须填写</a><a href="#section-52">按顺序实施</a><a href="#section-53">完成定义</a></nav></aside><main class="document"><div class="kicker">ENGINEERING DESIGN / EXPRESSION SYSTEM</div><p class="small"><span class="badge">144 张卡</span> <span class="badge">432 段示例</span> <span class="badge warn">种子资产 · 尚未实测 Jev 效果</span></p><h1 id="section-1">Pi CoC × Jev：可控表达与正反例诊断系统</h1>
+<p><strong>设计版本：1.0 · 日期：2026-09-23 · 包标识：<code>pi-coc-expression-cards-v1</code></strong></p>
+<p><strong>交付状态：设计、原创种子卡库及离线参考工具；不是已接入 Pi 的生产功能，也不是已经验证的 Jev 中文文笔评测器。</strong></p>
+<p>本设计把“选择表达方法”“识别具体表达缺陷”“找到可借鉴的正例”结构化，让 LLM 集中完成当前事实的语言实现。卡库包括 <strong>144 张卡、144 组同上下文正反例、144 个防误判边界例</strong>；即 288 段主对照文本与 144 段边界文本。所有故事片段均为本次原创虚构示例，不是从商业模组或规则书抽取的片段。</p>
+<h2 id="section-2">1. 结论与范围</h2>
+<p>系统采用 <strong>事实胶囊 → 表达计划 → 一次成文 → 按需诊断与有限修复</strong>。Jev 做有类型的选择和判断，宿主处理权限、引用、版本、预算与发布，LLM 生成和改写自然语言。</p>
+<p>用户所说的“Jev 评估当前文字的反例并给出正例”，在本设计中准确拆成四项：</p>
+<ol>
+<li>判断当前稿件是否符合某张反例卡定义的失误，而不是判断“是否出现了反例里的词”。</li>
+<li>从宿主预先切分的原文片段中选择证据；代码根据片段 ID 提取原文，不让模型凭空引用。</li>
+<li>返回一个或多个适用的正例/修复策略 ID；代码从卡库展开正例及其适用条件。</li>
+<li>需要把正例的方法应用到当前剧情时，由 LLM 在不改变事实的前提下改写。</li>
+</ol>
+<p><strong>检索正例 ≠ 生成当前稿件的改写。给出一个编号 ≠ 证明其对应材料已经进入模型请求。</strong></p>
+<p>本设计覆盖文字层与其运行时边界，不重写规则引擎、整个记忆系统或导演系统。表达层可以提出“需要重新核实”的问题，但不直接掷骰、扣资源、改变时间、创建线索、修改人物立场或决定玩家行为。</p>
+<h3 id="section-3">1.1 依据与未验证范围</h3>
+<p>项目依据为附件《ChatRPG 跨版本优化与重构验收总册》中的 ARC、NPC、TXT、CTX 相关契约，以及《评估方案设计建议》关于分维度、证据、盲比和真人校准的要求。[P1][P2]</p>
+<p>本次没有读取或运行当前 GitHub <code>0.9.4a</code> 源码。后文模块名、接口、目录与生命周期节点都是<strong>建议接口</strong>，不能当作现有仓库真实符号。本包只把可迁移契约落成实施规格；编码 Agent 必须在目标提交上完成实际接线映射。</p>
+<h3 id="section-4">1.2 外部能力与本设计推断分开</h3>
+<p>按核查时的 TypeSafe 官方文档，Jev 提供 Choice、Score、Noul，不提供开放式文本生成；同一请求中的问题针对同一 state 独立评估。Choice 的选项键和描述会进入模型，但 <code>questions</code> 的键不会被模型看见。[S1][S2][S5]</p>
+<p>因此，“让 Jev 当中文表达诊断器”是本设计提出的应用方法，<strong>不是厂商文档已经证明的能力效果</strong>。中文语体、跨轮重复、假设/引述边界、秘密暗示与人物声线都要在真实样本上验证。</p>
+<h2 id="section-5">2. 必须守住的六条边界</h2>
+<div class="table-scroll" tabindex="0"><table>
+<thead>
+<tr>
+<th>边界</th>
+<th>权威拥有者</th>
+<th>表达系统可以做什么</th>
+<th>不可以做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>规则与资源</td>
+<td>单一规则执行与提交路径</td>
+<td>实现收据含义</td>
+<td>靠文采增加伤害、缴械、移动等效果</td>
+</tr>
+<tr>
+<td>世界事实</td>
+<td>模组/事件/状态拥有者</td>
+<td>选择已授权事实的顺序与措辞</td>
+<td>新增道具、身份、因果、过去或未来</td>
+</tr>
+<tr>
+<td>认识与披露</td>
+<td>接收者知识投影</td>
+<td>使用当前接收者可知信息</td>
+<td>以比喻暗示未公开秘密</td>
+</tr>
+<tr>
+<td>玩家控制权</td>
+<td>玩家授权与明确规则效果</td>
+<td>承接已声明感受、动作与合法非自愿效果</td>
+<td>代写未声明情绪、信任、计划或自愿行为</td>
+</tr>
+<tr>
+<td>人物表达</td>
+<td>NPC 当前知识/动机/关系与 voice</td>
+<td>为已决定内容选择措辞</td>
+<td>从职业词推断性格，擅自改立场</td>
+</tr>
+<tr>
+<td>发布与恢复</td>
+<td>Pi 宿主交付状态机</td>
+<td>保存草稿、审阅、修订版本</td>
+<td>把事后删除当成撤销玩家知情</td>
+</tr>
+</tbody>
+</table></div>
+<p>不是所有语言创造都是新增事实。句法、停顿、音韵、信息焦点和明确的非字面修辞可以变化；但任何会影响“谁存在、在哪里、做过什么、能做什么、知道什么、为什么发生”的内容，都要受事实授权约束。</p>
+<h3 id="section-6">2.1 避免把正文变成字段复述</h3>
+<p>允许的自由分为三层：</p>
+<p><strong>纯语言自由</strong>：同义表达、句法、节奏、段落、衔接。通常不新增状态。</p>
+<p><strong>可选表面表现</strong>：NPC 的停顿、音量、普通姿态等，只能在宿主给定 <code>surface_permissions</code> 内展开。它们也可能被玩家当线索，所以默认不把“眼神闪躲”“藏起手”“手在颤抖”当无害装饰。</p>
+<p><strong>新叙事事实</strong>：新的声音、天气、物件、伤势、举动、可疑痕迹，先回到高层决策/事实流程，获得授权并纳入胶囊，再成文。不能靠“只是增加气氛”越过这一步。</p>
+<h2 id="section-7">3. 与已有优化总册的关系</h2>
+<div class="table-scroll" tabindex="0"><table>
+<thead>
+<tr>
+<th>原有契约</th>
+<th>本包的落实方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ARC-06：自然语言语义不靠关键词裁定</td>
+<td>词法/向量只召回；缺陷适用性采用条件化语义判断</td>
+</tr>
+<tr>
+<td>ARC-08：语义名与不透明绑定分层</td>
+<td>模型选短 ID 和描述，宿主保存 digest、revision 与偏移</td>
+</tr>
+<tr>
+<td>NPC-02：知识/动机/立场/关系约束台词</td>
+<td>voice 只修饰已经合法的内容</td>
+</tr>
+<tr>
+<td>NPC-03：少量可辨识特征与自然示例</td>
+<td>稳定 voice + 局部语体，不常驻每 NPC Agent</td>
+</tr>
+<tr>
+<td>NPC-04：参考必须实际进入提示</td>
+<td>selected → resolved → eligible → injected → effect_evaluated 分层收据</td>
+</tr>
+<tr>
+<td>TXT-01/02/03：承接、世界回应、真正交棒</td>
+<td>卡片包含行动结果、问答承接与有效停点</td>
+</tr>
+<tr>
+<td>TXT-04：数字由正式收据卡展示</td>
+<td>不恢复“正文必须含某个数字”的子串门禁</td>
+</tr>
+<tr>
+<td>TXT-05：不替玩家决定</td>
+<td>情绪、行动、信任、背景均有正反及授权边界例</td>
+</tr>
+<tr>
+<td>TXT-07：不变成同步文学评分服务</td>
+<td>默认前置选择+影子诊断；风格修复需要独立开关及收益证据</td>
+</tr>
+<tr>
+<td>TXT-08：重复按功能判断</td>
+<td>记忆回扣、重新定向、线索复现不受机械冷却禁令</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>ADR-EXPR-01：</strong> 用户希望增加对当前文本的 Jev 诊断，本包把它作为新的可选能力，而不是悄悄取消 TXT-07。正确性防线不能为了提速关闭；美学诊断默认不阻塞每个回合。要启用同步风格修复，必须单独测量质量收益与首字/整轮代价。[P1: TXT-07/08]</p>
+<h2 id="section-8">4. “数值化”具体指什么</h2>
+<p>采用 <code>card_id + numeric_id + version + 描述</code>，不把一个数字误当知识。</p>
+<ul>
+<li><code>PEC-HOR-001</code>：稳定可读主键；改文件路径不改语义身份。</li>
+<li><code>5001</code>：宿主紧凑索引；不是语义向量，也不要求数值相近的卡含义相近。</li>
+<li><code>card_version</code>：版本锁；含义改变须升版本，拆卡新增 ID 并保留历史迁移关系。</li>
+<li><code>retrieval_text</code>：用于语义召回的描述，包含目的、条件与失败模式。</li>
+</ul>
+<p>表达参数采用有描述的离散档位，例如 <code>brief / balanced / expansive</code>、<code>direct / restrained / lyrical</code>。篇幅是软目标；必要事实优先。参数控制的是表达行为，不是“好文笔 0.9”这一虚假精度。</p>
+<h3 id="section-9">4.1 稳定层与增量层</h3>
+<p><code>基础旁白声线 + 场景表现目标 + NPC 固定 voice + 本轮局部策略</code>。</p>
+<p>基础层变化少；切换到追逐时减少旁枝，回到休息时恢复舒缓。不必每轮重选一切。<code>KEEP_CURRENT</code>、<code>KEEP_DRAFT</code>、<code>NONE</code> 都是正式选项。没有合适技法时直接说清事实，不强行调用卡库。</p>
+<p>近期已用技法只是候选排序的软特征，<strong>不是禁用冷却表</strong>。线索复现、人物口令与主题兑现可以合法重复。</p>
+<h2 id="section-10">5. 卡片资产模型</h2>
+<p>本包的 12 个家族，每类 12 张：FCT 事实、AGY 自主性、CLR 清晰度、SEN 感官、HOR 恐怖、LYR 美感、DIA 对白、VOI 声线、PAC 节奏、MEM 连续性、RUL 规则实现、OUT 输出与诊断。</p>
+<p>卡片同时保存正面目标与反面判据，不做仅有禁止事项的清单。每张卡的最小内容：</p>
+<div class="table-scroll" tabindex="0"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>身份、版本、家族、标签</td>
+<td>索引、路由与版本治理</td>
+</tr>
+<tr>
+<td><code>applicability</code></td>
+<td>本卡何时有意义；自然语言条件不硬编成词表</td>
+</tr>
+<tr>
+<td><code>failure_mode</code></td>
+<td>单一可解释失误，不把多个互不相关维度揉成总分</td>
+</tr>
+<tr>
+<td><code>desired_behavior</code></td>
+<td>应该如何表达</td>
+</tr>
+<tr>
+<td><code>scope</code> / <code>channels</code></td>
+<td>句、轮、对话、跨轮窗口；玩家正文与工程诊断分开</td>
+</tr>
+<tr>
+<td><code>required_context</code></td>
+<td>需要事实、授权、历史、voice、规则收据的哪些材料</td>
+</tr>
+<tr>
+<td><code>contrast</code></td>
+<td>同一上下文的反例与正例，以及改动原因</td>
+</tr>
+<tr>
+<td><code>boundary</code></td>
+<td>看似类似但合法或不适用的案例，用来防止误报</td>
+</tr>
+<tr>
+<td><code>repair</code></td>
+<td>修复拥有者、修改目标、保护内容、可引用正例</td>
+</tr>
+<tr>
+<td><code>activation</code></td>
+<td>integrity、style 或 diagnostic_meta；不能只按审美召回全部选择</td>
+</tr>
+<tr>
+<td><code>review</code> / <code>provenance</code></td>
+<td>原创种子、人工复核状态、是否进入生产校准</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>三种“正负”不要混用：</strong> 日常所说反例，是违反卡片目标的坏写法；分类器中把 <code>VIOLATION</code> 当 positive class 时，合法边界例反而是 negative class。数据里始终使用明确标签，不用 <code>positive=good</code> 这种容易反转的缩写。</p>
+<h3 id="section-11">5.1 本包卡片的适用边界</h3>
+<p>144 组主例均是目标卡的教学对照；不保证正例是唯一好写法，也不保证某段正例在任意其它上下文中都优秀。边界例判断也只针对目标卡：一个合法引用可能包含难听的台词，但不等于它违反“不能让叙述者代替玩家下判断”。</p>
+<p>OUT-008 至 OUT-012 面向诊断/运行策略审阅，不作为玩家旁白风格范例。它们的正例可能是工程处理建议，绝不能照抄进剧情正文。</p>
+<p>所有卡的人工状态初始为 <code>pending</code>；自动检查只能验证结构、引用、覆盖与示例标签的形式一致性，不能代替真人认可。</p>
+<h2 id="section-12">6. 数据结构与权威事实胶囊</h2>
+<p>建议在真实 Pi 请求前生成 <code>FactCapsule</code>。不要把整个守秘人世界摘要交给一个只负责公开文字的模型，再祈祷它不泄露。</p>
+<pre><code class="language-json">{
+  "turn_ref": "宿主绑定，不要求模型回填",
+  "revision": 18,
+  "recipient": "player-a",
+  "public_facts": [
+    {"id":"F1","text":"窗台有三道新鲜抓痕","source_ref":"事件/来源绑定"},
+    {"id":"F2","text":"床底发出一次短响，随后恢复安静","source_ref":"事件/来源绑定"}
+  ],
+  "required_fact_ids": ["F1","F2"],
+  "epistemic_limits": ["声源尚未确认"],
+  "player_authorizations": ["观察窗台"],
+  "rule_effects": [],
+  "surface_permissions": [],
+  "npc_voice_refs": [],
+  "public_history": [],
+  "scope_complete": true
+}
+</code></pre>
+<p>每个字段都由现有拥有者投影。示例里的 <code>source_ref</code> 是说明性占位，不是现有仓库的 API。事实 ID 用于收据与验证，不强制正文出现 ID。</p>
+<p>草稿需要能说明哪个接收者、哪个 revision、哪个事实胶囊以及哪个表达计划产生。纯审美诊断通常只拿公开胶囊。需要验证是否透露守秘信息的内部检查，在单独私有通道拿最小必要私有材料，不能把这些材料再传给公开正文修复请求。</p>
+<h2 id="section-13">7. 前置表达计划</h2>
+<p><code>ExpressionPlan</code> 回答“怎么说”，不回答“发生什么”。建议内容如下：</p>
+<pre><code class="language-json">{
+  "base_voice": "restrained-natural-zh",
+  "intent": "交付观察并保留声源未知",
+  "primary_card_id": "PEC-HOR-001",
+  "supporting_card_ids": ["PEC-CLR-001"],
+  "reference_example_ids": ["PEC-HOR-001:good"],
+  "length_target": "brief",
+  "preserve_fact_ids": ["F1","F2"],
+  "stop_reason": "等待玩家下一步行动"
+}
+</code></pre>
+<p>生成流程：硬过滤权限/版本/渠道 → 语义召回候选 → Jev 选择主策略或沿用 → 代码检查适用性与冲突 → 展开少量参考 → 正文 LLM。</p>
+<p>候选在语义选择前可以按结构字段裁剪，如语言、渠道、世界线与资源版本；“这个 NPC 因为是医生所以该用学术腔”不能成为硬编码规则。向量分数表示召回相关性，不是质量或事实真实性。</p>
+<p>建议原型预算为一个主技法、至多一个辅助技法、零到两个短范例。<strong>这是待测默认值，不是艺术规律或厂商最优参数。</strong> 必要剧情信息不能被表达卡预算挤掉。</p>
+<h2 id="section-14">8. 当前文本的反例诊断</h2>
+<h3 id="section-15">8.1 诊断不是一个总体好坏分</h3>
+<p>对每张候选卡，先做四路 Choice：</p>
+<div class="table-scroll" tabindex="0"><table>
+<thead>
+<tr>
+<th>标签</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>VIOLATION</code></td>
+<td>当前上下文足以支持本卡定义的具体问题</td>
+</tr>
+<tr>
+<td><code>CLEAN</code></td>
+<td>本卡适用，但没有该问题</td>
+</tr>
+<tr>
+<td><code>NOT_APPLICABLE</code></td>
+<td>当前渠道、任务或情景使本卡不适用</td>
+</tr>
+<tr>
+<td><code>INSUFFICIENT_CONTEXT</code></td>
+<td>必要事实、完整稿、历史或授权不可得，不能判断</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>INSUFFICIENT_CONTEXT</code> 不是 <code>CLEAN</code>。例如只有半段正文，不能判整轮漏交线索；没有近期历史，不能断定某个意象被反复滥用。</p>
+<p>Choice 在固定选项间选一个；多种失误可能同时存在，必须一张卡一个问题或多个独立判断，<strong>不能让所有缺陷在一个总 Choice 里互斥竞争</strong>。[S2]</p>
+<h3 id="section-16">8.2 Jev 实际看到什么</h3>
+<p><code>state</code> 放待审正文、相应权限投影、必要历史与选定表达目标。每个问题的 instructions 明确包含目标卡的含义、适用条件、合法例外和所评字段路径。</p>
+<p>不能只把问题键取名 <code>check_player_agency</code> 然后写“判断一下”。问题键仅是宿主关联键，不参与底层推理。[S5]</p>
+<p>教材反例中的人物、道具、事件都不属于当前 state。它们只能作为判断边界的例子。当前稿件及引文中的指令同样按被审数据处理，不改变检查任务；这是一项输入隔离设计，不是声称模型天然免疫提示注入。</p>
+<h3 id="section-17">8.3 Noul 与 Score 放在哪里</h3>
+<p>Noul 可用于意义清楚的二元命题，例如“当前句子是否明确陈述了未经授权的新动作”。它返回 yes 的概率样数值，不返回“问题有多严重”的程度，也没有单独 confidence。[S4]</p>
+<p>Score 适用于已经有具体描述档位的单维度，例如“信息呈现是否妨碍理解”：可直接理解／需回读／无法辨认关键关系。档位从数组位置得到序数；返回 score 是档位的概率加权位置，不能当作理解失败的百分比。[S3]</p>
+<p>本包默认四路 Choice，便于显式区分不适用与上下文不足。连续美学分数只用于看板或离线比较，不授予其绕过事实和权限的能力。</p>
+<h2 id="section-18">9. 证据定位：由模型选，由代码引用</h2>
+<p>宿主先切分正文为带稳定偏移的句/短段：</p>
+<pre><code class="language-json">[
+  {"id":"s0","start":0,"end":12,"text":"实际原文的一段"},
+  {"id":"s1","start":12,"end":25,"text":"实际原文的下一段"}
+]
+</code></pre>
+<p>以上偏移只是格式示意；真实偏移必须由代码计算。协议统一使用 <strong>Unicode code point、左闭右开</strong>。前端使用 UTF-16 字符串时需转换映射，不能直接把 Python 字符索引当 JavaScript code-unit 索引。</p>
+<p>定位问题让 Jev 从这些片段中选一个主证据，另外提供 <code>WHOLE_TEXT</code>、<code>MULTIPLE</code>、<code>OMISSION</code>、<code>NO_LOCAL_EVIDENCE</code>。返回片段 ID 后，代码验证 ID 归属、revision 与 hash，再用偏移切出原文。原文引用真实，不等于判断必然正确。</p>
+<p><strong>遗漏型错误没有“错误原句”。</strong> 必须指向本轮必须交付的事实，以及完整稿件的未覆盖判定；不要为了让报告好看而编造一个不存在的反例片段。跨轮重复应引用多个真实 turn/span，单轮稿件不能伪造跨轮证据。</p>
+<p>单个 Choice 目前最多 255 选项，因此长文按窗口分批，不把整场战报所有句子塞进一次定位选择；窗口边界、覆盖完整性和未评估范围必须记录。[S2][S5]</p>
+<h2 id="section-19">10. 正例选择与修复合同</h2>
+<p>反例命中后有三种“给正例”方式：</p>
+<p><strong>同卡正例</strong>：直接展开目标卡的 <code>:good</code>，最少增加调用。</p>
+<p><strong>相关卡候选</strong>：从相同修复目的的几张卡中选更合适方法。只有需要进一步区分时才增加 Jev 请求。</p>
+<p><strong>当前文本改写</strong>：把诊断、原文、当前公开事实与获选方法交给 LLM；这一步不是 Jev 的文本生成能力。</p>
+<p>正例必须展示原场景条件，并标记 <code>transfer_mode=technique_only</code>。默认只迁移方法与尺度，不迁移人物、物件、地名、因果、台词承诺和事实数量。</p>
+<h3 id="section-20">10.1 修复合同示意</h3>
+<pre><code class="language-json">{
+  "diagnostic_ids": ["宿主生成的诊断引用"],
+  "target_spans": ["s1"],
+  "goal": "删除未确认的怪物存在与意图，保留声响",
+  "required_fact_ids": ["F1","F2"],
+  "reference_examples": ["PEC-FCT-001:good"],
+  "allow_new_facts": false,
+  "max_attempts": 1,
+  "result_channel": "unpublished_draft"
+}
+</code></pre>
+<p>LLM 输出完整修订段或宿主支持的结构补丁。为避免错位编辑，补丁必须带原稿版本和 hash；多条重叠失误先合并，不让三个卡串行改同一句三次。若待补的是遗漏事实而非坏句，修改范围可以是整轮，但仍只允许使用已授权事实。</p>
+<h3 id="section-21">10.2 不是所有问题都交给写手修</h3>
+<p>纯句法、冗余与风格不适配交给 narrator；事实胶囊冲突交事实拥有者；规则收据矛盾交规则/投影层；私有信息混入请求交权限投影层；玩家授权缺失回到相应 pending 流程。</p>
+<p>已结算资源和事件绝不因为重新生成正文而再次执行。修复是新的 narration revision，不是新 turn 的规则重放。</p>
+<h2 id="section-22">11. Pi 内循环集成</h2>
+<p>建议生命周期如下；名字不是现有 Pi 符号。</p>
+<pre><code class="language-text">OBSERVE
+  → 高层行动/导演决策（需要时）
+  → AUTHORIZE / RESOLVE / COMMIT（现有权威路径）
+  → PROJECT_PUBLIC_FACTS
+  → PLAN_EXPRESSION（Jev或复用有效计划）
+  → GENERATE_NARRATION（LLM）
+  → 按交付模式进行既有正确性检查与可选诊断
+  → PUBLISH
+  → 更新表达历史与审计收据
+</code></pre>
+<p>这不是外面再套一个循环追问 Pi “写得好吗”。运行时拥有表达计划和交付检查；正文 LLM 不为了领取卡片反复调用工具。只有遇到未知高层决策才回到已有决策节点。</p>
+<h3 id="section-23">11.1 内循环接口建议</h3>
+<p><code>prepareExpression(capsule, previousStyle, budget)</code> 返回计划；
+<code>compileNarratorInput(capsule, plan)</code> 返回真实请求与注入收据；
+<code>diagnoseDraft(draft, capsule, policy)</code> 返回类型化诊断；
+<code>compileRepair(draft, diagnostics, capsule)</code> 返回补丁任务或退回拥有者；
+<code>publishNarration(draftRevision, expectedStateRevision)</code> 负责交付幂等。</p>
+<p>禁止在每个模块各自保存一份世界状态。使用已有场景、记忆和事件接口，卡库只存表达知识。前端审阅面板与生产 KP 共享同一资产编译器，避免“编辑器有效，游戏里没加载”。[P1: NPC-04]</p>
+<h2 id="section-24">12. 四种运行模式</h2>
+<div class="table-scroll" tabindex="0"><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>前置选择</th>
+<th>当前稿件诊断</th>
+<th>是否同步重写</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>plan_only</code></td>
+<td>开</td>
+<td>无新增风格诊断</td>
+<td>否</td>
+<td>先验证前置选择的独立收益</td>
+</tr>
+<tr>
+<td><code>shadow_audit</code></td>
+<td>可开</td>
+<td>交付后进行，不能追回披露</td>
+<td>否</td>
+<td>默认诊断试运行与样本积累</td>
+</tr>
+<tr>
+<td><code>guarded_repair</code></td>
+<td>开</td>
+<td>发布前完成</td>
+<td>最多一次且经校准策略允许</td>
+<td>风险敏感交付与经过验证的修复</td>
+</tr>
+<tr>
+<td><code>editor_review</code></td>
+<td>可选</td>
+<td>完整稿件/历史审阅</td>
+<td>人工确认或指定批量操作</td>
+<td>开发、战报编辑、卡库完善</td>
+</tr>
+</tbody>
+</table></div>
+<p>这里的“无新增风格诊断”不等于停用项目已有的权限和正确性防线。表达实验不得以关闭原有保护获得速度优势。</p>
+<h3 id="section-25">12.1 关于默认模式</h3>
+<p>本包的自动修复默认关闭，<code>calibration_status=unvalidated</code>。这是因为卡库和模型尚未进行真实语义验证，而不是认为任何诊断都不值得做。先用影子模式检查误报与遗漏，再按问题家族启用有限同步修复。</p>
+<h2 id="section-26">13. 流式输出与不可逆披露</h2>
+<p><strong>完整缓冲</strong>：稿件检查通过后才发布。可以在前台显示不含剧情的处理状态，但不把“处理中”当作故事首字。首字延迟增加，需要单独测量。</p>
+<p><strong>分段缓冲</strong>：一个完整语义段检查后再发布下一段。已经发布的前段不能无痕重写；跨段指代、遗漏和主题检查未必能在首段完成。它不是等价于全稿检查的零泄密方案。</p>
+<p><strong>直接流式 + 影子审阅</strong>：最快交付路径之一，但诊断只改善后续行为，不能声称阻止已经流出的秘密。</p>
+<p>产品须显式选择模式。安全关键正文不得用事后修订当成发布前保护。即使完整缓冲，语义检查也会误判；输入最小化、权限投影和确定性授权仍是根本防线。</p>
+<h2 id="section-27">14. 串行调用预算与依赖</h2>
+<p>同一 Jev 请求中的问题独立；“第2问使用第1问刚得到的答案”不会自动发生。[S1]</p>
+<p>可以对已经确定的候选卡<strong>推测性并行</strong>询问：是否违反、若违反哪个现有片段最能说明、若需修复哪种预置策略适合。宿主只消费被接受诊断对应的定位/策略。代价是更多问题与更长说明，并非免费。</p>
+<p>若必须根据第一轮诊断动态检索新的正例，则第二轮 Jev 请求是实实在在的新增串行等待。文档和性能日志都要把它算进去。</p>
+<p>建议起步：前置计划0—1次Jev；影子诊断1次；条件修复至多1次LLM，再验证一次。没有必要每轮固定运行完整流水线。对每个模式记录实际调用数，不能拿拓扑图的“一个节点”冒充“一次请求”。</p>
+<p>真实收益公式：</p>
+<p><code>节省的决策/检索/重写往返 − 新增选择/审阅/范例输入/修复开销</code>。</p>
+<p>厂商对批量判断的低延迟描述不是本应用的端到端结果；中文输入长度、候选说明、网络、队列和正文长度都必须在真实环境测。[S1][S2]</p>
+<h2 id="section-28">15. 置信度、校准与弃权</h2>
+<p>Choice/Score 的 confidence 来自其概率分布形状，并非独立的事实正确率；集中分布也可能自信地判断错误。Noul没有独立confidence。数值需要结合目标数据校准。[S3][S4][S6]</p>
+<p>本设计不预设“0.9就安全”。保留完整 probabilities、confidence、模型实际版本、question digest 与state digest。先在人工复核集上为问题家族建立误报/漏报曲线，再选择动作阈值。</p>
+<p>两道阈值可以分别控制“进入审阅”和“允许自动修复”。高严重性但低确定性的问题不是悄悄放行，也不是直接改写：在严格交付模式暂缓相关交付、补取已有材料或回到拥有者；在影子模式仅记为未决，不能追认其为安全。</p>
+<p>状态为 <code>NOT_APPLICABLE</code> 或缺完整输入时不产生“严重度为零”的假数据。保持有效分母，报告 coverage 与 abstention rate。</p>
+<h2 id="section-29">16. 缓存、分支与失效</h2>
+<p>卡正文是版本化静态资产，可缓存；当前事实和诊断不能只按“场景ID相同”复用。</p>
+<p>表达计划缓存键至少包含：卡包版本、基础声线、语言、场景版本、相关NPC voice版本、规则表现模式、已授权表达目标、接收者/分支。诊断缓存另含原稿hash、事实胶囊revision、必要历史digest与question版本。</p>
+<p>A→B→A时保留A的静态参考，但重核A当前事实、知识和时间。回滚/回环按世界线与epoch隔离；不能把旧线索、新世界状态和另一角色记忆混成一个便宜摘要。文本改一个字，旧span也须按新稿重算或显式失效。</p>
+<h2 id="section-30">17. 超时、取消与失败路径</h2>
+<div class="table-scroll" tabindex="0"><table>
+<thead>
+<tr>
+<th>情况</th>
+<th>正确行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Jev超时，纯风格计划</td>
+<td>沿用已有效基础声线或直接表达，不宣称已完成评分</td>
+</tr>
+<tr>
+<td>Jev超时，影子审阅</td>
+<td>记未评估，后续重试受预算限制，不阻塞新回合</td>
+</tr>
+<tr>
+<td>必需正确性验证不可用</td>
+<td>按既有安全交付策略处理；不能因为风格服务宕机绕过权威防线</td>
+</tr>
+<tr>
+<td>返回非法ID/缺问题/类型不符</td>
+<td>拒绝该答卷，不从相似字符串猜一个ID</td>
+</tr>
+<tr>
+<td>玩家取消或新revision到来</td>
+<td>丢弃迟到计划/诊断/改写；记录取消，不污染下一轮</td>
+</tr>
+<tr>
+<td>修复后仍有阻断问题</td>
+<td>停止循环，返回拥有者或使用宿主已经验证的最小交付；不默认原稿安全</td>
+</tr>
+<tr>
+<td>卡库不可用</td>
+<td>保留事实与规则交付能力；风格参考不是可玩性的单点依赖</td>
+</tr>
+</tbody>
+</table></div>
+<p>退化路径里的最小交付也必须来自公开权威材料。不能临时拼一个“看起来安全”的故事，同时漏掉规则结果或必须交付的线索。</p>
+<h2 id="section-31">18. 数据、权限与运维</h2>
+<p>将正文、私有胶囊发往外部服务意味着数据离开本地。部署前根据实际服务条款、项目资料权限与玩家约定决定哪些材料可发送；本包没有核定任何服务端保留或训练政策，不作“绝不存储”之类承诺。</p>
+<p>API key只在后端；HTML卡库浏览器不发送网络请求，也不收集密钥。日志分公开叙述与内部审计；脱敏后才作为错误样本归档。原始模组文本不自动并入公共卡库。</p>
+<p>参考HTTP工具默认不发请求。只有显式调用<code>--live</code>才发送<code>examples/current_draft.json</code>指定内容，可能产生费用。正式产品需要限流、请求字节预算、总deadline、取消、观察指标与密钥管理。</p>
+<h2 id="section-32">19. 测试：不能用卡库自证有效</h2>
+<h3 id="section-33">19.1 本包自带的432条是什么</h3>
+<p>每张卡导出反例 <code>VIOLATION</code>、正例 <code>CLEAN</code>、边界例 <code>CLEAN</code> 或 <code>NOT_APPLICABLE</code>。这些是<strong>开放的种子教学/回归样本</strong>，不是隐藏测试集，不能用来宣布泛化准确率。</p>
+<p>同一正反例共用上下文；边界例显式提供不同上下文。评测应检查上下文变化是否真的改变判定，而不是只测关键词。所有标签均为本次编写的预期，尚未有独立人工标注一致性。</p>
+<h3 id="section-34">19.2 需要另外建立的真实验证集</h3>
+<p>从实际KP输出中收集问题与合格文本，由至少两位审阅者独立标注并记录分歧。覆盖新模组、新NPC、新场景、长回合、多轮重复、规则强制效果、引文、否定、假设及用户主动要求的语体切换。</p>
+<p>按战役/场景/同源改写组划分调试集、校准集与保留集。不能让同一片段的改写在两边。保留集不进入卡库、不供候选召回、不在prompt里作为范例。卡包版本改变后保留旧评估清单。</p>
+<h3 id="section-35">19.3 分层指标</h3>
+<div class="table-scroll" tabindex="0"><table>
+<thead>
+<tr>
+<th>层次</th>
+<th>指标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>召回</td>
+<td>已知错误卡召回率、候选量、必要完整性检查是否被裁掉</td>
+</tr>
+<tr>
+<td>诊断</td>
+<td>每卡/每家族precision与recall、误报、弃权率、上下文翻转一致性</td>
+</tr>
+<tr>
+<td>证据</td>
+<td>span是否真实、定位是否恰当、遗漏型证据是否基于完整稿</td>
+</tr>
+<tr>
+<td>正例</td>
+<td>适用性、跨场景实体污染、是否误把工程正例注入旁白</td>
+</tr>
+<tr>
+<td>修复</td>
+<td>新增事实率、必要事实覆盖、玩家自主性、改写引入新错误率</td>
+</tr>
+<tr>
+<td>文笔</td>
+<td>盲比偏好、平手率、可读性、声线辨识、跨轮重复与自然度</td>
+</tr>
+<tr>
+<td>性能</td>
+<td>真正首个剧情字符、全稿交付、可再次输入、p50/p95、token、调用数、取消与失败</td>
+</tr>
+</tbody>
+</table></div>
+<p>不把所有维度合成可以互相抵消的总分。没有新增事实不等于有趣；更好看也不能抵消泄密。[P2]</p>
+<h3 id="section-36">19.4 对照实验</h3>
+<p>A现有正文路径；B只加前置标签；C标签加少量正例；D=C加影子诊断；E=C加校准后的条件修复。对每组固定模型、事实、行动、规则结果、可见性、基础正确性防线和相近输出预算。不要拿“不开审核的流式”与“完整缓冲审核”比较后归因于文风选择器。</p>
+<p>配对单轮测试定位差异；固定行动轨迹隔离KP变化；完整AI玩家游戏看总体体验；真人盲读与实际游玩验证主观收益。长团统计以战役/玩家簇计算不确定性，不把同一战役几百句话当作完全独立样本。</p>
+<h2 id="section-37">20. 必须包含的破坏性回归</h2>
+<p>定向删除一次真实prompt注入，测试应失败；篡改一个示例ID应被拒绝；将旧revision诊断回填新稿应失败；把另一分支的记忆混入应被权限检查捕获；把范例里的钟楼迁到无钟楼场景应计为新事实。</p>
+<p>另外测试：纯文本不出现伤害数字但意义正确应通过；规范“被”字句应保留；原始证物错字不得静默修改；规则授权的非自愿效果不误判；完全安全的场景不因缺恐怖元素被强迫增加怪物；真正有意义的重复线索不被压缩；窗口不完整时弃权；已有好稿选择KEEP_DRAFT；取消后不得迟到发布。</p>
+<p>这些是待在生产链执行的验收要求，不因本包存在种子数据而自动PASS。</p>
+<h2 id="section-38">21. 实施顺序与交付门</h2>
+<p><strong>阶段A：资产与协议。</strong> 导入144张卡，确认Schema与版本；生成一份只含选择摘要的索引、一份诊断索引与完整卡资产。冻结旧基线。默认自动修复关闭。</p>
+<p><strong>阶段B：前置垂直接线。</strong> 用一个真实场景贯穿胶囊→Jev选择→卡片展开→真实正文请求→输出。捕获请求，证明不是只写了一个没人读取的style文件。</p>
+<p><strong>阶段C：影子诊断。</strong> 对真实稿件产生类别、原文证据与正例卡，前端只给开发者看。收集错误、平手与反误判，不偷偷改玩家已收到的历史。</p>
+<p><strong>阶段D：有限修复。</strong> 先选人工标注和验证充分的问题家族。明确同步代价、最大一次改写、重新验证、失败回退。问题根因在上游时退回上游，不反复润色。</p>
+<p><strong>阶段E：跨轮与分支。</strong> 加入声线连续、A→B→A、回环、多人、取消与恢复。独立测试边界和性能。</p>
+<p><strong>阶段F：发布判定。</strong> 真实错误集、保留集、盲评与端到端证据全部齐备后，再决定启用范围。不能用“144张卡”“432个样本”或本地单元测试数当作效果认证。</p>
+<h2 id="section-39">22. 实际出站请求与采用收据</h2>
+<p>每轮至少记录：运行commit、卡包manifest hash、模型请求别名及实际model、基础prompt版本、胶囊revision与digest、候选卡、选中卡、拒绝原因、展开的示例ID、最终注入位置与digest、诊断答卷、补丁次数、交付模式、最终稿hash。</p>
+<p>区分五件事：<code>found</code>搜到、<code>eligible</code>条件允许、<code>selected</code>选择、<code>injected</code>真进请求、<code>effect_evaluated</code>输出效果已检查。最后一项是语义/人工评估结果，不是哈希相等就能证明的“采用”。</p>
+<h2 id="section-40">23. 交付包文件与使用边界</h2>
+<p><code>cards/cards.jsonl</code> 是完整资产；<code>cards/selection_index.jsonl</code> 是摘要；<code>cards/examples.jsonl</code> 是带上下文的独立示例；<code>cards/cards.md</code> 是可审阅全文；<code>card_browser.html</code> 提供离线搜索。</p>
+<p><code>runtime/reference.py</code> 负责类型化请求编译、返回结构检查、可选HTTP调用、原文片段引用及修复合同编译。它没有实现完整Pi、语义召回、正确性权威或生产发布门禁。<code>tests/seed_cases.jsonl</code>是从卡片导出的开放样本；<code>tests/test_reference.py</code>只测试参考工具的确定性行为。</p>
+<p>最后应形成的能力不是“每句话必须套卡”，而是：<strong>有足够好的默认表达；知道什么时候不该改；发现具体问题时能拿出真实证据、合适正例和不越权的修复路径。</strong></p>
+<h2 id="section-41">来源与证据边界</h2>
+<p><strong>[P1]</strong> 用户提供的《ChatRPG_重构优化总册_2026-09-21(2).md》，版本1.0，重点为ARC-06/08、NPC-01—07、TXT-01—08与迁移门。它本身是迁移要求综合稿，不是本次验证过的当前代码状态。</p>
+<p><strong>[P2]</strong> 用户提供的《评估方案设计建议.txt》，重点为分维度评估、证据优先、语义检测、平手样本、盲评、隐藏保留集与真人校准。本文没有沿用其中把固定短语直接列为禁用词的做法；改为语义条件与合法边界例，属于明确的设计调整。</p>
+<p><strong>[S1]</strong> TypeSafe官方《Introduction》，核查2026-09-23：<a href="https://docs.typesafe.ai/introduction">文档</a>。依据：非文本生成的有类型判断，同请求问题独立评估。</p>
+<p><strong>[S2]</strong> TypeSafe官方《Choice》，核查2026-09-23：<a href="https://docs.typesafe.ai/primitives/choice">文档</a>。依据：固定选项、选项描述、255项上限及分布。</p>
+<p><strong>[S3]</strong> TypeSafe官方《Score》，核查2026-09-23：<a href="https://docs.typesafe.ai/primitives/score">文档</a>。依据：描述性有序档位、概率加权位置，分值不等于业务比例。</p>
+<p><strong>[S4]</strong> TypeSafe官方《Noul》，核查2026-09-23：<a href="https://docs.typesafe.ai/primitives/noul">文档</a>。依据：二元命题的yes概率，无独立confidence。</p>
+<p><strong>[S5]</strong> TypeSafe官方《API reference》，核查2026-09-23：<a href="https://docs.typesafe.ai/api">文档</a>。依据：HTTP请求/应答形状，问题键不进入推理。</p>
+<p><strong>[S6]</strong> TypeSafe官方《Confidence》，核查2026-09-23：<a href="https://docs.typesafe.ai/confidence">文档</a>。依据：confidence来自分布形状，阈值须依领域效果设定。</p>
+<p>其余架构、卡片、默认预算、修复策略与验收流程是本次原创设计建议，不是上述来源的实测结论。</p>
+<h1 id="section-42">当前文本诊断与正例修复演示</h1>
+<p><strong>以下是人工编写的期望流程示例，没有调用 Jev，也不是其真实答卷。</strong></p>
+<h2 id="section-43">1. 当前权威材料</h2>
+<p>窗台有三道新鲜抓痕。床底发出一次短响，随后恢复安静，声源未知。玩家只要求查看窗台，没有声明害怕或后退，没有强制情绪与移动效果。本轮必须交付抓痕和声响。</p>
+<h2 id="section-44">2. 待审文本</h2>
+<blockquote>
+<p>窗台上有三道新鲜抓痕。床底的怪物正在等你。恐惧攥住你的心，你立刻退到了走廊里。</p>
+</blockquote>
+<h2 id="section-45">3. 期望定位</h2>
+<div class="table-scroll" tabindex="0"><table>
+<thead>
+<tr>
+<th>卡</th>
+<th>原文证据</th>
+<th>问题</th>
+<th>正例参考</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PEC-FCT-001</td>
+<td>床底的怪物正在等你。</td>
+<td>将未知声源变成确定怪物与意图</td>
+<td>PEC-FCT-001:good</td>
+</tr>
+<tr>
+<td>PEC-AGY-001</td>
+<td>恐惧攥住你的心，你立刻退到了走廊里。</td>
+<td>未经玩家声明代写情绪</td>
+<td>PEC-AGY-001:good</td>
+</tr>
+<tr>
+<td>PEC-AGY-003</td>
+<td>恐惧攥住你的心，你立刻退到了走廊里。</td>
+<td>未获授权执行后退与转移位置</td>
+<td>PEC-AGY-003:good</td>
+</tr>
+</tbody>
+</table></div>
+<p>同一段原文被两张卡命中，不应改两次。另需完整性检查：本轮应该交付的是一次声响；删除怪物句后必须恢复这项已授权观察，而不是单纯删到只剩抓痕。</p>
+<h2 id="section-46">4. 取出的正例不是可直接替换的当前事实</h2>
+<p>PEC-AGY-003的种子正例涉及信封和地址。它只能展示“在新行动前停下”的方法，不能将信封塞进床底场景。</p>
+<p>正例引用展开时，同时给出原上下文和<code>transfer_mode=technique_only</code>。若引用会引入不必要的干扰，可仅将技法说明放进改写请求，不提供全文例子。</p>
+<h2 id="section-47">5. 一次修复后的候选稿</h2>
+<blockquote>
+<p>窗台上有三道新鲜抓痕。床底响了一下，随后又静了。声源还无法确认。</p>
+</blockquote>
+<p>这是本次编写的修复候选，不是唯一好写法。它保留两项观察，删除未经确认的实体/意图与玩家动作。表达仍可在更直接或更抒情之间调整，但不能改变这些边界。</p>
+<h2 id="section-48">6. 同一原句为什么可能不再是反例</h2>
+<p>新增合法上下文：玩家已经看到床底的怪物，意图经过允许的高层决策公开；玩家自己声明“我害怕了，立刻退到走廊”；移动已经完成。</p>
+<p>在这个新上下文中，上述“怪物”“害怕”“退到走廊”不再构成原来三张卡的未经授权错误。是否好读可以另评，但不能继续套用旧诊断。</p>
+<h2 id="section-49">7. 本包如何运行</h2>
+<p><code>runtime/reference.py</code>会从原文计算真实code-point偏移，编译Choice问题，并写出请求与绑定文件。默认只有dry run。需要用户明确提供密钥并添加<code>--live</code>才会发送远程请求。</p>
+<p>即使收到VIOLATION，报告也标成<code>model_flagged_unverified</code>，并给出静态卡片说明，不假装Jev生成了长篇解释。报告不授予发布权限，也不自动修改角色状态。</p>
+<h1 id="section-50">交给编码 Agent 的实施任务书</h1>
+<p>任务：将本包设计接入目标 Pi CoC 内循环，保留当前规则、事实、知识投影、授权与交付权威。先完成一个真实垂直切片，不增加一个独立常驻写作Agent，也不把卡库全量永久塞进prompt。</p>
+<h2 id="section-51">开始前必须填写</h2>
+<div class="table-scroll" tabindex="0"><table>
+<thead>
+<tr>
+<th>核对项</th>
+<th>目标仓库证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>目标commit与可启动基线</td>
+<td>待读取当前仓库后填写</td>
+</tr>
+<tr>
+<td>回合内状态机与正文调用点</td>
+<td>待定位真实符号与路径</td>
+</tr>
+<tr>
+<td>规则收据的唯一拥有者</td>
+<td>待确认</td>
+</tr>
+<tr>
+<td>公开知识投影拥有者</td>
+<td>待确认</td>
+</tr>
+<tr>
+<td>NPC voice现有生产链</td>
+<td>待捕获真实请求</td>
+</tr>
+<tr>
+<td>取消、revision、交付幂等接口</td>
+<td>待核验</td>
+</tr>
+<tr>
+<td>Jev配置、实际模型、超时与请求预算</td>
+<td>待核验</td>
+</tr>
+<tr>
+<td>现有同步正确性/隐私检查</td>
+<td>待列出，实验中不得无记录关闭</td>
+</tr>
+</tbody>
+</table></div>
+<p>本文不声称以上任何功能已经存在或正确。不要从旧评估文档中的Python文件名推断当前TypeScript树。</p>
+<h2 id="section-52">按顺序实施</h2>
+<p>A. 验证卡片Schema和引用；导入完整卡、摘要索引、独立范例与manifest。生产运行时不依赖<code>author_cards.py</code>。</p>
+<p>B. 通过现有投影接口构建事实胶囊。正文服务没有世界状态写权限。解析ID用确定性代码；判断自然语言意图或适用性不得退化成关键词路由。</p>
+<p>C. 接入<code>plan_only</code>。建立候选选择、NONE/KEEP_CURRENT、卡片展开、实际请求注入与收据；默认一个主技法，辅助与范例都有预算。</p>
+<p>D. 接入<code>shadow_audit</code>。诊断当前文字，返回每卡四路结果与真实原文定位；默认不要自动改写，也不要将开发者诊断显示给玩家。</p>
+<p>E. 建立真实人工标注与校准。独立比较前置选择、范例和审阅的贡献；分别统计误报、遗漏、弃权和延迟。</p>
+<p>F. 对已验证问题家族启用有限修复。合并重叠span；一次改写后重新验证；根因在规则、权限、授权或数据冲突时返回拥有者。</p>
+<p>G. 测试完整缓冲/分段/直接流式的不同语义，以及取消、恢复、分支与A→B→A。不要声称事后审阅能撤销已披露秘密。</p>
+<h2 id="section-53">完成定义</h2>
+<p>提交必须包含真实源码映射、出站请求证据、版本/权限绑定、接口测试、定向破坏测试、固定行动轨迹和失败样本。每一项标注“已实现待验证/已验证/未实现/不适用”，不得只报测试总数。</p>
+<p>交付要回答：哪些LLM往返真的被删去？新增Jev/审阅往返是多少？哪种错误减少了，哪种误报增加了？文字是否更自然？规则与玩家控制权是否保持？</p>
+<div class="footer">本页可离线阅读。完整正文由 docs/01_design.md、02_walkthrough.md、03_agent_handoff.md 生成；原始卡库、Schema 与工具均在同一文件包中。</div></main></body></html>

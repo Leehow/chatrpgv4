@@ -1,0 +1,20 @@
+{
+  "test_type": "offline_browser_smoke",
+  "browser": "Chromium / Playwright set_content (URL navigation restricted by environment)",
+  "checks_passed": [
+    "卡库首次渲染144张",
+    "美感家族筛选返回12张",
+    "展开当前全部卡片",
+    "编号搜索可定位目标卡",
+    "工程诊断家族用途筛选返回5张",
+    "无匹配显示空结果而非默认硬选",
+    "卡号锚点打开并定位卡片",
+    "390px移动端无横向溢出",
+    "设计正文、附加演示、任务书与目录渲染正常",
+    "设计页目录锚点全部可定位",
+    "设计页移动端无横向溢出",
+    "两页无JavaScript运行错误"
+  ],
+  "errors": [],
+  "external_model_calls": 0
+}
