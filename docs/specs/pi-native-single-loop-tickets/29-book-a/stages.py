@@ -1,7 +1,7 @@
 """Summarise the import: per worker action (wall, progress stages) and per reading job (reader/review requests, tokens)."""
 import json, glob, os, sys, re
 from datetime import datetime
-W='/Users/haoli/leehow/code/chatrpgv4-wt-pdf-a'; E=f'{W}/.coc/playtests/sl29-a-import'; M=f'{W}/.coc/modules/book-1'
+W='/Users/haoli/leehow/code/chatrpgv4-wt-pdf-a'; E=os.environ.get('E',f'{W}/.coc/playtests/sl29-a-import'); M=os.environ.get('M',f'{W}/.coc/modules/book-1')
 def ts(s): return datetime.fromisoformat(s.replace('Z','+00:00'))
 for action in ['inspect','guidance','opening','converse']:
     p=f'{E}/{action}.events.jsonl'
