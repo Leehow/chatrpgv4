@@ -222,12 +222,17 @@ RD04_CHANGES = sorted(
        "/nodes[tome-liber-ivonis]/properties/mechanics: added"])
 
 
+#: Contract §135.30.4 (SL-25): the six scenes the graph never named gained their book names, and nothing else changed.
+SL25_CHANGES = sorted(f"/nodes[scene-{scene}]/properties/runtime_projection/record/destination_identity: added" for scene in (
+    "basement-rites", "corbitt-confrontation", "corbitt-house-ground", "neighborhood-gossip", "previous-tenants", "upper-floor-bedroom"))
+
+
 def test_the_haunting_differs_from_its_pre_rd04_graph_only_by_the_migration():
     before = pre_rd04_graph()
     if before is None:
         pytest.skip(f"the pre-RD-04 graph ({PRE_RD04}) is not in this checkout's history")
     after = read_json(CONTENT_DIR / "starters" / "the-haunting" / "module-graph.json")
-    assert sorted(_paths(before, after)) == RD04_CHANGES
+    assert sorted(_paths(before, after)) == sorted(RD04_CHANGES + SL25_CHANGES)
 
 
 @pytest.mark.parametrize("module_id", sorted(STARTERS))

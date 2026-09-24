@@ -1,0 +1,5 @@
+{
+ "derived_from": "longgate25-t9",
+ "change": "the module slice of longgate25-labels-t16 (re-registered from the SL-25 starter by module.register); turn.json and baseline.json are byte copies of the source except turn.json's tarball",
+ "tarball": "../longgate25-labels-t16/workspace.tar.gz"
+}

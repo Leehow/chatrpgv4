@@ -1,0 +1,13 @@
+{
+ "campaign": "longgate-haunting-0624",
+ "module": "the-haunting",
+ "turn": 11,
+ "commit_before": "6d10950",
+ "commit_after": "6bea683",
+ "player_input": "我上二楼，先站在楼梯口听一会儿，再去主卧。",
+ "tarball": "../longgate25-labels-t16/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/longgate-haunting-0624",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z"
+ }
+}
