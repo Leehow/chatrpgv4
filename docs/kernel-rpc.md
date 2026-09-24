@@ -18017,16 +18017,32 @@ candidate). From the fight's first fresh read on: his card (the pending defence'
 `name`) and the session view. Whether a person present in a scene the run moved into should be carried is the owner's
 to rule; it is not in this section.
 
-**Ceilings and cuts: §135.20's, unchanged.** Each view is bounded like a candidate body, `CANDIDATE_BODY_BYTES` (1 KiB);
-all views of one message share `CANDIDATE_BODIES_BYTES` (8 KiB), served session, then people in the order they were
-named, then scene. A view is cut the way `fitBody` cuts a body: its trailing fields first, then long strings. A view
+**Ceilings: the carried section's own (owner decision 2026-09-24, amending this section's first version); cuts: §135.20's.**
+One view is at most `CARRIED_VIEW_BYTES` (4 KiB) and all views of one message share `CARRIED_VIEWS_BYTES` (12 KiB;
+`runtime/jev/carried-views.ts`), served session, then people in the order they were named, then scene. §135.20's 1 KiB
+per body and 8 KiB per read stay for the issued section (the run packet's `issued`); the carried section does not share
+them. The first version bounded a carried view like a candidate body, and the cut dropped what the view is for (a card's
+`mechanics`, which says whether a person has a stat block; a scene's exits and people). A view is cut the way `fitBody`
+cuts a body: its trailing fields first, then long strings. A view
 whose fields sit under one wrapper (`where`, `session`) is cut over those inner fields in order, so the scene keeps
 `where.scene` … and drops `present` and `where`'s tail first; a cut says `truncated: true` and names the fields as
 `omitted_fields` (`"where.affordances"`, `"present"`). A view that does not fit the message's budget, could not be
 read, or does not resolve is listed in `omitted` with `budget`, `read_failed` or `not_found`. Nothing is dropped
-silently. The measured sizes on the gate state: the scene view 4.5 KB, Knott's card 4.0 KB, the session view 0.9 KB.
-The first two are cut to 1 KiB, and the fields the cut drops from a card include `mechanics` and the combat fields;
-the SL-15 ticket's Comments report what the Keeper still looked at with these ceilings.
+silently.
+
+Measured on the gate state (`gate3-haunting-2329` before turn 3, the clerk's move applied, on the emitted kernel; the
+first version's "4.5 KB and 4.0 KB" came from a fresh campaign and from the driver's result text, which is truncated at
+4 KB):
+
+| view | whole | after the 4 KiB cut | after a 1 KiB cut |
+| --- | --- | --- | --- |
+| scene, Knott's Office | 7,817 B (`present` alone is 4,877 B: the dossiers of the people there) | 2,929 B, `present` omitted | 354 B |
+| card, Steven Knott (after the move, and again with the fight open) | 8,299 / 8,302 B | 3,981 B; omitted from `deflect_options` on, `mechanics` among them | 794 B |
+| session, the fight open | 886 B | whole | whole |
+
+So on a campaign two turns in, the scene loses only `present` but a card still loses `mechanics`: it sits after about
+5.5 KB of personality, knowledge, ledger and voice fields. On a fresh campaign (the seam tests') a card (about 3.9 KB)
+and the Globe's scene view travel whole.
 
 **What the Keeper reads.** `carried: {head, views: [{focus, name?, view, truncated?, omitted_fields?}], omitted?:
 [{focus, name?, reason}]}`. `focus` is `look`'s own (`scene`, `npc`, `session`) and `name` is the scene handle or the
@@ -18071,7 +18087,7 @@ does not repeat the look. Whether it does not is counted per run in the SL-15 ti
 *Tests.* `tests/extension/single-loop-carried-views.test.mjs`, on the emitted kernel through the vendored driver with the
 faux provider and a stub Jev: after a clerk move, the scene view (and no people when no candidate names one); at a pending
 defence, the defender's card and the session view, byte-equal to `look`; with a session active, the session view before
-every model step it changed for; each view at most 1 KiB and the message's at most 8 KiB, cut and marked; a model-origin
+every model step it changed for; each view at most 4 KiB and the message's at most 12 KiB, cut and marked; a model-origin
 `look` row carries `args`, `run` and `step`; the turn record's `reads` with the digest. The mutation record is in the SL-15
 ticket's Comments.
 
