@@ -565,3 +565,18 @@ Findings:
 - Turn 1's floor is unchanged (the Keeper's commission call, 24–28 s) and its compose ran 16 s; the move's admission by compile evidence worked (0 ms).
 
 Evidence: `chatrpgv4-wt-integ-sl/.coc/campaigns/gate7-haunting-0534/{telemetry.jsonl,turns/000{1,2,3}.json}`.
+
+### 2026-09-24 — long live gate, 20 turns on the integration branch `31b59b71b` (SL-13..SL-22; driver.py, hybrid-v1, PI_COC_JEV_PRESELECT=1, grok-4.7-build-fast low, campaign `longgate-haunting-1010`)
+
+Script and class-based pre-registration in the session scratchpad (`long-gate-script.md`, `live-gate-long-preregistration.md`). Structural table in `longgate-triage.txt`, evidence in `longgate-evidence.txt`, prose in `longgate-prose.txt`.
+
+Walls (s): 72, 16, 36, 49, 36, 57, 49, 27, 44, 52, 79, 46, 59, 67, 45, 25, 22, 37, 61, 78 → median 47, ≤ 60 s in 15/20 (75%), max 79. Delivered 19/20 (turn 19 stranded). Model calls 77 (≈ 3.9 per turn). `infer(bind)` 0. Admission: 26 Keeper-lane, 7 clerk-compile (0 ms), 2 clerk-lane; max 12.8 s; `review_timeout` 4; `not_player_action` with no grounds 4. Looks 18. Drops all with reasons (text_beside_tool_calls 8, speech_steer 3, floor_steer 2, preparation_wait 2, implicit_narrate_refused 1). Prescreen prepared on every read (2–5 s), no fallback, no `jev_budget` compose. No provider errors, no stall.
+
+Triage by root cause (one ticket each, fixed as a batch):
+- **P0 SL-23** turn 19 stranded: the Keeper's adaptation prepare (12.2 s) put the turn in `preparation_wait`, both drafts dropped, steer spent; turn 20's clerk move `blocked: preparation_wait`.
+- **P1 SL-24** the 12 s cap (SL-18) refused four legitimate Keeper writes: the commission bookkeeping (t1), the move to the sanatorium twice (t6, t7: the Keeper then narrated the player as unable to leave the street, and the visit never happened for the kernel), the diaries clue (t14: the clue never existed; t19's `look object` failed). Four `not_player_action` refusals carried no grounds. Ruling: a cap bounds waiting, never decides; concurrent reviewers; no silent refusals.
+- **P1 SL-25** destination rows named "scene previous tenants" / "scene upper floor bedroom" / "scene basement rites": the sanatorium, the upstairs and the basement were never recognised; guarded exits (t9 house, t16 basement) cleared but had no candidate and the Keeper was never told the guard, so it narrated "no stairs" for four turns (t15–t18) while the module's basement waited behind an unlock.
+- **P2 SL-26** six ordinary checks (Listen, Spot Hidden ×3, Dodge) by the Keeper in t11–t13: no compile predicate for the ordinary check.
+- **P2 SL-27** 18 looks in 20 turns, mostly book passages on a scene's first visit and a `look object` by a label the kernel spells differently.
+- **P3 (measured, not ticketed yet)**: prose repetition (t19's draft repeated two sentences; t20 `implicit_narrate_refused`); the Keeper closing turns with prose and no tool on t17/t18 (floor steers) when the world offered nothing — downstream of SL-25.
+- What worked: obligation check by the clerk with compile-evidence admission (t2, 16 s); every declared move in the research phase selected and admitted at 0 ms (t1, t3, t4, t5, t8, t14); the flying-bed attack (t13) with SAN, damage and CON by the book; NPC speech tokens resolved 19/19 where present; no stall, no bind by the LLM.

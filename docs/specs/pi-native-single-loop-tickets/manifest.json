@@ -114,6 +114,31 @@
       "id": "SL-22",
       "file": "22-prescreen-budget-is-its-own.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-23",
+      "file": "23-preparation-wait-never-strands.md",
+      "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-24",
+      "file": "24-keeper-bookkeeping-admission.md",
+      "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-25",
+      "file": "25-places-recognisable-and-guards-visible.md",
+      "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-26",
+      "file": "26-ordinary-check-by-the-compile.md",
+      "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-27",
+      "file": "27-looks-on-first-visit.md",
+      "status": "ready-for-agent"
     }
   ],
   "relatedSpecs": [
