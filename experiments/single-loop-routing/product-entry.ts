@@ -330,7 +330,7 @@ export interface ProductRunOptions {
    */
   reader?: 'none' | 'live';
   readerModel?: string;
-  /** SL-36: before each `then` turn, wait up to this long for a pending consultation to settle (`answer_landed|unavailable`). */
+  /** SL-36: before each `then` turn, wait up to this long for a pending consultation (SL-47: or a scene's record) to settle. */
   waitAnswerMs?: number;
 }
 
@@ -530,14 +530,21 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
       if (['run_start', 'run_end', 'step_start', 'step_end', 'operation_settled', 'delivery_accepted'].includes(event.type)) events.push(event);
     });
     const turnWalls: number[] = [];
+    const startTelemetry = join(workspace, '.coc/campaigns', campaign, 'telemetry.jsonl');
+    const settledRowsAtStart = existsSync(startTelemetry) ? readFileSync(startTelemetry, 'utf8').split('\n').filter(line => /"event":"(answer|scene_record)_(landed|unavailable)"/.test(line)).length : 0;
     let turnBegan = Date.now();
     await session.prompt(fixture.player_input);
     turnWalls.push(Date.now() - turnBegan);
     const telemetryFile = join(workspace, '.coc/campaigns', campaign, 'telemetry.jsonl');
+    let waitBaseline: number | undefined;
     for (const next of options.then ?? []) {
       if (options.waitAnswerMs) {
         const until = Date.now() + options.waitAnswerMs;
-        const settled = () => existsSync(telemetryFile) && readFileSync(telemetryFile, 'utf8').split('\n').some(line => /"event":"answer_(landed|unavailable)"/.test(line));
+        // SL-47: a scene's record settling (§22.4.7) counts too; only rows written since the fixture was loaded (a gate's own
+        // campaign telemetry carries the live table's earlier rows).
+        const settledRows = () => existsSync(telemetryFile) ? readFileSync(telemetryFile, 'utf8').split('\n').filter(line => /"event":"(answer|scene_record)_(landed|unavailable)"/.test(line)).length : 0;
+        waitBaseline ??= settledRowsAtStart;
+        const settled = () => settledRows() > waitBaseline!;
         while (!settled() && Date.now() < until) await sleep(1000);
         log({wait_answer: settled() ? 'settled' : 'timeout', waited_ms: options.waitAnswerMs - Math.max(0, until - Date.now())});
       }

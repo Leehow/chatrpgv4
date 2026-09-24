@@ -8,7 +8,7 @@ import type { ModuleGraph } from '../read/module-graph.js';
 import { equal, repr, row, string, truth, type Row } from '../read/values.js';
 import {assertSourcePreparationRequest,type SourcePreparationRequest} from '../../runtime/jev/source-preparation.ts';
 import {assertSourcePublicationAdvance,sourceAdvanceAuthority} from '../../runtime/jev/read-set.ts';
-import { Reading,sourcePreparationSnapshot,sourcePreparationScopeMatches,type OwnedSourcePreparation } from './reading.js';
+import { Reading,sourcePreparationSnapshot,sourcePreparationScopeMatches,type MaterialGate,type OwnedSourcePreparation } from './reading.js';
 import { ModuleStore } from './store.js';
 import { playsFromReading } from './bound-source.js';
 import { ensureCampaignModule, moduleContext, scopedModuleRoot } from './campaign-scope.js';
@@ -219,7 +219,7 @@ export function createModuleRuntime(context: KernelContext) {
         queueAdjacentReading: async (graph: ModuleGraph, scene: Row) => graph.sourceCampaign === undefined
             ? []
             : (await owner(graph.sourceCampaign, graph.moduleId)).reading.queueAdjacentReading(graph, scene),
-        requireMaterial: async (graph: ModuleGraph, names: any[]) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMaterial(graph, names),
+        requireMaterial: async (graph: ModuleGraph, names: any[], gate?: MaterialGate) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMaterial(graph, names, gate),
         requireMapMaterial: async (graph: ModuleGraph, params: Row) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMapMaterial(graph, params),
         // §107.1: like the adjacent prefetch, a table that still follows the shared library queues nothing there.
         queueArrivalMap: async (graph: ModuleGraph, scene: Row): Promise<Row> => graph.sourceCampaign === undefined

@@ -711,9 +711,18 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const answers = taken.landed.map(entry => ({name: entry.focus, view: entry.answer ? {question: entry.question, ...entry.answer}
       : {question: entry.question, status: 'unavailable', reason: entry.unavailable ?? 'reading_failed'}}));
     const pending = taken.pending.filter(entry => !run.shown.pending.has(JSON.stringify([entry.focus, entry.question])));
-    if (!scene && !people.length && !session && !passages && !answers.length && !pending.length) return undefined;
-    const carried = await readCarriedViews({call, ...(scene ? {scene} : {}), people, skip: run.shown.people, ...(session ? {session} : {}),
-      ...(passages ? {passages} : {}), ...(answers.length ? {answers} : {}), ...(pending.length ? {pending} : {})}).catch(() => undefined);
+    // §22.4.7 (SL-47): the book's text of a scene a move landed on, once; a scene record that settled, once -- the scene view
+    // itself when the party is still there, else a row saying it landed (or could not be read).
+    const sceneTexts = taken.texts ?? [];
+    const records = taken.records ?? [];
+    const here = records.find(entry => !entry.unavailable && entry.scene === run.scene);
+    const sceneRecords = records.filter(entry => entry !== here).map(entry => ({scene: entry.scene,
+      view: entry.unavailable ? {status: 'unavailable', reason: entry.unavailable} : {status: 'landed', note: 'look focus=scene there shows it'}}));
+    const sceneDue = scene ?? (here ? here.scene : undefined);
+    if (!sceneDue && !people.length && !session && !passages && !answers.length && !pending.length && !sceneTexts.length && !sceneRecords.length) return undefined;
+    const carried = await readCarriedViews({call, ...(sceneDue ? {scene: sceneDue} : {}), people, skip: run.shown.people, ...(session ? {session} : {}),
+      ...(passages ? {passages} : {}), ...(answers.length ? {answers} : {}), ...(pending.length ? {pending} : {}),
+      ...(sceneTexts.length ? {sceneTexts} : {}), ...(sceneRecords.length ? {sceneRecords} : {})}).catch(() => undefined);
     if (!carried) return undefined;
     const ids = new Set(carried.views.flatMap(entry => entry.id ? [entry.id] : []));
     for (const entry of carried.views) {
@@ -728,11 +737,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     for (const entry of carried.omitted) if (entry.focus === 'npc' && entry.reason === 'not_found' && entry.name) run.shown.people.add(entry.name);
     record({lane: 'run', event: 'carried', run: run.runId, step: stepId,
       views: carried.views.map(entry => ({focus: entry.focus, ...(entry.name ? {name: entry.name} : {}), bytes: bytes(entry.view),
-        ...(entry.focus === 'source_answer' ? {status: entry.view.status ?? null} : {}),
+        ...(entry.focus === 'source_answer' || entry.focus === 'scene_record' ? {status: entry.view.status ?? null} : {}),
         ...(entry.truncated ? {truncated: true, omitted_fields: entry.omitted_fields ?? []} : {})})),
-      omitted: carried.omitted, ...(carried.pending?.length ? {pending: carried.pending.map(entry => ({focus: entry.focus, since_turn: entry.since_turn, purpose: entry.purpose ?? null}))} : {}),
+      omitted: carried.omitted, ...(carried.pending?.length ? {pending: carried.pending.map(entry => ({focus: entry.focus, since_turn: entry.since_turn, purpose: entry.purpose ?? null,
+        ...(typeof entry.scene === 'string' ? {scene: entry.scene} : {})}))} : {}),
+      ...(here ? {scene_record: here.scene} : {}),
       bytes: carried.bytes, reads: carried.reads, ms: carried.ms});
-    return carriedSection(carried, run.document === undefined ? {} : {document: run.document});
+    return carriedSection(carried, {...(run.document === undefined ? {} : {document: run.document}), ...(here ? {record: true} : {})});
   }
 
   /** The run's note to the Keeper before a model step. Nothing new to say: no message. */

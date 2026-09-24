@@ -20,7 +20,14 @@ import {measuredPageCost, playReadStage, readingStageBudget, type StageBudget} f
  * (§61 demotes the job), the reading goes on in the background, and `settled` is that same reading's outcome. The allowance's
  * named default is the lookup's (`SOURCE_ANSWER_ALLOWANCE_MS`, `extensions/kernel/source-answers.ts`).
  */
-export interface ReadingOptions {providerBudget?:TaskProviderBudget; allowanceMs?: number}
+export interface ReadingOptions {providerBudget?:TaskProviderBudget; allowanceMs?: number;
+	/**
+	 * §22.4.7 (SL-47): the reading stays blocking after its waiter leaves (no §61 demotion): the party stands in the scene it
+	 * reads, so it keeps its blocking slot (§22.4.6) until it settles, though no call waits on it.
+	 */
+	blocking?: boolean}
+/** §22.4.7: one page of the bound document's native text, as the reading service extracts it. */
+export interface SourcePageText {page: number; pdf_label?: string; text: string}
 type Row = Record<string, any>;
 type Call = (method: string, params: Row) => Promise<any>;
 export interface ReadingBridge {
@@ -34,6 +41,8 @@ export interface ReadingBridge {
 	 * this at the moment it is sent, so a reading that has since landed is not announced as pending.
 	 */
 	reading(moduleId: string, params: Row): boolean;
+	/** §22.4.7 (SL-47): the native text of pages of the module's bound document (§22.1's extraction), 1-based. */
+	sourcePages?(moduleId: string, pages: number[], params?: Row, signal?: AbortSignal): Promise<SourcePageText[]>;
 }
 interface Dependencies {
 	call: Call;
@@ -71,6 +80,8 @@ interface PendingReading {
 	of?: { campaign?: string; mid: string; focus: string; question: string };
 	/** §22.4.3. What the book's index holds on this consultation's focus, from the kernel's last reply. */
 	index?: Row[];
+	/** §22.4.7. Blocking with no waiter: never demoted when its waiters leave. */
+	blocking?: boolean;
 }
 /**
  * How long a claimed reading job may report nothing at all before the host stops it. A reader child
@@ -407,6 +418,18 @@ export class ReadingService implements ReadingBridge {
 		return false;
 	}
 
+	/**
+	 * §22.4.7 (SL-47): the native text of `pages` of the module's bound document, read with the same extraction the
+	 * prescreen uses (`sourceText`, pinned to the document's digest). Read-only; costs no model call.
+	 */
+	async sourcePages(mid: string, pages: number[], params: Row = {}, signal?: AbortSignal): Promise<SourcePageText[]> {
+		const campaign = this.campaign(params);
+		const snapshot = await this.call("module.source.snapshot", { module_id: mid }, campaign);
+		const bundle = await this.runtime().sourceText({ pdf: snapshot.pdf, pages, expected_file_sha256: snapshot.file_sha256 }, signal);
+		return (bundle.snapshots ?? []).map((row: Row) => ({ page: row.page, ...(typeof row.pdf_label === "string" && row.pdf_label ? { pdf_label: row.pdf_label } : {}),
+			text: typeof row.text === "string" ? row.text : "" }));
+	}
+
 	async ensure(mid: string, params: Row, signal?: AbortSignal, options:ReadingOptions={}): Promise<Row> {
 		if (signal?.aborted || this.stopped) throw error("reading_failed", "reading was cancelled", "retry the reading when ready");
 		const campaign = this.campaign(params);
@@ -425,6 +448,7 @@ export class ReadingService implements ReadingBridge {
 		// A later turn that joins this same reading in the foreground puts the wait back (§61); `fulfil`
 		// re-asserts it with the kernel on its next poll, the same way a fresh foreground request would.
 		if (params.foreground === true) request.foreground = true;
+		if (options.blocking === true) request.blocking = true;
 		request.waiters++;
 		let waiting = true, aborting = false;
 		const releaseWaiter = () => {
@@ -436,7 +460,7 @@ export class ReadingService implements ReadingBridge {
 			// §61. The last waiter is gone and nobody cancelled: the reading goes on, the wait does not.
 			// Releasing the foreground lease here rather than on a clock is the whole point -- this fires
 			// on the real event (the turn stopped waiting), never on elapsed time.
-			if (request.waiters === 0 && !request.cancelled && request.foreground) {
+			if (request.waiters === 0 && !request.cancelled && request.foreground && !request.blocking) {
 				request.foreground = false;
 				if (request.jobId) this.unwait(mid, request.jobId, campaign);
 				else request.demotePending = true;

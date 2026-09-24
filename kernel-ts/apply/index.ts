@@ -70,7 +70,9 @@ export interface ApplyContributions {
         receipt: Row;
         event: DomainEvent;
     }>;
-    readonly requireMaterial?: (graph: ModuleGraph, names: any[]) => Promise<void>;
+    /** §22.4.7: `gate` names the move destinations and the scenes entered on their index text; returns the moves landed on it. */
+    readonly requireMaterial?: (graph: ModuleGraph, names: any[], gate?: {moves?: Map<unknown, {effect: number; land: boolean}>; entered?: ReadonlySet<string>})
+        => Promise<Array<{name: string; focus: string; pages: number[]}> | void>;
     /** §107.1: queue the arrived scene's map reading in the background; never refuses the move. */
     readonly queueArrivalMap?: (graph: ModuleGraph, scene: Row) => Promise<Row>;
     readonly materialReady?: (moduleId: string, name: string) => Promise<boolean>;
@@ -121,8 +123,16 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             });
             if (playsFromReading(module.meta) && (!contributions.requireMaterial || !contributions.materialReady))
                 throw new RpcError('not_implemented', 'The source material contribution is not implemented in the TypeScript apply runtime');
+            // §22.4.7 (SL-47): a move into a scene not yet read may land on its index text when the host asks (`_land_on_index`).
+            const moves = new Map<unknown, {effect: number; land: boolean}>();
+            for (const [index, effect] of effects.entries()) if (isJsonObject(effect) && effect.kind === 'move' && typeof effect.to === 'string') {
+                const node = graph.find(effect.to, ['scene']);
+                moves.set(node?.node_id ?? effect.to, { effect: index, land: effect._land_on_index === true });
+            }
+            const entered = new Set(array(transaction.world.index_scenes).filter((value): value is string => typeof value === 'string'));
+            let indexLanded: Array<{name: string; focus: string; pages: number[]}> = [];
             if (contributions.requireMaterial)
-                await contributions.requireMaterial(graph, names);
+                indexLanded = (await contributions.requireMaterial(graph, names, { moves, entered })) ?? [];
             else if (playsFromReading(module.meta))
                 throw new RpcError('not_implemented', 'The source material gate is not implemented in the TypeScript apply runtime');
             if (!Object.hasOwn(transaction.world, 'scene_trail')) {
@@ -304,6 +314,13 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         staged.map_arrivals_pending = [...new Set([...array(staged.map_arrivals_pending).filter(value => typeof value === 'string'), graph.handle(arrived)])];
                 }
             }
+            // §22.4.7: the scenes this batch entered on their index text; the party's place passes the gate while its record is read.
+            const landedHere = indexLanded.filter(entry => receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed
+                && graph.handle(graph.scene(string(receipt.to))) === entry.focus));
+            for (const receipt of receipts) if (receipt.kind === 'move' && !receipt.renamed
+                && landedHere.some(entry => entry.focus === graph.handle(graph.scene(string(receipt.to))))) receipt.material = 'index';
+            if (landedHere.length)
+                staged.index_scenes = [...new Set([...array(staged.index_scenes).filter(value => typeof value === 'string'), ...landedHere.map(entry => entry.focus)])];
             await commitInventorySheets(context,stagedSheets);
             await campaign.writeWorld(staged);
             // §129.4: a definition that replaced a placeholder changed what instances already on a sheet read.
@@ -340,6 +357,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 if (arrivalMap && truth(arrivalMap.job_id) && !array(result.deepen_queued).includes(arrivalMap.job_id))
                     result.deepen_queued = [...array(result.deepen_queued), arrivalMap.job_id];
             }
+            if (landedHere.length)
+                result.scene_text = landedHere.map(entry => ({ scene: entry.focus, pages: entry.pages }));
             if (crossed)
                 result.obligation_open = crossed;
             if (recovery.recovered.length)

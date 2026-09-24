@@ -55,8 +55,12 @@ export interface PendingAnswer {
 }
 /** What the engine takes before a model step: the consultations still reading, and those that settled and were not yet carried. */
 export interface SourceAnswersTake {
-	pending: Array<{focus: string; question: string; since_turn: number; purpose?: string}>;
+	pending: Array<{focus: string; question: string; since_turn: number; purpose?: string; scene?: string}>;
 	landed: Array<{focus: string; question: string; since_turn: number; answer?: Row; unavailable?: string}>;
+	/** §22.4.7 (SL-47): the book's text of scenes a move landed on, once each. */
+	texts?: Array<{scene: string; pages: Array<{page: number; pdf_label?: string; text: string}>}>;
+	/** §22.4.7: scenes whose reviewed record settled since, once each (`unavailable` when the reading failed). */
+	records?: Array<{scene: string; since_turn: number; unavailable?: string}>;
 }
 /** The `coc:source-answers` port (§135.31.2): the kernel extension answers it for the table's campaign. */
 export interface SourceAnswersPort {
