@@ -45,9 +45,18 @@ test('unconfigured or unmounted Jev performs no reads, and invalid queries are r
   await assert.rejects(lookupKeeperSupport(fixture({query:' '}).input),error=>error.code==='invalid_params');
 });
 test('stale final material and parent cancellation cannot publish a support packet',async()=>{
+  // §124.11: the owner names the material a volatile change reaches; it leaves the packet, which says so.
   const f=fixture(),call=f.input.call;f.input.call=async(method,args)=>method==='table.workspace.read'&&args.binding
-    ?{...snapshot,binding:{...snapshot.binding,stateStamp:'changed'}}:call(method,args);
-  await assert.rejects(lookupKeeperSupport(f.input),error=>error.details?.reason==='support_unavailable');
+    ?args.preselect?.mode==='check'?{...snapshot,status:'unverifiable',authority:{checked:false},binding:{...snapshot.binding,stateStamp:'changed'},
+      materials:{version:2,candidates:[],coverage:{},check:{status:'stale',changed:['stateStamp'],keys:args.preselect.keys,stale_keys:args.preselect.keys}}}
+      :{...snapshot,binding:{...snapshot.binding,stateStamp:'changed'}}:call(method,args);
+  const packet=await lookupKeeperSupport(f.input);
+  assert.equal(packet.materials.length,0);assert(!JSON.stringify(packet).includes('The desk belongs to Knott.'));
+  assert(packet.gaps.some(gap=>gap.reason==='binding_changed'&&gap.label==='Office'));
+  // A run key (the scene) voids the whole preparation.
+  const moved=fixture(),inner=moved.input.call;moved.input.call=async(method,args)=>method==='table.workspace.read'&&args.binding
+    ?{...snapshot,binding:{...snapshot.binding,scene:'Street'}}:inner(method,args);
+  await assert.rejects(lookupKeeperSupport(moved.input),error=>error.details?.reason==='support_unavailable');
   const controller=new AbortController(),entered=Promise.withResolvers(),cancelled=fixture({signal:controller.signal,call:async()=>{entered.resolve();return new Promise(()=>{});}});
   const work=lookupKeeperSupport(cancelled.input);await entered.promise;controller.abort();await assert.rejects(work);
 });

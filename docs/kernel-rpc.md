@@ -15690,6 +15690,73 @@ A real Chinese-language Haunting table showed two different player questions rec
 
 Acceptance: two different requests over a graph whose relevant entities lie outside the current scene must receive different located orderings and first catalog pages; a state that fails the old single 32,768-byte bound but satisfies both documented limits must pack; a prepared note must carry `stop_reason`. Deterministic tests use controlled decision ports; Jev's real locate quality, latency and Keeper adoption remain live-provider and canonical-table gates.
 
+### 124.11 Which binding keys void a prepared result, and which are re-checked per material (2026-09-24, live gate #5; amends §124.1, §124.6 and §135.6)
+
+**Evidence.** Live gate #5 used campaign `gate5-haunting-0259`, turn 2, run `run-01a0d238-db4d-72e1-ae72-5c2b2105bb58`, read s1. The
+prescreen spent 12 Jev calls in 6.8 s: the locate judged 277 cards, the loop took five steps and finished `sufficient`. The final
+validation then discarded all of it as `binding_changed`, and the compile ran without material. The read began at 07:02:16.7Z and
+the fallback came at 07:02:23.5Z. In that window the npc-voice lane submitted Arty Wilmot's voice (`voice.submit`,
+`kernel-ts/voice/index.ts:55-57` → `kernel-ts/voice/jobs.ts:241` `campaign.writeWorld`, event `dossier-established` at
+07:02:23Z). The lane had opened that job after turn 1. It wrote the package's dossier into `world.json`, and `world` is part of
+`stateStamp`. The owner's check over the retained keys answered `current`, because those keys were graph units of four entities
+and one rule clause, and they depend only on `source_revision` and `rules_revision`. The host then compared `stateStamp` itself
+(`extensions/table/prescreen.ts:633-634` at `a575e01e6`) and threw the whole result away. Turn 1's journal and memory lanes had
+already landed at 07:01:39Z and 07:01:41Z, before turn 2 started. So none of `memory_revision`, `npc_revision` or
+`records_revision` moved. The npc-voice lane is not the only writer: any post-turn lane can land during the next turn's read.
+
+**Run keys void the prepared result.** They are `campaign`, `worldline`, `loop`, `turn`, `source_revision`, `rules_revision`,
+`scene` and `adapter`. A page (catalog or read) whose binding differs on one of them ends the preparation. So does the final
+check. The preparation ends with `fallback: "binding_changed"` and `key` set to that key. A page also compares `catalog_revision`:
+it is requested with the same query, so a change is a change of the owner's catalog.
+
+**Volatile keys are re-checked per material.** They are `stateStamp`, `memory_revision`, `npc_revision` and `records_revision`.
+
+- *Pages.* Every page of the loop is requested with the run keys and `catalog_revision` only, so the owner serves current state
+  and a lane's write does not refuse the page. When a page's binding shows a volatile key different from the one the preparation
+  bound, the host records the drift. It does not discard anything at that point.
+- *Final check.* The final check is requested with the complete original binding, the retained workspace keys and the request's
+  query (so the owner computes `catalog_revision` from the same query). The owner compares each key's dependencies (§124.1). A
+  stale answer now also names `stale_keys`: the requested keys whose dependencies include a changed key. If every changed key is
+  volatile, the host drops exactly those materials and publishes the rest. Each dropped material becomes a gap with
+  `reason: "binding_changed"` and its ordinary read continuation. The Keeper sees the reason and the read. The changed key
+  stays private: it is recorded in `details.prescreen.gap_details` and the `prepared` row's `pending_reads` as `key`, with
+  several keys joined by `+`. A stale answer that names a run key, or that carries no `stale_keys`, voids the result as
+  above.
+- *Memory.* Memory materials answer to their own owner. A `refresh` from the memory finisher, whether in the loop or at the
+  final check, drops the memory materials it covers with `key: "memory_revision"`. It no longer fails the preparation.
+- *What §124.6 still forbids.* §124.6 says stale bindings prohibit publication. That now means: a stale material is never
+  published, and a run key's change still publishes nothing. A volatile change removes the materials it reaches. It does not
+  remove the packet: a packet whose every material was dropped still carries the gaps and their reads.
+- *Bound.* The one final owner check is the re-check. There is no second check and no retry. A material read after a drift is
+  still checked against the original binding, so a fresh read of a drifted dependency is dropped rather than trusted.
+- *Legacy.* The legacy v1 read catalog has no per-key dependency view, so it keeps the full comparison, and a volatile change
+  still voids it.
+
+**Telemetry.**
+
+- The `fallback` row carries `key`.
+- The `prepared` row carries `binding_refresh: {changed, dropped}` when a volatile key changed during the run.
+- The run's read row (§135.6) carries `fallback: "binding_changed"` with `key`.
+- The read row's `jev_calls`, and the run's `jevCalls` budget, now count the calls of a prescreen that fell back. On gate #5 the
+  read row said 0 while 12 had been spent.
+
+*Kernel.* `table.workspace.read` in `preselect` mode adds `stale_keys` to `materials.check` when `status` is `stale`, next to
+`changed` and `keys`. A check without keys still compares every key, and its `stale_keys` is empty.
+
+*Tests.* `tests/extension/prescreen-binding-drift.test.mjs` runs the real kernel on the Haunting's opening. The lane writes go
+through their real RPCs:
+
+- The gate #5 shape: a `voice.submit` lands before the finish decision. `stateStamp` changes, and the graph material
+  publishes with `binding_refresh: {changed: ["stateStamp"], dropped: 0}`.
+- A `voice.submit` lands before a later catalog page. The page is served and nothing is voided.
+- A `voice.submit` lands after an investigator `look` was read. Only that current-state material is dropped, with the private
+  key `stateStamp`, and the graph material stays.
+- A `table.apply` move lands mid-run. The fallback names `scene`.
+- The owner's `stale_keys`: a stateStamp change names the investigator key and not the graph unit, and a keyless check names
+  none.
+- On the hybrid engine, the run's read row carries `fallback: "binding_changed"` and `key: "scene"`, and its `jev_calls`
+  equals the discarded prescreen's.
+
 ## 125. Shared foreground evidence and NPC preparation (#109)
 
 Specification: [NPC reactions in shared Keeper preparation](specs/npc-prescreen-integration.md). This integration preserves sections 123 and 124's authority and background owners. Its acceptance follows the actual Keeper provider request and real player interaction, not callback counts.
@@ -17213,6 +17280,14 @@ replays, which set it, carried 10 materials on the same state; the owner's App h
 inventory). The read row's `prescreen` now says which condition failed: `{status: "not_run", reason: "no_jev" |
 "preselect_off" | "no_binding" | "allowance_spent" | "no_bridge"}`. A live gate of this engine launches with the
 setting as the App has it.
+
+*When the read's prescreen is discarded (2026-09-24, after live gate #5).* On turn 2 of gate #5, a lane's write landed while the
+read was running and voided the whole prescreen. The lane was npc-voice, submitting a job opened after turn 1, and the write moved
+`stateStamp`. The host compared a key the retained materials did not depend on, so the compile ran with no material and the ask
+feature fell to 0.2. §124.11 now separates the keys. Run keys void the result: `campaign`, `worldline`, `loop`, `turn`,
+`source_revision`, `rules_revision`, `scene` and `adapter`, plus `catalog_revision` on a page. Volatile keys drop only the
+materials whose dependencies include them: `stateStamp`, `memory_revision`, `npc_revision` and `records_revision`. The read row
+names the key: `prescreen: {status: "fallback", fallback: "binding_changed", key: "scene", jev_calls: <spent>}`.
 
 ### 135.7 Telemetry
 
