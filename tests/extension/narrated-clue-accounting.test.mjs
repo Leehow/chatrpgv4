@@ -78,17 +78,19 @@ test('a place the book never wrote can hold a finding: add_clue arrives with the
     const prose = 'Knott slides the ring of keys across the desk without being asked.';
     await t.call('table.narrate', {call_id: 't0-c1', text: prose});
     await t.call('table.warn', {turn: 0, lane: 'verifier', findings: [{kind: 'reveal', quote: prose, why: 'Handed over unearned.', clue: 'knott-keys'}]});
-    await t.call('table.player_input', {text: 'I take the address and go out to the sanitarium.'});
+    // SL-25: not the Roxbury Sanitarium any more -- the starter now names that place (`previous-tenants`), and the kernel
+    // rightly refuses to adapt a second scene for it. The parish charity is a place the book never wrote.
+    await t.call('table.player_input', {text: 'I take the address and go out to the parish charity office.'});
     assert.deepEqual((await t.call('table.capsule')).unrecorded.map(row => row.clue), ['knott-keys']);
-    await accept(t, 'Sanitarium', [
-        {kind: 'add_scene', name: 'Roxbury sanitarium', description: 'The asylum wards where the tenant was committed.',
+    await accept(t, 'Charity', [
+        {kind: 'add_scene', name: 'South End parish charity', description: 'The charity office that kept the tenants on its relief rolls.',
             based_on: graph.handle(START), sources: [graph.handle(START)], reason: 'The player chose to go and ask after the family.'},
-        {kind: 'route', from: graph.handle(START), to: 'Roxbury sanitarium', sources: [START.name], reason: 'Ordinary travel across the city.'},
+        {kind: 'route', from: graph.handle(START), to: 'South End parish charity', sources: [START.name], reason: 'Ordinary travel across the city.'},
         {kind: 'add_clue', name: 'Admission register entry', description: 'The register gives the admission date and who signed the committal.',
-            scene: 'Roxbury sanitarium', sources: [START.name], reason: 'What the ward desk can be made to show.'}
+            scene: 'South End parish charity', sources: [START.name], reason: 'What the relief desk can be made to show.'}
     ], 'new_destination');
-    await t.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'adaptation', name: 'Sanitarium'}]});
-    await t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'move', to: 'Roxbury sanitarium'}]});
+    await t.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'adaptation', name: 'Charity'}]});
+    await t.call('table.apply', {call_id: 't1-c2', effects: [{kind: 'move', to: 'South End parish charity'}]});
 
     const capsule = await t.call('table.capsule');
     const here = capsule.known.clues_here.map(entry => entry.name);
