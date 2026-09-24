@@ -17861,9 +17861,13 @@ A view carried once stays in the request (§135.23: append-only), which is why a
 - `lane: "run"`, `event: "carried"`, one row per message that carries something: `run`, `step`, `views: [{focus,
   name?, bytes, truncated?}]`, `omitted`, `bytes`, `reads` (kernel reads the step made for it) and `ms`.
 - **A `look` or `lookup` tool row records its arguments** (both engines, both outcomes): `args` is the call's parameters
-  as the Keeper sent them, without host-only keys (`campaign`, `call_id`, `_context_read`), each string cut to 200
-  code points and the cut ones named in `args_cut`. `focus` and `about` stay as they were. This amends the tool row's
-  "names only" for these two tools: the next diet is measured on what the Keeper asked for.
+  as the Keeper sent them, without host-only keys (`campaign`, `call_id`, anything `_`-prefixed), each string cut to 200
+  code points and the cut ones named in `args_cut`. `focus` and `about` stay as they were. The arguments the tool schema
+  declares as the Keeper's own prose rather than a selector -- a source `question`, an adaptation `request`, and the
+  evidence question a `kind: support` lookup takes as its `query` -- are not written; their keys are named in
+  `args_withheld` (§22's #65 rule, "`question` is the Keeper's prose and is not written to telemetry", holds). This
+  widens the tool row's "names only" to every selector argument of these two tools: the next diet is measured on what
+  the Keeper asked for.
 - **On hybrid-v1 a model-origin `look`/`lookup` row names the step it came from:** `origin: "model"`, `run`, `step`.
   The engine announces each model tool call on the bus before it executes (`coc:model-step`, `{toolCallId, run, step,
   operation}`); the kernel extension keeps the announcement until that call's row is written. §135.7's "a model-origin
@@ -17871,8 +17875,9 @@ A view carried once stays in the request (§135.23: append-only), which is why a
 
 **The turn record keeps the reads.** A delivery (`narrate`, explicit or implicit, and `ask`) carries the turn's `look`
 and `lookup` calls from the kernel extension as the host-only param `keeper_reads: [{tool, args, ok, run?, step?}]`
-(at most 64, the first 64 of the turn; the Keeper cannot supply it, the extension deletes one it sends). The kernel
-writes them on the turn record as `reads: [{tool, args, params_sha256, ok, run?, step?}]`, where `params_sha256` is
+(at most 64, the first 64 of the turn; the Keeper cannot supply it, the extension deletes one it sends), with the same
+`args` as the row and `withheld` for the prose keys left out. The kernel writes them on the turn record as `reads:
+[{tool, args, params_sha256, withheld?, ok, run?, step?}]`, where `params_sha256` is
 the kernel's `jsonDigest(args)`, the same digest `calls` keeps for a write. `keeper_reads` is not part of the delivery's
 idempotency digest (a recovered delivery replays whatever reads it carried). A turn with no reads has no `reads` key;
 a stranded turn's record (§73) has none, because no delivery carried them. A malformed `keeper_reads` is
