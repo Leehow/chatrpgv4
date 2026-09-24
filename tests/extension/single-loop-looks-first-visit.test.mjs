@@ -157,7 +157,10 @@ function passagesCarried(requests) {
 	return out;
 }
 
-async function hybridTable({ route, responses, allowanceMs = "12000", preselect = "1" }) {
+// The allowance is generous on purpose: these tests are about what the first model step carries, not about the
+// prescreen's budget (SL-22 has its own tests). Under a loaded 12-way test run the 12 s default expired on the second
+// read of the move test (status "fallback"), which said nothing about the carrying.
+async function hybridTable({ route, responses, allowanceMs = "60000", preselect = "1" }) {
 	const requests = [];
 	const port = { async decide(batch) {
 		if (batch.family === ROUTE_FAMILY) return route(batch);
