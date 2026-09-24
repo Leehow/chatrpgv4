@@ -49,7 +49,7 @@ test("§32.12: the lane review's cap is 12 s by default, read per review; the va
  * JSON, then one more character every 150 ms, for as long as the connection stays open -- the live gate #6 review
  * (headers at 1.7 s, then 55 s of streaming) with nothing idle about it.
  */
-function tricklingProvider(t) {
+function tricklingProvider(t, script = []) {
 	const sockets = new Set();
 	let requests = 0;
 	const server = createServer((socket) => {
@@ -62,6 +62,12 @@ function tricklingProvider(t) {
 			if (!received.includes("\r\n\r\n")) return;
 			received = "";
 			requests++;
+			// `script[i]`: what the i-th request gets; `error` is a provider 500, anything else (the default) the trickle.
+			if (script[requests - 1] === "error") {
+				const body = JSON.stringify({ error: { message: "test: the provider failed", type: "server_error" } });
+				socket.end(`HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+				return;
+			}
 			socket.write("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nTransfer-Encoding: chunked\r\n\r\n");
 			const chunk = (text) => socket.write(`${Buffer.byteLength(text).toString(16)}\r\n${text}\r\n`);
 			const delta = (content) => chunk(`data: ${JSON.stringify({ id: "c1", object: "chat.completion.chunk", created: 0, model: "trickle-1",
@@ -126,7 +132,10 @@ test("§32.12: review timeouts are not an outage -- two in a row leave no servic
 	t.after(() => table.dispose());
 	table.session.modelRuntime.registerProvider("trickle", { baseUrl: `http://127.0.0.1:${provider.port}/v1`, api: "openai-completions", apiKey: "unused",
 		models: [{ id: "trickle-1", name: "trickle", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 4096 }] });
-	await table.session.prompt("我说明来意，请她帮忙调出科比特宅这些年的旧剪报。");
+	const prompt = table.session.prompt("我说明来意，请她帮忙调出科比特宅这些年的旧剪报。");
+	const outcome = await Promise.race([prompt.then(() => "ended"), new Promise((resolve) => setTimeout(() => resolve("hung"), 20_000).unref())]);
+	if (outcome === "hung") { await table.session.abort(); await prompt.catch(() => {}); }
+	assert.equal(outcome, "ended", "a review was still streaming 20 s in: the 1.5 s cap did not cut it");
 
 	const rows = admissionRows(table);
 	assert.deepEqual(rows.map((row) => [row.verdict, row.reused, row.cap_ms]),
@@ -136,6 +145,29 @@ test("§32.12: review timeouts are not an outage -- two in a row leave no servic
 	const refusals = table.telemetry().filter((entry) => entry.tool === "resolve" && entry.ok === false);
 	assert.deepEqual(refusals.map((entry) => entry.reason), [REVIEW_TIMEOUT, REVIEW_TIMEOUT, REVIEW_TIMEOUT]);
 	assert.ok(!admissionRows(table).some((row) => row.ok === false), "no unavailability row");
+});
+
+test("§32.12: a timeout between two unavailable reviews does not end the outage streak -- the second failure still escalates to the operator", async (t) => {
+	const provider = await tricklingProvider(t, ["error", "trickle", "error"]);
+	const resolve = (target) => fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "social", skill: "Persuade", target, goal: "请她调出旧剪报", method: "说明来意" } })], { stopReason: "toolUse" });
+	const table = await openTable({
+		env: { PI_COC_ADMISSION_MODEL: "trickle/trickle-1", PI_COC_ADMISSION_TIMEOUT_MS: "1500" },
+		responses: [resolve("Ruth Blake"), resolve("Arty Wilmot"), resolve("Mrs. Macario"),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "你说明了来意。" })], { stopReason: "toolUse" }), fauxAssistantMessage("after")],
+	});
+	t.after(() => table.dispose());
+	table.session.modelRuntime.registerProvider("trickle", { baseUrl: `http://127.0.0.1:${provider.port}/v1`, api: "openai-completions", apiKey: "unused",
+		models: [{ id: "trickle-1", name: "trickle", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 4096 }] });
+	const prompt = table.session.prompt("我说明来意，请她帮忙调出科比特宅这些年的旧剪报。");
+	const outcome = await Promise.race([prompt.then(() => "ended"), new Promise((resolve) => setTimeout(() => resolve("hung"), 20_000).unref())]);
+	if (outcome === "hung") { await table.session.abort(); await prompt.catch(() => {}); }
+	assert.equal(outcome, "ended");
+
+	assert.deepEqual(admissionRows(table).map((row) => row.ok === false ? `unavailable:${row.reason}` : row.verdict),
+		["unavailable:model_error", REVIEW_TIMEOUT, "unavailable:model_error"]);
+	const notices = table.entries("coc-admission-status");
+	assert.equal(notices.length, 1, "unavailable, timeout, unavailable is a streak of two: the timeout neither counted nor reset it");
+	assert.equal(notices[0].data?.streak ?? notices[0].streak, 2);
 });
 
 // ---- the compile's evidence (pure) -----------------------------------------------------------------------------------

@@ -7016,7 +7016,8 @@ unchanged admit and the new `review_timeout` refusal; the operator, through the 
 
 *Tests.* `tests/extension/admission-within-turn.test.mjs`: a lane review on a real socket that answers 200 and then
 trickles reasoning deltas ends `review_timeout` within the default cap plus 1 s, the kernel never called, the row
-`timed_out: true` with `ms`, `cap_ms` and `first_byte_ms`; the cap's default and override; at the extension seam with the
+`timed_out: true` with `ms`, `cap_ms` and `first_byte_ms`; the cap's default and override; timeouts leave no service
+notice and neither count toward nor end an unavailability streak (unavailable, timeout, unavailable still escalates); at the extension seam with the
 emitted kernel and the hybrid engine, a compile-selected obligation check (every read feature cleared, every parameter
 recorded) admitted `path: "compile"` with no lane and no typed request; the same check with the addressee under the gate
 reviewed by the lane (`compile_refused: feature_not_cleared:addressee`); a compile-selected clerk move admitted without the
