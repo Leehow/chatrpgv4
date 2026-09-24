@@ -22,7 +22,8 @@ import { SENTENCE_MAX } from "../../extensions/kernel/tools.ts";
 import { buildCandidates, keeperCall } from "../../runtime/jev/candidates.ts";
 import { highestOffered, obligationCandidates } from "../../runtime/jev/obligation-candidates.ts";
 import { composeSentence } from "../../runtime/jev/composed-arguments.ts";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { admissionBindings, bindRecords, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { compileAdmission } from "../../extensions/kernel/admission.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import {
@@ -58,7 +59,8 @@ const summary = (pending) => pending.map((item) => [item.kind, item.purpose, ite
 test("§135.28: the approach Jev does not settle is the actor's highest offered value, stamped rule-default; the dice default to none; no LLM step", () => {
 	const check = checkOf(morgue());
 	const skill = check.unbound.find((value) => value.name === "skill");
-	assert.deepEqual(skill.ruleDefault, { rule: "highest_offered_skill", value: "Persuade" }, "Persuade 70 is the highest of the four");
+	assert.deepEqual(skill.ruleDefault, { rule: "jev_lead", fallback: { rule: "highest_offered_skill", value: "Persuade" } },
+		"Jev's lead first (SL-21); Persuade 70, the highest of the four, only when Jev answers unknown or not at all");
 	assert.deepEqual(check.unbound.filter((value) => value.name === "bonus" || value.name === "penalty").map((value) => value.ruleDefault),
 		[{ rule: "no_modifier", value: "none" }, { rule: "no_modifier", value: "none" }]);
 	assert.equal(check.unbound.find((value) => value.name === "intent").ruleDefault, undefined, "the obligation row declares no intent");
@@ -86,24 +88,125 @@ test("§135.28: Jev's confident answer is the value even when it is not the high
 	assert.equal(confident.pending[0].candidate.basis.binding, undefined, "no default taken, nothing stamped");
 	assert.ok(confident.bindings.every((entry) => entry.path === "jev"));
 	// Ties: Charm and Fast Talk at 60 -> Charm (third, before Fast Talk); Persuade and Intimidate at 60 -> Persuade.
-	assert.equal(checkOf(morgue({ values: { Persuade: 50, Intimidate: 15, Charm: 60, "Fast Talk": 60 } })).unbound.find((value) => value.name === "skill").ruleDefault.value, "Charm");
+	assert.equal(checkOf(morgue({ values: { Persuade: 50, Intimidate: 15, Charm: 60, "Fast Talk": 60 } })).unbound.find((value) => value.name === "skill").ruleDefault.fallback.value, "Charm");
 	assert.equal(highestOffered(morgue({ values: { Persuade: 60, Intimidate: 60, Charm: 5, "Fast Talk": 5 } }), APPROACHES, "Shen"), "Persuade");
-	// A value the kernel does not bind is not compared; none bound: no default, so the approach is the Keeper's.
+	// A value the kernel does not bind is not compared; none bound: no fallback, so Jev's unknown leaves the approach to the Keeper.
 	assert.equal(highestOffered(morgue({ unbound: ["Persuade"] }), APPROACHES, "Shen"), "Fast Talk");
 	const blind = checkOf(morgue({ unbound: APPROACHES }));
-	assert.equal(blind.unbound.find((value) => value.name === "skill").ruleDefault, undefined);
+	assert.deepEqual(blind.unbound.find((value) => value.name === "skill").ruleDefault, { rule: "jev_lead" });
 	assert.deepEqual(summary(interpretBind(blind, { questions: [] }, answer({ skill: ["unknown", 0.9], bonus: ["none", 0.9], penalty: ["none", 0.9], intent: ["social", 0.9] }), 0.6).pending),
 		[["infer", "adjudicate", "clerk_unbound"]]);
 });
 
 test("§135.28: with several investigators the approach default follows the actor Jev bound; an actor Jev cannot tell has no default", () => {
 	const check = checkOf(morgue({ actors: ["Shen", "Ada"], values: { Shen: { Persuade: 70, Intimidate: 15, Charm: 15, "Fast Talk": 50 }, Ada: { Persuade: 20, Intimidate: 65, Charm: 15, "Fast Talk": 50 } } }));
-	assert.deepEqual(check.unbound.find((value) => value.name === "skill").ruleDefault, { rule: "highest_offered_skill", by: { name: "actor", values: { Shen: "Persuade", Ada: "Intimidate" } } });
+	assert.deepEqual(check.unbound.find((value) => value.name === "skill").ruleDefault,
+		{ rule: "jev_lead", fallback: { rule: "highest_offered_skill", by: { name: "actor", values: { Shen: "Persuade", Ada: "Intimidate" } } } });
 	const rest = { skill: ["unknown", 0.9], bonus: ["none", 0.9], penalty: ["none", 0.9], intent: ["social", 0.9] };
 	assert.equal(interpretBind(check, { questions: [] }, answer({ actor: ["Ada", 0.9], ...rest }), 0.6).pending[0].extra.skill, "Intimidate");
 	const unknownActor = interpretBind(check, { questions: [] }, answer({ actor: ["unknown", 0.9], ...rest }), 0.6);
 	assert.deepEqual(summary(unknownActor.pending), [["infer", "adjudicate", "clerk_unbound"]]);
 	assert.deepEqual(unknownActor.pending[0].extra.unresolved.sort(), ["actor", "skill"]);
+});
+
+/** Jev's bind answer with an explicit distribution: `[choice, confidence, probabilities]`. */
+const answerWith = (choices) => ({ batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
+	answers: Object.fromEntries(Object.entries(choices).map(([key, [choice, confidence, probabilities]]) => [key,
+		{ status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } }])) });
+/** Live gate #7's investigator: Intimidate is his highest of the four; the player explained and asked. */
+const HAYES = { Persuade: 40, Intimidate: 45, Charm: 35, "Fast Talk": 40 };
+const GATE7_SKILL = ["Persuade", 0.59, { "Fast Talk": 0.02, unknown: 0.31, Intimidate: 0, Persuade: 0.67, Charm: 0 }];
+const REST = { bonus: ["none", 0.87], penalty: ["none", 0.79], intent: ["social", 0.84] };
+
+test("SL-21 (§135.28): Jev's leading approach under the gate is the approach -- jev_lead with its distribution, never the actor's highest skill", () => {
+	const check = checkOf(morgue({ values: HAYES }));
+	const bound = interpretBind(check, { questions: [] }, answerWith({ skill: GATE7_SKILL, ...REST }), 0.6);
+	assert.deepEqual(summary(bound.pending), [["direct", "execute", null]]);
+	const [item] = bound.pending;
+	assert.equal(item.extra.skill, "Persuade", "the manner the words took, not Intimidate 45");
+	assert.equal(keeperCall(item.candidate, item.extra).args.action.skill, "Persuade");
+	assert.deepEqual([item.candidate.basis.binding, item.candidate.basis.rule_default], ["rule-default", { skill: { value: "Persuade", rule: "jev_lead" } }]);
+	const record = item.bindings.find((entry) => entry.name === "skill");
+	assert.deepEqual(record, { name: "skill", path: "rule-default", value: "Persuade", rule: "jev_lead", confidence: 0.59, distribution: GATE7_SKILL[2] });
+	assert.equal(bound.reason, "bound_rule_default");
+	// Far under the gate and the margin as well: any confidence.
+	assert.equal(interpretBind(check, { questions: [] }, answerWith({ skill: ["Charm", 0.2, { Charm: 0.3, Persuade: 0.28, unknown: 0.25 }], ...REST }), 0.6).pending[0].extra.skill, "Charm");
+	// Above the gate it is the ordinary jev path, not a default.
+	const confident = interpretBind(check, { questions: [] }, answerWith({ skill: ["Persuade", 0.9], ...REST }), 0.6);
+	assert.deepEqual([confident.pending[0].extra.skill, confident.pending[0].candidate.basis.binding, confident.bindings.find((entry) => entry.name === "skill").path],
+		["Persuade", undefined, "jev"]);
+});
+
+test("SL-21 (§135.28): the actor's highest offered skill only when Jev answers unknown or does not answer; a lead with no fallback still binds", () => {
+	const check = checkOf(morgue({ values: HAYES }));
+	const unknown = interpretBind(check, { questions: [] }, answerWith({ skill: ["unknown", 0.7, { unknown: 0.7, Persuade: 0.25 }], ...REST }), 0.6);
+	assert.deepEqual([unknown.pending[0].extra.skill, unknown.pending[0].candidate.basis.rule_default.skill],
+		["Intimidate", { value: "Intimidate", rule: "highest_offered_skill" }], "unknown leads: the fallback, even with Persuade second");
+	// No answer: the batch unavailable, or the question left unanswered.
+	assert.deepEqual(summary(interpretBind(check, { questions: [] }, unavailable, 0.6).pending), [["infer", "adjudicate", "clerk_unbound"]],
+		"unavailable: the intent has no default, so the check is the Keeper's");
+	const unanswered = { ...answerWith(REST), answers: { ...answerWith(REST).answers, skill: { status: "unanswered" } } };
+	assert.deepEqual(interpretBind(check, { questions: [] }, unanswered, 0.6).pending[0].candidate.basis.rule_default.skill, { value: "Intimidate", rule: "highest_offered_skill" });
+	// A lead that is not an offered approach is no lead.
+	assert.equal(interpretBind(check, { questions: [] }, answerWith({ skill: ["Dodge", 0.5], ...REST }), 0.6).pending[0].extra.skill, "Intimidate");
+	// The kernel binds no value: no fallback. The lead still binds; unknown is the Keeper's.
+	const blind = checkOf(morgue({ unbound: APPROACHES }));
+	assert.equal(interpretBind(blind, { questions: [] }, answerWith({ skill: GATE7_SKILL, ...REST }), 0.6).pending[0].extra.skill, "Persuade");
+	assert.deepEqual(summary(interpretBind(blind, { questions: [] }, answerWith({ skill: ["unknown", 0.9], ...REST }), 0.6).pending), [["infer", "adjudicate", "clerk_unbound"]]);
+	// A spent Jev budget: nothing was asked, so the fallback, with no Jev call.
+	const spent = initialView({ runId: "r", rawInput: INPUT, context, candidates: [], readFirst: false, budget: { maxJevCalls: 0 } });
+	spent.pending = itemsFor(check);
+	const request = next(spent);
+	assert.equal(request.offline, "jev_budget");
+	startStep(spent, request);
+	settleBind(spent, 2, check, { questions: [] }, unavailable, 0, 0.6, true);
+	assert.deepEqual(summary(spent.pending), [["infer", "adjudicate", "clerk_unbound"]], "the intent is still Jev's alone");
+});
+
+test("SL-21 (§32.12.1): a compile-selected check that carries the book's meeting keeps basis.compile through the hand-on and its bind, and admission reads it", () => {
+	const fresh = checkOf(morgue({ values: HAYES }));
+	const meeting = { key: "apply:person:Arty", verb: "apply", family: "person", label: "meet Arty", source: "t", bound: { kind: "person", who: "Arty", name: "Arty" },
+		unbound: [], clerk: "stated_obligation", basis: { obligation: "access", step: "meet" } };
+	const compile = { predicate: "obligation_check", features: { ask: "obligation:access", addressee: "Arty", act: "social" },
+		read_features: { ask: { row: "obligation:access", confidence: 0.91, cleared: true }, addressee: { row: "Arty", confidence: 0.51, cleared: true }, act: { row: "social", confidence: 0.97, cleared: true } } };
+	const selected = { ...fresh, before: meeting, basis: { ...fresh.basis, compile } };
+	const items = itemsFor(selected);
+	assert.deepEqual(items.map((item) => [item.kind, item.purpose, item.candidate.key, item.candidate.then, item.candidate.thenCompile]),
+		[["direct", "execute", meeting.key, fresh.key, compile]], "the meeting runs first, carrying the compile's record of the check");
+	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [], readFirst: false });
+	view.pending = [...items];
+	startStep(view, next(view));
+	// The fresh read re-issues the check under the same key, from the kernel's row, without the compile.
+	settleExecute(view, 1, items[0], { ok: true, summary: {} }, { context, candidates: [fresh] }, 0);
+	const [bind] = view.pending;
+	assert.deepEqual([bind.kind, bind.purpose, bind.candidate.key], ["decide", "bind", fresh.key]);
+	assert.deepEqual(bind.candidate.basis, { ...fresh.basis, compile }, "the fresh row, with the compile's record");
+	startStep(view, next(view));
+	settleBind(view, 2, bind.candidate, { questions: [] }, answerWith({ skill: GATE7_SKILL, ...REST }), 5, 0.6);
+	const [execute] = view.pending;
+	assert.deepEqual(execute.candidate.basis.compile, compile, "and through the bind that stamped the default");
+	assert.deepEqual(execute.candidate.basis.rule_default, { skill: { value: "Persuade", rule: "jev_lead" } });
+	const bindings = admissionBindings(bindRecords(execute.candidate, execute.extra, execute.bindings), execute.extra);
+	const admitted = compileAdmission({ origin: "policy", basis: execute.candidate.basis, bindings });
+	assert.deepEqual([admitted?.ok, admitted?.predicate, admitted?.bindingPaths?.skill], [true, "obligation_check", "rule-default"]);
+	// A route selection carries no record: the check handed on is the builder's, and admission has nothing to exempt.
+	const routed = itemsFor({ ...fresh, before: meeting });
+	assert.equal(routed[0].candidate.thenCompile, undefined);
+});
+
+test("SL-21 (§32.12.1): a parameter the compile settled is bound again on the re-issued candidate; when it is no longer offered, the record is not carried", () => {
+	const base = { key: "resolve:x", verb: "resolve", family: "combat", label: "x", source: "t", bound: { intent: "combat" }, clerk: "first_blow", basis: { read: "t" } };
+	const compile = { predicate: "first_blow", features: { act: "combat", target: "Knott" }, read_features: {}, bound: { target: { value: "Knott", confidence: 0.9, distribution: null } } };
+	const carriedTo = (reissued) => {
+		const view = initialView({ runId: "r", rawInput: "x", context, candidates: [], readFirst: false });
+		const first = { key: "first", verb: "apply", family: "person", label: "f", source: "t", bound: {}, unbound: [], clerk: "stated_obligation", then: base.key, thenCompile: compile };
+		settleExecute(view, 1, { kind: "direct", purpose: "execute", candidate: first }, { ok: true, summary: {} }, { context, candidates: [reissued] }, 0);
+		return view.pending[0].candidate;
+	};
+	const offered = carriedTo({ ...base, unbound: [{ name: "target", required: true, vocabulary: "closed", options: ["Knott", "Ruth"] }, { name: "weapon", required: true, vocabulary: "closed", options: ["unarmed", ".38"] }] });
+	assert.deepEqual([offered.bound.target, offered.unbound.map((value) => value.name), offered.basis.compile], ["Knott", ["weapon"], compile]);
+	const gone = carriedTo({ ...base, unbound: [{ name: "target", required: true, vocabulary: "closed", options: ["Ruth"] }] });
+	assert.deepEqual([gone.bound.target, gone.basis.compile], [undefined, undefined], "fail closed: an ordinary clerk write, reviewed");
 });
 
 test("§135.28: a target among several has no rules default: Jev's unknown hands the turn to the Keeper and drops the candidate for the run", () => {
@@ -166,6 +269,8 @@ function shapes(clerk) {
 		{ ...base, key: `${clerk}:mixed`, unbound: [{ name: "target", required: true, vocabulary: "closed", options: ["a", "b"] }, { name: "goal", required: true, vocabulary: "open" }] },
 		{ ...base, key: `${clerk}:closed`, unbound: [{ name: "target", required: true, vocabulary: "closed", options: ["a", "b"] }] },
 		{ ...base, key: `${clerk}:defaulted`, unbound: [{ name: "skill", required: true, vocabulary: "closed", options: ["A", "B"], ruleDefault: { rule: "highest_offered_skill", value: "B" } }] },
+		{ ...base, key: `${clerk}:lead`, unbound: [{ name: "skill", required: true, vocabulary: "closed", options: ["A", "B"], ruleDefault: { rule: "jev_lead", fallback: { rule: "highest_offered_skill", value: "B" } } }] },
+		{ ...base, key: `${clerk}:lead-only`, unbound: [{ name: "skill", required: true, vocabulary: "closed", options: ["A", "B"], ruleDefault: { rule: "jev_lead" } }] },
 		{ ...base, key: `${clerk}:ordinary`, unbound: [{ name: "profile, difficulty and modifiers", required: true, vocabulary: "closed", binder: "ordinary-resolve" }] },
 		{ ...base, key: `${clerk}:variants`, unbound: [{ name: "decision", required: true, vocabulary: "closed", options: ["d:attack", "d:maneuver"] }], forced: true,
 			variants: { "d:attack": { label: "attack", bound: { decision: "d:attack" }, unbound: [{ name: "target", required: true, vocabulary: "closed", options: ["a", "b"] }] },

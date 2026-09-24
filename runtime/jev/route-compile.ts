@@ -279,6 +279,26 @@ export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows'>,
   return {selected, decided, fellThrough, features, reason: selected.length ? `selected_${selected.length}` : decided.length ? 'decided_none' : 'fell_through'};
 }
 
+/**
+ * §32.12.1 (SL-21): the compile's record of a selected candidate, re-applied to the candidate a fresh read re-issued under
+ * the same key (a check the compile selected that first carried the meeting the book puts before it). The fresh read's
+ * kernel row stays; `basis.compile` joins it, and each parameter the compile settled is bound again. Fail closed: when the
+ * re-issued candidate no longer offers a value the compile settled, the record is not carried at all, so the write is an
+ * ordinary clerk write and admission reviews it.
+ */
+export function carryCompile(candidate: Candidate, compile: Json | undefined): Candidate {
+  const record = object(compile);
+  if (!text(record.predicate)) return candidate;
+  const values: Record<string, Json> = {};
+  for (const [name, entry] of Object.entries(object(record.bound))) {
+    const value = object(entry).value as Json, parameter = candidate.unbound.find(item => item.name === name);
+    if (parameter ? !parameter.options?.includes(String(value)) : candidate.bound[name] !== value) return candidate;
+    values[name] = value;
+  }
+  return {...candidate, bound: {...candidate.bound, ...values}, unbound: candidate.unbound.filter(item => !Object.hasOwn(values, item.name)),
+    basis: {...basisOf(candidate), compile: record} as Json};
+}
+
 /** The dedupe identity of the compile question (recorded with the step). */
 export function compileDigest(view: Pick<CompileView, 'rawInput' | 'candidates' | 'rows'>): string {
   return digest([COMPILE_FAMILY, view.rawInput, view.candidates.map(value => value.key), view.rows ?? null]);

@@ -414,3 +414,63 @@ test("§32.12: a clerk move the compile selected is admitted without the fast pa
 		assert.equal(table.lanes.admission.requests().length, 1);
 	});
 });
+
+// ---- SL-21: the gate #7 shape -- the check carries the book's meeting, then binds ----------------------------------------
+
+/** Turn 1 walked into the morgue and closed; Arty is the book's gatekeeper there and not yet on stage. */
+const movedIn = (workspace) => kernelSteps(workspace, [
+	["table.open", {}], ["table.player_input", { text: "我去《环球报》报馆" }],
+	["table.apply", { call_id: "t1-c1", effects: [{ kind: "move", to: MORGUE }] }],
+	["table.narrate", { call_id: "t1-c2", text: "报馆里油墨味很重。" }],
+]);
+/** The gate #7 compile: the demand at 0.91; Arty as the addressee at 0.51 (0.63 against unclear 0.35: the margin rule); social. */
+const gate7Compile = (question) => question.key === "ask" ? [aliasWhere(question, (value) => value && typeof value === "object" && "demand" in value), 0.91]
+	: question.key === "addressee" ? (() => { const alias = aliasWhere(question, (value) => JSON.stringify(value).includes("Arty") || JSON.stringify(value).includes("城市版编辑") || JSON.stringify(value).includes("gatekeeper"));
+		return [alias, 0.51, { [alias]: 0.63, unclear: 0.35, none: 0.01 }]; })()
+	: question.key === "act" ? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("social")), 0.97]
+	: undefined;
+/** Jev for the gate #7 run: the compile above; the check's bind with the approach as given; every route: finish. */
+function gate7Jev(skill) {
+	return { decide: async (batch) => {
+		if (batch.family === COMPILE_FAMILY)
+			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(gate7Compile(question) ?? ["unclear", 0.9])])));
+		if (batch.family === BIND_FAMILY)
+			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(question.key === "skill" ? skill
+				: [({ bonus: "none", penalty: "none", intent: "social" })[question.key] ?? "unknown", 0.84])])));
+		return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
+			choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9])])));
+	} };
+}
+
+test("SL-21 (§32.12): the check the compile selected keeps its evidence through the book's meeting and its bind -- admitted path compile, no lane", async (t) => {
+	for (const [label, skill, expected] of [
+		["Jev's approach above the gate", ["Persuade", 0.9], { value: "Persuade", path: "jev" }],
+		["the gate #7 approach: Persuade 0.67 at confidence 0.59, under the gate", ["Persuade", 0.59, { Persuade: 0.67, unknown: 0.31, Intimidate: 0, Charm: 0, "Fast Talk": 0.02 }],
+			{ value: "Persuade", path: "rule-default", rule: "jev_lead" }],
+	]) await t.test(label, async (tt) => {
+		const table = await hybrid(tt, { prepare: movedIn, compile: gate7Compile, engine: { decision: gate7Jev(skill) }, responses: narrateOnly("编辑松了口，放你下楼。") });
+		await table.session.prompt("我说明来意，请他帮忙调出科比特宅这些年的旧剪报。");
+		const telemetry = table.telemetry("test-camp");
+		const binds = telemetry.filter((row) => row.lane === "run" && row.event === "bind");
+		assert.deepEqual(binds.map((row) => [row.candidate, row.status]), [["apply:person:Arty Wilmot", "succeeded"], [`resolve:obligation:${ACCESS}`, "succeeded"]],
+			"the book's meeting is carried first, then the check");
+		const record = binds[1].bindings.find((entry) => entry.name === "skill");
+		assert.deepEqual([record.value, record.path, record.rule], [expected.value, expected.path, expected.rule]);
+		const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "resolve");
+		assert.ok(row, "the clerk's check reached admission");
+		assert.equal(row.basis?.compile?.predicate, "obligation_check", "the check that ran after the meeting still carries the compile's basis");
+		assert.deepEqual(row.basis.compile.read_features.ask, { row: `obligation:${ACCESS}`, confidence: 0.91, cleared: true });
+		assert.deepEqual([row.path, row.reviewer, row.verdict, row.compile_refused], ["compile", "compile", "authorized", undefined]);
+		assert.equal(row.binding_paths.skill, expected.path);
+		assert.equal(table.lanes.admission.requests().length, 0, "the lane was never asked");
+	});
+	// The carried check whose exemption is refused says why, like any compile selection (§32.12).
+	await t.test("the carried check with its fired-on ask under the gate: reviewed, compile_refused recorded", async (tt) => {
+		const table = await hybrid(tt, { prepare: movedIn, compile: gate7Compile, engine: { decision: gate7Jev(["Persuade", 0.9]) }, responses: narrateOnly("编辑松了口，放你下楼。"),
+			tamper: (origin) => { if (origin.origin === "policy" && origin.basis?.compile) origin.basis.compile.read_features.ask = { ...origin.basis.compile.read_features.ask, confidence: 0.41, cleared: false }; return origin; } });
+		await table.session.prompt("我说明来意，请他帮忙调出科比特宅这些年的旧剪报。");
+		const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "resolve");
+		assert.deepEqual([row?.path, row?.compile_refused], ["lane", "feature_not_cleared:ask"]);
+		assert.equal(table.lanes.admission.requests().length, 1);
+	});
+});

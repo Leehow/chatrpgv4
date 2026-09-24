@@ -192,8 +192,17 @@ export function highestOffered(reads: ObligationReads, skills: string[], actor: 
   }
   return best?.skill;
 }
-/** The approach's rules default: one value for a bound actor, one per actor when the actor is still to bind. */
-function approachDefault(reads: ObligationReads, skills: string[], actor: string | undefined, actors: string[]): RuleDefault | undefined {
+/**
+ * The approach's rules default (§135.28 as amended by SL-21): Jev's leading answer among the offered approaches, at any
+ * confidence (`jev_lead`: the manner the player's words take); only when Jev answers `unknown` or does not answer, the
+ * actor's highest offered value -- one value for a bound actor, one per actor when the actor is still to bind -- and none
+ * when no offered approach has a bound value.
+ */
+function approachDefault(reads: ObligationReads, skills: string[], actor: string | undefined, actors: string[]): RuleDefault {
+  const fallback = highestDefault(reads, skills, actor, actors);
+  return {rule: 'jev_lead', ...(fallback ? {fallback} : {})};
+}
+function highestDefault(reads: ObligationReads, skills: string[], actor: string | undefined, actors: string[]): RuleDefault | undefined {
   if (actor) { const value = highestOffered(reads, skills, actor); return value ? {rule: 'highest_offered_skill', value} : undefined; }
   const values = Object.fromEntries(actors.flatMap(name => { const value = highestOffered(reads, skills, name); return value ? [[name, value]] : []; }));
   return Object.keys(values).length ? {rule: 'highest_offered_skill', by: {name: 'actor', values}} : undefined;
@@ -215,8 +224,7 @@ function check(reads: ObligationReads, row: Row, index: number, rawInput: string
   // Several approaches: the player's own words choose among the book's, never the clerk; with them the ordinary
   // binder's closed dice choice. One approach is bound. `maximum` is the kernel's to bind (§134.11).
   if (approach && skills.length > 1) {
-    const ruleDefault = approachDefault(reads, skills, actor, actors);
-    unbound.push({name: 'skill', required: true, vocabulary: 'closed', options: skills, ...(ruleDefault ? {ruleDefault} : {}),
+    unbound.push({name: 'skill', required: true, vocabulary: 'closed', options: skills, ruleDefault: approachDefault(reads, skills, actor, actors),
       descriptions: Object.fromEntries(approaches.map(value => [text(value.skill),
         `${text(value.skill)}${Number.isSafeInteger(value.minimum) ? ` (the book asks for ${value.minimum} or more)` : ''}`])),
       instruction: `Select the approach the player's declared words take${target ? ` toward ${target}` : ''}: the one skill among these the investigator `
