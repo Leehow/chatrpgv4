@@ -1,0 +1,13 @@
+{
+ "campaign": "longgate2-haunting-0830",
+ "module": "the-haunting",
+ "turn": 14,
+ "commit_before": "4ef7987",
+ "commit_after": "f3b07c4",
+ "player_input": "我下楼回厨房，撬开那个锁着的储物柜。",
+ "tarball": "../longgate30/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/longgate2-haunting-0830",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate2-haunting-0830-20260924T123001Z"
+ }
+}
