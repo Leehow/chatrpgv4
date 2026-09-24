@@ -56,8 +56,12 @@ import {
 	ADMITTING_VERDICTS,
 	admissionRefusal,
 	admissionRequest,
+	admissionTimedOut,
 	admissionUnavailable,
+	compileAdmission,
+	type ClerkEvidence,
 	keyDigest,
+	REVIEW_TIMEOUT,
 	registeredDestination,
 	reviewAdmissionPrimary,
 } from "./admission.ts";
@@ -1972,10 +1976,15 @@ export default function (pi: ExtensionAPI) {
 	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal, providerBudget?: TaskProviderBudget,
 		// §135.7: a policy-origin call of the single-loop run names its origin and the kernel row it came from on
 		// every admission row, so the §32 research can be read off telemetry. Absent for the model's own calls.
-		origin: Record<string, unknown> = {}): Promise<void> {
+		origin: Record<string, unknown> = {},
+		// §32.12: the dispatcher frame's host origin (never the tool arguments): who proposed this call, and for the clerk
+		// the compile's evidence and the bind records; `host` a host-dispatched call with no origin, `model` the Keeper's.
+		evidence: ClerkEvidence & { label?: string } = {}): Promise<void> {
+		// §32.12: every admission row says who proposed it, which path decided (`none` when no review ran) and how long it took.
+		const who = { origin: typeof origin.origin === "string" ? origin.origin : evidence.label ?? "model" };
 		const internalCombatMove = tool === "apply" ? combatSceneMove(state, payload) : undefined;
 		if (internalCombatMove) {
-			await record({ lane: "admission", verb: tool, ok: true, skipped: "combat_scene_required", destination: internalCombatMove, ...origin });
+			await record({ lane: "admission", verb: tool, ok: true, skipped: "combat_scene_required", destination: internalCombatMove, path: "none", ms: 0, ...origin, ...who });
 			return;
 		}
 		const destinations: AdmissionDestination[] = [];
@@ -1998,12 +2007,13 @@ export default function (pi: ExtensionAPI) {
 		// Lane rows name the verb as `verb`: `tool` is the tool-call row's own column, and readers
 		// (kpi.py, the tests) find a verb's call row by it.
 		if (!state.playerText) {
-			await record({ lane: "admission", verb: tool, ok: true, skipped: "no_player_text", key: digest, ...origin });
+			await record({ lane: "admission", verb: tool, ok: true, skipped: "no_player_text", key: digest, path: "none", ms: 0, ...origin, ...who });
 			return;
 		}
-		const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string, meta: Record<string, unknown> = {}): Promise<void> => {
-			state.admission.set(proposal.key, verdict);
+		const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string, meta: Record<string, unknown> = {}, keep = true): Promise<void> => {
+			if (keep) state.admission.set(proposal.key, verdict);
 			const admitted = ADMITTING_VERDICTS.has(verdict.verdict);
+			const timedOut = verdict.verdict === REVIEW_TIMEOUT;
 			// A refusal costs the player the whole batch, and until now the row said only which verdict
 			// came back: the reviewer's own reasons and the effects it was judging lived in the thrown
 			// KernelError (which the Keeper reads and nobody keeps) and in a turn record whose `calls`
@@ -2014,17 +2024,30 @@ export default function (pi: ExtensionAPI) {
 			// what decide between those two readings, so a refusal now carries them.
 			// §32.10: which reviewer decided, and the typed route's own cost, so tables can be compared.
 			await record({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}),
-				...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}), ...meta, ...origin,
+				...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}), path: verdict.path ?? "lane",
+				...(timedOut ? { timed_out: true, cap_ms: verdict.capMs ?? null } : {}), ...meta, ...origin, ...who,
 				...(admitted ? {} : { grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), proposed: proposal.lines }) });
 			if (admitted) return;
+			// §32.12: a review cut at its cap judged nothing a rewording could repeat, so the reviewer is not told it refused.
+			if (timedOut) throw admissionTimedOut(proposal, verdict.capMs ?? 0, ms);
 			state.admissionRefused.push(`${proposal.lines.join(" | ")} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
 			throw admissionRefusal(proposal, verdict);
 		};
 		const remembered = state.admission.get(proposal.key);
 		if (remembered) return settle(remembered, true, 0);
+		// §32.12: a clerk write the compile selected is admitted on the compile's evidence -- no lane call, no typed call.
+		// Not kept for the turn: it is this call's evidence, so a Keeper's identical proposal is reviewed.
+		const compiled = compileAdmission(evidence);
+		if (compiled?.ok) {
+			const began = Date.now();
+			return settle({ verdict: "authorized", grounds: `compile: ${compiled.predicate} fired on ${Object.entries(compiled.features).map(([family, value]) => `${family}=${String(value.row)}`).join(", ")}`,
+				reviewer: "compile", path: "compile" }, false, Date.now() - began, undefined,
+				{ predicate: compiled.predicate, features: compiled.features, binding_paths: compiled.bindingPaths }, false);
+		}
+		const refusedCompile = compiled ? { compile_refused: compiled.reason } : {};
 		const ctx = sessionCtx;
 		if (!ctx) {
-			await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, ...origin });
+			await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, path: "none", ms: 0, ...refusedCompile, ...origin, ...who });
 			throw admissionUnavailable(proposal, "session_gone", "the session was gone before the review could start");
 		}
 		const context: AdmissionContext = {
@@ -2045,7 +2068,7 @@ export default function (pi: ExtensionAPI) {
 			record: (row) => record({ verb: tool, ...row, ...origin }), ...(signal ? { signal } : {}) });
 		if (!outcome.ok) {
 			await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}),
-				...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), ...outcome.meta, ...origin });
+				...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), path: "lane", ...outcome.meta, ...refusedCompile, ...origin, ...who });
 			state.admissionOutage += 1;
 			const streak = state.admissionOutage;
 			if (streak >= 2 && !state.admissionOutageNotified) {
@@ -2070,10 +2093,13 @@ export default function (pi: ExtensionAPI) {
 			}
 			throw admissionUnavailable(proposal, outcome.reason, outcome.detail, streak);
 		}
-		// A live verdict, admitting or refusing, proves the review is back: the outage streak ends.
-		state.admissionOutage = 0;
-		state.admissionOutageNotified = false;
-		await settle(outcome.verdict, false, outcome.ms, outcome.model, outcome.meta);
+		// A live verdict, admitting or refusing, proves the review is back: the outage streak ends. A review cut at its cap
+		// (§32.12) is neither: it does not count toward the streak and does not end it.
+		if (outcome.verdict.verdict !== REVIEW_TIMEOUT) {
+			state.admissionOutage = 0;
+			state.admissionOutageNotified = false;
+		}
+		await settle(outcome.verdict, false, outcome.ms, outcome.model, { ...outcome.meta, ...refusedCompile });
 	}
 
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
@@ -2928,6 +2954,9 @@ export default function (pi: ExtensionAPI) {
 		const origin: Record<string, unknown> = host ? { origin: host.origin, run: host.run, step: host.step,
 			...(host.clerk ? { clerk: host.clerk } : {}), ...(host.basis !== undefined ? { basis: host.basis } : {}) }
 			: readArgs && fromStep ? { origin: "model", run: fromStep.run, step: fromStep.step } : {};
+		// §32.12: admission's view of the same frame -- the clerk's compile evidence and bind records, or who else proposed it.
+		const evidence = host ? { origin: host.origin, basis: host.basis, bindings: host.bindings }
+			: { label: dispatcher.tracksMutation(toolCallId) ? "host" : "model" };
 		const readRow: Record<string, unknown> = readArgs ? { args: readArgs.args, ...(readArgs.cut.length ? { args_cut: readArgs.cut } : {}),
 			...(readArgs.withheld.length ? { args_withheld: readArgs.withheld } : {}) } : {};
 		const keepRead = (ok: boolean): void => {
@@ -3065,7 +3094,7 @@ export default function (pi: ExtensionAPI) {
 			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
 			// proposal pays for no definition agent and reaches no transaction.
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery();
-			if (spec.name === "resolve" || spec.name === "apply") await admitAction(state, spec.name, payload, signal, providerBudget, origin);
+			if (spec.name === "resolve" || spec.name === "apply") await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence);
 			// Contract §128.3. An explicit narrate is never steered for speech (§128.2), so attribution is
 			// the only leg its unwrapped passages get; it runs before the Mod hooks so the continuity review
 			// reads the text the kernel will commit. An ask carries no attribution of its own.
@@ -3135,7 +3164,7 @@ export default function (pi: ExtensionAPI) {
 					if(await prepare(toolCallId,readingModule,failure,ensurePending)===false)throw new KernelError({code:'needs',message:'The source preparation has no tracked mutation owner',details:{reason:'source_preparation_not_owned'}});
 				} else await ensurePending(read,signal);
 				// Retry the original identity only after the exact source publication; consent and Mod gates run again.
-				if(spec.name==='resolve'||spec.name==='apply')await admitAction(state,spec.name,payload,signal,providerBudget,origin);
+				if(spec.name==='resolve'||spec.name==='apply')await admitAction(state,spec.name,payload,signal,providerBudget,origin,evidence);
 				if(mods){
 					const again=await mods.prepare(spec.name,payload,signal,providerBudget);
 					if(spec.name==='narrate'||spec.name==='ask'){prepared=again;notePrepared(state,again);}

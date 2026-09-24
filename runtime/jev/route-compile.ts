@@ -81,6 +81,12 @@ export type Cleared = {[family in FeatureFamily]?: {row: string | null; confiden
 export interface Fired {bound?: Record<string, Json>}
 export interface CompilePredicate {
   name: string;
+  /**
+   * The families this predicate reads, the ones it turns on and the ones it guards with when they clear (§32.12). The
+   * compile records each of them that was asked on the selected candidate's `basis.compile.read_features`, so admission
+   * can see whether every feature the selection read cleared the gate.
+   */
+  features: readonly FeatureFamily[];
   /** The candidates this predicate reads. */
   reads(candidate: Candidate): boolean;
   /** The compile can reach this candidate: the families it turns on have rows. */
@@ -110,11 +116,11 @@ const attackTargets = (candidate: Candidate): string[] => typeof candidate.bound
   ? [candidate.bound.target] : candidate.unbound.find(value => value.name === 'target')?.options ?? [];
 
 export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
-  {name: 'move', askable: rows => has(rows, 'destination'),
+  {name: 'move', features: ['destination'], askable: rows => has(rows, 'destination'),
     reads: candidate => candidate.family === 'move' && typeof candidate.bound.to === 'string',
     decided: cleared => !!cleared.destination,
     fires: (candidate, cleared) => cleared.destination?.row === candidate.bound.to ? {} : undefined},
-  {name: 'obligation_check', askable: rows => has(rows, 'ask'), sole: true,
+  {name: 'obligation_check', features: ['ask', 'addressee', 'act'], askable: rows => has(rows, 'ask'), sole: true,
     reads: candidate => candidate.family === 'obligation_check' && !!text(basisOf(candidate).obligation),
     decided: cleared => !!cleared.ask,
     fires: (candidate, cleared) => {
@@ -124,7 +130,7 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
       if (cleared.act?.row && intents.length && !intents.includes(cleared.act.row)) return undefined;
       return {};
     }},
-  {name: 'stated_meeting', askable: rows => has(rows, 'addressee') || has(rows, 'ask'), sole: true,
+  {name: 'stated_meeting', features: ['addressee', 'ask'], askable: rows => has(rows, 'addressee') || has(rows, 'ask'), sole: true,
     reads: candidate => candidate.family === 'person' && candidate.clerk === 'stated_obligation' && basisOf(candidate).step === 'meet',
     decided: cleared => !!cleared.addressee || !!cleared.ask,
     fires: (candidate, cleared) => {
@@ -132,7 +138,7 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
       if (cleared.addressee?.row && people.includes(cleared.addressee.row)) return {};
       return cleared.ask?.row === obligationRow(candidate) && addresseeAllows(cleared, people) ? {} : undefined;
     }},
-  {name: 'attack', askable: rows => has(rows, 'act') && has(rows, 'target'),
+  {name: 'attack', features: ['act', 'target'], askable: rows => has(rows, 'act') && has(rows, 'target'),
     reads: candidate => candidate.family === 'combat' && candidate.bound.decision === 'combat:attack' && !candidate.forced && candidate.bound.actor === undefined,
     // An act other than the attack settles it; the attack with no cleared target is left to the route and the attack's own bind.
     decided: cleared => !!cleared.act && (cleared.act.row !== 'combat:attack' || !!cleared.target),
@@ -249,8 +255,12 @@ export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows'>,
         const family = name as FeatureFamily;
         return [name, {value, confidence: cleared[family]?.confidence ?? null, distribution: cleared[family]?.distribution ?? null}];
       }));
+      // §32.12: every family the predicate reads that the compile asked, cleared or not, with its confidence: a guard that
+      // did not clear let the predicate fire without it, and admission reads that as a feature under the gate.
+      const readFeatures = Object.fromEntries(predicate.features.filter(family => features[family])
+        .map(family => [family, {row: features[family].row, confidence: features[family].confidence, cleared: features[family].cleared}]));
       const chosen: Candidate = {...candidate, bound: {...candidate.bound, ...bound}, unbound: candidate.unbound.filter(value => !Object.hasOwn(bound, value.name)),
-        basis: {...basisOf(candidate), compile: {predicate: predicate.name, features: read, ...(Object.keys(settled).length ? {bound: settled} : {})}} as Json};
+        basis: {...basisOf(candidate), compile: {predicate: predicate.name, features: read, read_features: readFeatures, ...(Object.keys(settled).length ? {bound: settled} : {})}} as Json};
       selected.push({candidate: chosen, predicate: predicate.name, features: read});
     } else if (predicate?.decided(cleared)) decided.push(candidate.key);
     else fellThrough.push(candidate.key);

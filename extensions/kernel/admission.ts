@@ -32,17 +32,21 @@ import {
 	runAdmissionJev,
 	type AdmissionJevInput,
 } from "../../runtime/jev/admission-domain.ts";
+import { COMPILE_PREDICATES } from "../../runtime/jev/route-compile.ts";
 
 /** The closed set of verdicts; anything else is `bad_output`. The first three admit, the last two refuse. */
 export const ADMITTING_VERDICTS: ReadonlySet<string> = new Set(["authorized", "entailed", "not_player_action"]);
 export const REFUSING_VERDICTS: ReadonlySet<string> = new Set(["not_authorized", "uncertain"]);
 
 /**
- * Cap on one review, `PI_COC_ADMISSION_TIMEOUT_MS`. The first real table (`admission-e2e-1`,
- * grok-4.6 reviewing) answered in 13–45 s and lost two turns to a 60 s cap; a cap that refuses
- * costs the player the action, so it sits at the verifier's two minutes rather than below it.
+ * Cap on one lane review, `PI_COC_ADMISSION_TIMEOUT_MS`, measured from the lane request (contract §32.12). It sat at the
+ * verifier's two minutes after the first real table lost two turns to 60 s; live gate #6 (2026-09-24) then paid 57 s for
+ * one review -- headers at 1.7 s, then 55 s of streaming -- inside a turn the owner holds to 60 s. The review is bounded
+ * inside the turn: past 12 s it ends `review_timeout`, a refusal, never an admit.
  */
-const DEFAULT_ADMISSION_TIMEOUT_MS = 120_000;
+export const DEFAULT_ADMISSION_TIMEOUT_MS = 12_000;
+/** The host's verdict for a lane review cut at its cap (§32.12): not one of the lane's five, never an admit. */
+export const REVIEW_TIMEOUT = "review_timeout";
 
 export function admissionTimeoutMs(): number {
 	const raw = process.env.PI_COC_ADMISSION_TIMEOUT_MS?.trim();
@@ -57,14 +61,20 @@ export interface AdmissionVerdict {
 	missing?: string;
 	/** Which reviewer gave this verdict (§32.10); absent on verdicts from before the typed route. */
 	reviewer?: AdmissionReviewer;
+	/** Whose verdict stood (§32.11, §32.12), kept so a reused row names it too. */
+	path?: AdmissionPath;
+	/** `review_timeout` only: the cap the review ran into (§32.12). */
+	capMs?: number;
 }
+/** Which path decided an admission row (§32.12): the compile's evidence, the typed reviewer, the lane, or no review at all. */
+export type AdmissionPath = "compile" | "typed" | "lane" | "none";
 
 /**
  * The primary reviewer (§32.10), `PI_COC_ADMISSION_REVIEWER`. `lane` is the §32.2 completion and
  * stays the default until live agreement evidence exists; `jev` puts the typed family first and
  * falls back to the lane for every non-verdict. Read per call: a process loads this once per table.
  */
-export type AdmissionReviewer = "jev" | "lane";
+export type AdmissionReviewer = "jev" | "lane" | "compile";
 export function admissionReviewer(env: NodeJS.ProcessEnv = process.env): AdmissionReviewer {
 	return env.PI_COC_ADMISSION_REVIEWER?.trim() === "jev" ? "jev" : "lane";
 }
@@ -423,6 +433,21 @@ export function admissionUnavailable(proposal: AdmissionProposal, reason: string
 	});
 }
 
+/**
+ * The lane review ran into its cap (§32.12). It judged nothing about the player's choice, so the Keeper is told that, not
+ * a missing choice; and it is not an outage, so there is no service notice. The identical proposal is refused again at
+ * once this turn (§32.4), and the player's next input is free to try.
+ */
+export function admissionTimedOut(proposal: AdmissionProposal, capMs: number, ms: number): KernelError {
+	const seconds = Math.round(capMs / 100) / 10;
+	return new KernelError({
+		code: "needs",
+		message: `The action review did not answer within its ${seconds} s cap, so this action is not settled this turn`,
+		fix: "Nothing of this refused batch happened: do not roll, move, spend time or money, or land clues, documents or items for it, do not narrate its effects as having happened, and do not resend it this turn. The review judged nothing about the player's choice. Whatever this turn already settled with a receipt did happen and is narrated as usual. Close the turn with narrate: take up what the player actually said; the player's next input can try again.",
+		details: { reason: REVIEW_TIMEOUT, cap_ms: capMs, ms, proposed: proposal.lines, tool: proposal.tool },
+	});
+}
+
 export type AdmissionOutcome =
 	| { ok: true; verdict: AdmissionVerdict; ms: number; model: string; reviewer?: AdmissionReviewer; meta?: Record<string, unknown> }
 	| { ok: false; reason: string; detail: string; ms: number; model?: string; reviewer?: AdmissionReviewer; meta?: Record<string, unknown> };
@@ -439,6 +464,7 @@ export interface AdmissionReviewOptions {
 
 /** One review round through the shared lane runner (contract §12.5's pattern, §32's remit). Never throws. */
 export async function reviewAdmission(options: AdmissionReviewOptions): Promise<AdmissionOutcome> {
+	const capMs = options.timeoutMs ?? admissionTimeoutMs();
 	const lane = await runLane<AdmissionVerdict>({
 		providerBudget: options.providerBudget,
 		ctx: options.ctx,
@@ -448,11 +474,17 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 		systemPrompt: admissionSystemPrompt(),
 		input: buildAdmissionInput(options.proposal, options.context),
 		...(options.signal ? { signal: options.signal } : {}),
-		timeoutMs: options.timeoutMs ?? admissionTimeoutMs(),
+		timeoutMs: capMs,
 		shape: shapeVerdict,
 	});
-	if (!lane.ok) return { ok: false, reason: lane.reason, detail: lane.detail, ms: lane.ms, ...(lane.model ? { model: lane.model } : {}), reviewer: "lane", meta: { path: "lane" } };
-	return { ok: true, verdict: { ...lane.value, reviewer: "lane" }, ms: lane.ms, model: lane.model, reviewer: "lane", meta: { path: "lane" } };
+	const meta = { path: "lane", first_byte_ms: lane.firstByteMs ?? null };
+	// §32.12: a round cut at its cap -- whether the provider never answered or answered and streamed past it -- is the
+	// host's `review_timeout` verdict, a refusal; never an outage, and never an admit.
+	if (!lane.ok && lane.reason === "timeout") return { ok: true,
+		verdict: { verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${capMs} ms cap`, reviewer: "lane", path: "lane", capMs },
+		ms: lane.ms, model: lane.model ?? "", reviewer: "lane", meta: { ...meta, timed_out: true, cap_ms: capMs } };
+	if (!lane.ok) return { ok: false, reason: lane.reason, detail: lane.detail, ms: lane.ms, ...(lane.model ? { model: lane.model } : {}), reviewer: "lane", meta };
+	return { ok: true, verdict: { ...lane.value, reviewer: "lane", path: "lane" }, ms: lane.ms, model: lane.model, reviewer: "lane", meta };
 }
 
 /**
@@ -545,7 +577,7 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	const verdict = typed;
 	const decided = (via?: string): AdmissionOutcome => ({
 		ok: true,
-		verdict: { verdict: verdict.verdict, grounds: verdict.grounds, ...(verdict.missing ? { missing: verdict.missing } : {}), reviewer: "jev" },
+		verdict: { verdict: verdict.verdict, grounds: verdict.grounds, ...(verdict.missing ? { missing: verdict.missing } : {}), reviewer: "jev", path: "typed" },
 		ms: Date.now() - began,
 		model: ADMISSION_JEV_MODEL,
 		reviewer: "jev",
@@ -560,4 +592,55 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 		return lane(ADMITTING_VERDICTS.has(verdict.verdict) ? "low_confidence" : "typed_refusal", jev);
 	}
 	return decided();
+}
+
+/** The four ways a clerk parameter gets its value (§135.28); the compile's evidence admits only a write bound these ways. */
+export const EXEMPT_BINDING_PATHS: ReadonlySet<string> = new Set(["stated", "composed", "rule-default", "jev"]);
+
+/** What the dispatcher's host origin carries for a clerk write (§135.4, §32.12); never read from tool arguments. */
+export interface ClerkEvidence {
+	origin?: string;
+	basis?: unknown;
+	/** The engine's bind records for this call, computed before the dispatch: `path: null` for a parameter with no record. */
+	bindings?: unknown;
+}
+
+export type CompileAdmission =
+	| { ok: true; predicate: string; features: Record<string, { row: unknown; confidence: unknown }>; bindingPaths: Record<string, string> }
+	| { ok: false; reason: string };
+
+const record = (value: unknown): Record<string, unknown> | undefined =>
+	value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+
+/**
+ * Contract §32.12: a clerk write the compile selected is admitted on the compile's evidence. `undefined` when the call is
+ * not a compile selection at all (the review runs, nothing to say); otherwise the exemption or the reason it is refused.
+ * Pure, and it fails closed: every missing record is a refusal of the exemption, which means an ordinary review.
+ */
+export function compileAdmission(evidence: ClerkEvidence | undefined): CompileAdmission | undefined {
+	if (evidence?.origin !== "policy") return undefined;
+	const compile = record(record(evidence.basis)?.compile);
+	if (!compile) return undefined;
+	const predicate = COMPILE_PREDICATES.find((value) => value.name === compile.predicate);
+	if (!predicate) return { ok: false, reason: "unknown_predicate" };
+	const read = record(compile.read_features);
+	if (!read || !Object.keys(read).length) return { ok: false, reason: "features_unrecorded" };
+	const features: Record<string, { row: unknown; confidence: unknown }> = {};
+	for (const family of predicate.features) {
+		if (!Object.hasOwn(read, family)) continue;
+		const entry = record(read[family]);
+		if (entry?.cleared !== true) return { ok: false, reason: `feature_not_cleared:${family}` };
+		features[family] = { row: entry.row ?? null, confidence: entry.confidence ?? null };
+	}
+	if (!Object.keys(features).length) return { ok: false, reason: "features_unrecorded" };
+	const bindings = Array.isArray(evidence.bindings) ? evidence.bindings : undefined;
+	if (!bindings?.length) return { ok: false, reason: "bindings_unrecorded" };
+	const bindingPaths: Record<string, string> = {};
+	for (const raw of bindings) {
+		const entry = record(raw), name = typeof entry?.name === "string" ? entry.name : "?";
+		if (typeof entry?.path !== "string") return { ok: false, reason: `parameter_path_unrecorded:${name}` };
+		if (!EXEMPT_BINDING_PATHS.has(entry.path)) return { ok: false, reason: `parameter_path_not_exempt:${name}` };
+		bindingPaths[name] = entry.path;
+	}
+	return { ok: true, predicate: predicate.name, features, bindingPaths };
 }
