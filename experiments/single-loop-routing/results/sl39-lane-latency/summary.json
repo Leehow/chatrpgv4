@@ -1,0 +1,45 @@
+{
+  "model_tested": "opencode-go/deepseek-v4.1-flash",
+  "runs_per_case_per_arm": 3,
+  "cases_total": 24,
+  "cases_substantive_recorded_verdict": 21,
+  "cap_ms_used_for_replay": 60000,
+  "arms": {
+    "a_current": {
+      "n_calls": 72,
+      "n_failed": 1,
+      "latency_ms_successful_calls": {
+        "p50": 5046,
+        "p90": 13004,
+        "p95": 14978,
+        "max": 50582
+      },
+      "verdict_agreement_vs_recorded": {
+        "run_level": "35/63",
+        "run_level_pct": 55.6,
+        "cases_all_3_runs_match": "10/21",
+        "cases_majority_match": "11/21",
+        "cases_any_run_matches": "14/21"
+      },
+      "self_consistency_all_3_runs_identical": "14/21"
+    },
+    "b_fast_setting": {
+      "n_calls": 72,
+      "n_failed": 0,
+      "latency_ms_successful_calls": {
+        "p50": 5554,
+        "p90": 14328,
+        "p95": 17344,
+        "max": 22824
+      },
+      "verdict_agreement_vs_recorded": {
+        "run_level": "39/63",
+        "run_level_pct": 61.9,
+        "cases_all_3_runs_match": "10/21",
+        "cases_majority_match": "13/21",
+        "cases_any_run_matches": "16/21"
+      },
+      "self_consistency_all_3_runs_identical": "12/21"
+    }
+  }
+}
