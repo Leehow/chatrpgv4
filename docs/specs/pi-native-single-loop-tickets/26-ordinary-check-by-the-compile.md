@@ -1,4 +1,4 @@
-Status: in-progress
+Status: ready-for-human
 Stage: SL-26 (P2; extends SL-13)
 Spec: docs/specs/pi-native-single-loop.md (Ruling: "The declared ordinary check is the clerk's")
 
@@ -67,3 +67,90 @@ with no lane request for it when the skill record says `cleared: true` (a `clear
   My expectation: (a) in most runs, as live. What falsifies the change rather than the model: two Listen rolls in one run,
   a clerk ordinary check whose intent is not the compile's act, or a compile-selected check admitted without its skill
   record cleared.
+
+### 2026-09-24 — implemented, replays, mutations, suites (branch `claude/sl26-20260924`, base `1dccf4578`)
+
+**Commits.** `3e2826490` contract (§135.30.3; §135.3's `declared_check`; §32.12's family list). `4be7922ee` implementation
+and tests. `54aae1308` pre-registration and fixtures. `b0f9f6d9d` the `bind-ordinary` row records the binder's `route` and
+`consent` answers (added after the first `longgate-t12` run: a `no_roll` there had no distribution; telemetry only). The
+commit carrying this comment has the results, the contract's note on that row and the manifest.
+
+**What changed.**
+- `runtime/jev/route-compile.ts`: `ordinary_check` in `COMPILE_PREDICATES` (after `first_blow`); `Fired.from` (the family a
+  bound parameter was read from, so the intent's record carries the `act` answer); `ORDINARY_CHECK`. Row building untouched.
+- `runtime/jev/step-policy.ts`: `ordinaryBindings(candidate, action, skill, gate)` (decision and a single actor `stated`,
+  goal/method `composed`, the intent the compile's `jev`, the skill `jev` with confidence, distribution and `cleared`; no
+  evidence is `cleared: false`); `settleOrdinaryBind` takes the policy gate and puts the compile's intent on the action;
+  `consumedByResolve` (a model-origin resolve the kernel took consumes `resolve:core-check:ordinary-check`); `ORDINARY_CHECK_KEY`.
+- `runtime/jev/check-preflight.ts`: `CheckPreflightResult.evidence` (`profile` by skill name, `route`, `consent`); the
+  advisory action is unchanged. `runtime/jev/hybrid-engine.ts`: the binder's evidence onto `OrdinaryBinding.skill` and the
+  `bind-ordinary` row; `admissionBindings` carries `cleared: false`.
+- `extensions/kernel/admission.ts`: `compileAdmission` refuses `parameter_not_cleared:<name>`.
+- `experiments/single-loop-routing/product-entry.ts`: `resolveKey` counts the clerk's ordinary check and the Keeper's roll
+  of the same skill as one roll.
+
+**Tests.** `single-loop-compile.test.mjs` +2 (the check owes a compile alone; turn 12's answers select it with the act as
+intent and the binder next; the fire/no-fire table: under the gate, social without / with a `none` / with a person, move,
+a cleared destination, an unclear ask, unclear; never decided; the obligation's demand selects only the obligation check),
+1 updated (gate #4 turn 1: the first read now owes a compile, which selects nothing; the route follows as before).
+`single-loop-binding.test.mjs` +2 (the bind records at, under and without evidence, and for another skill; the
+route-selected check keeps the binder's intent; the Keeper's resolve consumes the check, a refused one does not).
+`admission-within-turn.test.mjs` +2 (the emitted kernel and hybrid engine: the office search selected, bound and rolled,
+admitted `path: compile` at skill 0.9 and reviewed `compile_refused: parameter_not_cleared:skill` at 0.45, rolled either
+way; `compileAdmission` and `admissionBindings` pure).
+
+**Mutations** (each applied alone; the compile, binding, admission, check-preflight ×2, domain-policy and
+scene-obligation suites; restored after; all 15 killed).
+
+| mutation | file | failing tests |
+| --- | --- | --- |
+| M1 the predicate reads nothing | `route-compile.ts` | 6 |
+| M2 social without an addressee fires | `route-compile.ts` | 1 |
+| M3 the destination guard removed | `route-compile.ts` | 1 |
+| M4 the obligation-ask guard removed | `route-compile.ts` | 4 (incl. SL-21's gate #7 seam test: a second roll at the morgue) |
+| M5 any cleared act fires | `route-compile.ts` | 3 (incl. SL-19's first blow) |
+| M6 the intent not bound by the compile | `route-compile.ts` | 4 |
+| M7 the binder's intent kept | `step-policy.ts` | 4 |
+| M8 the skill always cleared | `step-policy.ts` | 3 |
+| M9 no evidence counts as cleared | `step-policy.ts` | 1 |
+| M10 admission ignores `cleared` | `admission.ts` | 3 |
+| M11 `admissionBindings` drops `cleared` | `hybrid-engine.ts` | 4 |
+| M12 the Keeper's resolve does not consume the check | `step-policy.ts` | 1 |
+| M13 the engine drops the binder's evidence | `hybrid-engine.ts` | 2 |
+| M14 the evidence keyed by alias, not skill name | `check-preflight.ts` | 3 |
+| M15 the decision recorded `jev`, not `stated` | `step-policy.ts` | 4 |
+
+**Replays** (live Jev, the recorded Keeper, lane admission replayed, prescreen on, one process at a time;
+`experiments/single-loop-routing/results/sl26-*`).
+
+| fixture / arm | run | compile act / destination | fired | binder (route; skill) | clerk's roll | its admission | Keeper's rolls |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `longgate-t12` (seed 1) | 1 | investigate 1.0 / none 0.96 | `ordinary_check` | **no_roll** (distribution not yet recorded) | none (consumed) | — | the bed-attack rule step (lane) |
+| | 2 | investigate 1.0 / none 0.95 | `ordinary_check` | ordinary; **Spot Hidden** 0.86, cleared | **yes**, intent investigate | **compile**, 0 ms, no lane | the rule step (lane) |
+| | 3 | investigate 1.0 / none 0.96 | `ordinary_check` | ordinary; **Spot Hidden** 0.89, cleared | **yes**, intent investigate | **compile**, 0 ms, no lane | the rule step (lane) |
+| `longgate-t12` extra (seed 2, not registered; `route`/`consent` recorded) | 1 | investigate 1.0 | `ordinary_check` | ordinary 0.56 / no_roll 0.42; Spot Hidden 0.90 | yes | compile, 0 ms | the rule step |
+| | 2 | investigate 1.0 | `ordinary_check` | ordinary 0.55 / no_roll 0.43; Spot Hidden 0.88 | yes | compile, 0 ms | the rule step |
+| | 3 | investigate 1.0 | `ordinary_check` | ordinary 0.49 / no_roll 0.49; Spot Hidden 0.91 | yes | compile, 0 ms | the rule step |
+| `longgate-t12` control (M1 for this arm) | 1–3 | investigate 1.0 / none 0.95–0.97 | none (`decided_none`) | — (route `need` later 0.94–0.97) | none | — | the rule step (lane) |
+| `longgate-t11` (seed 1) | 1 | move 0.57 ✗ / none 0.48 ✗; in the bedroom investigate 0.65 / none 0.96 | none; none (consumed) | — | none | — | Listen (lane), then the rule step's Spot Hidden |
+| | 2 | move 0.61 / none 0.50 ✗; in the bedroom investigate 0.63 / none 0.95 | none; none (consumed) | — | none | — | Listen, then the rule step |
+| | 3 | move 0.58 / none 0.46 ✗; in the bedroom investigate 0.67 / none 0.96 | none; none (consumed) | — | none | — | Listen, then the rule step |
+
+**Against the registration.** `longgate-t12`: the compile selected the check 3/3 and every executed check was Spot Hidden
+with the compile's intent, admitted `path: compile` with no lane request; **executed 2/3, not 3/3**: in run 1 the binder's
+route question answered `no_roll`, which consumes the check (the binder's disposition is unchanged by §135.30.3). The extra
+seed-2 runs recorded why: for "搜床底、床垫和衣柜" the binder's route question sits on a coin flip between `ordinary`
+(0.49–0.56) and `no_roll` (0.42–0.49), and its answer is taken ungated (the ordinary binder always did). The skill itself is
+not in doubt (0.86–0.91, cleared every time). Control: as predicted, no clerk roll. `longgate-t11`: branch (a) 3/3 as
+expected (the first compile reads the stair-and-bedroom sentence as a move; the Keeper's Listen consumed the check, so the
+bedroom's second compile, `act` investigate 0.63–0.67, had nothing to select): one Listen per run, no clerk roll. No
+falsifier seen: no double ordinary roll, no clerk check with an intent other than the compile's act, no compile admission
+without a cleared skill record.
+
+**Open, for the owner (not changed here).** (1) The binder's `route` disposition is an ungated argmax of a question that
+splits about 0.5/0.5 on a plain search; with the compile already reading `act` investigate at 1.0, "does a declared search
+need a roll" is the one judgment left on this clerk path. To rule on: gate the disposition (below the gates the check goes
+to the Keeper), or let the compile's cleared act settle it as it settles the intent. (2) In turn 11 the declared check
+comes before the declared move; the destination guard leaves such a check to the Keeper unless the first compile reads
+`act` investigate. (3) The replayed Keeper still runs the module's bed-attack rule step 0 (Spot Hidden) after the clerk's
+Spot Hidden; a live Keeper sees `clerk_did`. Worth watching at the next live gate.

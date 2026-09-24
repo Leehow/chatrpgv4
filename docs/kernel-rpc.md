@@ -18588,7 +18588,9 @@ and **`cleared`** (the profile answer against §135.2's gates, the policy's own 
 difficulty and dice); `goal` and `method` `composed`. The engine carries the profile answer from the binder
 (`CheckPreflightResult.evidence.profile`, a report beside the advisory action, which it does not change) onto
 `OrdinaryBinding.skill`; a binder result without it records `cleared: false`. The `lane: "route"`,
-`purpose: "bind-ordinary"` row gains `skill: {value, confidence, distribution}`.
+`purpose: "bind-ordinary"` row gains `skill: {value, confidence, distribution}` and the binder's own `route` and `consent`
+answers (`{choice, confidence, probabilities}`), which decide the disposition and are reported, not gated (the long
+gate's turn-12 replays put `ordinary` against `no_roll` at 0.49–0.56 / 0.42–0.49: SL-26's Comments).
 
 **Admission by the compile's evidence** (amends §32.12's conditions): a compile-selected ordinary check is admitted
 `path: "compile"` under §32.12's four conditions (its fired-on features among `act`, `addressee`, `ask`, `destination`,
