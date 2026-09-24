@@ -69,7 +69,8 @@ export interface ApplyContributions {
         event: DomainEvent;
     }>;
     readonly requireMaterial?: (graph: ModuleGraph, names: any[]) => Promise<void>;
-    readonly requireArrivalMapMaterial?: (graph: ModuleGraph, scene: Row) => Promise<void>;
+    /** §107.1: queue the arrived scene's map reading in the background; never refuses the move. */
+    readonly queueArrivalMap?: (graph: ModuleGraph, scene: Row) => Promise<Row>;
     readonly materialReady?: (moduleId: string, name: string) => Promise<boolean>;
     readonly queueAdjacentReading?: (graph: ModuleGraph, scene: Row) => Promise<string[]>;
     readonly asset?: (moduleId:string,name:string)=>Promise<Row|null>;
@@ -122,14 +123,6 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 await contributions.requireMaterial(graph, names);
             else if (playsFromReading(module.meta))
                 throw new RpcError('not_implemented', 'The source material gate is not implemented in the TypeScript apply runtime');
-            if (contributions.requireArrivalMapMaterial) {
-                const current = graph.handle(graph.scene(string(transaction.world.active_scene)));
-                for (const effect of effects.filter(isJsonObject).filter(effect => effect.kind === 'move')) {
-                    const to = effect.to, destination = typeof to === 'string' ? graph.find(to, ['scene']) : null;
-                    if (destination && graph.handle(destination) !== current)
-                        await contributions.requireArrivalMapMaterial(graph, destination);
-                }
-            }
             if (!Object.hasOwn(transaction.world, 'scene_trail')) {
                 const repaired = await writer.transaction(params, { preload: false });
                 Object.assign(transaction.world, repaired.world);
@@ -293,6 +286,21 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             ids.push(...recovery.receipts.map(value => string(value.id)));
             events.push(...recovery.events);
             const days = contributions.resources ? await contributions.resources.dayBoundary(context, number(row(transaction.world.clock).minutes)) : null;
+            // §107.1: a map is orientation, never a door. The move has landed; the scene's map is read in the
+            // background and delivered on the first turn after it is published (table.player_input).
+            let arrivalMap: Row | null = null;
+            if (contributions.queueArrivalMap && receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed)) {
+                const arrived = graph.scene(string(staged.active_scene));
+                if (graph.handle(arrived) !== graph.handle(graph.scene(string(transaction.world.active_scene)))) {
+                    try { arrivalMap = await contributions.queueArrivalMap(graph, arrived); }
+                    catch (error) {
+                        if (!(error instanceof RpcError)) throw error;
+                        await appendJsonl(join(campaign.directory, 'telemetry.jsonl'), { at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), lane: 'reading', event: 'map-unavailable', turn: number(turn.turn), scene: graph.handle(arrived), detail: error.message });
+                    }
+                    if (arrivalMap && ['queued', 'reading'].includes(string(arrivalMap.state)))
+                        staged.map_arrivals_pending = [...new Set([...array(staged.map_arrivals_pending).filter(value => typeof value === 'string'), graph.handle(arrived)])];
+                }
+            }
             await commitInventorySheets(context,stagedSheets);
             await campaign.writeWorld(staged);
             // §129.4: a definition that replaced a placeholder changed what instances already on a sheet read.
@@ -325,6 +333,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 await snapshot.preload();
                 Object.assign(result, await sceneView(snapshot, module));
                 result.deepen_queued = contributions.queueAdjacentReading ? await contributions.queueAdjacentReading(graph, graph.scene(staged.active_scene)) : [];
+                // The background map job rides the host's existing wake for queued source work.
+                if (arrivalMap && truth(arrivalMap.job_id) && !array(result.deepen_queued).includes(arrivalMap.job_id))
+                    result.deepen_queued = [...array(result.deepen_queued), arrivalMap.job_id];
             }
             if (crossed)
                 result.obligation_open = crossed;

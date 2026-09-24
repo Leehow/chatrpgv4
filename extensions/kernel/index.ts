@@ -3363,6 +3363,21 @@ export default function (pi: ExtensionAPI) {
 				const read = { ...(failure.details.read as Record<string, unknown>), foreground: true };
 				const ownedPreparation=dispatcher.tracksMutation(toolCallId);
 				if(!ownedPreparation)dispatcher.requireCapability(toolCallId, read.purpose === 'answer' ? 'lookup.source.answer' : 'source.prepare');
+				// §22.4.3: a map is orientation and never holds a turn. Its reading is queued in the background and the
+				// Keeper is told at once; the reviewed map is delivered when it is published (§107.1).
+				if (read.material === 'map') {
+					const focus = String(read.focus ?? '');
+					const queued = await state.kernel.call<Record<string, unknown>>('module.read.request', { campaign: state.campaign, module_id: readingModule,
+						purpose: read.purpose ?? 'detail', material: 'map', focus, question: read.question ?? '', foreground: false });
+					if (['queued', 'reading'].includes(String(queued.state))) pi.events.emit('coc:source-work-queued', { campaign: state.campaign, module_id: readingModule });
+					const unusable = queued.state === 'unusable';
+					throw new KernelError({ code: 'needs',
+						message: unusable ? `there is no usable map of ${focus}: its reading was refused and that is settled` : `the map of ${focus} is being prepared in the background`,
+						fix: unusable ? 'narrate the place from the scene; do not ask for this map again'
+							: 'narrate the place from the scene now; do not wait or look for the map again this turn: the reviewed map is delivered beside a later turn when it is published',
+						details: { reason: unusable ? 'map_unusable' : 'map_preparing', read: { ...(failure.details.read as Record<string, unknown>) },
+							...(typeof queued.job_id === 'string' ? { job_id: queued.job_id } : {}) } });
+				}
 				const readKey = JSON.stringify([read.purpose ?? "", read.material ?? "", read.focus ?? "", read.question ?? "", read.guidance_key ?? ""]);
 				// This exact material already refused this turn: refuse again at once rather than rejoining
 				// the same pending job for another full wait. The Keeper was told not to ask again.
@@ -4274,6 +4289,9 @@ export default function (pi: ExtensionAPI) {
 			// of its options is the player's own answer and is not put to review.
 			state.answering = state.lastAsk;
 			state.lastAsk = undefined;
+			// §107.1: a map published after the table arrived is presented on this turn; its host-only views are
+			// rendered through the same hop as an apply's and never reach the Keeper.
+			await prepareMapViews(state, result as Record<string, unknown>);
 			noteCapsule(state, result.capsule);
 			await refreshAdaptationWait(state);
 			await record({

@@ -301,6 +301,15 @@ export function evidenceAnchors(graph: ModuleGraph, world: Row, records: Row[], 
         .map(anchor => anchor.name);
 }
 
+/**
+ * §107.1: the maps this turn presented because they were published after the table arrived. The card rides the
+ * delivery beside the prose; the row tells the Keeper it is there, so the story describes the place and not a map.
+ */
+function lateMapRows(turn: Row): Row {
+    const rows = array(turn.receipts).filter(receipt => receipt.kind === 'map' && receipt.late === true)
+        .map(receipt => ({ map: receipt.map, scene: receipt.scene ?? null, receipt: receipt.id }));
+    return rows.length ? { map_arrived: rows } : {};
+}
 export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedModule, options: {
     styleFull?: boolean;
     moduleBrief?: boolean;
@@ -466,7 +475,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             number: turn.turn,
             state: turn.state,
             pending_choice: turn.pending_choice ?? null,
-            player_text: turn.player_text ?? null
+            player_text: turn.player_text ?? null,
+            ...lateMapRows(turn)
         },
         ...sections
     };

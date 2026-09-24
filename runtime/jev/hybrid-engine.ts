@@ -283,6 +283,9 @@ interface RunState {
   /** §135.30.4: the cleared destinations the kernel held back, with their guards; the Keeper is told each once. */
   guarded: GuardedDestination[];
   guardedShown: number;
+  /** §107.1: the maps this turn presented because they were published after the arrival (the capsule's `turn.map_arrived`). */
+  mapArrived?: Row[];
+  mapArrivedShown?: boolean;
 }
 
 /**
@@ -317,6 +320,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const context = object(resolveOptions.context), active = (value: unknown) => Object.keys(object(value)).length > 0;
     run.firstScene ??= table.context.scene;
     run.document = Object.hasOwn(capsule, 'reading');
+    run.mapArrived = array(object(capsule.turn).map_arrived).map(object);
     run.scene = table.context.scene;
     run.sessionView = Object.hasOwn(context, 'session') ? (active(context.session) ? {session: context.session, pending_choice: context.pending_choice ?? null} : undefined)
       : active(object(capsule.where).session) ? 'read' : undefined;
@@ -724,6 +728,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       guarded_note: 'The player\'s declaration goes to this place, but the way there is closed by the book\'s own condition (guard), so '
         + 'nothing was executed for it. The guard says what opens it and where the book puts that: play toward it, open the way '
         + 'with your own write when the fiction does, or narrate the way shut.'});
+    // §107.1: a map published after the arrival rides this turn's delivery; the note says so once per run.
+    if (!run.mapArrivedShown && run.mapArrived?.length) {
+      run.mapArrivedShown = true;
+      Object.assign(content, {map_arrived: run.mapArrived,
+        map_arrived_note: 'The floor plan of this place was published after the investigators arrived; it is committed and is delivered '
+          + 'beside this turn\'s prose as supplementary material. Do not mention a map in the story: describe the place itself.'});
+    }
     // §135.26 (owner ruling Q5): a clerk step that crossed an open obligation's guard, one line each, beside "clerk did".
     const crossings = fresh.map(value => value.obligation_open).filter((value): value is string => !!value);
     if (crossings.length) content.obligation_open = crossings;

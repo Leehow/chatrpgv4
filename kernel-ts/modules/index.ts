@@ -220,7 +220,10 @@ export function createModuleRuntime(context: KernelContext) {
             : (await owner(graph.sourceCampaign, graph.moduleId)).reading.queueAdjacentReading(graph, scene),
         requireMaterial: async (graph: ModuleGraph, names: any[]) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMaterial(graph, names),
         requireMapMaterial: async (graph: ModuleGraph, params: Row) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMapMaterial(graph, params),
-        requireArrivalMapMaterial: async (graph: ModuleGraph, scene: Row) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireArrivalMapMaterial(graph, scene),
+        // §107.1: like the adjacent prefetch, a table that still follows the shared library queues nothing there.
+        queueArrivalMap: async (graph: ModuleGraph, scene: Row): Promise<Row> => graph.sourceCampaign === undefined
+            ? { state: 'none' }
+            : (await owner(graph.sourceCampaign, graph.moduleId)).reading.queueArrivalMap(graph, scene),
     });
     return Object.freeze({ handlers, source, close: async () => {
         closed = true;
