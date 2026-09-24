@@ -181,3 +181,57 @@ M1-M3 and M6-M12 were re-run on the same tree: all killed, the same tests as bef
 == ext on leehow-pc @ 2fa9ed194bd4e4cdcf7ab9f219bd4c65a2aea6d7: exit=0 wall=111s   (2838/2838)
 == py on leehow-pc @ 2fa9ed194bd4e4cdcf7ab9f219bd4c65a2aea6d7: exit=0 wall=170s    (1709 passed, 2 skipped)
 ```
+
+### 2026-09-24: the clerk orders a carried view before it cuts (owner decision)
+
+The owner ruled out both bigger ceilings and a kernel card reorder. The carried view is the clerk's projection, so the clerk orders the fields before the cut; the 4 KiB / 12 KiB ceilings stay. Commits: `75263a139` (§135.31), `1c6f87bea` (`runtime/jev/carried-views.ts`: `CARD_FIELD_ORDER`, `SCENE_FIELD_ORDER`, `PRESENT_FIELDS`; tests).
+
+**What changed.**
+
+- **Card order.** Identity comes first: `name`, `called`, `id`, `role`, `scene`, `visibility`. Then the rules numbers and the fight:
+  - `mechanics`;
+  - `combat_tactic` (§11.5.2);
+  - `combat_disposition` and `combat_standing` (§11.5.3);
+  - `deflect_options`.
+
+  Then `wants`, `fears`, `hides` and `relationships` (where a Mod's first impression sits). Then `knows`, `knowledge`, `believes`, `hides_claims`, `would_lie_about`, `ledger` and `keeper_note`. Then the rest, in `look`'s order.
+- **Scene order and `present`.** The scene view puts `where.scene`, `display_name`, `summary`, exits, affordances, assets and `obligations` first, then `present`, then the rest of `where`. `present` is reduced to each person's `name`, `called` and `role`.
+- **Nothing is renamed or invented.** The cut still drops from the tail and names what it drops.
+
+**Measured on the gate state** (`fixtures/gate3` before turn 3, the clerk's move applied, emitted kernel, `readCarriedViews` as the engine runs it):
+
+| view | whole | carried |
+| --- | --- | --- |
+| Knott's Office | 7,817 B | **3,021 B, whole** (`present` = `[{name: "Steven Knott", called: {name: "史蒂文·诺特"}, role: "employer"}]`) |
+| Knott's card | 8,299 B | **3,736 B**, truncated. Kept: `mechanics` (`null`: no stat block), `combat_tactic`, `combat_disposition`, `combat_standing`, `deflect_options`, wants/fears/hides, `knows`, `would_lie_about`, `ledger`, `keeper_note`. Omitted: `in exchange`, `personality`, `social_role`, `lie_options`, `availability`, `properties`, `recent_speech`, `reunion` |
+
+- `mechanics` and every defence and standing field on the card are present in the carried card.
+- This card has no `relationships`, so none was cut.
+- The message carrying both views is 7,002 B of 12 KiB.
+
+**Decision for the owner to confirm:** `untold` (the "private until introduced" note) is not in the listed identity fields, so it follows in `look`'s order after the listed fields. Knott is introduced on this state, so his card carries `called` and no `untold`.
+
+**Tests** (`single-loop-carried-views.test.mjs`, now 9):
+
+- **New test, ordering and `present`.** An 8 KB card shaped like the gate's Knott, where `look`'s order puts `mechanics` and the fight's fields after the dossier: the carried card keeps `mechanics`, `combat_*`, `deflect_options` and wants/fears/hides, identity first. The prose tail (`reunion`, `recent_speech`) goes. The scene's `present` is exactly name, called and role.
+- **Seam test after a clerk move.** It now asserts that the Globe's `present` carries only `PRESENT_FIELDS`, while `look`'s own `present` carries dossiers.
+
+**Mutations** (on the file; all 16 killed):
+
+| mutation | tests failed |
+| --- | --- |
+| M15 field ordering removed | the clerk orders a card before it cuts |
+| M16 `present` not reduced | after a clerk move; the clerk orders a card before it cuts |
+| M4 per-view ceiling ignored | ceilings; the clerk orders a card |
+| M5 message budget ignored | ceilings |
+| M13 carried view back to 1 KiB | after a clerk move; at a pending defence; ceilings; the clerk orders a card |
+| M14 carried section back to 8 KiB | ceilings |
+
+M1–M3 and M6–M12 were re-run on the same tree: all killed, by the same tests as before.
+
+**Suites on leehow-pc at `1c6f87bea`** (pytest not re-run: nothing the kernel reads changed since `7f3f8d1ad`, where py was 1709 passed, 2 skipped):
+
+```
+== ext on leehow-pc @ 1c6f87beac49cab604519a505a2f1f354ec8ee46: exit=0 wall=112s   (2839/2839)
+== loop on leehow-pc @ 1c6f87beac49cab604519a505a2f1f354ec8ee46: exit=0 wall=24s   (102/102)
+```
