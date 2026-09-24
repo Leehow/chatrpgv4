@@ -87,12 +87,16 @@ async function fixture(t){
   return{home,mid,call,opened,input,capsule,binding:_context,source,acceptAnswer,fileSha:sha(bytes)};
 }
 
-function deterministicFetch(onFirst){let calls=0;return async(_url,options)=>{if(calls++===0&&onFirst)await onFirst();
-return Response.json(supportWire(JSON.parse(options.body),c=>c.kind==='source'?'necessary':'skip',{qualify:true}));};}
+/** `onFirst` runs once, before answering the first request `trigger` accepts (by default the first request of all). */
+function deterministicFetch(onFirst,trigger=()=>true){let fired=false;return async(_url,options)=>{const sent=JSON.parse(options.body);
+if(!fired&&onFirst&&trigger(sent)){fired=true;await onFirst();}
+return Response.json(supportWire(sent,c=>c.kind==='source'?'necessary':'skip',{qualify:true}));};}
+/** The first request of the preparation's loop (its `operation` question): the source materials were read before it. */
+const loopRequest=sent=>Object.hasOwn(sent.questions??{},'operation');
 
-async function project(t,f,onFirst){
+async function project(t,f,onFirst,trigger){
   const oldFlag=process.env.PI_COC_JEV_PRESELECT,oldKey=process.env.TYPESAFE_API_KEY,oldFetch=globalThis.fetch;
-  process.env.PI_COC_JEV_PRESELECT='1';process.env.TYPESAFE_API_KEY='deterministic-request-test';globalThis.fetch=deterministicFetch(onFirst);
+  process.env.PI_COC_JEV_PRESELECT='1';process.env.TYPESAFE_API_KEY='deterministic-request-test';globalThis.fetch=deterministicFetch(onFirst,trigger);
   t.after(()=>{if(oldFlag===undefined)delete process.env.PI_COC_JEV_PRESELECT;else process.env.PI_COC_JEV_PRESELECT=oldFlag;
     if(oldKey===undefined)delete process.env.TYPESAFE_API_KEY;else process.env.TYPESAFE_API_KEY=oldKey;globalThis.fetch=oldFetch;});
   const hooks=new Map(),bus=new Map(),events=[];api.installContextPolicy({on:(name,handler)=>hooks.set(name,handler),events:{on:(name,handler)=>bus.set(name,handler)},
@@ -125,8 +129,24 @@ test('current native PDF and checked answer evidence reach the actual provider p
   await result.hooks.get('session_shutdown')();
 });
 
-test('a public source-owner answer change during selection prevents the stale packet from reaching provider conversion',async t=>{
+// §124.11.1 (SL-44): the reading store's revision is not a prescreen binding key. An answer that lands before the source
+// materials are read is read with them: the packet is current, not stale, and is published.
+test('a source-owner answer landing before the source materials are read is part of the packet, which is current and reaches the provider (§124.11.1)',async t=>{
   const f=await fixture(t),result=await project(t,f,()=>f.acceptAnswer('c1','Who posted the harbor notice?','The inspected notice does not name its author.'));
+  const packet=result.projected.messages.find(row=>row.customType===PRESCREEN_TYPE);assert(packet,JSON.stringify(result.events));
+  assert(JSON.parse(packet.content).materials.some(row=>row.provenance?.question==='Who posted the harbor notice?'),'the landed answer is among the materials: the packet is current');
+  assert.notEqual(f.binding.source_revision,(await f.call('table.capsule',{campaign:'c1'}))._context.source_revision,'the landing moved source_revision after the run was bound');
+  assert.equal(result.events.find(row=>row.lane==='prescreen'&&row.event==='fallback'),undefined);
+  await result.hooks.get('before_provider_request')({type:'before_provider_request',payload:{model:'fixture',input:api.convertToLlm(structuredClone(result.projected.messages))}},{});
+  const delivered=result.events.findLast(row=>row.lane==='prescreen'&&row.event==='delivered');assert.equal(delivered?.delivered,true,JSON.stringify(result.events));
+  await result.hooks.get('session_shutdown')();
+});
+
+// A source answer that lands after the source materials were read makes them stale: their own checkpoint (the reading store's
+// answers) voids them at the final check, and the stale packet never reaches provider conversion.
+test('a public source-owner answer change after the source materials were read prevents the stale packet from reaching provider conversion',async t=>{
+  const f=await fixture(t),result=await project(t,f,()=>f.acceptAnswer('c1','Who posted the harbor notice?','The inspected notice does not name its author.'),loopRequest);
+  assert.equal(result.events.find(row=>row.lane==='prescreen'&&row.event==='fallback')?.reason,'source_stale','voided by the source materials\' own checkpoint');
   assert(!result.projected.messages.some(row=>row.customType===PRESCREEN_TYPE),JSON.stringify(result.events));
   const current=await f.call('module.source.materials.snapshot',{campaign:'c1',module_id:f.mid,answer_limit:8,answer_cursor:0});
   assert(current.checked_answers.some(row=>row.question==='Who posted the harbor notice?'),'the public owner change actually landed');

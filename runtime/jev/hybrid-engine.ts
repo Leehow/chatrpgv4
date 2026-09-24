@@ -258,7 +258,11 @@ interface RunState {
   inputRevision: string;
   session?: Row;
   startedAt: number;
-  allowanceDeadline: number;
+  /**
+   * §135.6.1 (SL-44): the prescreen's own allowance, given whole to every read that runs one (`readJevPreselectAllowanceMs`,
+   * default `PRESELECT_ALLOWANCE_DEFAULT_MS`). Never the turn's remainder: gate #4's t19 read got 138 ms that way.
+   */
+  prescreenAllowanceMs: number;
   providerBudget: ReturnType<typeof preparationProviderBudget>;
   turn?: number;
   scope?: ScopeBinding;
@@ -390,15 +394,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
                 sourceType: 'turn', selector: {kind: 'utf16', start: 0, end: run.rawInput.length}}};
             bindingArtifact = {scope: run.scope, readSet: run.readSet, intent: run.intent};
           }
-          // The product prescreen, inside the run: the first read and the read after a scene change. It has its own per-input
-          // allowance, which no decision spends (§135.6, SL-22 addendum): a re-read on a changed scene gets what the earlier
-          // reads left of it, never more; a re-read on the same scene reuses the previous read's outcome.
-          const remaining = run.allowanceDeadline - Date.now(), scene = table.context.scene;
+          // The product prescreen, inside the run: the first read and the read after a scene change. It has its own allowance,
+          // which no decision spends (§135.6, SL-22 addendum), and every read that runs one gets it whole from its own start
+          // (§135.6.1, SL-44); only the provider budget is per input. A re-read on the same scene reuses the previous outcome.
+          const allowance = run.prescreenAllowanceMs, scene = table.context.scene;
           const reuse = run.lastRead?.scene === scene ? run.lastRead.outcome : undefined;
           // Why a read ran without it (§135.6, 2026-09-24): live gate #4's rows said only `not_run`, and the cause -- the
           // preselect setting off in its launch -- had to be found by reading the launcher.
           const skipped = !jev ? 'no_jev' : !prescreenEnabled(options.env as NodeJS.ProcessEnv) ? 'preselect_off' : !table.binding ? 'no_binding'
-            : remaining <= 0 ? 'allowance_spent' : !(bridge?.call && bridge.campaign) ? 'no_bridge' : undefined;
+            : run.providerBudget.actions <= 0 ? 'allowance_spent' : !(bridge?.call && bridge.campaign) ? 'no_bridge' : undefined;
           let materials: Material[] = [], calls = 0, prescreen: Row = {status: 'not_run', reason: skipped ?? null}, packet: Row | undefined;
           let outcome: {step: string; materials: Material[]; message?: Row} | undefined;
           if (reuse) {
@@ -411,7 +415,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             const message = await prepareKeeperSupport({call: (method, params) => bridge!.call!(method, params), campaign: bridge.campaign,
               binding: table.binding, capsule, signal: invocation.signal, decision: jev, env: options.env as NodeJS.ProcessEnv,
               record: event => { events.push(event); record({...event, run: run.runId, step: invocation.stepId}); },
-              byteBudget: PRESCREEN_BYTES, deadlineAt: run.allowanceDeadline, providerBudget: run.providerBudget});
+              byteBudget: PRESCREEN_BYTES, deadlineAt: Date.now() + allowance, providerBudget: run.providerBudget});
             const prepared = events.find(event => event.event === 'prepared'), fallback = events.find(event => event.event === 'fallback');
             // A prescreen that fell back still spent its calls (§124.11): gate #5's read said 0 while 12 had run.
             calls = Number((prepared ?? fallback)?.jev_calls ?? 0);
@@ -422,7 +426,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             // (runs 11-13 decided the declared move with it), including the locate's own judgment of what is relevant.
             const prescreenMs = Date.now() - prescreenBegan;
             prescreen = {status: message ? 'prepared' : text(events.find(event => event.event === 'fallback' || event.event === 'skipped')?.event) || 'none',
-              jev_calls: calls, ms: prescreenMs, allowance_ms: Math.max(0, Math.floor(remaining)), materials: materials.length, supplied: prepared?.supplied ?? null,
+              jev_calls: calls, ms: prescreenMs, allowance_ms: allowance, materials: materials.length, supplied: prepared?.supplied ?? null,
               stop_reason: prepared?.stop_reason ?? null, locate: prepared?.locate ?? null, located: found.located.length,
               fallback: fallback?.reason ?? null, ...(fallback?.key ? {key: fallback.key} : {}),
               ...(prepared?.binding_refresh ? {binding_refresh: prepared.binding_refresh} : {})};
@@ -642,14 +646,18 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const settled = array(question.settled).map(String);
       const routed = request.purpose === 'route' ? interpretRoute({located: question.located === true, settled} as RunView, offered, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE) : undefined;
       // §135.30: the compile row carries each feature's distribution and which predicates fired, as the policy will read them.
+      // §135.30.8 (SL-43): with the run's settled acts, so the row's `decided` is the policy's.
+      const actsSettled = array(question.actsSettled).map(String);
       const compiled = request.purpose === 'compile'
-        ? interpretCompile({candidates: array(question.candidates) as Candidate[], rows: (question.rows ?? undefined) as FeatureRows | undefined}, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE)
+        ? interpretCompile({candidates: array(question.candidates) as Candidate[], rows: (question.rows ?? undefined) as FeatureRows | undefined, actsSettled},
+          result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE)
         : undefined;
       record({lane: 'route', purpose: request.purpose, run: run.runId, step: request.stepId, status: result.status, ms: Date.now() - began,
         ...(request.purpose === 'route' ? {offered: offered.map(candidate => candidate.key), selected: routed?.selected ?? [], exit: routed?.exit ?? null, reason: routed?.reason ?? null,
           ...(settled.length ? {settled} : {})}
           : compiled ? {features: compiled.features, fired: compiled.selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
             selected: compiled.selected.map(entry => entry.candidate.key), decided: compiled.decided, fell_through: compiled.fellThrough, reason: compiled.reason,
+            ...(actsSettled.length || compiled.actsSettled?.length ? {acts_settled: [...new Set([...actsSettled, ...(compiled.actsSettled ?? [])])]} : {}),
             ...(compiled.guarded ? {guarded: compiled.guarded} : {}), ...(compiled.unlocked ? {unlocked: compiled.unlocked.map(unlockedRow)} : {})}
             : {candidate: question.candidate ?? null}),
         ...(compiled ? {} : {answers})});
@@ -849,7 +857,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     prepare: context => {
       const allowance = readJevPreselectAllowanceMs(options.env as NodeJS.ProcessEnv), startedAt = now(), budgetMs = turnBudgetMs(options.env);
       const run: RunState = {runId: context.runId, rawInput: context.rawInput, inputRevision: context.inputRevision, session: context.session as unknown as Row,
-        startedAt, allowanceDeadline: Date.now() + allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
+        startedAt, prescreenAllowanceMs: allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
         identities: new Map(), budgetMs, deferred: [], investigators: [], named: [], shown: {scenes: new Set(), people: new Set(), passages: new Set(), pending: new Set()}, passages: [],
         guarded: [], guardedShown: 0,
         prescreenSpent: {reads: 0, jev_calls: 0, ms: 0}};

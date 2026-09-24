@@ -24,8 +24,13 @@ const METHODS=new Set(['table.look','table.lookup','table.recall']);
 /**
  * §124.11: a change of a run key voids the prepared result; a volatile key is written by the lanes that run after a
  * turn closes (npc-voice, NPC journal, memory, continuity review) and is re-checked per material by the owner.
+ * §124.11.1 (SL-44): `source_revision` is neither. It digests the reader's own bookkeeping, so a source answer landing
+ * mid-read moves it; what the prescreen binds to is the scene and state it packed, and a landed answer rides the note.
  */
-const RUN_BINDING_KEYS=['campaign','worldline','loop','turn','source_revision','rules_revision','scene','adapter'] as const;
+const RUN_BINDING_KEYS=['campaign','worldline','loop','turn','rules_revision','scene','adapter'] as const;
+/** §124.11.1: the binding keys the prescreen never sends to the owner nor compares itself. */
+const UNBOUND_BINDING_KEYS=['source_revision'] as const;
+const withoutUnbound=(binding:Row):Row=>Object.fromEntries(Object.entries(binding).filter(([key])=>!(UNBOUND_BINDING_KEYS as readonly string[]).includes(key)));
 const PAGE_BINDING_KEYS=[...RUN_BINDING_KEYS,'catalog_revision'] as const;
 const VOLATILE_BINDING_KEYS=['stateStamp','memory_revision','npc_revision','records_revision'] as const;
 /** The preparation's binding moved on a key its result depends on; the fallback row names the key. */
@@ -333,7 +338,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                     const indexView=await discoveryRpc('table.workspace.read',{preselect:{version:2,mode:'index'},query,candidate_limit:1});
                     const indexBinding=object(indexView.binding);index=object(object(indexView.materials).index);
                     current=indexView.status==='valid'&&Array.isArray(index.entities)
-                        &&(['campaign','worldline','loop','turn','source_revision'] as const).every(key=>indexBinding[key]===input.binding[key]);
+                        &&(['campaign','worldline','loop','turn'] as const).every(key=>indexBinding[key]===input.binding[key]);
                     if(current)remember(indexCache,indexKey,index,4);
                 }
                 const cards:LocateCard[]=current&&index?[
@@ -378,7 +383,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         const bound=object(snapshot.binding);
         if(snapshot.status!=='valid'||object(snapshot.authority).checked!==true||!bound.stateStamp
             ||bound.campaign!==input.binding.campaign||bound.worldline!==input.binding.worldline||bound.loop!==input.binding.loop
-            ||bound.turn!==input.binding.turn||bound.source_revision!==input.binding.source_revision)throw new Error('binding_unavailable');
+            ||bound.turn!==input.binding.turn)throw new Error('binding_unavailable');
         let sourceResult:PrescreenSourceResult|undefined,sourceFailure:string|undefined,sourcePdf:string|undefined;
         if(input.source)try{
             const sourceSnapshot=object(await discoveryRpc('module.source.materials.snapshot',{module_id:input.source.moduleId,answer_limit:24,answer_cursor:0})) as PrescreenSourceSnapshot;
@@ -639,7 +644,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             memoryRefresh:string[]=[];
         const [checkValidity,check]=await Promise.all([
             checkResult.checkpoint?checkResult.check(signal,deadlineAt-25):Promise.resolve({status:'unavailable' as const,reason:'check_unavailable'}),
-            rpc('table.workspace.read',{binding:bound,candidate_limit:1,
+            rpc('table.workspace.read',{binding:withoutUnbound(bound),candidate_limit:1,
                 ...(version===2?{query,preselect:{version:2,mode:'check',keys:finalWorkspaceKeys}}:{})}),
             (async()=>{for(const {finalizer,key} of memoryFinalizers){const final=await rpc('memory.evidence',finalizer);
                 if(final.status==='refresh')memoryRefresh.push(key);}})(),

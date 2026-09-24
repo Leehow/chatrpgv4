@@ -222,6 +222,11 @@ export interface RunView {
   /** §135.11 addendum (SL-20): the keys the run's compiles selected -- the declaration's own steps. */
   compileSelected?: string[];
   /**
+   * §135.30.8 (SL-43): the acts the run's obligation steps settled -- the cleared act an `obligation_check` fired on, and the
+   * intent the clerk executed an obligation check with. The ordinary check is never rolled again for one of them.
+   */
+  actsSettled?: string[];
+  /**
    * §135.11 addendum (SL-20): the declaration's own steps the clerk executed and that succeeded (the kernel took it; a
    * resolve's check did not fail) since the run's last model step. While one stands, the route's exit leans to `finish`;
    * the next model step clears it (once the Keeper is asked, it carries the run as before).
@@ -660,11 +665,29 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
     guarded: {to: entry.to, place: entry.place, guard: entry.guard}}))];
   const declared = [...keys, ...unlocked.map(entry => `apply:move:${entry.to}`)];
   if (declared.length) view.compileSelected = [...new Set([...(view.compileSelected ?? []), ...declared])];
+  // §135.30.8 (SL-43): the act an obligation check fired on is settled for the rest of the run.
+  settleActs(view, outcome.actsSettled ?? []);
   observe(view, {kind: 'decide', purpose: 'compile', status: result.status, ...(keys.length ? {choice: keys.join(' + ')} : {}), reason: outcome.reason});
   return {step, kind: 'decide', purpose: 'compile', choice: keys.length ? keys.join(' + ') : null, confidence: null, ms, jev_calls: 1, reason: outcome.reason,
     detail: {features: outcome.features, fired: selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
       selected: keys, decided: outcome.decided, fell_through: outcome.fellThrough, ...(outcome.guarded ? {guarded: outcome.guarded} : {}),
+      ...(view.actsSettled?.length ? {acts_settled: view.actsSettled} : {}),
       ...(unlocked.length ? {unlocked: unlocked.map(unlockedRow)} : {}), family: batch.family} as unknown as Json};
+}
+
+/** §135.30.8 (SL-43): acts an obligation step settled, added to the run's. */
+function settleActs(view: RunView, acts: readonly string[]): void {
+  const fresh = acts.filter(act => act && !(view.actsSettled ?? []).includes(act));
+  if (fresh.length) view.actsSettled = [...(view.actsSettled ?? []), ...fresh];
+}
+/**
+ * §135.30.8: the intent an executed clerk obligation check was executed with -- its bind's (`extra`), else the one it was
+ * issued or selected with. A refused attempt is still the declaration's attempt: the clerk does not route around it.
+ */
+export function obligationAct(item: PendingItem): string | undefined {
+  if (item.call || item.candidate?.family !== 'obligation_check') return undefined;
+  const intent = (item.extra as Row | undefined)?.intent ?? item.candidate.bound.intent;
+  return typeof intent === 'string' && intent ? intent : undefined;
 }
 
 export function settleLocate(view: RunView, step: number, located: {calls: number; ms: number; summary: Json}, ms: number): TelemetryRow {
@@ -734,11 +757,15 @@ export function settleOrdinaryBind(view: RunView, step: number, candidate: Candi
   const compiled = object(object(object(candidate.basis).compile).bound);
   const action = bound.action && typeof object(compiled.intent).value === 'string' ? {...bound.action, intent: object(compiled.intent).value as Json} : bound.action;
   const records = action ? ordinaryBindings(candidate, action, bound.skill, gate, bound.paths) : [];
+  // §135.30.8 (SL-43): the ordinary binder runs on the remainder -- a check whose intent is an act an obligation step of the
+  // run already settled is not rolled a second time, whichever way it was selected.
+  const intent = typeof action?.intent === 'string' ? action.intent : undefined;
+  const settledAct = !!candidate.clerk && !!intent && (view.actsSettled ?? []).includes(intent);
   // §135.30.3 (owner ruling 2026-09-24): the compile's cleared act settles roll-or-not. The binder's `no_roll` does not decide:
   // with a skill that cleared the check is rolled, and the basis says so; with one that did not, the binder's `no_roll` stands.
   const binderNoRoll = object(object(candidate.basis).compile).predicate === 'ordinary_check' && bound.route?.choice === 'no_roll' && bound.disposition === 'ordinary';
   const skillCleared = records.find(entry => entry.name === 'skill')?.cleared === true;
-  const disposition = binderNoRoll && !skillCleared ? 'no_roll' : bound.disposition;
+  const disposition = settledAct && bound.disposition === 'ordinary' ? 'act_settled' : binderNoRoll && !skillCleared ? 'no_roll' : bound.disposition;
   // SL-31 (§135.28): a default the binder took is stamped on the basis every row of the call and the Keeper's note carry.
   const defaults = ordinaryDefaults(bound.paths);
   const stamped = Object.keys(defaults).length
@@ -747,14 +774,16 @@ export function settleOrdinaryBind(view: RunView, step: number, candidate: Candi
     ? {...stamped, basis: {...object(stamped.basis), roll: {rule: 'compile_act', binder: 'no_roll', confidence: bound.route?.confidence ?? null}} as Json} : stamped;
   const pending: PendingItem[] = disposition === 'ordinary' && action
     ? [{kind: 'direct', purpose: 'execute', candidate: executed, extra: action, bindings: records}]
-    : disposition === 'no_roll' ? []
+    : disposition === 'no_roll' || disposition === 'act_settled' ? []
       : disposition === 'needs_player' ? [{kind: 'infer', purpose: 'compose', reason: 'needs_player'}]
         : unsettled;
-  if (disposition === 'no_roll') view.consumed.push(candidate.key);
+  if (disposition === 'no_roll' || disposition === 'act_settled') view.consumed.push(candidate.key);
   view.pending.unshift(...pending);
-  const reason = binderNoRoll ? (skillCleared ? 'ordinary_compile_act' : 'ordinary_no_roll') : `ordinary_${bound.disposition}`;
+  const reason = disposition === 'act_settled' ? 'ordinary_act_settled'
+    : binderNoRoll ? (skillCleared ? 'ordinary_compile_act' : 'ordinary_no_roll') : `ordinary_${bound.disposition}`;
   observe(view, {kind: 'decide', purpose: 'bind', status: disposition, choice: candidate.key, reason, summary: {disposition,
-    ...(action && disposition === 'ordinary' ? {action} : {}), unresolved: bound.unresolved, ...(bound.route ? {binder_route: bound.route.choice} : {})} as Json});
+    ...(action && disposition === 'ordinary' ? {action} : {}), unresolved: bound.unresolved, ...(bound.route ? {binder_route: bound.route.choice} : {}),
+    ...(disposition === 'act_settled' ? {binder: bound.disposition, act: intent ?? null} : {})} as Json});
   return {step, kind: 'decide', purpose: 'bind', choice: candidate.key, confidence: null, ms, jev_calls: bound.calls,
     reason, detail: disposition === 'ordinary' ? action ?? null : null};
 }
@@ -905,6 +934,9 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
       if (!view.consumed.includes(key)) view.consumed.push(key);
   } else {
     view.consumed.push(item.candidate!.key);
+    // §135.30.8 (SL-43): the act an obligation check was executed with is settled for the run, taken or refused.
+    const act = obligationAct(item);
+    if (act) settleActs(view, [act]);
     // §135.11 addendum (SL-20): the declaration's own step (a compile selected it) that the kernel took and whose check did
     // not fail settles the declaration. A carried meeting has its own key; the check it hands on to carries the selected one.
     const key = item.candidate!.key;
@@ -1090,7 +1122,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         if (!binding) return {kind: 'decide', purpose: 'compile', question: unbound};
         // The candidates and rows ride with the question so the engine can record which predicates fired (§135.30).
         return {kind: 'decide', purpose: 'compile', question: {batch: compileBatch(state, binding.scope, binding.readSet, doneThisTurn(state)),
-          candidates: state.candidates, rows: state.rows ?? null, gate: driver.policyState.gate}};
+          candidates: state.candidates, rows: state.rows ?? null, gate: driver.policyState.gate, actsSettled: state.actsSettled ?? []}};
       }
       if (request.kind === 'decide' && request.purpose === 'locate') return {kind: 'decide', purpose: 'locate', question: {rawInput: state.rawInput}};
       if (request.kind === 'decide') {

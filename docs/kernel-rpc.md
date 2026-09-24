@@ -16701,7 +16701,7 @@ already landed at 07:01:39Z and 07:01:41Z, before turn 2 started. So none of `me
 `records_revision` moved. The npc-voice lane is not the only writer: any post-turn lane can land during the next turn's read.
 
 **Run keys void the prepared result.** They are `campaign`, `worldline`, `loop`, `turn`, `source_revision`, `rules_revision`,
-`scene` and `adapter`. A page (catalog or read) whose binding differs on one of them ends the preparation. So does the final
+`scene` and `adapter` (amended 2026-09-24 by §124.11.1: `source_revision` is no longer a binding key of the prescreen). A page (catalog or read) whose binding differs on one of them ends the preparation. So does the final
 check. The preparation ends with `fallback: "binding_changed"` and `key` set to that key. A page also compares `catalog_revision`:
 it is requested with the same query, so a change is a change of the owner's catalog.
 
@@ -16753,6 +16753,49 @@ through their real RPCs:
   none.
 - On the hybrid engine, the run's read row carries `fallback: "binding_changed"` and `key: "scene"`, and its `jev_calls`
   equals the discarded prescreen's.
+
+#### 124.11.1 Addendum (2026-09-24, SL-44): the reading store's revision is not a prescreen binding key
+
+SL-44 takes §124.11.1 (§-numbers are stable ids). **Evidence** (long gate #4, `longgate4-haunting-1308`, turn 14, the run's
+read row): `prescreen: {status: "fallback", fallback: "binding_changed", key: "source_revision", jev_calls: 7, ms: 1892}`. A
+memoised source answer (§22.4.3, SL-36) landed while the read's prescreen ran. The kernel's `source_revision` digests the
+module's `meta` whole (`sourceRevision`, `kernel-ts/read/context.ts`), and the reader's bookkeeping (`meta.reading`: its jobs,
+its accepted answers) is part of `meta`, so the landing moved it. §124.11 had `source_revision` among the run keys, so the
+whole prepared result was voided and the compile ran without material; the turn cost 98 s.
+
+**The rule** (owner, 2026-09-24). What the prescreen binds to is the scene and the people's state it packed; an answer that
+lands is carried to the Keeper on the note (§135.31.2), not by voiding the read. So `source_revision` is no longer a binding
+key of the prescreen, neither a run key nor a volatile one:
+
+- **Run keys** are now `campaign`, `worldline`, `loop`, `turn`, `rules_revision`, `scene` and `adapter`; a page adds
+  `catalog_revision`. The volatile keys are unchanged.
+- **Pages and the final check are requested without `source_revision`.** The owner compares only the keys a request binds
+  (`bindingMatches` and `bindingChanges` skip an absent key), so a graph unit is not reported stale for a reading-store write.
+  The host's own comparisons (`assertSnapshot`, the final check's run-key comparison, and the catalog's opening check against
+  the run's binding) do not compare it either.
+- **What still guards the book.** A change of the module itself (a new graph or generation) is not a mid-turn event: it comes
+  from registering the module or changing the campaign's configuration, never from a lane. The prescreen's source materials
+  (when a run carries them) keep their own checkpoint (`checkPrescreenSourceCheckpoint`: the answers' and the file's revision),
+  which this addendum does not change. The locate's index cache stays keyed by `source_revision`: a key for reuse, not a
+  binding, so a bump only means the index is read again.
+- **Not changed.** `source_revision` stays in the context binding the kernel reports, in the lease's read set and in every
+  other consumer (§124.1's key dependencies, reuse of a packet across requests, KIC). The host-only `task_source_revision`
+  (§124's task dependencies, which already excludes the reader's bookkeeping) is unchanged.
+
+**Three ends (§31).** *Writer:* the reader (the answer's landing moves `source_revision`). *Reader:* the prescreen's drift checks
+(`RUN_BINDING_KEYS`, `PAGE_BINDING_KEYS`, the final check), which no longer read it. *Actor:* the Keeper, who gets the prepared
+material and, separately, the landed answer on the note.
+
+*Tests.* `tests/extension/prescreen-binding-drift.test.mjs`, on the real kernel over the Haunting: a write of the reader's
+bookkeeping (the module's `meta.reading`, the field an answer's landing writes) moves the capsule's `source_revision` and keeps
+`task_source_revision`; landing before the finish decision, and before a later catalog page, the prescreen still prepares, with
+the graph material and no fallback; landing between the run's binding and the first catalog page, the catalog and the locate's
+index are still taken. `tests/extension/prescreen-source-request.test.mjs` (a packet that carries the reading store's own
+answers): an answer landing before the source materials are read is among them and the packet reaches the provider; one landing
+after they were read voids them through their own checkpoint (`source_stale`), so the stale packet never reaches provider
+conversion. That file's earlier case, "a public source-owner answer change during selection prevents the stale packet", asserted
+the voiding by `source_revision` this addendum retires; it is replaced by the two cases above. The mutation record is in the
+SL-44 ticket's Comments.
 
 ## 125. Shared foreground evidence and NPC preparation (#109)
 
@@ -18316,7 +18359,8 @@ spent the same budget by calls instead: two prescreens of 10 calls each plus fou
   bodies (§135.20). The reuse costs no Jev call and no time. Its row is `prescreen: {status: "reused", from: <step of the
   read that ran it>, materials, jev_calls: 0, ms: 0}`. A fallback's outcome is reused as it is, with no materials: a
   re-run on the same scene would only spend the remainder again. On a changed scene the read runs a prescreen under what is
-  left of the allowance. Its deadline is the run's allowance deadline, never later.
+  left of the allowance. Its deadline is the run's allowance deadline, never later. *(Amended 2026-09-24 by §135.6.1: each read's
+  prescreen gets the named allowance from its own start; only the provider budget is per input.)*
 - **A decision's deadline is not the prescreen's.** The ordinary-check binder's lease ends 15 s after it starts, like the
   route, compile and bind leases. It used to end at the allowance deadline, with a floor of 1 s. A read that spent the
   allowance therefore left the next ordinary check one second.
@@ -18326,6 +18370,37 @@ port whose prescreen batches are slow): a prescreen that spends the whole allowa
 The compile and the route are asked, the clerk's move runs, and no step has reason `jev_budget`. The read after the move
 sends no prescreen batch past the allowance deadline. A `read_more` on the same scene reuses the first read's materials
 without one prescreen batch. The ordinary binder asked after a spent allowance holds a lease of 15 s.
+
+#### 135.6.1 Addendum (2026-09-24, SL-44): each read's prescreen runs on the named allowance, never on what the turn left
+
+SL-44 takes §135.6.1 (§-numbers are stable ids). It amends the SL-22 addendum's "The prescreen's allowance is per input" bullet
+above and restates the SL-22 ruling: the allowance is the prescreen's own, never derived from the turn's remainder.
+
+**Evidence** (long gate #4, `longgate4-haunting-1308`, turn 19, run `run-01a0d473-c801-75b7-80d5-7c403b59a2a9`). The first read
+(s1) prepared in 1.8 s. The route asked the Keeper, whose step took 7.2 s and whose batch moved the party (s5). The read after
+the move (s6) began 11 781 ms into the run, and its prescreen was given `allowance_ms: 138`: the run's one allowance deadline
+(`run.allowanceDeadline`, the start of the run plus the 12 000 ms allowance) less the time the turn had spent, almost all of it
+the Keeper's. It aborted "due to timeout" after 41 ms with 4 Jev calls sent, and the compile at the neighbourhood ran without
+material. The 138 ms was the turn's remainder, not anything the prescreen had spent.
+
+**The rule.** Each read that runs a prescreen gives it the named allowance: `readJevPreselectAllowanceMs` (§124.10), whose
+default is `PRESELECT_ALLOWANCE_DEFAULT_MS` (12 000 ms) unless the Jev extension's setting (or, in source mode,
+`PI_COC_JEV_PRESELECT_ALLOWANCE_MS`) configures another. Its deadline is the read's start plus that allowance. The run keeps no
+allowance deadline. The read row's `allowance_ms` is that allowance.
+
+- **What is still per input.** The provider budget (24 actions, `preparationProviderBudget`), shared by every read of the run and
+  never renewed. A read that finds it spent runs no prescreen: `not_run`, reason `allowance_spent`, which now means only that.
+- **Unchanged.** A read on the same scene as the run's previous read reuses that read's outcome at no call and no time. The
+  decision budget (`maxJevMs`, the same allowance) counts only the policy's decisions (SL-22). A decision's lease is its own.
+
+**Three ends (§31).** *Writer:* the engine's read (`deadlineAt` = the read's start plus the allowance). *Reader:*
+`prepareKeeperSupport` (its deadline and `allowance_ms`). *Actor:* the prescreen, which gets the same time on a late read as on
+the first; the operator, through the read row.
+
+*Tests.* `tests/extension/single-loop-prescreen-budget.test.mjs`: on the hybrid engine over the emitted kernel, the read after a
+clerk's move that comes later than the allowance runs its prescreen with `allowance_ms` equal to the configured allowance, and
+with no configuration equal to `PRESELECT_ALLOWANCE_DEFAULT_MS`; no prescreen batch of a read runs past that read's own deadline.
+The mutation record is in the SL-44 ticket's Comments.
 
 ### 135.7 Telemetry
 
@@ -19548,7 +19623,8 @@ resolve intents, so whenever the builder offers the check). Its families are `ac
 When it fires it binds the check's `intent` to the cleared `act` row (`basis.compile.bound.intent`, with the compile
 answer's confidence and distribution), so the executed check's intent is the act the compile read, never a second
 reading. It never **decides** the check: a compile where it does not fire leaves the check to the route's `need`
-question, as before.
+question, as before. *(Amended 2026-09-24 by §135.30.8: it decides the check, consuming it, when the cleared act is one an
+obligation step of the run settled.)*
 
 **Then the binder.** The selected check is a pending closed bind as every ordinary check is (§135.28): `bind-ordinary`
 runs the ordinary binder (its route question, then its profile question over the actor's own profile rows). An answer
@@ -19868,6 +19944,66 @@ visited, are still `not_here`; a move and then the old scene's clue in one batch
 on the emitted haunting through the vendored driver, gate #3's turn-1 sentence lands the leads clue and the move (the
 clerk), then the Keeper's batch -- Knott, the keys clue, the cash, the key item and the handout -- with receipts. The
 mutations and the turn-1 replay are in the SL-42 ticket's Comments.
+
+#### 135.30.8 Addendum (2026-09-24, SL-43): one declaration, one check -- the obligation step consumes the act it settles
+
+SL-43 takes §135.30.8 (§-numbers are stable ids). The owner's ruling of 2026-09-24 binds it: "A declaration's act is settled
+once. When the obligation candidate covers the act feature (the approach is the attempt, SL-14), the ordinary binder binds no
+second check in that compile; an ordinary check is bound only for an act the obligation step did not cover." It amends
+§135.30.3 (the `ordinary_check` predicate, which until now never decided) and §135.28's ordinary binder, for
+`PI_COC_LOOP_ENGINE=hybrid-v1` only.
+
+**Evidence** (long gate #4, `longgate4-haunting-1308` in the integration worktree's `.coc`, turn 2, "我说明来意，请他帮忙调出科比特宅
+这些年的旧剪报。", run `run-01a0d465-c196-75b7-80d5-7c1f9bc75222`). The first compile (s2) read `ask` on
+`obligation:globe-clippings-access` 0.87, `addressee` Arty 0.53 (0.65 against `unclear` 0.33: the margin rule), `act` `social`
+0.96, and `obligation_check` fired; `ordinary_check` did not (§135.30.3's third condition: the ask was on an obligation's
+demand), so the ordinary check fell through. The clerk rolled the obligation (Persuade 8, settled). Its fresh read issued the
+archivist's stated meeting, a new reachable candidate, so a second compile (s5) was owed (§135.30.1). It read the same
+sentence: `act` `social` 0.99, `addressee` Arty 0.79, and `ask` below the gate, because the settled obligation was no longer a
+row. Every condition of §135.30.3 now held, `ordinary_check` fired, the binder bound Persuade, and the clerk rolled it again
+(100). Two clerk writes, two rolls, 44 s of model steps narrating both, a 65 s wall.
+
+**The rule.** The run keeps the acts its obligation steps settled (`RunView.actsSettled`). An act joins it two ways:
+
+1. **At the compile.** When `obligation_check` fires on a candidate and `act` cleared on a row (the predicate already
+   requires that row to be one of the check's own intents), that act is settled. It counts for the same compile's other
+   candidates as well as later ones.
+2. **At the execution.** When the clerk executes an obligation check (family `obligation_check`), the intent it executed with
+   (the compile's, else its bind's) is settled, whether the kernel took the write or refused it. A refused attempt is still
+   the declaration's attempt; the clerk does not route around its own refusal (§135.26).
+
+The `ordinary_check` predicate (§135.30.3) gains a fourth condition: the cleared `act` is not a settled act. When it is, the
+predicate **decides** the ordinary check without firing: the declaration's act is settled, so the check is consumed for the run
+and stays the Keeper's (a Keeper's own `resolve` still takes it as before). An act that is not settled -- a declaration that
+speaks to the gatekeeper and then searches, read as `investigate` by a later compile -- fires exactly as §135.30.3 says. So a
+compile never adds a second check for the act an obligation step settled, and a check for another act is untouched.
+
+**The ordinary binder runs on the remainder.** The ordinary check can also reach the binder through the route's `need` question
+(§135.30.3 left it non-sole). When the check's intent -- the compile's act, else the binder's own intent -- is a settled act,
+`settleOrdinaryBind` executes nothing: the check is consumed, reason `ordinary_act_settled`, and the `bind` observation records
+the binder's disposition and the settled act. A check the binder binds to another act is executed as before.
+
+**What is not a settled act.** A compile where `obligation_check` fired without a cleared `act` settles nothing at the compile;
+its act is known at the execution (2). A stated meeting (a meeting-only obligation) settles no act: it is not a check. An act the
+Keeper's own `resolve` covered is §135.30.3's `consumedByResolve`, unchanged.
+
+**Telemetry.** The compile row (`lane: "route"`, `purpose: "compile"`) lists the consumed check in `decided` and gains
+`acts_settled`, the run's settled acts after the compile, when there are any. The engine re-reads the compile for its row with
+the run's settled acts carried on the question (`actsSettled`), so the row says what the policy did.
+
+**Three ends (§31).** *Writer:* the `obligation_check` predicate (a fired check's cleared act) and `settleExecute` (the executed
+obligation check's intent). *Reader:* the `ordinary_check` predicate (`interpretCompile`, which passes the run's settled acts and
+this compile's to every predicate) and `settleOrdinaryBind`. *Actor:* the clerk, which rolls one check per act; the Keeper, told
+through `clerk_did` of the one roll; the operator, through the compile row.
+
+**Not changed.** The gates; which candidates the builders issue; the obligation predicates; §134.17's fold; §32 admission.
+
+*Tests.* `tests/extension/single-loop-one-check.test.mjs`: at the policy seam, an obligation check fired on `social` decides
+the ordinary check in the same compile; with the act unclear at the first compile, the executed check's intent settles it and a
+later compile reading `social` decides the check, while one reading `investigate` selects it (intent `investigate`); the binder's
+check on a settled act executes nothing (`ordinary_act_settled`) and on another act executes. On the emitted kernel over the
+haunting through the hybrid engine, gate #4's turn-2 answers (both compiles) roll one check: the obligation's. The mutations and
+the replay of turn 2 are in the SL-43 ticket's Comments.
 
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
 

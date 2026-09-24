@@ -1,0 +1,13 @@
+{
+ "campaign": "longgate4-haunting-1308",
+ "module": "the-haunting",
+ "turn": 2,
+ "commit_before": "d61d295",
+ "commit_after": "b72f34d",
+ "player_input": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。",
+ "tarball": "../longgate4/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/longgate4-haunting-1308",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate4-haunting-1308-20260924T170845Z"
+ }
+}

@@ -11,8 +11,9 @@
  *   after that the Keeper's own batches carry the run.
  * - Extension seam: the hybrid engine over the emitted kernel on the Haunting, with a controlled decision port whose
  *   prescreen batches are slow. The route is still asked after a prescreen that spent the allowance. The read after the
- *   move sends nothing past the allowance deadline. A `read_more` on the same scene reuses the first read's prescreen. The
- *   ordinary binder's lease is its own.
+ *   move runs its prescreen on the named allowance, from its own start (SL-44, §135.6.1: gate #4's t19 read had been given
+ *   the turn's remainder, 138 ms), and sends nothing past its own deadline. A `read_more` on the same scene reuses the first
+ *   read's prescreen. The ordinary binder's lease is its own.
  */
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
@@ -27,6 +28,7 @@ import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { BIND_FAMILY, createStepPolicy, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
+import { PRESELECT_ALLOWANCE_DEFAULT_MS } from "../../extensions/jev/agent/config.js";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -185,10 +187,12 @@ function decisionPort({ route: routeAnswer, compileMs = 0, slowPrescreen = false
 	} } };
 }
 
+/** `allowanceMs: null`: the allowance is not configured, so it is the named default. */
 async function hybridTable({ port, responses, prepareWorkspace = toldWhereToDig, allowanceMs = "2000" }) {
 	const events = [], rows = [];
-	const engine = createHybridEngine({ env: { ...process.env, PI_COC_JEV_PRESELECT: "1", EXT_JEV_APIKEY: "mechanical-test-key",
-		PI_COC_JEV_PRESELECT_ALLOWANCE_MS: allowanceMs }, decision: port });
+	const env = { ...process.env, PI_COC_JEV_PRESELECT: "1", EXT_JEV_APIKEY: "mechanical-test-key" };
+	if (allowanceMs === null) delete env.PI_COC_JEV_PRESELECT_ALLOWANCE_MS; else env.PI_COC_JEV_PRESELECT_ALLOWANCE_MS = allowanceMs;
+	const engine = createHybridEngine({ env, decision: port });
 	const table = await openTable({
 		realKernel: true, prepareWorkspace, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
 		runDriver: engine.runDriver,
@@ -223,18 +227,51 @@ test("gate #7's shape: a prescreen that spends the whole allowance leaves the de
 	const moved = table.table.telemetry("test-camp").find((row) => row.tool === "apply" && row.origin === "policy");
 	assert.ok(moved?.ok !== false && moved, "the clerk's move ran");
 	assert.equal(reads[1].scene, "newspaper-morgue");
-	// The read after the move gets what is left of the allowance, never more: no prescreen batch starts after the first read.
-	const firstReadEnd = table.events.find((event) => event.type === "step_end" && event.stepId === reads[0].stepId).at;
-	assert.ok(log.filter((entry) => entry.kind === "prescreen").every((entry) => entry.at <= firstReadEnd),
-		"no prescreen batch past the allowance's deadline");
-	assert.equal(reads[1].prescreen.status, "not_run");
-	assert.equal(reads[1].prescreen.reason, "allowance_spent");
+	// SL-44 (§135.6.1): the read after the move gets the whole allowance from its own start, never what the turn left of it;
+	// no prescreen batch of either read runs past that read's own deadline.
+	assert.equal(reads[1].prescreen.allowance_ms, 3_000, "the late read's allowance is the configured one");
+	assert.notEqual(reads[1].prescreen.status, "not_run", `the late read ran its prescreen: ${JSON.stringify(reads[1].prescreen)}`);
+	// Each read's batches end within that read (their deadline is the read's own, not a later one), and each read's latest
+	// batch deadline is most of a whole allowance from its start (the allowance less the finalisation reserve), never a
+	// remainder. Measured against the read's own step, so a slow machine's kernel reads do not move it.
+	for (const read of reads) {
+		const began = table.events.find((event) => event.type === "step_start" && event.stepId === read.stepId).at;
+		const ended = table.events.find((event) => event.type === "step_end" && event.stepId === read.stepId).at;
+		const batches = log.filter((entry) => entry.kind === "prescreen" && entry.at >= began && entry.at <= ended);
+		assert.ok(batches.length > 0, `the read at ${read.scene} sent prescreen batches`);
+		assert.ok(batches.every((entry) => entry.deadline <= ended), `every batch's deadline falls inside its own read (${batches.map((entry) => entry.deadline - ended)})`);
+		// The locate's batches hold only their share; the latest deadline is the read's semantic one.
+		assert.ok(Math.max(...batches.map((entry) => entry.deadline)) - began >= 2_000, `given the allowance whole (${batches.map((entry) => entry.deadline - began)})`);
+	}
 	// The budget summary names both budgets: the decisions' (not spent) and the prescreen's (reported).
 	const summary = table.table.telemetry("test-camp").find((row) => row.lane === "run" && row.event === "budget" && row.decision === "summary");
 	assert.equal(summary.decision_budget.spent, false);
-	assert.equal(summary.prescreen.jev_calls, reads[0].prescreen.jev_calls);
+	assert.equal(summary.prescreen.jev_calls, reads[0].prescreen.jev_calls + reads[1].prescreen.jev_calls);
 	assert.equal(summary.decision_budget.jev_ms < 3_000, true, `the decisions alone spent ${summary.decision_budget.jev_ms} ms`);
-	assert.equal(summary.prescreen.reads, 1);
+	assert.equal(summary.prescreen.reads, 2);
+});
+
+test("SL-44 (§135.6.1): a read after the move that comes late in the turn gets the allowance whole -- the configured one, and with none configured the named default", async (t) => {
+	// Gate #4 t19's shape: the read after the move began 11.8 s into the run and was given the 138 ms the turn had left. Here
+	// the first read's prescreen holds every batch to its 2 s deadline, so the read after the clerk's move starts past the old
+	// run-wide deadline (which gave it `not_run`, `allowance_spent`); with no allowance configured, the first compile takes
+	// 300 ms, and the late read's allowance is still the named default, whole.
+	for (const [label, allowanceMs, expected, slow] of [["configured 2 s, the first prescreen spending all of it", "2000", 2_000, true],
+		["not configured: the named default", null, PRESELECT_ALLOWANCE_DEFAULT_MS, false]]) await t.test(label, async (tt) => {
+		const { port } = decisionPort({ compileMs: slow ? 0 : 300, slowPrescreen: slow,
+			route: (batch, n) => n === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target) ? "now" : undefined)
+				: answered(batch, (question) => question.key === "exit" ? "finish" : undefined) });
+		const table = await hybridTable({ port, allowanceMs, responses: [narrate("You reach the Globe's morgue.")] });
+		tt.after(() => table.dispose());
+		await table.table.session.prompt("I go to the Boston Globe offices.");
+		const reads = runRows(table.table, "read");
+		assert.equal(reads.length, 2, "the read, and the read after the move");
+		assert.equal(reads[1].scene, "newspaper-morgue");
+		assert.equal(reads[0].prescreen.allowance_ms, expected);
+		assert.equal(reads[1].prescreen.allowance_ms, expected, "the late read's allowance equals the first read's: never the turn's remainder");
+		assert.notEqual(reads[1].prescreen.status, "not_run", `the late read ran its prescreen: ${JSON.stringify(reads[1].prescreen)}`);
+		if (!slow) assert.equal(reads[1].prescreen.status, "prepared");
+	});
 });
 
 test("a read_more on the same scene reuses the first read's prescreen: its materials, no Jev call", async (t) => {
