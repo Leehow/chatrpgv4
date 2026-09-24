@@ -17,12 +17,12 @@ import { contextBinding } from '../read/context.js';
 import { mechanics } from '../read/mechanics.js';
 import { SessionView } from '../read/session-view.js';
 import { standingStates } from '../read/standing.js';
-import { authoredMapWords } from '../read/maps.js';
+import { authoredMapWords, presentPublishedArrivalMaps } from '../read/maps.js';
 import { sceneLabel } from '../read/capsule.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
 import { playLanguages, playLanguageOf } from '../read/languages.js';
 import { modContext, kernelGaps, readModCatalog } from '../read/mods.js';
-import { array, entries, values, row, clone, number, string, truth, repr, chars, words, equal, integer, type Row } from '../read/values.js';
+import { array, entries, values, row, clone, number, string, truth, repr, chars, words, equal, integer, normalize, type Row } from '../read/values.js';
 import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError, parseCallId } from './store.js';
 import { checked, commit, CommitFailed } from './history.js';
 import { registerStarter } from './source.js';
@@ -117,6 +117,8 @@ export interface WriteContributions {
     queueAdjacentReading?(graph: ModuleGraph, scene: Row): Promise<string[]>;
     requestReading?(params: Row): Promise<Row>;
     queueAheadReading?(params: Row): Promise<Row>;
+    /** §107.1: the module asset reader the late first-arrival card composes its layers from. */
+    asset?(moduleId: string, name: string): Promise<Row | null>;
     mods?: {
         initializeWorld(world: Row): Promise<boolean>;
         initializeCampaign(campaign: CampaignWriter, world: Row, options?: {pending?: boolean}): Promise<void>;
@@ -798,6 +800,15 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         }
         const cursor = freshTurn(next, 'open', pending);
         cursor.player_text = text;
+        // §107.1: a map published after the table arrived is presented on this, the first turn after it.
+        const awaited = JSON.stringify(array(snapshot.world.map_arrivals_pending)), minted = new Set<string>();
+        const lateMaps = contributions.asset ? await presentPublishedArrivalMaps({
+            graph: module.graph, world: snapshot.world, turn: cursor, callId: `t${next}-input`,
+            mint(base: string) { let id = base, n = 2; while (minted.has(id)) id = `${base}-${n++}`; minted.add(id); return id; }
+        }, (id, name) => contributions.asset!(id, name), focus => array(row(module.meta.reading).materials).some(material =>
+            material.material === 'map' && material.status === 'unusable' && normalize(string(material.focus ?? '')) === normalize(focus))) : [];
+        if (lateMaps.length || JSON.stringify(array(snapshot.world.map_arrivals_pending)) !== awaited) await campaign.writeWorld(snapshot.world);
+        cursor.receipts = [...array(cursor.receipts), ...lateMaps.map(item => item.receipt)];
         seedTurn(context, snapshot.meta, next);
         await campaign.writeTurn(cursor);
         await campaign.appendTranscript(next, 'player', text);
@@ -813,6 +824,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 text
             }
         });
+        for (const item of lateMaps)
+            await campaign.appendEvent(next, { type: 'map-revealed', data: row(item.event.data), receipt: string(item.receipt.id) });
         snapshot.turn = cursor;
         snapshot.jsonFiles.set('turn.json', cursor);
         snapshot.records = await campaign.records();
@@ -851,6 +864,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             turn: next,
             state: 'open',
             capsule: view,
+            // §107.1: host-only, consumed by the host's map hop before anything reaches the Keeper (§39.2).
+            ...(lateMaps.length ? { map_views: lateMaps.map(item => ({ ...item.view, receipt: item.receipt.id, label: item.receipt.label })) } : {}),
             _context: await contextBinding(snapshot, module, view)
         };
     }

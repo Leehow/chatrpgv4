@@ -41,6 +41,12 @@ function refusalOf(value: any): Row | null {
 /** §22.2.1: the purposes that read graph material of a named focus, one reading of a focus at a time. */
 const FOCUSED = ['opening', 'detail'];
 const uuid = (): string => randomUUID().replaceAll('-', '');
+/** Whether a process id names a live process; EPERM is a live process this user may not signal. */
+function processAlive(pid: number): boolean {
+    if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+    try { process.kill(pid, 0); return true; }
+    catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
+}
 type PublicationLease = {
     handles: LockLease[];
     moduleId: string;
@@ -295,26 +301,87 @@ export class Reading {
             details: { reason: 'material_pending', read: { purpose: 'detail', material: 'map', focus: bounded, question, ...(pages.length ? { pages } : {}) } },
         });
     }
-    async requireArrivalMapMaterial(graph: ModuleGraph, scene: Row): Promise<void> {
-        if (mapsDepictingScene(graph, scene).length) return;
+    /**
+     * §107.1: a map is orientation, never a door. The move has already landed; this queues the scene's map
+     * reading in the background -- the exact descriptor §107 used to raise -- one live job per focus, and says
+     * what became of it: `none` (no marker, not a read PDF, a pinned view, or the map is already published),
+     * `unusable` (the focus is settled), or the job's `queued`/`reading` state with its id.
+     */
+    async queueArrivalMap(graph: ModuleGraph, scene: Row): Promise<Row> {
+        if (mapsDepictingScene(graph, scene).length || graph.materialOverride) return { state: 'none' };
         const candidates = array(row(scene.properties).map_candidates);
-        if (!candidates.length) return;
         const focus = graph.handle(scene), names = candidates.map(candidate => string(row(candidate).name)).filter(Boolean);
         const pages = [...new Set(candidates.flatMap(candidate => array(row(candidate).pages).filter(integer).map(number)))].filter(page => page > 0).sort((a, b) => a - b);
-        if (!pages.length) return;
-        if (graph.materialOverride)
-            throw new RpcError('needs', `the pinned source has no prepared map for ${focus}`, {
-                fix: 'prepare and review the source material as an adaptation rebase before showing this map',
-                details: { reason: 'adaptation_material_missing', focus },
-            });
-        const meta = await this.store.module(graph.moduleId);
-        if (meta.source !== 'pdf') return;
-        const ready = array(meta.reading?.materials).some(material => material.material === 'map' && normalize(material.focus ?? '') === normalize(focus));
-        if (ready) return;
+        const mid = graph.moduleId;
+        if (!pages.length || !await this.store.exists(mid)) return { state: 'none' };
+        const meta = await this.store.module(mid);
+        if (meta.source !== 'pdf') return { state: 'none' };
+        const settled = Reading.mapSettlement(meta, focus);
+        if (settled) return { state: settled.status === 'unusable' ? 'unusable' : 'none', focus };
         const question = `Prepare the source-backed map${names.length === 1 ? ` ${names[0]}` : names.length ? `s ${names.join(', ')}` : ''} that depicts ${graph.displayName(scene)}; extract only independently revealable regions and safe place correspondence.`;
-        throw new RpcError('needs', `the map material for ${focus} is not prepared`, {
-            fix: 'read the required map material before retrying this unchanged move',
-            details: { reason: 'material_pending', read: { purpose: 'detail', material: 'map', focus, question, pages } },
+        const read = { module_id: mid, purpose: 'detail', material: 'map', focus, question, foreground: false };
+        let reply = await this.request(read);
+        // A map identity that failed before §107.1 settles the first time an arrival meets it; a cancelled
+        // read did not find the book wanting, so it is read again in the background.
+        if (reply.state === 'blocked' && reply.job_state === 'failed') {
+            await this.mutex(mid, async () => {
+                const current = await this.store.module(mid), queue = await this.store.queue(mid);
+                const failed = [...queue].reverse().find(job => job.job_id === reply.failed_job);
+                if (failed && Reading.settleMap(current, failed, string(row(failed.refusal).message || failed.detail || 'reading failed')))
+                    await this.store.writeModule(current);
+            });
+            return { state: 'unusable', focus };
+        }
+        if (reply.state === 'blocked') reply = await this.request({ ...read, retry: true });
+        if (reply.state === 'unusable') return { state: 'unusable', focus };
+        return { state: string(reply.state), focus, ...(truth(reply.job_id) ? { job_id: reply.job_id } : {}) };
+    }
+    /** §107.1: the settled row of a map focus (published or unusable), if any. */
+    static mapSettlement(meta: Row, focus: string): Row | undefined {
+        return array(row(meta.reading).materials).find(material => material.material === 'map' && normalize(material.focus ?? '') === normalize(focus));
+    }
+    /** §107.1: a failed map reading settles its identity as unusable, once. Returns whether a row was written. */
+    static settleMap(meta: Row, job: Row, reason: string): boolean {
+        meta.reading ??= Reading.initialState();
+        const materials = array(meta.reading.materials);
+        if (materials.some(material => material.key === job.key)) return false;
+        meta.reading.materials = [...materials, { key: job.key, purpose: 'detail', material: 'map', focus: job.focus, question: job.question,
+            status: 'unusable', reason: reason.slice(0, 1000), job_id: job.job_id, node_ids: [], generation: meta.generation ?? 0 }];
+        return true;
+    }
+    /**
+     * §107.1: a `running` job whose owner process is gone is recovered when the table next opens. A map job whose
+     * focus is settled, or whose identity already failed once, fails and settles; any other job is re-queued to the
+     * background. A live owner, a job this kernel leases and a held job lock are all left alone (§112).
+     */
+    async recoverOrphans(mid: string): Promise<Row[]> {
+        const directory = this.store.moduleDir(mid);
+        return this.mutex(mid, async () => {
+            const meta = await this.store.module(mid), queue = await this.store.queue(mid), recovered: Row[] = [];
+            let settled = false;
+            for (const job of queue) {
+                if (job.state !== 'running' || this.leases.has(this.key(mid, job.job_id))) continue;
+                const pid = /^host-(\d+)$/.exec(string(job.owner ?? ''))?.[1];
+                if (!pid || processAlive(Number(pid))) continue;
+                const probe = await this.store.context.locks.acquire(join(directory, equal(job.lock_version, 2) ? `.job-${job.job_id}.lock` : '.reader.lock'), 'exclusive', { nonblocking: true });
+                if (probe === null) continue;
+                await probe.release();
+                const failedBefore = [...queue].reverse().find(other => other !== job && other.key === job.key && other.state === 'failed');
+                if (job.material === 'map' && (failedBefore || Reading.mapSettlement(meta, string(job.focus)))) {
+                    Object.assign(job, { state: 'failed', detail: `the reading owner ${string(job.owner)} is gone and this map already failed once`, finished_at: nowIso() });
+                    settled = Reading.settleMap(meta, job, string(row(failedBefore?.refusal).message || failedBefore?.detail || job.detail)) || settled;
+                    recovered.push({ job_id: job.job_id, owner: job.owner, to: 'failed' });
+                }
+                else {
+                    Object.assign(job, { state: 'queued', foreground: false });
+                    recovered.push({ job_id: job.job_id, owner: job.owner, to: 'queued' });
+                }
+            }
+            if (!recovered.length) return recovered;
+            if (settled) await this.store.writeModule(meta);
+            await this.store.writeQueue(mid, queue);
+            await this.store.appendBuildLog(mid, { event: 'orphan-recovered', jobs: recovered });
+            return recovered;
         });
     }
     async requireMaterial(graph: ModuleGraph, names: any[]): Promise<void> {
@@ -371,6 +438,8 @@ export class Reading {
         if (!await this.store.exists(mid)) return { queued };
         const meta = await this.store.module(mid), reading = row(meta.reading);
         if (!playsFromReading(meta)) return { queued };
+        const recovered = await this.recoverOrphans(mid);
+        queued.push(...recovered.filter(job => job.to === 'queued').map(job => string(job.job_id)));
         const ask = async (request: Row): Promise<Row | null> => {
             try {
                 const reply = await this.request({ module_id: mid, foreground: false, ...request });
@@ -397,7 +466,7 @@ export class Reading {
             if (reply) wayOn = { scene: string(scene.node_id), state: reply.state, job_id: reply.job_id ?? null };
         }
         queued.push(...await this.queueAdjacentReading(graph, scene));
-        return { queued: [...new Set(queued)], scene: scene.node_id, ...(wayOn ? { way_on: wayOn } : {}) };
+        return { queued: [...new Set(queued)], scene: scene.node_id, ...(wayOn ? { way_on: wayOn } : {}), ...(recovered.length ? { recovered } : {}) };
     }
     async peekAnswer(params: Row): Promise<Row> {
         const mid = validateModuleId(params.module_id), meta = await this.store.module(mid);
@@ -585,7 +654,15 @@ export class Reading {
                     return { ...result, state: 'ready', source_answer: accepted.result };
                 }
             }
-            if (purpose === 'detail' && array(reading.materials).some(material => material.key === key))
+            const prepared = purpose === 'detail' ? array(reading.materials).find(material => material.key === key) : undefined;
+            if (prepared && prepared.status === 'unusable') {
+                // §107.1: a settled map is answered, not re-raised; only an explicit retry reads it again.
+                if (!truth(params.retry))
+                    return { ...result, state: 'unusable', reason: prepared.reason ?? null };
+                reading.materials = array(reading.materials).filter(material => material !== prepared);
+                await this.store.writeModule(meta);
+            }
+            else if (prepared)
                 return { ...result, state: 'ready' };
             const queue = await this.store.queue(mid), existing = [...queue].reverse().find(job => job.key === key);
             // §22.2.1: a focus a running reading reads is not read again until that reading settles; this request
@@ -631,7 +708,7 @@ export class Reading {
                     return { ...result, state: 'blocked', missing, opening: meta.opening ?? null, fix: 'choose an authored opening, then request preparation again' };
                 }
                 if (!truth(params.retry))
-                    return { ...result, state: 'blocked', missing: [existing.detail ?? 'reading failed'], ...(existing.refusal ? { refusal: existing.refusal } : {}), fix: 'request the same reading with retry: true' };
+                    return { ...result, state: 'blocked', missing: [existing.detail ?? 'reading failed'], ...(existing.refusal ? { refusal: existing.refusal } : {}), job_state: existing.state, failed_job: existing.job_id, fix: 'request the same reading with retry: true' };
             }
             const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), ...(repair ? { repair } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
             if(preparation)job.task_preparation=clone(preparation);
@@ -844,6 +921,9 @@ export class Reading {
             if (outcome !== 'completed') {
                 const refusal = refusalOf(params.refusal);
                 Object.assign(job, { state: outcome, detail: string(truth(params.detail) ? params.detail : outcome), ...(refusal ? { refusal } : {}), finished_at: nowIso() });
+                // §107.1: a refused review or a failed read settles the map's focus as unusable, once; a cancel does not.
+                if (outcome === 'failed' && job.material === 'map' && Reading.settleMap(meta, job, string(refusal?.message || job.detail)))
+                    await this.store.writeModule(meta);
                 await this.store.writeQueue(mid, queue);
                 await this.release(mid, job.job_id);
                 return { state: outcome };
@@ -950,6 +1030,10 @@ export class Reading {
                 if (retranscribed.length)
                     meta.reading.retranscriptions = [...array(meta.reading.retranscriptions),
                         ...retranscribed.map(item => ({ ...item, job_id: job.job_id, generation: number(meta.generation) + 1 }))];
+                // §107.1: a published map replaces the focus's unusable settlement.
+                if (job.material === 'map')
+                    meta.reading.materials = array(meta.reading.materials).filter(material => !(material.status === 'unusable' && material.material === 'map'
+                        && (material.key === job.key || normalize(material.focus ?? '') === normalize(job.focus ?? ''))));
                 meta.reading.materials.push({ key: job.key, purpose: job.purpose, ...(job.material ? { material: job.material } : {}), focus: job.focus, question: job.question, node_ids: filled.ready_nodes, generation: number(meta.generation) + 1 });
                 meta.status = meta.opening_ready ? 'installed' : 'assembled';
                 this.owned();

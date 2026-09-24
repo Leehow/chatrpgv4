@@ -2811,6 +2811,17 @@ The reader's extraction scope remains the declared current focus/question and it
 
 Producer: the host writes a focused review-input artifact per existing review unit. Reader: the fresh reviewer sees its projection and can read the retained full task/candidate as needed. Adoption: the same reviewer submits the exact original pointers, and the unchanged host/kernel review and publication gates consume them. Tests preserve pointer coverage, original-page obligations, full-file fallback and candidate immutability while demonstrating native checked termination for detail author/reviewer.
 
+### 22.4.3 Foreground waits are for text material only (2026-09-24, SL-34)
+
+The foreground wait above holds a turn for the text a turn's action needs. A map is orientation (§107.1) and never
+holds one. `apply move` no longer raises a map descriptor at all. `look {focus: "map"}` may still raise
+`material_pending` with `material: "map"`; the host then queues that reading in the background
+(`module.read.request` with `foreground: false`, and the `coc:source-work-queued` wake) and returns to the Keeper at
+once `needs` with `details.reason: "map_preparing"`, the descriptor and the job, and a fix saying the map is delivered
+when it is published and the place is narrated from the scene meanwhile. The look is not retried in that turn, and a
+settled (`unusable`) map answers `details.reason: "map_unusable"`. A descriptor without `material` is text and keeps
+the wait, the single automatic repair and the timeout exactly as written above.
+
 ### 22.5 开场、失败与旧数据
 
 setup 用 `prepare-module` 替换 `build-bundle/bind-source/build-opening` 的外部编排。输入真实 `pdf` 或既有 `module`，执行来源登记、定位、开场准备；调查员流程保持原职责。多开场选择沿用 `module.opening.choose`；候选来自已读原书，等待不能解决选择。源语言由读者判断，玩家语言继续使用 `play_language`。
@@ -9034,7 +9045,7 @@ The three ends are explicit. The Keeper writes newly learned region knowledge th
 
 ### 39.2 First arrival places the depicted map in the delivery
 
-A published player map that `depicts` a scene is supplementary material for that place, not a thing the player has to ask for and not a sentence in the story. The first real `apply move` (not a rename) onto such a scene, when that map is not yet in `world.maps_presented`, mints one `map` receipt for the map's player-safe (and independently reviewed `safe_after_redactions`) regions, records the handle on `maps_presented`, and includes the host-only `map_views` payload. It does not write `map_knowledge` for secret rooms, does not require `look`, and does not wait for the Keeper to `apply map`. Returning to a depicted scene does not place the card again.
+A published player map that `depicts` a scene is supplementary material for that place, not a thing the player has to ask for and not a sentence in the story. The first real `apply move` (not a rename) onto such a scene, when that map is not yet in `world.maps_presented`, mints one `map` receipt for the map's player-safe (and independently reviewed `safe_after_redactions`) regions, records the handle on `maps_presented`, and includes the host-only `map_views` payload. It does not write `map_knowledge` for secret rooms, does not require `look`, and does not wait for the Keeper to `apply map`. Returning to a depicted scene does not place the card again. A map published only after the arrival is presented on the first turn after its publication, once (§107.1).
 
 The receipt is bindable as `{{map:<map-handle>}}` (§16.6). Like every mechanics receipt, if the Keeper does not place that marker, the kernel appends it to `marked_text` so the frontend mounts the row in the delivery body; `rendered_text` still has no braces. The story text describes the place immersively. It does not mention a map, a floor plan, or what is "on the map"; those words are out of game. The picture is extra material beside the scene, the way every other mechanics row is extra material beside the prose.
 
@@ -15274,7 +15285,7 @@ scene, the host projects those rows into `scene.properties.map_candidates`. This
 navigation metadata: it authorizes no pixels, region names or player knowledge and never becomes a
 card by itself.
 
-The first real move into a marked scene is the consumer. Before committing the move, the kernel checks
+(Amended by §107.1: the marker no longer gates the move; the move queues a background map reading and the map is delivered when published.) The first real move into a marked scene is the consumer. Before committing the move, the kernel checks
 for a reviewed map that `depicts` that scene. If none exists and this map focus has not already been
 settled, it raises the existing `material_pending` descriptor with `material: "map"` and the candidate
 physical pages. The host's existing visual reader and independent reviewer then publish the real
@@ -15290,6 +15301,77 @@ candidate-to-scene projection and the exact arrival descriptor; `tests/kernel/te
 pin known-region-only derivatives. Live acceptance still requires an A or M PDF arrival to produce and
 open the real image, prove original-page/private paths and unrevealed regions are absent from the player
 surface, then reveal one newly earned region without replacing the old card.
+
+### 107.1 A map is orientation, never a door (2026-09-24, SL-34; amends §107, §22.4 and §39.2)
+
+SL-29A (血色公路, `claude/pdf-a-20260924`@0ce3f174a) never entered the town that is the book's whole play space. The
+town's text was prepared before the first move, but its map read ran 17 minutes and 79 calls and then failed
+independent review (three region boxes judged off the printed markers). §107 settled only a false candidate; a real
+candidate whose review refused never settled, so each of nine moves re-raised `material_pending`, re-read the map and
+spent the turn in the 120 s foreground wait. After the table stopped, the retry stayed `running` in the queue with no
+process behind it. Owner ruling (spec, "Reading never holds a turn"): a map is orientation material and never gates a
+move; the move lands with the scene's text, the map is read in the background and delivered on the first turn after
+it is published, and a refused review or failed read settles the focus as unusable once.
+
+**The move lands.** `apply move`'s text-material gate (§22.4, the scene's own material) is unchanged. The map is no
+longer checked before the batch: once a batch whose real move (not a rename) left the table at a new scene has staged
+without a refused effect, the kernel looks at that final scene. When it carries `map_candidates` with physical pages,
+no reviewed map `depicts` it, the module is a read PDF and the view is not pinned (an adapted campaign's maps enter
+through a rebase, §37), and the focus is not settled, the kernel queues one background reading with exactly the
+descriptor §107 used to raise -- `{purpose: "detail", material: "map", focus, question, pages}` -- and
+`foreground: false`. One live job per focus: a queued or running job of the same identity is joined, never duplicated.
+Its job id joins the result's `deepen_queued`, which is the host's existing wake for background source work, and the
+scene's handle is recorded in `world.map_arrivals_pending`. Nothing is raised; no turn waits.
+
+**Delivery on the first turn after publication.** `table.player_input` reads `world.map_arrivals_pending` when it
+opens a turn. For the entry naming the active scene, when a reviewed player-safe map that `depicts` it has since been
+published and is not in `world.maps_presented`, it mints the §39.2 first-arrival receipt on the new turn -- the same
+shape, `why: "arrival"`, plus `late: true`, `scene` and a kernel-minted `call_id` `t<N>-input` -- records the handle in
+`maps_presented`, removes the entry and appends `map-revealed`. The player-input result carries the host-only
+`map_views` exactly as an `apply` result does; the host renders the flattened derivative through the same hop
+(`prepareMapViews`) and removes the payload before anything reaches the Keeper, and the receipt rides that turn's
+delivery like every mechanics receipt (§39.2's marker append). The capsule's `turn` carries
+`map_arrived: [{map, scene, receipt}]` while the turn is open; on hybrid-v1 the run's first `coc-clerk` note carries
+the same rows with one line saying the place's floor plan arrived as supplementary material and is committed, so the
+prose describes the place and still never mentions a map (§39.2). Once only: the receipt is minted by the entry, and
+the entry is gone once minted or once `maps_presented` holds the map. An entry for a scene the player has left stays;
+the next real move into it presents the map through §39.2 and clears it. An entry whose focus has settled is dropped.
+
+**Settlement.** `module.read.finish` with `outcome: "failed"` for a `material: "map"` job writes, once per reading
+identity, `meta.reading.materials += {key, purpose: "detail", material: "map", focus, question, status: "unusable",
+reason, job_id, node_ids: [], generation}`; `reason` is the retained refusal's message, else the failure detail.
+`cancelled` settles nothing: a cancelled read did not find the book wanting. A settled focus is not re-raised: later
+moves into the scene neither queue nor wait, `look {focus: "map"}` treats it as answered, and `module.read.request` for
+that identity answers `{state: "unusable", reason}` rather than a `blocked` that invites a retry. The row is the
+record, and only an explicit reading replaces it: `retry: true` on the same identity (an explicit manual
+read) removes it and queues afresh, and a completed publication of that focus
+replaces it. A map identity that already failed before this rule (a `failed` job and no row) is settled the first time
+the arrival path meets it.
+
+**An orphaned job is recovered on the next open.** `module.read.ahead`, which `table.open` runs for a reading campaign,
+first recovers each `running` job whose owner is gone: its owner is `host-<pid>` and that process no longer exists,
+this kernel holds no lease for it, and its job lock is free. A map job whose focus is settled, or whose identity has
+already failed once, becomes `failed` and settles as above; any other job is re-queued to the background
+(`state: "queued"`, `foreground: false`). A live owner process is left alone -- §112's cold replay by the persisted
+token stays valid -- and an owner without a pid is left to `claim`'s existing lock-probe recovery. A build-log
+`orphan-recovered` row names what happened to each job.
+
+**The three ends (§31).** *Writer:* `apply move` writes `world.map_arrivals_pending` and queues the job; a failed map
+job's finish (or the arrival path meeting a pre-rule failure, or orphan recovery) writes the unusable row;
+`table.player_input` writes the late receipt and `maps_presented`. *Reader:* `table.player_input` reads the pending
+entries and the published graph; the arrival path and `module.read.request` read the unusable row; the capsule and the
+clerk note read the late receipt. *Actor:* the host renders and delivers the card beside that turn's prose; the Keeper
+narrates the place and never the map.
+
+Tests: `tests/extension/ts-kernel-modules.test.mjs` (the §107 arrival case flips: the move lands, one background map
+job is queued and joined on a second move, no `material_pending`; a refused review settles once and a second move
+raises no read; an orphaned `running` job is re-queued, and a failed-identity map orphan is settled, on the next
+open), `tests/kernel/test_map_arrival.py` (on the emitted kernel: the move lands and queues the job, the map published
+during turn N+1 is presented on N+2 with its receipt minted once and absent on N+3; a refused review settles and the
+return move reads nothing; only `retry` replaces the row) and `tests/extension/map-arrival-late.test.mjs` (the seam:
+the host renders the late card into that turn's mechanics entry, the hybrid clerk note says so once and nothing private
+reaches the Keeper; `look focus=map` answers `map_preparing` without a wait). `tests/kernel/test_map.py` keeps pinning
+the derivatives.
 
 ## 108. A maneuver snapshot admits the declared-dice fields its engine writes (2026-09-17)
 

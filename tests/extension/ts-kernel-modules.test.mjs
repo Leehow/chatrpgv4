@@ -269,20 +269,141 @@ test('a PDF map demand emits a bounded material-pending descriptor with candidat
   await reading.close();
 });
 
-test('an indexed map candidate marks its scene and first arrival requests reviewed map material', async () => {
+test('an indexed map candidate marks its scene, and the marker is carried onto the assembled scene', async () => {
   const meta={id:'book-1',title:'Book',source:'pdf',reading:{materials:[],map_candidates:[{name:'Map of the Dock',focus:'Dock',pages:[9,7]}]}};
   const filled=api.checkDraft(clone(base),packet,contract,new Set([1]));
   const raw=api.assembleVisual(null,filled,meta,contract),scene=raw.nodes.find(node=>node.node_id==='scene-dock');
   assert.deepEqual(scene.properties.map_candidates,[{name:'Map of the Dock',focus:'Dock',pages:[7,9]}]);
-  const graph=new api.ModuleGraph('book-1',raw,'',contract.graph.actor_dossier);
-  const reading=new api.Reading({module:async()=>meta});
-  await assert.rejects(reading.requireArrivalMapMaterial(graph,graph.scene('Dock')),error=>{
-    assert.equal(error.details.reason,'material_pending');
-    assert.deepEqual(error.details.read,{purpose:'detail',material:'map',focus:'dock',pages:[7,9],
-      question:'Prepare the source-backed map Map of the Dock that depicts Dock; extract only independently revealable regions and safe place correspondence.'});
-    return true;
-  });
-  await reading.close();
+});
+
+/**
+ * §107.1 fixtures: a bound two-page PDF whose index marks the Tower with a map and whose opening publishes the Dock,
+ * read through the real module runtime. `reopen` retires the runtime (its native leases die with it, as when a
+ * table stops) and starts a fresh one on the same workspace.
+ */
+async function mapBook(name) {
+  const require=createRequire(import.meta.url),flock=promisify(require('fs-ext').flock);
+  const workspace=join(evidence,name),path=join(evidence,`${name}.pdf`),bytes=Buffer.from(`%PDF-1.7\n${name} map fixture\n`);
+  await writeFile(path,bytes);
+  const context=await api.createKernelContext({workspace,content:join(ROOT,'content'),locks:api.createAdvisoryLocks(flock)});
+  const sha=createHash('sha256').update(bytes).digest('hex'),refs1=[{page:1}];
+  const book={context,runtime:api.createModuleRuntime(context),mid:null};
+  const call=(method,params)=>book.runtime.handlers[method]({module_id:book.mid,...params});
+  const save=(file,value)=>writeFile(file,JSON.stringify(value));
+  book.call=call;
+  book.store=()=>book.runtime.source.store;
+  book.claim=owner=>call('module.read.claim',{owner});
+  book.fail=(job,refusal)=>call('module.read.finish',{job_id:job.job_id,lease:job.lease,outcome:'failed',detail:`invalid_params: ${refusal}`,refusal:{message:refusal}});
+  book.reopen=async()=>{await book.runtime.close();book.runtime=api.createModuleRuntime(context);};
+  book.close=async()=>{await book.runtime.close();await context.git.close();};
+  const publish=async(job,draft)=>{
+    await save(join(job.work_dir,'observations.json'),{file_sha256:sha,read_pages:[1,2],full_pages:[1,2],review_pages:[1,2]});
+    await save(join(job.work_dir,'draft.json'),draft);
+    const checked=job.purpose==='index'?[]:api.checkDraft(clone(draft),job,contract,new Set([1,2])).required_review;
+    await save(join(job.work_dir,'review.json'),{checked:[{paths:checked,verdict:'supported',source_refs:refs1,reason:'fixture support'}],missing:[]});
+    return call('module.read.finish',{job_id:job.job_id,lease:job.lease,outcome:'completed',draft_path:join(job.work_dir,'draft.json'),review_path:join(job.work_dir,'review.json')});
+  };
+  book.mid=(await book.runtime.handlers['module.source.bind']({source:{path,page_count:2,file_sha256:sha}})).module_id;
+  await publish(await book.claim('test-host'),{title:'The Harbor',language:'en',sections:[{name:'Harbor and tower',pages:[[1,2]],entities:['Dock','Tower','Lena']}],
+    map_candidates:[{name:'Tower plan',focus:'Tower',pages:[2]}]});
+  await call('module.read.request',{purpose:'opening'});
+  const nodes=[{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:refs1,properties:{is_entrance:true}},
+    {node_id:'scene-tower',node_kind:'scene',name:'Tower',source_refs:[{page:2}],summary:'An old tower beyond the harbor.',properties:{is_final:true}},
+    {node_id:'npc-lena',node_kind:'npc',name:'Lena',source_refs:refs1,properties:{mechanics:{profile:{characteristics:{STR:50}}}}}];
+  const claims=[['scene-dock','route-to','scene-tower'],['npc-lena','present-in','scene-dock']].map(([subject_id,predicate,node_id])=>({subject_id,predicate,object:{node_id},truth_status:'authored-fact',source_refs:refs1}));
+  assert.equal((await publish(await book.claim('test-host'),{nodes,claims,node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['scene-dock','npc-lena']})).opening_ready,true);
+  book.graph=()=>book.store().graph(book.mid);
+  book.mapJobs=async()=>(await book.store().queue(book.mid)).filter(job=>job.material==='map');
+  book.settled=async()=>array((await book.store().module(book.mid)).reading.materials).filter(row=>row.material==='map');
+  return book;
+}
+const array=value=>Array.isArray(value)?value:[];
+const TOWER_QUESTION='Prepare the source-backed map Tower plan that depicts Tower; extract only independently revealable regions and safe place correspondence.';
+const deadPid=()=>spawnSync(process.execPath,['-e','0']).pid;
+
+test('§107.1: the first arrival at a marked scene queues one background map reading and raises nothing', async () => {
+  const book=await mapBook('arrival-map');
+  try {
+    const graph=await book.graph(),reading=new api.Reading(book.store());
+    assert.deepEqual(graph.scene('Tower').properties.map_candidates,[{name:'Tower plan',focus:'Tower',pages:[2]}]);
+    const first=await reading.queueArrivalMap(graph,graph.scene('Tower'));
+    const [job]=await book.mapJobs();
+    assert.deepEqual(first,{state:'queued',focus:'tower',job_id:job.job_id});
+    assert.deepEqual(Object.fromEntries(['purpose','material','focus','question','pages','foreground','state'].map(key=>[key,job[key]])),
+      {purpose:'detail',material:'map',focus:'tower',question:TOWER_QUESTION,pages:[2],foreground:false,state:'queued'});
+    // One live job per focus: a second arrival joins it.
+    assert.deepEqual(await reading.queueArrivalMap(graph,graph.scene('Tower')),first);
+    assert.equal((await book.mapJobs()).length,1);
+    // A scene without a marker pays for no map read.
+    assert.deepEqual(await reading.queueArrivalMap(graph,graph.scene('Dock')),{state:'none'});
+    await reading.close();
+  } finally {await book.close();}
+});
+
+test('§107.1: a refused map review settles the focus once, and a later arrival neither queues nor re-reads', async () => {
+  const book=await mapBook('refused-map');
+  try {
+    const graph=await book.graph(),reading=new api.Reading(book.store());
+    await reading.queueArrivalMap(graph,graph.scene('Tower'));
+    const job=await book.claim('test-host');
+    assert.equal(job.material,'map');
+    const refusal="visual review did not support ['/nodes/0/properties/map_regions/1/source_box/0']";
+    assert.equal((await book.fail(job,refusal)).state,'failed');
+    const [row]=await book.settled();
+    assert.deepEqual(Object.fromEntries(['status','focus','reason','job_id','node_ids','material'].map(key=>[key,row[key]])),
+      {status:'unusable',focus:'tower',reason:refusal,job_id:job.job_id,node_ids:[],material:'map'});
+    assert.deepEqual(await reading.queueArrivalMap(graph,graph.scene('Tower')),{state:'unusable',focus:'tower'});
+    assert.equal((await book.mapJobs()).length,1,'the settled focus is not read again');
+    assert.equal((await book.settled()).length,1,'settled once');
+    // A map identity that failed before §107.1 (no row) settles the first time an arrival meets it.
+    const meta=await book.store().module(book.mid);
+    meta.reading.materials=meta.reading.materials.filter(material=>material.material!=='map');
+    await book.store().writeModule(meta);
+    assert.deepEqual(await reading.queueArrivalMap(graph,graph.scene('Tower')),{state:'unusable',focus:'tower'});
+    assert.equal((await book.mapJobs()).length,1);
+    assert.equal((await book.settled())[0].reason,refusal);
+    await reading.close();
+  } finally {await book.close();}
+});
+
+test('§107.1: a running job whose owner process is gone is recovered on the next open, never left running', async () => {
+  const book=await mapBook('orphan-map');
+  try {
+    const graph=await book.graph(),reading=new api.Reading(book.store());
+    await reading.queueArrivalMap(graph,graph.scene('Tower'));
+    const gone=`host-${deadPid()}`,first=await book.claim(gone);
+    assert.equal(first.material,'map');
+    await book.reopen();
+    const opened=await book.call('module.read.ahead',{});
+    assert.deepEqual(opened.recovered,[{job_id:first.job_id,owner:gone,to:'queued'}]);
+    assert.ok(opened.queued.includes(first.job_id));
+    let [job]=await book.mapJobs();
+    assert.deepEqual([job.state,job.foreground],['queued',false]);
+    // A live owner is left alone: its reader may still publish by the persisted token (§112).
+    const live=await book.claim(`host-${process.pid}`);
+    assert.equal(live.job_id,first.job_id);
+    await book.reopen();
+    assert.equal((await book.call('module.read.ahead',{})).recovered,undefined);
+    [job]=await book.mapJobs();
+    assert.equal(job.state,'running');
+    // That owner's read is refused and settles; an explicit retry re-reads, and its orphan fails instead of looping.
+    await book.fail(live,'the region boxes were off the printed markers');
+    const retried=await book.call('module.read.request',{purpose:'detail',material:'map',focus:'tower',question:TOWER_QUESTION,retry:true});
+    assert.equal(retried.state,'queued');
+    assert.deepEqual(await book.settled(),[]);
+    // The open also queued the Dock's exit (the Tower's text) ahead of the retry; that reader goes first and is stopped.
+    const text=await book.claim('test-host');
+    assert.deepEqual([text.focus,text.material],['tower',undefined]);
+    await book.call('module.read.finish',{job_id:text.job_id,lease:text.lease,outcome:'cancelled'});
+    const again=await book.claim(gone);
+    assert.equal(again.job_id,retried.job_id);
+    await book.reopen();
+    assert.deepEqual((await book.call('module.read.ahead',{})).recovered,[{job_id:again.job_id,owner:gone,to:'failed'}]);
+    assert.deepEqual((await book.mapJobs()).map(entry=>entry.state),['failed','failed']);
+    const [row]=await book.settled();
+    assert.deepEqual([row.status,row.reason],['unusable','the region boxes were off the printed markers']);
+    await reading.close();
+  } finally {await book.close();}
 });
 
 test('canonical PDF clue properties and knows/supports relations reach the existing thread',()=>{

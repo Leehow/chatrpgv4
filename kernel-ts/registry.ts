@@ -39,7 +39,9 @@ export function createKernelRuntime(context: KernelContext): {
     const mods = createModRuntime(context,{asset:(id,name)=>modules.source.store.asset(id,name)});
     const adaptations = new AdaptationJobs(context, (id, name) => modules.source.store.asset(id, name));
     const worldlines = createWorldlineRuntime(context,clockEngines);
+    const asset=(id:string,name:string)=>modules.source.store.asset(id,name);
     const writer = createWriteRuntime(context, { openingReady: modules.source.openingReady,
+        asset,
         requestReading: modules.source.requestFollowing,
         queueAheadReading: modules.source.ahead,
         mods,
@@ -48,8 +50,7 @@ export function createKernelRuntime(context: KernelContext): {
         queueAdjacentReading: modules.source.queueAdjacentReading,
         libraryWriteBack: createLibraryWriteBack(context) });
     const resolver = createResolveRuntime(context, writer, { beforeMain:mods.resolveBeforeMain,requireMaterial: modules.source.requireMaterial, development: createDevelopmentFamily(), healing:createHealingResolveContribution(), sanity:createSanityFamily(),magic:createMagicFamily({effects:mods.magicEffects}),combat:createCombatResolveContribution(),chase:createChaseResolveContribution() });
-    const asset=(id:string,name:string)=>modules.source.store.asset(id,name);
-    const handlers = assembleHandlers(context, foundationHandlers(context), ordinaryResolveHandlers(context), ordinaryApplyHandlers(context), readHandlers(context, { ...writer.read, lookupRules: rules.lookup, asset, requireMapMaterial: modules.source.requireMapMaterial }), writer.handlers, modules.handlers, createSetupHandlers(context, writer), createLibraryHandlers(context, writer), resolver.handlers, createMemoryHandlers(context, writer), createJournalHandlers(context, writer), createVoiceHandlers(context, writer), createNpcHandlers(context, writer), mods.handlers(writer), adaptations.handlers(), graphHandlers(context), createBranchHandlers(context, writer), createApplyHandlers(context, writer, {adaptation:(c,e)=>adaptations.stage(c,e),mods:mods.apply(writer),worldlines,resources:applyResources,ending:stageEnding,requireMaterial:modules.source.requireMaterial,requireArrivalMapMaterial:modules.source.requireArrivalMapMaterial,materialReady:modules.source.materialReady,queueAdjacentReading:modules.source.queueAdjacentReading,asset,weaponCatalog:graph=>moduleWeaponCatalog(context,graph)}));
+    const handlers = assembleHandlers(context, foundationHandlers(context), ordinaryResolveHandlers(context), ordinaryApplyHandlers(context), readHandlers(context, { ...writer.read, lookupRules: rules.lookup, asset, requireMapMaterial: modules.source.requireMapMaterial }), writer.handlers, modules.handlers, createSetupHandlers(context, writer), createLibraryHandlers(context, writer), resolver.handlers, createMemoryHandlers(context, writer), createJournalHandlers(context, writer), createVoiceHandlers(context, writer), createNpcHandlers(context, writer), mods.handlers(writer), adaptations.handlers(), graphHandlers(context), createBranchHandlers(context, writer), createApplyHandlers(context, writer, {adaptation:(c,e)=>adaptations.stage(c,e),mods:mods.apply(writer),worldlines,resources:applyResources,ending:stageEnding,requireMaterial:modules.source.requireMaterial,queueArrivalMap:modules.source.queueArrivalMap,materialReady:modules.source.materialReady,queueAdjacentReading:modules.source.queueAdjacentReading,asset,weaponCatalog:graph=>moduleWeaponCatalog(context,graph)}));
     let closing: Promise<void> | undefined;
     return Object.freeze({ handlers, close() {
             return closing ??= (async () => { try {

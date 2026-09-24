@@ -242,6 +242,37 @@ export async function presentArrivalMaps(context: {graph: ModuleGraph; world: Ro
         };
         out.push({ receipt, event: { type: 'map-revealed', data: { map: handle, regions: selected.map(region => region.id), known_regions: receipt.known_regions, why: 'arrival' } }, view });
     }
+    // §107.1: an arrival whose map was still being read is answered once the map is presented here.
+    if (out.length && Array.isArray(context.world.map_arrivals_pending))
+        context.world.map_arrivals_pending = context.world.map_arrivals_pending.filter((value: unknown) => value !== context.graph.handle(scene));
+    return out;
+}
+
+/**
+ * §107.1: the map of a scene the table arrived at while it was still being read, presented on the first turn after
+ * its publication. Each `world.map_arrivals_pending` entry is answered once: the active scene's entry mints the
+ * §39.2 arrival card (marked `late`) as soon as a reviewed map depicts the scene, and is dropped once the map is
+ * presented or the focus has settled as unusable. An entry for a scene the table has left waits for the next real
+ * move into it, where §39.2 presents the map itself.
+ */
+export async function presentPublishedArrivalMaps(context: {graph: ModuleGraph; world: Row; turn: Row; callId: string; mint(base: string): string},
+    asset: AssetReader, settled: (focus: string) => boolean): Promise<Array<{receipt: Row; event: Row; view: Row}>> {
+    const pending = array(context.world.map_arrivals_pending).filter((value): value is string => typeof value === 'string');
+    if (!pending.length) return [];
+    const here = context.graph.handle(context.graph.scene(context.world.active_scene)), keep: string[] = [];
+    let out: Array<{receipt: Row; event: Row; view: Row}> = [];
+    for (const handle of pending) {
+        if (handle !== here) { keep.push(handle); continue; }
+        if (mapsDepictingScene(context.graph, context.graph.scene(here)).length) {
+            out = (await presentArrivalMaps(context, asset)).map(item => {
+                Object.assign(item.receipt, { late: true, scene: here });
+                return { ...item, event: { ...item.event, data: { ...row(item.event.data), late: true, scene: here } } };
+            });
+            continue;
+        }
+        if (!settled(handle)) keep.push(handle);
+    }
+    context.world.map_arrivals_pending = keep;
     return out;
 }
 
