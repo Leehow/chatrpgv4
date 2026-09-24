@@ -257,3 +257,48 @@ and then the §38 notice "no delivered result". Nothing reached the player.
 - No live table. The owner's gate re-runs it.
 - The `agent_end` guard (no steer after a driven run) is covered only where the run's `turn_close` already spent
   the steer. A driven run that ends on a failed or aborted model step (no `turn_close`) is not exercised.
+
+### 2026-09-24 — live gate #3 on 0.9.5a `19965521e` (driver.py, hybrid-v1, Keeper grok-4.7-build-fast low, fresh haunting campaign `gate3-haunting-2329`)
+
+Pre-registered in the session scratchpad (`live-gate-3-preregistration.md`) before the table opened. Three
+turns, one sentence each, all delivered, all under 60 s of wall time. Gate #2's stalled sentence went through.
+
+| turn | player | wall | model calls (s) | admission | Jev route | clerk executed | LLM steps |
+|---|---|---|---|---|---|---|---|
+| 1 | accept the commission, go to the Globe morgue | 58.2 s | 5 (36.1) | lane 7.5 + 6.9 s | `now` 0.61 on the move, confidence 0.42 < gate → `low_confidence`; then `ask_llm` ×2 | nothing | 5 |
+| 2 | ask the editor for the Corbitt clippings | 29.5 s | 2 (16.8) | lane 2.2 s | seeks question `not` 0.54 / `seeks` 0.31 / `unknown` 0.15 → `ask_llm`; then `low_confidence` | nothing | 2 |
+| 3 | back to Knott's office, grab him and punch him | 58.9 s | 8 (44.4) | lane 3.3 + 2.3 s, one exempt | move selected 0.90 → executed; disposition `avoids_fighting` 0.67, confidence 0.59 < gate → `clerk_unbound`; then `ask_llm` ×2, `low_confidence` | `apply:move:commission-briefing` (bind `to` stated); `resolve:combat:defend:steven-knott` with `defense: dodge` stated from `pending_defense` (no Jev, no LLM) | 8, of which 3 produced only a `look` |
+
+Scored against the pre-registration:
+
+- (1) startup `loop_engine: hybrid-v1`, no manual session edit: **met**.
+- (2) turn 1 delivered ≤ 60 s, ≤ 5 model calls: **met**; the Keeper proposed one `lookup`, refused by the
+  45 s budget (`model_batch`), so 0 read-only calls executed and 1 proposed.
+- (3) turn 2 delivered ≤ 60 s, no `infer(bind)` anywhere on the table: **met**. The obligation candidate
+  `resolve:obligation:globe-clippings-access` reached the route (offered in turn 1 s6, turn 2 s2, turn 3 s2) but
+  was never selected, and turn 2 has no bind row because the clerk executed nothing. **Product finding:** the
+  Keeper resolved an ordinary `core-check:ordinary-check` Persuade (44 vs 40, failure, bonus 1) instead of
+  `action.obligation`, so the editor refused in prose but `globe-clippings-access` is still `open` with no
+  attempt recorded; the failed price was never paid.
+- (4) stalled stream: not exercised, no stall occurred.
+- (5) budget rows in turns 1 and 3 (compose at 47.1 s and 45.2 s), both runs still `delivered`: **met**. Turn 3
+  paid a second compose after `turn_close` (`audit-repair`, 4.8 s), which is where its 55 s came from.
+- (6) admission: every clerk write went through the `lane` path (deepseek-v4.1-flash), none `typed`: **not met**.
+  The 7.5 s lane in turn 1 reviewed a mixed batch (clue, handout, cash, item, move, time), outside the
+  bookkeeping-only rule; the move-only batch in turn 3 took 3.3 s.
+- (7) fight: Knott's defence executed by the clerk from the standing row with no Jev or LLM step: **met**; his
+  disposition asked of the Keeper once after Jev's 0.59 (`avoids_fighting` 0.67 of the mass): **met, allowed**;
+  round wall 58.9 s: **met**; LLM steps ≤ 2: **not met** (8; the turn also carried the move and the provocation).
+- (8) nothing fabricated: **met**.
+
+Reading. The 60 s line holds only because the budget cuts the run at its compose; the Keeper still does the
+work. In all three turns Jev's answer sat just under a gate on a different question each time (0.42 on a
+declared move that scored 0.93 on gate #2's table with the same sentence, 0.30 on the seeks question for a
+sentence that is the request, 0.59 on a disposition whose mass was 0.67), so the clerk was handed one move and
+one standing defence in three turns. The variance of the route confidence at the gate, not model speed, is the
+bottleneck; that is what the proposed typed-feature scoring (SL-13) is for. Two defects to file: an ordinary
+check on an obligation's approach bypasses the obligation (the attempt is not counted), and a `look` still
+costs one full model round each (three in turn 3, 15.4 s for the first).
+
+Evidence: `chatrpgv4-wt-integ-sl/.coc/campaigns/gate3-haunting-2329/{telemetry.jsonl,turns/000{1,2,3}.json}`
+and `.coc/playtests/gate3-haunting-2329-20260924T032940Z/`.
