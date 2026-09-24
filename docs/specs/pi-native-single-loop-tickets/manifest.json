@@ -229,6 +229,11 @@
       "id": "SL-45",
       "file": "45-background-reads-do-not-hold-a-foreground-slot.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-46",
+      "file": "46-google-adapter-rejects-the-lane-thinking-option.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
