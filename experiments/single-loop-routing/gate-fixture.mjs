@@ -31,9 +31,14 @@ const git = (...args) => {
   if (run.status !== 0) throw new Error(`git ${args.join(' ')}: ${run.stderr}`);
   return run.stdout;
 };
-/** The commit whose subject is `turn <n>:` (the kernel's turn commit), by the sidecar repository's own log. */
+/**
+ * The commit whose subject is `turn <n>:` (the kernel's turn commit), by the sidecar repository's own log. A turn the
+ * kernel did not commit on its own (gate #4's turn 1 landed inside turn 2's commit) is the oldest commit whose tree holds
+ * its record: the state before it is then the previous turn's commit, and its record is read from where it first appears.
+ */
 const log = git('log', '--format=%h %s').split('\n').filter(Boolean).map(line => ({sha: line.slice(0, line.indexOf(' ')), subject: line.slice(line.indexOf(' ') + 1)}));
-const commitOf = turn => log.find(entry => entry.subject.startsWith(`turn ${turn}:`))?.sha;
+const holds = (sha, turn) => spawnSync('git', ['--git-dir', repo, 'cat-file', '-e', `${sha}:turns/${String(turn).padStart(4, '0')}.json`]).status === 0;
+const commitOf = turn => log.find(entry => entry.subject.startsWith(`turn ${turn}:`))?.sha ?? [...log].reverse().find(entry => holds(entry.sha, turn))?.sha;
 const campaignRecord = JSON.parse(readFileSync(join(coc, 'campaigns', campaign, 'campaign.json'), 'utf8'));
 const module = campaignRecord.module ?? campaignRecord.module_id;
 if (!module) throw new Error('campaign.json names no module');

@@ -1,0 +1,348 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/gate4-haunting-0214-20260924T061454Z/events.jsonl",
+  "record": ".coc/repos/gate4-haunting-0214.git 28b1a51:turns/0001.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write is prepended to the first message, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我接。先去《环球报》剪报室，翻科比特宅这些年的旧报道。",
+ "llm_calls": 4,
+ "llm_ms_total": 46170,
+ "calls": [
+  {
+   "at": "2026-09-24T06:15:54.978Z",
+   "provider_ms": 18306,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 23143,
+    "output": 1816,
+    "cache_read": 17536
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "move",
+        "to": "newspaper-morgue"
+       }
+      ]
+     },
+     "id": "clerk-live:t1-c3",
+     "clerk_live": true
+    },
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "clue",
+        "clue": "knott-commission",
+        "from": "Steven Knott",
+        "how": "海斯当面接下每天二十块的委托，要把科比特宅的名声洗干净。",
+        "label": "诺特的委托"
+       },
+       {
+        "kind": "clue",
+        "clue": "knott-keys",
+        "from": "Steven Knott",
+        "how": "诺特把房子的钥匙、地址和预付一并交给海斯。",
+        "label": "钥匙与预付"
+       },
+       {
+        "kind": "clue",
+        "clue": "knott-research-leads",
+        "from": "Steven Knott",
+        "how": "海斯说要先去《环球报》翻旧报，诺特认可并补上其他可查的档案。",
+        "label": "查档的路"
+       },
+       {
+        "kind": "clue",
+        "clue": "knott-macario-summary",
+        "from": "Steven Knott",
+        "how": "诺特说上一户马卡里奥一家被吓跑了，家主还在罗克斯伯里疗养院。",
+        "label": "马卡里奥一家"
+       },
+       {
+        "kind": "cash",
+        "delta": 20,
+        "source": "quote",
+        "with": "Steven Knott",
+        "currency": "USD",
+        "why": "诺特按说好的条件预付一天的工钱。"
+       },
+       {
+        "kind": "handout",
+        "name": "Handout 1: Mr. Knott's Commission",
+        "label": "诺特先生的委托"
+       }
+      ]
+     },
+     "id": "call-c005fa8a-d9ae-485f-becb-4347dd9670a2-0|fc_db2e54b0-a3fc-95f2-83fd-fc547c5f90d4_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T06:16:26.293Z",
+   "provider_ms": 10662,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 14018,
+    "output": 921,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "person",
+        "who": "Arty Wilmot",
+        "name": "阿蒂·威尔莫特",
+        "why": "桌上按中文称呼这位把守剪报室的编辑。"
+       },
+       {
+        "kind": "time",
+        "minutes": 25,
+        "why": "从诺特的办公室坐电车到《环球报》大楼。"
+       }
+      ]
+     },
+     "id": "call-34adc9ad-0190-48dd-8aca-3300997dfe47-1|fc_e08534f6-8044-9ac0-acdf-3bfc1ae8a700_0"
+    },
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "social",
+       "goal": "海斯第一次面对把守剪报室的阿蒂·威尔莫特",
+       "method": "上前说明要查科比特宅的旧报",
+       "target": "Arty Wilmot",
+       "actor": "托马斯·海斯",
+       "decision": "natural-npc:first-impression"
+      }
+     },
+     "id": "call-34adc9ad-0190-48dd-8aca-3300997dfe47-2|fc_e08534f6-8044-9ac0-acdf-3bfc1ae8a700_1"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T06:16:48.221Z",
+   "provider_ms": 7149,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 7910,
+    "output": 615,
+    "cache_read": 40448
+   },
+   "tool_calls": []
+  },
+  {
+   "at": "2026-09-24T06:16:55.394Z",
+   "provider_ms": 10053,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 8062,
+    "output": 1057,
+    "cache_read": 40448
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "apply",
+   "call_id": "clerk-live:t1-c3",
+   "ok": true,
+   "clerk_live": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-c005fa8a-d9ae-485f-becb-4347dd9670a2-0|fc_db2e54b0-a3fc-95f2-83fd-fc547c5f90d4_0",
+   "ok": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-34adc9ad-0190-48dd-8aca-3300997dfe47-1|fc_e08534f6-8044-9ac0-acdf-3bfc1ae8a700_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-34adc9ad-0190-48dd-8aca-3300997dfe47-2|fc_e08534f6-8044-9ac0-acdf-3bfc1ae8a700_1",
+   "ok": false
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 3228,
+   "origin": "model"
+  },
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 3507,
+   "origin": "policy"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "not_authorized",
+   "ms": 3506,
+   "origin": "policy"
+  },
+  {
+   "verb": "apply",
+   "verdict": "entailed",
+   "ms": 5547,
+   "origin": "model"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "not_authorized",
+   "ms": 5543,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "apply",
+   "kind": "move",
+   "target": "newspaper-morgue",
+   "clerk_live": true
+  },
+  {
+   "verb": "apply",
+   "kind": "clue",
+   "target": "knott-commission"
+  },
+  {
+   "verb": "apply",
+   "kind": "clue",
+   "target": "knott-keys"
+  },
+  {
+   "verb": "apply",
+   "kind": "clue",
+   "target": "knott-research-leads"
+  },
+  {
+   "verb": "apply",
+   "kind": "clue",
+   "target": "knott-macario-summary"
+  },
+  {
+   "verb": "apply",
+   "kind": "cash",
+   "target": null
+  },
+  {
+   "verb": "apply",
+   "kind": "handout",
+   "target": "Handout 1: Mr. Knott's Commission"
+  },
+  {
+   "verb": "apply",
+   "kind": "person",
+   "target": "Arty Wilmot"
+  },
+  {
+   "verb": "apply",
+   "kind": "time",
+   "target": null,
+   "minutes": 25
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "definition:t1-c2",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:adopt-t1-c2",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:t1-c2-2",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:adopt-t1-c2-2",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:t1-c2-3",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:adopt-t1-c2-3",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:t1-c2-4",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:adopt-t1-c2-4",
+   "kind": "definition"
+  },
+  {
+   "id": "clue:knott-commission-t1",
+   "kind": "clue",
+   "clue": "knott-commission"
+  },
+  {
+   "id": "clue:knott-keys-t1",
+   "kind": "clue",
+   "clue": "knott-keys"
+  },
+  {
+   "id": "clue:knott-research-leads-t1",
+   "kind": "clue",
+   "clue": "knott-research-leads"
+  },
+  {
+   "id": "clue:knott-macario-summary-t1",
+   "kind": "clue",
+   "clue": "knott-macario-summary"
+  },
+  {
+   "id": "cash:t1-c1",
+   "kind": "cash"
+  },
+  {
+   "id": "handout:the-haunting-handout-1-knott-commission-t1",
+   "kind": "handout",
+   "handout": "the-haunting-handout-1-knott-commission"
+  },
+  {
+   "id": "move:newspaper-morgue-t1-c3",
+   "kind": "move",
+   "to": "newspaper-morgue"
+  },
+  {
+   "id": "person:arty-wilmot-t1-c4",
+   "kind": "person",
+   "who": "arty-wilmot"
+  },
+  {
+   "id": "person:arty-wilmot-t1-c6",
+   "kind": "person",
+   "who": "arty-wilmot"
+  },
+  {
+   "id": "time:t1-c6",
+   "kind": "time"
+  }
+ ]
+}
