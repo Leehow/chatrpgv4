@@ -47,6 +47,8 @@ export interface PrescreenSourceSnapshot {
   checked_answers_omitted:number;
   checked_answers_invalid:number;
   next:number|null;
+  /** §14.16.4: a starter's bound document is a window of a book its authored graph cites in the book's coordinates. */
+  window?:{source_id:string;file_sha256:string;pages:[number,number]};
 }
 export interface PrescreenSourceRuntime {
   home:string;
@@ -127,13 +129,16 @@ function samplePages(values:number[],limit:number):number[] {
   if(limit>=rows.length)return rows;if(limit<=0)return[];if(limit===1)return[rows.at(-1)!];
   return [...new Set(Array.from({length:limit},(_,i)=>rows[Math.round(i*(rows.length-1)/(limit-1))]))];
 }
-function citedPages(value:unknown,moduleId:string,pageCount:number,out=new Set<number>()):Set<number> {
-  if(Array.isArray(value)){for(const child of value)citedPages(child,moduleId,pageCount,out);return out;}
+function citedPages(value:unknown,moduleId:string,pageCount:number,window?:PrescreenSourceSnapshot['window'],out=new Set<number>()):Set<number> {
+  if(Array.isArray(value)){for(const child of value)citedPages(child,moduleId,pageCount,window,out);return out;}
   if(!isPlainRecord(value))return out;
-  if(value.source_id===`pdf:${moduleId}`&&Number.isSafeInteger(value.pdf_index)){
-    const page=Number(value.pdf_index)+1;if(page>=1&&page<=pageCount)out.add(page);
+  if(Number.isSafeInteger(value.pdf_index)){
+    // A reference in the bound document's own coordinates, or an authored one in the book's coordinates of its window.
+    const page=value.source_id===`pdf:${moduleId}`?Number(value.pdf_index)+1
+      :window&&value.source_id===window.source_id?Number(value.pdf_index)-window.pages[0]+1:0;
+    if(page>=1&&page<=pageCount)out.add(page);
   }
-  for(const child of Object.values(value))citedPages(child,moduleId,pageCount,out);return out;
+  for(const child of Object.values(value))citedPages(child,moduleId,pageCount,window,out);return out;
 }
 function read(focus:string,question:string):Record<string,Json> {
   return {tool:'lookup',kind:'source',query:focus||question,question,source_mode:'answer'};
@@ -231,7 +236,7 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
     if(result.truncated===true&&typeof result.next_cursor==='string')next=result.next_cursor;
   }catch(error){if(signal.aborted)throw error;searchError=error instanceof Error?error.message.slice(0,160):'source_search_unavailable';}
   const maxPages=positive(budget.maxNativePages,16,32),broad=spreadPages(snapshot.page_count,maxPages);
-  const cited=[...citedPages(capsule,input.moduleId,snapshot.page_count)],reserved:number[]=[];
+  const cited=[...citedPages(capsule,input.moduleId,snapshot.page_count,snapshot.window)],reserved:number[]=[];
   const reserve=(values:number[],preferLast=false)=>{const ordered=preferLast?[...values].reverse():values;const page=ordered.find(value=>!cited.includes(value)&&!reserved.includes(value));if(page!==undefined)reserved.push(page);};
   if(maxPages>=2)reserve(matches);if(maxPages>=2)reserve(broad,true);
   while(reserved.length>=maxPages)reserved.shift();

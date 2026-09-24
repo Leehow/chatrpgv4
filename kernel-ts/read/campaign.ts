@@ -12,6 +12,7 @@ import { ModuleStore } from '../modules/store.js';
 import { withTablePeople } from './table-people.js';
 import { standingTables, type StandingTables } from '../combat/standing.js';
 import { array, row, clone, normalize, stripPrefix, number, repr, type Row } from "./values.js";
+import { playsFromReading } from "../modules/bound-source.js";
 export class CampaignSnapshot {
     readonly dir: string;
     readonly jsonFiles = new Map<string, any>();
@@ -206,7 +207,7 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
     const asset = store ? (name: string) => store.asset(id, name) : undefined;
     if (asset) graph.assetOverride = asset;
     const material = (name: string) => {
-        if (!registered || !meta.reading_version)
+        if (!registered || !playsFromReading(meta))
             return "ready";
         const key = normalize(name),
             matches = array(raw.nodes).filter(n => [n.node_id, stripPrefix(n.node_id, n.node_kind), n.name || "", ...array(n.aliases)].some(v => normalize(v) === key)).map(n => n.node_id);

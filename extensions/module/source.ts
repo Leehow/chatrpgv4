@@ -253,6 +253,36 @@ export async function sourceInfo(pdf: string) {
 	} finally { await close(); }
 }
 
+/**
+ * Contract §14.16: a contiguous physical page window of one original PDF, written as its own PDF by
+ * PDF.js's page extractor (page labels survive, so the book's printed numbers stay readable).
+ * The window is what a starter that names part of a book is bound to; the kernel never parses it.
+ */
+export const sourceWindowVersion = `pdfjs-${version}:extract-pages-v1`;
+export interface SourceWindowOptions { first_page: number; last_page: number; out: string; expected_file_sha256?: string }
+export async function sourceWindow(pdf: string, options: SourceWindowOptions) {
+	const { first_page: first, last_page: last, out, expected_file_sha256: expected } = options ?? {} as SourceWindowOptions;
+	if (!Number.isInteger(first) || !Number.isInteger(last) || first < 1 || last < first)
+		throw new Error("a source window needs 1 <= first_page <= last_page (physical pages)");
+	if (typeof out !== "string" || !out) throw new Error("a source window needs an out path");
+	if (expected !== undefined && (typeof expected !== "string" || !/^[a-f0-9]{64}$/.test(expected)))
+		throw new Error("expected_file_sha256 must be an exact lower-case SHA-256");
+	const { document, sha256, close } = await openPdf(pdf);
+	try {
+		if (expected !== undefined && expected !== sha256) throw new Error("Source PDF does not match expected_file_sha256");
+		if (last > document.numPages) throw new Error(`the source window is outside this PDF (1-${document.numPages})`);
+		const bytes = await document.extractPages([{ document: null, includePages: [[first - 1, last - 1]] }]);
+		if (!bytes?.length) throw new Error("PDF.js could not extract the source window");
+		const target = resolve(out), temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+		await mkdir(dirname(target), { recursive: true });
+		await writeFile(temporary, bytes, { flag: "wx" });
+		await rename(temporary, target);
+		const window = await sourceInfo(target);
+		if (window.page_count !== last - first + 1) throw new Error("the extracted source window has the wrong page count");
+		return { ...window, extractor: sourceWindowVersion, book: { file_sha256: sha256, page_count: document.numPages }, pages: [first, last] };
+	} finally { await close(); }
+}
+
 export interface SourceSearchOptions { query: string; first_page?: number; last_page?: number; limit?: number; cursor?: string }
 const searchPageLimit = 50, searchSnippetLimit = 240;
 const normalizeSearch = (text: string) => text.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();

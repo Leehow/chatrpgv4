@@ -143,7 +143,7 @@
     {
       "id": "SL-28",
       "file": "28-starter-reads-the-book.md",
-      "status": "ready-for-agent"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-29",
@@ -158,11 +158,16 @@
     {
       "id": "SL-31",
       "file": "31-ordinary-binder-defaults.md",
-      "status": "ready-for-agent"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-32",
       "file": "32-pdf-import-reads-before-guidance.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-33",
+      "file": "33-same-span-is-not-a-contradiction.md",
       "status": "ready-for-human"
     }
   ],

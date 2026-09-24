@@ -9,6 +9,7 @@ import { worldRevision, taskWorldRevision } from '../read/context.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { actor as selectActor, sceneView, unsupported } from '../read/handlers.js';
 import { array, clone, entries, integer, number, repr, row, string, truth, type Row } from '../read/values.js';
+import { playsFromReading } from '../modules/bound-source.js';
 import { RuleTables } from '../rules/tables.js';
 import { RuleObservations } from '../read/rule-facts.js';
 import { CheckArithmetic } from '../resolve/arithmetic.js';
@@ -115,11 +116,11 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 const node = ['handout','map'].includes(string(effect.kind)) ? graph.find(name, ['handout']) ?? graph.find(name, ['asset']) : graph.find(name, kinds[string(effect.kind)]);
                 return node?.node_id ?? name;
             });
-            if (truth(module.meta.reading_version) && (!contributions.requireMaterial || !contributions.materialReady))
+            if (playsFromReading(module.meta) && (!contributions.requireMaterial || !contributions.materialReady))
                 throw new RpcError('not_implemented', 'The source material contribution is not implemented in the TypeScript apply runtime');
             if (contributions.requireMaterial)
                 await contributions.requireMaterial(graph, names);
-            else if (truth(module.meta.reading_version))
+            else if (playsFromReading(module.meta))
                 throw new RpcError('not_implemented', 'The source material gate is not implemented in the TypeScript apply runtime');
             if (contributions.requireArrivalMapMaterial) {
                 const current = graph.handle(graph.scene(string(transaction.world.active_scene)));

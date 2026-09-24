@@ -16,6 +16,7 @@ import { validSourceLanguage } from '../modules/contract.js';
 import { childPath, inside, resolvedPath } from '../modules/paths.js';
 import { obligationRefusals, statedObligations } from '../modules/obligation-shape.js';
 import { carriesMechanics, mechanicsRefusals, mechanicsRules } from '../modules/mechanics-shape.js';
+import { ensureStarterSource } from '../modules/bound-source.js';
 import { RuleTables } from '../rules/tables.js';
 export function nodePages(node: Row): number[] {
     const pages = new Set<number>();
@@ -593,5 +594,14 @@ async function registerStarterLocked(context: KernelContext, id: string): Promis
     }
     if (changed)
         await writeMeta();
+    // Contract §14.16: a starter that names a window of a book reads it through the same store an
+    // imported module has. Library metadata is shared with reading publications, hence its lock.
+    const bound = await withOptionalExclusiveLock(context.locks, join(folder, '.metadata.lock'), async () => {
+        const current = clone(row(await context.snapshots.readJson(metaFile)));
+        const next = await ensureStarterSource(context, id, folder, current, installed.raw, existing);
+        if (next) { next.updated_at = nowIso(); await writeJsonAtomic(metaFile, next); }
+        return next;
+    });
+    if (bound) meta = bound;
     return meta!;
 }

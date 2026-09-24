@@ -80,7 +80,7 @@ export async function acceptedGuidance(home:string,moduleId:string,key:string):P
   const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
   const saved=await json(join(folder,'character-guidance',key,'accepted.json'));
   if(saved.fingerprint!==key||saved.approved!==true||
-    (meta.reading_version && !meta.character_guidance?.[key]))throw coded('guidance_not_ready','Guidance has not been accepted');
+    (meta.reading_version && meta.source !== 'starter' && !meta.character_guidance?.[key]))throw coded('guidance_not_ready','Guidance has not been accepted');
   return validateGuidance(saved.guidance);
 }
 function text(value:unknown, empty=false):string {
