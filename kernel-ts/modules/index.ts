@@ -10,6 +10,7 @@ import {assertSourcePreparationRequest,type SourcePreparationRequest} from '../.
 import {assertSourcePublicationAdvance,sourceAdvanceAuthority} from '../../runtime/jev/read-set.ts';
 import { Reading,sourcePreparationSnapshot,sourcePreparationScopeMatches,type OwnedSourcePreparation } from './reading.js';
 import { ModuleStore } from './store.js';
+import { playsFromReading } from './bound-source.js';
 import { ensureCampaignModule, moduleContext, scopedModuleRoot } from './campaign-scope.js';
 function required(params: Row, key: string): string {
     const value = params[key];
@@ -31,7 +32,8 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
                 throw new RpcError('needs', 'This module has no valid bound original PDF', {details: {reason: 'source_unavailable'}});
             return { version: 1, module_id: id, generation: meta.generation ?? 0,
                 revision: jsonDigest({source, generation: meta.generation ?? 0, graph_digest: meta.graph_digest ?? null}),
-                pdf: join(store.moduleDir(id), 'source.pdf'), file_sha256: source.file_sha256, page_count: source.page_count };
+                pdf: join(store.moduleDir(id), 'source.pdf'), file_sha256: source.file_sha256, page_count: source.page_count,
+                ...(source.window ? { window: source.window } : {}) };
         },
         'module.read.request': params => reading.request(params),
         'module.read.ahead': params => reading.queueAheadReading(params),
@@ -52,7 +54,8 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
             if (equal(meta.reading_version, 1)) {
                 const queue = await store.queue(id);
                 return {
-                    module_id: id, title: meta.title ?? null, source: 'pdf', status: meta.status ?? null,
+                    module_id: id, title: meta.title ?? null, source: meta.source ?? 'pdf', status: meta.status ?? null,
+                    ...(row(meta.source_document).window ? { source_window: row(meta.source_document).window } : {}),
                     generation: meta.generation ?? 0, page_count: meta.page_count ?? null, languages: meta.languages ?? [],
                     opening_ready: truth(meta.opening_ready), opening: meta.opening ?? {},
                     reading: { ...row(meta.reading), opening_ready: truth(meta.opening_ready), queued: queue.filter(job => job.state === 'queued').length, active: queue.find(job => job.state === 'running')?.job_id ?? null },
@@ -121,7 +124,7 @@ export function createModuleRuntime(context: KernelContext) {
     const ahead = async (params: Row): Promise<Row> => {
         const id = required(params, 'module_id');
         let value = await owner(params.campaign, id);
-        if (!await value.store.exists(id) || !truth((await value.store.module(id)).reading_version)) return { queued: [] };
+        if (!await value.store.exists(id) || !playsFromReading(await value.store.module(id))) return { queued: [] };
         let focus = params.focus;
         if (params.campaign !== undefined) {
             const path = join(context.campaignsRoot, params.campaign, 'world.json');

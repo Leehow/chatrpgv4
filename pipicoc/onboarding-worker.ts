@@ -5,6 +5,7 @@ import { KernelError, isKernelError } from '../extensions/kernel/client.ts';
 import { composeRuntimeContext, createRuntime, type HostRuntime, type RuntimeContext } from '../runtime/host.ts';
 import { presentationLaneChoice } from '../runtime/tasks.ts';
 import { ReadingService } from '../extensions/module/reading-service.ts';
+import { registerSourcePdf } from '../extensions/module/source-registration.ts';
 import type { ReaderRequest } from '../extensions/module/reader.ts';
 import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from '../extensions/module/character-guidance.ts';
 import { prepareCharacterPresentation, prepareCluePresentation, prepareJournalPresentation, prepareHandoutPresentation, prepareIdentityPresentation, prepareLanguagePresentation, prepareRulesPresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
@@ -179,8 +180,10 @@ async function main() {
     return {presets, modules: library.modules.filter((row: any) => row.source !== 'starter' && (row.status === 'installed'||row.setup_ready)), occupations: occupations.occupations};
   }
   if (action === 'inspect') {
-    const source = await runtime!.sourceInfo({pdf: input.pdf, cache: join(dirname(input.pdf), 'pages')}, guidanceAbort.signal);
-    const bound = await call('module.source.bind', {source, title: input.name.replace(/\.pdf$/i, '')});
+    // Contract §14.16.3: the same registration every import uses; a book a built-in starter names
+    // binds that starter (its `starters` say which) instead of becoming a module of its own.
+    const {source, ...bound} = await registerSourcePdf({runtime: runtime!, call, pdf: input.pdf, cache: join(dirname(input.pdf), 'pages'),
+      params: {title: input.name.replace(/\.pdf$/i, '')}, signal: guidanceAbort.signal});
     return {...bound, page_count: source.page_count};
   }
   if (['prepare','guidance','opening'].includes(action)) {

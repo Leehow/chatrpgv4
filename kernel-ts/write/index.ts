@@ -26,6 +26,7 @@ import { array, entries, values, row, clone, number, string, truth, repr, chars,
 import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError, parseCallId } from './store.js';
 import { checked, commit, CommitFailed } from './history.js';
 import { registerStarter } from './source.js';
+import { playsFromReading } from '../modules/bound-source.js';
 import { validateDifficulty } from '../setup/difficulty.js';
 import { resolveStartScene } from '../modules/visual.js';
 import { loadModuleContract, validSourceLanguage } from '../modules/contract.js';
@@ -222,7 +223,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const graphPath = await sourceGraphPath(id, value.id);
         if (!await context.snapshots.pathExists(graphPath))
             return false;
-        if (moduleMeta.reading_version) {
+        if (playsFromReading(moduleMeta)) {
             if (!await setupOpeningReady(id, meta.opening_scene || '', value.id))
                 return false;
         }
@@ -477,7 +478,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 fix: `one of ${repr(starters)}, or a module registered with module.source.bind`
             });
         const existing = await context.snapshots.pathExists(metadata) ? row(await context.snapshots.readJson(metadata)) : {};
-        if (existing.reading_version && !contributions.openingReady)
+        if (playsFromReading(existing) && !contributions.openingReady)
             missingContribution('visual source creation');
         if(!contributions.mods)await defaultModPlan(context, {});
         if (starter) await registerStarter(context, moduleId);
@@ -518,7 +519,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             if (!graph || resolveStartScene(graph.raw, chosen, await loadModuleContract(context)) == null)
                 throw new RpcError('invalid_params', 'start_scene must name an authored opening');
         }
-        const playable = graph && (!moduleMeta.reading_version || await setupOpeningReady(moduleId, chosen || '', id));
+        const playable = graph && (!playsFromReading(moduleMeta) || await setupOpeningReady(moduleId, chosen || '', id));
         const [world, start] = playable ? initialWorld(graph!, chosen) : [null, chosen && graph ? graph.handle(graph.scene(chosen)) : null], modConfiguration = await initializeNewWorld(world || {});
         const meta: Row = {
             id,
@@ -588,7 +589,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if(!contributions.mods)await defaultModPlan(context, initial.world);
         const root = await scopedModuleRoot(context, initial.id, string(meta.module_id)) ?? join(context.stateRoot, 'modules');
         const metadata = join(root, string(meta.module_id), 'module.json');
-        const moduleReading = await context.snapshots.pathExists(metadata) && truth(row(await context.snapshots.readJson(metadata)).reading_version);
+        const moduleReading = await context.snapshots.pathExists(metadata) && playsFromReading(row(await context.snapshots.readJson(metadata)));
         if (moduleReading && !contributions.queueAdjacentReading)
             missingContribution('visual source opening and reading queue');
         if(!contributions.worldlines)await ensureMain(campaign, meta);
