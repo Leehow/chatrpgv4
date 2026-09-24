@@ -7020,7 +7020,7 @@ no typed call** when all of these hold (`compileAdmission` in `extensions/kernel
 3. every feature the predicate **fired on** cleared at the gate -- §135.2's gates: reported confidence at 0.6 or above, or
    the margin rule. The families a predicate can read are declared on it (`features`): `move` reads `destination`;
    `obligation_check` reads `ask`, `addressee` and `act`; `stated_meeting` reads `addressee` and `ask`; `attack` and
-   `first_blow` (SL-19, §135.30.2) read `act` and `target`. The features it fired on are those of its families among the cleared rows `basis.compile.features` names;
+   `first_blow` (SL-19, §135.30.2) read `act` and `target`; `ordinary_check` (SL-26, §135.30.3) reads `act`, `addressee`, `ask` and `destination`, and the check's own bind records add the condition that none says `cleared: false`. The features it fired on are those of its families among the cleared rows `basis.compile.features` names;
    each must have its `read_features` record, and that record must say `cleared: true`. A guard family that did not clear
    (an `unclear` addressee or act) is not a feature the predicate fired on and is **not evidence against**: the predicate
    already refuses to fire when the addressee clears on someone else or on `none`, or the act clears on another intent
@@ -17385,7 +17385,8 @@ precedence, `guarded_by` withheld, `reaction: "preordained"`).
   a person on the roster under the table's own label;
 - `mod_contact` (b): a contact check an active Mod declares;
 - `declared_check` (c): the ordinary check, when the binder settles its route and profile. An ambiguous
-  action ("I look around this place") comes back `unknown` from the binder and goes to the Keeper;
+  action ("I look around this place") comes back `unknown` from the binder and goes to the Keeper. Selected by the
+  compile's `ordinary_check` predicate (SL-26, §135.30.3) or by the route's `need` question;
 - `session_step`: a session step whose parameters the kernel issued (the parameters-only ruling);
 - `disposition_inference` (the ruling "An NPC's fight behaviour follows the NPC's own parameters", §11.5.3): writing
   the combat disposition Jev inferred, once per campaign, for an NPC whose turn has come and who has none. The
@@ -18401,7 +18402,7 @@ falls through, and its own bind settles the target). A decided candidate a predi
 §135.26's fact question consumes an unselected obligation. Every other candidate falls through to the existing `need`
 question (§135.2, and §135.26's fact question for an obligation whose `ask` did not clear): a feature below the gate,
 `unclear`, not asked, or a candidate no predicate reads (a clue, a handout, a roster person, a Mod contact check, the
-ordinary check, a session step other than the investigator's attack). The exit question stays with the route. A
+ordinary check where §135.30.3's predicate does not fire, a session step other than the investigator's attack). The exit question stays with the route. A
 selected candidate's `basis` gains `compile: {predicate, features}` (the cleared rows it fired on; since 2026-09-24 also
 `read_features`, each family the predicate can read with its row, confidence and whether it cleared; admission reads the
 records of the features the predicate fired on, §32.12; since SL-21 it survives the meeting a selected check carries and
@@ -18541,6 +18542,85 @@ another act, not on a person without a stat block; the first blow compile-only a
 (the row on the emitted kernel: none for Knott without numbers, then his name after an archetype pin; none in a fight).
 `tests/extension/single-loop-domain-policy.test.mjs`: the clerk's first blow at the seam on the emitted kernel opens the
 fight. The replays are in the SL-19 ticket's Comments.
+
+#### 135.30.3 Addendum (2026-09-24, SL-26): the declared ordinary check is selected by the compile
+
+The spec's ruling "The declared ordinary check is the clerk's" (owner, 2026-09-24). **Evidence** (the long live gate,
+campaign `longgate-haunting-0624` in the integration worktree's `.coc`, playtest `longgate-haunting-0624-20260924T102454Z`;
+the SL-02 ticket's Comments call it `longgate-haunting-1010` after the run's start time; the `lane: "route"` rows of its
+`telemetry.jsonl`). Turn 11, "我上二楼，先站在楼梯口听一会儿，再去主卧。": the second compile (s16, in the bedroom) read `act`
+`investigate` 0.70 and `destination` `none` 0.96, and answered `decided_none`: no predicate reads
+`resolve:core-check:ordinary-check`, so it fell through to the route, whose `need` question answered `later` (0.64) and
+the Keeper rolled Listen and Spot Hidden itself. Turn 12, "我在主卧里搜床底、床垫和衣柜。": `act` `investigate` 1.0, `destination`
+`none` 0.96, the same fall-through, `later` 0.45 and 0.36, and the Keeper's roll. Turn 13: the route did select the check
+(margin rule, `now` 0.67 / `later` 0.31) and the binder settled it; the Keeper still rolled four more. Six Keeper rolls
+at 3–6 s of lane review each. The ordinary binder (`bind-ordinary`, §135.28's `jev` path) already settles the skill from
+the declaration when asked; what was missing is the selection.
+
+**The predicate `ordinary_check`** (`COMPILE_PREDICATES` in `runtime/jev/route-compile.ts`; not `sole`: the route's `need`
+question may still select the check as before). It reads the ordinary check candidate (clerk `declared_check`, bound
+`decision: "core-check:ordinary-check"`, §135.2). It is askable when the `act` family has rows (outside a session the
+resolve intents, so whenever the builder offers the check). Its families are `act`, `addressee`, `ask` and
+`destination`. It **fires** when all of these hold:
+
+1. `act` cleared on `investigate`, or on `social` with `addressee` cleared on a person row (not `none`): a social check
+   is aimed at someone present;
+2. `destination` did not clear on a place row: when the declaration takes the investigator somewhere, the check is the
+   destination's, so this compile leaves it (a later compile in the new scene, §135.30.1, can select it there);
+3. `ask` did not clear on an open obligation's demand: that declaration's check is the obligation's (§135.26, SL-14's
+   folding), and the `obligation_check` predicate reads it.
+
+When it fires it binds the check's `intent` to the cleared `act` row (`basis.compile.bound.intent`, with the compile
+answer's confidence and distribution), so the executed check's intent is the act the compile read, never a second
+reading. It never **decides** the check: a compile where it does not fire leaves the check to the route's `need`
+question, as before.
+
+**Then the binder.** The selected check is a pending closed bind as every ordinary check is (§135.28): `bind-ordinary`
+runs the ordinary binder (its route question, then its profile question over the actor's own profile rows). An answer
+other than `ordinary` goes where it always went: `no_roll` consumes it, `needs_player` is the compose, `incumbent`,
+`unknown` and `unavailable` are the Keeper's (`clerk_unbound`). On `ordinary` the clerk executes the check with the
+binder's skill, difficulty and dice and the compile's intent.
+
+**The bind row carries the paths** (extends §135.28's `event: "bind"` row for this check): `decision` `stated` (the
+kernel's decision row), `actor` `stated` when the kernel issued one actor, else `jev`; `intent` `jev` with the compile's
+confidence and distribution; `skill` `jev` with the profile answer's **confidence**, **distribution** (by skill name)
+and **`cleared`** (the profile answer against §135.2's gates, the policy's own gate); `modifiers` `jev` (the binder's
+difficulty and dice); `goal` and `method` `composed`. The engine carries the profile answer from the binder
+(`CheckPreflightResult.evidence.profile`, a report beside the advisory action, which it does not change) onto
+`OrdinaryBinding.skill`; a binder result without it records `cleared: false`. The `lane: "route"`,
+`purpose: "bind-ordinary"` row gains `skill: {value, confidence, distribution}`.
+
+**Admission by the compile's evidence** (amends §32.12's conditions): a compile-selected ordinary check is admitted
+`path: "compile"` under §32.12's four conditions (its fired-on features among `act`, `addressee`, `ask`, `destination`,
+each cleared; every parameter path among the four) **and a fifth**, general to every clerk write: no bind record says
+`cleared: false`. The engine hands `cleared` to admission with the path (`admissionBindings`); a record with `cleared:
+false` refuses the exemption with `compile_refused: parameter_not_cleared:<name>` and the lane reviews the check as
+before. So the check the binder settled under the gate is still the clerk's to execute (the binder has no rules default
+for the skill, §135.28, and has always executed its answer), but it is reviewed.
+
+**The Keeper's roll takes the check.** A model-origin `resolve` the kernel took consumes
+`resolve:core-check:ordinary-check` for the rest of the run (`consumedByResolve` in `runtime/jev/step-policy.ts`): once the
+Keeper has rolled, a later compile or route does not add the clerk's check to the same declaration. This holds whether
+the compile or the route would select it.
+
+**What it costs.** The check is offered on every read outside a session, so a run whose read offers it and no other
+reachable candidate now owes a compile it did not before (§135.30.1's `compileReaches`): one Jev call more on a run where
+the compile then selects nothing, and none more where it selects (it replaces the first route). Measured on the long
+gate's turns 11 and 12 in the SL-26 ticket's Comments.
+
+**Three ends (§31).** *Writer:* Jev (the compile's `act`, `addressee`, `ask`, `destination`; the binder's route and
+profile answers), the predicate (`intent`), the binder's evidence (`skill`'s confidence and `cleared`). *Reader:* the
+policy (`interpretCompile`, `settleOrdinaryBind`), `compileAdmission`. *Actor:* the clerk, which executes the check;
+the kernel, which rolls it; the Keeper, told through `clerk_did` with `basis.compile` and the roll's receipt.
+
+*Tests.* `tests/extension/single-loop-compile.test.mjs`: the predicate on stub answers (investigate fires and binds the
+intent; social only with a cleared addressee; not below the gate, not with a cleared destination row, not with the ask
+on an obligation, never decided); the ordinary check owes a compile; the long gate's turn-12 state at the policy seam
+(compile, bind-ordinary, execute). `tests/extension/single-loop-binding.test.mjs`: the bind records (decision stated,
+intent from the compile, skill with `cleared` at and under the gate, no evidence is `cleared: false`); the Keeper's
+resolve consumes the check. `tests/extension/admission-within-turn.test.mjs`: `compileAdmission` admits a
+compile-selected ordinary check with a cleared skill and refuses `parameter_not_cleared:skill` under the gate. The
+mutation record and the replays are in the SL-26 ticket's Comments.
 
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
 
