@@ -21,6 +21,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, waitFor } from "./harness.mjs";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
+import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { customMessage, PRESCREEN_TYPE } from "../../extensions/table/context-policy.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
 
@@ -299,6 +300,77 @@ test("SL-08: without a disposition, Jev infers one once from his own parameters 
 	assert.ok(attack?.id.startsWith("clerk:"));
 	const infers = events.filter((event) => event.type === "step_start" && event.kind === "infer");
 	assert.deepEqual(infers.map((event) => event.purpose), ["compose"], "the round still closes on the compose");
+});
+
+test("SL-19: the card's stated tactic is the disposition's rules default -- Jev unknown, the clerk writes it (no Keeper step), naming the tactic it read", async (t) => {
+	const campaign = "test-camp";
+	const table = await hybridTable({
+		realKernel: true,
+		// The Keeper wrote his tactic on turn 1 (he ducks rather than hits back); nothing says how he fights.
+		prepareWorkspace: knottFight(campaign, [{ kind: "npc", name: "Steven Knott", defense: "dodge", why: "He ducks behind the desk." }]),
+		decide: (batch) => batch.family === BIND_FAMILY ? answered(batch, () => "unknown") : answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "他缩到桌后，不还手。" })], { stopReason: "toolUse" })],
+	});
+	t.after(() => table.dispose());
+	await table.table.session.prompt("继续揍他");
+	const { events, decisions, calls } = table;
+	const telemetry = table.table.telemetry(campaign);
+
+	assert.deepEqual(decisions.filter((batch) => batch.family === BIND_FAMILY).map((batch) => batch.questions.map((question) => question.key)), [["disposition"]],
+		"Jev is still asked first");
+	const write = calls.find((call) => call.phase === "call" && call.tool === "apply" && call.input.effects?.[0]?.disposition);
+	assert.ok(write?.id.startsWith("clerk:"), "the card's word is the clerk's write");
+	assert.equal(write.input.effects[0].disposition, "avoids_fighting");
+	assert.equal(calls.find((call) => call.phase === "result" && call.id === write.id).isError, false);
+	const written = worldOf(table, campaign).npc_disposition["steven-knott"];
+	assert.deepEqual([written.disposition, written.basis, written.read], ["avoids_fighting", "inferred", ["combat_tactic"]]);
+	assert.match(written.why, /card states their combat tactic \(dodge, keeper\)/);
+	const row = telemetry.find((entry) => entry.tool === "apply" && entry.origin === "policy" && entry.clerk === "disposition_inference");
+	assert.deepEqual(row.basis.rule_default, { disposition: { value: "avoids_fighting", rule: "card_disposition", read: ["combat_tactic"] } });
+	const bind = telemetry.find((entry) => entry.lane === "run" && entry.event === "bind" && String(entry.candidate).startsWith("apply:npc-disposition"));
+	assert.deepEqual(bind.bindings.find((entry) => entry.name === "disposition")?.rule, "card_disposition");
+	const infers = events.filter((event) => event.type === "step_start" && event.kind === "infer");
+	assert.ok(!events.some((event) => event.type === "step_end" && event.kind === "infer" && event.reason === "clerk_unbound"), "no Keeper step for his disposition");
+	assert.equal(infers.length, 1, "his standing (from avoids_fighting) is not an attack, so the one LLM step is the Keeper's turn");
+});
+
+test("SL-19: the first blow outside a fight is the clerk's when the compile reads combat at a fightable person -- the kernel opens the fight", async (t) => {
+	const campaign = "test-camp";
+	// Knott has numbers (the Keeper pinned an archetype on turn 1) and holds back when hit; no fight is running.
+	const prepareWorkspace = (workspace) => kernelSteps(workspace, campaign, [
+		["table.open", {}], ["table.player_input", { text: "我盯着他" }],
+		["table.apply", { call_id: "t1-c1", effects: [{ kind: "npc", name: "Steven Knott", archetype: "ordinary_adult", why: "test fixture" }] }],
+		["table.apply", { call_id: "t1-c2", effects: [{ kind: "npc", name: "Steven Knott", disposition: "avoids_fighting", why: "test fixture" }] }],
+		["table.narrate", { call_id: "t1-c3", text: "他在桌后看着你。" }],
+	]);
+	const alias = (question, test) => Object.entries(question.criteria).find(([, value]) => test(value))?.[0];
+	const table = await hybridTable({
+		realKernel: true, prepareWorkspace,
+		decide: (batch) => batch.family === COMPILE_FAMILY
+			? answered(batch, (question) => question.key === "act" ? alias(question, (value) => typeof value === "string" && value.startsWith("combat"))
+				: question.key === "target" ? alias(question, (value) => JSON.stringify(value).includes("史蒂文") || JSON.stringify(value).includes("Steven Knott")) : "unclear")
+			: batch.family === BIND_FAMILY ? answered(batch, (question) => question.key === "weapon" ? "unarmed" : "unknown")
+				: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你一拳打在他脸上。" })], { stopReason: "toolUse" })],
+	});
+	t.after(() => table.dispose());
+	await table.table.session.prompt("我揪住他的领子一拳打过去");
+	const { calls } = table;
+	const telemetry = table.table.telemetry(campaign);
+
+	const blow = calls.find((call) => call.phase === "call" && call.tool === "resolve" && call.input.action?.decision === "combat:attack" && call.id.startsWith("clerk:"));
+	assert.ok(blow, "the first blow is the clerk's");
+	assert.deepEqual([blow.input.action.intent, blow.input.action.target, blow.input.action.weapon, blow.input.action.actor], ["combat", "Steven Knott", "unarmed", undefined]);
+	assert.equal(calls.find((call) => call.phase === "result" && call.id === blow.id).isError, false);
+	const row = telemetry.find((entry) => entry.tool === "resolve" && entry.origin === "policy" && entry.clerk === "first_blow");
+	assert.equal(row?.ok, true);
+	assert.equal(row.session_kind, "combat", "the kernel opened the fight");
+	assert.equal(row.basis.compile.predicate, "first_blow");
+	assert.equal(row.basis.path, "context.first_blow");
+	const compile = telemetry.find((entry) => entry.lane === "route" && entry.purpose === "compile");
+	assert.ok(compile.selected.includes("resolve:combat:first-blow"));
+	// The fight then runs as it always does: his standing defence is the clerk's next direct step.
+	assert.ok(calls.some((call) => call.phase === "call" && call.id.startsWith("clerk:") && call.input.action?.decision === "combat:defend"));
 });
 
 test("SL-08: a model's apply cannot carry the host-only inference marker: the Keeper's write is basis keeper", async (t) => {

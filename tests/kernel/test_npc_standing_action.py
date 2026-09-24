@@ -321,6 +321,76 @@ def test_a_card_without_a_disposition_carries_what_one_is_inferred_from(kernel):
     assert kernel.table("look", focus="npc", name="Steven Knott")["combat_disposition"] == {"disposition": "surrenders", "basis": "keeper"}
 
 
+# ---- the card's word (§11.5.3 amendment 2026-09-24, SL-19) ------------------------------------------
+
+def table_with(tmp_path, tactic_dispositions):
+    """A copy of the shipped content whose disposition table carries `tactic_dispositions` as given (None: removed)."""
+    content = tmp_path / "content"
+    shutil.copytree(CONTENT_DIR, content)
+    path = content / "rulesets" / "coc7" / "rules-json" / "npc-combat-disposition.json"
+    table = json.loads(path.read_text(encoding="utf-8"))
+    if tactic_dispositions is None:
+        table.pop("tactic_dispositions", None)
+    else:
+        table["tactic_dispositions"] = tactic_dispositions
+    path.write_text(json.dumps(table, ensure_ascii=False), encoding="utf-8")
+    return RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "7"}, content=content)
+
+
+def test_a_stated_tactic_is_the_cards_default_disposition_through_the_table(tmp_path):
+    """The book's tactic (Corbitt's authored `combat.defense`) read through the shipped table's `tactic_dispositions`."""
+    client = client_with(tmp_path, {"defense": "fight_back"})
+    try:
+        open_turn(client, "I watch him.")
+        walk_to_confrontation(client)
+        card = client.table("look", focus="npc", name="Walter Corbitt")
+        assert card["combat_tactic"] == {"defense": "fight_back", "basis": "authored"}
+        table = read_json(CONTENT_DIR / "rulesets" / "coc7" / "rules-json" / "npc-combat-disposition.json")
+        assert card["combat_disposition"]["default"] == {"disposition": table["tactic_dispositions"]["fight_back"], "rule": "card_disposition",
+                                                          "from": {"combat_tactic": {"defense": "fight_back", "basis": "authored"}}}
+        assert card["combat_disposition"]["disposition"] is None and card["combat_disposition"]["options"], "still the inference's input"
+    finally:
+        client.close()
+
+
+def test_a_keeper_tactic_is_the_cards_word_and_a_rule_default_tactic_is_not(kernel):
+    open_turn(kernel, "I watch Knott.")
+    card = kernel.table("look", focus="npc", name="Steven Knott")
+    assert card["combat_tactic"] == {"defense": None, "basis": "rule-default"} and "default" not in card["combat_disposition"], "no numbers, no word"
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Steven Knott", "archetype": "ordinary_adult", "why": "test"}])
+    card = kernel.table("look", focus="npc", name="Steven Knott")
+    assert card["combat_tactic"]["defense"] is not None and card["combat_tactic"]["basis"] == "rule-default"
+    assert "default" not in card["combat_disposition"], "Fighting against Dodge is arithmetic, not a word about him"
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind": "npc", "name": "Steven Knott", "defense": "dodge", "why": "He ducks behind the desk."}])
+    default = kernel.table("look", focus="npc", name="Steven Knott")["combat_disposition"]["default"]
+    assert default == {"disposition": "avoids_fighting", "rule": "card_disposition", "from": {"combat_tactic": {"defense": "dodge", "basis": "keeper"}}}
+    kernel.table("apply", call_id="t1-c3", effects=[{"kind": "npc", "name": "Steven Knott", "defense": "none", "why": "He just stands there."}])
+    assert "default" not in kernel.table("look", focus="npc", name="Steven Knott")["combat_disposition"], "a tactic without a row: no default"
+    kernel.table("apply", call_id="t1-c4", effects=[{"kind": "npc", "name": "Steven Knott", "disposition": "surrenders", "why": "test"}])
+    assert kernel.table("look", focus="npc", name="Steven Knott")["combat_disposition"] == {"disposition": "surrenders", "basis": "keeper"}
+
+
+@pytest.mark.parametrize("section", [{"dodge": "runs_away"}, {"parry": "avoids_fighting"}, ["dodge"]])
+def test_a_malformed_tactic_map_is_refused_when_the_card_is_read(tmp_path, section):
+    client = table_with(tmp_path, section)
+    try:
+        open_turn(client, "I watch Knott.")
+        error = client.table_err("look", focus="npc", name="Steven Knott")
+        assert error["code"] == "campaign_not_ready"
+    finally:
+        client.close()
+
+
+def test_a_table_without_the_tactic_map_gives_no_default(tmp_path):
+    client = table_with(tmp_path, None)
+    try:
+        open_turn(client, "I watch Knott.")
+        client.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Steven Knott", "defense": "dodge", "why": "test"}])
+        assert "default" not in client.table("look", focus="npc", name="Steven Knott")["combat_disposition"]
+    finally:
+        client.close()
+
+
 def test_an_inferred_disposition_is_a_receipt_is_written_once_and_survives_a_restart(tmp_path):
     client = client_with(tmp_path)
     read = ["agenda", "fear", "voice"]
