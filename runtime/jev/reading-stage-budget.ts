@@ -51,7 +51,9 @@ export function readingStageBudget(stage: ReadingStage, options: {pageCount: num
   if (share === undefined) throw new Error(`unknown reading stage: ${stage}`);
   if (!share) return null;
   const pageCount = Number.isSafeInteger(options.pageCount) && options.pageCount > 0 ? options.pageCount : 0;
-  const perPage = options.perPage ?? READING_STAGE_BUDGET.perPage;
+  // A measurement can raise the per-page cost, never lower it below the default: it counts the author's
+  // rounds only, while the stage's lease also pays the independent review of every page read.
+  const perPage = Object.fromEntries(DIMENSIONS.map(key => [key, Math.max(READING_STAGE_BUDGET.perPage[key], options.perPage?.[key] ?? 0)])) as unknown as PageCost;
   const sized = Object.fromEntries(DIMENSIONS.map(key => {
     const raw = clamp(pageCount * perPage[key] * share, READING_STAGE_BUDGET.floor[key], READING_STAGE_BUDGET.ceiling[key]);
     return [key, key === 'costUsd' ? raw : Math.ceil(raw)];

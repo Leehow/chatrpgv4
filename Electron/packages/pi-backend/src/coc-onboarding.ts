@@ -41,7 +41,7 @@ function refuse(code: string, message: string): Error {
 }
 /**
  * The book's name from the upload's file name (contract §98 addendum 6): the extension is the file's,
- * not the book's, so the campaign `converse` creates is titled `血色公路`, not `血色公路.pdf`.
+ * not the book's, so the campaign `converse` creates is not titled `<book>.pdf` (SL-29A's was).
  */
 export function bookTitle(name: unknown): unknown {
   if (typeof name !== 'string') return name;

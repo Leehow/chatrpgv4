@@ -65,6 +65,9 @@ test('the per-page cost is measured from the book\'s own completed author rounds
   const opening = readingStageBudget('opening', {pageCount: 669, perPage: measured});
   assert.equal(opening.inputTokens, 669 * 30_000);
   assert.equal(opening.measured, true);
+  // A cheaper measurement does not lower the default: it counts the author's rounds, not the review.
+  const cheap = readingStageBudget('opening', {pageCount: 669, perPage: {inputTokens: 7_135, outputTokens: 578, actions: 0.43, costUsd: 0}});
+  assert.deepEqual([cheap.inputTokens, cheap.outputTokens, cheap.actions], [669 * 16_000, 669 * 1_000, Math.ceil(669 * 0.5)]);
 });
 
 test('fewer than four measured pages is not a measurement', async t => {

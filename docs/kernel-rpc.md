@@ -2505,10 +2505,11 @@ named default `READING_STAGE_BUDGET`:
   its share of the whole book once costs, never less than the floor and never more than the ceiling;
 - `share`: `inspect` 0 (it makes no provider call and gets no lease), `guidance` 0.5, `opening` 1,
   `prepare` (skeleton, opening and guidance in one process) 1.5;
-- `perPage` is the reader's measured cost per page of *this* book when its earlier readings measured
-  one (the `usage.jsonl` rows below, author phases only, at least four pages), otherwise
-  `READING_STAGE_BUDGET.perPage` (16,000 input tokens, 1,000 output tokens, 0.5 actions, US$0.03 —
-  Masks' measured opening round was 213,189 input / 11,401 output tokens over 16 page images);
+- `perPage` is `READING_STAGE_BUDGET.perPage` (16,000 input tokens, 1,000 output tokens, 0.5 actions,
+  US$0.03 — Masks' measured opening round was 213,189 input / 11,401 output tokens over 16 page images),
+  raised per dimension to the reader's measured cost per page of *this* book when its earlier readings
+  measured one (the `usage.jsonl` rows below, author phases only, at least four pages). A measurement
+  never lowers it: it counts the author's rounds, while the lease also pays the review of every page;
 - `floor` {4,000,000 input tokens, 262,144 output tokens, 64 actions, US$10}: at least eight
   whole-context reservations of a reader whose window is 500,000 tokens, so a stalled image call and
   its retry fit in each of two rounds with the review still to pay;
