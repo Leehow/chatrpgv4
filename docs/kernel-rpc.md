@@ -2755,7 +2755,7 @@ every accepted answer of the same source digest and context generation whose foc
 first, at most four: `{state: "ready", memo: [{focus, question, source_answer}]}`, with each one's retained evidence
 checked as an exact hit is (`source_answer_integrity`). `memo: false` (a boolean, answer only; `invalid_params`
 otherwise) skips it; the host sends it when the Keeper passed `retry: true`. A campaign's memo is its fork's: another
-campaign reads its own.
+campaign reads its own; the library's answers a fork copied when it was made are part of it.
 
 **Question class: the Keeper's judgement, never the host's.** The ruling keys the memo by "normalised focus and question
 class". The host never classifies question text (§22.4.1, and no semantic lists). So the class is decided where the
@@ -2765,7 +2765,8 @@ among the memoised questions) was considered and not built: it adds a decision f
 where the Keeper is already reading the answers.
 
 **One reading per focus.** §22.2.1's attach rule now covers `answer`: a consultation whose focus meets a *running*
-answer job's focus attaches to it (`{state: "reading", job_id, attached: true}`) instead of queueing a second reading, and
+answer job's focus, of the current context generation (one of another generation can never publish), attaches to it
+(`{state: "reading", job_id, attached: true}`) instead of queueing a second reading, and
 is judged afresh once that job settles, when the memo answers it. A consultation never attaches to an `opening` or
 `detail` job, nor they to it; claim's own one-focus rule (§22.2.1) already covered every purpose.
 
