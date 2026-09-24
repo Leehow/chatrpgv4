@@ -76,6 +76,15 @@ function latestNote(context: Row): Row {
   return {};
 }
 
+/** SL-25 (§135.30.4): every `guarded` entry the run's notes carried to the Keeper in this request, in order. */
+function guardedNotes(context: Row): Row[] {
+  return messageTexts(context).flatMap(body => {
+    const start = body.indexOf('{"kind":"single_loop_step"');
+    if (start < 0) return [];
+    try { return array(JSON.parse(body.slice(start, body.lastIndexOf('}') + 1)).guarded); } catch { return []; }
+  });
+}
+
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
 
 /**
@@ -137,7 +146,7 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
     log({request_shape: array(context.messages).map((message: Row) => {
       const body = JSON.stringify(message.content ?? '');
       return [message.role, message.customType ?? null, body.length, createHash('sha256').update(body).digest('hex').slice(0, 8)];
-    }), system_bytes: String(context.systemPrompt ?? '').length});
+    }), system_bytes: String(context.systemPrompt ?? '').length, ...(guardedNotes(context).length ? {guarded: guardedNotes(context)} : {})});
     // SL-10: a compose the run's time budget chose is the Keeper's close; the replay answers it with the delivery, not
     // with the live Keeper's remaining bookkeeping (which the budget left for the next turn).
     // SL-20: so is the compose after the clerk settled the declaration (§135.11 addendum): the note tells the Keeper to
