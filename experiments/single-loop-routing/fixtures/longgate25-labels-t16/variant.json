@@ -1,0 +1,16 @@
+{
+ "derived_from": "longgate25-t16",
+ "source_tarball_sha256": "d4992de23f59c821e75bf54eb9f4401a7324debcfd0b591d3afb42ad117bcff7",
+ "change": "module slice re-registered from the starter by module.register",
+ "module": "the-haunting",
+ "registered": {
+  "module_id": "the-haunting",
+  "status": "installed",
+  "generation": 2,
+  "graph_digest": "8e112fa872e91902e848f51379f072eb8cc665762e8c279d7b60e2a669ca8bc0",
+  "title": "The Haunting"
+ },
+ "starter_sha256": "8e112fa872e91902e848f51379f072eb8cc665762e8c279d7b60e2a669ca8bc0",
+ "starter_commit": "a2526081a70e629c1f45c71c656f1ab434c917c6",
+ "unchanged_outside_modules": 146
+}

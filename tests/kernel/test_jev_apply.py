@@ -6,8 +6,9 @@ Fixtures verify protocol and storage behavior only. They do not authorize effect
 from __future__ import annotations
 
 import hashlib
+import json
 
-from conftest import CAMPAIGN, campaign_dir, git_log, narrate, open_turn
+from conftest import CAMPAIGN, CONTENT_DIR, campaign_dir, git_log, narrate, open_turn
 
 
 def options(client):
@@ -105,3 +106,80 @@ def test_fulfillment_metadata_is_never_silently_ignored_or_allowed_to_apply_effe
     # Refused private metadata did not consume the public call identity or discover the clue.
     accepted = kernel.table("apply", call_id="t1-c1", effects=[{"kind": "clue", "clue": "knott-commission"}])
     assert accepted["receipts"]
+
+
+def _haunting_scene(handle):
+    graph = json.loads((CONTENT_DIR / "starters" / "the-haunting" / "module-graph.json").read_text("utf-8"))
+    nodes = {node["node_id"]: node for node in graph["nodes"]}
+    return nodes, nodes[f"scene-{handle}"], nodes[f"scene-{handle}"]["properties"]["runtime_projection"]["record"]
+
+
+def _move(snapshot, to):
+    [row] = [row for row in snapshot["candidates"] if row["effect"] == {"kind": "move", "to": to}]
+    return row["description"]
+
+
+def test_move_row_says_what_the_place_is_from_the_graph_and_the_world(kernel):
+    """Contract §135.30.4: the sanatorium is named, and its where-words and people ride with it; a placeholder summary
+    (the graph's summary is its name) is not repeated. Expected values are read from the module on disk."""
+    open_turn(kernel)
+    _, node, record = _haunting_scene("previous-tenants")
+    identity = record["destination_identity"]
+    description = _move(options(kernel), "previous-tenants")
+
+    assert description["display_name"] == identity["canonical_name"] == "Roxbury Sanitarium"
+    destination = description["destination"]
+    assert destination["names"] == [name for name in identity["aliases"] if name != identity["canonical_name"]]
+    assert destination["where"] == record["location_tags"]
+    assert destination["people"] == ["Gabriela Macario", "Vittorio Macario"]
+    assert node["summary"] == node["name"] and "summary" not in destination
+    # The morgue's handout is a thing there; a place without people carries no `people` key.
+    morgue = _move(options(kernel), "newspaper-morgue")["destination"]
+    assert morgue["things"] and all(isinstance(thing, str) for thing in morgue["things"])
+    assert "people" not in _move(options(kernel), "central-library")["destination"]
+
+
+def test_unmet_unlock_names_the_clue_its_words_and_where_the_book_puts_it(kernel):
+    """Contract §135.30.4: an exit held by `clue_discovered` says the clue's own words and each scene and affordance cue
+    that grants it; once the clue is found the unlock is met and says nothing more."""
+    open_turn(kernel)
+    nodes, _, briefing = _haunting_scene("commission-briefing")
+    clue = nodes["clue-knott-research-leads"]
+    cues = [aff["cue"] for aff in briefing["affordances"] if aff.get("clue_id") == "clue-knott-research-leads"]
+    unlock = _move(options(kernel), "previous-tenants")["unlock_when"]
+
+    assert unlock["met"] is False and unlock["condition"] == "clue_discovered: knott-research-leads"
+    assert unlock["clue"] == {"clue": "knott-research-leads", "says": clue["summary"],
+                              "found_at": [{"scene": "commission-briefing", "display_name": "Knott's Office", "cues": cues}]}
+    assert cues, "the book grants the clue at the office"
+
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "clue", "clue": "knott-research-leads"}])
+    assert _move(options(kernel), "previous-tenants")["unlock_when"] == {"condition": "clue_discovered: knott-research-leads", "met": True}
+    # The keys still hold the house, now named, and its guard names the keys.
+    house = _move(options(kernel), "corbitt-house-ground")
+    assert house["display_name"] == "The Corbitt House"
+    assert house["unlock_when"]["clue"]["clue"] == "knott-keys"
+    assert house["unlock_when"]["clue"]["says"] == nodes["clue-knott-keys"]["summary"]
+
+
+def test_destination_people_by_this_tables_name_and_things_without_the_places_media(kernel):
+    """Contract §135.30.4: a person is named as this table calls them (§79); `things` are what the place holds, never the
+    maps and pictures of it (graph nodes of kind `asset`)."""
+    open_turn(kernel, "I wait for the man to speak.")
+    label = "The man with the keys"
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "person", "who": "Steven Knott", "name": label},
+                                                     {"kind": "clue", "clue": "knott-research-leads"}])
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind": "move", "to": "central-library"}])
+    back = _move(options(kernel), "commission-briefing")["destination"]
+    assert back["people"] == [label]
+
+    nodes, _, _ = _haunting_scene("corbitt-house-ground")
+    graph = json.loads((CONTENT_DIR / "starters" / "the-haunting" / "module-graph.json").read_text("utf-8"))
+    held = [nodes[rel["from_node_id"]] for rel in graph["relations"]
+            if rel["to_node_id"] == "scene-corbitt-house-ground" and rel["relation_kind"] in ("depicts", "discoverable-at", "located-in")
+            and rel["from_node_id"] in nodes and nodes[rel["from_node_id"]]["node_kind"] != "clue"]
+    other = {node["name"] for node in held if node["node_kind"] != "asset"}
+    media = {node["name"] for node in held if node["node_kind"] == "asset"} - other
+    assert media, "the house has maps or pictures of its own, so the filter is under test"
+    things = _move(options(kernel), "corbitt-house-ground")["destination"]["things"]
+    assert things and set(things) <= other and not media & set(things)
