@@ -1,0 +1,431 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pi-coc:expression-card:1.0.0",
+  "title": "Expression Card v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "card_id": {
+      "type": "string",
+      "pattern": "^PEC-[A-Z]{3}-[0-9]{3}$"
+    },
+    "numeric_id": {
+      "type": "integer",
+      "minimum": 1001
+    },
+    "card_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "family": {
+      "enum": [
+        "FCT",
+        "AGY",
+        "CLR",
+        "SEN",
+        "HOR",
+        "LYR",
+        "DIA",
+        "VOI",
+        "PAC",
+        "MEM",
+        "RUL",
+        "OUT"
+      ]
+    },
+    "family_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "enum": [
+        "turn",
+        "clause",
+        "dialogue",
+        "window"
+      ]
+    },
+    "channels": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "activation": {
+      "enum": [
+        "integrity",
+        "style",
+        "diagnostic_meta"
+      ]
+    },
+    "default_severity": {
+      "enum": [
+        "blocker",
+        "major",
+        "minor"
+      ]
+    },
+    "applicability": {
+      "type": "string",
+      "minLength": 1
+    },
+    "failure_mode": {
+      "type": "string",
+      "minLength": 1
+    },
+    "desired_behavior": {
+      "type": "string",
+      "minLength": 1
+    },
+    "required_context": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "not_a_keyword_rule": {
+      "const": true
+    },
+    "contrast": {
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/context"
+        },
+        "negative": {
+          "$ref": "#/$defs/example"
+        },
+        "positive": {
+          "$ref": "#/$defs/example"
+        }
+      },
+      "required": [
+        "context",
+        "negative",
+        "positive"
+      ],
+      "additionalProperties": false
+    },
+    "boundary": {
+      "$ref": "#/$defs/boundary"
+    },
+    "diagnosis": {
+      "$ref": "#/$defs/diagnosis"
+    },
+    "repair": {
+      "$ref": "#/$defs/repair"
+    },
+    "related_card_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "legacy_contract_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "retrieval_text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "review": {
+      "$ref": "#/$defs/review"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    }
+  },
+  "required": [
+    "schema_version",
+    "card_id",
+    "numeric_id",
+    "card_version",
+    "family",
+    "family_name",
+    "title",
+    "scope",
+    "channels",
+    "activation",
+    "default_severity",
+    "applicability",
+    "failure_mode",
+    "desired_behavior",
+    "required_context",
+    "not_a_keyword_rule",
+    "contrast",
+    "boundary",
+    "diagnosis",
+    "repair",
+    "related_card_ids",
+    "legacy_contract_refs",
+    "retrieval_text",
+    "review",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "context": {
+      "type": "object",
+      "properties": {
+        "authoritative_context": {
+          "type": "string",
+          "minLength": 1
+        },
+        "task": {
+          "type": "string",
+          "minLength": 1
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope_complete": {
+          "type": "boolean"
+        },
+        "context_format": {
+          "type": "string",
+          "minLength": 1
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "authoritative_context",
+        "task",
+        "channel",
+        "scope_complete",
+        "context_format"
+      ],
+      "additionalProperties": false
+    },
+    "example": {
+      "type": "object",
+      "properties": {
+        "example_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "example_id",
+        "text",
+        "explanation"
+      ],
+      "additionalProperties": false
+    },
+    "boundary": {
+      "type": "object",
+      "properties": {
+        "example_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context": {
+          "$ref": "#/$defs/context"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_decision": {
+          "enum": [
+            "CLEAN",
+            "NOT_APPLICABLE",
+            "INSUFFICIENT_CONTEXT"
+          ]
+        }
+      },
+      "required": [
+        "example_id",
+        "context",
+        "text",
+        "explanation",
+        "expected_decision"
+      ],
+      "additionalProperties": false
+    },
+    "diagnosis": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "violation_definition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "legitimate_exception": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision_options": {
+          "type": "object",
+          "properties": {
+            "VIOLATION": {
+              "type": "string",
+              "minLength": 1
+            },
+            "CLEAN": {
+              "type": "string",
+              "minLength": 1
+            },
+            "NOT_APPLICABLE": {
+              "type": "string",
+              "minLength": 1
+            },
+            "INSUFFICIENT_CONTEXT": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "VIOLATION",
+            "CLEAN",
+            "NOT_APPLICABLE",
+            "INSUFFICIENT_CONTEXT"
+          ],
+          "additionalProperties": false
+        },
+        "raw_probability_is_not_calibrated_correctness": {
+          "const": true
+        }
+      },
+      "required": [
+        "question",
+        "violation_definition",
+        "legitimate_exception",
+        "decision_options",
+        "raw_probability_is_not_calibrated_correctness"
+      ],
+      "additionalProperties": false
+    },
+    "repair": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "positive_example_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "preserve": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "transfer_mode": {
+          "const": "technique_only"
+        },
+        "no_new_world_facts": {
+          "const": true
+        },
+        "auto_repair_enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "owner",
+        "objective",
+        "positive_example_ids",
+        "preserve",
+        "transfer_mode",
+        "no_new_world_facts",
+        "auto_repair_enabled"
+      ],
+      "additionalProperties": false
+    },
+    "review": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "pending",
+            "reviewed",
+            "rejected"
+          ]
+        },
+        "calibration_status": {
+          "enum": [
+            "unvalidated",
+            "calibrated"
+          ]
+        },
+        "production_ready": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "status",
+        "calibration_status",
+        "production_ready"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "type": "string",
+          "minLength": 1
+        },
+        "created_on": {
+          "type": "string",
+          "minLength": 1
+        },
+        "book_excerpt": {
+          "const": false
+        },
+        "copyright_note": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "origin",
+        "created_on",
+        "book_excerpt",
+        "copyright_note"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

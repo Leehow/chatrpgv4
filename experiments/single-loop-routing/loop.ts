@@ -71,14 +71,17 @@ export async function runTurn(ports: LoopPorts, initial: RunView, options: {gate
     }
     if (request.kind === 'decide') {
       const candidate = request.item.candidate!;
+      // §135.28: a clerk bind past the Jev budget is settled without asking Jev (rules defaults, else the Keeper).
+      const offline = request.purpose === 'bind' ? request.offline : undefined;
       if (candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve')) {
-        const bound = await ports.bindOrdinary(view, candidate), ms = ports.now() - began;
+        const bound = offline ? {disposition: 'unavailable', unresolved: [offline], calls: 0, ms: 0} : await ports.bindOrdinary(view, candidate), ms = ports.now() - began;
         note(settleOrdinaryBind(view, step, candidate, bound, ms));
         continue;
       }
       const batch = bindBatch(view, candidate, ports.scope, ports.readSet(view));
-      const result = await ports.decide(batch), ms = ports.now() - began;
-      note(settleBind(view, step, candidate, batch, result, ms, gate));
+      const result = offline ? {batchId: batch.id, status: 'unavailable', answers: {}, coverage: {required: [], answered: [], unknown: []}, issues: [],
+        failure: {code: offline, retryable: false}} as unknown as DecisionResult : await ports.decide(batch), ms = ports.now() - began;
+      note(settleBind(view, step, candidate, batch, result, ms, gate, !!offline));
       continue;
     }
     if (request.kind === 'infer') {

@@ -119,8 +119,9 @@ test("at the morgue the gate's check carries its meeting in place of the roster 
 		person.name === "Arty Wilmot" ? { ...person, untold: { ...person.untold, label: "城市版编辑" } } : person) } }, INPUT);
 	assert.equal(labelled.find((candidate) => candidate.family === "obligation_check").before.bound.name, "城市版编辑");
 	assert.deepEqual(ofObligation(candidates, ARCHIVIST), [], "a blocked obligation issues nothing");
-	// Ruth is on the roster: her plain roster candidate stays, unmarked.
-	assert.equal(candidates.find((candidate) => candidate.key === "apply:person:Ruth Blake")?.clerk, "declared_bookkeeping");
+	// Ruth is on the roster without the table's own label and her obligation is blocked: no data source names her here, so
+	// staging her is the Keeper's to propose, not the clerk's to issue (§135.28).
+	assert.equal(candidates.find((candidate) => candidate.key === "apply:person:Ruth Blake"), undefined);
 
 	// The guarded clues keep their rows in the options (with guarded_by) and are withheld from the clerk, however offered.
 	for (const key of GUARDED) {
@@ -167,7 +168,10 @@ test("seeks on the gate's check carries its meeting directly first, under the bo
 	assert.equal(meeting.then, check.key);
 	const { tool, args } = keeperCall(meeting);
 	assert.equal(tool, "apply");
-	assert.deepEqual(args.effects, [{ kind: "person", who: "Arty Wilmot", name: "Arty Wilmot" }], "the book's name, no open parameter");
+	assert.deepEqual(args.effects, [{ kind: "person", who: "Arty Wilmot", name: "Arty Wilmot",
+		why: `The book puts Arty Wilmot here for "Access to the Globe clippings", under the book's name; player: "${INPUT}"` }],
+	"the book's name, and a why composed from the demand and the player's words (§135.28): no open parameter");
+	assert.deepEqual(meeting.composed, ["why"]);
 	view.pending.push(...routed.pending);
 	assert.equal(next(view).kind, "direct");
 	// Past the run's time budget (§135.25) the carried meeting still runs: structure, no model, like a forced step.
@@ -230,11 +234,22 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 		answers: Object.fromEntries(Object.entries(choices).map(([key, choice]) => [key, { status: "answered", type: "choice", choice, confidence }])) });
 	const bound = interpretBind(check, batch, answer({ skill: "Persuade", bonus: "one", penalty: "none", intent: "social" }), 0.6);
 	assert.deepEqual(bound.pending.map((item) => [item.kind, item.purpose]), [["direct", "execute"]]);
-	// Below the gate, or an approach the words do not settle: the LLM (the Keeper) fills it.
-	assert.deepEqual(interpretBind(check, batch, answer({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" }, 0.4), 0.6).pending.map((item) => [item.kind, item.purpose]),
-		[["infer", "bind"], ["direct", "llm_proposal"]]);
-	assert.deepEqual(interpretBind(check, batch, answer({ skill: "unknown", bonus: "none", penalty: "none", intent: "social" }), 0.6).pending.map((item) => [item.kind, item.purpose]),
-		[["infer", "bind"], ["direct", "llm_proposal"]]);
+	// §135.28: an approach the words do not settle takes the rules default -- the investigator's highest current value
+	// among the offered approaches, read from the kernel's own profiles; Intimidate and Fast Talk tie at 45, and the tie
+	// goes to the first in the book's stated order -- stamped on the operation's basis; no LLM step.
+	const profile = (skill) => state.resolveOptions.profiles.find((row) => row.actor === check.bound.actor && row.skill === skill)?.value;
+	assert.deepEqual(APPROACHES.map(profile), [40, 45, 35, 45], "the kernel's issued values the default is read from");
+	assert.deepEqual(check.unbound.find((value) => value.name === "skill").ruleDefault, { rule: "highest_offered_skill", value: "Intimidate" });
+	const defaulted = interpretBind(check, batch, answer({ skill: "unknown", bonus: "none", penalty: "none", intent: "social" }), 0.6);
+	assert.deepEqual(defaulted.pending.map((item) => [item.kind, item.purpose, item.extra?.skill]), [["direct", "execute", "Intimidate"]]);
+	assert.deepEqual([defaulted.pending[0].candidate.basis.binding, defaulted.pending[0].candidate.basis.rule_default],
+		["rule-default", { skill: { value: "Intimidate", rule: "highest_offered_skill" } }]);
+	assert.deepEqual(defaulted.bindings.map((entry) => [entry.name, entry.path, entry.value]),
+		[["skill", "rule-default", "Intimidate"], ["bonus", "jev", "none"], ["penalty", "jev", "none"], ["intent", "jev", "social"]]);
+	// Below the gate everywhere: the approach and the dice take their defaults, but the intent has none (the obligation
+	// states no intent), so the check is the Keeper's turn -- never an LLM bind.
+	const low = interpretBind(check, batch, answer({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" }, 0.4), 0.6);
+	assert.deepEqual(low.pending.map((item) => [item.kind, item.purpose, item.reason, item.extra?.unresolved]), [["infer", "adjudicate", "clerk_unbound", ["intent"]]]);
 
 	// The clerk's call is the Keeper's resolve with the claim; the dice word becomes a modifier with its reason.
 	const { tool, args } = keeperCall(check, bound.pending[0].extra);
@@ -473,12 +488,12 @@ test("a clerk step that crossed an open obligation is one obligation_open line b
 });
 
 /** The run on a real Pi session over the emitted kernel, arriving at the morgue with Arty not yet met; Jev is a stub. */
-async function arrival({ fact, responses, firstExit = "finish" }) {
+async function arrival({ fact, responses, firstExit = "finish", bind = { skill: "Persuade", bonus: "none", penalty: "none", intent: "social" } }) {
 	const decisions = [], requests = [], calls = [];
 	let routes = 0;
 	const probe = { name: "so04-call-probe", factory(pi) { pi.on("tool_call", (event) => { calls.push({ id: event.toolCallId, tool: event.toolName, input: structuredClone(event.input) }); }); } };
 	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch) => { decisions.push(batch); return batch.family === BIND_FAMILY
-		? answered(batch, (question) => ({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" })[question.key])
+		? answered(batch, (question) => bind[question.key])
 		: (routes++, answered(batch, (question) => question.key === "exit" ? (routes === 1 ? firstExit : "finish") : question.criteria.seeks ? fact : undefined)); } } });
 	const table = await openTable({
 		realKernel: true, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: PASS },
@@ -497,13 +512,34 @@ test("seeks at arrival: the meeting is carried directly under the book's name, t
 	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
 	const clerk = calls.filter((value) => value.id.startsWith("clerk:"));
 	assert.deepEqual(clerk.slice(0, 2).map((value) => value.tool === "apply" ? value.input.effects : value.input.action.obligation),
-		[[{ kind: "person", who: "Arty Wilmot", name: "Arty Wilmot" }], ACCESS], "the meeting, then the claimed check");
+		[[{ kind: "person", who: "Arty Wilmot", name: "Arty Wilmot",
+			why: 'The book puts Arty Wilmot here for "Access to the Globe clippings", under the book\'s name; player: "我想请人帮我翻出科比特宅的旧剪报"' }], ACCESS],
+		"the meeting (its why composed), then the claimed check");
 	const telemetry = table.telemetry("test-camp");
 	assert.ok(telemetry.some((row) => row.tool === "resolve" && row.origin === "policy" && row.ok && row.basis?.obligation === ACCESS));
 	const infers = telemetry.filter((row) => row.lane === "run" && row.event === "llm_bound");
 	assert.deepEqual(infers, [], "no LLM bind for the meeting or the check");
 	assert.equal(factQuestions(decisions).filter((question) => /globe-unpublished-story/.test(question.target)).length >= 1, true);
 	assert.ok(decisions.some((batch) => batch.family === BIND_FAMILY && batch.questions.some((question) => question.key === "skill")), "the check's approach was a Jev bind");
+});
+
+test("SL-12 (§135.28): Jev cannot tell the approach -- the clerk rolls the rules default, the first of the investigator's highest, with no LLM step", async (t) => {
+	const { table, calls, requests } = await arrival({ fact: "seeks", bind: { skill: "unknown", bonus: "none", penalty: "none", intent: "social" },
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
+	t.after(() => table.dispose());
+	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
+	const roll = calls.find((value) => value.id.startsWith("clerk:") && value.input.action?.obligation === ACCESS);
+	// Thomas Hayes: Intimidate 45 and Fast Talk 45 are his highest of the four; Intimidate is stated first.
+	assert.deepEqual([roll?.input.action.skill, roll?.input.action.intent], ["Intimidate", "social"]);
+	const telemetry = table.telemetry("test-camp");
+	const row = telemetry.find((entry) => entry.tool === "resolve" && entry.origin === "policy" && entry.ok);
+	assert.deepEqual([row?.basis?.obligation, row?.basis?.binding, row?.basis?.rule_default], [ACCESS, "rule-default", { skill: { value: "Intimidate", rule: "highest_offered_skill" } }],
+		"the default is on the operation's basis, which every row of the call carries");
+	const bind = telemetry.find((entry) => entry.lane === "run" && entry.event === "bind" && entry.candidate === `resolve:obligation:${ACCESS}`);
+	assert.deepEqual(bind.bindings.filter((entry) => ["skill", "intent", "goal"].includes(entry.name)).map((entry) => [entry.name, entry.path]),
+		[["goal", "composed"], ["skill", "rule-default"], ["intent", "jev"]]);
+	assert.equal(requests.length, 1, "one model request, the compose: none for the approach");
+	assert.ok(!telemetry.some((entry) => entry.event === "llm_bound"), "no LLM bind");
 });
 
 test("not at arrival: the obligation issues nothing and is not asked again this run", async (t) => {

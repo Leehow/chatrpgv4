@@ -1,0 +1,70 @@
+{
+  "contract_version": "1.0.0",
+  "draft_digest": "d4b719da9606abad5a198d50cc8e490d6dd921734b823aa027b9170484995982",
+  "context_digest": "b666028af0385aa4a5a46531a189ec123524eefc40971c9ccc201fff24011a01",
+  "request_digest": "38fa924e6d49a4b2941e39cb7f8485c0fca5804f8ebe4d44ba1a92d6ceb9e704",
+  "card_bindings": {
+    "PEC-FCT-001": {
+      "version": "1.0.0",
+      "digest": "ea15e1ae6d6d117d89013ddace29b0ba271bd2ed6a91f88e04e8230584d57f0a"
+    },
+    "PEC-AGY-001": {
+      "version": "1.0.0",
+      "digest": "9e67f8d6fb4274cf3b98d5a7ef728396a8003e6801bfb4dac093273d293cf568"
+    },
+    "PEC-AGY-003": {
+      "version": "1.0.0",
+      "digest": "79cb82ae07fe552a746ece435ebb506d293439079cab1433cc6a1e8313b7a020"
+    }
+  },
+  "question_bindings": {
+    "q0_diagnosis": {
+      "card_id": "PEC-FCT-001",
+      "kind": "diagnosis"
+    },
+    "q0_location": {
+      "card_id": "PEC-FCT-001",
+      "kind": "location"
+    },
+    "q1_diagnosis": {
+      "card_id": "PEC-AGY-001",
+      "kind": "diagnosis"
+    },
+    "q1_location": {
+      "card_id": "PEC-AGY-001",
+      "kind": "location"
+    },
+    "q2_diagnosis": {
+      "card_id": "PEC-AGY-003",
+      "kind": "diagnosis"
+    },
+    "q2_location": {
+      "card_id": "PEC-AGY-003",
+      "kind": "location"
+    }
+  },
+  "spans": [
+    {
+      "id": "s0",
+      "start": 0,
+      "end": 11,
+      "text": "窗台上有三道新鲜抓痕。"
+    },
+    {
+      "id": "s1",
+      "start": 11,
+      "end": 21,
+      "text": "床底的怪物正在等你。"
+    },
+    {
+      "id": "s2",
+      "start": 21,
+      "end": 39,
+      "text": "恐惧攥住你的心，你立刻退到了走廊里。"
+    }
+  ],
+  "offset_unit": "unicode_code_point",
+  "teaching_examples_included": false,
+  "calibration_status": "unvalidated",
+  "automatic_repair_authorized": false
+}

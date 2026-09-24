@@ -1,0 +1,64 @@
+{
+  "verification_scope": "local_structural_contract_checks_only",
+  "date": "2026-09-23",
+  "python_version": "3.13.5",
+  "development_dependencies": {
+    "jsonschema": "4.26.0",
+    "mistune": "3.2.1",
+    "beautifulsoup4": "4.14.3",
+    "playwright": "1.57.0"
+  },
+  "unit_test_method_count": 40,
+  "unit_test_process": {
+    "command": "/opt/pyvenv/bin/python -m unittest discover -s tests -v",
+    "returncode": 0,
+    "stdout": "DRY RUN: request and binding written; no remote call or semantic evaluation executed.\n",
+    "stderr": "test_01_asset_counts (test_reference.AssetTests.test_01_asset_counts) ... ok\ntest_02_all_cards_match_json_schema (test_reference.AssetTests.test_02_all_cards_match_json_schema) ... ok\ntest_03_ids_and_example_refs_are_unique (test_reference.AssetTests.test_03_ids_and_example_refs_are_unique) ... ok\ntest_04_main_pairs_share_context (test_reference.AssetTests.test_04_main_pairs_share_context) ... ok\ntest_05_examples_are_unvalidated_public_seeds (test_reference.AssetTests.test_05_examples_are_unvalidated_public_seeds) ... ok\ntest_06_meta_cards_are_not_narrator_style (test_reference.AssetTests.test_06_meta_cards_are_not_narrator_style) ... ok\ntest_07_manifest_hashes_match_files (test_reference.AssetTests.test_07_manifest_hashes_match_files) ... ok\ntest_08_reader_and_indexes_contain_all_cards (test_reference.AssetTests.test_08_reader_and_indexes_contain_all_cards) ... ok\ntest_09_unicode_spans_round_trip (test_reference.RuntimeTests.test_09_unicode_spans_round_trip) ... ok\ntest_10_empty_target_and_context_rejected (test_reference.RuntimeTests.test_10_empty_target_and_context_rejected) ... ok\ntest_11_unknown_or_duplicate_card_rejected (test_reference.RuntimeTests.test_11_unknown_or_duplicate_card_rejected) ... ok\ntest_12_request_contains_semantics_not_only_ids (test_reference.RuntimeTests.test_12_request_contains_semantics_not_only_ids) ... ok\ntest_13_teaching_examples_require_explicit_option (test_reference.RuntimeTests.test_13_teaching_examples_require_explicit_option) ... ok\ntest_14_location_options_limit_and_no_localization_mode (test_reference.RuntimeTests.test_14_location_options_limit_and_no_localization_mode) ... ok\ntest_15_exact_choice_limit_is_supported (test_reference.RuntimeTests.test_15_exact_choice_limit_is_supported) ... ok\ntest_16_well_formed_fixture_validates (test_reference.RuntimeTests.test_16_well_formed_fixture_validates) ... ok\ntest_17_missing_question_or_model_or_usage_rejected (test_reference.RuntimeTests.test_17_missing_question_or_model_or_usage_rejected) ... ok\ntest_18_type_mismatch_rejected (test_reference.RuntimeTests.test_18_type_mismatch_rejected) ... ok\ntest_19_unknown_choice_and_probability_option_rejected (test_reference.RuntimeTests.test_19_unknown_choice_and_probability_option_rejected) ... ok\ntest_20_nonfinite_and_bad_sum_rejected (test_reference.RuntimeTests.test_20_nonfinite_and_bad_sum_rejected) ... ok\ntest_21_nonmaximum_choice_rejected (test_reference.RuntimeTests.test_21_nonmaximum_choice_rejected) ... ok\ntest_22_noul_and_score_response_shapes (test_reference.RuntimeTests.test_22_noul_and_score_response_shapes) ... ok\ntest_23_host_evidence_is_exact (test_reference.RuntimeTests.test_23_host_evidence_is_exact) ... ok\ntest_24_stale_draft_and_fake_span_rejected (test_reference.RuntimeTests.test_24_stale_draft_and_fake_span_rejected) ... ok\ntest_25_omission_never_fabricates_quote (test_reference.RuntimeTests.test_25_omission_never_fabricates_quote) ... ok\ntest_26_model_flag_not_automatically_authorized (test_reference.RuntimeTests.test_26_model_flag_not_automatically_authorized) ... ok\ntest_27_clean_ignores_speculative_location (test_reference.RuntimeTests.test_27_clean_ignores_speculative_location) ... ok\ntest_28_unknown_and_not_applicable_are_preserved (test_reference.RuntimeTests.test_28_unknown_and_not_applicable_are_preserved) ... ok\ntest_29_request_or_asset_mutation_rejected (test_reference.RuntimeTests.test_29_request_or_asset_mutation_rejected) ... ok\ntest_30_context_receipt_mutation_rejected (test_reference.RuntimeTests.test_30_context_receipt_mutation_rejected) ... ok\ntest_31_positive_choices_include_abstention (test_reference.RuntimeTests.test_31_positive_choices_include_abstention) ... ok\ntest_32_meta_examples_rejected_for_player_channel (test_reference.RuntimeTests.test_32_meta_examples_rejected_for_player_channel) ... ok\ntest_33_repair_task_does_not_execute (test_reference.RuntimeTests.test_33_repair_task_does_not_execute) ... ok\ntest_34_root_cause_routes_to_owner (test_reference.RuntimeTests.test_34_root_cause_routes_to_owner) ... ok\ntest_35_stale_repair_task_rejected (test_reference.RuntimeTests.test_35_stale_repair_task_rejected) ... ok\ntest_36_live_requires_key_and_obeys_local_budget (test_reference.RuntimeTests.test_36_live_requires_key_and_obeys_local_budget) ... ok\ntest_37_provider_errors_do_not_become_clean (test_reference.RuntimeTests.test_37_provider_errors_do_not_become_clean) ... ok\ntest_38_dry_run_cli_has_no_network_path (test_reference.RuntimeTests.test_38_dry_run_cli_has_no_network_path) ... ok\ntest_39_transport_rejects_redirect (test_reference.RuntimeTests.test_39_transport_rejects_redirect) ... ok\ntest_40_card_loader_rejects_duplicate_id (test_reference.RuntimeTests.test_40_card_loader_rejects_duplicate_id) ... ok\n\n----------------------------------------------------------------------\nRan 40 tests in 0.347s\n\nOK\n"
+  },
+  "card_schema_records_validated": 144,
+  "card_count": 144,
+  "example_count": 432,
+  "typescript_check": {
+    "command": "tsc --noEmit --strict --target ES2022 --lib ES2022,DOM runtime/contracts.ts",
+    "returncode": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "dry_run": {
+    "command": "/opt/pyvenv/bin/python runtime/reference.py",
+    "returncode": 0,
+    "stdout": "DRY RUN: request and binding written; no remote call or semantic evaluation executed.\n",
+    "stderr": ""
+  },
+  "browser_check": {
+    "test_type": "offline_browser_smoke",
+    "browser": "Chromium / Playwright set_content (URL navigation restricted by environment)",
+    "checks_passed": [
+      "卡库首次渲染144张",
+      "美感家族筛选返回12张",
+      "展开当前全部卡片",
+      "编号搜索可定位目标卡",
+      "工程诊断家族用途筛选返回5张",
+      "无匹配显示空结果而非默认硬选",
+      "卡号锚点打开并定位卡片",
+      "390px移动端无横向溢出",
+      "设计正文、附加演示、任务书与目录渲染正常",
+      "设计页目录锚点全部可定位",
+      "设计页移动端无横向溢出",
+      "两页无JavaScript运行错误"
+    ],
+    "errors": [],
+    "external_model_calls": 0
+  },
+  "not_executed": [
+    "real_jev_api_inference",
+    "real_llm_rewrite",
+    "current_pi_source_integration",
+    "human_card_calibration",
+    "independent_holdout_benchmark",
+    "end_to_end_latency_benchmark",
+    "cross_file_browser_navigation"
+  ],
+  "model_quality_claim": null,
+  "production_ready": false
+}

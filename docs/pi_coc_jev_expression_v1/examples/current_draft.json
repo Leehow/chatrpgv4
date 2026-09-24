@@ -1,0 +1,22 @@
+{
+  "target_text": "窗台上有三道新鲜抓痕。床底的怪物正在等你。恐惧攥住你的心，你立刻退到了走廊里。",
+  "context": {
+    "channel": "player_narration",
+    "task": "交付观察结果并在新的玩家决定前停下",
+    "scope_complete": true,
+    "revision": 18,
+    "recipient": "player-a",
+    "public_facts": [
+      {"id":"F1","text":"窗台有三道新鲜抓痕"},
+      {"id":"F2","text":"床底发出一次短响，随后恢复安静，声源未知"}
+    ],
+    "required_fact_ids": ["F1","F2"],
+    "epistemic_limits": ["床底是否有生物尚未确认","没有关于该声源意图的公开信息"],
+    "player_authorizations": ["查看窗台"],
+    "rule_effects": [],
+    "surface_permissions": [],
+    "public_history": [],
+    "authoritative_context": "玩家只要求查看窗台，没有声明害怕或后退；没有强制情绪或移动效果。"
+  },
+  "provenance": "original_synthetic_demo_not_real_campaign"
+}
