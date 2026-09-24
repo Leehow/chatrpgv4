@@ -2,7 +2,7 @@
 
 日期：2026-09-24。父规格：[craft-reference-mod.md](craft-reference-mod.md)。
 
-状态：**用户已批准；CR-01–03 功能及代码验证完成；CR-04/05 可执行部分已验证，真实 Jev 选卡与完整对照被凭据缺失阻塞**。无远程 issue 编号。切片状态以本文实施记录与运行时任务列表为准，不能据规格存在推断完成。源码起点为 `0.9.5a@ef8efdf97`，实施时确认最新主线与正在运行的单循环形态。
+状态：**用户已批准；CR-01–05 本次范围的实现与验证已完成，App 现存 Jev 凭据的真实补证已跑；没有稳定净文笔收益，默认 off，真人校准未跑**。无远程 issue 编号。切片状态以本文实施记录与运行时任务列表为准，不能据规格存在推断完成。源码起点为 `0.9.5a@ef8efdf97`，实施时确认最新主线与正在运行的单循环形态。
 
 ## 共用决定
 
@@ -245,7 +245,7 @@ CR-04与CR-05无互相依赖，可以同一波开始；**CR-05的玩家和观察
 - 最终 `check:kernel`、`build:runtime` 通过；源码CLI环境 `npm run test:ext` **2883/2883通过**，237.39秒。日志 `.pi/progress/craft-integration-final.log`。此前CR-01记录的单循环失败由此确认是测试环境条件，不是待修的生产断言。
 - 真实Jev smoke未跑：当前验收进程configured=false、全局vault无挂载、源码游戏home也没有Jev vault配置。已请求用户安全配置，不读取其它App或旧日志搜key。该项明确未验，不由fake HTTP替代。
 
-### CR-04（2026-09-24，实际Jev D组仍阻塞）
+### CR-04 初次收尾记录（2026-09-24，后续D组补证见下）
 
 - 6个保留中文回合按scene分debug/held-out，原始资料和限制保持不变。作者输入剥离arm、split、C选卡理由，避免条件泄漏。
 - general-purpose子任务续行接口多次0-turn拒绝，旧冻结文件未损坏；改用独立、带工具Pi CLI，不是裸completion。作者与盲读者均为新进程，模型实际报告grok-build/grok-4.7-build-fast，请求low。
@@ -254,7 +254,7 @@ CR-04与CR-05无互相依赖，可以同一波开始；**CR-05的玩家和观察
 - 18份样稿与6份自动盲读完成。引文校验0错误（一处补出来的右引号另存勘误，原评审不改）。B/A计数3/2/1平手；实际加参考的4例C/B为2胜2平手；两个NONE对照仍有生成波动。**不是提高百分比、不是真人偏好、不足以默认启用。** 0001材料边界尤其狭窄，不能作自然问答质量强证据。
 - 证据 `.coc/evaluations/craft-reference-20260924/RESULTS.md` 与 `automated-reading-v3-validated.json`。D缺Jev凭据，真人与多语言校准未跑。未来off/on比较须同样配置Jev与其它车道，因为key存在也会影响既有准入等路径。
 
-### CR-05（2026-09-24，真实参考注入仍阻塞）
+### CR-05 初次收尾记录（2026-09-24，后续真实注入补证见下）
 
 - 主会话用canonical driver与Grok4.7fast/low完成18次自然玩家输入，含开场为19个内核回合；本局legacy，调查、NPC交涉、失败、观察、夜间进屋与玩家主动退出均真实发生。
 - T17只在正文/笔记中结束委托，未被算作正式结束。T18明确结束后，真实campaign状态completed并有结算/会话收据。不是清除危险的通关胜利。
@@ -262,4 +262,17 @@ CR-04与CR-05无互相依赖，可以同一波开始；**CR-05的玩家和观察
 - UI在独立setting_up战役上验证default off、切jev持久化、刷新、1.3.1→1.5.0升级、禁用/重启用；非Mod世界字段不变。桌面截图目视检查，未宣称移动端验收。没有改旧用户战役或打包App。
 - 标准KPI保留23个内核错误/拒绝；新Mod未让不可用Jev阻塞回合，但整体文字仍有复读、指代与未给出资料被写成空白等观察。legacy off/off的场景胶囊刷新缺口早于本次改动，未在此扩展修复或断定复读因果。
 - 证据 `.coc/playtests/craft-reference-live-20260924/REPORT.md`、`live-verification.json`、`kpi.txt`、`ui-*.json`；战役位于 `.coc/playtests/craft-reference-home-20260924/`。自有driver和源码Web server均已停止，证据不删除。
-- 后续只差安全配置Jev后，另建新run验证真正选卡/注入及其体验；不能把当前injected=0的桌子算作成功启用参考。
+- 初次收尾将真实路径记为等待凭据，不能把当时injected=0的桌子算作成功启用参考。该阻塞判断随后由用户纠正，见以下记录。
+
+### App 凭据作用域更正与 CR-04/05 补证（2026-09-24）
+
+- 用户截图显示PipiCOC Jev设置已有 `Credential saved` 且context preselection启用。此前检查源码进程、编码会话vault与repo游戏home，**没有覆盖App独立profile**；要求用户再次配置是Boss的作用域推断错误，不是用户缺key。
+- 复用既有 `experiments/single-loop-routing/vault.mjs` 的只读读者，核对App扩展启用后，仅将该key放进独立源码验收进程内存。未复制vault、输出key/片段、使用带key的argv或改App设置；正常reader configured=true。新建185个D/真桌/启动证据文件检查未含key明文。
+- **CR-04真实D完成**：6次真实TypeSafe HTTP 200，各一次attempt，选卡4、NONE2、错误/超时0；352–808ms，合计3025ms，列价估算$0.000606522。生产factory/adapter/renderer与1500ms上限不改。选卡只见冻结legacy pre-turn，不见人工C答案或结算；离线binding不冒充live RPC。
+- 6个独立工具型Pi作者与6个独立自动盲读完成，Grok4.7fast/low；原B/C和全部旧证据hash不变。D/B与D/C均为各赢2、平手2；实际带参考4例均为D赢1、对照赢2、平手1。**没有一致净优势，保持默认off，不宣称真人收益。** 引文补证另存，原判断不改；本地verify通过、精确引文错误0。
+- D证据：`.coc/evaluations/craft-reference-20260924/d-v3/REPORT.md`、`automated-reading-validated.json`及原始请求/结果/会话。worker全程14m11s；有效冻结至补证结束7m6s。小样本、同模型家族读者、不同时间单次生成、缓存未控、缺跨战役/跨语言与真人校准等局限仍在。
+- **CR-05真实参考分支完成**：独立run `craft-reference-jev-live-20260924`、独立home `craft-reference-jev-home-20260924`。Boss唯一玩家、canonical driver、legacy、Grok4.7fast/low。委托谈判自然失败后玩家主动退出，3句输入到真实completed，`session:campaign-end-t3-c2`，不是调查通关。
+- T1选CRAFT-DIA-01，一次363ms；984字节参考被实际请求观察为active injected，随后apply世界修订使其失效。T2一次308ms返回NONE。正式配置off后T3只记disabled，零新增选择。不得把active注入说成整轮始终有效；hybrid实玩、战斗等未在这次短局覆盖。
+- 传输层首个正文/交付完成分别为52.815/56.003s、37.375/39.916s、22.900/22.901s；对应settled事件保留。不是浏览器绘制时间，T1包含开场排队，App key也启用了其它既有路径，不能用它与无key局的差值宣称craft提速。
+- T1/T2重复完整玩家台词，原始模型标记与speech归属均为玩家角色海斯，不是诺特。内核只剥标记，audit没有重写；去标后的说话人衔接容易混淆。T1成文时卡已inactive，T2为NONE，不据此断定Jev造成复读。问题保留为质量观察，没有借验收扩大改动基础提示或加文学拒绝。
+- 真桌证据 `.coc/playtests/craft-reference-jev-live-20260924/REPORT.md`、`verification.json`、`delivery-timing.json`与原始事件。driver已stop，3句5工具调用118.8s等待合计。旧fallback局、所有失败产物与两局证据不删；无打包、推送、用户战役修改或App重启。
