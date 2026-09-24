@@ -99,3 +99,12 @@ outcome.
 | `uv run --frozen python -m pytest tests/kernel tests/play` | 1699 passed, 1 skipped | 1699 passed, 1 skipped, exit 0 | not re-run: the merge touched no kernel input (launch list, runtime dependencies, docs, extension tests) |
 
 **Not shown:** a live Keeper reading `binding` / `left_to_you`; a live table.
+
+### 2026-09-24 — the approach default amended by SL-21
+
+Live gate #7 turn 2: this ticket's `highest_offered_skill` took Intimidate for a player who explained and asked, over
+Jev's Persuade 0.67 at confidence 0.59, and the lane refused the clerk's check. The owner's ruling "The approach follows
+the declaration's manner, not the actor's numbers" amends the approach default: Jev's leading offered skill at any
+confidence (`jev_lead`), with `highest_offered_skill` only when Jev answers `unknown` or does not answer. Contract
+§135.28 (dated amendment); implementation, tests and replays in
+`docs/specs/pi-native-single-loop-tickets/21-approach-follows-the-manner.md`. Dice modifiers keep `no_modifier`.

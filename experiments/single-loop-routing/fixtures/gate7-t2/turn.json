@@ -1,0 +1,13 @@
+{
+ "campaign": "gate7-haunting-0534",
+ "module": "the-haunting",
+ "turn": 2,
+ "commit_before": "964e4cd",
+ "commit_after": "ae972a0",
+ "player_input": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。",
+ "tarball": "../gate7/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/gate7-haunting-0534",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/gate7-haunting-0534-20260924T093426Z"
+ }
+}

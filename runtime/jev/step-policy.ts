@@ -23,7 +23,7 @@ import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts'
 import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
 import {answerOf, clears} from './decision-gate.ts';
-import {COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, reachable, type FeatureRows} from './route-compile.ts';
+import {carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, reachable, type FeatureRows} from './route-compile.ts';
 
 type Row = Record<string, any>;
 export type Json = null | boolean | number | string | Json[] | {[key: string]: Json};
@@ -36,8 +36,13 @@ const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value
  * kernel issued, never from words: `highest_offered_skill` is the actor's highest current value among the offered
  * approaches (ties: the first in the stated order), `no_modifier` is the dice word `none`. `by` holds one value per value
  * of another parameter of the same candidate (the approach per actor when the actor is itself still to bind).
+ * `jev_lead` (SL-21, the approach): Jev's leading answer when it is an offered option (not `unknown`), at any confidence;
+ * its `fallback` only when Jev answers `unknown` or does not answer. The approach is the manner the player's words take,
+ * which no skill value picks.
  */
-export interface RuleDefault {rule: 'highest_offered_skill' | 'no_modifier' | 'card_disposition'; value?: string; by?: {name: string; values: Record<string, string>};
+export interface RuleDefault {rule: 'jev_lead' | 'highest_offered_skill' | 'no_modifier' | 'card_disposition'; value?: string; by?: {name: string; values: Record<string, string>};
+  /** `jev_lead` only: the default when Jev's answer leads with no offered option (`unknown`) or there is no answer. */
+  fallback?: RuleDefault;
   /** What the default read (§11.5.3 amendment: `combat_tactic` for the card's word), stamped on the basis beside the value. */
   read?: string[];
   /** Composed parameters that belong to the default and replace the candidate's own when it is taken (its `why`). */
@@ -103,6 +108,11 @@ export interface Candidate {
   before?: Candidate;
   /** Set on a carried step: the key of the candidate it was carried for, run next from the fresh read. */
   then?: string;
+  /**
+   * Set on a carried step whose candidate the compile selected: that candidate's `basis.compile`, re-applied to the one the
+   * fresh read re-issues (§32.12.1, SL-21), so admission still reads the compile's evidence after the carried step.
+   */
+  thenCompile?: Json;
   /**
    * A fact about the player's input that selects this candidate, asked in place of the now/later question (§135.26:
    * a stated obligation is selected when the declaration is after what it guards). `selects` is the answer that selects
@@ -456,12 +466,19 @@ export function interpretBind(candidate: Candidate, batch: DecisionBatch, result
 
 /** The closed parameters a bind settles: required, closed, with the options the kernel issued. */
 const closedParameters = (candidate: Candidate): Unbound[] => candidate.unbound.filter(value => value.required && value.vocabulary === 'closed' && value.options?.length && !value.binder);
-/** A rules default for one parameter, given the values bound so far (a `by` default reads the parameter it depends on). */
-function ruleDefaultOf(parameter: Unbound, candidate: Candidate, extra: Record<string, Json>): string | undefined {
-  const rule = parameter.ruleDefault;
+/**
+ * A rules default for one parameter, given the values bound so far (a `by` default reads the parameter it depends on) and
+ * Jev's leading answer (`lead`, the answer's choice; absent when Jev did not answer). `jev_lead` takes the lead when it is
+ * an offered option, else its fallback. Returns the rule that decided, so its name, `read` and `composed` are stamped.
+ */
+function ruleDefaultOf(rule: RuleDefault | undefined, parameter: Unbound, candidate: Candidate, extra: Record<string, Json>, lead?: string):
+  {value: string; rule: RuleDefault} | undefined {
   if (!rule) return undefined;
+  if (rule.rule === 'jev_lead')
+    return lead !== undefined && lead !== 'unknown' && parameter.options?.includes(lead) ? {value: lead, rule}
+      : ruleDefaultOf(rule.fallback, parameter, candidate, extra);
   const value = rule.value ?? (rule.by ? rule.by.values[String(extra[rule.by.name] ?? candidate.bound[rule.by.name] ?? '')] : undefined);
-  return value !== undefined && parameter.options?.includes(value) ? value : undefined;
+  return value !== undefined && parameter.options?.includes(value) ? {value, rule} : undefined;
 }
 
 /**
@@ -472,7 +489,7 @@ function ruleDefaultOf(parameter: Unbound, candidate: Candidate, extra: Record<s
 function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gate: number):
   {pending: PendingItem[]; extra?: Record<string, Json>; confidence?: number; reason: string; bindings: BindRecord[]} {
   const complete = result?.status === 'complete';
-  const extra: Record<string, Json> = {}, bindings: BindRecord[] = [], later: Unbound[] = [];
+  const extra: Record<string, Json> = {}, bindings: BindRecord[] = [], later: Unbound[] = [], leads: Record<string, string> = {};
   let lowest = 1, cause = complete ? '' : 'jev_unavailable';
   for (const parameter of closedParameters(candidate)) {
     const answered = complete ? result!.answers?.[parameter.name] : undefined;
@@ -485,14 +502,16 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
     }
     if (!cause) cause = !choice || choice === 'unknown' ? 'unknown_binding' : 'low_confidence';
     later.push(parameter);
+    // SL-21: Jev's leading answer, whatever its confidence, for a default that follows it (`jev_lead`).
+    if (complete && choice) leads[parameter.name] = choice;
     // The Jev answer that did not clear stays on record beside the default that replaced it.
     if (complete) bindings.push({name: parameter.name, path: 'jev', value: null, confidence: confidence ?? null, distribution});
   }
   const defaults: Record<string, Json> = {}, unresolved: string[] = [];
   for (const parameter of later) {
-    const value = ruleDefaultOf(parameter, candidate, extra);
-    if (value === undefined) { unresolved.push(parameter.name); continue; }
-    const {rule, read, composed} = parameter.ruleDefault!;
+    const taken = ruleDefaultOf(parameter.ruleDefault, parameter, candidate, extra, leads[parameter.name]);
+    if (!taken) { unresolved.push(parameter.name); continue; }
+    const {value} = taken, {rule, read, composed} = taken.rule;
     extra[parameter.name] = value; defaults[parameter.name] = {value, rule, ...(read?.length ? {read: [...read]} : {})};
     const index = bindings.findIndex(entry => entry.name === parameter.name);
     const record: BindRecord = {name: parameter.name, path: 'rule-default', value, rule,
@@ -701,8 +720,12 @@ export function settleLlmProposal(view: RunView, step: number, item: PendingItem
  * (§135.28: an improvised name or a manoeuvre's goal is the Keeper's to propose, not the clerk's to issue).
  */
 export function itemsFor(candidate: Candidate, reason?: string): PendingItem[] {
-  // A carried step runs first; the candidate it was carried for follows from the fresh read (settleExecute).
-  if (candidate.before) return itemsFor({...candidate.before, then: candidate.key}, reason);
+  // A carried step runs first; the candidate it was carried for follows from the fresh read (settleExecute), with the
+  // compile's record of it when the compile selected it (§32.12.1).
+  if (candidate.before) {
+    const compile = candidate.basis && typeof candidate.basis === 'object' && !Array.isArray(candidate.basis) ? candidate.basis.compile : undefined;
+    return itemsFor({...candidate.before, then: candidate.key, ...(compile !== undefined ? {thenCompile: compile} : {})}, reason);
+  }
   const binding = bindingOf(candidate);
   if (binding === 'open' && candidate.clerk)
     return keeperOwns(candidate, 'open_parameters', candidate.unbound.filter(value => value.required && value.vocabulary === 'open').map(value => value.name));
@@ -782,8 +805,10 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     // A scene change invalidates the material the route was judged on (runs 11-13: the people at the morgue
     // were judged against the office's material). The next step reads the new scene before any route.
     if (executed.ok && fresh.context.scene !== before) { view.located = false; view.pending.unshift({kind: 'direct', purpose: 'read'}); }
-    // §135.26: a carried step that landed hands on to the candidate it was carried for, as the fresh read issues it now.
-    const follow = executed.ok && !item.call && item.candidate?.then ? view.candidates.find(value => value.key === item.candidate!.then) : undefined;
+    // §135.26: a carried step that landed hands on to the candidate it was carried for, as the fresh read issues it now;
+    // §32.12.1 (SL-21): with the compile's record of it, which the fresh read's candidate does not carry.
+    const found = executed.ok && !item.call && item.candidate?.then ? view.candidates.find(value => value.key === item.candidate!.then) : undefined;
+    const follow = found && carryCompile(found, item.candidate!.thenCompile);
     if (follow) view.pending.unshift(...itemsFor(follow));
   }
   if (item.call) {

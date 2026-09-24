@@ -256,7 +256,8 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	// goes to the first in the book's stated order -- stamped on the operation's basis; no LLM step.
 	const profile = (skill) => state.resolveOptions.profiles.find((row) => row.actor === check.bound.actor && row.skill === skill)?.value;
 	assert.deepEqual(APPROACHES.map(profile), [40, 45, 35, 45], "the kernel's issued values the default is read from");
-	assert.deepEqual(check.unbound.find((value) => value.name === "skill").ruleDefault, { rule: "highest_offered_skill", value: "Intimidate" });
+	assert.deepEqual(check.unbound.find((value) => value.name === "skill").ruleDefault, { rule: "jev_lead", fallback: { rule: "highest_offered_skill", value: "Intimidate" } },
+		"SL-21: Jev's lead first; the investigator's highest only when Jev answers unknown or not at all");
 	const defaulted = interpretBind(check, batch, answer({ skill: "unknown", bonus: "none", penalty: "none", intent: "social" }), 0.6);
 	assert.deepEqual(defaulted.pending.map((item) => [item.kind, item.purpose, item.extra?.skill]), [["direct", "execute", "Intimidate"]]);
 	assert.deepEqual([defaulted.pending[0].candidate.basis.binding, defaulted.pending[0].candidate.basis.rule_default],

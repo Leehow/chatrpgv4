@@ -207,7 +207,8 @@ export function admissionBindings(records: BindRecord[], extra: Record<string, J
 function defaultLine(candidate: Candidate): string | undefined {
   const basis = object(candidate.basis), defaults = object(basis.rule_default);
   if (basis.binding !== 'rule-default' || !Object.keys(defaults).length) return undefined;
-  const rules: Record<string, string> = {highest_offered_skill: 'the investigator\'s highest of the offered skills', no_modifier: 'no modifier',
+  const rules: Record<string, string> = {jev_lead: 'Jev\'s leading reading of the player\'s words, under the confidence gate',
+    highest_offered_skill: 'the investigator\'s highest of the offered skills', no_modifier: 'no modifier',
     card_disposition: 'the combat tactic their card states, through the combat disposition table'};
   // The card's word stands in for a person's own parameters, not for the player's words (§11.5.3 amendment).
   const card = Object.values(defaults).every(value => text(object(value).rule) === 'card_disposition');
