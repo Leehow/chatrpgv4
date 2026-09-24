@@ -588,9 +588,9 @@ export class Reading {
             if (purpose === 'detail' && array(reading.materials).some(material => material.key === key))
                 return { ...result, state: 'ready' };
             const queue = await this.store.queue(mid), existing = [...queue].reverse().find(job => job.key === key);
-            // §22.2.1: a focus already being read is not read again until that reading settles; this request
-            // attaches to the reading in flight and is judged afresh once it has settled.
-            // An owned source preparation keeps the job identity it binds (§22.4 answer/prepare ownership).
+            // §22.2.1: a focus a running reading reads is not read again until that reading settles; this request
+            // attaches to it and is judged afresh once it has settled. An owned source preparation keeps the job
+            // identity it binds (§22.4 answer/prepare ownership).
             let settling: Row | undefined;
             if (!preparation && !(existing && ['queued', 'running'].includes(existing.state)) && FOCUSED.includes(purpose) && focus.trim()) {
                 const identity = await this.focusIdentity(mid), wanted = identity(focus);
@@ -601,7 +601,7 @@ export class Reading {
                     settling.foreground = true;
                     await this.store.writeQueue(mid, queue);
                 }
-                return { ...result, state: settling.state === 'running' ? 'reading' : 'queued', job_id: settling.job_id, attached: true };
+                return { ...result, state: 'reading', job_id: settling.job_id, attached: true };
             }
             if (existing) {
                 if (['queued', 'running'].includes(existing.state)) {

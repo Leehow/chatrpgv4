@@ -94,6 +94,8 @@ export function pointer(value: any, path: any): any {
  */
 export interface Retranscription {
     spans(path: string): { existing: Anchor[]; proposed: Anchor[] };
+    /** The draft check cannot see the published item's references (the host task omits a claim's): defer to publication. */
+    unseen?: boolean;
     reviewed?(path: string): boolean;
     accept(path: string, previous: any, value: any): void;
 }
@@ -129,7 +131,7 @@ export function mergeValue(old: any, proposed: any, path = '', transcription?: R
     if (transcription) {
         // One field, one passage read twice: the later reading replaces the earlier once a review covers it.
         const { existing, proposed: next } = transcription.spans(path);
-        const deferred = !transcription.reviewed && (!existing.length || !next.length);
+        const deferred = !transcription.reviewed && transcription.unseen === true;
         if (deferred || existing.length && next.length && sameSpan(existing, next) && (transcription.reviewed?.(path) ?? true)) {
             transcription.accept(path, clone(old), clone(proposed));
             return clone(proposed);
@@ -243,6 +245,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     const spans = row(packet.field_spans), retranscribed: string[] = [];
     const judge = (base: string, draftBase: string, known: Row, drafted: Row): Retranscription => ({
         spans: path => ({ existing: spanOf(spans, path, known.source_refs), proposed: anchors(drafted.source_refs) }),
+        unseen: !Object.hasOwn(known, 'source_refs'),
         accept: path => retranscribed.push(draftBase + path.slice(base.length)),
     });
     for (const [i, node] of nodes.entries()) {

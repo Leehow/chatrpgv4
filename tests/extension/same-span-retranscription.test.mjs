@@ -210,6 +210,39 @@ test("a replacement no review covered is refused: an older reading cannot quietl
 	assert.equal(graph.nodes.find(node => node.node_id === `module-${mid}`).properties.investigator_hook, CORRECT);
 });
 
+test("the reader's own check judges what it can see, and leaves a claim whose references the task omits to publication", async t => {
+	const { checkSourceDraft } = await import(join(REPO, "build/kernel/check.mjs"));
+	const dir = await mkdtemp(join(tmpdir(), "coc-same-span-check-"));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	// task.json as the host writes it: known nodes with their references, known claims without them.
+	const scene = { node_id: "scene-xu-mu", node_kind: "scene", name: "序幕", summary: "A remote highway.", properties: { is_entrance: true },
+		visibility: "keeper-only", source_refs: [{ page: 1 }], ready: true };
+	const task = { module_id: "book-1", purpose: "detail", focus: "序幕", question: "Who is on the road?", source: { page_count: 2 },
+		known_nodes: [scene, { node_id: "npc-russ", node_kind: "npc", name: "Russ", properties: {}, visibility: "keeper-only", source_refs: [{ page: 1 }], ready: false }],
+		known_claims: [{ subject_id: "npc-russ", predicate: "present-in", object: { node_id: "scene-xu-mu" }, truth_status: "authored-fact" }],
+		field_spans: { "/nodes/scene-xu-mu/summary": [{ page: 2 }] } };
+	const draft = (summary, summaryPage, truth) => ({ nodes: [{ ...scene, ready: undefined, summary, source_refs: [{ page: summaryPage }] }],
+		claims: [{ subject_id: "npc-russ", predicate: "present-in", object: { node_id: "scene-xu-mu" }, truth_status: truth, source_refs: [{ page: 2 }] }],
+		node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ["scene-xu-mu"] });
+	const check = async value => {
+		const shard = JSON.parse(JSON.stringify(value));
+		delete shard.nodes[0].ready;
+		await write(join(dir, "task.json"), task);
+		await write(join(dir, "draft.json"), shard);
+		return checkSourceDraft(join(REPO, "content"), join(dir, "task.json"), join(dir, "draft.json"));
+	};
+	// The summary was recorded as read from page 2: a new transcription citing page 2 is the same passage.
+	const passed = await check(draft("A lonely desert highway.", 2, "authored-rumor"));
+	assert.equal(passed.ok, true, JSON.stringify(passed.error));
+	assert.ok(passed.required_review.includes("/nodes/0/summary"));
+	assert.ok(passed.required_review.includes("/claims/0/truth_status"), "the claim's field goes to review; publication judges its span");
+	// Page 1 is not where the summary was read: the reader is told now, before any review is spent.
+	const refused = await check(draft("A lonely desert highway.", 1, "authored-fact"));
+	assert.equal(refused.ok, false);
+	assert.equal(refused.error.code, "needs_choice");
+	assert.equal(refused.error.details.path, "/nodes/scene-xu-mu/summary");
+});
+
 test("a repair of a scene another reading is still reading attaches to that reading; after it settles it queues", async t => {
 	const { home, kernel, mid, read, scene, moduleNode, shard } = await book(t);
 	const first = await read({ purpose: "opening", focus: "序幕" }, shard([moduleNode(MISREAD, [{ page: 1 }]), scene]), ["/nodes/0", "/nodes/1", "/coverage"]);
