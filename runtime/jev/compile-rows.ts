@@ -29,8 +29,24 @@ const intentWords = (intent: string): string => {
 };
 
 /**
+ * What keeps a move from being issued, as the kernel states it (§135.30.4): an unmet unlock (its row's `unlock_when`
+ * without `met`: the condition and the clue or flag it names), or the open obligation the row is `guarded_by` (its handle
+ * and demand). Undefined for a move the kernel does not hold back.
+ */
+function guardOf(row: Row, obligationNames: Map<string, string>): Json | undefined {
+  const unlock = object(object(row.description).unlock_when);
+  if (unlock.met === false) {
+    const {met: _met, ...guard} = unlock;
+    return guard as Json;
+  }
+  const obligation = text(row.guarded_by);
+  return obligation ? {obligation, demand: obligationNames.get(obligation) || obligation} : undefined;
+}
+
+/**
  * The rows of every feature family, from the run's reads:
- * - destination: `table.apply.options` move rows (`to`, the kernel's `display_name`);
+ * - destination: `table.apply.options` move rows (`to`, the kernel's `display_name` and `destination`; the guard of one the
+ *   kernel holds back beside the words, §135.30.4);
  * - addressee: `table.capsule.present` (the table's own label: `called.name`, else `untold.label`; the role; the record
  *   name only for a person the table has no label for);
  * - ask: the open obligations' demands (their name and what they guard), the issued clue rows no obligation guards, the
@@ -45,9 +61,15 @@ export function compileRows(reads: StateReads): FeatureRows {
   const capsule = object(reads.capsule), where = object(capsule.where), applyOptions = object(reads.applyOptions);
   const resolveContext = object(object(reads.resolveOptions).context), session = object(resolveContext.session ?? where.session);
   const options = array(applyOptions.candidates).map(object);
+  // §135.30.4: a destination row is the place as the player can name it -- the table's label (else the book's name), the
+  // book's other names, its summary, where-words, people and things (the kernel's `destination`). A row whose move is not
+  // issued carries the kernel's guard beside its words, never in them: Jev reads the words, the compile reports the guard.
+  const obligationNames = new Map(array(applyOptions.obligations).map(object).map(row => [text(row.handle), text(row.name) || text(row.handle)]));
   const destination = unique(options.filter(row => object(row.effect).kind === 'move').map(row => {
-    const to = text(object(row.effect).to), name = text(object(row.description).display_name);
-    return {id: to, describe: (name ? {place: name, handle: to} : {place: to}) as Json};
+    const to = text(object(row.effect).to), description = object(row.description), name = text(description.display_name);
+    const guard = guardOf(row, obligationNames);
+    return {id: to, describe: {...(name && name !== to ? {place: name, handle: to} : {place: to}), ...object(description.destination)} as Json,
+      ...(guard ? {guard} : {})};
   }));
   const addressee = unique(array(capsule.present).map(object).filter(person => text(person.name)).map(person => {
     const label = text(object(person.called).name) || text(object(person.untold).label), role = text(person.role);

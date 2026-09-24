@@ -75,6 +75,9 @@ function derive(name,from){
     const tar=spawnSync('tar',['-czf',join(dir,'workspace.tar.gz'),'-C',workspace,'.coc'],{encoding:'utf8'});
     if(tar.status!==0)throw new Error(`tar failed: ${tar.stderr}`);
     for(const file of ['turn.json','baseline.json'])copyFileSync(join(source.dir,file),join(dir,file));
+    // SL-25: a source that names a shared tarball (gate-fixture.mjs) would have the copy read the source's bytes, not the
+    // derived ones; the derived turn reads its own.
+    if(typeof source.turn.tarball==='string'){const {tarball:_shared,...own}=source.turn;writeFileSync(join(dir,'turn.json'),JSON.stringify(own,null,1)+'\n');}
     const starter=join(root,'content/starters',source.turn.module,'module-graph.json');
     writeFileSync(join(dir,'variant.json'),JSON.stringify({derived_from:from,source_tarball_sha256:sha(source.tarball),change:'module slice re-registered from the starter by module.register',
       module:source.turn.module,registered:frame.result,starter_sha256:sha(starter),
