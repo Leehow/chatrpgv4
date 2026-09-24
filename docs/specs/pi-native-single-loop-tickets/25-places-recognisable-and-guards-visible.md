@@ -95,6 +95,9 @@ person-label test was added); M16 the sanatorium unnamed; M17 media assets as th
 
 **Suites (leehow-pc).** test:ext 2902/2902 (`f545016a8`); loop 137/137 (`f545016a8`); pytest 1719 passed, 2 skipped
 (`afcd4eb85`). The first ext run failed only `narrated-clue-accounting` (above); the first pytest only the RD-04 pin (above).
+At the ticket commit `044d8514a`: loop 137/137; test:ext 2901/2902 with the box at load 57 (wall 355 s against 121 s), the one
+failure `jev-source-domain.test.mjs` "root consultation completes through a child…" (6.0 s), which no SL-25 file touches and which
+passes 5/5 on the Mac on the same tree -- a load flake, not a regression.
 
 **For the integrator.** SL-26 also inserts §135.30.3 before §135.31 and edits `route-compile.ts` (`Fired`, a predicate,
 `interpretCompile`'s settled map); SL-25 touches the `FeatureRow`/`CompileOutcome` interfaces and the end of `interpretCompile`.
