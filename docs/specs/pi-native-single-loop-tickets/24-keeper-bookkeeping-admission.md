@@ -190,7 +190,7 @@ predictions:
 
 - The four `not_player_action` rows (t10, t13 ×2, t15) were **admissions**, and their receipts landed.
 - The row omitted `grounds` because `admitAction`'s `settle` wrote `...(admitted ? {} : {grounds, missing, proposed})`.
-  That is `extensions/kernel/index.ts:2034–2036` at `1dccf4578`.
+  That is `extensions/kernel/index.ts:2029` at `1dccf4578`.
 - Measurement 2 found 0 of 72 lane answers without grounds.
 - Fixed two ways:
   - every verdict row now carries `grounds`, `missing` and `proposed` (the mutation M11 below restores the old
