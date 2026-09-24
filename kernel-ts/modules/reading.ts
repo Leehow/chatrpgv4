@@ -22,9 +22,24 @@ import { childPath, inside, resolvedPath } from './paths.js';
 import { ModuleStore, validateModuleId } from './store.js';
 import { playsFromReading, bindStarterSource, boundFileIntact, boundReadingState, declaredWindow, freshReadingState, starterDeclarationsForBook, starterSourceDeclaration, windowMatches, windowOf } from './bound-source.js';
 import { applyOpeningChoice, assembleVisual, attachMapCandidates, checkDraft, checkReview, reject, resolveStartScene } from './visual.js';
+import { pageSpans } from './transcription.js';
 const object = (value: any): boolean => isJsonObject(value);
 import { SOURCE_ANSWER_PROTOCOL, checkSourceAnswer, checkSourceAnswerReview, sourceAnswerResult } from './source-answer.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
+/**
+ * §22.3.1: what stopped a failed reading, as the host recorded it in findings.json -- the refused field's
+ * pointer, the gate's message and its stable rule. Only those strings, bounded; anything else is dropped
+ * rather than refused, so a malformed record never keeps a failed job from being released.
+ */
+function refusalOf(value: any): Row | null {
+    if (!isJsonObject(value) || typeof value.message !== 'string' || !value.message.trim()) return null;
+    const out: Row = { message: value.message.slice(0, 1000) };
+    for (const key of ['path', 'rule', 'reason'])
+        if (typeof value[key] === 'string' && value[key]) out[key] = value[key].slice(0, 500);
+    return out;
+}
+/** §22.2.1: the purposes that read graph material of a named focus, one reading of a focus at a time. */
+const FOCUSED = ['opening', 'detail'];
 const uuid = (): string => randomUUID().replaceAll('-', '');
 type PublicationLease = {
     handles: LockLease[];
@@ -474,6 +489,22 @@ export class Reading {
             answers_revision: answerRevision, checked_answers: page, checked_answers_omitted: checked.length - page.length,
             checked_answers_invalid: invalid, next, ...(source.window ? {window: source.window} : {})};
     }
+    /**
+     * §22.2.1: which focus a reading reads, by structure: the graph nodes a focus names by id, handle, name
+     * or alias (the match `materialReady` uses), else the normalized focus itself. Two foci are one focus
+     * when those sets meet; an empty focus is its own identity, as the spelled comparison had it.
+     */
+    private async focusIdentity(mid: string): Promise<(focus: any) => Set<string>> {
+        const nodes = array(row(await this.store.readGraph(mid)).nodes);
+        return (focus: any) => {
+            const key = normalize(string(focus ?? ''));
+            const ids = key ? nodes.filter(node => typeof node.node_id === 'string' && [node.node_id,
+                node.node_id.startsWith(node.node_kind + '-') ? node.node_id.slice(node.node_kind.length + 1) : node.node_id,
+                node.name ?? '', ...array(node.aliases)].some(value => typeof value === 'string' && normalize(value) === key)).map(node => `node:${node.node_id}`) : [];
+            return new Set(ids.length ? ids : [`name:${key}`]);
+        };
+    }
+    private static meet(a: Set<string>, b: Set<string>): boolean { return [...a].some(id => b.has(id)); }
     async request(params: Row, preparation?:OwnedSourcePreparation): Promise<Row> {
         const mid = validateModuleId(params.module_id), purpose = params.purpose;
         if (!PURPOSES.includes(purpose))
@@ -557,6 +588,21 @@ export class Reading {
             if (purpose === 'detail' && array(reading.materials).some(material => material.key === key))
                 return { ...result, state: 'ready' };
             const queue = await this.store.queue(mid), existing = [...queue].reverse().find(job => job.key === key);
+            // §22.2.1: a focus a running reading reads is not read again until that reading settles; this request
+            // attaches to it and is judged afresh once it has settled. An owned source preparation keeps the job
+            // identity it binds (§22.4 answer/prepare ownership).
+            let settling: Row | undefined;
+            if (!preparation && !(existing && ['queued', 'running'].includes(existing.state)) && FOCUSED.includes(purpose) && focus.trim()) {
+                const identity = await this.focusIdentity(mid), wanted = identity(focus);
+                settling = queue.find(job => job.state === 'running' && FOCUSED.includes(job.purpose) && Reading.meet(identity(job.focus), wanted));
+            }
+            if (settling) {
+                if (truth(params.foreground) && !truth(settling.foreground)) {
+                    settling.foreground = true;
+                    await this.store.writeQueue(mid, queue);
+                }
+                return { ...result, state: 'reading', job_id: settling.job_id, attached: true };
+            }
             if (existing) {
                 if (['queued', 'running'].includes(existing.state)) {
                     let boundPreparation=false;
@@ -585,7 +631,7 @@ export class Reading {
                     return { ...result, state: 'blocked', missing, opening: meta.opening ?? null, fix: 'choose an authored opening, then request preparation again' };
                 }
                 if (!truth(params.retry))
-                    return { ...result, state: 'blocked', missing: [existing.detail ?? 'reading failed'], fix: 'request the same reading with retry: true' };
+                    return { ...result, state: 'blocked', missing: [existing.detail ?? 'reading failed'], ...(existing.refusal ? { refusal: existing.refusal } : {}), fix: 'request the same reading with retry: true' };
             }
             const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), ...(repair ? { repair } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
             if(preparation)job.task_preparation=clone(preparation);
@@ -675,6 +721,7 @@ export class Reading {
                 await this.store.writeQueue(mid, queue);
                 return { job_id: null };
             }
+            const identity = pending.length && active.length ? await this.focusIdentity(mid) : () => new Set<string>();
             for (const job of pending) {
                 if (job.purpose === 'answer' && !equal(job.context_generation, meta.generation ?? 0)) {
                     Object.assign(job, { state: 'failed', detail: 'source context changed; request a fresh consultation' });
@@ -682,7 +729,8 @@ export class Reading {
                 }
                 const foreground = truth(job.foreground);
                 if (active.filter(other => truth(other.foreground) === foreground).length >= (foreground ? 1 : 2)
-                    || active.some(other => normalize(other.focus ?? '') === normalize(job.focus ?? '')))
+                    // §22.2.1: never two readings of one focus at once, by the focus's identity rather than its spelling.
+                    || active.some(other => Reading.meet(identity(other.focus), identity(job.focus))))
                     continue;
                 const shared = await this.store.context.locks.acquire(join(directory, '.reader.lock'), 'shared', { nonblocking: true });
                 if (!shared)
@@ -745,7 +793,7 @@ export class Reading {
                         if(preparation) {preparation.currentRevision=(await sourcePreparationSnapshot(this.store.context,preparation.request.authority.campaign,mid)).revision;await this.store.writeQueue(mid,queue);}
                     }
                     const {task_preparation:_privatePreparation,...visibleJob}=job;
-                    const packet = { ...visibleJob, module_id: mid, source, concurrency: 3, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
+                    const packet = { ...visibleJob, module_id: mid, source, concurrency: 3, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
                     await writeJsonAtomic(join(work, 'packet.json'), packet);
                     this.owned();
                     return packet;
@@ -794,7 +842,8 @@ export class Reading {
             if (!['completed', 'failed', 'cancelled'].includes(outcome))
                 throw new RpcError('invalid_params', 'outcome must be completed, failed or cancelled');
             if (outcome !== 'completed') {
-                Object.assign(job, { state: outcome, detail: string(truth(params.detail) ? params.detail : outcome), finished_at: nowIso() });
+                const refusal = refusalOf(params.refusal);
+                Object.assign(job, { state: outcome, detail: string(truth(params.detail) ? params.detail : outcome), ...(refusal ? { refusal } : {}), finished_at: nowIso() });
                 await this.store.writeQueue(mid, queue);
                 await this.release(mid, job.job_id);
                 return { state: outcome };
@@ -844,7 +893,8 @@ export class Reading {
                 const contract = await this.store.contract(), filled = checkDraft(draft, packet, contract, seen);
                 const reviewPath = await this.contained(work, params.review_path), review = clone(await this.store.context.snapshots.readJson(reviewPath));
                 checkReview(row(draft), filled, review, number(meta.page_count), new Set(array(observations.review_pages)));
-                const graph = assembleVisual(await this.store.readGraph(mid), filled, meta, contract);
+                const retranscribed: Row[] = [];
+                const graph = assembleVisual(await this.store.readGraph(mid), filled, meta, contract, retranscribed);
                 if (job.purpose === 'guidance')
                     guidance = await this.checkGuidance(work, graph, row(review));
                 const assets = truth(params.assets) ? params.assets : [];
@@ -896,6 +946,10 @@ export class Reading {
                 meta.opening_ready = defaultOpening.opening_ready;
                 meta.reading.state = meta.opening_ready ? 'ready' : ['skeleton', 'guidance'].includes(job.purpose) ? 'preparing' : 'blocked';
                 meta.reading.viewed_pages = [...new Set([...array(meta.reading.viewed_pages).map(number), ...[...seen].map(page => page - 1)])].sort((a, b) => a - b);
+                // §22.3.1: a reviewed re-transcription of the same span replaced a published value; the record stays.
+                if (retranscribed.length)
+                    meta.reading.retranscriptions = [...array(meta.reading.retranscriptions),
+                        ...retranscribed.map(item => ({ ...item, job_id: job.job_id, generation: number(meta.generation) + 1 }))];
                 meta.reading.materials.push({ key: job.key, purpose: job.purpose, ...(job.material ? { material: job.material } : {}), focus: job.focus, question: job.question, node_ids: filled.ready_nodes, generation: number(meta.generation) + 1 });
                 meta.status = meta.opening_ready ? 'installed' : 'assembled';
                 this.owned();

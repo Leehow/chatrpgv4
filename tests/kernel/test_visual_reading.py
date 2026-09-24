@@ -169,6 +169,8 @@ def test_queued_preparation_reuses_material_published_by_an_earlier_job(kernel, 
 
 
 def test_a_prepared_summary_cannot_be_silently_replaced(kernel, tmp_path):
+    """Contract 22.3.1: the same page read again replaces a summary only through a review that names it;
+    a different value from another page is a contradiction."""
     mid, _ = indexed(kernel, tmp_path)
     first, draft, _ = opening(kernel, mid)
     draft["nodes"][0]["summary"] = "A working harbor."
@@ -177,16 +179,21 @@ def test_a_prepared_summary_cannot_be_silently_replaced(kernel, tmp_path):
     request(kernel, mid, "detail", focus="Dock", question="What is the harbor like?")
     job = claim(kernel, mid)
     observed(job)
-    write(Path(job["work_dir"]) / "draft.json", {"nodes": [{"node_id": "scene-dock", "node_kind": "scene",
-        "name": "Dock", "summary": "An abandoned military base.", "source_refs": [{"page": 1}]}],
-        "claims": [], "node_refs": [], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": ["scene-dock"]})
-    write(Path(job["work_dir"]) / "review.json", {"checked": [{"path": "/nodes/0", "verdict": "supported",
-        "source_refs": [{"page": 1}]}], "missing": []})
-    err = kernel.err("module.read.finish", {"module_id": mid, "job_id": job["job_id"], "lease": job["lease"],
+    params = {"module_id": mid, "job_id": job["job_id"], "lease": job["lease"],
         "outcome": "completed", "draft_path": str(Path(job["work_dir"]) / "draft.json"),
-        "review_path": str(Path(job["work_dir"]) / "review.json")})
-    assert err["code"] == "needs_choice" and err["details"]["path"].endswith("/summary")
-    assert kernel.ok("module.status", {"module_id": mid})["generation"] == 1
+        "review_path": str(Path(job["work_dir"]) / "review.json")}
+    for page in (1, 2):
+        write(Path(job["work_dir"]) / "draft.json", {"nodes": [{"node_id": "scene-dock", "node_kind": "scene",
+            "name": "Dock", "summary": "An abandoned military base.", "source_refs": [{"page": page}]}],
+            "claims": [], "node_refs": [], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": ["scene-dock"]})
+        write(Path(job["work_dir"]) / "review.json", {"checked": [{"path": "/nodes/0", "verdict": "supported",
+            "source_refs": [{"page": page}]}], "missing": []})
+        err = kernel.err("module.read.finish", params)
+        if page == 1:
+            assert err["code"] == "invalid_params" and "/nodes/0/summary" in err["message"]
+        else:
+            assert err["code"] == "needs_choice" and err["details"]["path"].endswith("/summary")
+        assert kernel.ok("module.status", {"module_id": mid})["generation"] == 1
     finish(kernel, job, outcome="cancelled")
 
 

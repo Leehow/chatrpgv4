@@ -2617,6 +2617,16 @@ The host-private PDF tool has four mutually exclusive navigation/page operations
 
 去重键由内核取来源摘要、purpose、归一化 focus 和原样 question 生成。只归并完全相同的待办或已经满足且未失效的请求；不做语义相似度去重。出现不同问题时，旧 section 已 accepted 不构成跳过理由。已满足请求在 `module.json.reading.materials` 保存 `{purpose, focus?, question?, node_ids, source_refs, generation}`；来源或被依赖事实改变时失效，单纯新增不相关事实不引发重读。
 
+### 22.2.1 One reading of a focus at a time (2026-09-24, SL-33)
+
+Evidence (SL-29A, 血色公路, `book-1`): the index publication's read-ahead (§90.5) queued a way-on repair `read-4` on focus `xu-mu` while the opening reading `read-3` of the same scene, requested as `序幕`, was still running. The keys differed -- a repair is its own identity and the focus was spelled once by name and once by handle -- so both read pages 6-17: 18 calls and 286K tokens, cancelled when the worker exited. The worker's re-entry after its 120 s foreground wait was not the duplicate: it rejoins its own in-process request and the same kernel key (22.4).
+
+- `module.read.request` for a purpose that reads graph material of a named focus -- `opening` (a repair included) and `detail` -- does not queue a job while another job of those purposes is `running` on the same focus. It attaches: the reply is that job's `{state: "reading", job_id}` with `attached: true`; a foreground request promotes it as it would promote its own. A request while the other job is only `queued` queues as its own identity, as 22.2 has it (only identical requests merge).
+- `module.read.claim` never starts a job while a running job reads the same focus. That rule existed and compared the spelled, normalized focus, so `序幕` and `xu-mu` passed it; it now uses the focus identity below, for every purpose (an empty focus is its own identity, as before).
+- Focus identity is structural: the graph nodes a focus names by id, handle, name or alias (the normalized-name match `materialReady` already uses), else the normalized focus itself; two foci are one focus when those sets meet. No semantic similarity.
+- The attached request is judged afresh once that reading settles: ready material answers it, and an identity the settled reading did not answer (a question, a repair still owed) queues then. The read-ahead after an opening publication re-judges the way on, so a repair the opening itself delivered is never queued.
+- A host wait attached to another identity's job only releases its wait when cancelled; it never cancels that job (22.4: a shared task is not killed for one caller). An owned source preparation (22.4.1 ownership, `_task_prepare`) keeps the job identity it binds and does not attach. Index, skeleton, guidance and answer jobs are outside the rule: no focus, or no graph material.
+
 ### 22.3 读者输出与图谱发布
 
 读者仍为带 `read/write/edit/bash` 的子 Pi：`--no-extensions --no-context-files --no-session`；沿用 repo-local Pi home，删除游玩模式与 campaign 环境。模型须声明图片输入，并由步骤 1 的真实图片读取验证通道；不支持时返回 `vision_required`，不回落到 OCR。读者不能派生另一层读者或内核。
@@ -2640,6 +2650,19 @@ The host-private PDF tool has four mutually exclusive navigation/page operations
 结构门继续检查语义 id、闭合词表、引用目标、作者/玩家可见性和玩法关系。局部就绪判定只要求本次可玩范围及其依赖成立；全书未细读页不导致全图失败，也不被标为 absent。跨向未准备区域的名字可以留在索引，但不能因为有一个名字就执行该处的作者规则。
 
 **Mechanical shapes (2026-09-23, §136.26).** The reader writes a stated mechanic as a typed shape in `properties.mechanics` of the node that states it (the closed catalog of §136.1), never as an ad-hoc prose key; the draft check runs the shared validator with no legacy allowance and adds every leaf of every shape, strings included, to `required_review`; an actor's loose characteristic numbers on an `npc` or `creature` node are refused.
+
+### 22.3.1 The same span read twice is one fact (2026-09-24, SL-33, amends 22.3)
+
+Evidence (SL-29A, `book-1`, both refusals in the attempts' `findings.json`): guidance published the module node's `investigator_hook` with two misreadings of one sentence (卡片 for 车卡, 轰蹭 for 轰趴). Both opening readings read the same pages (6, 7, 8, 16) more accurately and their reviewers supported the corrected sentence; the merge refused each as "the new reading contradicts a published value", not retryable, and the App's retry failed the same way. Whether an import succeeded depended on whether the second reader copied the first one's errors. 22.3's "different values keep both sources and resolve the conflict; no last-write-wins" is kept, and made precise:
+
+- **A field's span** is the set of original-page anchors `{page, box?}` its value was read from. Two spans are **the same span** when they share an anchor: the same physical page and, when both carry a box, overlapping boxes. The judgement is structural. The values' words are never compared, and there is no similarity threshold.
+- **Publication records spans.** The graph keeps a top-level `field_spans` map from `/nodes/<node_id><field>` or `/claims/<claim_id><field>` -- `<field>` a top-level key, or `/properties/<key>`, or a deeper pointer a re-transcription replaced -- to the runtime refs of the reading that wrote it. An equal value adds its reading's refs to the span (the same fact read again); a replacement takes the replacing reading's refs. A field published before this section has no recorded span and answers with its node's or claim's `source_refs` (the whole set it was published with), and is recorded from its next publication. The lookup takes the longest recorded prefix. The claim packet carries the recorded spans in page form as `field_spans`, and the host's `task.json` copies them, so the draft check and the reader see what publication sees.
+- **The proposed span** of a drafted field is its drafted node's or claim's `source_refs`.
+- **Same span, different value = re-transcription.** Where 22.3's merge would neither agree, union a list, nor recurse into an object, and the spans are the same, the draft check adds that pointer to `required_review`: a fresh reviewer must name and support it against the page. Publication then replaces the published value and appends `{path, previous, value, source_refs, job_id, generation}` to `module.json` `reading.retranscriptions`. A replacement publication meets that no review covers (the pointer or an ancestor in `required_review`) -- a graph that moved since the claim -- is refused as a contradiction. "The later, reviewed reading replaces"; a silent or unreviewed replacement is still forbidden.
+- **Different span, different value = contradiction.** `needs_choice`, as before, now with `details {path, existing, proposed, existing_pages, proposed_pages}`, a message naming both page sets and a fix: keep the published value exactly; to correct how that same passage was transcribed, re-read the page it was read from, cite it and let the reviewer check it there. It is refused at the draft check when both spans are known, so the reader meets it in its own `check`, before any review is spent. Where the check cannot see the published item's references (the host task omits a claim's `source_refs`), the pointer is only added to `required_review` and publication judges it. A field with no span at all (an item published without references) is a contradiction. The placeholder module node of an unread book (no `source_refs`) is not judged.
+- **The refusal reaches the player.** A failed reading's structured refusal -- the refused pointer, the gate's message and its `rule`/`reason` when it has them, the same record `findings.json` holds -- travels in `module.read.finish {outcome: "failed", refusal}`; the kernel keeps it on the job (bounded strings; a malformed record is dropped, never allowed to keep a failed job from being released), and a blocked `module.read.request` reply returns it as `refusal`. The reading service turns it into one sentence, `The reading of "<focus>" was refused at <path>: <message>.`, and brands it `said` where it writes it (§48.1), so the preparation overlay shows it instead of `PREPARATION_STOPPED`.
+
+Producer: the reviewed publication writes `field_spans` and `reading.retranscriptions`; the host writes the refusal it also puts in `findings.json`. Reader: the claim packet, `task.json`, the draft check and the next publication read the spans; the blocked request reads the refusal. Adoption: the reader either copies a published value or re-reads its page, and the reviewer names each re-transcribed pointer; the player sees which field stopped the preparation and why. Tests: `tests/extension/same-span-retranscription.test.mjs`.
 
 ### 22.4 七动词与等待
 
@@ -9837,6 +9860,10 @@ player-bound failure:
   `events.jsonl` as a `diagnostic` event, where the rest of the worker's account
   already goes, and the refusal carries the host's sentence.
 
+- `extensions/module/reading-service.ts` (2026-09-24, SL-33, §22.3.1) — a reading the publication
+  gate refused carries the kernel's kept refusal back; the service writes one sentence naming the
+  refused field and the gate's reason and brands it `said`, so it passes the worker whole.
+
 `PREPARATION_STOPPED` is spelled in both the worker and the host because either
 may be the one that has to speak and they are separate programs; that duplication
 is the cost of the process boundary, not a second source of truth.
@@ -13766,7 +13793,8 @@ exits, so that table read nothing ahead. Two rules:
   not evidence of a story connection; prose substring matches do not schedule semantic work.
   Run this at setup handoff, table re-entry and after a reading publication, as well as scene
   movement. A finished repair must therefore hand off to ordinary adjacent reading without
-  another setup or player collision. Queue identities suppress duplicate and failed work;
+  another setup or player collision. Queue identities suppress duplicate and failed work,
+  and a repair or prefetch of a focus another reading is still reading attaches to it (§22.2.1);
   there is no automatic retry loop. Missing source files do not revoke playable material.
   The capsule carries bounded `reading {index_complete, sections: [{name, pages, read}]}`;
   `read` means accepted prepared material for that section, never merely viewed pages.
