@@ -11,8 +11,8 @@ const ROOT=resolve(import.meta.dirname,"../..");
 const PACKAGES={
 	"keeper-pacing":{version:"1.3.0",state_version:1,requires:["context.pacing.v1","mods.package-files.v1"],settings:{stall_turns:2},
 		settings_schema:{stall_turns:{minimum:1,maximum:6}}},
-	"narration-craft":{version:"1.3.1",state_version:1,requires:["mods.package-files.v1"],settings:{density_guide:"off"},
-		settings_schema:{density_guide:{enum:["off","on"]}}},
+	"narration-craft":{version:"1.5.0",state_version:1,requires:["mods.package-files.v1","context.craft-reference.v1"],settings:{density_guide:"off",reference_mode:"off"},
+		settings_schema:{reference_mode:{enum:["off","jev"]},density_guide:{enum:["off","on"]}}},
 };
 
 async function kernel(t){
@@ -42,8 +42,8 @@ test("changed packages bump versions without changing state, settings, requireme
 		const manifest=JSON.parse(await readFile(join(ROOT,"mods",id,"mod.json"),"utf8"));
 		assert.equal(manifest.version,expected.version);assert.equal(manifest.state_version,expected.state_version);
 		assert.deepEqual(manifest.requires,expected.requires);assert.deepEqual(manifest.settings,expected.settings);assert.deepEqual(manifest.settings_schema,expected.settings_schema);
-		assert.deepEqual(manifest.contributes,{instructions:"agent.md",brief:"brief.md"});
-		assert.deepEqual(manifest.package_files,["agent.md","brief.md"]);assert.deepEqual(manifest.dependencies,{});assert.deepEqual(manifest.conflicts,[]);
+		assert.deepEqual(manifest.contributes,{...(id==="narration-craft"?{craft_reference:"craft-reference.json"}:{}),instructions:"agent.md",brief:"brief.md"});
+		assert.deepEqual(manifest.package_files,["agent.md","brief.md",...(id==="narration-craft"?["craft-reference.json","cards.en.json","starter-ids.json"]:[])]);assert.deepEqual(manifest.dependencies,{});assert.deepEqual(manifest.conflicts,[]);
 	}
 	const npc=JSON.parse(await readFile(join(ROOT,"mods/npc-voice/mod.json"),"utf8"));
 	const voice=await readFile(join(ROOT,"mods/npc-voice/agent.md"),"utf8");
@@ -62,7 +62,7 @@ test("the actual kernel assembles aligned full instructions, then exact briefs w
 		aligned(id,row.instruction);
 	}
 	assert.match(full.get("keeper-pacing").instruction,/advisory possibilities, not a required ladder or a debt/i);
-	assert.match(full.get("narration-craft").instruction,/needs no newly manufactured event, multiple action options, or trailing NPC question/i);
+	assert.match(full.get("narration-craft").instruction,/Do not manufacture an event, menu or trailing question to make the handoff count/i);
 
 	await call("table.narrate",{call_id:"t1-c1",text:"The conversation reaches a quiet resting point."});
 	const next=await call("table.player_input",{text:"I stay with the conversation."}),brief=byId(next.capsule);
@@ -71,7 +71,7 @@ test("the actual kernel assembles aligned full instructions, then exact briefs w
 		assert.ok(row);assert.equal(row.version,expected.version);assert.equal(row.form,"brief");assert.equal(row.instruction,source);aligned(id,row.instruction);
 	}
 	assert.match(brief.get("keeper-pacing").instruction,/signals prompt inspection only/i);
-	assert.match(brief.get("narration-craft").instruction,/Do not manufacture an event, options, a person acting or a trailing question/i);
+	assert.match(brief.get("narration-craft").instruction,/Never manufacture an event, menu or trailing question/i);
 	const allBriefs=next.capsule.mods.instructions.filter(row=>row.form==="brief");
 	const combined=allBriefs.reduce((sum,row)=>sum+utf8(row.instruction),0);
 	assert.ok(combined<=5000,`active brief bytes ${combined} exceed the 5000-byte shared ceiling`);

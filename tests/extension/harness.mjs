@@ -231,6 +231,10 @@ export async function openTable({
 	 * `session.emit` from a test runs long after the table is open.
 	 */
 	extraExtensions = [],
+	/** A test-only replacement for the table display/policy factory, to inject controlled context dependencies. */
+	tableExtensionFactory,
+	/** Exercise the provider payload/response callbacks on the Keeper's deterministic provider. */
+	keeperProviderCallbacks = false,
 	/** The session's own system prompt, as `--system-prompt` gives it (prompts/keeper.md in the product). */
 	systemPrompt,
 	/**
@@ -287,7 +291,7 @@ export async function openTable({
 	if (realKernel && seedCampaign) createRealCampaign(workspace, campaign);
 	if (realKernel && prepareWorkspace) await prepareWorkspace(workspace);
 
-	const faux = fauxProvider();
+	const faux = keeperProviderCallbacks ? withProviderCallbacks(fauxProvider()) : fauxProvider();
 	faux.setResponses(responses);
 	const verifierFaux = withProviderCallbacks(fauxProvider({ api: "openai-completions", provider: "verifier", models: [{ id: "v1" }] }));
 	const memoryFaux = withProviderCallbacks(fauxProvider({ api: "openai-completions", provider: "memory", models: [{ id: "m1" }] }));
@@ -340,7 +344,7 @@ export async function openTable({
 			join(REPO, "extensions", "onboarding"),
 			join(REPO, "extensions", "module"),
 			join(REPO, "extensions", "memory"),
-			join(REPO, "extensions", "table"),
+			...(tableExtensionFactory ? [] : [join(REPO, "extensions", "table")]),
 		],
 		extensionFactories: [
 			{
@@ -362,6 +366,7 @@ export async function openTable({
 					}
 				},
 			},
+			...(tableExtensionFactory ? [{name: "table-policy-fixture", factory: tableExtensionFactory}] : []),
 			...extraExtensions,
 		],
 	});

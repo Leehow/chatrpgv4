@@ -220,7 +220,7 @@ test('a coc-workspace carrying workpad entries is the same transport-only closed
 function runtimeFixture(turn = 0, branch = [], records = []) {
     const hooks = new Map(), bus = new Map(), rows = [], state = {revision: 'a'.repeat(64), available: true, calls: 0, methods: [], compacts: 0};
     const cap = () => ({turn: {number: turn, player_text: 'Input'}, recent: [], module: {title: 'Book'}, style: {floor: ['World response']},
-        mods: {instructions: [{form: 'full', text: `rule-${state.revision[0]}`}]}});
+        mods: {instructions: state.instructions ?? [{form: 'full', text: `rule-${state.revision[0]}`}]}});
     const meta = () => ({...binding(turn), source_revision: state.available ? state.revision : null, unavailable: !state.available});
     const pi = {on: (name, handler) => hooks.set(name, handler), events: {on: (name, handler) => bus.set(name, handler)}, sendMessage() {}};
     api.installContextPolicy(pi, row => rows.push(row));
@@ -276,6 +276,25 @@ test('unchanged source binding reuses the prepared brief across input epochs', a
     assert.equal(t.state.methods.filter(method => method === 'table.capsule').length,
         1, 'the prepared current brief is reused without a second capsule hydration');
     assert.ok(t.state.calls > calls, 'the next turn still reads its bounded history through the existing path');
+});
+
+test('effective Mod locks and settings refresh a retained briefing even without tool-result invalidation', async () => {
+    const t = runtimeFixture();
+    const entry = (version, density) => ({mod: 'narration-craft', version, settings: {density_guide: density}, form: 'full', instruction: `Craft ${version}`});
+    const states = [[entry('1.3.1', 'off')], [entry('1.3.1', 'on')], [], [entry('1.4.0', 'on')]];
+    for (const [index, instructions] of states.entries()) {
+        t.state.instructions = instructions;
+        t.bus.get('coc:capsule')({capsule: t.cap(), context: binding(0), epoch: `mod-activation-${index}`});
+        const projected = await t.hooks.get('context')({messages: t.messages}, t.ctx);
+        const brief = JSON.parse(projected.messages.find(message => message.customType === api.BRIEF_TYPE).content);
+        assert.deepEqual(brief.instructions, instructions, 'source identity alone does not authorize stale package instructions');
+    }
+    assert.equal(t.state.methods.filter(method => method === 'table.capsule').length, states.length);
+    const calls = t.state.calls;
+    t.bus.get('coc:capsule')({capsule: {...t.cap(), mods: {instructions: [{...states.at(-1)[0], form: 'brief', instruction: 'Short reminder'}]}}, context: binding(0), epoch: 'ordinary-next-input'});
+    const projected = await t.hooks.get('context')({messages: t.messages}, t.ctx);
+    assert.deepEqual(JSON.parse(projected.messages.find(message => message.customType === api.BRIEF_TYPE).content).instructions, states.at(-1));
+    assert.equal(t.state.calls, calls, 'the same immutable package still reuses its full briefing');
 });
 
 test('raw retained bytes alone never compact while measured context usage is below eighty percent', async () => {

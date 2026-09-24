@@ -1,5 +1,15 @@
 # Narration Craft
 
+## 1.5.0
+- Declares a frozen English craft catalog and a bounded twelve-card candidate pool through context.craft-reference.v1.
+- Adds reference_mode off/jev, default off. Host reference preparation is optional and adds no writing tool or audit gate.
+- Keeps ordinary positive guidance and density settings. Existing locks require explicit upgrade.
+
+## 1.4.0
+- Uses positive guidance for the current exchange, established NPC motives, natural syntax and compatible incidental invention in both full and brief instructions.
+- Keeps selected-goal handoffs, authority boundaries, density_guide and existing default enablement. Existing campaigns upgrade explicitly; base Keeper/style assets are unchanged.
+- Adds no reference selector, provider call or literary audit. Dynamic references remain a separate later capability.
+
 ## 1.3.1
 - Re-issues the selected-goal handoff under a fresh number. 1.3.0 was already taken by the unmerged delivery-typography branch (2026-09-12), whose bytes are frozen in existing campaign homes; reusing it made `mods.list` fail with "Conflicting bytes for narration-craft 1.3.0". No text changes from the 1.3.0 below.
 

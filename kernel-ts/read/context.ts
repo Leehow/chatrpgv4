@@ -174,6 +174,8 @@ export async function contextBinding(campaign: CampaignSnapshot, module: LoadedM
         world_revision: worldRevision(campaign.world, campaign.party, campaign.turn.receipts, campaign.turn.pending_choice),
         task_world_revision: worldRevision(views.world, campaign.party, campaign.turn.receipts, campaign.turn.pending_choice),
         task_presentation_revisions: views.presentation,
+        npc_revision: campaign.jsonFiles ? jsonDigest([campaign.jsonFiles.get('npc-journal.json') ?? null, campaign.jsonFiles.get('npc-ledger.json') ?? null]) : null,
+        memory_revision: campaign.logs ? jsonDigest([campaign.logs.get('memory/candidates.jsonl') ?? [], campaign.logs.get('memory/story.jsonl') ?? []]) : null,
         ...source,
         memory_coverage: await memoryCoverage(campaign)
     };

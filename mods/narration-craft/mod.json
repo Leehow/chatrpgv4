@@ -1,6 +1,6 @@
 {
   "id": "narration-craft",
-  "version": "1.3.1",
+  "version": "1.5.0",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
@@ -14,18 +14,26 @@
   },
   "default_enabled": true,
   "requires": [
-    "mods.package-files.v1"
+    "mods.package-files.v1",
+    "context.craft-reference.v1"
   ],
   "package_files": [
     "agent.md",
-    "brief.md"
+    "brief.md",
+    "craft-reference.json",
+    "cards.en.json",
+    "starter-ids.json"
   ],
   "dependencies": {},
   "conflicts": [],
   "settings": {
-    "density_guide": "off"
+    "density_guide": "off",
+    "reference_mode": "off"
   },
   "settings_schema": {
+    "reference_mode": {
+      "enum": ["off", "jev"]
+    },
     "density_guide": {
       "enum": [
         "off",
@@ -34,6 +42,7 @@
     }
   },
   "contributes": {
+    "craft_reference": "craft-reference.json",
     "instructions": "agent.md",
     "brief": "brief.md"
   }

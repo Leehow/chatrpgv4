@@ -16,6 +16,9 @@ import {reuseEvidence, dormantEvidence} from './workspace/evidence.ts';
 import {rankWorkspaceCandidates} from './workspace/reranker.ts';
 import {preparePrescreen,prescreenEnabled,reusePrescreen} from './prescreen.ts';
 import type {PrescreenSourceRuntime} from '../../runtime/jev/prescreen-source-provider.ts';
+import {CraftReferenceRuntime} from './craft-runtime.ts';
+import {CRAFT_REFERENCE_TYPE, CRAFT_INVALIDATION_TYPE, type CraftSelector, type CraftPacket, type CraftPreparation} from './craft-reference.ts';
+import {createCraftSelector} from '../../runtime/jev/craft-reference-domain.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
     capsuleUpdate, CAPSULE_UPDATE_TYPE,
@@ -25,6 +28,16 @@ type KernelCall = (method: string, params: Row) => Promise<unknown>;
 type Prepared = {binding: ContextBinding; capsule: Row; history: Row; brief: Row; key: string; answering?: string[];
     workspace?: Row; workspaceMode: WorkspaceMode};
 const fingerprint = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const briefingKey = (binding: ContextBinding, capsule: Row): string => {
+    const instructions = object(capsule.mods).instructions;
+    // Frozen package versions bind their bytes. Ignore full/brief wording so ordinary turns reuse
+    // the full briefing, but never reuse an old effective provider or its settings after activation.
+    const providers = Array.isArray(instructions) ? instructions.map(value => {
+        const row = object(value);
+        return {mod: row.mod, version: row.version, settings: row.settings};
+    }) : [];
+    return fingerprint([sourceOf(binding), providers]);
+};
 function payloadContains(value:unknown,content:string,seen=new Set<object>()):boolean {
     if(typeof value==='string')return value===content||value.includes(content);
     if(!value||typeof value!=='object'||seen.has(value as object))return false;seen.add(value as object);
@@ -40,9 +53,10 @@ async function withinPreparation<T>(work:Promise<T>,parent:AbortSignal,deadlineA
 }
 
 export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row) => void,
-    workpadRoot?: () => string | undefined): void {
+    workpadRoot?: () => string | undefined, options: {craftSelector?: CraftSelector; decision?: DecisionPort | null} = {}): void {
     let observedTurn: number | undefined;
     const record = (row: Row): void => writeTelemetry({...(observedTurn === undefined ? {} : {turn: observedTurn}), ...row});
+    const craft = new CraftReferenceRuntime(options.craftSelector, record);
     let failedGeneration: number | undefined, inputPending = false;
     let call: KernelCall | undefined, campaign: string | undefined, capsule: Row | undefined, rawBinding: unknown;
     let sourceRuntime:PrescreenSourceRuntime|undefined,moduleId:string|undefined;
@@ -52,24 +66,33 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let lastReason = 'context_unavailable';
     let prescreenDeadlineAt=0,prescreenMemo:{key:string;message?:Row}|undefined,reusablePrescreen:Row|undefined;
     let prescreenProviderBudget=preparationProviderBudget();
-    let providerSequence=0,pendingProvider:{requestId:string;prepared?:Row;npc?:Row;outgoingDigest:string}|undefined;
+    let providerSequence=0,pendingProvider:{requestId:string;prepared?:Row;npc?:Row;craft?:CraftPacket;craftActive?:boolean;outgoingDigest:string}|undefined;
     // Contract §135.6: on the single-loop engine the run's own read step is the prescreen. It announces itself, and
     // hands over the packet it prepared for the current turn; this hook then injects that packet and runs none of its own.
     let runOwnsPrescreen=false,runPrescreen:{campaign:string;turn:number;message:Row}|undefined;
+    let runOwnsCraft = false, runCraft: {campaign: string; turn: number; worldline: string; loop: number; preparation: CraftPreparation} | undefined;
     // Contract §135.23: the turn's first capsule and first run packet, as the first request of the input sent them.
     let turnMaterial:{epoch:string;capsule:Row;packet?:Row}|undefined;
-    pi.events.on('coc:loop-engine',value=>{runOwnsPrescreen=object(value).prescreen==='run';});
+    pi.events.on('coc:loop-engine',value=>{runOwnsPrescreen=object(value).prescreen==='run'; runOwnsCraft=object(value).craft==='run';});
+    pi.events.on('coc:run-craft', value => {
+        const held = object(value), preparation = object(held.preparation);
+        if (typeof held.campaign === 'string' && Number.isSafeInteger(held.turn) && typeof held.worldline === 'string'
+            && Number.isSafeInteger(held.loop) && (preparation.status === 'omitted' && typeof preparation.reason === 'string'
+                || preparation.status === 'ready' && object(object(preparation.packet).message).customType === CRAFT_REFERENCE_TYPE))
+            runCraft = held as typeof runCraft;
+    });
     pi.events.on('coc:run-prescreen',value=>{const packet=object(value);
         runPrescreen=typeof packet.campaign==='string'&&Number.isSafeInteger(packet.turn)&&packet.message?{campaign:packet.campaign,turn:packet.turn,message:object(packet.message)}:undefined;});
     let npcBridge:NpcPreparationBridge|undefined,npcMemo:{key:string;prepared:PreparedNpcAdvice}|undefined;
     let sessionEnv={...process.env},sharedAdapter:DecisionPort|undefined,sharedBudget:ReturnType<typeof preparationBudget>|undefined;
     let inputLifetime=new AbortController(),foregroundBudget:(()=>TaskProviderBudget|undefined)|undefined;
     const decision=()=>{
+        if (options.decision !== undefined) return options.decision ?? undefined;
         if(!readJevApiKey(sessionEnv))return undefined;
         const capacity=Number(sessionEnv.PI_COC_JEV_CONCURRENCY??16);
         return sharedAdapter??=createDecisionAdapter({env:sessionEnv,maxConcurrency:Number.isInteger(capacity)&&capacity>0?Math.min(capacity,16):16});
     };
-    const resetPreparation=()=>{inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;npcMemo=undefined;};
+    const resetPreparation=()=>{craft.reset();runCraft=undefined;inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;npcMemo=undefined;};
     pi.events.on('coc:npc-bridge',value=>{npcBridge=value&&typeof (value as any).prepare==='function'?value as NpcPreparationBridge:undefined;npcMemo=undefined;});
     pi.events.on('coc:task-provider-budget',value=>{foregroundBudget=typeof value==='function'?value as typeof foregroundBudget:undefined;});
     pi.events.emit?.('coc:npc-preparation-owner',{decision});
@@ -192,7 +215,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     if (!binding) return fail('context_binding_unavailable');
                     rawBinding = _context; capsule = view; rehydrated = true;
                 }
-                const source = sourceOf(binding);
+                const source = briefingKey(binding, current);
                 if (!brief || briefKey !== source) {
                     let full = current;
                     if (!rehydrated) {
@@ -209,7 +232,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     brief = {kind: 'context_brief', head: 'Keeper-only current book, full craft context and active package instructions. Use with the current turn capsule; this is not player input.',
                         module: full.module ?? null, style: full.style ?? null, instructions: object(full.mods).instructions ?? [],
                         truncated: Array.isArray(full.truncated) ? full.truncated.filter((section: string) => ['module', 'style'].includes(section)) : []};
-                    briefKey = sourceOf(binding);
+                    briefKey = briefingKey(binding, full);
                 }
                 const quotes: Quote[] = [];
                 let unavailable: string | undefined;
@@ -381,7 +404,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     });
     pi.on('context', async (event, ctx) => {
         const ticket = generation;
-        const requestMessages=event.messages.filter(message=>message.role!=='custom'||message.customType!=='coc-npc-advice');
+        const requestMessages=event.messages.filter(message=>message.role!=='custom'||![
+            'coc-npc-advice', CRAFT_REFERENCE_TYPE, CRAFT_INVALIDATION_TYPE].includes(message.customType));
         let snapshot = await prepare();
         // A concurrent input may replace a generation while its optional work is awaiting I/O.
         // Try the current accepted binding once; an unaccepted input uses the normal fallback.
@@ -417,7 +441,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const view = structuredClone(snapshot.capsule);
         // The immutable full briefing already has these fields; retain the turn-specific craft selection.
         delete view.module;
-        if (view.mods) {view.mods = {...view.mods}; delete view.mods.instructions;}
+        if (view.mods) {view.mods = {...view.mods}; delete view.mods.instructions; delete view.mods.craft_reference;}
         // Contract §135.23 (single-loop engine only): a turn's request is append-only. The brief is the source's own
         // (stable across turns, not the residue of this turn's capsule); the capsule and the run's packet stay as the
         // turn's first request sent them; what changed since rides at the end (`coc-capsule-update`, a later run packet),
@@ -550,10 +574,28 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (reason) result = projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
             brief:briefSent,answering:snapshot.answering,
             budget:Math.max(0,messageBudget-requestSize([diagnostic(reason)])),workspace,prescreen,npc:npcMessage});
-        const outgoing = [...(reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages), ...turnTail];
+        let outgoing = [...(reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages), ...turnTail];
+        const craftEpoch = inputEpoch ?? JSON.stringify([snapshot.binding.campaign, snapshot.binding.worldline, snapshot.binding.loop, snapshot.binding.turn]);
+        const craftFromRun = runOwnsCraft && !options.craftSelector;
+        const currentRunCraft = craftFromRun && runCraft?.campaign === snapshot.binding.campaign && runCraft.turn === snapshot.binding.turn
+            && runCraft.worldline === snapshot.binding.worldline && runCraft.loop === snapshot.binding.loop ? runCraft : undefined;
+        if (currentRunCraft) craft.adopt(craftEpoch, currentRunCraft.preparation);
+        else if (!craftFromRun && !options.craftSelector && !craft.hasAttempt(craftEpoch)
+            && object(object(snapshot.capsule.mods).craft_reference).mode === 'jev') {
+            craft.setSelector(createCraftSelector({decision: decision(), parent: foregroundBudget?.(), allowance: prescreenProviderBudget,
+                deadlineAt: Date.now() + 1500, signal: preparationSignal, record: event => record({lane: 'craft', event: 'selection', ...event})}));
+        }
+        const craftProjection: Awaited<ReturnType<CraftReferenceRuntime['project']>> = preparationCall && preparationCampaign && (!craftFromRun || currentRunCraft) ? await craft.project({
+            epoch: craftEpoch,
+            campaign: preparationCampaign, capsule: snapshot.capsule, binding: snapshot.binding,
+            messages: outgoing, budget: messageBudget + (budget - room), rpc: async (method, params) => preparationCall(method, params), signal: preparationSignal,
+        }) : {messages: outgoing};
+        if (ticket !== generation || preparationSignal.aborted) return {messages: outgoing as typeof requestMessages};
+        outgoing = craftProjection.messages;
         const bytes = requestSize(outgoing) + systemBytes, estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
         const requestId=`prescreen:${snapshot.binding.turn}:${++providerSequence}`;
-        pendingProvider=prescreen||npcMessage?{requestId,prepared:prescreen,npc:npcMessage,outgoingDigest:fingerprint(outgoing)}:undefined;
+        pendingProvider=prescreen||npcMessage||craftProjection.packet?{requestId,prepared:prescreen,npc:npcMessage,
+            craft:craftProjection.packet,craftActive:craftProjection.active,outgoingDigest:fingerprint(outgoing)}:undefined;
         record({lane: 'context', event: 'request', version: POLICY_VERSION, turn: snapshot.binding.turn,request_id:requestId,
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
             request_bytes: bytes, system_bytes: systemBytes, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
@@ -574,6 +616,14 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const pending=pendingProvider;pendingProvider=undefined;if(!pending)return;
         if(pending.npc){let delivered=false;try{delivered=payloadContains((event as unknown as Row).payload,String(pending.npc.content));}catch{}
             record({lane:'npc',event:'delivered',request_id:pending.requestId,delivered,content_digest:fingerprint(pending.npc.content)});}
+        if (pending.craft) {
+            let retained = false;
+            try {retained = payloadContains((event as unknown as Row).payload, String(pending.craft.message.content));} catch {}
+            record({lane: 'craft', event: pending.craftActive ? retained ? 'injected' : 'omitted' : 'inactive_reference',
+                request_id: pending.requestId, retained, active: pending.craftActive === true,
+                card_id: pending.craft.cardId, provider: pending.craft.identity.provider,
+                content_digest: fingerprint(pending.craft.message.content), ...(retained ? {} : {reason: 'final_payload_absent'})});
+        }
         if(!pending.prepared)return;
         const prepared=object(pending.prepared),meta=object(object(prepared.details).prescreen);
         if(!prepared.content){record({lane:'prescreen',event:'delivered',request_id:pending.requestId,delivered:false,reason:'not_prepared'});return;}
