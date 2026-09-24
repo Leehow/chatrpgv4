@@ -33,3 +33,30 @@ Spec: docs/specs/pi-native-single-loop.md; Agents.md (real-table rule: live Keep
 Not reached, so not scored: script, pre-registration, table, and the classes delivery, wall, routing, admission, binding at the table, looks, prescreen, drops, fiction/rules and stalls. No model call, no reading job and no table was started.
 
 Evidence (git-ignored, kept): `/Users/haoli/leehow/code/chatrpgv4-wt-pdf-a/.coc/playtests/sl29-a-import/` (`inspect.events.jsonl`, `guidance.events.jsonl`, `*.stderr.log`, `source.pdf` copy) and `/Users/haoli/leehow/code/chatrpgv4-wt-pdf-a/.coc/modules/book-1/` (`module.json`, generation 0, empty `sections.json` and `deepen-queue.json`). The harness is the session scratchpad's `pdf-a/worker.sh`. It runs `node build/pipicoc/onboarding-worker.mjs <action> '<input + home>' '{"layout":"source","backend":"typescript",…}'` with `EXT_JEV_APIKEY`, `PIPIUI_EXT_SETTINGS_JEV={"ext.jev.preselectEnabled":true}` and `ELECTRON_RUN_AS_NODE=1`.
+
+### 2026-09-24 — book A (血色公路) after SL-32 (`b8aced229` merged, `2a691ee36`): guidance passes, the opening is refused twice on a transcription conflict with the guidance's own value; stopped at Scope 1
+
+This run follows the App's worker order on module `book-1`, which had been bound by the earlier run. Everything else is as in the entry above: `grok-build/grok-4.7-build-fast` low, zh-Hans, App grok login, Jev key from the vault. It was the only import on the Mac. The harness is committed in `29-book-a/`: `worker.sh` spawns the built worker as `runtime/preparation.ts` does, `stages.py` summarises the import. `triage.py` was prepared for the table and never used.
+
+| step | wall | stages (UTC) | model calls (reader+review) | tokens in / out | outcome |
+| --- | --- | --- | --- | --- | --- |
+| guidance | 64 s | read 13:30:24 → verify 13:31:07 (1 unit) | 4 (2+2) | 56K / 6K | ready: key `d333f169…`, scene 序幕, graph generation 1 (2 nodes: module, 序幕) |
+| background index `read-2` (started by the worker) | 91 s + audit 36 s | pages 1–4, 18–19, 45, 57, 60–65, 74–75 | 12 (12+0) | 345K / 6K | completed |
+| opening #1 | 192 s | read → verify (5 units) → read r2 → verify → read r3 → verify; foreground wait released at 13:33:40 (120 s, `unwaited`) and the worker re-requested | `read-3` 52 (19+33); `read-4` 18 (13+5) | 1.22M / 48K | **failed**: `needs_choice: the new reading contradicts a published value`, `retryable: false`, surfaced as the generic "The preparation stopped before it answered" with `code: needs`, `reason: reading_failed`, `fix: request the same reading with retry: true` |
+| opening #2 (`retry: true`, the App's button) | 167 s | read → verify (5 units) → read r2 → verify | 34 (9+25) | 653K / 39K | **failed**, same conflict |
+| total | ≈ 7.1 min | | **120** | 2.27M / 100K | generation 1, `status: assembled`, `opening_ready: false`; `converse` not possible |
+
+**P0 import: a transcription the guidance reading published blocks every opening reading.** Both refusals name the same field (`work/read-3/attempt-1/findings.json`, `work/read-5/attempt-1/findings.json`), `/nodes/module-book-1/properties/investigator_hook`:
+- existing, written by the guidance reading into generation 1: "唯一的**卡片**要求是：…轰**蹭**青少年或电视记者。"
+- proposed by opening #1: "唯一的**车卡**要求是：…轰**趴**青少年或电视记者。"
+- proposed by opening #2: "唯一的车卡要求是：**PC要**有理由…**理由可以包括（但不限于）**…轰趴青少年…"
+
+These are the same sentence on the same page. The published copy carries the misreadings (卡片 for 车卡, 轰蹭 for 轰趴), and both opening readers read the page more correctly. The opening reader was shown the existing value (`read-5/attempt-1/packet.json` → `known_nodes[module-book-1].properties.investigator_hook`, node `ready: false`) and rewrote it anyway. The publication gate treats a different transcription of one source span as a contradicting fact and marks it `retryable: false` / `next: change_input`. A retry therefore passes only if the reader happens to copy the earlier misreading. §22.6 lets a node that is not yet ready have its `summary` replaced when it first becomes ready, but not its properties. So a transcription error the guidance phase put into a not-ready module node freezes, and it blocks the opening, which is the only thing a PDF campaign needs before `converse`. The player sees "retry", and each retry costs about 3 min and 35–50 calls without converging. SL-32's manual check of the same book passed on its retry, so whether an import succeeds depends on whether two readers transcribe one sentence identically. System gap, not a content patch: the conflict rule (or the reader brief for a field already published and not ready) does not tell a re-reading of the same source apart from a different fact.
+
+**P1 import cost: a second opening reading of the same scene during the first.** When the 120 s foreground wait expired, the worker's `reading_timeout` loop re-entered `prepare`. The queue then gained `read-4` (`purpose: opening`, `repair: way_on`, focus `xu-mu`, the handle of 序幕), which read the same pages 6–8 and 16–17 while `read-3` was still in its third round (18 calls, 286K tokens). It was cancelled when the worker exited (`The runtime owner or operation is closed or cancelled` ×5). This is §90.5's connection-point repair firing on a book whose opening is still being prepared.
+
+**P2 import (reported by SL-32, confirmed): the refusal reaches the player as the generic sentence.** The reason and field go only to `detail`, which the App's overlay does not show (§48). The player cannot know that retrying will not help.
+
+Not reached, so not scored: `converse`, the setup session, the script, the pre-registration, the table, and every table class. No campaign exists for book A.
+
+Evidence (git-ignored, kept): `/Users/haoli/leehow/code/chatrpgv4-wt-pdf-a/.coc/playtests/sl29-a-import/{guidance,opening}.events.jsonl` and `/Users/haoli/leehow/code/chatrpgv4-wt-pdf-a/.coc/modules/book-1/`, including `deepen-queue.json` (read-1…5 with states and details), `work/read-{1..5}/attempt-1/` (packets, drafts, `findings.json`, reader and reviewer `*.requests.jsonl`, image logs), `module.json` and `generations/generation-1-…/`.
