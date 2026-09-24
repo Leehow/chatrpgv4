@@ -1,4 +1,5 @@
-"""Contract §134.9–§134.14: the haunting's morgue obligations, issued, claimed, settled and waived.
+"""Contract §134.9–§134.14 (and §134.17's amendment of §134.11): the haunting's morgue obligations, issued, claimed,
+settled and waived.
 
 Every case drives the emitted kernel over RPC on a fresh haunting campaign and asserts what the kernel
 issued (the options rows, the capsule rows, the gate string), which receipts and flags exist, and what the
@@ -225,15 +226,17 @@ def test_a_push_continues_the_claim_it_pushes(morgue):
     assert rows(client)[ACCESS]["state"] == "settled"
 
 
-def test_the_same_skill_without_the_claim_settles_nothing(morgue):
+def test_the_same_skill_without_the_claim_is_the_folded_attempt(morgue):
+    # §134.11's "settles nothing" (D4), as amended by §134.17: the same Persuade against the same person is the
+    # obligation's attempt, and says it was folded; without a target it settles nothing (test_obligation_fold.py).
     client = morgue(PASS)
     meet_arty(client)
     result = persuade(client, claim=False)
     assert result["ok"], result.get("error")
     assert result["result"]["outcome"]["passed"] is True and result["result"]["outcome"]["skill"] == "Persuade"
-    assert "obligation" not in result["result"]
-    assert FLAG not in world(client).get("flags", {})
-    assert rows(client)[ACCESS]["state"] == "open"
+    assert result["result"]["obligation"] == {"handle": ACCESS, "step": 1, "counted": "folded", "settled": True}
+    assert world(client)["flags"][FLAG] is True
+    assert rows(client)[ACCESS]["state"] == "settled"
 
 
 def test_apply_flag_waives_and_reopens_with_ordinary_receipts(morgue):
