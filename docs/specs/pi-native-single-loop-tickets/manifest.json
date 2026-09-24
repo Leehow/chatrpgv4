@@ -104,6 +104,16 @@
       "id": "SL-20",
       "file": "20-finish-after-settlement.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-21",
+      "file": "21-approach-follows-the-manner.md",
+      "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-22",
+      "file": "22-prescreen-budget-is-its-own.md",
+      "status": "ready-for-agent"
     }
   ],
   "relatedSpecs": [
