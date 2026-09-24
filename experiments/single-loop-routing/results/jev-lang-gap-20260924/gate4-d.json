@@ -1,0 +1,449 @@
+{
+ "label": "ask cut to obligation + none only",
+ "rows": {
+  "destination": [
+   {
+    "id": "central-library",
+    "describe": {
+     "place": "Central Library",
+     "handle": "central-library"
+    }
+   },
+   {
+    "id": "hall-of-records",
+    "describe": {
+     "place": "Hall of Records",
+     "handle": "hall-of-records"
+    }
+   },
+   {
+    "id": "neighborhood-gossip",
+    "describe": {
+     "place": "neighborhood gossip",
+     "handle": "neighborhood-gossip"
+    }
+   },
+   {
+    "id": "previous-tenants",
+    "describe": {
+     "place": "previous tenants",
+     "handle": "previous-tenants"
+    }
+   },
+   {
+    "id": "corbitt-house-ground",
+    "describe": {
+     "place": "Corbitt house grounds",
+     "handle": "corbitt-house-ground"
+    }
+   },
+   {
+    "id": "commission-briefing",
+    "describe": {
+     "place": "Knott's Office",
+     "handle": "commission-briefing"
+    }
+   }
+  ],
+  "addressee": [
+   {
+    "id": "Arty Wilmot",
+    "describe": {
+     "label": "阿蒂·威尔莫特",
+     "role": "gatekeeper"
+    }
+   },
+   {
+    "id": "Ruth Blake",
+    "describe": {
+     "name": "Ruth Blake",
+     "role": "clippings clerk"
+    }
+   }
+  ],
+  "ask": [
+   {
+    "id": "obligation:globe-clippings-access",
+    "describe": {
+     "demand": "Access to the Globe clippings",
+     "guards": [
+      "clue globe-unpublished-story (An unpublished 1918 feature lists prior tenants ruined by accidents, illness, and suicide; the Macarios fled under mysterious circumstances.)",
+      "clue macario-tragedy (The Macario family rented in 1918 and left almost immediately under mysterious circumstances; they are now linked to Roxbury Sanitarium.)"
+     ]
+    }
+   }
+  ],
+  "act": [
+   {
+    "id": "investigate",
+    "describe": "investigate: An investigative, observational or technical action."
+   },
+   {
+    "id": "social",
+    "describe": "social: An interpersonal action."
+   },
+   {
+    "id": "move",
+    "describe": "move: An uncertain movement action or obstacle."
+   },
+   {
+    "id": "combat",
+    "describe": "combat"
+   },
+   {
+    "id": "flee",
+    "describe": "flee"
+   },
+   {
+    "id": "cast",
+    "describe": "cast"
+   },
+   {
+    "id": "idle",
+    "describe": "idle"
+   },
+   {
+    "id": "meta",
+    "describe": "meta"
+   },
+   {
+    "id": "stuck",
+    "describe": "stuck"
+   },
+   {
+    "id": "ambiguous",
+    "describe": "ambiguous"
+   },
+   {
+    "id": "montage",
+    "describe": "montage"
+   }
+  ],
+  "target": [],
+  "item": [
+   {
+    "id": "笔记本",
+    "describe": {
+     "item": "笔记本"
+    }
+   },
+   {
+    "id": "开锁工具",
+    "describe": {
+     "item": "开锁工具"
+    }
+   },
+   {
+    "id": "手电筒",
+    "describe": {
+     "item": "手电筒"
+    }
+   },
+   {
+    "id": "徽章",
+    "describe": {
+     "item": "徽章"
+    }
+   }
+  ]
+ },
+ "results": [
+  {
+   "run": 1,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.28,
+    "probabilities": {
+     "none": 0.39,
+     "ask_1": 0.52,
+     "unclear": 0.09
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.66,
+    "probabilities": {
+     "none": 0.01,
+     "addressee_1": 0.02,
+     "addressee_2": 0.23,
+     "unclear": 0.74
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 2,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.36,
+    "probabilities": {
+     "none": 0.35,
+     "ask_1": 0.57,
+     "unclear": 0.08
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.68,
+    "probabilities": {
+     "none": 0.01,
+     "addressee_1": 0.03,
+     "addressee_2": 0.21,
+     "unclear": 0.75
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 3,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.31,
+    "probabilities": {
+     "none": 0.38,
+     "ask_1": 0.54,
+     "unclear": 0.08
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.68,
+    "probabilities": {
+     "none": 0.01,
+     "addressee_2": 0.21,
+     "unclear": 0.75,
+     "addressee_1": 0.03
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 4,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.37,
+    "probabilities": {
+     "ask_1": 0.57,
+     "unclear": 0.08,
+     "none": 0.35
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.68,
+    "probabilities": {
+     "unclear": 0.76,
+     "addressee_2": 0.21,
+     "none": 0.01,
+     "addressee_1": 0.02
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 5,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.39,
+    "probabilities": {
+     "ask_1": 0.6,
+     "none": 0.33,
+     "unclear": 0.07
+    },
+    "cleared": true
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.67,
+    "probabilities": {
+     "addressee_1": 0.03,
+     "unclear": 0.75,
+     "none": 0.01,
+     "addressee_2": 0.21
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 6,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.37,
+    "probabilities": {
+     "ask_1": 0.58,
+     "unclear": 0.08,
+     "none": 0.34
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.64,
+    "probabilities": {
+     "addressee_1": 0.03,
+     "unclear": 0.73,
+     "addressee_2": 0.23,
+     "none": 0.01
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 7,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.33,
+    "probabilities": {
+     "none": 0.37,
+     "unclear": 0.07,
+     "ask_1": 0.56
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.66,
+    "probabilities": {
+     "none": 0.01,
+     "addressee_1": 0.03,
+     "unclear": 0.74,
+     "addressee_2": 0.22
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 8,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.35,
+    "probabilities": {
+     "none": 0.34,
+     "ask_1": 0.57,
+     "unclear": 0.09
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.58,
+    "probabilities": {
+     "addressee_1": 0.03,
+     "none": 0.01,
+     "addressee_2": 0.28,
+     "unclear": 0.6799999999999999
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 9,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.37,
+    "probabilities": {
+     "none": 0.35,
+     "unclear": 0.07,
+     "ask_1": 0.58
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.71,
+    "probabilities": {
+     "none": 0.01,
+     "unclear": 0.78,
+     "addressee_1": 0.03,
+     "addressee_2": 0.18
+    },
+    "cleared": true
+   }
+  },
+  {
+   "run": 10,
+   "status": "complete",
+   "failure": null,
+   "ask": {
+    "choice": "ask_1",
+    "confidence": 0.33,
+    "probabilities": {
+     "unclear": 0.09,
+     "ask_1": 0.55,
+     "none": 0.36
+    },
+    "cleared": false
+   },
+   "addressee": {
+    "choice": "unclear",
+    "confidence": 0.65,
+    "probabilities": {
+     "unclear": 0.73,
+     "addressee_2": 0.22,
+     "addressee_1": 0.04,
+     "none": 0.01
+    },
+    "cleared": true
+   }
+  }
+ ],
+ "summary": {
+  "n": 10,
+  "obligation": {
+   "mean": 0.564,
+   "spread": 0.07999999999999996,
+   "values": [
+    0.52,
+    0.57,
+    0.54,
+    0.57,
+    0.6,
+    0.58,
+    0.56,
+    0.57,
+    0.58,
+    0.55
+   ],
+   "cleared_at_gate": 1
+  },
+  "addressee_arty": {
+   "mean": 0.028999999999999998,
+   "spread": 0.02,
+   "values": [
+    0.02,
+    0.03,
+    0.03,
+    0.02,
+    0.03,
+    0.03,
+    0.03,
+    0.03,
+    0.03,
+    0.04
+   ],
+   "cleared_at_gate": 0
+  }
+ }
+}

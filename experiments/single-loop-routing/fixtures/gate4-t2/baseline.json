@@ -1,0 +1,204 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/gate4-haunting-0214-20260924T061454Z/events.jsonl",
+  "record": ".coc/repos/gate4-haunting-0214.git 28b1a51:turns/0002.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write is prepended to the first message, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。",
+ "llm_calls": 4,
+ "llm_ms_total": 39739,
+ "calls": [
+  {
+   "at": "2026-09-24T06:19:37.374Z",
+   "provider_ms": 12412,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 10328,
+    "output": 1089,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "social",
+       "goal": "海斯第一次面对面向环球报值班编辑说明来意",
+       "method": "直接上前说明自己是受房东委托的私家侦探",
+       "target": "Arty Wilmot",
+       "actor": "托马斯·海斯",
+       "decision": "natural-npc:first-impression"
+      }
+     },
+     "id": "call-627b937b-0ae2-46b5-a72a-dc8bffd9c4e9-0|fc_fd9319ba-5e8c-920e-bc72-b5177aeb4f86_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T06:19:58.231Z",
+   "provider_ms": 8147,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 1412,
+    "output": 526,
+    "cache_read": 43392
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "social",
+       "goal": "请环球报编辑准许调出科比特宅这些年的旧剪报",
+       "method": "说明自己受房东委托调查这栋房子，需要旧报道",
+       "target": "Arty Wilmot",
+       "actor": "托马斯·海斯",
+       "skill": "Persuade",
+       "obligation": "globe-clippings-access",
+       "motive": {
+        "direction": "oppose",
+        "intensity": 1
+       }
+      }
+     },
+     "id": "call-82147ba6-8490-4871-b7f2-4d8feaebe284-1|fc_012128d3-9677-9f02-a8ad-2e93e06b3e0e_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T06:20:11.626Z",
+   "provider_ms": 11526,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 815,
+    "output": 917,
+    "cache_read": 44800
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "flag",
+        "name": "globe-clippings-barred",
+        "value": "true",
+        "why": "威尔莫特因严重冒犯把海斯逐出剪报室并永久禁止入内。"
+       },
+       {
+        "kind": "npc",
+        "name": "Arty Wilmot",
+        "stance": "hostile",
+        "why": "海斯说明来意时把事情说砸了，威尔莫特当众被冒犯，叫人把他赶出去。"
+       }
+      ]
+     },
+     "id": "call-e05ae73e-11b6-4fcb-aef5-9edbf84116e4-2|fc_312bf60d-3353-93fa-8877-8bd7384e6ff0_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T06:20:23.314Z",
+   "provider_ms": 7654,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 46696,
+    "output": 447,
+    "cache_read": 0
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "resolve",
+   "call_id": "call-627b937b-0ae2-46b5-a72a-dc8bffd9c4e9-0|fc_fd9319ba-5e8c-920e-bc72-b5177aeb4f86_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-82147ba6-8490-4871-b7f2-4d8feaebe284-1|fc_012128d3-9677-9f02-a8ad-2e93e06b3e0e_0",
+   "ok": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-e05ae73e-11b6-4fcb-aef5-9edbf84116e4-2|fc_312bf60d-3353-93fa-8877-8bd7384e6ff0_0",
+   "ok": true
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "resolve",
+   "verdict": "entailed",
+   "ms": 8242,
+   "origin": "model"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "authorized",
+   "ms": 4389,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "resolve",
+   "decision": "natural-npc:first-impression",
+   "target": "Arty Wilmot",
+   "intent": "social",
+   "modifiers": null
+  },
+  {
+   "verb": "resolve",
+   "skill": "Persuade",
+   "target": "Arty Wilmot",
+   "intent": "social",
+   "modifiers": null
+  },
+  {
+   "verb": "apply",
+   "kind": "flag",
+   "target": "globe-clippings-barred"
+  },
+  {
+   "verb": "apply",
+   "kind": "npc",
+   "target": "Arty Wilmot"
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "roll:mod-natural-npc-t2-c1",
+   "kind": "roll",
+   "decision": "natural-npc:first-impression",
+   "skill": "Appearance",
+   "npc": "arty-wilmot",
+   "level": "fumble"
+  },
+  {
+   "id": "roll:persuade-t2-c2",
+   "kind": "roll",
+   "decision": null,
+   "skill": "Persuade",
+   "npc": "arty-wilmot",
+   "level": "fumble"
+  },
+  {
+   "id": "flag:globe-clippings-barred-t2-c3",
+   "kind": "flag"
+  },
+  {
+   "id": "npc:arty-wilmot-t2-c3",
+   "kind": "npc"
+  }
+ ]
+}
