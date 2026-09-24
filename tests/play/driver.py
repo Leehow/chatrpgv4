@@ -60,6 +60,7 @@ STOP_SETTLE_GRACE = 1.5      # seconds to wait for agent_settled after a termina
 STALE_SETTLE_GRACE = 20.0    # seconds to keep waiting after a settle that arrived before any work
 OPENING_QUIET = 3.0          # seconds of silence at startup that mean no opening run is in flight
 HEARTBEAT_INTERVAL = 2.0
+ACCEPT_POLL_SECONDS = 0.5  # the control socket's accept() wakes this often to notice a stop (Linux never wakes it on close)
 TOOL_RESULT_TRUNCATE_BYTES = 4096
 STARTUP_READY_TIMEOUT = 30.0
 
@@ -746,6 +747,9 @@ class Daemon:
         srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         srv.bind(str(self.socket_path))
         srv.listen(8)
+        # Linux does not wake a blocked accept() when another thread closes the listening socket (macOS does), so
+        # the loop polls the stop flag on a short timeout; the stop handler also shuts the socket down before closing.
+        srv.settimeout(ACCEPT_POLL_SECONDS)
         self._server_sock = srv
         hb_thread = threading.Thread(target=self.heartbeat_loop, name="heartbeat", daemon=True)
         hb_thread.start()
@@ -754,8 +758,11 @@ class Daemon:
             while not self._stop_requested.is_set():
                 try:
                     conn, _ = srv.accept()
+                except socket.timeout:
+                    continue
                 except OSError:
                     break
+                conn.settimeout(None)
                 threading.Thread(target=self._handle_conn, args=(conn,),
                                   name="conn-handler", daemon=True).start()
         finally:
@@ -795,6 +802,10 @@ class Daemon:
                 result = self.handle_stop()
                 self._respond(f, result)
                 self._stop_requested.set()
+                try:
+                    self._server_sock.shutdown(socket.SHUT_RDWR)
+                except Exception:  # noqa: BLE001
+                    pass
                 try:
                     self._server_sock.close()
                 except Exception:  # noqa: BLE001

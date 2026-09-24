@@ -16527,7 +16527,8 @@ malformed one. SO-01 (§134.1–§134.8) wrote the shape and the validator and n
 `table.apply.options` key, the capsule row, the gate string, `action.obligation` on `resolve`, waiving
 through `apply flag`, the Mod-recipe identity and the offer ledger. A module that states no obligation
 reads byte for byte what it read before SO-02 (§134.15). SO-03 (2026-09-23) adds §134.16: the visual
-reader writes obligations from a PDF book, and the draft check runs the validator on them.
+reader writes obligations from a PDF book, and the draft check runs the validator on them. SL-14 (2026-09-24) adds
+§134.17: an investigator's ordinary check that fits an open obligation's check is that obligation's attempt.
 
 ### 134.1 The node
 
@@ -16833,7 +16834,8 @@ action.
   above. A push of a check that claimed nothing claims nothing. The continuation is the claiming
   operation itself, not an inference from a similar receipt.
 - **A `resolve` without `action.obligation` settles nothing**, even the same skill against the same
-  person (D4).
+  person (D4). *Amended 2026-09-24 by §134.17:* an investigator's ordinary check whose target is an open
+  obligation's `next.target` and whose skill is among its approaches is that obligation's attempt.
 - **Crossing is information, never a refusal (owner ruling Q5).** The kernel never refuses `apply
   move`, `apply clue`, `apply person`/`npc` or `resolve` because an obligation is open. A `resolve`
   without a claim whose target is a guarded person of an obligation of the active scene that is neither
@@ -16887,7 +16889,7 @@ candidates carry `guarded_by` and their gate string names the obligation; a clai
 seed sets the flag in that call (world, receipt, result, event), the archivist becomes `open`, the guards
 clear; a claimed Persuade on a failing seed leaves it `open`, carries the failure line and writes no
 flag, receipt or time beyond the roll; a claimed push that passes settles it; the same Persuade without
-the claim settles nothing; `apply flag` waives and reopens with receipts; `apply clue` on a guarded clue
+the claim settles nothing (since §134.17 it is the folded attempt, and the case asserts that); `apply flag` waives and reopens with receipts; `apply clue` on a guarded clue
 while open lands and carries `obligation_open`; the capsule rows and the options rows agree; every
 refusal of §134.11 by its reason; the offer ledger's `obligation:` rows. `tests/extension/
 scene-obligations.test.mjs` covers the Mod-recipe identity and `reaction: "preordained"` over a derived
@@ -16969,6 +16971,90 @@ rule; a valid obligation whose fields are not in `critical` gets them in `requir
 `reviewUnits` assigns the same pointers; a draft with no obligation returns the same bytes as the parent
 commit. Each refusal is shown to go away when its rule is removed (the mutation record is in the SO-03
 report).
+
+### 134.17 An ordinary check on an obligation's approach is the obligation's attempt (2026-09-24, SL-14 of `docs/specs/pi-native-single-loop.md`; amends §134.11)
+
+The owner's ruling of 2026-09-24: the obligation row already states the person, the approaches and the
+difficulty, so whether an ordinary check covers it is a question of parameters, answered by the kernel
+without refusing anything and without a model round. The Keeper is told after the fact what its check
+counted as.
+
+**When a check folds.** A `resolve` with no `action.obligation`, no `action.rule`, no `push` and no `luck`
+is resolved as an obligation's attempt when every one of these holds:
+
+1. the decision it settles is `core-check:ordinary-check` — named by `action.decision`, or routed to it with
+   no `action.decision`. A `social` intent against the person, which is otherwise routed to the social
+   adjudication (a difficulty computed from the person's defences, no roll), is routed to the ordinary check
+   when the rest of this list holds, as a claim routes it: the book states the difficulty. A decision named
+   otherwise (`social:adjudicate-difficulty` included), an opposed or combined check, a Mod check, a session's
+   decision or any other decision folds nothing;
+2. the acting character is an investigator (not an NPC acting in a session);
+3. `action.target` names (`graph.actor`) the person who is the `next.target` of an `open` obligation of
+   the active scene — its `next` step is a check; an obligation whose next step is still a meeting is not
+   at its check, and the step's check is not one a Mod check serves (§134.13), whose attempt is that Mod
+   check;
+4. `action.skill`, resolved against the actor's sheet as every explicit skill is, is one of that step's
+   approaches by normalised name; a step with `approaches_unstated` never folds (it is the Keeper's);
+5. the binding of §134.11 (`bindCheckStep`) accepts it: the target present in the active scene, the
+   chosen approach at or above its `minimum` (for `selection: maximum` the actor's highest qualifying
+   approach is bound, as on a claim). A binding the claim path would refuse means the check is not the
+   attempt: it settles as an ordinary check, unfolded, and nothing is refused.
+
+**No target, or no skill, means no fold.** The kernel never reads a person or a skill out of `goal` or
+`method` words for this; a check whose skill the pipeline finds in the method text is settled as today and
+counts as nothing.
+
+**What the fold does.** The one roll is rolled with the bound skill and the step's stated difficulty (the
+Keeper's `modifiers.difficulty` is replaced by the stated one; the Keeper's own stands when the step records
+`difficulty_unstated`; a non-regular stated difficulty on a social intent carries `modifiers.reason`
+"stated by the module" when the Keeper gave none). Bonus and penalty dice pass through. Then §134.11's
+settlement runs unchanged: a settling level sets the flag in the same call and emits `flag-set` on the
+roll receipt; any other level leaves the obligation `open` and hands the Keeper the level's `book` line
+(and the push line when the step allows a push and the roll can be pushed) — the book's price, which the
+Keeper realises. The kernel still applies no consequence and no cost (owner rulings Q4; the obligation's
+result levels carry only `settles` and `book`). The stored call parameters stay the Keeper's own.
+
+- The roll receipt carries `obligation: {handle, step, counted: "folded", settled}` — the obligation's
+  receipt, the same key the claim path writes, which `obligationState` already reads — and the result
+  `obligation: {handle, step, counted: "folded", settled, book?, push?}`. `step` is the 0-based index of the
+  check in the obligation's `demand`. Every other key of the ordinary-check result is unchanged.
+- The result carries `note`: one line, derived by `foldNote` (`kernel-ts/read/obligations.ts`) from the
+  roll receipt alone — the skill, the handle, the step and whether it settled — saying that the roll was
+  that obligation's attempt and is not to be rolled again (a push, if the Keeper allows one, continues it).
+- A push or a Luck spend continuing a folded check continues its claim exactly as §134.11 says; its
+  receipt and result carry the same `step` and `counted: "folded"`.
+
+**Two matches fold into none.** When two or more open obligations of the active scene satisfy 3 and 4 for
+the same check, no obligation binds it (a `social` intent is not re-routed: it goes to the social adjudication
+as before), and a check that settles as the ordinary check claims nothing; its result carries
+`obligation_ambiguous: [<handle>, ...]` (graph order) and a `note` (`ambiguityNote`) naming them and saying
+that `action.obligation` names one. Nothing is refused.
+
+**Everything else is unchanged.** A check that does not fold is exactly today's, `obligation_open` for a
+guarded person included. An explicit `action.obligation` keeps §134.11 verbatim, refusals included; the fold
+itself never refuses.
+
+**The tool.** The `resolve` tool's `obligation` field description loses "a roll without it settles no
+obligation" and says instead that an ordinary check against the obligation's person with one of its
+approaches counts as its attempt, and the result says so. No other prompt text changes.
+
+*Three ends (§31).* Writer: `table.resolve` — `foldCandidate` (`kernel-ts/resolve/obligation.ts`) finds the
+one obligation before the roll, the pipeline binds its skill and difficulty only when the decision it
+settles is the ordinary check, and `settleClaim` writes the flag and the receipt's `obligation`. Reader:
+`sceneObligations` (the flag and the receipts, §134.9) and `foldNote`/`ambiguityNote` on the result. Actor:
+the Keeper, who reads what its check counted as and does not roll the attempt again.
+
+*Tests* (`tests/kernel/test_obligation_fold.py`, over the emitted kernel on a fresh haunting campaign at the
+morgue, seeded; the gate-3 turn-2 arguments — Persuade against Arty Wilmot, a bonus die with its reason —
+without the claim): a passing fold sets the flag in the call (world, receipt, result, event) and the
+archivist opens; a failing fold leaves it `open`, records the attempt on the receipt and hands the failure
+and push lines; a push of a folded check continues it; the same arguments with `action.obligation` return
+§134.11's shape unchanged, refusals included; the book's difficulty replaces the Keeper's on a fold; the same
+arguments without a target (the person named in the words), without a skill (the skill named in the words), with a
+skill outside the approaches, with `decision: social:adjudicate-difficulty`, or before Arty is met fold nothing; on
+a derived haunting with a second open obligation at the morgue whose check is Persuade against Arty, the same
+arguments go to the social adjudication and, with `decision: core-check:ordinary-check`, settle claiming nothing with
+`obligation_ambiguous`.
 
 ## 135. The single-loop run settles the player's declared bookkeeping itself: candidates, clerk authority, one tool catalog (2026-09-23, SL-02 of `docs/specs/pi-native-single-loop.md`)
 

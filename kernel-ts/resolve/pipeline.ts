@@ -151,6 +151,12 @@ export class ResolvePipeline {
     readonly method: string;
     readonly stakesText: string;
     readonly sessions: SessionView;
+    /**
+     * §134.17: the skill and modifiers an obligation's check binds, applied only if the decision this settles is the
+     * ordinary check; `folded` says it was. Any other decision rolls on the Keeper's own action and counts as nothing.
+     */
+    fold: { skill: string; modifiers: [number, number, string, string | null]; declared: Row } | null = null;
+    folded = false;
     constructor(readonly context: SettleContext, readonly resolver: SkillResolver, readonly modifiers: [
         number,
         number,
@@ -267,8 +273,10 @@ export class ResolvePipeline {
             return this.withSanityOffer(matches.length ? [ORDINARY] : []);
         if (this.intent === 'montage')
             return [];
+        // §134.17: a social attempt that is an obligation's attempt rolls the book's check, as a claim binds it; the
+        // social adjudication would compute a difficulty the book already states.
         if (this.intent === 'social')
-            return this.withSanityOffer(!npc ? [ORDINARY] : matches.includes('Psychology') ? [SOCIAL, OBSERVE] : [SOCIAL]);
+            return this.withSanityOffer(!npc || this.fold ? [ORDINARY] : matches.includes('Psychology') ? [SOCIAL, OBSERVE] : [SOCIAL]);
         const healing = matches.find(skill => ['First Aid', 'Medicine'].includes(skill));
         if (healing)
             return [...this.context.observations.nodes.values()].filter(node => node.node_kind === 'decision' && row(node.properties).family_id === 'healing' && string(node.node_id).includes(healing === 'First Aid' ? 'first-aid' : 'medicine')).map(node => string(node.node_id));
@@ -353,13 +361,18 @@ export class ResolvePipeline {
         if ([ORDINARY, LUCK_ROLL].includes(ref)) {
             // The Luck roll's characteristic is the decision's own payload constant (LUCK) and its target is host-locked:
             // it declares no skill slot, so naming one was refused as an undeclared input (found by §136.20's Luck step).
-            const skill = ref === LUCK_ROLL ? null : this.oneSkill();
-            const [bonus, penalty, difficulty] = this.modifiers;
+            const fold = ref === ORDINARY ? this.fold : null;
+            if (fold) {
+                this.folded = true;
+                context.declaredModifiers = fold.modifiers;
+            }
+            const skill = ref === LUCK_ROLL ? null : fold ? this.resolver.resolveExplicit(fold.skill) ?? fold.skill : this.oneSkill();
+            const [bonus, penalty, difficulty] = fold ? fold.modifiers : this.modifiers;
             const semantic: Row = {
                 difficulty,
                 goal: this.goal || this.method || this.intent,
                 stakes: this.stakes(),
-                difficulty_basis: truth(row(action.modifiers).difficulty) ? 'explicit' : 'keeper'
+                difficulty_basis: truth(row(fold ? fold.declared : action.modifiers).difficulty) ? 'explicit' : 'keeper'
             };
             if (skill !== null)
                 semantic[Object.hasOwn(CHARACTERISTICS, skill) ? 'characteristic' : 'skill'] = skill;

@@ -276,10 +276,11 @@ Scored against the pre-registration:
   45 s budget (`model_batch`), so 0 read-only calls executed and 1 proposed.
 - (3) turn 2 delivered ≤ 60 s, no `infer(bind)` anywhere on the table: **met**. The obligation candidate
   `resolve:obligation:globe-clippings-access` reached the route (offered in turn 1 s6, turn 2 s2, turn 3 s2) but
-  was never selected, and turn 2 has no bind row because the clerk executed nothing. **Product finding:** the
-  Keeper resolved an ordinary `core-check:ordinary-check` Persuade (44 vs 40, failure, bonus 1) instead of
-  `action.obligation`, so the editor refused in prose but `globe-clippings-access` is still `open` with no
-  attempt recorded; the failed price was never paid.
+  was never selected, and turn 2 has no bind row because the clerk executed nothing. **Product finding, corrected 2026-09-24:** the
+  Keeper's `core-check:ordinary-check` Persuade (44 vs 40, failure, bonus 1) did carry `action.obligation`;
+  the attempt was recorded (`settled: false`, the book's failure and push lines) and the obligation stays
+  `open` because a failure does not settle it. The owner's first reading ("bypassed, unpaid") was a misread of
+  a truncated dump. SL-14 still lands for the narrower gap: the same check without the claim counted as nothing.
 - (4) stalled stream: not exercised, no stall occurred.
 - (5) budget rows in turns 1 and 3 (compose at 47.1 s and 45.2 s), both runs still `delivered`: **met**. Turn 3
   paid a second compose after `turn_close` (`audit-repair`, 4.8 s), which is where its 55 s came from.
@@ -296,9 +297,10 @@ work. In all three turns Jev's answer sat just under a gate on a different quest
 declared move that scored 0.93 on gate #2's table with the same sentence, 0.30 on the seeks question for a
 sentence that is the request, 0.59 on a disposition whose mass was 0.67), so the clerk was handed one move and
 one standing defence in three turns. The variance of the route confidence at the gate, not model speed, is the
-bottleneck; that is what the proposed typed-feature scoring (SL-13) is for. Two defects to file: an ordinary
-check on an obligation's approach bypasses the obligation (the attempt is not counted), and a `look` still
-costs one full model round each (three in turn 3, 15.4 s for the first).
+bottleneck; that is what the proposed typed-feature scoring (SL-13) is for. Two follow-ups filed: an ordinary
+check on an obligation's approach made without the claim counts as nothing (SL-14; the gate's own check did
+carry the claim, see above), and a `look` still costs one full model round each (three in turn 3, 15.4 s for
+the first; SL-15).
 
 Evidence: `chatrpgv4-wt-integ-sl/.coc/campaigns/gate3-haunting-2329/{telemetry.jsonl,turns/000{1,2,3}.json}`
 and `.coc/playtests/gate3-haunting-2329-20260924T032940Z/`.
