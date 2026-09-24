@@ -4,7 +4,7 @@ Spec: docs/specs/pi-native-single-loop.md (Ruling: "The declared ordinary check 
 
 # SL-26 — The compile selects the declared ordinary check
 
-## Evidence (long live gate, campaign longgate-haunting-1010, turns 11–13)
+## Evidence (long live gate, campaign longgate-haunting-0624 — first recorded as longgate-haunting-1010 — turns 11–13)
 - "先站在楼梯口听一会儿" → Keeper Listen 72; "搜床底、床垫和衣柜" → Keeper Spot Hidden 96 (fumble); "把窗户和地板敲一遍，找暗格" → Keeper Spot Hidden 99, 83, then Dodge 71 / SAN / CON on the flying bed. Six rolls by the Keeper at 3–6 s of review each; the compile answered `decided_none` / `fell_through` because no predicate reads `resolve:core-check:ordinary-check`.
 - The ordinary binder (`bind-ordinary`, runtime/jev/ordinary-resolve-domain.ts, step-policy settleOrdinaryBind) already settles skill/intent/modifiers from the declaration when asked.
 
@@ -159,3 +159,51 @@ Spot Hidden; a live Keeper sees `clerk_did`. Worth watching at the next live gat
 (after the telemetry commit): `loop` 137/137 (exit 0); `ext` 2904/2906 twice, with a different pair each time
 (`continuity-audit`/`workspace-lifecycle`, then two `jev-source-domain` timing tests) while the box ran at load 50–55 on
 16 threads; each of those files passes on the Mac at the same HEAD (3/3 and 1/1), and none is touched by this change.
+
+### 2026-09-24 — owner rulings on the three open points, implemented; merged with the integration branch
+
+**Rulings.** (1) When the compile's act cleared (investigate, or social with the addressee) and the binder settled a skill
+that cleared the gate, the roll happens: the cleared act settles roll-or-not as it settles the intent; the binder's
+roll-or-not answer is recorded and does not decide. (2) The destination guard stands as written. (3) Stands; it is a watch
+item (below).
+
+**Contract.** §135.30.3 gains "The cleared act settles roll-or-not". **Commits.** `d9e5d0b77` (the ruling: `compiled` /
+roll-or-not in the binder, `settleOrdinaryBind`'s `ordinary_compile_act` and `basis.roll: {rule: "compile_act", binder:
+"no_roll", confidence}`; an uncleared skill keeps the binder's `no_roll`). `0f1563bb8`: the first replay after `d9e5d0b77`
+had a run left unbound on the binder's **actor** question (it answers 0.10–0.19 on this table: `actor_0` or `unknown`), so
+the same argument is applied to the two parameters the compile and the kernel already give: the intent is the compile's act
+and a single issued actor is stated (§135.28); consent, difficulty and the dice stay the binder's; the binder's parameter
+answers are now on the `bind-ordinary` row (`parameters`). `418d3c689` and `7e32f6400` merge the integration branch at
+`f0d90d626` and then `c538a0ef5` (SL-23, SL-25, SL-27); §135.30.3 stays before §135.30.4; the shared `longgate` tarball is
+the integration's (the same campaign, positioned later; replays reset to `commit_before`).
+
+**Tests.** `admission-within-turn.test.mjs` "SL-26 (owner ruling …)": the t12 run-1 shape at the seam (the binder's route
+`no_roll` 0.52 / `ordinary` 0.46): Spot Hidden 0.9 is rolled, admitted `path: compile`, `basis.roll` recorded; Spot Hidden
+0.45 is not rolled. It failed on `8e5c538a7` ("the binder was still asked for the skill", both subtests). `single-loop-binding`
++2: the policy's decision on the three shapes (compile + cleared, compile + uncleared, route-selected unchanged), and
+`interpretOrdinaryRoute` with and without `compiled` (unknown actor and intent; two actors stay Jev's; consent still decides).
+
+**Mutations** (all killed): R1 the engine does not pass `compiled` (3); R2 `no_roll` still ends the binding (4); R3 `no_roll`
+rolled with an uncleared skill (3); R4 `basis.roll` not stamped (3); R5 the engine drops the binder's route answer (3); R6
+the single actor not stated (1); R7 the binder's intent decides (1).
+
+**Replays of `longgate-t12`** (seed 1, live Jev, recorded Keeper, lane replayed, one process at a time).
+
+| tree | run | compile act / destination | binder route (ordinary / no_roll) | actor answer | skill | executed by the clerk | admission |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `d9e5d0b77` (ruling only) | 1 | investigate 1.0 / none 0.96 | ordinary 0.51 / 0.47 | not recorded yet (unbound) | not asked | **no** (`ordinary_unknown`: actor) | — |
+| | 2 | investigate 1.0 / none 0.96 | **no_roll** 0.48 / 0.50 | — | Spot Hidden 0.89 | **yes**, `basis.roll` compile_act | compile, 0 ms |
+| | 3 | investigate 1.0 / none 0.95 | ordinary 0.55 / 0.43 | — | Spot Hidden 0.88 | yes | compile, 0 ms |
+| `7e32f6400` (final, merged) | 1 | investigate 1.0 / none 0.96 | ordinary 0.53 / 0.45 | actor_0 | Spot Hidden 0.88 | **yes**, actor stated | compile, 0 ms |
+| | 2 | investigate 1.0 / none 0.96 | ordinary 0.55 / 0.43 | actor_0 | Spot Hidden 0.88 | **yes** | compile, 0 ms |
+| | 3 | investigate 1.0 / none 0.95 | ordinary 0.52 / 0.46 | **unknown** | Spot Hidden 0.90 | **yes**, actor stated | compile, 0 ms |
+
+Executed 3/3 on the final tree, every one Spot Hidden with the compile's intent, admitted on the compile's evidence with no
+lane request. The first tree's run 2 shows the ruling itself live (the binder said `no_roll`; the clerk rolled; the basis says
+why); its run 1 is what `0f1563bb8` fixed, and the final run 3 is that shape again, now rolled. The first tree's traces were
+overwritten by the final ones (`results/sl26-longgate-t12-ruling`); the rows above are from its console summary.
+
+**Watch item (3).** The replayed Keeper still runs the module's bed-attack rule step 0 (a Spot Hidden) after the clerk's
+Spot Hidden (lane-reviewed, `entailed`/`authorized`). A live Keeper sees `clerk_did`; at the next live gate, check whether a
+declared search in the bedroom is rolled twice (the clerk's ordinary check and the rule's step) and whether the Keeper
+folds the rule's step into the clerk's roll.

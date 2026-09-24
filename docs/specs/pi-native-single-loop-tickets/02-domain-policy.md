@@ -566,7 +566,7 @@ Findings:
 
 Evidence: `chatrpgv4-wt-integ-sl/.coc/campaigns/gate7-haunting-0534/{telemetry.jsonl,turns/000{1,2,3}.json}`.
 
-### 2026-09-24 — long live gate, 20 turns on the integration branch `31b59b71b` (SL-13..SL-22; driver.py, hybrid-v1, PI_COC_JEV_PRESELECT=1, grok-4.7-build-fast low, campaign `longgate-haunting-1010`)
+### 2026-09-24 — long live gate, 20 turns on the integration branch `31b59b71b` (SL-13..SL-22; driver.py, hybrid-v1, PI_COC_JEV_PRESELECT=1, grok-4.7-build-fast low, campaign `longgate-haunting-0624`, playtest `longgate-haunting-0624-20260924T102454Z`; first recorded here as `longgate-haunting-1010`, corrected 2026-09-24 by SL-26)
 
 Script and class-based pre-registration in the session scratchpad (`long-gate-script.md`, `live-gate-long-preregistration.md`). Structural table in `longgate-triage.txt`, evidence in `longgate-evidence.txt`, prose in `longgate-prose.txt`.
 

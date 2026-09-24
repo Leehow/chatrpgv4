@@ -18621,7 +18621,7 @@ fight. The replays are in the SL-19 ticket's Comments.
 
 The spec's ruling "The declared ordinary check is the clerk's" (owner, 2026-09-24). **Evidence** (the long live gate,
 campaign `longgate-haunting-0624` in the integration worktree's `.coc`, playtest `longgate-haunting-0624-20260924T102454Z`;
-the SL-02 ticket's Comments call it `longgate-haunting-1010` after the run's start time; the `lane: "route"` rows of its
+first recorded as `longgate-haunting-1010`, corrected in the SL-02 ticket; the `lane: "route"` rows of its
 `telemetry.jsonl`). Turn 11, "我上二楼，先站在楼梯口听一会儿，再去主卧。": the second compile (s16, in the bedroom) read `act`
 `investigate` 0.70 and `destination` `none` 0.96, and answered `decided_none`: no predicate reads
 `resolve:core-check:ordinary-check`, so it fell through to the route, whose `need` question answered `later` (0.64) and
