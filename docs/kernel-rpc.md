@@ -20,7 +20,7 @@ PDF 直接阅读与按需构图的现行契约见 §22。§14 与 §20 的旧 PD
 - 内核不并发处理请求：按到达顺序逐个执行。扩展负责序列化。
 - 内核崩溃或退出时扩展重新拉起并调用 `table.open`；所有状态都在磁盘上，内核进程无内存权威。
 
-错误码闭合枚举：`invalid_params`、`unknown_method`、`not_implemented`、`campaign_not_found`、`campaign_not_ready`、`turn_state`（当前回合状态不允许该方法）、`idempotency_conflict`、`needs`（缺少可补的输入，`details.needs` 给字段与可选值）、`needs_choice`（多个互斥候选，`details.candidates`）、`unknown_entity`（名字在模组图与世界状态中都找不到，`details.candidates` 给相近名字）、`not_reachable`（移动目的地不可达）、`not_here`（线索不在当前场景可得）、`commit_failed`（git 提交失败，回合未关闭）、`internal`。
+错误码闭合枚举：`invalid_params`、`unknown_method`、`not_implemented`、`campaign_not_found`、`campaign_not_ready`、`turn_state`（当前回合状态不允许该方法）、`idempotency_conflict`、`needs`（缺少可补的输入，`details.needs` 给字段与可选值）、`needs_choice`（多个互斥候选，`details.candidates`）、`unknown_entity`（名字在模组图与世界状态中都找不到，`details.candidates` 给相近名字）、`not_reachable`（移动目的地不可达）、`not_here`（线索不在当前场景可得，也不在本回合离开的场景可得，§135.30.7）、`commit_failed`（git 提交失败，回合未关闭）、`internal`。
 
 Every failure also carries `retryable` and `next`. `retryable` is true only when the exact
 request is safe to send again; `next` is a closed recovery action: `retry_same`,
@@ -354,7 +354,7 @@ result：
 params：`{"call_id": "...", "effects": [{"kind": "move", "to": "<场景名>", "travel_minutes"?: int, "label"?: "<玩家语言的短名>"}, {"kind": "clue", "clue": "<线索名>", "how"?: "<一句话>", "label"?: "<玩家语言的短名>"}, {"kind": "time", "minutes": int, "why"?: "..."}, {"kind": "damage", "dice": "1D6", "subject"?: "<调查员>", "why"?: "..."}]}`。`damage` 是没有攻击者的伤（摔落、火烧、坠物）：守秘人给规则书的骰子，内核掷骰、写一条 `roll` 收据与一条 `delta` 收据、更新 HP 与伤口记录；有攻击者的伤走 `resolve`。`move` 的结果带目的地的 `where` 与 `present`，守秘人不必再 `look`。`label` 是守秘人用 play_language 给玩家看的短名，只用于机制块；省略时机制块用图上的 display_name 或 id。
 - 整批先校验后写，任一条失败整批不写：`{"code": "...", "details": {"index": i, ...}}`。
 - `move`：目的地必须是图上从当前场景可达的场景（`route-to`，或可玩性模板的入口关系 `play-precedes`/`may-lead-to`/`alternative-to`/`hands-off-to`——构建出的书多按演出顺序连场景，运行时与可玩性检查用同一套词，出口条目带 `via`），或 `scene_edges` 声明的目的地，或来路上的任何场景（`world.scene_trail`：到达当前场景所经过的场景栈，来路总是可退：没有作者出口的巢穴也能一步退回地窖或一楼）；否则 `not_reachable`，`fix` 里直接写出两份名字，`details.exits` 给出口，`details.back` 给来路（由近到远）。**守秘人可以给一条图上没有的路**：`via` 写清怎么过去的（翻没钉死的二楼窗、下运煤道、跟着人进去），这一步就落地，收据记 `via` 与 `improvised: true`；`via` 写在图上本来就有的边上只是修辞，收据不记。没有这条口子时，书自己的虚构（「二楼的窗没钉」）会被拒，守秘人照样叙述，于是**世界停在街上而故事在楼上**，那一层的线索接着被判 `not_here`，而且没有任何信号说两者已经分叉——静默的分叉比走错出口更坏。`travel_minutes` 缺省取图上边的值（退一步取反向边），没有则 0。`label` 给过一次就是这个场景从此的名字：写进 `world.scene_labels[<场景>]`，之后的 `【变化】场景` 行、胶囊 `where`、检查点、任务包都用它，记忆解析把它当场景的别名。写 `world.active_scene`、`scene_trail`（前进则压入当前场景，退回则截断到目的地之前）、`visited_scenes`、`scene-moved` 事件。旧世界没有 `scene_trail` 时在 `_context` 里按同一规则重放 `scene-moved` 事件一次性补上。**`to` 就是当前场景时，这一步是命名而不是移动**：`label` 必填（缺了报 `invalid_params`，`fix` 指名 `label`），写进 `world.scene_labels` 就结束——不动时钟、不动 `scene_trail`、不发 `scene-moved`、收据 `visibility: "keeper"` 且带 `renamed: true`，机制投影不给它行（否则卡面上会出现「从某处走到某处本身」）。没有这条口子时，开场那个场景永远不是任何一次移动的目的地，于是全桌只有它一直挂着书上的英文名。
-- `clue`：必须是图上存在的 clue 节点，且 `discoverable-at` 当前场景或在当前场景 record 的 `available_clues` 里；否则 `not_here`。已发现的重复写入返回 `replayed: true`，不报错。写 `discovered_clues`、`clue-discovered` 事件。
+- `clue`：必须是图上存在的 clue 节点，且 `discoverable-at` 当前场景或在当前场景 record 的 `available_clues` 里（§135.30.7 起：或本回合离开的场景——本回合 `move` 收据的 `from`——里可得，记在那个场景，收据 `scene` 为它并带 `left_this_turn: true`）；否则 `not_here`。已发现的重复写入返回 `replayed: true`，不报错。写 `discovered_clues`、`clue-discovered` 事件。
 - `time`：推进世界时钟，写 `time-advanced` 事件。**时间过去了，伤就该好。**本批 `time` 效果的分钟数相加（同一批两个四小时就是一夜；`move` 的行程分钟不算——赶路不是休息）：≥360 分钟走治疗引擎的休整入口（`handle_time_trigger`：六小时以上算一天，没有重伤则每天回 1 点生命，规则书 p.121；不到这个数一次都不调，因为同一个函数还会清掉当天的急救次数，十分钟不是新的一天），≥60 分钟走魔法点的每小时回复（规则书的单位是小时，引擎的下限会给任何一次推进至少 1 点）。每个真正变动的资源写一条 `delta` 收据与一条 `resource-changed` 事件，result 另给 `recovered: [{investigator, resource, before, after}]`，好让守秘人在写这一夜之前就知道这一夜的人还站不站得起来（数字本身不进正文，§16.3）。**这条规则一直在规则图上**（`rule:coc7:healing:regular-damage-recovery`），两个引擎的入口也一直写着、测着，只是内核从来没有调用过：真桌上 55 个游戏内小时、三夜睡眠、两次看医生，生命值一整局卡在 5/11。
 - `item`（#19）：`{"kind": "item", "name": "<物品名>", "to"?: "<调查员>", "from"?: "<NPC 名>", "weapon"?: "<规则表武器 id 或 profile 名>", "quantity"?: int, "label"?: "<玩家语言短名>", "why"?}`。叙述里到手的东西由此进调查员表：写 `party/<id>.json` 的 `equipment[]`（名字、数量、来源回合），`weapon` 给了就同时写 `weapons[]`（从 `rules-json/weapons.json` 的武器 profile 取伤害、射程、弹容、技能（`equipment.json` 只是价目表），取不到报 `needs`，`details.needs.options` 列可用 id），之后 `resolve` 的 `weapon` 能解析它、战斗开局按它排弹药。收据 `item:<slug>-t<turn>-c<n>`，渲染 `【变化】物品：<人> 得到 <label 或名>`，事件 `item-transferred`（`{name, to, from?, weapon?, quantity}`）。`quantity` 为负是失去（消耗、交出、被夺），表上没有就报 `invalid_params`。
 - `cash`（#19，§58）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "source": "price"|"quote"|"found", "settlement"?: "cash"|"spending_level", "price_id"?: "<印刷记录 id，source=price 必填>", "currency"?: "<这笔钱的单位>", "with"?: "<NPC 名>", "why"?}`；**`source` 必填**：钱的数额必须说明来源，`price` 由内核到规则书印刷物价表里解析 `price_id`（解析不到就拒），`quote` 要 `with`（场上谁开的价），`found` 是不涉及价格的进出。`settlement` 缺省 `cash`；`spending_level` 只用于不超过调查员消费等级的负向 `price`/`quote`，记录购买但不改现金。`currency` 与余额单位不一致直接拒——内核没有汇率表，不替任何人换算。玩家说的自己兜里有多少是余额不是价格；余额与本局已成交的价在胶囊 `known.investigator.cash` 与 `known.prices_paid` 里。全文见 §58；`with` 是钱的另一头（付给谁、从谁那儿来），落进那个人的账本 `exchanged`（§17.3）与机制投影；不写就只是钱数变了，没有对方。普通结算写表上 `finance.cash`；消费等级结算保留余额（没有 finance 块的时代都先按 `rules-json/cash-assets.json` 建一个），收据均为 `cash:t<turn>-c<n>`，事件分别是 `resource-changed` 与 `purchase-settled`。
@@ -10194,7 +10194,7 @@ that called the refused verb, with no continuation behind it
 
 逐回合读证据（`homes/{t9,t4,t5}/.coc/campaigns/*/turns/`）之后，判据只有一条，而它不在守秘人手里：
 
-**`apply clue` 只收模组图上、且 `discoverable-at` 当前场景的线索节点。** 场景的 `clues_here` 为空时，任何记账都返回 `not_here`，守秘人再自觉也落不下账。
+**`apply clue` 只收模组图上、且 `discoverable-at` 当前场景的线索节点。**（§135.30.7 起也收本回合离开的场景的线索。） 场景的 `clues_here` 为空时，任何记账都返回 `not_here`，守秘人再自觉也落不下账。
 
 - t5《不息的渴望》：`book-1` 的图共 10 个节点，`clue` 一个都没有。11 个回合 `clues_here` 全空——侦查 63/75 通过挖到的、连续 6 个回合复现的水下钟声、第 7 回合 NPC 自己引用它当已知事实，**一条都不可能进线索栏**。这不是守秘人失误，是结构性不可能。
 - t4《鬼屋》：开场 `commission-briefing` 有 4 条授权线索，1–3 回合全部落账；第 5 回合起party在 `Roxbury Sanitarium`，那是 `add_scene` 铸出来的地点，`clues_here: []`，此后 8 个回合 0 条。**「离开开场场景就不再登记」是表象，真因是 adaptation 铸的地点永远装不下线索。**
@@ -19416,7 +19416,8 @@ other's review, and a refusal of the move does not take the clue back. A clerk w
 read does not issue the move (an obligation's roll that failed leaves it `open`; a condition the clue alone does not meet):
 the move is not run, nothing is consumed for it, and the row goes to the Keeper as §135.30.4's `guarded` entry in the next
 `coc-clerk` note (`RunView.unlockMissed`, read by the engine), once. A staged move whose step never ran (the run ended, its
-budget spent) is dropped with the run.
+budget spent) is dropped with the run. The Keeper's own bookkeeping of the scene the clerk's move left (the rest of an accept) is
+still accepted there, within the turn (§135.30.7, SL-42).
 
 **Not changed.** The gates; the other predicates; which candidates the builder issues (a guarded move is still never one);
 §135.30.4's report for every guard the batch does not unlock; admission's rules.
@@ -19481,6 +19482,55 @@ and entrance exist from the office, and the ground floor's basement row names th
 `exists`. `tests/extension/single-loop-destination-rows.test.mjs`: the guard carries `exists`; the note's guarded entry
 carries `entrance.passages` from the run's prescreen when it located the destination and none when it did not; the note's
 wording is asserted by structure only (its presence), never by prose.
+
+#### 135.30.7 Addendum (2026-09-24, SL-42): the bookkeeping of the scene the party left this turn is accepted at that scene
+
+SL-42 takes §135.30.7 (§-numbers are stable ids). The owner's ruling of 2026-09-24 binds it: "Within one turn, an effect
+located in a scene the party left during that turn is accepted and recorded at that scene (the scene trail knows the
+departure); `not_here` keeps refusing effects located anywhere else. The clerk's move is not delayed for the Keeper." It
+amends the `clue` locality rule of `table.apply` (§5, "`clue`：…否则 `not_here`") and §51's statement of it, for both
+engines: the kernel's locality does not depend on who wrote the call.
+
+**Evidence** (SL-38's replay of long gate #3 turn 1, `experiments/single-loop-routing/results/sl38-longgate3-t1-after`).
+With §135.30.5 the clerk files the research leads and moves the party to the morgue before the Keeper's first step. The
+recorded Keeper's first batch -- Knott staged, the keys clue `knott-keys`, the $20 advance, the key item, the commission
+handout -- was then refused `not_here` in 3 of 3 runs: the keys clue is located at Knott's office, which the party had
+just left. Probed one effect at a time on the emitted kernel after the move, only the clue refuses; `person`, `cash`,
+`item` and `handout` are not scene-located in `table.apply` and land at the morgue. The keys clue opens the house (turn 9),
+so its loss breaks the table later. Before SL-38 the whole accept landed, because the Keeper filed it before its own move.
+
+**The rule.** An `apply clue` whose clue is not discoverable at the active scene is accepted when it is discoverable at a
+scene **the party left during this turn**: the `from` of a `move` receipt of the current turn (a scene rename is not a
+departure), whether that receipt landed in an earlier call of the turn or earlier in the same batch. These receipts are
+the turn's own scene trail: each departure the turn made, in order. When the clue is discoverable at more than one of
+them, the most recent departure is the one. Nothing else about locality changes: a clue discoverable neither here nor at
+a scene left this turn is `not_here` exactly as before (a scene left on an earlier turn, a scene never visited, one of
+the book's scenes the party has not reached); `details.clues_here` stays the active scene's.
+
+**Where it is recorded.** The clue is recorded at that scene, not at the active one: the receipt's `scene` (the key a
+clue receipt has always used for where it was found; `at` stays the receipt's timestamp) and the `clue-discovered`
+event's `scene` are the departed scene, and the receipt carries `left_this_turn: true`. The source the kernel infers when
+`from` is not given reads the people the world places at that scene. The ruling's "receipt `at: <that scene>`" is this
+`scene` key: renaming the timestamp would break every reader of `at`.
+
+**The other kinds.** `person`, `cash`, `item` and `handout` have no scene locality in `table.apply` today (they land
+wherever the party is), so the ruling needs nothing new for them; a later locality rule for any of them takes the same
+departed-scene case.
+
+**Not changed.** The clerk's move is not delayed for the Keeper (§135.30.5 stands). `table.apply.options` and the capsule
+still offer the active scene's clues only; a clue of the scene just left reaches the Keeper through what it was about to
+write, not through a new offer. Admission (§32) reviews the clue line as any clue line.
+
+**Three ends (§31).** *Writer:* the kernel (`stageClue` reading the turn's move receipts). *Reader:* the clue receipt
+(`scene`, `left_this_turn`), `discovered_clues`, the `clue-discovered` event. *Actor:* the Keeper, whose bookkeeping of the
+scene the clerk just moved out of lands where the book puts it.
+
+*Tests.* `tests/kernel/test_apply.py`: after a move this turn, the office's keys clue lands with `scene:
+commission-briefing` and `left_this_turn: true`; the same clue on the next turn, and a clue of a scene the party never
+visited, are still `not_here`; a move and then the old scene's clue in one batch lands. `tests/extension/single-loop-guard-unlock.test.mjs`:
+on the emitted haunting through the vendored driver, gate #3's turn-1 sentence lands the leads clue and the move (the
+clerk), then the Keeper's batch -- Knott, the keys clue, the cash, the key item and the handout -- with receipts. The
+mutations and the turn-1 replay are in the SL-42 ticket's Comments.
 
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
 

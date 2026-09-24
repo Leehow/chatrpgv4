@@ -20,6 +20,11 @@ import {npcProfileOf} from '../resolve/context.js';
 import type {ApplyContext} from './index.js';
 import {CampaignSnapshot} from '../read/campaign.js';
 import {acceptReunion} from '../npc/reunion.js';
+/** §135.30.7 (SL-42): the scenes the party left during this turn, latest departure first, from the turn's own move receipts. */
+function departedThisTurn(context:ApplyContext):string[]{
+    const moves=[...array(context.turn.receipts),...(context.staged?.()??[])].filter(receipt=>isJsonObject(receipt)&&receipt.kind==='move'&&receipt.renamed!==true&&typeof receipt.from==='string'&&receipt.from!==receipt.to);
+    return [...new Set(moves.map(receipt=>string(receipt.from)).reverse())];
+}
 export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedEffect>{
     const name=required(effect,'clue')!,{world,graph}=context,turn=context.turn.turn;
     const label=typeof effect.label==='string'&&effect.label.trim()?effect.label:null,how=typeof effect.how==='string'?effect.how:null;
@@ -34,8 +39,12 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
         if(array(world.discovered_echoes??=[]).includes(name))return {receipt,event:null};world.discovered_echoes.push(name);
         return {receipt,event:{type:'clue-discovered',data:{clue:name,scene:echo.scene,how,echo:echo.line}}};
     }
-    const node=graph.clue(name),scene=graph.scene(world.active_scene),here=graph.sceneClueIds(scene),handle=graph.handle(node);
-    if(!here.includes(node.node_id))throw new RpcError('not_here',`clue ${repr(handle)} is not discoverable at ${repr(graph.handle(scene))}`,{fix:'discover one of details.clues_here, or move first',details:{clue:handle,scene:graph.handle(scene),clues_here:here.map(id=>graph.handle(graph.nodes.get(id)!))}});
+    const node=graph.clue(name),active=graph.scene(world.active_scene),here=graph.sceneClueIds(active),handle=graph.handle(node);
+    // §135.30.7 (SL-42): a clue of a scene the party left during this turn is accepted there. The turn's departures are the
+    // `from` of its move receipts (earlier calls, then earlier in this batch; a rename is not a departure), latest first.
+    const left=here.includes(node.node_id)?undefined:departedThisTurn(context).map(handle=>graph.scene(handle)).find(value=>graph.sceneClueIds(value).includes(node.node_id));
+    const scene=left??active;
+    if(!here.includes(node.node_id)&&!left)throw new RpcError('not_here',`clue ${repr(handle)} is not discoverable at ${repr(graph.handle(scene))}`,{fix:'discover one of details.clues_here, or move first',details:{clue:handle,scene:graph.handle(scene),clues_here:here.map(id=>graph.handle(graph.nodes.get(id)!))}});
     let source:string|null=null;
     if(typeof effect.from==='string'&&effect.from.trim())source=graph.handle(graph.npc(effect.from));
     else {
@@ -44,7 +53,8 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
         const candidates=sorted([...holders].filter(name=>present.has(name)));if(candidates.length===1)source=candidates[0];
     }
     // Without a keeper label the receipt files the graph's display name: a handle is a machine word and never reaches the player.
-    const receipt={id:`clue:${handle}-t${turn}`,kind:'clue',call_id:context.callId,clue:handle,label:label||graph.displayName(node),summary:node.summary||node.name,scene:graph.handle(scene),how,from:source,at:nowIso()};
+    const receipt={id:`clue:${handle}-t${turn}`,kind:'clue',call_id:context.callId,clue:handle,label:label||graph.displayName(node),summary:node.summary||node.name,scene:graph.handle(scene),how,from:source,
+        ...(left?{left_this_turn:true}:{}),at:nowIso()};
     if(label)(world.clue_labels??={})[handle]=label;
     // §80: the account of how this table came by the clue, kept beside its name because that is
     // what the player's own record of it says. The graph's summary is the Keeper's and stays on

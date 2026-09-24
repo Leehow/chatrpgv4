@@ -46,6 +46,8 @@ export interface ApplyContext {
     readonly ordinal: number;
     mint(base: string): string;
     settlement(subject?: any): Promise<SettleContext>;
+    /** The receipts this call has staged so far, in order (§135.30.7: a move earlier in the same batch is a departure). */
+    staged?(): Row[];
 }
 export interface ApplyResources {
     damage(context: ApplyContext, effect: Row): Promise<{
@@ -139,6 +141,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const effectReceipts = new Map<number, Row[]>();
             const stagedSheets=new Map<string,Row>(),stagedNotes:Row[]=[],stagedRulings:Row[]=[],attachments:Row[]=[],mapViews:Row[]=[],already:string[]=[];
             const context: ApplyContext = { kernel, transaction, campaign, world: staged, turn, graph, module, callId: started.callId, ordinal: started.ordinal,
+                staged: () => receipts,
                 mint(base) { let id = base, next = 2; while (taken.has(id))
                     id = `${base}-${next++}`; taken.add(id); return id; },
                 async settlement(subject) {
