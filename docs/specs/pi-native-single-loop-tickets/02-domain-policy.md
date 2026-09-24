@@ -304,3 +304,24 @@ the first; SL-15).
 
 Evidence: `chatrpgv4-wt-integ-sl/.coc/campaigns/gate3-haunting-2329/{telemetry.jsonl,turns/000{1,2,3}.json}`
 and `.coc/playtests/gate3-haunting-2329-20260924T032940Z/`.
+
+### 2026-09-24 — live gate #4 on the integration branch `db056b144` (SL-13/14/15, driver Linux fix, pytest parallel; driver.py, hybrid-v1, grok-4.7-build-fast low, campaign `gate4-haunting-0214`)
+
+Pre-registered in the session scratchpad (`live-gate-4-preregistration.md`). Same three sentences as gate #3.
+
+| turn | wall | model calls (s) | compile | clerk executed | Keeper | delivered |
+|---|---|---|---|---|---|---|
+| 1 accept + Globe | 79.1 s | 4 (46.2) | **no compile row** | move by the route (0.88); Arty staged (stated meeting); obligation check selected by the route's seeks 0.55 → **refused by admission** (not_authorized: the player said nothing about Arty) | adjudicate after the refusal, its own resolve refused too; compose ×2 | **no**: speech steer dropped the first draft, the second draft was never delivered, `turn_close_steer_spent:no_delivered_evidence`, turn stranded |
+| 2 clippings | 58.8 s | 4 (39.7) | ran; ask feature obligation 0.35 / none 0.36 → nothing fired | nothing | first-impression (Appearance 100, fumble) then Persuade with the claim (98, fumble): barred from the morgue per the book | yes |
+| 3 punch Knott | 44.2 s | 7 (25.7) | selected the move at 0.98, act combat 0.76 | move; Knott's dodge (stated); disposition Jev 0.31 → Keeper | attack, session, one source lookup (refused) | yes |
+
+Scored: (1) startup met. (2) turn 1: compile absent, 79 s, undelivered: **not met** on three lines; calls ≤ 4 met. (3) turn 2: the compile ran but the ask did not clear; the roll carried the obligation (claimed by the Keeper); 58.8 s and 4 calls: **not met** on wall and calls. (4) turn 3: clerk move by compile, Knott's defence by the clerk, carried views present (scene 3,008 B; Knott's card 3,865 B with `mechanics`; session), wall 44.2 s: **met**; looks 0: **not met** (one `lookup kind: source` for "Steven Knott", refused; not a card look); calls ≤ 5: not met (7). (5) `infer(bind)` = 0 and no stall: met; every turn delivered: **not met**. (6) met.
+
+Findings and where they go:
+- **The second draft after the speech steer is dropped on the driven path** (turn 1). Top severity: the player saw nothing for 79 s while the Keeper wrote twice. Fix in progress on `claude/sl16-20260924`.
+- **The compile did not run on turn 1** (no row) although move rows existed; the route selected the move later. Follow-up on `claude/sl13b-20260924`.
+- **Premature obligation selection**: the route's seeks question selected the clippings check on the travel sentence; admission refused it correctly at ~20 s cost. Ruling: an obligation check is selected only by the compile's predicates; the seeks question no longer selects. Same branch.
+- **Ask-feature variance**: obligation 0.35 vs none 0.36 for the sentence that is the request (replay 0.71–0.79). A measurement worker is testing the language gap (English rows vs Chinese declaration) and option count; no tuning until measured.
+- **Turn 3 improved** over gate #3 (58.9 → 44.2 s, 8 → 7 calls, 3 looks → 1 source lookup) and the carried card reached the Keeper whole enough to act.
+
+Evidence: `chatrpgv4-wt-integ-sl/.coc/campaigns/gate4-haunting-0214/{telemetry.jsonl,turns/000{1,2,3}.json}`, `.coc/playtests/gate4-haunting-0214-20260924T061454Z/`.
