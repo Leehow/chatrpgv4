@@ -164,6 +164,11 @@
       "id": "SL-32",
       "file": "32-pdf-import-reads-before-guidance.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-33",
+      "file": "33-same-span-is-not-a-contradiction.md",
+      "status": "ready-for-agent"
     }
   ],
   "relatedSpecs": [
