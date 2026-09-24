@@ -17506,7 +17506,9 @@ margin rule in 5/5 (0.61–0.63 against 0.18–0.21), so the rule leaves that ru
 
 - **The settlement.** A clerk (policy-origin) step settles the declaration when a compile of this run selected its
   candidate (§135.30: the declaration's own step; a carried meeting settles nothing, the check it hands on to does), the
-  kernel took it, and, for a `resolve`, its check did not fail. The failure is read from the kernel's closed outcome fields
+  kernel took it, and, for a `resolve`, its check did not fail. The first blow of §135.30.2 (SL-19) settles like any
+  other: the compile's `first_blow` predicate selected it, the kernel opened the fight, and the NPC's pending defence that
+  the kernel then forces runs as a forced step before any route question. The failure is read from the kernel's closed outcome fields
   (`outcome.passed === false` or `outcome.success === false`); the clerk's execute summary carries it as `check: "passed" |
   "failed"` (absent when the result has neither field). The policy keeps the keys the run's compiles selected
   (`RunView.compileSelected`) and the keys that settled (`RunView.settled`). A clerk step the route selected, a Keeper's
@@ -17537,7 +17539,8 @@ row's `reason: "settled"`.
 compose (reason `settled`), and the same answer after a failed check or a check the compile did not select is the Keeper's;
 `ask_llm` or `continue` that clears on its own (by confidence or by margin) still hands the run to the Keeper, while
 `finish`, `read_more` and `unclear` compose; a need the route selects still runs; on the driver, an NPC's forced defence
-issued after the settlement runs before the route and the compose; at the engine, the clerk's execute carries `check` and the
+issued after the settlement runs before the route and the compose; on the emitted kernel, the compile-selected first blow
+settles, the kernel opens the fight, the NPC's forced defence runs, and gate #6's unclear exit then composes; at the engine, the clerk's execute carries `check` and the
 compose's note carries the receipts, the obligation's line and `settled_note`. The replays after the change are in the
 SL-20 ticket's Comments.
 

@@ -10,16 +10,22 @@
  *   settlement still runs before the compose.
  * - Engine seam (hybrid engine, stub kernel): the clerk's execute says whether its check passed; the compose's note
  *   carries the settlement's receipts and the obligation's book line, and says why it is the compose.
+ * - Table seam (hybrid engine, emitted kernel): the compile-selected first blow (SL-19, §135.30.2) settles the declaration;
+ *   the kernel opens the fight, the NPC's forced defence runs, and the route's unclear exit is the compose.
  */
 import { strict as assert } from "node:assert";
+import { spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { runDriver } from "./pi-agent-core.mjs";
+import { fileURLToPath } from "node:url";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { openTable } from "./harness.mjs";
+import { isRunEvent, runDriver } from "./pi-agent-core.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY, NONE, UNCLEAR, compileBatch } from "../../runtime/jev/route-compile.ts";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
-import { createStepPolicy, initialView, next, routeBatch, settleCompile, settleExecute, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
+import { BIND_FAMILY, createStepPolicy, initialView, next, routeBatch, settleCompile, settleExecute, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
 
 const scope = { owner: "campaign:test", campaign: "test", worldline: "main", loop: 0, audience: "keeper" };
 const context = { scene: "morgue", clock: null, present: ["the editor"], receipts: [] };
@@ -198,4 +204,61 @@ test("§135.11 SL-20 at the engine: the clerk's execute says whether its check p
 	assert.equal((await execute("s7")).artifact.executed.summary.check, "failed");
 	const [other] = await plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s8", step: { kind: "infer", purpose: "adjudicate", reason: "low_confidence" } });
 	assert.equal(JSON.parse(other.content).settled_note, undefined, "only the settlement's compose carries the note");
+});
+
+const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+/** Kernel requests on the workspace, through the emitted kernel's own RPC (to put the table in a state). */
+function kernelSteps(workspace, campaign, requests) {
+	const input = requests.map((request, index) => JSON.stringify({ id: String(index), method: request[0], params: { campaign, ...request[1] } })).join("\n");
+	const run = spawnSync(process.execPath, [join(REPO, "build/kernel/rpc.mjs"), "--workspace", workspace, "--content", join(REPO, "content")],
+		{ cwd: REPO, input: `${input}\n`, encoding: "utf8" });
+	const frames = run.stdout.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line)).filter((frame) => !frame.progress);
+	for (const frame of frames) if (!frame.ok) throw new Error(`fixture step ${frame.id} failed: ${JSON.stringify(frame.error)}`);
+	return frames;
+}
+/** A Jev answer in the adapter's shape: `pick(question)` returns [choice, confidence, probabilities] or a choice. */
+function answered(batch, pick) {
+	const answers = {};
+	for (const question of batch.questions) {
+		const picked = pick(question), [choice, confidence, probabilities] = Array.isArray(picked) ? picked : [picked ?? (Object.keys(question.criteria)[0] === "now" ? "later" : "unknown"), 0.9];
+		answers[question.key] = { status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } };
+	}
+	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
+}
+
+test("§135.11 SL-20 at the table: the compile-selected first blow settles the declaration; the kernel's forced defence still runs, then the compose", async (t) => {
+	const campaign = "test-camp";
+	// SL-19's state: Knott has numbers and holds back when hit; no fight is running.
+	const prepareWorkspace = (workspace) => kernelSteps(workspace, campaign, [
+		["table.open", {}], ["table.player_input", { text: "我盯着他" }],
+		["table.apply", { call_id: "t1-c1", effects: [{ kind: "npc", name: "Steven Knott", archetype: "ordinary_adult", why: "test fixture" }] }],
+		["table.apply", { call_id: "t1-c2", effects: [{ kind: "npc", name: "Steven Knott", disposition: "avoids_fighting", why: "test fixture" }] }],
+		["table.narrate", { call_id: "t1-c3", text: "他在桌后看着你。" }],
+	]);
+	const alias = (question, match) => Object.entries(question.criteria).find(([, value]) => match(value))?.[0];
+	const calls = [], events = [];
+	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch) => batch.family === COMPILE_FAMILY
+		? answered(batch, (question) => question.key === "act" ? alias(question, (value) => typeof value === "string" && value.startsWith("combat"))
+			: question.key === "target" ? alias(question, (value) => JSON.stringify(value).includes("Steven Knott") || JSON.stringify(value).includes("史蒂文")) : "unclear")
+		: batch.family === BIND_FAMILY ? answered(batch, (question) => question.key === "weapon" ? "unarmed" : "unknown")
+			: answered(batch, (question) => question.key === "exit" ? GATE6_EXIT : undefined) } });
+	const table = await openTable({ realKernel: true, prepareWorkspace, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver,
+		extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }, { name: "sl20-call-probe", factory(pi) {
+			pi.on("tool_call", (event) => { calls.push({ id: event.toolCallId, tool: event.toolName, input: structuredClone(event.input) }); });
+		} }],
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你一拳打在他脸上。" })], { stopReason: "toolUse" })] });
+	t.after(() => table.dispose());
+	table.session.subscribe((event) => { if (isRunEvent(event)) events.push(event); });
+	await table.session.prompt("我揪住他的领子一拳打过去");
+	const telemetry = table.telemetry(campaign);
+	const clerk = calls.filter((call) => call.id.startsWith("clerk:")).map((call) => call.input.action?.decision);
+	assert.deepEqual(clerk, ["combat:attack", "combat:defend"], "the clerk's first blow, then the NPC's forced defence");
+	const route = telemetry.find((entry) => entry.lane === "route" && entry.purpose === "route");
+	assert.deepEqual([route?.reason, route?.settled], ["settled", ["resolve:combat:first-blow"]], "the unclear exit after the settled first blow is the compose");
+	const infers = events.filter((event) => event.type === "step_end" && event.kind === "infer");
+	assert.deepEqual(infers.map((event) => [event.purpose, event.reason]), [["compose", "settled"]], "one model step: the compose");
+	const stepOf = (value) => Number(/:s(\d+)$/.exec(String(value))?.[1]);
+	const defend = telemetry.find((entry) => entry.tool === "resolve" && entry.origin === "policy" && entry.clerk === "session_step");
+	const compose = events.find((event) => event.type === "step_start" && event.kind === "infer");
+	assert.ok(stepOf(defend?.step) < stepOf(route.step) && stepOf(route.step) < stepOf(compose.stepId), "the forced defence, then the route, then the compose");
 });
