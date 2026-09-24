@@ -122,3 +122,14 @@ Pre-registration (written before the first run): gate3 before 2-3 looks per run,
 - The parent arm's worktree (`scratchpad/sl15-parent`, detached at `ef8efdf97`) is left in place; removing worktrees was out of this ticket's permissions.
 - The live-Keeper home: the harness copies the App's grok-build credential (without its refresh token) itself, reading it from the App's agent directory; `PI_CODING_AGENT_DIR` was pointed at a copy of the integ-sl `.pi/coc-agent` (`.pi/coc-agent-sl15`, gitignored), but the harness sets its own per-run agent directory, so the copy was not what authenticated. The token had over five hours left.
 - SL-13's integration branch carries its own gate #3 fixtures (`fixtures/gate3` + `gate3-t1..t3`, with baselines). `gate3-turn3` here is the same campaign before turn 3 without a baseline; one of the two can go.
+
+**After merging `claude/integ-single-loop-20260923`** (0.9.5a + SL-13, `721812cac`; merge `4cde94400`). Conflicts: `docs/kernel-rpc.md` (SL-13's §135.30 first, then §135.31) and `runtime/jev/hybrid-engine.ts` (the fresh read keeps both the compile's `rows` and `run.issued`). The carried-views seam test now counts routes rather than decisions, since the §135.30 compile is the first decision (the same change SL-13 made to the SL-02 seam test). Suites on leehow-pc (the coordinator's box), at `4cde94400`:
+
+```
+== loop on leehow-pc @ 4cde94400c35bf26719b48c4e89d890c42cb265d: exit=0 wall=35s   (101/101)
+== ext on leehow-pc @ 4cde94400c35bf26719b48c4e89d890c42cb265d: exit=0 wall=113s   (2838/2838)
+== py on leehow-pc @ 4cde94400c35bf26719b48c4e89d890c42cb265d: exit=1 wall=278s    (1695 passed, 2 skipped, 3 failed)
+```
+
+- The three pytest failures are the play driver's process lifecycle, not this ticket: `test_driver.py::test_status_reports_alive_then_dead` and `::test_stop_terminates_both_processes_and_writes_final` fail on the box with the file alone too, and pass on the Mac at the same HEAD (`test_driver.py` 63/63); `test_persona_bench.py::test_the_bench_never_steals_the_default_run_pointer` reads the shared current-run pointer another parallel test moved (`-n 12`), and passes alone on the box (32/32). Nothing in this branch touches `tests/play/driver.py` or process handling. The Mac's full serial pytest before the merge was 1699 passed, 1 skipped.
+- The 12 mutations re-run on the merged tree: all killed, by the same tests.
