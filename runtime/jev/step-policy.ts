@@ -196,6 +196,14 @@ export interface RunView {
    * select then). A read that issues one not among them owes another compile before the next route question.
    */
   compiledOver?: string[];
+  /** §135.11 addendum (SL-20): the keys the run's compiles selected -- the declaration's own steps. */
+  compileSelected?: string[];
+  /**
+   * §135.11 addendum (SL-20): the declaration's own steps the clerk executed and that succeeded (the kernel took it; a
+   * resolve's check did not fail) since the run's last model step. While one stands, the route's exit leans to `finish`;
+   * the next model step clears it (once the Keeper is asked, it carries the run as before).
+   */
+  settled?: string[];
 }
 export type StepRequest =
   | {kind: 'direct'; item: PendingItem}
@@ -300,7 +308,12 @@ export function compileDue(view: RunView): boolean {
  */
 export function interpretRoute(view: RunView, offered: Candidate[], result: DecisionResult | undefined, gate: number):
   {pending: PendingItem[]; choice?: string; confidence?: number; reason: string; selected?: string[]; exit?: string} {
-  if (!result || result.status !== 'complete') return {pending: [{kind: 'infer', purpose: 'adjudicate', reason: `jev_${result?.failure?.code ?? result?.status ?? 'unavailable'}`}], reason: 'jev_unavailable'};
+  // §135.11 addendum (SL-20): once the clerk has settled the declaration, the exit leans to finish (the compose).
+  const settled = (view.settled?.length ?? 0) > 0;
+  const lean = (choice?: string, confidence?: number) => ({pending: [{kind: 'infer' as const, purpose: 'compose', reason: 'settled'}],
+    ...(choice ? {choice, confidence} : {}), reason: 'settled', selected: [] as string[], exit: choice});
+  if (!result || result.status !== 'complete') return settled ? lean()
+    : {pending: [{kind: 'infer', purpose: 'adjudicate', reason: `jev_${result?.failure?.code ?? result?.status ?? 'unavailable'}`}], reason: 'jev_unavailable'};
   const exit = answerOf(result, 'exit');
   const selected: Array<{candidate: Candidate; confidence?: number}> = [];
   for (const [index, candidate] of offered.entries()) {
@@ -319,6 +332,11 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
     for (const {candidate} of selected) pending.push(...itemsFor(candidate));
     return {pending, choice: keys.join(' + '), confidence, reason: `selected_${selected.length}`, selected: keys, exit: exit.choice};
   }
+  // After a settlement only `continue` or `ask_llm` that clears the gates on its own hands the run back to the Keeper (a
+  // cleared `finish` is the compose below, as always); any other answer -- read_more, none_of_above, below the gates, none
+  // at all -- is the compose.
+  if (settled && !(['continue', 'ask_llm', 'finish'].includes(exit.choice ?? '') && clears(result, 'exit', exit.choice!, exit.confidence, gate)))
+    return lean(exit.choice, exit.confidence);
   if (!exit.choice) return {pending: [{kind: 'infer', purpose: 'adjudicate', reason: 'jev_no_answer'}], reason: 'jev_no_answer', selected: [], exit: undefined};
   if (!clears(result, 'exit', exit.choice, exit.confidence, gate))
     return {pending: [{kind: 'infer', purpose: 'adjudicate', reason: 'low_confidence'}], choice: exit.choice, confidence: exit.confidence, reason: 'low_confidence', selected: [], exit: exit.choice};
@@ -539,6 +557,8 @@ export function startStep(view: RunView, request: Exclude<StepRequest, {kind: 'f
     view.compiledOver = [...new Set([...(view.compiledOver ?? []), ...reachable(view.candidates, view.rows).map(candidate => candidate.key)])];
   else if (request.kind === 'decide') view.pending.shift();
   else if (request.kind === 'infer') {
+    // §135.11 addendum (SL-20): a model step ends the lean; the Keeper, once asked, carries the rest of the run.
+    if (view.settled?.length) view.settled = [];
     if (request.item && view.pending[0] === request.item) view.pending.shift();
     else if (request.item) view.pending = view.pending.filter(value => value !== request.item);
     // A budget escalation of a pending bind still owes the execution of what the LLM would return (never a clerk's: §135.28).
@@ -587,6 +607,7 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
   const selected = [...outcome.selected].sort((a, b) => rank(a.candidate) - rank(b.candidate));
   for (const {candidate} of selected) view.pending.push(...itemsFor(candidate));
   const keys = selected.map(entry => entry.candidate.key);
+  if (keys.length) view.compileSelected = [...new Set([...(view.compileSelected ?? []), ...keys])];
   observe(view, {kind: 'decide', purpose: 'compile', status: result.status, ...(keys.length ? {choice: keys.join(' + ')} : {}), reason: outcome.reason});
   return {step, kind: 'decide', purpose: 'compile', choice: keys.length ? keys.join(' + ') : null, confidence: null, ms, jev_calls: 1, reason: outcome.reason,
     detail: {features: outcome.features, fired: selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
@@ -732,6 +753,11 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
       if (!view.consumed.includes(key)) view.consumed.push(key);
   } else {
     view.consumed.push(item.candidate!.key);
+    // §135.11 addendum (SL-20): the declaration's own step (a compile selected it) that the kernel took and whose check did
+    // not fail settles the declaration. A carried meeting has its own key; the check it hands on to carries the selected one.
+    const key = item.candidate!.key;
+    if (executed.ok && view.compileSelected?.includes(key) && (executed.summary as Row | null)?.check !== 'failed' && !view.settled?.includes(key))
+      view.settled = [...(view.settled ?? []), key];
     // A clerk step that was refused is dropped for the run (its key is consumed above) and the turn goes to the Keeper
     // (§135.26): the clerk does not route around its own refusal.
     if (!executed.ok) view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'clerk_refused'});
@@ -901,7 +927,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       if (request.kind === 'decide' && request.purpose === 'route') {
         if (!binding) return {kind: 'decide', purpose: 'route', question: unbound};
         const {batch, offered} = routeBatch(state, binding.scope, binding.readSet);
-        return {kind: 'decide', purpose: 'route', question: {batch, offered, located: state.located, gate: driver.policyState.gate}};
+        return {kind: 'decide', purpose: 'route', question: {batch, offered, located: state.located, gate: driver.policyState.gate, settled: state.settled ?? []}};
       }
       if (request.kind === 'decide' && request.purpose === 'compile') {
         if (!binding) return {kind: 'decide', purpose: 'compile', question: unbound};

@@ -1,0 +1,188 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/gate6-haunting-0335-20260924T073558Z/events.jsonl",
+  "record": ".coc/repos/gate6-haunting-0335.git c0ae9fd:turns/0002.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。",
+ "llm_calls": 3,
+ "llm_ms_total": 34946,
+ "calls": [
+  {
+   "at": "2026-09-24T07:38:17.357Z",
+   "provider_ms": 14814,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 15737,
+    "output": 1647,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "social",
+       "goal": "第一次正面说明来意，请他放行进剪报室",
+       "method": "平静说明自己是受房东之托查科比特宅旧闻的私家侦探",
+       "actor": "托马斯·海斯",
+       "target": "Arty Wilmot",
+       "decision": "natural-npc:first-impression"
+      }
+     },
+     "id": "call-fe2470c8-9b06-470a-bab5-7ed6e8f16e9c-0|fc_00706a9d-f942-9d61-9b7d-d8799f55dfd7_0"
+    },
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "social",
+       "goal": "跟着下楼，让她按地址调出科比特宅的旧剪报",
+       "method": "第一次在剪报室里打照面，说明要查的是哪栋房子",
+       "actor": "托马斯·海斯",
+       "target": "Ruth Blake",
+       "decision": "natural-npc:first-impression"
+      }
+     },
+     "id": "call-fe2470c8-9b06-470a-bab5-7ed6e8f16e9c-1|fc_00706a9d-f942-9d61-9b7d-d8799f55dfd7_1"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T07:38:35.665Z",
+   "provider_ms": 9351,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 54250,
+    "output": 913,
+    "cache_read": 0
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "social",
+       "goal": "第一次请她按地址调出科比特宅的旧剪报",
+       "method": "下楼后说明要查的街道和房屋",
+       "actor": "托马斯·海斯",
+       "target": "Ruth Blake",
+       "decision": "natural-npc:first-impression"
+      }
+     },
+     "id": "call-7d2089e8-8689-4c31-8aae-7e309d45b4ba-2|fc_f7810b7d-a206-9b86-a857-a8693974539a_0"
+    },
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "define",
+        "name": "科比特宅钥匙",
+        "description": "一串旧铜钥匙，系在波士顿科比特宅的大门与内门钥匙，钥牙磨平，穿在一只细铁环上。",
+        "category": "item"
+       },
+       {
+        "kind": "object",
+        "name": "科比特宅钥匙",
+        "to": "托马斯·海斯",
+        "adopt": "Corbitt house keys",
+        "definition": "科比特宅钥匙",
+        "why": "把已交到手里的科比特宅钥匙登记为实物。"
+       }
+      ]
+     },
+     "id": "call-7d2089e8-8689-4c31-8aae-7e309d45b4ba-3|fc_f7810b7d-a206-9b86-a857-a8693974539a_1"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T07:39:42.382Z",
+   "provider_ms": 10781,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 5809,
+    "output": 1069,
+    "cache_read": 49152
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "resolve",
+   "call_id": "call-fe2470c8-9b06-470a-bab5-7ed6e8f16e9c-0|fc_00706a9d-f942-9d61-9b7d-d8799f55dfd7_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-fe2470c8-9b06-470a-bab5-7ed6e8f16e9c-1|fc_00706a9d-f942-9d61-9b7d-d8799f55dfd7_1",
+   "ok": false
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-7d2089e8-8689-4c31-8aae-7e309d45b4ba-2|fc_f7810b7d-a206-9b86-a857-a8693974539a_0",
+   "ok": false
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-7d2089e8-8689-4c31-8aae-7e309d45b4ba-3|fc_f7810b7d-a206-9b86-a857-a8693974539a_1",
+   "ok": false
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "resolve",
+   "verdict": "authorized",
+   "ms": 2784,
+   "origin": "policy"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "authorized",
+   "ms": 3144,
+   "origin": "model"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "not_authorized",
+   "ms": 57239,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "resolve",
+   "decision": "natural-npc:first-impression",
+   "target": "Arty Wilmot",
+   "intent": "social",
+   "modifiers": null
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "roll:persuade-t2-c1",
+   "kind": "roll",
+   "decision": null,
+   "skill": "Persuade",
+   "npc": "arty-wilmot",
+   "level": "hard"
+  },
+  {
+   "id": "roll:mod-natural-npc-t2-c2",
+   "kind": "roll",
+   "decision": "natural-npc:first-impression",
+   "skill": "Appearance",
+   "npc": "arty-wilmot",
+   "level": "failure"
+  }
+ ]
+}

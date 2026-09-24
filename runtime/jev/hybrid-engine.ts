@@ -127,6 +127,17 @@ function failedCheck(details: unknown): boolean {
   return object(object(details).outcome).success === false;
 }
 
+/**
+ * §135.11 addendum (SL-20): whether a clerk resolve's check passed, from the kernel's closed outcome fields (`passed`, and
+ * §135.5's `success`); absent when the result carries neither.
+ */
+function checkOf(tool: string, result: Row): {check?: 'passed' | 'failed'} {
+  if (tool !== 'resolve') return {};
+  const outcome = object(result.outcome);
+  if (outcome.passed === false || outcome.success === false) return {check: 'failed'};
+  return outcome.passed === true || outcome.success === true ? {check: 'passed'} : {};
+}
+
 /** The prescreen packet as the route reads it: the materials and the entities the locate found. */
 function packetMaterials(message: Row | undefined): {materials: Material[]; located: Array<{handle: string; label: string; kind: string}>} {
   let packet: Row = {};
@@ -468,7 +479,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const read = await freshOf(run);
     return {status: ok ? 'ok' as const : 'refused' as const, ...(ok ? {} : {reason: String(refusal)}),
       artifact: {kind: 'execute', executed: {ok, summary: {origin: 'policy', tool, call_id: callId, status: packet.status, receipts: packet.receipts,
-        clerk: candidate.clerk ?? null, basis: candidate.basis ?? null, ...(ok ? {} : {refusal: String(refusal)})} as Json}, ...(read ? {fresh: read} : {})}};
+        clerk: candidate.clerk ?? null, basis: candidate.basis ?? null, ...(ok ? checkOf(tool, result) : {}), ...(ok ? {} : {refusal: String(refusal)})} as Json},
+      ...(read ? {fresh: read} : {})}};
   }
 
   /**
@@ -533,13 +545,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         value.status === 'answered' && value.type === 'choice' ? {choice: value.choice, confidence: value.confidence ?? null, probabilities: value.probabilities ?? null} : {status: value.status}])) : null;
       // Every answer's distribution is retained (spec user story 28): the gates can be re-read from a live table.
       const offered = array(question.offered) as Candidate[];
-      const routed = request.purpose === 'route' ? interpretRoute({located: question.located === true} as RunView, offered, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE) : undefined;
+      const settled = array(question.settled).map(String);
+      const routed = request.purpose === 'route' ? interpretRoute({located: question.located === true, settled} as RunView, offered, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE) : undefined;
       // §135.30: the compile row carries each feature's distribution and which predicates fired, as the policy will read them.
       const compiled = request.purpose === 'compile'
         ? interpretCompile({candidates: array(question.candidates) as Candidate[], rows: (question.rows ?? undefined) as FeatureRows | undefined}, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE)
         : undefined;
       record({lane: 'route', purpose: request.purpose, run: run.runId, step: request.stepId, status: result.status, ms: Date.now() - began,
-        ...(request.purpose === 'route' ? {offered: offered.map(candidate => candidate.key), selected: routed?.selected ?? [], exit: routed?.exit ?? null, reason: routed?.reason ?? null}
+        ...(request.purpose === 'route' ? {offered: offered.map(candidate => candidate.key), selected: routed?.selected ?? [], exit: routed?.exit ?? null, reason: routed?.reason ?? null,
+          ...(settled.length ? {settled} : {})}
           : compiled ? {features: compiled.features, fired: compiled.selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
             selected: compiled.selected.map(entry => entry.candidate.key), decided: compiled.decided, fell_through: compiled.fellThrough, reason: compiled.reason}
             : {candidate: question.candidate ?? null}),
@@ -615,6 +629,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       record({lane: 'run', event: 'budget_carried', run: run.runId, step: stepId, from_run: carried.run, deferred_by_budget: carried.deferred});
       carried = undefined;
     }
+    // §135.11 addendum (SL-20): the compose after the clerk settled the declaration says why it is the compose.
+    if (step.reason === 'settled') content.settled_note = 'The clerk settled the player\'s declared step this turn (see clerk_did). Narrate its result '
+      + 'and close the turn; a further check or step can wait for the player\'s next input unless the fiction cannot go on without it.';
     const fresh = run.clerkDid.slice(run.projected);
     run.projected = run.clerkDid.length;
     if (fresh.length) Object.assign(content, {clerk_did: fresh,

@@ -17595,6 +17595,67 @@ delivered. The floor steer's drop and process talk beside a tool call each leave
 by a test of their own. Legacy shares the seam (`message_end` and `takeTurnCloseSteer`):
 `tests/extension/speech-attribution.test.mjs` replays the live shape against the real kernel.
 
+**Addendum 2026-09-24 (SL-20): once the clerk has settled the player's declaration, the run leans to finish.** The spec's
+ruling of that name (owner, 2026-09-24, after live gate #6) binds it; this paragraph is the rule the measurement below
+supports. It applies to `PI_COC_LOOP_ENGINE=hybrid-v1` only.
+
+*Evidence.* Live gate #6, turn 2 (`gate6-haunting-0335`, run `run-01a0d259-a833-7688-887c-ae3eddd58747`, "我说明来意，请他
+帮忙调出科比特宅这些年的旧剪报。"): the compile selected the morgue's obligation check, the clerk rolled it (Persuade 16, hard,
+the obligation `settled`) at 3.0 s, and the next route (s6) answered the exit `ask_llm` 0.42 / `continue` 0.33 / `finish`
+0.23, below both gates, so `low_confidence` handed the run to the Keeper. The Keeper proposed first impressions on Arty
+(rolled, failed) and on Ruth Blake, then Ruth's again with a keys `define`/`object` (refused after a 57 s review); the
+budget's compose came at 96 s and the turn took 112 s. None of those steps was declared. Measured on the replays
+(pre-registered, 5 runs each, live Jev, recorded Keeper, `--latency live`; `experiments/single-loop-routing/RESULTS-20260923.md`,
+"SL-20"): after the clerk's settled check the exit was never cleared on gate #6's turn 2 (0.41–0.46 / 0.32–0.37 /
+0.18–0.25) nor on gate #3's (0.44–0.49 / 0.29–0.32 / 0.19–0.23), so the rule below composes in 10/10; after the clerk's
+move on gate #4's turn 1, where the declaration's second half waits on the gatekeeper, the exit cleared `ask_llm` by the
+margin rule in 5/5 (0.61–0.63 against 0.18–0.21), so the rule leaves that run to the Keeper.
+
+- **The settlement.** A clerk (policy-origin) step settles the declaration when a compile of this run selected its
+  candidate (§135.30: the declaration's own step; a carried meeting settles nothing, the check it hands on to does), the
+  kernel took it, and, for a `resolve`, its check did not fail. The first blow of §135.30.2 (SL-19) settles like any
+  other: the compile's `first_blow` predicate selected it, the kernel opened the fight, and the NPC's pending defence that
+  the kernel then forces runs as a forced step before any route question. The failure is read from the kernel's closed outcome fields
+  (`outcome.passed === false` or `outcome.success === false`); the clerk's execute summary carries it as `check: "passed" |
+  "failed"` (absent when the result has neither field). The policy keeps the keys the run's compiles selected
+  (`RunView.compileSelected`) and the keys that settled (`RunView.settled`). A clerk step the route selected, a Keeper's
+  own call, a refused step and a failed check settle nothing: an obligation left open by a failure (§135.26, ruling Q4) is
+  still the Keeper's to price, and the exit is read exactly as before.
+- **The exit after a settlement** (`interpretRoute`). Needs the route selects run as before; the lean is about the exit
+  only. With nothing selected, the exit is `finish` (the compose, reason `settled`; `finish` when `finish` itself cleared)
+  unless the answer is `continue` or `ask_llm` and clears the gates on its own (§135.2's gates: 0.6, or top ≥ 0.35 and
+  ≥ 1.8 × the runner-up), which hands the run to the Keeper as today (`ask_llm`, `no_candidate`). `read_more`, a
+  `finish`, `none_of_above`, an answer below both gates, an unanswered exit and an unavailable Jev all compose. The route
+  row's `reason` is `settled` and it carries `settled` (the keys). It holds until the run's next model step: once the
+  Keeper has been asked (the exit cleared `ask_llm`, a bind, a fallen batch, the compose itself), the exit is read as before
+  for the rest of the run, unless a later compile-selected clerk step settles again. A first version held for every later
+  route of the run; on the two-part declarations of gate #6 and gate #3 turn 3 ("go back to the office and punch him": the
+  clerk's move settled, the exit then cleared `ask_llm` and the Keeper ran the fight), a later route leaned and the replayed
+  Keeper's `combat:end` was never run in 8/9 runs, so the lean stops where the Keeper takes over.
+- **What is unchanged.** A step the kernel forces (an NPC's pending defence, §135.2) is at the head of the run's pending
+  steps when the fresh read issues it, so it runs before the route is asked and before the compose. The compile, the
+  binds, Guard 2, the time budget (§135.25) and the turn close are unchanged: the settled compose is a compose like the
+  route's `finish`, and a prose answer then takes the turn close above. The Keeper is still the boss: a tool call in the
+  compose's response runs as a batch, and the next route question is again read under this rule.
+- **What the Keeper is told.** The compose's `coc-clerk` note (§135.8) carries the settlement as any clerk step: its
+  `clerk_did` entry with the receipts and the obligation's book line (§135.26), and `settled_note`: the clerk settled the
+  player's declared step this turn; narrate its result and close the turn; a further check or step can wait for the
+  player's next input unless the fiction cannot go on without it.
+
+*Three ends (§31).* Writer: the policy (`settleCompile` records what a compile selected; `settleExecute` records what
+settled, from the clerk's execute summary, which the engine writes from the kernel's outcome). Reader: `interpretRoute`
+(the exit), the engine's route row and the compose's note. Actor: the Keeper, who composes; the operator, through the route
+row's `reason: "settled"`.
+
+*Tests.* `tests/extension/single-loop-settlement.test.mjs`: gate #6's exit after a settled compile-selected check is the
+compose (reason `settled`), and the same answer after a failed check or a check the compile did not select is the Keeper's;
+`ask_llm` or `continue` that clears on its own (by confidence or by margin) still hands the run to the Keeper, while
+`finish`, `read_more` and `unclear` compose; a need the route selects still runs; on the driver, an NPC's forced defence
+issued after the settlement runs before the route and the compose; on the emitted kernel, the compile-selected first blow
+settles, the kernel opens the fight, the NPC's forced defence runs, and gate #6's unclear exit then composes; at the engine, the clerk's execute carries `check` and the
+compose's note carries the receipts, the obligation's line and `settled_note`. The replays after the change are in the
+SL-20 ticket's Comments.
+
 ### 135.20 The read hands the Keeper the bodies of what it issued (2026-09-23, SL-11 scope 1; the model-call diet)
 
 SL-11 takes §135.20–§135.24. §135.11 onward belongs to the SL-02 follow-ups in flight on the same base (§135.11 is
@@ -18234,7 +18295,8 @@ call and the Keeper's `clerk_did` carry (§135.7, §135.8).
 
 **It replaces the first fan-out.** When the compile selects, its candidates are the run's pending steps in the route's
 precedence (§135.26), and no route question is asked before them: the next route comes after them, over what the fresh
-read then offers less what the run consumed, and carries the exit question. When it selects nothing, the route question
+read then offers less what the run consumed, and carries the exit question (after a settled declaration the exit leans to
+`finish`: §135.11, addendum SL-20). When it selects nothing, the route question
 follows at once, over the candidates that fell through. So a run spends one compile call; a compile that selects
 replaces the first route call and the Jev calls of the run do not go up, and SL-12's binds are unchanged.
 

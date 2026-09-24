@@ -1,0 +1,348 @@
+{
+ "run": 1,
+ "fixture": "gate6s-t2",
+ "admission": "lane",
+ "keeper": "replay",
+ "thinking": "off",
+ "arm": "after",
+ "latency": true,
+ "seed": "4",
+ "wall_ms": 55224,
+ "budget": {
+  "turn": 2,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d2a2-87a5-725c-8308-0fbcfdc00c48",
+  "budget_ms": 45000,
+  "elapsed_ms": 54103,
+  "elapsed_at_compose": 43034,
+  "over_budget": true,
+  "deferred_by_budget": [],
+  "run_id": "3832da84-66f1-4f87-b1a0-3599111c2664"
+ },
+ "compile": "on",
+ "compile_row": {
+  "turn": 2,
+  "lane": "route",
+  "purpose": "compile",
+  "run": "run-01a0d2a2-87a5-725c-8308-0fbcfdc00c48",
+  "step": "run-01a0d2a2-87a5-725c-8308-0fbcfdc00c48:s2",
+  "status": "unavailable",
+  "ms": 15005,
+  "features": {
+   "destination": {
+    "rows": {
+     "destination_1": "central-library",
+     "destination_2": "hall-of-records",
+     "destination_3": "neighborhood-gossip",
+     "destination_4": "previous-tenants",
+     "destination_5": "corbitt-house-ground",
+     "destination_6": "commission-briefing"
+    },
+    "choice": null,
+    "row": null,
+    "confidence": null,
+    "probabilities": null,
+    "cleared": false
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "Arty Wilmot",
+     "addressee_2": "Ruth Blake"
+    },
+    "choice": null,
+    "row": null,
+    "confidence": null,
+    "probabilities": null,
+    "cleared": false
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "obligation:globe-clippings-access",
+     "ask_2": "clue:globe-fire-cutoff",
+     "ask_3": "handout:Boston Globe City Desk Copy — Held from Print (1918)"
+    },
+    "choice": null,
+    "row": null,
+    "confidence": null,
+    "probabilities": null,
+    "cleared": false
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": null,
+    "row": null,
+    "confidence": null,
+    "probabilities": null,
+    "cleared": false
+   },
+   "item": {
+    "rows": {
+     "item_1": "笔记本",
+     "item_2": "开锁工具",
+     "item_3": "手电筒",
+     "item_4": "私人徽章"
+    },
+    "choice": null,
+    "row": null,
+    "confidence": null,
+    "probabilities": null,
+    "cleared": false
+   }
+  },
+  "fired": [],
+  "selected": [],
+  "decided": [],
+  "fell_through": [
+   "apply:clue:globe-fire-cutoff",
+   "apply:move:central-library",
+   "apply:move:hall-of-records",
+   "apply:move:neighborhood-gossip",
+   "apply:move:previous-tenants",
+   "apply:move:corbitt-house-ground",
+   "apply:move:commission-briefing",
+   "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+   "resolve:natural-npc:first-impression:托马斯·海斯:Ruth Blake",
+   "resolve:obligation:globe-clippings-access",
+   "resolve:core-check:ordinary-check"
+  ],
+  "reason": "jev_timeout",
+  "run_id": "3832da84-66f1-4f87-b1a0-3599111c2664"
+ },
+ "selections": [],
+ "compile_rows": [
+  {
+   "turn": 2,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d2a2-87a5-725c-8308-0fbcfdc00c48",
+   "step": "run-01a0d2a2-87a5-725c-8308-0fbcfdc00c48:s2",
+   "status": "unavailable",
+   "ms": 15005,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "central-library",
+      "destination_2": "hall-of-records",
+      "destination_3": "neighborhood-gossip",
+      "destination_4": "previous-tenants",
+      "destination_5": "corbitt-house-ground",
+      "destination_6": "commission-briefing"
+     },
+     "choice": null,
+     "row": null,
+     "confidence": null,
+     "probabilities": null,
+     "cleared": false
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Arty Wilmot",
+      "addressee_2": "Ruth Blake"
+     },
+     "choice": null,
+     "row": null,
+     "confidence": null,
+     "probabilities": null,
+     "cleared": false
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "obligation:globe-clippings-access",
+      "ask_2": "clue:globe-fire-cutoff",
+      "ask_3": "handout:Boston Globe City Desk Copy — Held from Print (1918)"
+     },
+     "choice": null,
+     "row": null,
+     "confidence": null,
+     "probabilities": null,
+     "cleared": false
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": null,
+     "row": null,
+     "confidence": null,
+     "probabilities": null,
+     "cleared": false
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "私人徽章"
+     },
+     "choice": null,
+     "row": null,
+     "confidence": null,
+     "probabilities": null,
+     "cleared": false
+    }
+   },
+   "fired": [],
+   "selected": [],
+   "decided": [],
+   "fell_through": [
+    "apply:clue:globe-fire-cutoff",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:corbitt-house-ground",
+    "apply:move:commission-briefing",
+    "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+    "resolve:natural-npc:first-impression:托马斯·海斯:Ruth Blake",
+    "resolve:obligation:globe-clippings-access",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "jev_timeout",
+   "run_id": "3832da84-66f1-4f87-b1a0-3599111c2664"
+  }
+ ],
+ "prescreen": "on",
+ "reads": [
+  {
+   "scene": "newspaper-morgue",
+   "prescreen": "prepared",
+   "materials": 5,
+   "jev_calls": 7,
+   "ms": 10139
+  }
+ ],
+ "status": "delivered",
+ "reason": "implicit_narrate",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "compose",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 47352,
+   "cache_read": 0,
+   "cache_write": 47352,
+   "output": 46,
+   "reasoning": null,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "compose",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 2369,
+   "cache_read": 47352,
+   "cache_write": 2369,
+   "output": 97,
+   "reasoning": null,
+   "tools": [],
+   "stop": "stop",
+   "effort": null
+  }
+ ],
+ "steps": {
+  "operate": 3,
+  "decide": 1,
+  "infer": 2,
+  "finish": 1
+ },
+ "llm_steps": 2,
+ "llm_purposes": [
+  "compose",
+  "compose"
+ ],
+ "jev_calls": 8,
+ "route_rows": 1,
+ "calls": [
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "第一次正面说明来意，请他放行进剪报室",
+     "method": "平静说明自己是受房东之托查科比特宅旧闻的私家侦探",
+     "actor": "托马斯·海斯",
+     "target": "Arty Wilmot",
+     "decision": "natural-npc:first-impression"
+    }
+   },
+   "passed": true,
+   "level": "hard"
+  }
+ ],
+ "match": [
+  {
+   "baseline": "resolve natural-npc:first-impression vs Arty Wilmot",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "narrate",
+   "matched": true,
+   "origin": "implicit"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 2791,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null,
+   "path": "lane",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null,
+   "predicate": null,
+   "features": null,
+   "binding_paths": null,
+   "compile_refused": null,
+   "first_byte_ms": 2,
+   "timed_out": null
+  }
+ ],
+ "clerk": [],
+ "misses": []
+}
