@@ -138,7 +138,9 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
     }), system_bytes: String(context.systemPrompt ?? '').length});
     // SL-10: a compose the run's time budget chose is the Keeper's close; the replay answers it with the delivery, not
     // with the live Keeper's remaining bookkeeping (which the budget left for the next turn).
-    if (latestNote(context).reason === 'run_budget') return delivery();
+    // SL-20: so is the compose after the clerk settled the declaration (§135.11 addendum): the note tells the Keeper to
+    // narrate the settled step and close the turn, and the replay answers it with the delivery, as it answers the budget's.
+    if (['run_budget', 'settled'].includes(String(latestNote(context).reason))) return delivery();
     const done = doneFrom(context), purpose = state.purpose;
     if (purpose === 'bind') {
       // The operation the clerk chose, from the run's own note to the Keeper.
