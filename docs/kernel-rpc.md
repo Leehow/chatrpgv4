@@ -3070,6 +3070,74 @@ the displaced consultation is back in the queue (not failed or cancelled), and t
 `tests/extension/prefetch-scheduling.test.mjs`'s claim sequence is amended to the last-slot rule. Mutations in the
 SL-45 ticket's Comments.
 
+### 22.4.7 A move into a scene not yet read lands on the book's text; the scene's record lands when read (2026-09-24, SL-47; amends §22.4, §22.4.4 and §135.31.2)
+
+The owner's ruling (2026-09-24): the umbrella rule "Reading never holds a turn" applies to text too. A move into a scene
+whose detail is not yet read lands on the index's text for that scene (the Keeper narrates from the book's own words,
+carried once), the detail read continues in the background on a blocking slot (§22.4.6), and the reviewed scene record
+lands on a later note; the Keeper is told what is not yet known (the exits, the people there) and does not invent it. The
+foreground wait of §22.4 remains only for a scene with no index text at all. The same rule already delivers a map late
+(§107.1, §22.4.5) and a consultation late (§22.4.3); this section is its third case.
+
+**Evidence** (SL-45's replay of the batch-4 血色公路 table's t18, ticket 45's Comments). With the lease sized (SL-41) and
+the slot given at once (SL-45), t18 still walled 141.7 s in every arm: one `detail` read of the bar plus its review took
+98–118 s with the reader's thinking off and longer with it on, against the 120 s wait; the move was refused
+`reading_timeout`. On the live table t17/t18/t20 walled 147/240/149 s and no sub-location found in play was entered in
+twenty turns. The bar's native text was on the book's pages all along.
+
+**The scene's index pages** (kernel, `Reading.sceneIndexPages`), structure only: the pages the scene node's own
+`source_refs` cite in the bound document (`pdf:<module>`), then the pages of every §22.1 index row whose `name` or one of
+whose `entities` meets the scene's focus identity (§22.2.1, widened by §22.4.3), in the book's order, at most
+`SCENE_INDEX_PAGES` (3, a named default in `kernel-ts/modules/reading.ts`). No words are compared but names.
+
+**The gate.** `apply move` into a scene whose material is not ready still raises `material_pending` with `details.read
+{purpose: "detail", focus}`, and now, when the scene has index pages, also `details.index {pages}` and `details.effect` (the
+move's index in the batch). The host (§22.4's wait) then asks the reading service for the native text of those pages
+(`ReadingBridge.sourcePages`: `module.source.snapshot`'s document, `sourceText`, §22.1's extraction). When any page has
+text, the host re-sends the same call (same `call_id`, the unchanged public effect) with the host-only
+`_land_on_index: true` on that move effect; the kernel lets that destination through only if it still has index pages,
+and the move lands:
+
+- the move receipt carries `material: "index"`, the result `scene_text: [{scene, pages}]`, and the world keeps the scene
+  in `index_scenes`. A scene in `index_scenes` passes the material gate of `apply` and `resolve` as the party's place
+  (§22.4's gate for the active scene), so the turns spent there before its record lands are not held either; people,
+  clues and handouts named in it keep their own gate.
+- The host queues the scene's `detail` read as a **blocking** read with no waiter (`ReadingService.ensure(..., {allowanceMs:
+  0, blocking: true})`): it keeps its blocking class (§22.4.6) until it settles, because the party stands in that scene;
+  §61's demotion does not apply to it. Nothing waits on it: the call returns at once.
+- The Keeper gets the text once. On the hybrid engine the next model step's note carries a view `{focus: "scene_text",
+  name: <scene>, view: {pages: [{page, pdf_label?, text}]}}` under its own ceiling `SCENE_TEXT_VIEW_BYTES` (8 KiB,
+  `runtime/jev/carried-views.ts`, cut like every carried view and marked), served after the session and before the
+  people, sharing the message's 12 KiB. On the legacy engine the same pages ride in the apply result's `scene_text`. The
+  head says: this is the book's own text for a scene whose reviewed record (its exits, the people there, the things and
+  clues) is still being read; narrate the arrival from it; do not invent exits, people, clues or numbers it does not state;
+  the record lands on a later note.
+- The note's `pending` rows (§135.31.2) name the scene: `{focus: <scene>, scene: <scene>, purpose: "detail", since_turn}`
+  while the read is in flight.
+- **The record lands once.** When the read settles `ready`, the next model step's note carries the scene's reviewed record:
+  the `scene` view (`look focus=scene`) when the party is still there, otherwise `{focus: "scene_record", name, view:
+  {status: "landed"}}` (look at it when the party returns); a read that fails is `{status: "unavailable", reason}`, the
+  clerk's business. Either is carried exactly once (the port marks it taken).
+- The telemetry: `lane: "reading"`, `scene_text` (`turn, scene, pages, bytes`) when the move lands, `scene_record_landed` /
+  `scene_record_unavailable` (`turn, scene, ms`), and the `carried` row names `scene_text` / `scene_record` views.
+
+**When the wait remains.** A scene with no index pages, pages whose native text is empty (a scanned book), a host without
+`sourcePages`, an owned source preparation (§22.4 ownership keeps its bound request), and every non-move name (a person,
+a clue, a handout) keep §22.4's foreground wait, single repair and timeout exactly as written.
+
+**Three ends (§31).** *Writer:* the kernel (`details.index`, the landing, `index_scenes`, the receipt's `material`), the host
+(`sourcePages`, the blocking read, the scene-reading list behind `coc:source-answers`). *Reader:* the engine's note
+(`scene_text`, `pending`, the landed record), the legacy apply result. *Actor:* the Keeper, who narrates the arrival from
+the book's text, leaves the unknown unknown, and meets the record on a later step.
+
+*Tests.* `tests/extension/scene-text-landing.test.mjs`: on the emitted kernel, a move into an unread scene with index
+pages refuses with `details.index`, lands with `_land_on_index` and writes `index_scenes`, a resolve there passes the gate,
+and a scene without index pages still refuses even when flagged; at the extension seam (hybrid-v1, faux Keeper, the
+emitted kernel, a stub reading bridge over a real text PDF's pages) the move lands in one call, the next step's note
+carries the pages once and the pending row names the scene, and after the read lands the next turn's first step carries
+the record once; a scene with no index text still waits; the reading service extracts a real PDF's pages
+(`sourcePages`) and a blocking ensure is not demoted when its waiter leaves. Mutations in the SL-47 ticket's Comments.
+
 ### 22.5 开场、失败与旧数据
 
 setup 用 `prepare-module` 替换 `build-bundle/bind-source/build-opening` 的外部编排。输入真实 `pdf` 或既有 `module`，执行来源登记、定位、开场准备；调查员流程保持原职责。多开场选择沿用 `module.opening.choose`；候选来自已读原书，等待不能解决选择。源语言由读者判断，玩家语言继续使用 `play_language`。
