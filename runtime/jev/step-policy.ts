@@ -23,9 +23,10 @@ import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts'
 import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
 import {answerOf, clears} from './decision-gate.ts';
-import {carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, reachable, type FeatureRows} from './route-compile.ts';
+import {carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, ORDINARY_CHECK, reachable, type FeatureRows} from './route-compile.ts';
 
 type Row = Record<string, any>;
+const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
 export type Json = null | boolean | number | string | Json[] | {[key: string]: Json};
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8');
@@ -58,7 +59,12 @@ export interface Unbound {name: string; required: boolean; vocabulary: 'closed' 
 /** How one parameter of a clerk step got its value (contract §135.28): the four ways, none of them a model call. */
 export type BindingPath = 'jev' | 'rule-default' | 'stated' | 'composed';
 /** One bound parameter as the `lane: "run"`, `event: "bind"` row records it; Jev's carries its distribution. */
-export interface BindRecord {name: string; path: BindingPath; value: Json; confidence?: number | null; distribution?: Record<string, number> | null; rule?: string}
+export interface BindRecord {name: string; path: BindingPath; value: Json; confidence?: number | null; distribution?: Record<string, number> | null; rule?: string;
+  /**
+   * §135.30.3 (SL-26): whether the Jev answer behind a `jev` record passed §135.2's gates, when the binder executes its answer
+   * at any confidence (the ordinary binder's skill). `false` refuses the compile's admission exemption (§32.12).
+   */
+  cleared?: boolean}
 /** One shape a candidate takes once its `decision` is bound: the chosen action with its own parameters. */
 export interface CandidateVariant {label: string; bound: Record<string, Json>; unbound: Unbound[]; basis?: Json}
 /**
@@ -649,12 +655,37 @@ export function settleLocate(view: RunView, step: number, located: {calls: numbe
   return {step, kind: 'decide', purpose: 'locate', choice: null, confidence: null, ms, jev_calls: located.calls, detail: located.summary};
 }
 
-export interface OrdinaryBinding {disposition: string; action?: Record<string, Json>; unresolved: string[]; calls: number; ms: number}
-/** The ordinary binder's action as bind records (§135.28): Jev bound it; the declaration's own words are composed. */
-function ordinaryBindings(action: Record<string, Json>): BindRecord[] {
-  return Object.entries(action).map(([name, value]) => ({name, value, path: name === 'goal' || name === 'method' ? 'composed' as const : 'jev' as const}));
+/**
+ * The ordinary binder's answer. `skill` is the profile answer behind the skill (§135.30.3, SL-26): its choice, confidence
+ * and distribution by skill name, reported by the binder beside its action so the bind record can say whether it cleared.
+ */
+export interface OrdinaryBinding {disposition: string; action?: Record<string, Json>; unresolved: string[]; calls: number; ms: number;
+  skill?: {choice: string; confidence?: number | null; probabilities?: Record<string, number> | null}}
+/** The ordinary check's key as the builder mints it (§135.2). */
+export const ORDINARY_CHECK_KEY = `resolve:${ORDINARY_CHECK}`;
+/**
+ * The ordinary binder's action as bind records (§135.28, §135.30.3): what the candidate stated (the decision, a single
+ * actor) is `stated`; the declaration's own words are `composed`; the intent the compile settled is Jev's with the compile's
+ * answer; the skill is Jev's with the profile answer and whether it cleared the gates (no evidence: not cleared); the
+ * rest is the binder's (`jev`).
+ */
+export function ordinaryBindings(candidate: Candidate, action: Record<string, Json>, skill: OrdinaryBinding['skill'], gate: number): BindRecord[] {
+  const compiled = object(object(object(candidate.basis).compile).bound);
+  return Object.entries(action).map(([name, value]): BindRecord => {
+    if (name === 'goal' || name === 'method') return {name, value, path: 'composed'};
+    if (Object.hasOwn(candidate.bound, name) && candidate.bound[name] === value && !Object.hasOwn(compiled, name)) return {name, value, path: 'stated'};
+    if (Object.hasOwn(compiled, name)) return {name, value, path: 'jev', confidence: object(compiled[name]).confidence ?? null, distribution: object(compiled[name]).distribution ?? null};
+    if (name === 'skill') {
+      if (!skill || skill.choice !== value) return {name, value, path: 'jev', cleared: false};
+      const probabilities = skill.probabilities ?? undefined, confidence = skill.confidence ?? undefined;
+      const result = {answers: {skill: {status: 'answered', type: 'choice', choice: skill.choice, confidence, probabilities}}} as unknown as DecisionResult;
+      return {name, value, path: 'jev', confidence: confidence ?? null, distribution: probabilities ?? null,
+        cleared: confidence !== undefined && clears(result, 'skill', skill.choice, confidence, gate)};
+    }
+    return {name, value, path: 'jev'};
+  });
 }
-export function settleOrdinaryBind(view: RunView, step: number, candidate: Candidate, bound: OrdinaryBinding, ms: number): TelemetryRow {
+export function settleOrdinaryBind(view: RunView, step: number, candidate: Candidate, bound: OrdinaryBinding, ms: number, gate = DEFAULT_CONFIDENCE_GATE): TelemetryRow {
   view.budget.jevCalls += bound.calls;view.budget.jevMs += bound.ms;
   // An ordinary check the binder could not settle is the Keeper's (Ruling c: an ambiguous one goes to the boss); for a
   // clerk candidate that is the Keeper's turn, never an LLM bind (§135.28). It has no rules default: its skill is the
@@ -662,17 +693,20 @@ export function settleOrdinaryBind(view: RunView, step: number, candidate: Candi
   const unsettled: PendingItem[] = candidate.clerk
     ? keeperOwns(candidate, `ordinary_${bound.disposition}`, bound.unresolved)
     : [{kind: 'infer', purpose: 'bind', candidate, reason: `ordinary_${bound.disposition}`}, {kind: 'direct', purpose: 'llm_proposal', candidate}];
-  const pending: PendingItem[] = bound.disposition === 'ordinary' && bound.action
-    ? [{kind: 'direct', purpose: 'execute', candidate, extra: bound.action, bindings: ordinaryBindings(bound.action)}]
+  // §135.30.3: the intent the compile read is the check's intent; the binder's own reading of it is not a second answer.
+  const compiled = object(object(object(candidate.basis).compile).bound);
+  const action = bound.action && typeof object(compiled.intent).value === 'string' ? {...bound.action, intent: object(compiled.intent).value as Json} : bound.action;
+  const pending: PendingItem[] = bound.disposition === 'ordinary' && action
+    ? [{kind: 'direct', purpose: 'execute', candidate, extra: action, bindings: ordinaryBindings(candidate, action, bound.skill, gate)}]
     : bound.disposition === 'no_roll' ? []
       : bound.disposition === 'needs_player' ? [{kind: 'infer', purpose: 'compose', reason: 'needs_player'}]
         : unsettled;
   if (bound.disposition === 'no_roll') view.consumed.push(candidate.key);
   view.pending.unshift(...pending);
   observe(view, {kind: 'decide', purpose: 'bind', status: bound.disposition, choice: candidate.key, summary: {disposition: bound.disposition,
-    ...(bound.action ? {action: bound.action} : {}), unresolved: bound.unresolved} as Json});
+    ...(action ? {action} : {}), unresolved: bound.unresolved} as Json});
   return {step, kind: 'decide', purpose: 'bind', choice: candidate.key, confidence: null, ms, jev_calls: bound.calls,
-    reason: `ordinary_${bound.disposition}`, detail: bound.action ?? null};
+    reason: `ordinary_${bound.disposition}`, detail: action ?? null};
 }
 
 /** `offline`: the bind was settled without asking Jev (§135.28, its budget spent), so it spends none of it. */
@@ -780,13 +814,21 @@ export function consumedByEffects(effects: Row[] | undefined): string[] {
 export function consumedByClaim(action: Row | undefined): string[] {
   return typeof action?.obligation === 'string' && action.obligation ? [`resolve:obligation:${action.obligation}`] : [];
 }
+/**
+ * §135.30.3 (SL-26): a model-origin resolve the kernel took takes the declared ordinary check for the rest of the run, so
+ * no later compile or route adds the clerk's roll to what the Keeper already rolled.
+ */
+export function consumedByResolve(method: string): string[] {
+  return method === 'resolve' ? [ORDINARY_CHECK_KEY] : [];
+}
 
 export function settleExecute(view: RunView, step: number, item: PendingItem, executed: {ok: boolean; summary: Json}, fresh: Fresh | undefined, ms: number): TelemetryRow {
   if (item.call) {
     if (item.candidate) view.consumed.push(item.candidate.key);
     // A model-origin apply consumes the host candidates it carried out, by the same structural keys the host
     // mints (run 20 re-showed a handout the model's batch had already placed: the asset row has no receipt id).
-    if (executed.ok) for (const key of [...consumedByEffects(item.call.params.effects as Row[] | undefined), ...consumedByClaim(item.call.params.action as Row | undefined)])
+    if (executed.ok) for (const key of [...consumedByEffects(item.call.params.effects as Row[] | undefined), ...consumedByClaim(item.call.params.action as Row | undefined),
+      ...consumedByResolve(item.call.method)])
       if (!view.consumed.includes(key)) view.consumed.push(key);
   } else {
     view.consumed.push(item.candidate!.key);
@@ -1055,7 +1097,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         const candidate = request.item.candidate!, offline = !!request.offline;
         if (candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve'))
           settleOrdinaryBind(view, step, candidate, !offline && artifact?.kind === 'bind-ordinary' ? artifact.bound
-            : {disposition: 'unavailable', unresolved: offline ? [String(request.offline)] : [], calls: 0, ms: 0}, observation.ms);
+            : {disposition: 'unavailable', unresolved: offline ? [String(request.offline)] : [], calls: 0, ms: 0}, observation.ms, policyState.gate);
         else settleBind(view, step, candidate, binding && !offline ? bindBatch(policyState.view, candidate, binding.scope, binding.readSet)
           : {questions: []} as unknown as DecisionBatch, offline ? unavailable(String(request.offline)) : decisionOf(observation), observation.ms, policyState.gate, offline);
       } else if (request.kind === 'infer') {

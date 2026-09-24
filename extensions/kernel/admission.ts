@@ -644,6 +644,8 @@ export function compileAdmission(evidence: ClerkEvidence | undefined): CompileAd
 		const entry = record(raw), name = typeof entry?.name === "string" ? entry.name : "?";
 		if (typeof entry?.path !== "string") return { ok: false, reason: `parameter_path_unrecorded:${name}` };
 		if (!EXEMPT_BINDING_PATHS.has(entry.path)) return { ok: false, reason: `parameter_path_not_exempt:${name}` };
+		// §135.30.3 (SL-26): a Jev answer executed under the gates (the ordinary binder's skill) is not the compile's evidence.
+		if (entry.cleared === false) return { ok: false, reason: `parameter_not_cleared:${name}` };
 		bindingPaths[name] = entry.path;
 	}
 	return { ok: true, predicate: predicate.name, features, bindingPaths };

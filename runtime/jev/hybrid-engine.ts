@@ -198,9 +198,10 @@ export function bindRecords(candidate: Candidate, extra: Record<string, Json>, s
  * §32.12: the bind records as admission reads them -- each parameter's name and path, and every parameter the call carries
  * from the bind step (`extra`) with no record listed with `path: null`, so the compile's evidence is refused for it.
  */
-export function admissionBindings(records: BindRecord[], extra: Record<string, Json>): Array<{name: string; path: string | null}> {
+export function admissionBindings(records: BindRecord[], extra: Record<string, Json>): Array<{name: string; path: string | null; cleared?: boolean}> {
   const named = new Set(records.map(entry => entry.name));
-  return [...records.map(entry => ({name: entry.name, path: entry.path})),
+  // §135.30.3: a Jev answer the binder executed under the gates says so, and admission reviews the call.
+  return [...records.map(entry => ({name: entry.name, path: entry.path, ...(entry.cleared === false ? {cleared: false} : {})})),
     ...Object.keys(extra).filter(name => !named.has(name)).map(name => ({name, path: null}))];
 }
 /** The Keeper's line for a clerk write that took a rules default (§135.28), or none. */
@@ -550,10 +551,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       try {
         const result = await prepareCheckPreflight({campaign: bridge.campaign, turn: run.turn, rawInput: run.rawInput, goal: run.rawInput, scope: run.scope,
           readSet: run.readSet, publicContext: [{role: 'player', text: run.rawInput}], call: (method, params) => bridge!.call!(method, params), decision: jev!, lease});
+        // §135.30.3 (SL-26): the profile answer behind the skill rides with the action, so the bind record says whether it cleared.
+        const skill = result.evidence?.profile;
         const bound = {disposition: result.advice.disposition, ...(result.advice.action ? {action: result.advice.action as unknown as Record<string, Json>} : {}),
-          unresolved: result.advice.unresolved, calls: result.decisionCalls, ms: Date.now() - began};
+          unresolved: result.advice.unresolved, calls: result.decisionCalls, ms: Date.now() - began, ...(skill ? {skill} : {})};
         record({lane: 'route', purpose: 'bind-ordinary', run: run.runId, step: request.stepId, candidate: candidate.key, disposition: bound.disposition,
-          unresolved: bound.unresolved, ms: bound.ms, jev_calls: bound.calls});
+          unresolved: bound.unresolved, ms: bound.ms, jev_calls: bound.calls,
+          ...(skill ? {skill: {value: skill.choice, confidence: skill.confidence, distribution: skill.probabilities}} : {})});
         return {status: 'ok' as const, artifact: {kind: 'bind-ordinary', bound} as StepArtifact};
       } finally { lease.close(); }
     }

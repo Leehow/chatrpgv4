@@ -18615,11 +18615,13 @@ the kernel, which rolls it; the Keeper, told through `clerk_did` with `basis.com
 
 *Tests.* `tests/extension/single-loop-compile.test.mjs`: the predicate on stub answers (investigate fires and binds the
 intent; social only with a cleared addressee; not below the gate, not with a cleared destination row, not with the ask
-on an obligation, never decided); the ordinary check owes a compile; the long gate's turn-12 state at the policy seam
-(compile, bind-ordinary, execute). `tests/extension/single-loop-binding.test.mjs`: the bind records (decision stated,
+on an obligation, never decided); the ordinary check owes a compile; a turn-12-shaped read at the policy seam
+(the compile selects the check with the act as its intent, and the binder is next). `tests/extension/single-loop-binding.test.mjs`: the bind records (decision stated,
 intent from the compile, skill with `cleared` at and under the gate, no evidence is `cleared: false`); the Keeper's
-resolve consumes the check. `tests/extension/admission-within-turn.test.mjs`: `compileAdmission` admits a
-compile-selected ordinary check with a cleared skill and refuses `parameter_not_cleared:skill` under the gate. The
+resolve consumes the check. `tests/extension/admission-within-turn.test.mjs`: at the extension seam with the
+emitted kernel and the hybrid engine, the office's declared search selected by the compile, bound by the binder and
+rolled by the clerk, admitted `path: "compile"` with the skill at 0.9 and reviewed with `compile_refused:
+parameter_not_cleared:skill` at 0.45 (rolled either way); `compileAdmission` pure. The
 mutation record and the replays are in the SL-26 ticket's Comments.
 
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)

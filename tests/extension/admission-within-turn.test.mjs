@@ -474,3 +474,69 @@ test("SL-21 (§32.12): the check the compile selected keeps its evidence through
 		assert.equal(table.lanes.admission.requests().length, 1);
 	});
 });
+
+// ---- SL-26 (§135.30.3): the declared ordinary check, selected by the compile, admitted on its evidence when the skill cleared ----
+
+/**
+ * Jev for the ordinary check at the office: the compile reads `investigate` 0.95 and no destination (0.96); the ordinary
+ * binder answers an ordinary Spot Hidden (its profile answer as given); every route: finish.
+ */
+function ordinaryJev(profile) {
+	return { decide: async (batch) => {
+		if (batch.family === COMPILE_FAMILY)
+			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(question.key === "act"
+				? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("investigate")), 0.95, { [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("investigate"))]: 0.97, unclear: 0.03 }]
+				: question.key === "destination" ? ["none", 0.96] : ["unclear", 0.9])])));
+		if (batch.family === "ordinary-resolve")
+			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(question.key === "profile"
+				? profile(question) : [({ route: "ordinary", consent: "authorized", actor: "actor_0", intent: "social", difficulty: "regular", bonus: "none", penalty: "none" })[question.key] ?? "unknown", 0.9])])));
+		return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
+			choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9])])));
+	} };
+}
+const spotHidden = (question) => aliasWhere(question, (value) => value?.skill === "Spot Hidden");
+const libraryUse = (question) => aliasWhere(question, (value) => value?.skill === "Library Use");
+
+test("SL-26 (§135.30.3): the declared ordinary check is selected by the compile, bound by the binder, executed by the clerk; admitted on the compile's evidence only when the skill cleared", async (t) => {
+	const words = "我把诺特办公室的书桌仔细搜一遍，看有没有夹层。";
+	for (const [label, profile, expected] of [
+		["the skill above the gate", (question) => [spotHidden(question), 0.9, { [spotHidden(question)]: 0.92, unknown: 0.08 }],
+			{ cleared: true, path: "compile", reviewer: "compile", refused: undefined, lane: 0 }],
+		["the skill under the gate (Spot Hidden 0.50 / Library Use 0.45)", (question) => [spotHidden(question), 0.45, { [spotHidden(question)]: 0.5, [libraryUse(question)]: 0.45, unknown: 0.05 }],
+			{ cleared: false, path: "lane", reviewer: "lane", refused: "parameter_not_cleared:skill", lane: 1 }],
+	]) await t.test(label, async (tt) => {
+		const table = await hybrid(tt, { prepare: tookTheJob, compile: () => undefined, engine: { decision: ordinaryJev(profile) }, responses: narrateOnly("书桌里只有账单。") });
+		await table.session.prompt(words);
+		const telemetry = table.telemetry("test-camp");
+		const compileRow = telemetry.find((row) => row.lane === "route" && row.purpose === "compile");
+		assert.deepEqual(compileRow.selected, ["resolve:core-check:ordinary-check"], "the compile selected the declared check");
+		assert.equal(compileRow.fired[0].predicate, "ordinary_check");
+		const binder = telemetry.find((row) => row.lane === "route" && row.purpose === "bind-ordinary");
+		assert.equal(binder.skill.value, "Spot Hidden", "the binder's row names the skill it read, by name");
+		const roll = telemetry.find((row) => row.tool === "resolve" && row.origin === "policy");
+		assert.ok(roll?.ok, "the clerk rolled the check in both cases: the binder executes its answer");
+		const bind = telemetry.find((row) => row.lane === "run" && row.event === "bind" && row.candidate === "resolve:core-check:ordinary-check");
+		const paths = Object.fromEntries(bind.bindings.map((entry) => [entry.name, entry.path]));
+		assert.deepEqual([paths.decision, paths.goal, paths.method, paths.intent, paths.skill], ["stated", "composed", "composed", "jev", "jev"]);
+		const intent = bind.bindings.find((entry) => entry.name === "intent"), skill = bind.bindings.find((entry) => entry.name === "skill");
+		assert.deepEqual([intent.value, intent.confidence], ["investigate", 0.95], "the intent is the compile's act, not the binder's own reading (social)");
+		assert.deepEqual([skill.value, skill.cleared], ["Spot Hidden", expected.cleared]);
+		const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "resolve");
+		assert.deepEqual([row.path, row.reviewer, row.compile_refused], [expected.path, expected.reviewer, expected.refused]);
+		assert.equal(row.basis?.compile?.predicate, "ordinary_check");
+		assert.equal(table.lanes.admission.requests().length, expected.lane);
+	});
+});
+
+test("SL-26 (§32.12): compileAdmission refuses a bind record that says it did not clear; admissionBindings carries the flag", () => {
+	const ordinary = { origin: "policy", basis: { compile: { predicate: "ordinary_check", features: { act: "investigate", destination: null },
+		read_features: { act: { row: "investigate", confidence: 0.95, cleared: true }, destination: { row: null, confidence: 0.96, cleared: true } } } },
+	bindings: [{ name: "decision", path: "stated" }, { name: "intent", path: "jev" }, { name: "skill", path: "jev" }, { name: "goal", path: "composed" }] };
+	assert.deepEqual(compileAdmission(ordinary), { ok: true, predicate: "ordinary_check",
+		features: { act: { row: "investigate", confidence: 0.95 }, destination: { row: null, confidence: 0.96 } },
+		bindingPaths: { decision: "stated", intent: "jev", skill: "jev", goal: "composed" } });
+	const under = { ...ordinary, bindings: ordinary.bindings.map((entry) => entry.name === "skill" ? { ...entry, cleared: false } : entry) };
+	assert.deepEqual(compileAdmission(under), { ok: false, reason: "parameter_not_cleared:skill" });
+	assert.deepEqual(admissionBindings([{ name: "skill", path: "jev", value: "Listen", cleared: false }, { name: "intent", path: "jev", value: "investigate", confidence: 0.9 }], {}),
+		[{ name: "skill", path: "jev", cleared: false }, { name: "intent", path: "jev" }]);
+});

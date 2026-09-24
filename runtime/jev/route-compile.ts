@@ -78,7 +78,12 @@ export function askedFamilies(rows: FeatureRows | undefined): FeatureFamily[] {
 
 /** A feature's answer once gated: `row` is the cleared row's id, `null` for a cleared `none`; absent when it did not clear. */
 export type Cleared = {[family in FeatureFamily]?: {row: string | null; confidence: number | null; distribution: Record<string, number> | null}};
-export interface Fired {bound?: Record<string, Json>}
+/**
+ * What a predicate settles when it fires: closed parameters it binds (`bound`), and for a parameter whose name is not the
+ * family that answered it, that family (`from`: the ordinary check's `intent` is the `act` answer), so its record carries
+ * the right answer's confidence and distribution.
+ */
+export interface Fired {bound?: Record<string, Json>; from?: Record<string, FeatureFamily>}
 export interface CompilePredicate {
   name: string;
   /**
@@ -114,6 +119,10 @@ const addresseeAllows = (cleared: Cleared, people: string[]): boolean => !cleare
 /** The attack's issued targets: the one the kernel bound, else the closed options it issued. */
 const attackTargets = (candidate: Candidate): string[] => typeof candidate.bound.target === 'string'
   ? [candidate.bound.target] : candidate.unbound.find(value => value.name === 'target')?.options ?? [];
+/** The ordinary check's decision (§135.2): the one resolve decision the builder offers outside a session. */
+export const ORDINARY_CHECK = 'core-check:ordinary-check';
+/** The acts an ordinary check the compile selects may carry (§135.30.3): the ruling's investigate and social. */
+const ORDINARY_ACTS: readonly string[] = ['investigate', 'social'];
 
 export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
   {name: 'move', features: ['destination'], askable: rows => has(rows, 'destination'),
@@ -156,6 +165,21 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
       const target = cleared.target?.row;
       if (!cleared.act?.row || cleared.act.row !== candidate.bound.intent || !target || !attackTargets(candidate).includes(target)) return undefined;
       return typeof candidate.bound.target === 'string' ? {} : {bound: {target}};
+    }},
+  // §135.30.3 (SL-26): the ordinary check the player declared. The act clears to investigate, or to social aimed at someone
+  // present; a cleared destination leaves the check to the scene the declaration ends in, and an ask on an obligation's
+  // demand leaves it to that obligation's check. The intent is the act the compile read. Never decided: when it does not
+  // fire the route's `need` question still reads the check, as before.
+  {name: 'ordinary_check', features: ['act', 'addressee', 'ask', 'destination'], askable: rows => has(rows, 'act'),
+    reads: candidate => candidate.clerk === 'declared_check' && candidate.bound.decision === ORDINARY_CHECK,
+    decided: () => false,
+    fires: (_candidate, cleared) => {
+      const act = cleared.act?.row;
+      if (!act || !ORDINARY_ACTS.includes(act)) return undefined;
+      if (act === 'social' && !cleared.addressee?.row) return undefined;
+      if (cleared.destination?.row) return undefined;
+      if (cleared.ask?.row?.startsWith('obligation:')) return undefined;
+      return {bound: {intent: act}, from: {intent: 'act'}};
     }},
 ]);
 
@@ -262,7 +286,7 @@ export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows'>,
       const read = Object.fromEntries(FEATURE_FAMILIES.filter(family => cleared[family]).map(family => [family, cleared[family]!.row]));
       const bound = fired.bound ?? {};
       const settled = Object.fromEntries(Object.entries(bound).map(([name, value]) => {
-        const family = name as FeatureFamily;
+        const family = fired.from?.[name] ?? name as FeatureFamily;
         return [name, {value, confidence: cleared[family]?.confidence ?? null, distribution: cleared[family]?.distribution ?? null}];
       }));
       // §32.12: every family the predicate can read that the compile asked, cleared or not, with its confidence. Admission

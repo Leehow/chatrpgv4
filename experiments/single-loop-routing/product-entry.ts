@@ -47,6 +47,8 @@ const who = (value: unknown): string => String(value ?? '').toLowerCase().replac
 const resolveKey = (action: Row): string => action.decision === 'combat:defend' ? `resolve:combat:defend:${who(action.actor)}`
   // SL-19: a live Keeper's attack names no decision (`intent: combat` with a target, which the kernel settles as
   // `combat:attack`); the clerk's first blow names it. Both are the same attack, so the replay does not throw it twice.
+  // SL-26: the clerk's ordinary check names its decision, the live Keeper's names only the skill: the same roll.
+  : action.decision === 'core-check:ordinary-check' ? `resolve:skill:${action.skill ?? ''}:${who(action.target)}`
   : `resolve:${action.decision ?? (action.intent === 'combat' && action.target && !action.skill ? 'combat:attack' : `skill:${action.skill ?? ''}`)}:${who(action.target)}`;
 
 /** The live calls in order, each with whether the live kernel took it (paired with the live tool rows by order). */
