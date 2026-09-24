@@ -1,0 +1,238 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z/events.jsonl",
+  "record": ".coc/repos/longgate-haunting-0624.git b9e29f1:turns/0020.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我回到诺特办公室，把宅子里的发现全部告诉他，问下一步。",
+ "llm_calls": 6,
+ "llm_ms_total": 56717,
+ "calls": [
+  {
+   "at": "2026-09-24T10:42:51.510Z",
+   "provider_ms": 12103,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 11933,
+    "output": 987,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "look",
+     "arguments": {
+      "focus": "npc",
+      "name": "Steven Knott"
+     },
+     "id": "call-718ef57b-0f50-43f3-809d-0487fbed0e88-0|fc_05567223-17d2-921c-a456-bfdb2cb5aafb_0"
+    },
+    {
+     "name": "recall",
+     "arguments": {
+      "what": "transcript",
+      "turns": [
+       11,
+       16
+      ],
+      "role": "keeper"
+     },
+     "id": "call-718ef57b-0f50-43f3-809d-0487fbed0e88-1|fc_05567223-17d2-921c-a456-bfdb2cb5aafb_1"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:43:03.641Z",
+   "provider_ms": 1391,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 1282,
+    "output": 40,
+    "cache_read": 45056
+   },
+   "tool_calls": [
+    {
+     "name": "lookup",
+     "arguments": {
+      "kind": "adaptation",
+      "action": "status",
+      "name": "corbitt-house-front"
+     },
+     "id": "call-e17dab5c-4de6-4b95-9ec7-d2eb219f6651-2|fc_52730bc2-d72f-920b-8efe-ff4b6d65f2bf_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:43:06.340Z",
+   "provider_ms": 7260,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 349,
+    "output": 544,
+    "cache_read": 46336
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "adaptation",
+        "name": "corbitt-house-front"
+       }
+      ]
+     },
+     "id": "call-aa228b4e-1981-40fb-91e7-48f52e272e16-3|fc_a5f84e04-7cf3-9f14-9bc7-6980c23a8cc1_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:43:15.812Z",
+   "provider_ms": 5667,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 2908,
+    "output": 467,
+    "cache_read": 46592
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "move",
+        "to": "commission-briefing",
+        "travel_minutes": 40,
+        "label": "诺特的办公室",
+        "via": "晚间从宅前街道乘车回到委托人的办公室"
+       },
+       {
+        "kind": "time",
+        "minutes": 40,
+        "why": "晚间从科比特宅乘车回到诺特的办公室"
+       }
+      ]
+     },
+     "id": "call-3660c49c-a733-45c3-b240-965c942310d6-4|fc_c2d685e8-b521-9828-a68e-397db06d82aa_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:43:34.619Z",
+   "provider_ms": 14359,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 11621,
+    "output": 1141,
+    "cache_read": 46592
+   },
+   "tool_calls": []
+  },
+  {
+   "at": "2026-09-24T10:43:49.792Z",
+   "provider_ms": 15937,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 58639,
+    "output": 1237,
+    "cache_read": 0
+   },
+   "tool_calls": [
+    {
+     "name": "narrate",
+     "arguments": {
+      "text": "你撑着车门下了地，大衣下摆还沾着宅子里的灰，走路时一侧身子明显使不上劲。办公室的灯还亮着。史蒂文·诺特坐在桌后，账本摊开，抬头看见你偏着身子进门。{{scene:commission-briefing}}{{time}}\n\n{{say:托马斯·海斯}}“我进了科比特宅。一层的窗从里面钉死，侧门上好几道栓。客厅和卧室里全是十字架、圣母像、玫瑰经，蜡烛烧到了蜡托。楼上有敲打和刮擦，一张床自己动过。空气里有一股说不出的臭。储藏间橱柜里有三本旧日记，书脊上写着 W. Corbitt，我没翻开。柜后的墙和地板是实的，没有暗门。厨房撬开的地板下面只有搁栅，下不去。”{{/say}}\n\n诺特的笔停在账本上。他看了看你按着的那一侧，又看了看桌角上并排放着、还没递出去的钥匙和那张钞票。\n\n{{say:史蒂文·诺特}}“钉子和圣像，街坊早就当鬼宅在传，买主听了只会再压价。床会动、有股臭，这些上不了契约。书脊上那个姓是你带回来的第一件新东西，可你一页都没抄。天亮再进去，把日记里的人名和日期抄下来。抄不到，今天这二十块先挂着，不算结清。”{{/say}}"
+     },
+     "id": "call-50212fce-6efb-44fa-8016-d3887ac433e8-5|fc_9ebafcce-f4c2-937e-876b-1f1385789f11_0"
+    }
+   ]
+  }
+ ],
+ "tools": [
+  {
+   "tool": "look",
+   "call_id": "call-718ef57b-0f50-43f3-809d-0487fbed0e88-0|fc_05567223-17d2-921c-a456-bfdb2cb5aafb_0",
+   "ok": false
+  },
+  {
+   "tool": "recall",
+   "call_id": "call-718ef57b-0f50-43f3-809d-0487fbed0e88-1|fc_05567223-17d2-921c-a456-bfdb2cb5aafb_1",
+   "ok": false
+  },
+  {
+   "tool": "lookup",
+   "call_id": "call-e17dab5c-4de6-4b95-9ec7-d2eb219f6651-2|fc_52730bc2-d72f-920b-8efe-ff4b6d65f2bf_0",
+   "ok": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-aa228b4e-1981-40fb-91e7-48f52e272e16-3|fc_a5f84e04-7cf3-9f14-9bc7-6980c23a8cc1_0",
+   "ok": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-3660c49c-a733-45c3-b240-965c942310d6-4|fc_c2d685e8-b521-9828-a68e-397db06d82aa_0",
+   "ok": true
+  },
+  {
+   "tool": "narrate",
+   "call_id": "call-50212fce-6efb-44fa-8016-d3887ac433e8-5|fc_9ebafcce-f4c2-937e-876b-1f1385789f11_0",
+   "ok": true
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 11786,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "lookup"
+  },
+  {
+   "verb": "apply",
+   "kind": "adaptation",
+   "target": "corbitt-house-front"
+  },
+  {
+   "verb": "apply",
+   "kind": "move",
+   "target": "commission-briefing",
+   "minutes": 40
+  },
+  {
+   "verb": "apply",
+   "kind": "time",
+   "target": null,
+   "minutes": 40
+  },
+  {
+   "verb": "narrate"
+  }
+ ],
+ "receipts": [
+  {
+   "id": "adaptation:2561a1443e1728d8",
+   "kind": "adaptation"
+  },
+  {
+   "id": "move:commission-briefing-t20-c2",
+   "kind": "move",
+   "to": "commission-briefing"
+  },
+  {
+   "id": "time:t20-c2",
+   "kind": "time"
+  }
+ ]
+}

@@ -1,0 +1,127 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z/events.jsonl",
+  "record": ".coc/repos/longgate-haunting-0624.git 24a7576:turns/0015.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我把储物柜后面和地板上的木板撬开，找地下室的入口。",
+ "llm_calls": 3,
+ "llm_ms_total": 33927,
+ "calls": [
+  {
+   "at": "2026-09-24T10:39:15.360Z",
+   "provider_ms": 7652,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 12367,
+    "output": 533,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "lookup",
+     "arguments": {
+      "kind": "source",
+      "source_mode": "answer",
+      "query": "corbitt house ground floor basement entrance",
+      "question": "Where is the entrance to the basement on the ground floor of the Corbitt house, and what must investigators do to open it? Do the floorboards or the cupboard hide a second entrance?"
+     },
+     "id": "call-701a6667-c403-4a2e-b764-286edcf29338-0|fc_03607b56-28fa-93f6-a7f9-ff39affc9e3f_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:39:23.150Z",
+   "provider_ms": 19166,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 2206,
+    "output": 1732,
+    "cache_read": 45440
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "time",
+        "minutes": 15,
+        "why": "在厨房撬开橱柜后面和地板，找地下室入口。"
+       },
+       {
+        "kind": "threat",
+        "name": "corbitt-haunting",
+        "clock": "corbitt-awareness",
+        "why": "厨房里撬板子的声音在宅子里传开。"
+       }
+      ]
+     },
+     "id": "call-222cfb54-262b-49e8-9f58-6e9e61e10054-1|fc_4ce88e9b-2e67-9c0d-803e-cbf7bf0c3669_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:39:50.435Z",
+   "provider_ms": 7109,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 20574,
+    "output": 420,
+    "cache_read": 33152
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "lookup",
+   "call_id": "call-701a6667-c403-4a2e-b764-286edcf29338-0|fc_03607b56-28fa-93f6-a7f9-ff39affc9e3f_0",
+   "ok": false
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-222cfb54-262b-49e8-9f58-6e9e61e10054-1|fc_4ce88e9b-2e67-9c0d-803e-cbf7bf0c3669_0",
+   "ok": true
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "verdict": "not_player_action",
+   "ms": 7181,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "apply",
+   "kind": "time",
+   "target": null,
+   "minutes": 15
+  },
+  {
+   "verb": "apply",
+   "kind": "threat",
+   "target": "corbitt-haunting"
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "time:t15-c1",
+   "kind": "time"
+  },
+  {
+   "id": "threat:corbitt-haunting-corbitt-t15-c1",
+   "kind": "threat"
+  }
+ ]
+}

@@ -363,7 +363,16 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
   const calls: Row[] = [];
   const state: ReplayState = {done: new Set(), messages: [], cursor: 0, executed: calls};
   const keeper = fauxProvider();
-  const replay = keeperReplay(baseline, delivered, state, log, latency);
+  const replayed = keeperReplay(baseline, delivered, state, log, latency);
+  // SL-27: with SINGLE_LOOP_DUMP_REQUESTS set, every replayed Keeper request (each message's role and text) and the tool
+  // calls answered to it go to run<N>.requests.jsonl, so a look's answer can be compared with what the Keeper was shown.
+  const dumpRequests = !!process.env.SINGLE_LOOP_DUMP_REQUESTS, requests: Row[] = [];
+  const replay = async (context: Row): Promise<Row> => {
+    const answer = await replayed(context);
+    if (dumpRequests) requests.push({request: requests.length, messages: array(context.messages).map((message: Row, index: number) => ({index, role: message.role,
+      text: messageTexts({messages: [message]})[0]})), answer: array(answer.content).filter((block: Row) => block.type === 'toolCall').map((block: Row) => ({name: block.name, arguments: block.arguments}))});
+    return answer;
+  };
   keeper.setResponses(Array.from({length: 24}, () => replay) as any);
   const lane = (provider: string, id: string) => fauxProvider({api: 'openai-completions', provider, models: [{id}]});
   const verifier = lane('verifier', 'v1'), memory = lane('memory', 'm1'), admissionLane = lane('admission', 'a1');
@@ -408,6 +417,7 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
           pi.on('tool_call', (event: Row) => { pending.set(event.toolCallId, {tool: event.toolName, id: event.toolCallId, origin: String(event.toolCallId).startsWith('clerk:') ? 'policy' : 'model', input: structuredClone(event.input)}); });
           pi.on('tool_result', (event: Row) => { const call = pending.get(event.toolCallId); if (!call) return; pending.delete(event.toolCallId);
             const details = object(event.details);
+            if (dumpRequests && ['look', 'lookup', 'recall'].includes(call.tool)) call.result_text = array(event.content).map((block: Row) => typeof block.text === 'string' ? block.text : '').join('');
             calls.push({...call, ok: !event.isError && !details.coc_error, error: object(details.coc_error).code ?? null,
               ...(details.obligation ? {obligation: details.obligation} : {}), ...(details.obligation_open ? {obligation_open: details.obligation_open} : {}),
               ...(object(details.outcome).passed !== undefined ? {passed: object(details.outcome).passed, level: object(details.outcome).level ?? null} : {})}); });
@@ -481,6 +491,9 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
   mkdirSync(outDir, {recursive: true});
   writeFileSync(join(outDir, `run${run}.trace.jsonl`), [...trace.map(row => ({lane: 'replay', ...row})), ...events.map(row => ({lane: 'event', ...row})), ...own].map(row => JSON.stringify(row)).join('\n') + '\n');
   writeFileSync(join(outDir, `run${run}.summary.json`), JSON.stringify(summary, null, 1) + '\n');
+  if (dumpRequests) writeFileSync(join(outDir, `run${run}.requests.jsonl`), [...requests.map(row => ({kind: 'request', ...row})),
+    ...calls.filter(call => call.result_text !== undefined).map(call => ({kind: 'read_result', tool: call.tool, id: call.id, input: call.input, ok: call.ok, text: call.result_text}))]
+    .map(row => JSON.stringify(row)).join('\n') + '\n');
   return summary;
 }
 

@@ -303,6 +303,7 @@ result：`{"turn": int, "state": "...", "receipts": [...本回合收据摘要], 
 params：`{"focus"?: "scene"|"npc"|"investigator"|"clues"|"time", "name"?: "<实体名>"}`。
 - 缺省等价于 `focus: "scene"`。`focus: "npc"` 且给 `name` 返回该 NPC 的完整守秘人视图：agenda、fear、secret、voice、relationship、keeper_note、social_role、已知事实。`focus: "investigator"` 返回当前调查员表的玩家可见部分加运行时数值。`focus: "clues"` 返回已发现与当前场景可得的线索。`focus: "time"` 返回世界时钟。
 result：见第 6 节的 `where`、`present`、`known`，按 focus 取子集；`npc` 与 `investigator` 返回单实体对象。
+- `focus: "object"` with a `name` that no registered object or definition has answers the clue or handout the kernel knows by that name (its play-language label or the graph's names) before `unknown_entity` (§135.31.1 B).
 
 ### table.lookup（切片 0：module、secret；rule、catalog 已实现，见 §58.5）
 params：`{"kind": "module"|"secret"|"rule"|"catalog", "query": "<名字或问题>", "kinds"?: [...], "scope"?: "scene"|"module"}`。
@@ -18753,6 +18754,86 @@ defence, the defender's card and the session view, byte-equal to `look`; with a 
 every model step it changed for; each view at most 4 KiB and the message's at most 12 KiB, cut and marked; a model-origin
 `look` row carries `args`, `run` and `step`; the turn record's `reads` with the digest. The mutation record is in the SL-15
 ticket's Comments.
+
+#### 135.31.1 Addendum (2026-09-24, SL-27): a scene's source passages on the run's first step there; `look focus=object` knows clues and handouts
+
+The spec's ruling "The Keeper is shown what the run has read" binds it; ticket SL-27. Single-loop parts apply to
+`PI_COC_LOOP_ENGINE=hybrid-v1` only; the `look` change applies to both engines.
+
+**Evidence** (the 20-turn live gate, campaign `longgate-haunting-0624`, a zh-Hans Haunting table; the per-look table is in
+the SL-27 ticket's Comments). Eighteen model-origin `look`/`lookup` rows (twenty read calls in the driver's event log,
+counting a look the preparation wait blocked and a recall the host did not run). A recorded-Keeper replay of each turn
+compared every answer with what the Keeper had been shown at that step, by the bytes of the answer's leaf strings:
+
+- five `lookup kind=source source_mode=answer` (t6, t10, t11, t15, t16), every one `needs: no_source_document`. The
+  Haunting is a built-in starter: its authored graph is its whole source. The prescreen packet in the same request held
+  that scene's authored units every time the prescreen had located them (t10: the scene and its beat; t11 and t15/t16: the
+  destination's), labelled as `keeper_support` materials among maps, rules and people;
+- three `look focus=scene` (t10, t13, t16) whose answer was 100%, 70% and 100% present in the request (the capsule's
+  `where`), and nothing carried: SL-15 carries the scene only when it changed during the run;
+- one `look focus=object name="Corbitt Diaries"` (t19): `unknown_entity`, though the module has the clue `corbitt-diaries`
+  and the run's issued section carried its body. No world object has that name; the kernel looked nowhere else;
+- the rest (module lookups 9-55% present, a rule lookup, three adaptation calls) are other tickets' or nobody's.
+
+**A. The scene's source passages ride in `carried`.** At the run's first model step at a scene -- the scene of the run's
+first read, and a scene the run moves into -- the `coc-clerk` message's `carried` section also carries that scene's passages
+from this run's prescreen, when there are any: once per scene per run. Every run, not the campaign's first visit: a turn's
+request keeps no earlier turn's `coc-clerk` messages (t10's held the capsule, one packet and 2.4 KB of quotations), and
+t10's source lookup came one turn after the arrival.
+
+- **What a scene's passages are**, read off the materials of every prescreen outcome of this run (`prepared` or
+  `reused`, §135.6), structure only: (1) every `kind: "source"` material (a checked answer, a native page, a supported
+  consultation: the book's own words) of a read made at that scene; (2) the `graph_entity` materials of the scene's own
+  entity (the entity whose `name` is the scene handle) and of every entity one of whose located units names the scene
+  handle as a value (a relation's `to`, an authored `scene_id`): what the module authored about the place, about what
+  is there, and about the places that lead to or from it (on the gate state the ground floor's passages held the upper
+  floor and the basement, the places the t11 and t15/t16 source lookups asked about). Handle equality, never words.
+- **Shape.** One view `{focus: "source", name: <scene handle>, view}`. `view` holds one entry per passage: a book
+  passage under its material label, `{authority, content, provenance?}`; a graph entity under its locator (`scene:<handle>`,
+  `beat:<handle>`), its located units merged into `{entity, authored?, relations?}` (the identity once, not once per
+  unit). Book passages first, then the scene's own entity, then the others in the packet's order. Nothing is renamed or
+  invented; the materials are the ones the packet already carries (the packet is unchanged).
+- **Ceilings.** The carried view's own (`CARRIED_VIEW_BYTES`, 4 KiB), cut the way §135.31 cuts (trailing entries first,
+  then long strings; the first three kept), marked `truncated` with `omitted_fields`; the message's `CARRIED_VIEWS_BYTES`
+  (12 KiB) is shared, served session, people, scene, then the passages; a view past it is `omitted` with `budget`. No
+  kernel read: the row's `reads` does not count it.
+- **The head** adds: the passages are what this run's prescreen located about the scene -- the book's passages, and the
+  module's authored material on it. Then the module's source, when the read knows it: the capsule carries `reading` (the
+  book's table of contents, §22) only for a module that came from an original document, so without it the head says this
+  module has no original document, its authored graph is its whole source, these passages are what it says about the
+  scene, and `lookup kind=source` answers `no_source_document` here; with it, that `lookup kind=source` reads the document
+  for what the passages do not cover. (First written as one generic sentence about built-in starters; in three live-Keeper
+  runs of t10 every first response still went to `lookup kind=source` with the passages and that sentence in front of it.)
+- **Why beside the packet.** The packet is the prescreen's answer to the player's request across every family and stays
+  as it is (§124.4's delivered accounting reads it). Five source lookups went out with the scene's units in it; the carried
+  view names them as the scene's source. The duplicated bytes are measured in the ticket.
+
+**B. `look focus=object name` resolves a clue or a handout the kernel knows** before it answers `unknown_entity`. After
+a registered instance or definition and a queued registration (§129.4) have missed, in order: a clue whose play-language
+label (`world.clue_labels`, the label `apply clue` filed) equals the name (normalized); a clue by the graph's own names
+(handle, node name, aliases, display name, and §2's anchored phrase: `graph.find(name, ["clue"])`); a handout by the
+graph's own names (`graph.find(name, ["handout"])`). A handout has no play-language label on the world (the receipt keeps
+its label, the world does not), so it resolves by the book's names only. When a clue and a handout both resolve, the answer
+is `unknown_entity` with both as `details.candidates`. The answer:
+
+```
+{kind: "clue" | "handout", entity: <the lookup kind=module entity row>, label?: <the play-language label>,
+ discovered?: bool (a clue), shown?: bool (a handout), note}
+```
+
+`note` says no object is registered by that name, what it is, and the verb that acts on it (`apply clue`, `apply
+handout`), never "define" or "place". Keeper-only, like every `look`.
+
+**Three ends (§31).** *Writer:* the run's prescreen (passages); `apply clue` (`world.clue_labels`) and the module graph
+(names). *Reader:* the engine's projection (`carried`), `objectLook`. *Actor:* the Keeper, who does not ask the book for a
+scene it was handed, and gives the clue it looked at by the name the player used. Counted per run in the SL-27 ticket.
+
+*Tests.* `tests/extension/single-loop-looks-first-visit.test.mjs`: the passages of a scene from stub packets (book first,
+then the scene's entity, then anchored ones; units merged; a unit of another scene left out; cut and marked under 4 KiB);
+on the emitted kernel through the vendored driver with a controlled prescreen, the first model step carries the opening
+scene's passages, the step after a clerk move carries the destination's, and no step carries a scene's twice; `look
+focus=object` on the emitted kernel answers a clue by its handle-shaped name, by its play-language label, a handout by its
+title, and still `unknown_entity` for a name that is none of them.
 
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 

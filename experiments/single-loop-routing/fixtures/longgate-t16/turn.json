@@ -1,0 +1,13 @@
+{
+ "campaign": "longgate-haunting-0624",
+ "module": "the-haunting",
+ "turn": 16,
+ "commit_before": "24a7576",
+ "commit_after": "a7f960b",
+ "player_input": "我打着手电，沿楼梯下地下室。",
+ "tarball": "../longgate/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/longgate-haunting-0624",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z"
+ }
+}

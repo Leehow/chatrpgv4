@@ -1,0 +1,415 @@
+{
+ "run": 3,
+ "fixture": "longgate-t10",
+ "admission": "lane",
+ "keeper": "live grok-build/grok-4.7-build-fast",
+ "thinking": "low",
+ "arm": "after",
+ "latency": false,
+ "seed": null,
+ "wall_ms": 30748,
+ "budget": {
+  "turn": 10,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d324-32f6-71cf-ae41-cf072a188dc9",
+  "budget_ms": 45000,
+  "elapsed_ms": 29828,
+  "elapsed_at_compose": 12612,
+  "over_budget": false,
+  "deferred_by_budget": [],
+  "decision_budget": {
+   "jev_calls": 2,
+   "jev_ms": 1113,
+   "max_jev_calls": 24,
+   "max_jev_ms": 12000,
+   "spent": false
+  },
+  "prescreen": {
+   "reads": 1,
+   "jev_calls": 2,
+   "ms": 1426
+  },
+  "run_id": "f0e98abf-1b6d-4219-8184-bb4e961318a0"
+ },
+ "compile": "on",
+ "compile_row": {
+  "turn": 10,
+  "lane": "route",
+  "purpose": "compile",
+  "run": "run-01a0d324-32f6-71cf-ae41-cf072a188dc9",
+  "step": "run-01a0d324-32f6-71cf-ae41-cf072a188dc9:s2",
+  "status": "complete",
+  "ms": 372,
+  "features": {
+   "destination": {
+    "rows": {
+     "destination_1": "upper-floor-bedroom",
+     "destination_2": "basement-rites",
+     "destination_3": "newspaper-morgue",
+     "destination_4": "central-library",
+     "destination_5": "hall-of-records",
+     "destination_6": "neighborhood-gossip",
+     "destination_7": "previous-tenants",
+     "destination_8": "commission-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.96,
+    "probabilities": {
+     "destination_3": 0,
+     "destination_1": 0.01,
+     "destination_6": 0,
+     "destination_5": 0,
+     "destination_7": 0,
+     "unclear": 0.02,
+     "destination_8": 0,
+     "none": 0.97,
+     "destination_4": 0,
+     "destination_2": 0
+    },
+    "cleared": true
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:corbitt-diaries",
+     "ask_2": "clue:upstairs-disturbance",
+     "ask_3": "clue:catholic-wards",
+     "ask_4": "handout:Corbitt House Investigator Map"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.61,
+    "probabilities": {
+     "ask_1": 0.04,
+     "ask_4": 0.01,
+     "unclear": 0.22,
+     "none": 0.67,
+     "ask_3": 0.04,
+     "ask_2": 0.02
+    },
+    "cleared": true
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.92,
+    "probabilities": {
+     "act_3": 0.03,
+     "act_6": 0,
+     "act_1": 0.93,
+     "act_8": 0,
+     "act_11": 0.04,
+     "act_5": 0,
+     "act_10": 0,
+     "act_9": 0,
+     "unclear": 0,
+     "act_4": 0,
+     "none": 0,
+     "act_7": 0,
+     "act_2": 0
+    },
+    "cleared": true
+   },
+   "item": {
+    "rows": {
+     "item_1": "笔记本",
+     "item_2": "撬锁工具",
+     "item_3": "手电筒",
+     "item_4": "徽章"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.64,
+    "probabilities": {
+     "none": 0.7,
+     "unclear": 0.29,
+     "item_2": 0.01,
+     "item_4": 0,
+     "item_1": 0,
+     "item_3": 0
+    },
+    "cleared": true
+   }
+  },
+  "fired": [],
+  "selected": [],
+  "decided": [
+   "apply:move:newspaper-morgue",
+   "apply:move:central-library",
+   "apply:move:hall-of-records",
+   "apply:move:neighborhood-gossip",
+   "apply:move:previous-tenants",
+   "apply:move:commission-briefing"
+  ],
+  "fell_through": [
+   "apply:clue:corbitt-diaries",
+   "apply:clue:upstairs-disturbance",
+   "apply:clue:catholic-wards",
+   "apply:handout:Corbitt House Investigator Map",
+   "resolve:core-check:ordinary-check"
+  ],
+  "reason": "decided_none",
+  "run_id": "f0e98abf-1b6d-4219-8184-bb4e961318a0"
+ },
+ "selections": [],
+ "compile_rows": [
+  {
+   "turn": 10,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d324-32f6-71cf-ae41-cf072a188dc9",
+   "step": "run-01a0d324-32f6-71cf-ae41-cf072a188dc9:s2",
+   "status": "complete",
+   "ms": 372,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "upper-floor-bedroom",
+      "destination_2": "basement-rites",
+      "destination_3": "newspaper-morgue",
+      "destination_4": "central-library",
+      "destination_5": "hall-of-records",
+      "destination_6": "neighborhood-gossip",
+      "destination_7": "previous-tenants",
+      "destination_8": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.96,
+     "probabilities": {
+      "destination_3": 0,
+      "destination_1": 0.01,
+      "destination_6": 0,
+      "destination_5": 0,
+      "destination_7": 0,
+      "unclear": 0.02,
+      "destination_8": 0,
+      "none": 0.97,
+      "destination_4": 0,
+      "destination_2": 0
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:corbitt-diaries",
+      "ask_2": "clue:upstairs-disturbance",
+      "ask_3": "clue:catholic-wards",
+      "ask_4": "handout:Corbitt House Investigator Map"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.61,
+     "probabilities": {
+      "ask_1": 0.04,
+      "ask_4": 0.01,
+      "unclear": 0.22,
+      "none": 0.67,
+      "ask_3": 0.04,
+      "ask_2": 0.02
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_1",
+     "row": "investigate",
+     "confidence": 0.92,
+     "probabilities": {
+      "act_3": 0.03,
+      "act_6": 0,
+      "act_1": 0.93,
+      "act_8": 0,
+      "act_11": 0.04,
+      "act_5": 0,
+      "act_10": 0,
+      "act_9": 0,
+      "unclear": 0,
+      "act_4": 0,
+      "none": 0,
+      "act_7": 0,
+      "act_2": 0
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "撬锁工具",
+      "item_3": "手电筒",
+      "item_4": "徽章"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.64,
+     "probabilities": {
+      "none": 0.7,
+      "unclear": 0.29,
+      "item_2": 0.01,
+      "item_4": 0,
+      "item_1": 0,
+      "item_3": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [],
+   "selected": [],
+   "decided": [
+    "apply:move:newspaper-morgue",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "apply:clue:corbitt-diaries",
+    "apply:clue:upstairs-disturbance",
+    "apply:clue:catholic-wards",
+    "apply:handout:Corbitt House Investigator Map",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "decided_none",
+   "run_id": "f0e98abf-1b6d-4219-8184-bb4e961318a0"
+  }
+ ],
+ "prescreen": "on",
+ "reads": [
+  {
+   "scene": "corbitt-house-ground",
+   "prescreen": "prepared",
+   "materials": 5,
+   "jev_calls": 2,
+   "ms": 1426
+  }
+ ],
+ "status": "delivered",
+ "reason": "implicit_narrate",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 9733,
+   "ttfb_ms": 1145,
+   "input": 38339,
+   "cache_read": 8192,
+   "cache_write": 0,
+   "output": 827,
+   "reasoning": 721,
+   "tools": [
+    "lookup"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 17126,
+   "ttfb_ms": 848,
+   "input": 1154,
+   "cache_read": 46464,
+   "cache_write": 0,
+   "output": 1667,
+   "reasoning": 1544,
+   "tools": [],
+   "stop": "stop",
+   "effort": "low"
+  }
+ ],
+ "steps": {
+  "operate": 3,
+  "decide": 2,
+  "infer": 2,
+  "finish": 1
+ },
+ "llm_steps": 2,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 4,
+ "route_rows": 2,
+ "calls": [
+  {
+   "tool": "lookup",
+   "origin": "model",
+   "ok": false,
+   "error": "needs",
+   "input": {
+    "kind": "source",
+    "source_mode": "answer",
+    "query": "corbitt-house-ground",
+    "question": "What is on the ground floor of the Corbitt house, especially the kitchen, storage cupboard, doors and locks, and how investigators enter? What is plainly visible without prying the cupboard?"
+   }
+  }
+ ],
+ "match": [
+  {
+   "baseline": "look",
+   "matched": null
+  },
+  {
+   "baseline": "lookup",
+   "matched": null
+  },
+  {
+   "baseline": "handout Corbitt House Investigator Map",
+   "matched": false
+  },
+  {
+   "baseline": "clue catholic-wards",
+   "matched": false
+  },
+  {
+   "baseline": "clue upstairs-disturbance",
+   "matched": false
+  },
+  {
+   "baseline": "time 25",
+   "matched": false
+  },
+  {
+   "baseline": "threat corbitt-haunting",
+   "matched": false
+  },
+  {
+   "baseline": "narrate",
+   "matched": true,
+   "origin": "implicit"
+  }
+ ],
+ "admissions": [],
+ "clerk": [],
+ "misses": []
+}
