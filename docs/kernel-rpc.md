@@ -16889,7 +16889,7 @@ candidates carry `guarded_by` and their gate string names the obligation; a clai
 seed sets the flag in that call (world, receipt, result, event), the archivist becomes `open`, the guards
 clear; a claimed Persuade on a failing seed leaves it `open`, carries the failure line and writes no
 flag, receipt or time beyond the roll; a claimed push that passes settles it; the same Persuade without
-the claim settles nothing; `apply flag` waives and reopens with receipts; `apply clue` on a guarded clue
+the claim settles nothing (since §134.17 it is the folded attempt, and the case asserts that); `apply flag` waives and reopens with receipts; `apply clue` on a guarded clue
 while open lands and carries `obligation_open`; the capsule rows and the options rows agree; every
 refusal of §134.11 by its reason; the offer ledger's `obligation:` rows. `tests/extension/
 scene-obligations.test.mjs` covers the Mod-recipe identity and `reaction: "preordained"` over a derived
@@ -16982,9 +16982,12 @@ counted as.
 **When a check folds.** A `resolve` with no `action.obligation`, no `action.rule`, no `push` and no `luck`
 is resolved as an obligation's attempt when every one of these holds:
 
-1. the decision it settles is `core-check:ordinary-check` — named by `action.decision` or routed to it; a
-   social adjudication (which rolls nothing), an opposed or combined check, a Mod check or any other
-   decision folds nothing;
+1. the decision it settles is `core-check:ordinary-check` — named by `action.decision`, or routed to it with
+   no `action.decision`. A `social` intent against the person, which is otherwise routed to the social
+   adjudication (a difficulty computed from the person's defences, no roll), is routed to the ordinary check
+   when the rest of this list holds, as a claim routes it: the book states the difficulty. A decision named
+   otherwise (`social:adjudicate-difficulty` included), an opposed or combined check, a Mod check, a session's
+   decision or any other decision folds nothing;
 2. the acting character is an investigator (not an NPC acting in a session);
 3. `action.target` names (`graph.actor`) the person who is the `next.target` of an `open` obligation of
    the active scene — its `next` step is a check; an obligation whose next step is still a meeting is not
@@ -17022,7 +17025,8 @@ result levels carry only `settles` and `book`). The stored call parameters stay 
   receipt and result carry the same `step` and `counted: "folded"`.
 
 **Two matches fold into none.** When two or more open obligations of the active scene satisfy 3 and 4 for
-the same check, it settles as an ordinary check claiming nothing; the result carries
+the same check, no obligation binds it (a `social` intent is not re-routed: it goes to the social adjudication
+as before), and a check that settles as the ordinary check claims nothing; its result carries
 `obligation_ambiguous: [<handle>, ...]` (graph order) and a `note` (`ambiguityNote`) naming them and saying
 that `action.obligation` names one. Nothing is refused.
 
@@ -17045,9 +17049,12 @@ morgue, seeded; the gate-3 turn-2 arguments — Persuade against Arty Wilmot, a 
 without the claim): a passing fold sets the flag in the call (world, receipt, result, event) and the
 archivist opens; a failing fold leaves it `open`, records the attempt on the receipt and hands the failure
 and push lines; a push of a folded check continues it; the same arguments with `action.obligation` return
-§134.11's shape unchanged; the same arguments without a target, with a skill outside the approaches, routed
-to the social adjudication, or before Arty is met fold nothing; a derived haunting with a second open
-obligation at the morgue whose check is Persuade against Arty folds into none with `obligation_ambiguous`.
+§134.11's shape unchanged, refusals included; the book's difficulty replaces the Keeper's on a fold; the same
+arguments without a target (the person named in the words), without a skill (the skill named in the words), with a
+skill outside the approaches, with `decision: social:adjudicate-difficulty`, or before Arty is met fold nothing; on
+a derived haunting with a second open obligation at the morgue whose check is Persuade against Arty, the same
+arguments go to the social adjudication and, with `decision: core-check:ordinary-check`, settle claiming nothing with
+`obligation_ambiguous`.
 
 ## 135. The single-loop run settles the player's declared bookkeeping itself: candidates, clerk authority, one tool catalog (2026-09-23, SL-02 of `docs/specs/pi-native-single-loop.md`)
 

@@ -269,3 +269,22 @@ export function capsuleRow(issued: Row): Row {
         cue.push(`pdf p.${[...new Set(pages)].join(", ")}`);
     return { kind: "scene", name: issued.handle, ...(text(issued.who) ? { who: issued.who } : {}), state: issued.state, cue: cue.join("; ") };
 }
+/**
+ * §134.17: the Keeper's one line on a resolve the kernel counted as an obligation's attempt, read from the roll
+ * receipt alone (its skill and its `obligation`), so the Keeper does not roll the attempt a second time.
+ */
+export function foldNote(receipt: Row): string | null {
+    const claim = row(receipt.obligation);
+    if (claim.counted !== "folded" || !text(claim.handle))
+        return null;
+    const skill = text(receipt.skill_label) ? receipt.skill_label : text(receipt.skill) ? receipt.skill : "check";
+    const step = integer(claim.step) ? ` (demand step ${claim.step})` : "";
+    return claim.settled === true
+        ? `This ${skill} roll was the attempt at obligation ${claim.handle}${step} and settled it; do not roll it again.`
+        : `This ${skill} roll was the attempt at obligation ${claim.handle}${step} and did not settle it; the book's line is obligation.book; do not roll the attempt again${receipt.pushed === true ? "" : " (a push, if you allow one, continues it)"}.`;
+}
+/** §134.17: the Keeper's one line when a check fits two or more open obligations and so counted as none. */
+export function ambiguityNote(handles: readonly string[]): string {
+    const listed = handles.length === 1 ? handles[0] : `${handles.slice(0, -1).join(", ")} and ${handles.at(-1)}`;
+    return `This check fits the open obligations ${listed}, so it counted as the attempt at none of them; name one with action.obligation to make a check its attempt.`;
+}
