@@ -639,7 +639,9 @@ export class Reading {
                 const identity = await this.focusIdentity(mid), wanted = identity(focus);
                 // §22.4.3 (SL-36): one live consultation per focus; a second question on a running focus attaches to it.
                 const kinds = purpose === 'answer' ? ['answer'] : FOCUSED;
-                settling = queue.find(job => job.state === 'running' && kinds.includes(job.purpose) && Reading.meet(identity(job.focus), wanted));
+                // A consultation of another context generation can never publish (§22.4.1): it is no reading to attach to.
+                settling = queue.find(job => job.state === 'running' && kinds.includes(job.purpose) && Reading.meet(identity(job.focus), wanted)
+                    && (job.purpose !== 'answer' || equal(job.context_generation, meta.generation ?? 0)));
             }
             if (settling) {
                 if (truth(params.foreground) && !truth(settling.foreground)) {

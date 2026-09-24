@@ -101,8 +101,9 @@ def test_campaign_answer_caches_and_attempt_leases_are_isolated(kernel, tmp_path
         assert reused['source_answer'] == library_result['source_answer']
         assert kernel.ok('module.read.claim', dict(module_id=mid, owner='answer-test', campaign=campaign))['job_id'] is None
     independent_question = 'Which organization employs Lena at the harbor?'
-    params_a, job_a, _, _ = answer_job(kernel, mid, question=independent_question, campaign='answer-a')
-    params_b, job_b, _, _ = answer_job(kernel, mid, question=independent_question, campaign='answer-b')
+    # memo=False (contract §22.4.3): each campaign's fork holds the library's answer on Lena as its memo; these read past it.
+    params_a, job_a, _, _ = answer_job(kernel, mid, question=independent_question, campaign='answer-a', memo=False)
+    params_b, job_b, _, _ = answer_job(kernel, mid, question=independent_question, campaign='answer-b', memo=False)
     assert job_a['lease'] != job_b['lease']
     assert 'answer-a' in job_a['work_dir'] and 'answer-b' in job_b['work_dir']
     assert kernel.ok('module.read.request', params_b)['state'] == 'reading'

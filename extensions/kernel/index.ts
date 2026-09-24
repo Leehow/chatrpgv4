@@ -4885,7 +4885,7 @@ export default function (pi: ExtensionAPI) {
 			// §22.4.4 (SL-37): a turn whose pending action is a read still delivers fiction. The draft the Keeper wrote while
 			// the material is unread is the turn's delivery: it is kept and closed below like any other prose, and the pending
 			// read is the clerk's business (the note, §135.31.2), not the player's. This used to drop the draft once and steer
-			// the Keeper to narrate the wait: on 血色公路 a player who declared a drive read only the host notice, four times,
+			// the Keeper to narrate the wait: on SL-29A book A a player who declared a drive read only the host notice, four times,
 			// and long gate #3's t10 lost its first draft at 149 s. The host notice is the fallback when there is no draft.
 			if (sourceWait) void record({ lane: "delivery", turn: state.turn, ok: true, reason: "reading_wait_draft_kept",
 				...(state.sourceWait?.focus ? { name: state.sourceWait.focus } : {}) });
