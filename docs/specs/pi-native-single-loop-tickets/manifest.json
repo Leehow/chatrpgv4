@@ -139,6 +139,16 @@
       "id": "SL-27",
       "file": "27-looks-on-first-visit.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-28",
+      "file": "28-starter-reads-the-book.md",
+      "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-29",
+      "file": "29-pdf-modules-live-tables.md",
+      "status": "ready-for-agent"
     }
   ],
   "relatedSpecs": [
