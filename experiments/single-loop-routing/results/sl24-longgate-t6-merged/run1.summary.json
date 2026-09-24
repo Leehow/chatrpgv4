@@ -1,0 +1,842 @@
+{
+ "run": 1,
+ "fixture": "longgate-t6",
+ "admission": "lane",
+ "lane": "live opencode-go/deepseek-v4.1-flash",
+ "keeper": "replay",
+ "thinking": "off",
+ "arm": "after",
+ "latency": false,
+ "seed": "1",
+ "wall_ms": 15466,
+ "budget": {
+  "turn": 6,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d346-b1f8-729d-ab63-d95b8c85970b",
+  "budget_ms": 45000,
+  "elapsed_ms": 12032,
+  "elapsed_at_compose": 11547,
+  "over_budget": false,
+  "deferred_by_budget": [],
+  "decision_budget": {
+   "jev_calls": 4,
+   "jev_ms": 1418,
+   "max_jev_calls": 24,
+   "max_jev_ms": 12000,
+   "spent": false
+  },
+  "prescreen": {
+   "reads": 2,
+   "jev_calls": 17,
+   "ms": 7392
+  },
+  "run_id": "eac430bb-bf74-4d3d-9753-350d31d3865b"
+ },
+ "compile": "on",
+ "compile_row": {
+  "turn": 6,
+  "lane": "route",
+  "purpose": "compile",
+  "run": "run-01a0d346-b1f8-729d-ab63-d95b8c85970b",
+  "step": "run-01a0d346-b1f8-729d-ab63-d95b8c85970b:s2",
+  "status": "complete",
+  "ms": 373,
+  "features": {
+   "destination": {
+    "rows": {
+     "destination_1": "newspaper-morgue",
+     "destination_2": "central-library",
+     "destination_3": "hall-of-records",
+     "destination_4": "previous-tenants",
+     "destination_5": "corbitt-house-ground",
+     "destination_6": "commission-briefing"
+    },
+    "choice": "destination_4",
+    "row": "previous-tenants",
+    "confidence": 0.93,
+    "probabilities": {
+     "unclear": 0,
+     "destination_4": 0.94,
+     "destination_5": 0,
+     "none": 0.06,
+     "destination_1": 0,
+     "destination_3": 0,
+     "destination_2": 0,
+     "destination_6": 0
+    },
+    "cleared": true
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "Mr. Dooley"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.94,
+    "probabilities": {
+     "unclear": 0,
+     "addressee_1": 0.03,
+     "none": 0.97
+    },
+    "cleared": true
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:dooley-macario-madness",
+     "ask_2": "clue:burning-eyes-form",
+     "ask_3": "clue:chapel-ruins-location"
+    },
+    "choice": "ask_1",
+    "row": "clue:dooley-macario-madness",
+    "confidence": 0.49,
+    "probabilities": {
+     "unclear": 0.02,
+     "ask_3": 0,
+     "ask_2": 0.28,
+     "ask_1": 0.6,
+     "none": 0.1
+    },
+    "cleared": true
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.84,
+    "probabilities": {
+     "unclear": 0,
+     "act_11": 0,
+     "act_9": 0,
+     "act_6": 0,
+     "act_5": 0,
+     "act_4": 0,
+     "act_2": 0.85,
+     "act_1": 0.06,
+     "none": 0,
+     "act_3": 0.06,
+     "act_7": 0,
+     "act_8": 0,
+     "act_10": 0.03
+    },
+    "cleared": true
+   },
+   "item": {
+    "rows": {
+     "item_1": "笔记本",
+     "item_2": "撬锁工具",
+     "item_3": "手电筒",
+     "item_4": "徽章"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.88,
+    "probabilities": {
+     "unclear": 0.1,
+     "none": 0.9,
+     "item_2": 0,
+     "item_1": 0,
+     "item_3": 0,
+     "item_4": 0
+    },
+    "cleared": true
+   }
+  },
+  "fired": [
+   {
+    "predicate": "move",
+    "candidate": "apply:move:previous-tenants",
+    "features": {
+     "destination": "previous-tenants",
+     "addressee": null,
+     "ask": "clue:dooley-macario-madness",
+     "act": "social",
+     "item": null
+    }
+   }
+  ],
+  "selected": [
+   "apply:move:previous-tenants"
+  ],
+  "decided": [
+   "apply:move:newspaper-morgue",
+   "apply:move:central-library",
+   "apply:move:hall-of-records",
+   "apply:move:corbitt-house-ground",
+   "apply:move:commission-briefing"
+  ],
+  "fell_through": [
+   "apply:clue:dooley-macario-madness",
+   "apply:clue:burning-eyes-form",
+   "apply:clue:chapel-ruins-location",
+   "resolve:core-check:ordinary-check"
+  ],
+  "reason": "selected_1",
+  "run_id": "eac430bb-bf74-4d3d-9753-350d31d3865b"
+ },
+ "selections": [
+  {
+   "by": "compile",
+   "keys": [
+    "apply:move:previous-tenants"
+   ]
+  }
+ ],
+ "compile_rows": [
+  {
+   "turn": 6,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d346-b1f8-729d-ab63-d95b8c85970b",
+   "step": "run-01a0d346-b1f8-729d-ab63-d95b8c85970b:s2",
+   "status": "complete",
+   "ms": 373,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "newspaper-morgue",
+      "destination_2": "central-library",
+      "destination_3": "hall-of-records",
+      "destination_4": "previous-tenants",
+      "destination_5": "corbitt-house-ground",
+      "destination_6": "commission-briefing"
+     },
+     "choice": "destination_4",
+     "row": "previous-tenants",
+     "confidence": 0.93,
+     "probabilities": {
+      "unclear": 0,
+      "destination_4": 0.94,
+      "destination_5": 0,
+      "none": 0.06,
+      "destination_1": 0,
+      "destination_3": 0,
+      "destination_2": 0,
+      "destination_6": 0
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Mr. Dooley"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.94,
+     "probabilities": {
+      "unclear": 0,
+      "addressee_1": 0.03,
+      "none": 0.97
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:dooley-macario-madness",
+      "ask_2": "clue:burning-eyes-form",
+      "ask_3": "clue:chapel-ruins-location"
+     },
+     "choice": "ask_1",
+     "row": "clue:dooley-macario-madness",
+     "confidence": 0.49,
+     "probabilities": {
+      "unclear": 0.02,
+      "ask_3": 0,
+      "ask_2": 0.28,
+      "ask_1": 0.6,
+      "none": 0.1
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_2",
+     "row": "social",
+     "confidence": 0.84,
+     "probabilities": {
+      "unclear": 0,
+      "act_11": 0,
+      "act_9": 0,
+      "act_6": 0,
+      "act_5": 0,
+      "act_4": 0,
+      "act_2": 0.85,
+      "act_1": 0.06,
+      "none": 0,
+      "act_3": 0.06,
+      "act_7": 0,
+      "act_8": 0,
+      "act_10": 0.03
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "撬锁工具",
+      "item_3": "手电筒",
+      "item_4": "徽章"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.88,
+     "probabilities": {
+      "unclear": 0.1,
+      "none": 0.9,
+      "item_2": 0,
+      "item_1": 0,
+      "item_3": 0,
+      "item_4": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "move",
+     "candidate": "apply:move:previous-tenants",
+     "features": {
+      "destination": "previous-tenants",
+      "addressee": null,
+      "ask": "clue:dooley-macario-madness",
+      "act": "social",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "apply:move:previous-tenants"
+   ],
+   "decided": [
+    "apply:move:newspaper-morgue",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:corbitt-house-ground",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "apply:clue:dooley-macario-madness",
+    "apply:clue:burning-eyes-form",
+    "apply:clue:chapel-ruins-location",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "selected_1",
+   "run_id": "eac430bb-bf74-4d3d-9753-350d31d3865b"
+  },
+  {
+   "turn": 6,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d346-b1f8-729d-ab63-d95b8c85970b",
+   "step": "run-01a0d346-b1f8-729d-ab63-d95b8c85970b:s5",
+   "status": "complete",
+   "ms": 325,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "newspaper-morgue",
+      "destination_2": "central-library",
+      "destination_3": "hall-of-records",
+      "destination_4": "neighborhood-gossip",
+      "destination_5": "corbitt-house-ground",
+      "destination_6": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.99,
+     "probabilities": {
+      "destination_3": 0,
+      "none": 1,
+      "destination_1": 0,
+      "destination_5": 0,
+      "destination_2": 0,
+      "destination_6": 0,
+      "destination_4": 0,
+      "unclear": 0
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Gabriela Macario",
+      "addressee_2": "Vittorio Macario"
+     },
+     "choice": "addressee_2",
+     "row": "Vittorio Macario",
+     "confidence": 1,
+     "probabilities": {
+      "none": 0,
+      "unclear": 0,
+      "addressee_1": 0,
+      "addressee_2": 1
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:vittorio-bible-weapon",
+      "ask_2": "clue:gabriela-night-visitor",
+      "ask_3": "clue:boys-burning-eyes"
+     },
+     "choice": "ask_3",
+     "row": "clue:boys-burning-eyes",
+     "confidence": 0.44,
+     "probabilities": {
+      "none": 0.3,
+      "unclear": 0.06,
+      "ask_1": 0.04,
+      "ask_2": 0.05,
+      "ask_3": 0.55
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_2",
+     "row": "social",
+     "confidence": 0.9,
+     "probabilities": {
+      "act_5": 0,
+      "act_9": 0,
+      "act_8": 0,
+      "act_10": 0.02,
+      "act_1": 0.02,
+      "act_6": 0,
+      "none": 0,
+      "act_11": 0,
+      "act_7": 0,
+      "act_3": 0.04,
+      "act_4": 0,
+      "act_2": 0.92,
+      "unclear": 0
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "撬锁工具",
+      "item_3": "手电筒",
+      "item_4": "徽章"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.92,
+     "probabilities": {
+      "none": 0.94,
+      "item_1": 0,
+      "item_4": 0,
+      "item_2": 0,
+      "item_3": 0,
+      "unclear": 0.06
+     },
+     "cleared": true
+    }
+   },
+   "fired": [],
+   "selected": [],
+   "decided": [
+    "apply:move:neighborhood-gossip"
+   ],
+   "fell_through": [
+    "apply:clue:vittorio-bible-weapon",
+    "apply:clue:gabriela-night-visitor",
+    "apply:clue:boys-burning-eyes",
+    "resolve:natural-npc:first-impression:托马斯·海斯:Gabriela Macario",
+    "resolve:natural-npc:first-impression:托马斯·海斯:Vittorio Macario",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "decided_none",
+   "run_id": "eac430bb-bf74-4d3d-9753-350d31d3865b"
+  }
+ ],
+ "prescreen": "on",
+ "reads": [
+  {
+   "scene": "neighborhood-gossip",
+   "prescreen": "prepared",
+   "materials": 12,
+   "jev_calls": 9,
+   "ms": 4759
+  },
+  {
+   "scene": "previous-tenants",
+   "prescreen": "prepared",
+   "materials": 10,
+   "jev_calls": 8,
+   "ms": 2633
+  }
+ ],
+ "status": "delivered",
+ "reason": "implicit_narrate",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 48588,
+   "cache_read": 0,
+   "cache_write": 48588,
+   "output": 70,
+   "reasoning": null,
+   "tools": [
+    "lookup"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 265,
+   "cache_read": 48588,
+   "cache_write": 265,
+   "output": 33,
+   "reasoning": null,
+   "tools": [
+    "lookup"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 194,
+   "cache_read": 48853,
+   "cache_write": 194,
+   "output": 70,
+   "reasoning": null,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 4,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 605,
+   "cache_read": 49047,
+   "cache_write": 606,
+   "output": 38,
+   "reasoning": null,
+   "tools": [],
+   "stop": "stop",
+   "effort": null
+  }
+ ],
+ "steps": {
+  "operate": 7,
+  "decide": 4,
+  "infer": 4,
+  "finish": 1
+ },
+ "llm_steps": 4,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 21,
+ "route_rows": 4,
+ "calls": [
+  {
+   "tool": "apply",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "move",
+      "to": "previous-tenants"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "lookup",
+   "origin": "model",
+   "ok": false,
+   "error": "needs",
+   "input": {
+    "kind": "source",
+    "source_mode": "answer",
+    "query": "previous-tenants",
+    "question": "What does the Roxbury Sanitarium interview with the Macarios look like on the page: who is present, visiting rules, what Vittorio and Gabriela do and say, and what the investigators can learn?"
+   }
+  },
+  {
+   "tool": "lookup",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "kind": "module",
+    "query": "previous-tenants vittorio-macario gabriela-macario vittorio-bible-weapon",
+    "expected_kind": "scene"
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Mr. Dooley",
+      "name": "杜利先生",
+      "why": "街角报摊摊主，上一回合已用这个称呼对着海斯说话。"
+     },
+     {
+      "kind": "person",
+      "who": "Vittorio Macario",
+      "name": "维托里奥·马卡里奥",
+      "why": "调查人按诺特交代的姓名前来探视。"
+     },
+     {
+      "kind": "person",
+      "who": "Gabriela Macario",
+      "name": "加布里埃拉·马卡里奥",
+      "why": "维托里奥的妻子，书中与他同在疗养院。"
+     }
+    ]
+   }
+  }
+ ],
+ "match": [
+  {
+   "baseline": "lookup",
+   "matched": null
+  },
+  {
+   "baseline": "move previous-tenants",
+   "matched": true,
+   "origin": "policy"
+  },
+  {
+   "baseline": "person Mr. Dooley",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "person Vittorio Macario",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "person Gabriela Macario",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "narrate",
+   "matched": true,
+   "origin": "implicit"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "origin": "policy",
+   "clerk": "declared_bookkeeping",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "compile",
+   "ms": 0,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[6]",
+    "row": {
+     "alias": "effect:6",
+     "effect": {
+      "kind": "move",
+      "to": "previous-tenants"
+     },
+     "description": {
+      "kind": "move",
+      "to": "previous-tenants",
+      "material": "ready",
+      "destination": {
+       "where": [
+        "previous tenants",
+        "macario",
+        "former occupants",
+        "tenants",
+        "lodging",
+        "hospital",
+        "clinic",
+        "institutional"
+       ],
+       "people": [
+        "Gabriela Macario",
+        "Vittorio Macario"
+       ]
+      },
+      "authority": "available_route_not_player_choice"
+     }
+    },
+    "compile": {
+     "predicate": "move",
+     "features": {
+      "destination": "previous-tenants",
+      "addressee": null,
+      "ask": "clue:dooley-macario-madness",
+      "act": "social",
+      "item": null
+     },
+     "read_features": {
+      "destination": {
+       "row": "previous-tenants",
+       "confidence": 0.93,
+       "cleared": true
+      }
+     }
+    }
+   },
+   "path": "compile",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null,
+   "predicate": "move",
+   "features": {
+    "destination": {
+     "row": "previous-tenants",
+     "confidence": 0.93
+    }
+   },
+   "binding_paths": {
+    "to": "stated"
+   },
+   "compile_refused": null,
+   "first_byte_ms": null,
+   "timed_out": null,
+   "cause": null,
+   "late_rule": null,
+   "resend": null,
+   "resend_wait_ms": null,
+   "typed": null,
+   "grounds": "compile: move fired on destination=previous-tenants",
+   "proposed": [
+    "apply move: to=\"previous-tenants\"; registered_destination={\"handle\":\"previous-tenants\",\"label\":\"previous-tenants\",\"summary\":\"scene previous tenants\"}"
+   ]
+  }
+ ],
+ "clerk": [
+  {
+   "tool": "apply",
+   "call_id": "t6-c1",
+   "ok": true,
+   "ms": 148,
+   "clerk": "declared_bookkeeping",
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[6]",
+    "row": {
+     "alias": "effect:6",
+     "effect": {
+      "kind": "move",
+      "to": "previous-tenants"
+     },
+     "description": {
+      "kind": "move",
+      "to": "previous-tenants",
+      "material": "ready",
+      "destination": {
+       "where": [
+        "previous tenants",
+        "macario",
+        "former occupants",
+        "tenants",
+        "lodging",
+        "hospital",
+        "clinic",
+        "institutional"
+       ],
+       "people": [
+        "Gabriela Macario",
+        "Vittorio Macario"
+       ]
+      },
+      "authority": "available_route_not_player_choice"
+     }
+    },
+    "compile": {
+     "predicate": "move",
+     "features": {
+      "destination": "previous-tenants",
+      "addressee": null,
+      "ask": "clue:dooley-macario-madness",
+      "act": "social",
+      "item": null
+     },
+     "read_features": {
+      "destination": {
+       "row": "previous-tenants",
+       "confidence": 0.93,
+       "cleared": true
+      }
+     }
+    }
+   }
+  }
+ ],
+ "misses": []
+}

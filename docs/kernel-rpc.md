@@ -6422,7 +6422,7 @@ asks that the player knew or approved a hidden danger.
 
 The review is the §12.5 pattern with a different remit: one zero-tool completion through `runLane`
 (`extensions/lanes/subsession.ts`), model `PI_COC_ADMISSION_MODEL` (`provider/model`, default the
-table's own model), cap `PI_COC_ADMISSION_TIMEOUT_MS` (default 120 s, the verifier's; it was 60 s until the first real table lost two turns to it, §32.9; **12 s since 2026-09-24, and past it the review ends `review_timeout`, §32.12**). It answers one
+table's own model), cap `PI_COC_ADMISSION_TIMEOUT_MS` (default 120 s, the verifier's; it was 60 s until the first real table lost two turns to it, §32.9; **12 s since 2026-09-24, and past it the review ends `review_timeout`, §32.12; since SL-24 the same day 13 s, measured, and a cap bounds waiting and never decides: past it a bookkeeping batch may be admitted late on the typed verdict or the call is returned `review_pending` for one resend, §32.12.2**). It answers one
 JSON object:
 
 ```
@@ -6990,7 +6990,7 @@ where the clerk's moves were answered 0.72–0.80. Owner rulings, 2026-09-24: th
 a clerk write the compile selected is admitted on the compile's evidence ("parameters-only steps never go to the LLM",
 applied to admission); every admission row says who proposed it, which path decided and how long it took.
 
-**The lane review is bounded inside the turn.** `PI_COC_ADMISSION_TIMEOUT_MS` defaults to **12 000** (it was 120 000;
+**The lane review is bounded inside the turn.** *(Amended by §32.12.2, 2026-09-24: the default is 13 000, measured; the lane round runs to a hard cap of twice the cap; at the cap the call is admitted `typed_late` or returned `review_pending`, and `review_timeout` is what a resend that ran out of the hard cap gets.)* `PI_COC_ADMISSION_TIMEOUT_MS` defaults to **12 000** (it was 120 000;
 the variable still overrides, read per review). The cap is measured from the lane request: `runLane` starts its clock
 before it resolves the model and sends the completion, and the deadline races the whole completion, so it cuts a round
 whatever the stream is doing -- no headers yet, headers and silence, or headers and a steady trickle of reasoning or
@@ -7108,6 +7108,141 @@ staged, the compile at 0.91 / 0.51 by the margin / 0.97): the meeting then the c
 "compile"` with `basis.compile` and no lane request, both with Jev's approach above the gate (`jev`) and under it
 (`jev_lead`, §135.28); `tests/extension/single-loop-binding.test.mjs`: the hand-on at the policy keeps `basis.compile`
 and re-binds a compile-settled parameter, and drops the record when the re-issued candidate no longer offers the value.
+
+#### 32.12.2 A review that runs out of time is not a refusal (2026-09-24, SL-24; amends §32.2, §32.7, §32.10, §32.11 and §32.12)
+
+**Why.** The long live gate (`longgate-haunting-0624`, 20 turns, lane `opencode-go/deepseek-v4.1-flash`) lost four
+legitimate Keeper writes to §32.12's 12 s cap as `review_timeout`: the commission's bookkeeping (turn 1), the move to the
+sanatorium twice (turns 6 and 7: the Keeper then narrated the investigator as unable to leave the street, and the visit
+never happened for the kernel) and the Corbitt diaries clue (turn 14: the clue never existed, and turn 19's `look object`
+found nothing). Rerun uncapped offline, the lane admitted every one of the four in 3 of 3 runs. The cap had decided four
+writes it knew nothing about. Owner ruling, 2026-09-24: a cap bounds waiting and never decides; the typed reviewer and the
+lane run concurrently; only a verdict with grounds refuses. The measurement is in the SL-24 ticket's Comments.
+
+**The measurement the cap is set from.** The long gate's 24 pairable Keeper batches, each put to the lane (the product
+prompt, `low`, cap 120 s) and to the typed family at the same moment, 3 runs: 72 rounds, p50 3.7 s, p90 8.6 s, max 45.7 s,
+no failure, no empty grounds. Pooled with the retained bank's 51 verdicts from the same lane model: 123 rounds, p50 3.6 s,
+p75 5.3 s, **p90 12.3 s**, p95 18.1 s, p97.5 21.4 s, p99 43.4 s, max 85.3 s. The slow rounds are mostly `apply` batches: of the
+16 pooled rounds over 10 s, 11 are `apply` (every one over 20 s among them) and 5 `resolve` (at most 18.3 s). Two batches were
+slow every time: turns 6 and 7 (a move beside two or three `person` lines), 9.9–45.7 s in six runs.
+
+**The cap.** `PI_COC_ADMISSION_TIMEOUT_MS` defaults to **13 000**: the pooled p90 rounded up to a whole second (the
+pre-registered rule; it is not below §32.12's 12 s). About one review in eleven passes it (11 of 123). It is the longest
+one call waits for its review, measured from the review's start. The lane round's own deadline is the **hard cap**, twice
+the cap (26 s by default): past the cap the lane keeps running, so the Keeper's resend can collect it. 3 of the 123 rounds
+passed 26 s. The variable still overrides the cap, and the hard cap follows it.
+
+**Concurrent reviewers; the first sufficient verdict wins.** For every call §32.1 puts to review, after §32.4's reuse and
+§32.12's compile admission, `reviewAdmissionPrimary` starts the §32.2 lane and the §32.10 typed family at the same moment.
+The typed attempt reads every answer at minimum confidence 0, and the host applies each threshold to it. The typed attempt
+keeps its own 4 s cap. What is sufficient:
+
+- **A lane verdict is sufficient when it carries grounds.** A lane verdict stands whatever the typed answer is, as it
+  did when the lane decided alone.
+- **A typed verdict is sufficient only where §32.10 and §32.11 let it stand alone.** On a bookkeeping batch (§32.11),
+  every line must admit at the fast-path confidence. With `PI_COC_ADMISSION_REVIEWER=jev`, any verdict at the family
+  confidence stands, except on a batch carrying `cash` (§32.10's numeric commitment). A typed refusal never stands on the
+  fast path.
+- When one verdict is sufficient the other is abandoned, and a running lane round is aborted.
+- A lane failure (`model_unavailable`, `model_error`, `bad_output`) is §32.2's outage, unless a typed verdict stands. The
+  host waits for the typed answer (bounded by its own cap) before deciding.
+
+So a typed answer no longer delays the lane on the fast path. Nor does a lane that is faster than Jev wait for the typed
+answer. On the table, the typed answer (0.3–2.1 s) comes first on almost every review. It stands on the fast path only
+at 0.87, which is 1.6% of the bank's bookkeeping batches.
+
+**A verdict without grounds is no verdict.** A lane answer whose `grounds` is empty after trimming is not a verdict. It
+neither admits nor refuses, it is not an outage, and it neither counts toward the unavailability streak nor resets it
+(`no_grounds`). The review goes on as if the lane had not answered: if a typed verdict stands, it stands; otherwise the
+outcome is what a cap expiry gives (below), except that nothing is left running, so the resend runs the review once more.
+0 of the 72 measured lane answers had empty grounds. The four "no grounds" rows of the long gate were admitted
+`not_player_action` verdicts, whose rows had no `grounds` column (see telemetry below). The rule closes the path by
+which a grounds-less answer could ever refuse.
+
+**At the cap.** No sufficient verdict by the cap, or a lane answer without grounds:
+
+1. **A late admission.** The batch is admitted on the typed verdict, `path: "typed_late"`, `reviewer: "jev"`, when all of
+   these hold:
+   - it is a **bookkeeping-only batch**: an `apply` whose §32.1 triggering kinds are all among `move`, `clue`, `handout`,
+     `time` and `cash` (`LATE_KINDS`, the owner's list). Non-triggering kinds (`threat`, `define`, `person`, ...) ride
+     along, as in §32.11;
+   - its typed verdict admits every line;
+   - the review confidence (the minimum line confidence) is at least `PI_COC_ADMISSION_LATE_MIN_CONFIDENCE` (default
+     **0.70**; `off` turns late admission off). This is the pre-registered rule: the lowest threshold, in 0.05 steps, at
+     which lane refusals are at most 2% of the typed admissions over the retained bank's late-eligible batches. That is
+     SL-10's 2 174 bookkeeping batches plus the 95 that carry `cash`: 214 admitted, 4 of them lane refusals (1.9%). At
+     0.70 no `cash` batch of the bank is falsely admitted (2 admitted); at 0.40, none of 35 is.
+   
+   The late admission is kept for the turn like any verdict (§32.4). It does not reset the outage streak.
+2. **Otherwise `review_pending`.** The call is returned to the Keeper as an ordinary tool refusal (§8):
+   - `code: "needs"`, and a `message` naming the cap and saying the review is still running;
+   - `details: {reason: "review_pending", cap_ms, ms, resend: "once", wait_ms, typed, proposed, tool}`. `typed` is the
+     typed reading (`verdict`, `confidence`, `line_verdicts`, `grounds`, `missing`), or its non-verdict reason, or
+     `null`. It is information, never a verdict;
+   - the `fix`: nothing of the batch has happened, so do not narrate its effects; resend the identical call once,
+     unchanged, as the next tool call, and the host answers it with the review's verdict; a reworded call is a new
+     review; if the resend is refused, close with `narrate` taking up what the player said.
+   
+   The host keeps the running lane round under the proposal key. It is cleared with the next player input. It is not a
+   verdict, so nothing is kept in §32.4's map. It is not an outage, and it neither counts toward nor resets the streak.
+3. **The resend.** The Keeper's identical call (the §32.4 key; `why`, `how` and `label` may change) collects the kept round.
+   - If the round has answered with grounds, the host settles its verdict at once. Otherwise it waits for the round, at
+     most until the hard cap.
+   - When the lane had answered without grounds, the resend runs one fresh review instead.
+   - A verdict with grounds is settled as any verdict: it admits, or it refuses with §32.2's refusal, and it resets the
+     streak.
+   - Nothing by the hard cap, no grounds again, or a second late outcome, is §32.12's **`review_timeout`**, naming the hard
+     cap. It is final for the turn and kept, so a further identical call is refused at once.
+   - A lane failure is §32.2's outage.
+   - There is one resend: a pending call is never returned pending twice.
+
+The Keeper's own step between the pending refusal and the resend overlaps the lane's tail. A resend that follows an 8 s
+Keeper step finds a lane that needed 20 s already answered.
+
+**What this is not.** It does not change what §32.1 puts to review, what the lane judges, §32.4's reuse or §32.12's compile
+admission. It does not change what refuses: a lane refusal with grounds, or a typed refusal where §32.10 lets it stand.
+Unavailability still refuses (§32.2). The only admit that no lane made is the late admission, and it is confined to the
+owner's bookkeeping kinds at a measured confidence. `review_timeout` still exists, but only a resend that ran out of the
+hard cap reaches it.
+
+**Telemetry (amends §32.7).**
+
+- Every verdict row carries `grounds` (≤ 200), `missing` when given and `proposed` (the lines), admitting or refusing.
+  Until now an admitting row had none of the three, and the long gate's triage read its four admitted `not_player_action`
+  rows as refusals "with no grounds".
+- Every reviewed row carries `lane_ms` beside `ms`, and the typed attempt's `jev_*` fields, `line_verdicts` and
+  `jev_confidence` when the typed answer came first.
+- `jev_fallback` names why a typed answer that could have stood did not (`typed_refusal`, `low_confidence`,
+  `numeric_commitment`, a non-verdict reason, or `lane_first` when the lane answered before Jev).
+- A `typed_late` row adds `late_rule: "typed_late"`, `late_min_confidence`, `confidence`, `cap_ms` and `hard_cap_ms`.
+- A `review_pending` row (`verdict: "review_pending"`, `admitted: false`) adds `cause` (`cap` | `no_grounds`),
+  `late_rule` (why it was not admitted late: `not_bookkeeping`, `no_typed_verdict`, `typed_refusal`, `low_confidence`,
+  `late_off`), `wait_ms`, `typed`, `cap_ms` and `hard_cap_ms`.
+- A resend row adds `resend: true`, `resend_wait_ms` (what the resend waited) and `lane_ms` (the whole round).
+- A lane round that ends after its call was answered `typed_late` or `review_pending`, and that no resend collected,
+  leaves one `lane: "admission-late"` row: `{verb, key, answered, verdict | reason, grounds, ms, model}`. This is what the
+  late admission is audited by. It changes nothing that landed; a late lane refusal of a late admission is a finding for a
+  human reading of the turn.
+
+**Three ends (§31).** *Writer:* the lane and the typed family, concurrently (`reviewAdmissionPrimary`), and the host's
+late decision (`lateAdmission`, pure). *Reader:* `admitAction`, still the one place a call is admitted or refused, and
+the kept round (`state.admissionPending`) for the resend. *Actor:* the Keeper, through the unchanged admit, the new
+`review_pending` refusal with its one resend, and `review_timeout` after it; the operator, through the rows above.
+
+*Tests* (`tests/extension/admission-late.test.mjs`, `tests/extension/admission-within-turn.test.mjs`, and the typed
+suites updated for concurrency):
+- the measured defaults;
+- `lateAdmission` pure: every refusal reason, `cash` eligible, `item` not;
+- the first sufficient verdict wins, both ways: typed on the fast path while the lane is still running, and a lane
+  faster than Jev;
+- a lane answer without grounds admits nothing and refuses nothing: it falls through to the late admission, or returns
+  pending, and is not an outage;
+- the trickling socket at the cap: a bookkeeping batch typed 0.72 is admitted `typed_late` within cap + 1 s, and a
+  `resolve` returns `review_pending` with the typed reading;
+- the resend collects a lane that answers after the cap and settles its verdict;
+- a resend past the hard cap is `review_timeout`, and a third identical call is refused from the turn's verdict;
+- the `admission-late` row.
+Mutations are in the SL-24 ticket.
 
 ## 33. Creation difficulty: an extension setting scaled into chargen (2026-09-11)
 

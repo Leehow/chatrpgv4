@@ -7,6 +7,9 @@
  *                          read attaches no prescreen material; default `on`, the owner's App)
  *     [--arm after|before] [--latency none|live]   (SL-10: `before` sets the time budget out of reach and the bookkeeping
  *     admission fast path off; `live` makes the replayed Keeper and admission lane wait their recorded live times)
+ *     [--lane replay|live] [--lane-model <provider/model>]   (SL-24: `live` puts every admission review to the real lane
+ *     model, default opencode-go/deepseek-v4.1-flash, instead of replaying the recorded verdicts; a call the live table
+ *     refused only with `review_timeout` is replayed, and a `review_pending` refusal is resent once, as its fix says)
  *   node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 [--llm none] [--driver prototype]
  *
  * `--llm replay` runs the PRODUCT driver (SL-02): a real Pi session with PI_COC_LOOP_ENGINE=hybrid-v1, the
