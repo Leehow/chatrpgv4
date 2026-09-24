@@ -15891,7 +15891,8 @@ it is requested with the same query, so a change is a change of the owner's cata
 - The `prepared` row carries `binding_refresh: {changed, dropped}` when a volatile key changed during the run.
 - The run's read row (§135.6) carries `fallback: "binding_changed"` with `key`.
 - The read row's `jev_calls`, and the run's `jevCalls` budget, now count the calls of a prescreen that fell back. On gate #5 the
-  read row said 0 while 12 had been spent.
+  read row said 0 while 12 had been spent. *(Amended 2026-09-24 by §135.6's SL-22 addendum: the read row still counts them, and the run's decision
+  budget no longer does.)*
 
 *Kernel.* `table.workspace.read` in `preselect` mode adds `stale_keys` to `materials.check` when `status` is `stale`, next to
 `changed` and `keys`. A check without keys still compares every key, and its `stale_keys` is empty.
@@ -17444,6 +17445,43 @@ feature fell to 0.2. §124.11 now separates the keys. Run keys void the result: 
 materials whose dependencies include them: `stateStamp`, `memory_revision`, `npc_revision` and `records_revision`. The read row
 names the key: `prescreen: {status: "fallback", fallback: "binding_changed", key: "scene", jev_calls: <spent>}`.
 
+*The prescreen has its own budget; the policy's Jev budget is for decisions (2026-09-24, SL-22, after live gate #7; amends
+this section's first paragraph and §124.11's telemetry).* On gate #7's turn 3 (campaign `gate7-haunting-0534`, run
+`run-01a0d2c6-…`) the read at s1 ran a prescreen of 7 Jev calls that stopped on `timeout` after 10.1 s, and the read at s4,
+after the clerk's move, ran another 4 calls in the 0.9 s left before its own timeout. The policy charged each read's calls
+and the read step's whole time to the run's Jev budget (`settleRead`). With the compiles at s2 and s5 that came to 13 calls
+and 12 223 ms against `maxJevMs` 12 000. From s6 on every decision point was a `compose` with reason `jev_budget`, and the
+disposition bind at s13 was not asked (`offline: "jev_budget"`, then the Keeper's turn). A replay of that turn with live Jev
+spent the same budget by calls instead: two prescreens of 10 calls each plus four decisions made 24 of 24.
+
+- **The decision budget.** `maxJevCalls` is 24 (`PREPARATION_DECISION_BUDGET.actions`) and `maxJevMs` is the preselect
+  allowance (12 000 ms by default). Both are unchanged. The budget counts only the policy's own Jev decisions: `route`,
+  `compile`, `bind`, the ordinary-check binder (`bind-ordinary`) and the prototype's `locate`. A read's prescreen is not a
+  decision. Its calls and time are reported on the read row (`prescreen.jev_calls`, `prescreen.ms`) and in the run's budget
+  summary (`prescreen: {reads, jev_calls, ms}`, §135.25), and they are not added to `jevCalls` or `jevMs`. This section's
+  "the prescreen's own calls and time count against it" and §124.11's "the run's `jevCalls` budget now counts the calls of
+  a prescreen that fell back" no longer hold. The read row still counts those calls, as §124.11 requires.
+- **The prescreen's allowance is per input.** The run has one allowance deadline, set when the run starts, and one
+  provider budget of 24 actions. Every read of the run shares both, and neither is renewed. A read with no allowance left
+  runs no prescreen (`not_run`, reason `allowance_spent`). The read row carries `allowance_ms`, the remainder when the
+  read began.
+- **A second read on an unchanged scene reuses.** A read whose scene equals the scene of the run's previous read reuses
+  that read's prescreen outcome, provided the previous read ran a prescreen or reused one. It reuses the materials the
+  route sees and the packet the context hook gets. The packet is re-emitted on `coc:run-prescreen` with this read's issued
+  bodies (§135.20). The reuse costs no Jev call and no time. Its row is `prescreen: {status: "reused", from: <step of the
+  read that ran it>, materials, jev_calls: 0, ms: 0}`. A fallback's outcome is reused as it is, with no materials: a
+  re-run on the same scene would only spend the remainder again. On a changed scene the read runs a prescreen under what is
+  left of the allowance. Its deadline is the run's allowance deadline, never later.
+- **A decision's deadline is not the prescreen's.** The ordinary-check binder's lease ends 15 s after it starts, like the
+  route, compile and bind leases. It used to end at the allowance deadline, with a floor of 1 s. A read that spent the
+  allowance therefore left the next ordinary check one second.
+
+*Verified* (`tests/extension/single-loop-prescreen-budget.test.mjs`, real kernel on the Haunting, a controlled decision
+port whose prescreen batches are slow): a prescreen that spends the whole allowance leaves the decision budget untouched.
+The compile and the route are asked, the clerk's move runs, and no step has reason `jev_budget`. The read after the move
+sends no prescreen batch past the allowance deadline. A `read_more` on the same scene reuses the first read's materials
+without one prescreen batch. The ordinary binder asked after a spent allowance holds a lease of 15 s.
+
 ### 135.7 Telemetry
 
 - `lane: "route"`, one row per Jev answer. It carries `purpose` (`route`, `bind` or `bind-ordinary`), `run`,
@@ -17907,6 +17945,31 @@ step that crosses the budget completes and its whole batch runs before the compo
 runs; within the budget the route runs; a budget compose that ends in prose still goes through the turn close. At the extension seam, a route that selected the move past the budget
 is not executed, the compose's note and the next run's note list it, and the rows carry `budget_ms` and
 `elapsed_at_compose`.
+
+*A spent decision budget composes once (2026-09-24, SL-22; amends Guard 3 of `next` in `runtime/jev/step-policy.ts`).* On
+gate #7's turn 3 the decision budget ran out at s5 (§135.6's SL-22 addendum). After that, every point where the policy
+would have asked Jev became one more `infer(compose)` with reason `jev_budget`: at s6, s10, s16 and s18, four model steps
+with no note telling the Keeper why. The rule is now:
+
+- `exhausted(budget)` is unchanged: decision calls or decision time at their maximum, or the step count at `maxSteps`.
+- The first step the policy picks past it is still `infer(compose)` with reason `jev_budget`. Its `coc-clerk` note carries
+  `decision_budget: {jev_calls, jev_ms, max_jev_calls, max_jev_ms}` and a note. The note says that no further step is
+  routed from the player's words this turn (a step the kernel forces still runs), and that the Keeper's own calls carry the
+  rest of the turn.
+- After that compose, a step the spent budget would have made another compose is `infer(adjudicate)` with reason
+  `keeper_carries`. The Keeper's batch has run and the Keeper goes on with its own turn, as Pi's own loop does after tool
+  results. That step carries no note of its own. A run has at most one compose with reason `jev_budget`.
+- These are unchanged: the time budget comes first (`run_budget`, above). A pending clerk bind still settles offline
+  (§135.28). A forced step still runs. The Keeper's pending proposals still run before `next` is read.
+
+Telemetry: the run's `event: "budget"`, `decision: "summary"` row adds `decision_budget: {jev_calls, jev_ms, max_jev_calls,
+max_jev_ms, spent}`, read off the policy's final state, and `prescreen: {reads, jev_calls, ms}`, summed over the run's
+read rows.
+
+*Verified* (`tests/extension/single-loop-prescreen-budget.test.mjs`): with a route decision slower than the decision budget
+and a Keeper that makes two batches before it narrates, the run has exactly one `jev_budget` compose, and it carries the
+note. The step after the Keeper's next batch is `adjudicate` with reason `keeper_carries`. The summary row names the spent
+budget.
 
 ### 135.26 Scene obligations become the clerk's candidates (2026-09-23, SO-04 of `docs/specs/scene-obligations-as-candidates.md`; amends §135.2, §135.3, §135.5, §135.8, §135.9, §135.20)
 
