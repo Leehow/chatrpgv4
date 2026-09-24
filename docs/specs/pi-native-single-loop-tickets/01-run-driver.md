@@ -67,6 +67,8 @@ one `agent.runDriven` and reaches neither the `_handlePostAgentRun` → `continu
 it asks for is not taken. Retry (`_prepareRetry`) and overflow compaction (`_checkCompaction`) become further provider
 attempts of the same infer step (`_recoverDrivenAttempt`; `step_attempt` events, attempt ids `<stepId>#aN`). The gate
 test counts calls of the live session's `agent.continue`: zero.
+An attempt whose stream answers and then produces no event for `httpIdleTimeoutMs` ends as a retryable timeout
+error and takes this same path (kernel contract §135.29, vendored Pi patch 0003).
 
 **`prepareRequest` / `prepareNextTurn` / `finishTurn`.** `prepareRequest` (the SessionManager request projection and
 the forced-prompt wrapper) runs before every provider attempt of every infer step, as before every request today; no

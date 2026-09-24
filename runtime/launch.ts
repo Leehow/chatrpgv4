@@ -29,6 +29,12 @@ import { selectLoopEngine } from './loop-engine.ts';
  * request and its response headers is 770 ms at the median, 12.4 s at p99.9 and 29.7 s at its
  * worst, and not one exceeded 30 s. This is an *idle* timeout, not a budget for the answer: a
  * streaming reply resets it on every chunk, and the slowest healthy turn on record still streams.
+ *
+ * Bytes are not progress, though. A stream that answers and then sends only bytes no model event is
+ * made of (keep-alive comments) is never idle to undici, and hung two SL-02 gate turns past this
+ * setting. The same value therefore also bounds the silence between the *events* of a provider
+ * attempt (vendored Pi `core/stream-progress.ts`, contract §135.29): across the retained grok-build
+ * streams the worst healthy gap between events is 23 s mid-stream and 20 s before the first.
  */
 const HTTP_IDLE_TIMEOUT_SETTING = 'httpIdleTimeoutMs';
 const HTTP_IDLE_TIMEOUT_MS = 60_000;
