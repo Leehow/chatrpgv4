@@ -1,0 +1,848 @@
+[
+ {
+  "run": 1,
+  "fixture": "longgate-t11",
+  "admission": "lane",
+  "keeper": "replay",
+  "thinking": "off",
+  "arm": "after",
+  "latency": false,
+  "seed": null,
+  "wall_ms": 11519,
+  "budget": {
+   "turn": 11,
+   "lane": "run",
+   "event": "budget",
+   "decision": "summary",
+   "run": "run-01a0d31e-9beb-7529-be24-84eb54a42ec1",
+   "budget_ms": 45000,
+   "elapsed_ms": 10201,
+   "elapsed_at_compose": 9868,
+   "over_budget": false,
+   "deferred_by_budget": [],
+   "decision_budget": {
+    "jev_calls": 6,
+    "jev_ms": 2513,
+    "max_jev_calls": 24,
+    "max_jev_ms": 12000,
+    "spent": false
+   },
+   "prescreen": {
+    "reads": 2,
+    "jev_calls": 15,
+    "ms": 5375
+   },
+   "run_id": "c71a2247-3b7f-4825-93d6-4fbf569d36a5"
+  },
+  "compile": "on",
+  "compile_row": {
+   "turn": 11,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d31e-9beb-7529-be24-84eb54a42ec1",
+   "step": "run-01a0d31e-9beb-7529-be24-84eb54a42ec1:s2",
+   "status": "complete",
+   "ms": 354,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "upper-floor-bedroom",
+      "destination_2": "basement-rites",
+      "destination_3": "newspaper-morgue",
+      "destination_4": "central-library",
+      "destination_5": "hall-of-records",
+      "destination_6": "neighborhood-gossip",
+      "destination_7": "previous-tenants",
+      "destination_8": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.52,
+     "probabilities": {
+      "destination_1": 0.4,
+      "destination_8": 0,
+      "destination_7": 0,
+      "none": 0.58,
+      "destination_5": 0,
+      "destination_6": 0,
+      "destination_2": 0,
+      "destination_3": 0,
+      "destination_4": 0,
+      "unclear": 0.02
+     },
+     "cleared": false
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:corbitt-diaries"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.63,
+     "probabilities": {
+      "none": 0.75,
+      "unclear": 0.2,
+      "ask_1": 0.05
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_3",
+     "row": "move",
+     "confidence": 0.65,
+     "probabilities": {
+      "act_7": 0,
+      "none": 0.01,
+      "act_4": 0,
+      "act_3": 0.68,
+      "act_6": 0,
+      "act_10": 0.01,
+      "act_5": 0,
+      "unclear": 0,
+      "act_2": 0,
+      "act_9": 0,
+      "act_1": 0.29,
+      "act_8": 0,
+      "act_11": 0.01
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "撬锁工具",
+      "item_3": "手电筒",
+      "item_4": "徽章"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.84,
+     "probabilities": {
+      "item_3": 0,
+      "none": 0.87,
+      "unclear": 0.13,
+      "item_2": 0,
+      "item_4": 0,
+      "item_1": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [],
+   "selected": [],
+   "decided": [],
+   "fell_through": [
+    "apply:clue:corbitt-diaries",
+    "apply:move:upper-floor-bedroom",
+    "apply:move:newspaper-morgue",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:commission-briefing",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "fell_through",
+   "run_id": "c71a2247-3b7f-4825-93d6-4fbf569d36a5"
+  },
+  "selections": [],
+  "compile_rows": [
+   {
+    "turn": 11,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d31e-9beb-7529-be24-84eb54a42ec1",
+    "step": "run-01a0d31e-9beb-7529-be24-84eb54a42ec1:s2",
+    "status": "complete",
+    "ms": 354,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "upper-floor-bedroom",
+       "destination_2": "basement-rites",
+       "destination_3": "newspaper-morgue",
+       "destination_4": "central-library",
+       "destination_5": "hall-of-records",
+       "destination_6": "neighborhood-gossip",
+       "destination_7": "previous-tenants",
+       "destination_8": "commission-briefing"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.52,
+      "probabilities": {
+       "destination_1": 0.4,
+       "destination_8": 0,
+       "destination_7": 0,
+       "none": 0.58,
+       "destination_5": 0,
+       "destination_6": 0,
+       "destination_2": 0,
+       "destination_3": 0,
+       "destination_4": 0,
+       "unclear": 0.02
+      },
+      "cleared": false
+     },
+     "ask": {
+      "rows": {
+       "ask_1": "clue:corbitt-diaries"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.63,
+      "probabilities": {
+       "none": 0.75,
+       "unclear": 0.2,
+       "ask_1": 0.05
+      },
+      "cleared": true
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_3",
+      "row": "move",
+      "confidence": 0.65,
+      "probabilities": {
+       "act_7": 0,
+       "none": 0.01,
+       "act_4": 0,
+       "act_3": 0.68,
+       "act_6": 0,
+       "act_10": 0.01,
+       "act_5": 0,
+       "unclear": 0,
+       "act_2": 0,
+       "act_9": 0,
+       "act_1": 0.29,
+       "act_8": 0,
+       "act_11": 0.01
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "撬锁工具",
+       "item_3": "手电筒",
+       "item_4": "徽章"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.84,
+      "probabilities": {
+       "item_3": 0,
+       "none": 0.87,
+       "unclear": 0.13,
+       "item_2": 0,
+       "item_4": 0,
+       "item_1": 0
+      },
+      "cleared": true
+     }
+    },
+    "fired": [],
+    "selected": [],
+    "decided": [],
+    "fell_through": [
+     "apply:clue:corbitt-diaries",
+     "apply:move:upper-floor-bedroom",
+     "apply:move:newspaper-morgue",
+     "apply:move:central-library",
+     "apply:move:hall-of-records",
+     "apply:move:neighborhood-gossip",
+     "apply:move:previous-tenants",
+     "apply:move:commission-briefing",
+     "resolve:core-check:ordinary-check"
+    ],
+    "reason": "fell_through",
+    "run_id": "c71a2247-3b7f-4825-93d6-4fbf569d36a5"
+   },
+   {
+    "turn": 11,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d31e-9beb-7529-be24-84eb54a42ec1",
+    "step": "run-01a0d31e-9beb-7529-be24-84eb54a42ec1:s16",
+    "status": "complete",
+    "ms": 476,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "corbitt-house-ground",
+       "destination_2": "basement-rites",
+       "destination_3": "commission-briefing"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.96,
+      "probabilities": {
+       "none": 0.97,
+       "destination_3": 0,
+       "unclear": 0.01,
+       "destination_1": 0.02,
+       "destination_2": 0
+      },
+      "cleared": true
+     },
+     "ask": {
+      "rows": {
+       "ask_1": "clue:poltergeist-bed",
+       "ask_2": "clue:blood-pool-manifest",
+       "ask_3": "clue:mythos-reek"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.69,
+      "probabilities": {
+       "none": 0.76,
+       "ask_2": 0,
+       "unclear": 0.19,
+       "ask_1": 0.05,
+       "ask_3": 0
+      },
+      "cleared": true
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_1",
+      "row": "investigate",
+      "confidence": 0.65,
+      "probabilities": {
+       "none": 0.01,
+       "act_8": 0,
+       "act_6": 0,
+       "unclear": 0,
+       "act_1": 0.68,
+       "act_5": 0,
+       "act_3": 0.23,
+       "act_9": 0,
+       "act_10": 0.07,
+       "act_2": 0,
+       "act_7": 0,
+       "act_11": 0.01,
+       "act_4": 0
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "撬锁工具",
+       "item_3": "手电筒",
+       "item_4": "徽章"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.94,
+      "probabilities": {
+       "none": 0.95,
+       "item_4": 0,
+       "item_1": 0,
+       "unclear": 0.05,
+       "item_2": 0,
+       "item_3": 0
+      },
+      "cleared": true
+     }
+    },
+    "fired": [],
+    "selected": [],
+    "decided": [
+     "apply:move:corbitt-house-ground",
+     "apply:move:commission-briefing"
+    ],
+    "fell_through": [
+     "apply:clue:poltergeist-bed",
+     "apply:clue:blood-pool-manifest",
+     "apply:clue:mythos-reek",
+     "resolve:core-check:ordinary-check"
+    ],
+    "reason": "decided_none",
+    "run_id": "c71a2247-3b7f-4825-93d6-4fbf569d36a5"
+   }
+  ],
+  "prescreen": "on",
+  "reads": [
+   {
+    "scene": "corbitt-house-ground",
+    "prescreen": "prepared",
+    "materials": 10,
+    "jev_calls": 8,
+    "ms": 3278
+   },
+   {
+    "scene": "upper-floor-bedroom",
+    "prescreen": "prepared",
+    "materials": 7,
+    "jev_calls": 7,
+    "ms": 2097
+   }
+  ],
+  "status": "delivered",
+  "reason": "implicit_narrate",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 46280,
+    "cache_read": 0,
+    "cache_write": 46280,
+    "output": 55,
+    "reasoning": null,
+    "tools": [
+     "lookup"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 340,
+    "cache_read": 46280,
+    "cache_write": 341,
+    "output": 26,
+    "reasoning": null,
+    "tools": [
+     "lookup"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 3,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 642,
+    "cache_read": 46530,
+    "cache_write": 643,
+    "output": 14,
+    "reasoning": null,
+    "tools": [
+     "lookup"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 4,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 1047,
+    "cache_read": 47081,
+    "cache_write": 1047,
+    "output": 37,
+    "reasoning": null,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 5,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 403,
+    "cache_read": 48037,
+    "cache_write": 404,
+    "output": 73,
+    "reasoning": null,
+    "tools": [
+     "apply"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 6,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 9414,
+    "cache_read": 48350,
+    "cache_write": 9414,
+    "output": 38,
+    "reasoning": null,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 7,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 7266,
+    "cache_read": 50719,
+    "cache_write": 7267,
+    "output": 59,
+    "reasoning": null,
+    "tools": [],
+    "stop": "stop",
+    "effort": null
+   }
+  ],
+  "steps": {
+   "operate": 9,
+   "decide": 6,
+   "infer": 7,
+   "finish": 1
+  },
+  "llm_steps": 7,
+  "llm_purposes": [
+   "adjudicate",
+   "adjudicate",
+   "adjudicate",
+   "adjudicate",
+   "adjudicate",
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 21,
+  "route_rows": 6,
+  "calls": [
+   {
+    "tool": "lookup",
+    "origin": "model",
+    "ok": false,
+    "error": "needs",
+    "input": {
+     "kind": "source",
+     "source_mode": "answer",
+     "query": "upper-floor-bedroom",
+     "question": "What rooms are on the upper floor of the Corbitt house, and what happens when investigators go upstairs and enter the bedroom?"
+    }
+   },
+   {
+    "tool": "lookup",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "kind": "module",
+     "query": "upper-floor-bedroom poltergeist-bed mythos-reek blood-pool-manifest"
+    }
+   },
+   {
+    "tool": "lookup",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "kind": "rule",
+     "query": "bed-attack floating bed"
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "investigate",
+      "goal": "在上楼楼梯口听清楼上的声音来自哪间房",
+      "method": "站在楼梯口不动，用耳朵辨别闷响和刮擦声的方向",
+      "skill": "Listen",
+      "stakes": "听不准房间，只知道声音在楼上"
+     }
+    },
+    "passed": false,
+    "level": "failure"
+   },
+   {
+    "tool": "apply",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "move",
+       "to": "upper-floor-bedroom",
+       "label": "科比特宅二楼",
+       "travel_minutes": 0,
+       "via": "从一层楼梯口走上二楼主卧"
+      },
+      {
+       "kind": "time",
+       "minutes": 5,
+       "why": "在楼梯口听了一会儿，再走上二楼"
+      },
+      {
+       "kind": "threat",
+       "name": "corbitt-haunting",
+       "clock": "corbitt-awareness",
+       "segments": 1,
+       "why": "海斯在楼梯口停留后走进楼上房间，房子对他有了反应"
+      }
+     ]
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "action": {
+      "intent": "investigate",
+      "goal": "走进科比特的旧卧室时发觉窗边的异样",
+      "method": "用手电照房间，眼睛扫过窗和床",
+      "rule": "The bed attack",
+      "step": 0,
+      "skill": "Spot Hidden"
+     }
+    },
+    "passed": true,
+    "level": "regular"
+   }
+  ],
+  "match": [
+   {
+    "baseline": "lookup",
+    "matched": null
+   },
+   {
+    "baseline": "lookup",
+    "matched": null
+   },
+   {
+    "baseline": "resolve Listen vs null",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "move upper-floor-bedroom",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "time 5",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "threat corbitt-haunting",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "resolve Spot Hidden vs null",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "narrate",
+    "matched": true,
+    "origin": "implicit"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "resolve",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 2,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": null,
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 2,
+    "timed_out": null
+   },
+   {
+    "verb": "apply",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 379,
+    "jev_ms": 369,
+    "confidence": null,
+    "jev_fallback": "low_confidence",
+    "basis": null,
+    "path": "lane",
+    "fast_path": true,
+    "jev_confidence": 0.54,
+    "line_verdicts": [
+     "authorized",
+     "entailed",
+     "not_player_action"
+    ],
+    "lane_ms": 8,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 3,
+    "timed_out": null
+   },
+   {
+    "verb": "resolve",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "entailed",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 2,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": null,
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 2,
+    "timed_out": null
+   }
+  ],
+  "clerk": [],
+  "misses": [
+   {
+    "turn": 11,
+    "lane": "route",
+    "purpose": "route",
+    "run": "run-01a0d31e-9beb-7529-be24-84eb54a42ec1",
+    "step": "run-01a0d31e-9beb-7529-be24-84eb54a42ec1:s17",
+    "status": "complete",
+    "ms": 399,
+    "offered": [
+     "apply:clue:poltergeist-bed",
+     "apply:clue:blood-pool-manifest",
+     "apply:clue:mythos-reek",
+     "resolve:core-check:ordinary-check"
+    ],
+    "selected": [],
+    "exit": "ask_llm",
+    "reason": "low_confidence",
+    "answers": {
+     "need_1": {
+      "choice": "later",
+      "confidence": 0.86,
+      "probabilities": {
+       "later": 0.91,
+       "now": 0.08,
+       "unknown": 0.01
+      }
+     },
+     "need_2": {
+      "choice": "later",
+      "confidence": 0.91,
+      "probabilities": {
+       "later": 0.94,
+       "now": 0.05,
+       "unknown": 0.01
+      }
+     },
+     "need_3": {
+      "choice": "later",
+      "confidence": 0.77,
+      "probabilities": {
+       "later": 0.85,
+       "now": 0.14,
+       "unknown": 0.01
+      }
+     },
+     "need_4": {
+      "choice": "later",
+      "confidence": 0.69,
+      "probabilities": {
+       "later": 0.8,
+       "now": 0.18,
+       "unknown": 0.02
+      }
+     },
+     "exit": {
+      "choice": "ask_llm",
+      "confidence": 0.19,
+      "probabilities": {
+       "continue": 0.19,
+       "finish": 0.32,
+       "read_more": 0.1,
+       "ask_llm": 0.39
+      }
+     }
+    },
+    "run_id": "c71a2247-3b7f-4825-93d6-4fbf569d36a5"
+   }
+  ]
+ }
+]

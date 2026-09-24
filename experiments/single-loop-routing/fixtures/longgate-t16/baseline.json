@@ -1,0 +1,91 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z/events.jsonl",
+  "record": ".coc/repos/longgate-haunting-0624.git a7f960b:turns/0016.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我打着手电，沿楼梯下地下室。",
+ "llm_calls": 3,
+ "llm_ms_total": 21994,
+ "calls": [
+  {
+   "at": "2026-09-24T10:40:06.219Z",
+   "provider_ms": 6505,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 10971,
+    "output": 450,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "lookup",
+     "arguments": {
+      "kind": "source",
+      "source_mode": "answer",
+      "query": "corbitt house ground floor basement entrance",
+      "question": "Where is the basement stair or cellar entrance on the ground floor of the Corbitt house, and is it sealed or boarded until the diaries are found?"
+     },
+     "id": "call-51c44d5d-a8f6-48d8-980e-e1829874df74-0|fc_2e3788f3-2ac8-9106-8183-2973c2c11269_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:40:12.840Z",
+   "provider_ms": 3158,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 12976,
+    "output": 201,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "look",
+     "arguments": {
+      "focus": "scene"
+     },
+     "id": "call-9bea5e66-85c2-438d-bab9-e5d8c62e9ac9-1|fc_300cc93a-ceaa-9778-8097-7d3fa76f0f5e_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:40:16.033Z",
+   "provider_ms": 12331,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 14001,
+    "output": 1085,
+    "cache_read": 33152
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "lookup",
+   "call_id": "call-51c44d5d-a8f6-48d8-980e-e1829874df74-0|fc_2e3788f3-2ac8-9106-8183-2973c2c11269_0",
+   "ok": false
+  },
+  {
+   "tool": "look",
+   "call_id": "call-9bea5e66-85c2-438d-bab9-e5d8c62e9ac9-1|fc_300cc93a-ceaa-9778-8097-7d3fa76f0f5e_0",
+   "ok": true
+  }
+ ],
+ "admissions": [],
+ "actions": [
+  {
+   "verb": "look"
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": []
+}

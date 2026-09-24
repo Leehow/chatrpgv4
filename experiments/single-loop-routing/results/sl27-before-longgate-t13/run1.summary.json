@@ -1,0 +1,627 @@
+{
+ "run": 1,
+ "fixture": "longgate-t13",
+ "admission": "lane",
+ "keeper": "replay",
+ "thinking": "off",
+ "arm": "after",
+ "latency": false,
+ "seed": null,
+ "wall_ms": 7338,
+ "budget": {
+  "turn": 13,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d313-7684-718b-91e7-38d052972e25",
+  "budget_ms": 45000,
+  "elapsed_ms": 6091,
+  "elapsed_at_compose": 5781,
+  "over_budget": false,
+  "deferred_by_budget": [],
+  "decision_budget": {
+   "jev_calls": 6,
+   "jev_ms": 2005,
+   "max_jev_calls": 24,
+   "max_jev_ms": 12000,
+   "spent": false
+  },
+  "prescreen": {
+   "reads": 1,
+   "jev_calls": 8,
+   "ms": 2577
+  },
+  "run_id": "35f2dc29-c5b3-486a-805e-e64153eaa8c1"
+ },
+ "compile": "on",
+ "compile_row": {
+  "turn": 13,
+  "lane": "route",
+  "purpose": "compile",
+  "run": "run-01a0d313-7684-718b-91e7-38d052972e25",
+  "step": "run-01a0d313-7684-718b-91e7-38d052972e25:s2",
+  "status": "complete",
+  "ms": 357,
+  "features": {
+   "destination": {
+    "rows": {
+     "destination_1": "corbitt-house-ground",
+     "destination_2": "basement-rites",
+     "destination_3": "commission-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.96,
+    "probabilities": {
+     "destination_2": 0,
+     "none": 0.97,
+     "destination_1": 0,
+     "unclear": 0.03,
+     "destination_3": 0
+    },
+    "cleared": true
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:poltergeist-bed",
+     "ask_2": "clue:blood-pool-manifest",
+     "ask_3": "clue:mythos-reek"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.63,
+    "probabilities": {
+     "ask_1": 0.01,
+     "unclear": 0.06,
+     "none": 0.7,
+     "ask_3": 0.01,
+     "ask_2": 0.22
+    },
+    "cleared": true
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.99,
+    "probabilities": {
+     "act_11": 0,
+     "act_3": 0,
+     "act_9": 0,
+     "unclear": 0,
+     "act_4": 0,
+     "act_8": 0,
+     "act_10": 0,
+     "act_7": 0,
+     "act_5": 0,
+     "none": 0,
+     "act_6": 0,
+     "act_2": 0,
+     "act_1": 1
+    },
+    "cleared": true
+   },
+   "item": {
+    "rows": {
+     "item_1": "笔记本",
+     "item_2": "撬锁工具",
+     "item_3": "手电筒",
+     "item_4": "徽章"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.57,
+    "probabilities": {
+     "item_4": 0,
+     "unclear": 0.35,
+     "none": 0.64,
+     "item_3": 0,
+     "item_2": 0.01,
+     "item_1": 0
+    },
+    "cleared": true
+   }
+  },
+  "fired": [],
+  "selected": [],
+  "decided": [
+   "apply:move:corbitt-house-ground",
+   "apply:move:commission-briefing"
+  ],
+  "fell_through": [
+   "apply:clue:poltergeist-bed",
+   "apply:clue:blood-pool-manifest",
+   "apply:clue:mythos-reek",
+   "resolve:core-check:ordinary-check"
+  ],
+  "reason": "decided_none",
+  "run_id": "35f2dc29-c5b3-486a-805e-e64153eaa8c1"
+ },
+ "selections": [
+  {
+   "by": "route",
+   "keys": [
+    "resolve:core-check:ordinary-check"
+   ]
+  }
+ ],
+ "compile_rows": [
+  {
+   "turn": 13,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d313-7684-718b-91e7-38d052972e25",
+   "step": "run-01a0d313-7684-718b-91e7-38d052972e25:s2",
+   "status": "complete",
+   "ms": 357,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "corbitt-house-ground",
+      "destination_2": "basement-rites",
+      "destination_3": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.96,
+     "probabilities": {
+      "destination_2": 0,
+      "none": 0.97,
+      "destination_1": 0,
+      "unclear": 0.03,
+      "destination_3": 0
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:poltergeist-bed",
+      "ask_2": "clue:blood-pool-manifest",
+      "ask_3": "clue:mythos-reek"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.63,
+     "probabilities": {
+      "ask_1": 0.01,
+      "unclear": 0.06,
+      "none": 0.7,
+      "ask_3": 0.01,
+      "ask_2": 0.22
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_1",
+     "row": "investigate",
+     "confidence": 0.99,
+     "probabilities": {
+      "act_11": 0,
+      "act_3": 0,
+      "act_9": 0,
+      "unclear": 0,
+      "act_4": 0,
+      "act_8": 0,
+      "act_10": 0,
+      "act_7": 0,
+      "act_5": 0,
+      "none": 0,
+      "act_6": 0,
+      "act_2": 0,
+      "act_1": 1
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "撬锁工具",
+      "item_3": "手电筒",
+      "item_4": "徽章"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.57,
+     "probabilities": {
+      "item_4": 0,
+      "unclear": 0.35,
+      "none": 0.64,
+      "item_3": 0,
+      "item_2": 0.01,
+      "item_1": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [],
+   "selected": [],
+   "decided": [
+    "apply:move:corbitt-house-ground",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "apply:clue:poltergeist-bed",
+    "apply:clue:blood-pool-manifest",
+    "apply:clue:mythos-reek",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "decided_none",
+   "run_id": "35f2dc29-c5b3-486a-805e-e64153eaa8c1"
+  }
+ ],
+ "prescreen": "on",
+ "reads": [
+  {
+   "scene": "upper-floor-bedroom",
+   "prescreen": "prepared",
+   "materials": 7,
+   "jev_calls": 8,
+   "ms": 2577
+  }
+ ],
+ "status": "delivered",
+ "reason": "implicit_narrate",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 45154,
+   "cache_read": 0,
+   "cache_write": 45154,
+   "output": 6,
+   "reasoning": null,
+   "tools": [
+    "look"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 631,
+   "cache_read": 45154,
+   "cache_write": 631,
+   "output": 84,
+   "reasoning": null,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 770,
+   "cache_read": 45785,
+   "cache_write": 770,
+   "output": 190,
+   "reasoning": null,
+   "tools": [
+    "resolve",
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 4,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 1023,
+   "cache_read": 46465,
+   "cache_write": 1024,
+   "output": 121,
+   "reasoning": null,
+   "tools": [],
+   "stop": "stop",
+   "effort": null
+  }
+ ],
+ "steps": {
+  "operate": 6,
+  "decide": 5,
+  "infer": 4,
+  "finish": 1
+ },
+ "llm_steps": 4,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 14,
+ "route_rows": 5,
+ "calls": [
+  {
+   "tool": "look",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "focus": "scene"
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "investigate",
+     "goal": "Notice the flying bed before it hits while tapping the window and floor for a hidden compartment",
+     "method": "Spot Hidden while crouched at the rattling window and tapping floorboards",
+     "rule": "The bed attack",
+     "step": 0,
+     "stakes": "If he misses the bed's lunge he is caught at the window"
+    }
+   },
+   "passed": false,
+   "level": "failure"
+  },
+  {
+   "tool": "resolve",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "investigate",
+     "skill": "Spot Hidden",
+     "modifiers": {
+      "difficulty": "regular",
+      "bonus_dice": 0,
+      "penalty_dice": 0,
+      "reason": "我把主卧的窗户和地板敲一遍，找暗格。"
+     },
+     "decision": "core-check:ordinary-check",
+     "actor": "托马斯·海斯",
+     "goal": "我把主卧的窗户和地板敲一遍，找暗格。",
+     "method": "我把主卧的窗户和地板敲一遍，找暗格。"
+    }
+   },
+   "passed": false,
+   "level": "failure"
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "investigate",
+     "goal": "Keep his mind when the bed moves by itself and throws him",
+     "method": "Witness the bed fly of its own accord",
+     "decision": "sanity:check",
+     "san_loss": "1/1D4",
+     "involuntary": "cry_out"
+    }
+   },
+   "passed": false,
+   "level": "failure"
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": false,
+   "error": "invalid_params",
+   "input": {
+    "effects": [
+     {
+      "kind": "damage",
+      "stated": "The bed attack",
+      "why": "The flying bed throws him through the spare-bedroom window."
+     },
+     {
+      "kind": "clue",
+      "clue": "poltergeist-bed",
+      "how": "The bed flew by itself and hurled him through the window.",
+      "label": "自己飞起来的床"
+     },
+     {
+      "kind": "clue",
+      "clue": "mythos-reek",
+      "how": "The sweet rotten smell surged with the bed's lunge.",
+      "label": "甜臭的气味"
+     },
+     {
+      "kind": "threat",
+      "name": "corbitt-haunting",
+      "clock": "corbitt-awareness",
+      "why": "The bed attack landed after he lingered and knocked at the window.",
+      "segments": 1
+     }
+    ]
+   }
+  }
+ ],
+ "match": [
+  {
+   "baseline": "look",
+   "matched": null
+  },
+  {
+   "baseline": "resolve undefined vs null",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "resolve undefined vs null",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "resolve sanity:check vs null",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "damage null",
+   "matched": false
+  },
+  {
+   "baseline": "clue poltergeist-bed",
+   "matched": false
+  },
+  {
+   "baseline": "clue mythos-reek",
+   "matched": false
+  },
+  {
+   "baseline": "threat corbitt-haunting",
+   "matched": false
+  },
+  {
+   "baseline": "narrate",
+   "matched": true,
+   "origin": "implicit"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "entailed",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 7,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null,
+   "path": "lane",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null,
+   "predicate": null,
+   "features": null,
+   "binding_paths": null,
+   "compile_refused": null,
+   "first_byte_ms": 6,
+   "timed_out": null
+  },
+  {
+   "verb": "resolve",
+   "origin": "policy",
+   "clerk": "declared_check",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 1,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": {
+    "read": "table.resolve.options",
+    "path": "decisions",
+    "row": {
+     "name": "core-check:ordinary-check",
+     "family": "core-check"
+    }
+   },
+   "path": "lane",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null,
+   "predicate": null,
+   "features": null,
+   "binding_paths": null,
+   "compile_refused": null,
+   "first_byte_ms": 0,
+   "timed_out": null
+  },
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "not_player_action",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 340,
+   "jev_ms": 337,
+   "confidence": null,
+   "jev_fallback": "low_confidence",
+   "basis": null,
+   "path": "lane",
+   "fast_path": true,
+   "jev_confidence": 0.63,
+   "line_verdicts": [
+    "not_player_action",
+    "not_player_action",
+    "not_player_action",
+    "not_player_action"
+   ],
+   "lane_ms": 2,
+   "predicate": null,
+   "features": null,
+   "binding_paths": null,
+   "compile_refused": null,
+   "first_byte_ms": 1,
+   "timed_out": null
+  }
+ ],
+ "clerk": [
+  {
+   "tool": "resolve",
+   "call_id": "t13-c2",
+   "ok": true,
+   "ms": 84,
+   "clerk": "declared_check",
+   "basis": {
+    "read": "table.resolve.options",
+    "path": "decisions",
+    "row": {
+     "name": "core-check:ordinary-check",
+     "family": "core-check"
+    }
+   }
+  }
+ ],
+ "misses": []
+}

@@ -1,0 +1,449 @@
+[
+ {
+  "run": 1,
+  "fixture": "longgate-t15",
+  "admission": "lane",
+  "keeper": "replay",
+  "thinking": "off",
+  "arm": "after",
+  "latency": false,
+  "seed": null,
+  "wall_ms": 6689,
+  "budget": {
+   "turn": 15,
+   "lane": "run",
+   "event": "budget",
+   "decision": "summary",
+   "run": "run-01a0d31e-ed60-76c2-8354-5a1e9fa3fd1f",
+   "budget_ms": 45000,
+   "elapsed_ms": 5496,
+   "elapsed_at_compose": 5211,
+   "over_budget": false,
+   "deferred_by_budget": [],
+   "decision_budget": {
+    "jev_calls": 3,
+    "jev_ms": 1162,
+    "max_jev_calls": 24,
+    "max_jev_ms": 12000,
+    "spent": false
+   },
+   "prescreen": {
+    "reads": 1,
+    "jev_calls": 8,
+    "ms": 3036
+   },
+   "run_id": "d591ee4d-785f-464d-ae3a-337f4c990ecb"
+  },
+  "compile": "on",
+  "compile_row": {
+   "turn": 15,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d31e-ed60-76c2-8354-5a1e9fa3fd1f",
+   "step": "run-01a0d31e-ed60-76c2-8354-5a1e9fa3fd1f:s2",
+   "status": "complete",
+   "ms": 352,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "upper-floor-bedroom",
+      "destination_2": "basement-rites",
+      "destination_3": "newspaper-morgue",
+      "destination_4": "central-library",
+      "destination_5": "hall-of-records",
+      "destination_6": "neighborhood-gossip",
+      "destination_7": "previous-tenants",
+      "destination_8": "commission-briefing"
+     },
+     "choice": "destination_2",
+     "row": "basement-rites",
+     "confidence": 0.43,
+     "probabilities": {
+      "destination_3": 0,
+      "destination_8": 0,
+      "destination_2": 0.49,
+      "destination_1": 0,
+      "destination_5": 0,
+      "destination_7": 0,
+      "none": 0.34,
+      "destination_6": 0,
+      "destination_4": 0,
+      "unclear": 0.17
+     },
+     "cleared": false
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:corbitt-diaries"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.79,
+     "probabilities": {
+      "none": 0.86,
+      "ask_1": 0.09,
+      "unclear": 0.05
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_1",
+     "row": "investigate",
+     "confidence": 0.91,
+     "probabilities": {
+      "act_5": 0,
+      "act_9": 0,
+      "act_1": 0.92,
+      "act_10": 0,
+      "act_8": 0,
+      "act_6": 0,
+      "none": 0.01,
+      "act_3": 0.07,
+      "act_7": 0,
+      "act_4": 0,
+      "act_11": 0,
+      "act_2": 0,
+      "unclear": 0
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "撬锁工具",
+      "item_3": "手电筒",
+      "item_4": "徽章"
+     },
+     "choice": "unclear",
+     "row": null,
+     "confidence": 0.33,
+     "probabilities": {
+      "item_1": 0,
+      "none": 0.28,
+      "item_4": 0,
+      "item_2": 0.28,
+      "item_3": 0,
+      "unclear": 0.44
+     },
+     "cleared": false
+    }
+   },
+   "fired": [],
+   "selected": [],
+   "decided": [],
+   "fell_through": [
+    "apply:clue:corbitt-diaries",
+    "apply:move:upper-floor-bedroom",
+    "apply:move:newspaper-morgue",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:commission-briefing",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "fell_through",
+   "run_id": "d591ee4d-785f-464d-ae3a-337f4c990ecb"
+  },
+  "selections": [],
+  "compile_rows": [
+   {
+    "turn": 15,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d31e-ed60-76c2-8354-5a1e9fa3fd1f",
+    "step": "run-01a0d31e-ed60-76c2-8354-5a1e9fa3fd1f:s2",
+    "status": "complete",
+    "ms": 352,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "upper-floor-bedroom",
+       "destination_2": "basement-rites",
+       "destination_3": "newspaper-morgue",
+       "destination_4": "central-library",
+       "destination_5": "hall-of-records",
+       "destination_6": "neighborhood-gossip",
+       "destination_7": "previous-tenants",
+       "destination_8": "commission-briefing"
+      },
+      "choice": "destination_2",
+      "row": "basement-rites",
+      "confidence": 0.43,
+      "probabilities": {
+       "destination_3": 0,
+       "destination_8": 0,
+       "destination_2": 0.49,
+       "destination_1": 0,
+       "destination_5": 0,
+       "destination_7": 0,
+       "none": 0.34,
+       "destination_6": 0,
+       "destination_4": 0,
+       "unclear": 0.17
+      },
+      "cleared": false
+     },
+     "ask": {
+      "rows": {
+       "ask_1": "clue:corbitt-diaries"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.79,
+      "probabilities": {
+       "none": 0.86,
+       "ask_1": 0.09,
+       "unclear": 0.05
+      },
+      "cleared": true
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_1",
+      "row": "investigate",
+      "confidence": 0.91,
+      "probabilities": {
+       "act_5": 0,
+       "act_9": 0,
+       "act_1": 0.92,
+       "act_10": 0,
+       "act_8": 0,
+       "act_6": 0,
+       "none": 0.01,
+       "act_3": 0.07,
+       "act_7": 0,
+       "act_4": 0,
+       "act_11": 0,
+       "act_2": 0,
+       "unclear": 0
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "撬锁工具",
+       "item_3": "手电筒",
+       "item_4": "徽章"
+      },
+      "choice": "unclear",
+      "row": null,
+      "confidence": 0.33,
+      "probabilities": {
+       "item_1": 0,
+       "none": 0.28,
+       "item_4": 0,
+       "item_2": 0.28,
+       "item_3": 0,
+       "unclear": 0.44
+      },
+      "cleared": false
+     }
+    },
+    "fired": [],
+    "selected": [],
+    "decided": [],
+    "fell_through": [
+     "apply:clue:corbitt-diaries",
+     "apply:move:upper-floor-bedroom",
+     "apply:move:newspaper-morgue",
+     "apply:move:central-library",
+     "apply:move:hall-of-records",
+     "apply:move:neighborhood-gossip",
+     "apply:move:previous-tenants",
+     "apply:move:commission-briefing",
+     "resolve:core-check:ordinary-check"
+    ],
+    "reason": "fell_through",
+    "run_id": "d591ee4d-785f-464d-ae3a-337f4c990ecb"
+   }
+  ],
+  "prescreen": "on",
+  "reads": [
+   {
+    "scene": "corbitt-house-ground",
+    "prescreen": "prepared",
+    "materials": 7,
+    "jev_calls": 8,
+    "ms": 3036
+   }
+  ],
+  "status": "delivered",
+  "reason": "implicit_narrate",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 46560,
+    "cache_read": 0,
+    "cache_write": 46560,
+    "output": 75,
+    "reasoning": null,
+    "tools": [
+     "lookup"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 361,
+    "cache_read": 46560,
+    "cache_write": 362,
+    "output": 44,
+    "reasoning": null,
+    "tools": [
+     "apply"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 3,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 3288,
+    "cache_read": 46830,
+    "cache_write": 3288,
+    "output": 55,
+    "reasoning": null,
+    "tools": [],
+    "stop": "stop",
+    "effort": null
+   }
+  ],
+  "steps": {
+   "operate": 4,
+   "decide": 3,
+   "infer": 3,
+   "finish": 1
+  },
+  "llm_steps": 3,
+  "llm_purposes": [
+   "adjudicate",
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 11,
+  "route_rows": 3,
+  "calls": [
+   {
+    "tool": "lookup",
+    "origin": "model",
+    "ok": false,
+    "error": "needs",
+    "input": {
+     "kind": "source",
+     "source_mode": "answer",
+     "query": "corbitt house ground floor basement entrance",
+     "question": "Where is the entrance to the basement on the ground floor of the Corbitt house, and what must investigators do to open it? Do the floorboards or the cupboard hide a second entrance?"
+    }
+   },
+   {
+    "tool": "apply",
+    "origin": "model",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "time",
+       "minutes": 15,
+       "why": "在厨房撬开橱柜后面和地板，找地下室入口。"
+      },
+      {
+       "kind": "threat",
+       "name": "corbitt-haunting",
+       "clock": "corbitt-awareness",
+       "why": "厨房里撬板子的声音在宅子里传开。"
+      }
+     ]
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "time 15",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "threat corbitt-haunting",
+    "matched": true,
+    "origin": "model"
+   },
+   {
+    "baseline": "narrate",
+    "matched": true,
+    "origin": "implicit"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "apply",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "not_player_action",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 428,
+    "jev_ms": 424,
+    "confidence": null,
+    "jev_fallback": "low_confidence",
+    "basis": null,
+    "path": "lane",
+    "fast_path": true,
+    "jev_confidence": 0.42,
+    "line_verdicts": [
+     "authorized",
+     "not_player_action"
+    ],
+    "lane_ms": 3,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 1,
+    "timed_out": null
+   }
+  ],
+  "clerk": [],
+  "misses": []
+ }
+]
