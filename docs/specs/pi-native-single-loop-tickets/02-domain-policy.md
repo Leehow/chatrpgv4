@@ -325,3 +325,73 @@ Findings and where they go:
 - **Turn 3 improved** over gate #3 (58.9 → 44.2 s, 8 → 7 calls, 3 looks → 1 source lookup) and the carried card reached the Keeper whole enough to act.
 
 Evidence: `chatrpgv4-wt-integ-sl/.coc/campaigns/gate4-haunting-0214/{telemetry.jsonl,turns/000{1,2,3}.json}`, `.coc/playtests/gate4-haunting-0214-20260924T061454Z/`.
+### 2026-09-24 — live gate #4 finding: a steered second leg the kernel refused stranded a turn written twice (fixed on `claude/sl16-20260924`, from `db056b144`)
+
+**What the player saw.** Campaign `gate4-haunting-0214`, turn 1, run `run-01a0d20e-6088-7125-b1ab-0973c812e22e`:
+79 s, then "(no assistant text this turn)". The Keeper had written prose twice. The turn record `0001.json` has
+`closed_by: "stranded"` and empty text.
+
+**What the evidence says (telemetry rows with `"turn": 1`, read-only).** s14 `infer compose` (`run_budget`)
+produced text. The host dropped it for the §40 speech steer (`lane: "speech"`, `reason: "no_token"`, Arty Wilmot
+present). s15 `turn_close` answered `steer`, `kind: "speech"`. s16 `infer compose` (`turn_close:speech`) produced
+text again (10.4 s). **The dispatch brief's "no implicit narrate row" was a misread:** telemetry row 243 is
+`{tool: "narrate", call_id: "t1-c8", implicit: true, ok: false, code: "needs", reason: "repeated_line"}`. The
+steered leg wrapped its lines, one of them repeated a line already said at the table, and the kernel's §113 D check
+refused the Keeper-wrapped repeat. The hook's catch (`extensions/kernel/index.ts:4662–4668` at `db056b144`) set
+the `audit-repair` delivery fix, cleared the held first draft (`floorDraft`) and dropped the text without a delivery
+row. s17 `turn_close` then hit `takeTurnCloseSteer`'s `if (state.steeredThisTurn) return { none: "steer_spent" }`
+(`:1222`), which comes before the delivery-fix branch (`:1234`). The repair was never handed back, the first
+draft was gone, and the run ended `turn_close_steer_spent:no_delivered_evidence`. Legacy shares the seam: its
+`agent_end` takes the same `takeTurnCloseSteer`, so the same turn strands there too.
+
+**The fix (contract §135.11, addendum 2026-09-24).**
+
+- In `message_end`, when the steer is spent and a floor or speech steer's dropped draft is held, a refused
+  implicit narrate of the second leg is followed by one implicit narrate of the dropped draft: a new `call_id`, the
+  same Mod hooks and review, and §128.3 attribution. A host-wrapped repeat is a finding, not a refusal. If it
+  lands, the turn close answers `delivered` with that `call_id`. If it is refused too, the repair is set and the
+  draft is dropped as before. The bound stays one steer per turn and one extra model step per run. A continuity
+  review outage still pauses and is never retried.
+- Every drop path in the hook records a `lane: "delivery"`, `ok: false` row with its reason. The new rows are
+  `text_beside_tool_calls`, `review_unavailable`, `preparation_wait`, `reading_wait`, `owes_ask`,
+  `floor_steer`, `speech_steer` and `review_paused`, plus `implicit_narrate_refused` and `steered_leg_refused`,
+  which carry `code`, `kernel_reason` and `call_id`. The `turn_close` `none` row carries `unsent_fix` when a
+  repair was set that the spent steer could not carry.
+
+**Tests.**
+
+- `tests/extension/single-loop-turn-close.test.mjs` (hybrid, fake kernel, `FAKE_KERNEL_ERRORS` `repeated_line`):
+  - the live shape: the steered leg is refused, and the first draft is delivered, `implicit_narrate`. The
+    `turn_close` row names the fallback's `call_id`, and the `speech_steer` and `steered_leg_refused` rows are
+    present. Fails on `db056b144`.
+  - both refused: `undelivered`, rows `[speech_steer, steered_leg_refused, implicit_narrate_refused]`,
+    `unsent_fix: "audit-repair"`. Fails on `db056b144`.
+  - prose twice without a token: the second leg is delivered. Passes on `db056b144`, which is what showed the
+    brief's hypothesis was not the cause.
+  - a speech-steered second leg with nothing: the dropped draft is delivered. Passes on `db056b144`.
+  - the floor test now also asserts its `floor_steer` row, and a new case covers `text_beside_tool_calls`.
+- `tests/extension/speech-attribution.test.mjs` (legacy engine, **real kernel**): the opening wraps Knott's
+  line, and the player turn replays live gate #4. A bare draft is speech-steered, and the steered leg wrapping the
+  same line is refused by §113 D (`repeated_line`). The dropped draft is then published with the words untouched,
+  and `0001.json` has `closed_by: "narrate"`.
+- Mutations, all killed:
+  - fallback removed: 3 fail (both gate #4 hybrid cases and the legacy real-kernel case);
+  - the `steered_leg_refused` row not recorded: 3 fail;
+  - the `implicit_narrate_refused` drop unrecorded: 1 fails;
+  - the `speech_steer` drop unrecorded: 2 fail;
+  - `unsent_fix` dropped: 1 fails;
+  - `floor_steer` and `text_beside_tool_calls` unrecorded: 2 fail.
+
+**Suites (leehow-pc).**
+
+- `ext`: `tests 2845 / pass 2845 / fail 0` (exit 0, 123 s).
+- `loop`: `tests 107 / pass 107 / fail 0` (exit 0, 25 s).
+- `py`: not run, because nothing the kernel reads was touched (`kernel-ts/` is unchanged).
+
+**Not verified.**
+
+- No live table.
+- The `preparation_wait`, `reading_wait`, `owes_ask`, `review_unavailable` and `review_paused` rows have no test
+  of their own.
+- The fallback draft goes through §128.3 attribution. With Jev unreachable, that draft goes out without the say
+  tokens the steer asked for.

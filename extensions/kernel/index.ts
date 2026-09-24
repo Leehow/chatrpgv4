@@ -1267,8 +1267,11 @@ export default function (pi: ExtensionAPI) {
 			verdict = "none" in steer ? { status: "none", reason: steer.none }
 				: { status: "steer", kind: steer.kind, text: steer.text, message: hostSteerMessage(steer.text, steer.kind) };
 		}
+		// A repair the spent steer could not carry is named on the row, never lost silently (§135.11 addendum 2026-09-24).
+		const unsent = verdict.status === "none" && state.deliveryFix ? state.deliveryFix.kind : undefined;
 		void record({ lane: "turn", event: "turn_close", turn: state.turn, status: verdict.status,
 			...(verdict.kind ? { kind: verdict.kind } : {}), ...(verdict.reason ? { reason: verdict.reason } : {}),
+			...(unsent ? { unsent_fix: unsent } : {}),
 			...(verdict.implicit ? { implicit: true, call_id: verdict.call_id } : {}) });
 		return verdict;
 	}
@@ -4483,16 +4486,21 @@ export default function (pi: ExtensionAPI) {
 			// narrate and ask.
 			const withoutText = blocks.filter((b) => b.type !== "text");
 			if (withoutText.length !== blocks.length) {
+				void record({ lane: "delivery", turn: state.turn, ok: false, reason: "text_beside_tool_calls", dropped: blocks.length - withoutText.length });
 				return { message: { ...event.message, content: withoutText } };
 			}
 			return;
 		}
-		/** Player-visible text comes only from narrate and ask: a draft the host did not adopt leaves with the message. */
-		const dropText = (reason: string) => {
+		/**
+		 * Player-visible text comes only from narrate and ask: a draft the host did not adopt leaves with the message.
+		 * Every drop says why on a `lane: "delivery"` row (§135.11 addendum 2026-09-24). A draft that is not on this
+		 * message (a dropped draft the host held) is recorded when `detail` is given, though nothing is removed here.
+		 */
+		const dropText = (reason: string, detail?: Record<string, unknown>) => {
 			const kept = blocks.filter((block) => block.type !== "text");
-			if (kept.length === blocks.length) return undefined;
-			void record({ lane: "delivery", turn: state.turn, ok: false, reason, dropped: blocks.length - kept.length });
-			return { message: { ...event.message, content: kept } };
+			if (kept.length === blocks.length && !detail) return undefined;
+			void record({ lane: "delivery", turn: state.turn, ok: false, reason, dropped: blocks.length - kept.length, ...detail });
+			return kept.length === blocks.length ? undefined : { message: { ...event.message, content: kept } };
 		};
 		// pi declares this value (`StopReason`, @earendil-works/pi-ai) and resends on it -- and only on it,
 		// because auto-retrying a cancellation would defeat the cancellation (runtime/launch.ts). A run the
@@ -4517,7 +4525,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		let rendered = state.renderedText;
 		if (rendered === undefined) {
-			if (state.reviewUnavailable) return {message: {...event.message, content: blocks.filter(block => block.type !== 'text')}};
+			if (state.reviewUnavailable) return dropText("review_unavailable");
 			// The Keeper wrote his lines but never called narrate: that prose is the narration. The host closes
 			// the turn for him, sending the prose verbatim through the play-language guard.
 			// A leg that died mid-stream contributes nothing of its own: half a sentence is not a delivery
@@ -4550,7 +4558,7 @@ export default function (pi: ExtensionAPI) {
 			const sourceWait = state.readingWait || state.sourceWait !== undefined;
 			if (state.preparationWait && !sourceWait) {
 				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state, state.preparationWait) };
-				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
+				return dropText("preparation_wait");
 			}
 			// A source wait asks the Keeper to say so through narrate itself. That steer is spent once, like
 			// the two below it: prose on the second leg closes the turn implicitly, which is still a narrate
@@ -4559,7 +4567,7 @@ export default function (pi: ExtensionAPI) {
 			// delivered -- so every later player input failed turn_state and the campaign could not continue.
 			if (sourceWait && !state.steeredThisTurn) {
 				state.deliveryFix = { kind: "reading-wait", text: sourceWaitInstruction(state, state.sourceWait ?? {}) };
-				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
+				return dropText("reading_wait");
 			}
 			// The kernel left a pending choice for the player (a defence in combat) and the Keeper only wrote
 			// narration: the turn owes an ask, and the question belongs to the Keeper. The kernel's own prompt
@@ -4569,10 +4577,7 @@ export default function (pi: ExtensionAPI) {
 			// survives in the capsule and the next turn owes it again.
 			const pending = state.pendingChoice;
 			const owesAsk = pending?.for === "player" && Array.isArray(pending.options) && pending.options.length >= 2;
-			if (owesAsk && !state.steeredThisTurn) {
-				const kept = blocks.filter((block) => block.type !== "text");
-				return { message: { ...event.message, content: kept } };
-			}
+			if (owesAsk && !state.steeredThisTurn) return dropText("owes_ask");
 			// Turn floor (docs/specs/turn-floor.md D4): the Keeper wrote prose and called no tool at all this
 			// turn. Once, the host drops that draft and steers it back to the capsule; whatever the second leg
 			// brings is honoured, an explicit narrate or prose closed implicitly as before. The opening is
@@ -4582,7 +4587,7 @@ export default function (pi: ExtensionAPI) {
 				state.floorDraft = prose;
 				state.deliveryFix = { kind: "floor", text: FLOOR_STEER };
 				await record({ lane: "floor", turn: state.turn, steered: true, round_trips: state.roundTrips });
-				return { message: { ...event.message, content: blocks.filter((block) => block.type !== "text") } };
+				return dropText("floor_steer");
 			}
 			// §40 (2026-09-15): people are on stage and the draft carries no say token. Once, the host drops
 			// the draft and asks for the same turn with its lines wrapped; the second leg is honoured however it
@@ -4604,69 +4609,87 @@ export default function (pi: ExtensionAPI) {
 				state.deliveryFix = { kind: "speech", text: bareOfTokens ? SPEECH_STEER : unwrappedSpeechSteer(unwrapped) };
 				await record({ lane: "speech", turn: state.turn, steered: true, present: state.present.length,
 					reason: bareOfTokens ? "no_token" : "unwrapped_quote", ...(bareOfTokens ? {} : { unwrapped: unwrapped.length }) });
-				return { message: { ...event.message, content: blocks.filter((block) => block.type !== "text") } };
+				return dropText("speech_steer");
 			}
 			// §128.3: past this point the steer is spent, switched off, or had nothing to ask about. Passages
 			// still left outside every token go to the attribution family; the delivery waits at most its cap
 			// and, whatever it answers, goes out with the Keeper's words unchanged.
-			const attributed = await attributeUnwrappedSpeech(state, prose, state.lanes.signal, foregroundProviderBudget?.());
-			const tool = "narrate";
-			const callId = mintCallId(state);
-			const startedAt = new Date().toISOString();
-			const began = Date.now();
-			try {
-				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: attributed.text, implicit: true,
-					...(attributed.hostAttributed?.length ? { host_attributed: attributed.hostAttributed } : {}),
-					...(state.preparationWait ? {preparation_wait: {kind: state.preparationWait.kind,
-						...(state.preparationWait.name ? {name: state.preparationWait.name} : {})}}
-						: state.sourceWait ? {preparation_wait: {kind: 'source',
-							...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})}} : {}),
-					...(state.rebindingRefused ? {rebinding_refused: {...state.rebindingRefused}} : {}) };
-				state.skillRun?.tool_names.push(tool);
-				await guardTaskDelivery(event.message);
-				const prepared = await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
-				// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
-				notePrepared(state, prepared);
-				await guardTaskDelivery(event.message, 'committing');
-				// §135.31: the host's own close carries the turn's look/lookup calls to its record too (after the Mod hooks).
-				const reads = readsOfTurn(state);
-				if (reads.length) params.keeper_reads = reads;
-				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
-				// `applyToolSuccess`'s own `narrate` case already projected the mechanics and noted the
-				// commit. Projecting again here wrote the `coc-mechanics` entry twice for every turn the
-				// host closed implicitly, and the frontend drew what the session held: the player saw the
-				// same "this turn's mechanics" block twice (campaign game-5779d0fd turn 3, two entries of
-				// identical bytes against one row in the turn record). An explicit `narrate` went through
-				// one path and was never affected, which is why only some cards doubled.
-				applyToolSuccess(state, tool, "implicit", result);
-				state.implicitClose = { call_id: callId, turn: typeof result.turn === "number" ? result.turn : state.turn };
-				await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
-				await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
-				afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
-				rendered = asString(result.rendered_text);
-			} catch (error) {
-				const detail = refusalDetail(error);
-				// The kernel's own `reason` travels on this row as it does on an explicit verb's (§12.8):
-				// without it a continuity review that timed out and a Mod repair were both a bare `needs`.
-				const reason = asString((error as { details?: { reason?: unknown } })?.details?.reason);
-				await record({
-					tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: false, implicit: true,
-					code: isKernelError(error) ? error.code : "internal",
-					...(reason ? { reason } : {}),
-					...(detail ? { code_detail: detail } : {}),
-				});
-				// The draft does not stay on screen (contract §34.14). A refused delivery is a turn that did
-				// not happen, and its raw prose can contain machine tokens that only a successful narrate
-				// strips. Continuity review unavailability pauses the run; other review failures get one
-				// targeted repair steer. Both paths remove the rejected text before agent_end acts.
-				state.floorDraft = undefined;
-				if (isKernelError(error) && error.details?.reason === 'continuity_review_unavailable') {
-					pauseReview(state, error);
-					return {message: {...event.message, content: blocks.filter(block => block.type !== 'text')}};
+			// A refused second leg after a spent floor or speech steer falls back to the draft that steer dropped
+			// (§135.11 addendum 2026-09-24); at most two implicit narrates, and the second only on that path.
+			let draft = prose;
+			let fallback = state.steeredThisTurn && state.floorDraft && state.floorDraft !== prose ? state.floorDraft : undefined;
+			for (;;) {
+				const attributed = await attributeUnwrappedSpeech(state, draft, state.lanes.signal, foregroundProviderBudget?.());
+				const tool = "narrate";
+				const callId = mintCallId(state);
+				const startedAt = new Date().toISOString();
+				const began = Date.now();
+				try {
+					const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: attributed.text, implicit: true,
+						...(attributed.hostAttributed?.length ? { host_attributed: attributed.hostAttributed } : {}),
+						...(state.preparationWait ? {preparation_wait: {kind: state.preparationWait.kind,
+							...(state.preparationWait.name ? {name: state.preparationWait.name} : {})}}
+							: state.sourceWait ? {preparation_wait: {kind: 'source',
+								...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})}} : {}),
+						...(state.rebindingRefused ? {rebinding_refused: {...state.rebindingRefused}} : {}) };
+					state.skillRun?.tool_names.push(tool);
+					await guardTaskDelivery(event.message);
+					const prepared = await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
+					// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
+					notePrepared(state, prepared);
+					await guardTaskDelivery(event.message, 'committing');
+					// §135.31: the host's own close carries the turn's look/lookup calls to its record too (after the Mod hooks).
+					const reads = readsOfTurn(state);
+					if (reads.length) params.keeper_reads = reads;
+					const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
+					// `applyToolSuccess`'s own `narrate` case already projected the mechanics and noted the
+					// commit. Projecting again here wrote the `coc-mechanics` entry twice for every turn the
+					// host closed implicitly, and the frontend drew what the session held: the player saw the
+					// same "this turn's mechanics" block twice (campaign game-5779d0fd turn 3, two entries of
+					// identical bytes against one row in the turn record). An explicit `narrate` went through
+					// one path and was never affected, which is why only some cards doubled.
+					applyToolSuccess(state, tool, "implicit", result);
+					state.implicitClose = { call_id: callId, turn: typeof result.turn === "number" ? result.turn : state.turn };
+					await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
+					await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
+					afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
+					rendered = asString(result.rendered_text);
+					break;
+				} catch (error) {
+					const detail = refusalDetail(error);
+					// The kernel's own `reason` travels on this row as it does on an explicit verb's (§12.8):
+					// without it a continuity review that timed out and a Mod repair were both a bare `needs`.
+					const reason = asString((error as { details?: { reason?: unknown } })?.details?.reason);
+					await record({
+						tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: false, implicit: true,
+						code: isKernelError(error) ? error.code : "internal",
+						...(reason ? { reason } : {}),
+						...(detail ? { code_detail: detail } : {}),
+					});
+					// The draft does not stay on screen (contract §34.14). A refused delivery is a turn that did
+					// not happen, and its raw prose can contain machine tokens that only a successful narrate
+					// strips. Continuity review unavailability pauses the run; other review failures get one
+					// targeted repair steer. Both paths remove the rejected text before agent_end acts.
+					state.floorDraft = undefined;
+					const refusal = { code: isKernelError(error) ? error.code : "internal", ...(reason ? { kernel_reason: reason } : {}), call_id: callId };
+					if (isKernelError(error) && error.details?.reason === 'continuity_review_unavailable') {
+						pauseReview(state, error);
+						return dropText("review_paused", refusal);
+					}
+					// §135.11 addendum (2026-09-24, live gate #4): the turn's one steer is spent, so the repair set
+					// below could never be handed back, and the draft that steer dropped is still held. It is the
+					// Keeper's finished prose: close the turn on it, once, rather than strand a turn written twice.
+					if (fallback !== undefined) {
+						void record({ lane: "delivery", turn: state.turn, ok: false, reason: "steered_leg_refused", fallback: "dropped_draft",
+							dropped: blocks.filter((block) => block.type === "text").length, ...refusal });
+						draft = fallback;
+						fallback = undefined;
+						continue;
+					}
+					state.deliveryFix = {kind: "audit-repair", text: `This draft was not delivered. ${isKernelError(error) ? error.message : "Delivery preparation failed"}. ` +
+						`${isKernelError(error) ? error.fix ?? "" : ""} ${isKernelError(error) ? JSON.stringify(error.details ?? {}).slice(0, 8000) : detail ?? ""} Keep settled actions; repair with narrate, without rerolling or inventing a reconciliation.`};
+					return dropText("implicit_narrate_refused", refusal);
 				}
-				state.deliveryFix = {kind: "audit-repair", text: `This draft was not delivered. ${isKernelError(error) ? error.message : "Delivery preparation failed"}. ` +
-					`${isKernelError(error) ? error.fix ?? "" : ""} ${isKernelError(error) ? JSON.stringify(error.details ?? {}).slice(0, 8000) : detail ?? ""} Keep settled actions; repair with narrate, without rerolling or inventing a reconciliation.`};
-				return {message: {...event.message, content: blocks.filter(block => block.type !== "text")}};
 			}
 			// The implicit narrate landed but the kernel rendered nothing to publish. The raw draft is not a
 			// substitute: only a rendered delivery strips the machine tokens (§34.14).

@@ -312,3 +312,42 @@ test("real kernel: the Keeper's own repeated line is still §113 D's, and a Keep
 	assert.ok(table.telemetry().some((row) => row.tool === "narrate" && row.ok === false && row.code === "needs"),
 		"the Keeper's own repeat is refused as before, so the host stripped the Keeper's claim to the exemption");
 });
+
+/**
+ * Live gate #4 (2026-09-24, `gate4-haunting-0214` turn 1) on the legacy engine, which shares the seam
+ * (`message_end` and `takeTurnCloseSteer`), against the real kernel. The first draft carries the NPC's
+ * line bare and is dropped for the §40 speech steer; the steered second leg wraps the same line the
+ * NPC already said at the opening, and §113 D refuses it. The turn's one steer is spent, so before
+ * §135.11's 2026-09-24 addendum both drafts were lost. Now the dropped first draft is narrated
+ * instead: the host wraps its line (§128.3) and the repeat is a finding, not a refusal.
+ */
+test("real kernel, legacy: a steered second leg refused as a repeat falls back to the dropped draft, which is published", async (t) => {
+	const line = "「这房子的事，你得先去报社和档案厅查清楚，别在我这儿耗着。」";
+	const campaign = "steered-repeat";
+	const bare = `诺特又敲了敲桌面。${line}他没再抬头。`;
+	installJev(t, knott);
+	const table = await openTable({ realKernel: true, campaign, env: { EXT_JEV_APIKEY: "test-jev-key" }, responses: [
+		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: `诺特把钥匙推过来。{{say:Steven Knott}}${line}{{/say}}` })], { stopReason: "toolUse" }),
+		// The player's turn: a read, then the line again with no token (the speech steer), then the steered leg wrapping it.
+		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
+		fauxAssistantMessage(bare),
+		fauxAssistantMessage(`诺特又敲了敲桌面。{{say:Steven Knott}}${line}{{/say}}他没再抬头。`),
+	] });
+	t.after(() => table.dispose());
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+	await table.session.prompt("那我先去哪儿？");
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+
+	assert.equal(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech").length, 1, "the speech steer fired once");
+	const narrateRows = table.telemetry().filter((row) => row.tool === "narrate" && row.call_id);
+	assert.deepEqual(narrateRows.map((row) => [row.ok, row.reason ?? null]), [[true, null], [false, "repeated_line"], [true, null]],
+		"the opening, the steered leg refused by §113 D, then the dropped draft delivered");
+	const drop = table.telemetry().find((row) => row.lane === "delivery" && row.reason === "steered_leg_refused");
+	assert.equal(drop?.kernel_reason, "repeated_line");
+	const record = JSON.parse(readFileSync(join(table.workspace, `.coc/campaigns/${campaign}/turns/0001.json`), "utf8"));
+	assert.equal(record.closed_by, "narrate");
+	const shown = (table.session.messages.filter((message) => message.role === "assistant").at(-1)?.content ?? [])
+		.filter((block) => block.type === "text").map((block) => block.text).join("");
+	assert.equal(shown, bare, "the player reads the first draft, words untouched");
+});

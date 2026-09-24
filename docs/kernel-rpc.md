@@ -17318,6 +17318,44 @@ brings nothing twice ends `undelivered` with the §38 notice, and no steer is qu
 turn with no tool call is floor-steered once, and a second leg that brings nothing delivers the dropped draft. The
 legacy suites run unchanged; the SL-00 inventory counts `agent_end`'s one remaining `sendHost` site.
 
+**Addendum 2026-09-24 (live gate #4): a refused second leg falls back to the dropped draft.** Campaign
+`gate4-haunting-0214`, turn 1, run `run-01a0d20e`: the player waited 79 s and read "(no assistant text this turn)"
+over a turn whose Keeper had written prose twice. The first draft (Arty Wilmot present, no say token) was dropped
+for the §40 speech steer, and the turn close took that steer (`steer`, `kind: "speech"`). The steered second leg
+wrapped its lines, and the kernel refused its implicit narrate (`needs`, §113 D `repeated_line`: a Keeper-wrapped
+line repeated one already said at the table). The host set the refusal's repair as the delivery fix and dropped
+the draft, but the turn's one steer was already spent: `takeTurnCloseSteer` answered `steer_spent` before it
+reached the fix, the run ended `undelivered` (`turn_close_steer_spent:no_delivered_evidence`), and neither draft
+reached the player. The promise above ("prose that reached `message_end` is either delivered by the implicit narrate
+or steered once and then delivered from the dropped draft") did not cover a second leg the kernel refuses.
+
+- **The fallback.** When the steer is spent and the draft a floor or speech steer dropped is still held, a refused
+  implicit narrate of the second leg is followed, in the same `message_end`, by one implicit narrate of the dropped
+  draft (a new `call_id`, the same Mod hooks and review, §128.3 attribution over its own text). If it lands, the
+  message carries its rendered text and the turn close answers `delivered` with that narrate's `call_id`. If it is
+  refused too, the draft is dropped with the repair set as before, and nothing more is tried: the bound stays one
+  steer per turn and one extra model step per run. A continuity review that is unavailable (§38) pauses as before
+  and is never retried. Explicit `narrate` and `ask` calls are unchanged. The first draft is only ever the Keeper's
+  finished prose, and a line in it that the host wraps is §128.3's, delivered with its `repeated_line` finding
+  rather than refused.
+- **Every drop says so.** Each path in `message_end` that removes a draft's text records a `lane: "delivery"`,
+  `ok: false` row with its `reason`: `text_beside_tool_calls`, `review_unavailable`, `preparation_wait`,
+  `reading_wait`, `owes_ask`, `floor_steer`, `speech_steer`, `review_paused`, `implicit_narrate_refused` (with
+  `code`, `kernel_reason`, `call_id`), and `steered_leg_refused` (the same fields plus `fallback: "dropped_draft"`)
+  for a refusal that is followed by the fallback. The existing `text_not_a_delivery`, `failed_leg_not_delivered`,
+  `standing_defense_*` and `rendered_nothing` rows are unchanged. The `turn_close` row for `none` carries
+  `unsent_fix` (the delivery fix's kind) when a repair was set but the spent steer could not carry it.
+
+Tests (addendum): `tests/extension/single-loop-turn-close.test.mjs` (hybrid, fake kernel). The live shape: the
+steered second leg refused with `repeated_line`, then the dropped first draft delivered, with the run `delivered` on
+`implicit_narrate`, the `turn_close` row naming the fallback's `call_id`, and the `speech_steer` and
+`steered_leg_refused` rows. Both refused: `undelivered`, three drop rows and `unsent_fix: "audit-repair"`. Prose
+twice without a token: the second leg delivered. A speech-steered second leg that brings nothing: the dropped draft
+delivered. The floor steer's drop and process talk beside a tool call each leave their row (`floor_steer`,
+`text_beside_tool_calls`); the wait, `owes_ask`, `review_unavailable` and `review_paused` rows are not exercised
+by a test of their own. Legacy shares the seam (`message_end` and `takeTurnCloseSteer`):
+`tests/extension/speech-attribution.test.mjs` replays the live shape against the real kernel.
+
 ### 135.20 The read hands the Keeper the bodies of what it issued (2026-09-23, SL-11 scope 1; the model-call diet)
 
 SL-11 takes §135.20–§135.24. §135.11 onward belongs to the SL-02 follow-ups in flight on the same base (§135.11 is
