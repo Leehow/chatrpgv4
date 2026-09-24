@@ -287,6 +287,9 @@ def test_the_full_matrix_is_the_one_the_spec_names():
 
 def test_the_bench_never_steals_the_default_run_pointer(fixture_campaign, monkeypatch, tmp_path):
     """A human playing a real table in this checkout keeps their own `--run` default."""
+    # The pointer is one file per checkout, and under xdist test_driver.py's `start` writes it concurrently: this test's
+    # own pointer, which `driver.main` (in process) reads and writes through the module global.
+    monkeypatch.setattr(driver, "CURRENT_RUN_FILE", tmp_path / ".current-run")
     before = driver.read_json(driver.CURRENT_RUN_FILE, {"run_id": "a-human-table"})
     driver.write_json(driver.CURRENT_RUN_FILE, before)
     suite = {**bench.DEFAULTS, "suite": "fixture", "kp_model": "xai/grok-4.6",
