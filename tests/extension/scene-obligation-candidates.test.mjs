@@ -19,8 +19,9 @@ import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { createRealCampaign, openTable } from "./harness.mjs";
 import { buildCandidates, keeperCall, obligationCandidates } from "../../runtime/jev/candidates.ts";
-import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
-import { BIND_FAMILY, CLERK_AUTHORITY, ROUTE_FAMILY, bindBatch, bindingOf, initialView, interpretBind, interpretRoute, next, routeBatch, settleExecute, settleRead } from "../../runtime/jev/step-policy.ts";
+import { COMPILE_FAMILY, compileBatch } from "../../runtime/jev/route-compile.ts";
+import { compileRows } from "../../runtime/jev/compile-rows.ts";
+import { BIND_FAMILY, CLERK_AUTHORITY, ROUTE_FAMILY, bindBatch, bindingOf, initialView, interpretBind, interpretRoute, next, routeBatch, settleCompile, settleExecute, settleRead, startStep } from "../../runtime/jev/step-policy.ts";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { issuedSection, readCandidateBodies } from "../../runtime/jev/candidate-bodies.ts";
 
@@ -76,6 +77,22 @@ async function atMorgue(call) {
 	return opened.turn;
 }
 const keys = (candidates) => candidates.map((candidate) => candidate.key);
+/** The compile's `ask` option that is an obligation's demand: read from the question's own rows (the row carrying `demand`). */
+const demandAlias = (question) => Object.entries(question?.criteria ?? {}).find(([, value]) => value && typeof value === "object" && "demand" in value)?.[0];
+/** The §135.30 compile, due on `view`, answered `pick(question)` or `unclear` at 0.9, and folded in. */
+function compileOn(view, pick) {
+	const request = next(view);
+	assert.deepEqual([request.kind, request.purpose], ["decide", "compile"], "the compile comes before any route");
+	const batch = compileBatch(view, scope, [], []);
+	settleCompile(view, startStep(view, request), batch, answered(batch, (question) => pick(question) ?? "unclear"), 5, 0.6);
+	return batch;
+}
+/** A route answer with `seeks` on the obligation's fact question at `index` and `later` everywhere else. */
+function seeksAt(offered, index, choice = "seeks") {
+	const now = { status: "answered", type: "choice", choice: "now", confidence: 0.8 }, later = { ...now, choice: "later" };
+	return { batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
+		answers: { ...Object.fromEntries(offered.map((_, i) => [`need_${i + 1}`, i === index ? { ...now, choice } : later])), exit: { ...now, choice: "continue" } } };
+}
 const ofObligation = (candidates, handle) => candidates.filter((candidate) => candidate.basis?.obligation === handle);
 /** The kernel's morgue reads with the gate's `next` (or the whole row) changed: a variant the haunting does not state. */
 function variant(state, change) {
@@ -146,26 +163,24 @@ test("at the morgue the gate's check carries its meeting in place of the roster 
 		assert.ok(!shown.includes(hidden), `Jev never sees ${hidden}`);
 });
 
-test("seeks on the gate's check carries its meeting directly first, under the book's name and with no LLM step, then binds and rolls the check", async (t) => {
+test("the compile's ask on the gate's check carries its meeting directly first, under the book's name and with no LLM step, then binds and rolls the check; the route's seeks selects nothing", async (t) => {
 	const { call } = kernel(t);
 	const turn = await atMorgue(call);
 	const state = await reads(call);
 	const candidates = buildCandidates(state, INPUT);
 	const check = candidates.find((candidate) => candidate.family === "obligation_check");
 	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [], readFirst: false });
-	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
+	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates, rows: compileRows(state) }, 0);
+	// §135.30 addendum (owner, 2026-09-24): the route's fact question no longer selects an obligation check -- `seeks`, or
+	// `now` (never an answer to it), selects nothing.
 	const offered = view.candidates, index = offered.findIndex((candidate) => candidate.key === check.key);
-	const now = { status: "answered", type: "choice", choice: "now", confidence: 0.8 }, later = { ...now, choice: "later" }, seeks = { ...now, choice: "seeks" };
-	const result = { batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
-		answers: { ...Object.fromEntries(offered.map((_, i) => [`need_${i + 1}`, i === index ? seeks : later])), exit: { ...now, choice: "continue" } } };
-	const routed = interpretRoute(view, offered, result, 0.6);
-	assert.deepEqual(routed.selected, [check.key], "one Jev question answered seeks: the check");
-	// "now" is not an answer to a fact question: it selects nothing.
-	const nowAnswer = { ...result, answers: { ...result.answers, [`need_${index + 1}`]: now } };
-	assert.deepEqual(interpretRoute(view, offered, nowAnswer, 0.6).selected, []);
+	assert.deepEqual(interpretRoute(view, offered, seeksAt(offered, index), 0.6).selected, [], "seeks on the fact question selects nothing");
+	assert.deepEqual(interpretRoute(view, offered, seeksAt(offered, index, "now"), 0.6).selected, []);
+	// The compile's ask on the demand selects it.
+	compileOn(view, (question) => question.key === "ask" ? demandAlias(question) : undefined);
 	// The meeting runs first, directly: no Jev question for it and no LLM step for its name.
-	assert.deepEqual(routed.pending.map((item) => [item.kind, item.purpose, item.candidate.key]), [["direct", "execute", "apply:person:Arty Wilmot"]]);
-	const meeting = routed.pending[0].candidate;
+	assert.deepEqual(view.pending.map((item) => [item.kind, item.purpose, item.candidate.key]), [["direct", "execute", "apply:person:Arty Wilmot"]]);
+	const meeting = view.pending[0].candidate;
 	assert.equal(meeting.then, check.key);
 	const { tool, args } = keeperCall(meeting);
 	assert.equal(tool, "apply");
@@ -173,7 +188,6 @@ test("seeks on the gate's check carries its meeting directly first, under the bo
 		why: `The book puts Arty Wilmot here for "Access to the Globe clippings", under the book's name; player: "${INPUT}"` }],
 	"the book's name, and a why composed from the demand and the player's words (§135.28): no open parameter");
 	assert.deepEqual(meeting.composed, ["why"]);
-	view.pending.push(...routed.pending);
 	assert.equal(next(view).kind, "direct");
 	// Past the run's time budget (§135.25) the carried meeting still runs: structure, no model, like a forced step.
 	const spent = structuredClone(view);
@@ -224,10 +238,11 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 
 	// The policy: several approaches go to decide(bind); a confident answer runs the clerk's resolve with the claim.
 	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [], readFirst: false });
-	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
-	const routed = interpretRoute(view, [check], { batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
-		answers: { need_1: { status: "answered", type: "choice", choice: "seeks", confidence: 0.9 }, exit: { status: "answered", type: "choice", choice: "continue", confidence: 0.9 } } }, 0.6);
-	assert.deepEqual(routed.pending.map((item) => [item.kind, item.purpose]), [["decide", "bind"]]);
+	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates, rows: compileRows(state) }, 0);
+	assert.deepEqual(interpretRoute(view, [check], seeksAt([check], 0), 0.6).pending.map((item) => [item.kind, item.purpose]), [["infer", "adjudicate"]],
+		"the route's seeks selects nothing: the exit's continue with nothing named is the Keeper's (§135.30 addendum)");
+	compileOn(view, (question) => question.key === "ask" ? demandAlias(question) : undefined);
+	assert.deepEqual(view.pending.map((item) => [item.kind, item.purpose]), [["decide", "bind"]], "the compile's ask selects it; its approach is a bind");
 	const batch = bindBatch(view, check, scope, []);
 	assert.deepEqual(batch.questions.map((question) => question.key), ["skill", "bonus", "penalty", "intent"]);
 	assert.match(batch.questions[0].instructions, /never the skill values/);
@@ -391,9 +406,13 @@ function answered(batch, pick = () => undefined) {
 	}
 	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
 }
-/** Jev: the player seeks what the gate guards, then the route finishes; the bind takes Persuade, no dice, social. */
+/**
+ * Jev: the compile's ask names the gate's demand (§135.30; its addressee and act unclear), the route finishes; the bind
+ * takes Persuade, no dice, social.
+ */
 const decideGate = (batch) => batch.family === BIND_FAMILY
 	? answered(batch, (question) => ({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" })[question.key])
+	: batch.family === COMPILE_FAMILY ? answered(batch, (question) => question.key === "ask" ? demandAlias(question) : "unclear")
 	: answered(batch, (question) => question.key === "exit" ? "finish" : question.criteria.seeks ? "seeks" : undefined);
 const clerkNotes = (context) => context.messages.flatMap((message) => {
 	const text = typeof message.content === "string" ? message.content : (message.content ?? []).map((block) => block.text ?? "").join("");
@@ -489,14 +508,15 @@ test("a clerk step that crossed an open obligation is one obligation_open line b
 });
 
 /** The run on a real Pi session over the emitted kernel, arriving at the morgue with Arty not yet met; Jev is a stub. */
-async function arrival({ fact, responses, firstExit = "finish", bind = { skill: "Persuade", bonus: "none", penalty: "none", intent: "social" } }) {
+async function arrival({ fact, compile, responses, firstExit = "finish", bind = { skill: "Persuade", bonus: "none", penalty: "none", intent: "social" } }) {
 	const decisions = [], requests = [], calls = [];
 	let routes = 0;
 	const probe = { name: "so04-call-probe", factory(pi) { pi.on("tool_call", (event) => { calls.push({ id: event.toolCallId, tool: event.toolName, input: structuredClone(event.input) }); }); } };
-	// The §135.30 compile answers `unknown` (the default), so nothing clears and the obligation reaches the fact question.
+	// The §135.30 compile: `compile: "demand"` clears the ask on the gate's demand; otherwise every family answers `unknown`
+	// (the default), so nothing clears and the obligation reaches the fact question.
 	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch) => { decisions.push(batch); return batch.family === BIND_FAMILY
 		? answered(batch, (question) => bind[question.key])
-		: batch.family === COMPILE_FAMILY ? answered(batch)
+		: batch.family === COMPILE_FAMILY ? answered(batch, (question) => compile === "demand" && question.key === "ask" ? demandAlias(question) : undefined)
 		: (routes++, answered(batch, (question) => question.key === "exit" ? (routes === 1 ? firstExit : "finish") : question.criteria.seeks ? fact : undefined)); } } });
 	const table = await openTable({
 		realKernel: true, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: PASS },
@@ -509,8 +529,8 @@ async function arrival({ fact, responses, firstExit = "finish", bind = { skill: 
 }
 const factQuestions = (decisions) => decisions.filter((batch) => batch.family === ROUTE_FAMILY).flatMap((batch) => batch.questions.filter((question) => question.criteria.seeks));
 
-test("seeks at arrival: the meeting is carried directly under the book's name, the check is bound and rolled with its claim, and no LLM step is spent on them", async (t) => {
-	const { table, decisions, calls } = await arrival({ fact: "seeks", responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
+test("the compile's ask at arrival: the meeting is carried directly under the book's name, the check is bound and rolled with its claim, and no LLM step is spent on them", async (t) => {
+	const { table, decisions, calls } = await arrival({ fact: "seeks", compile: "demand", responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
 	const clerk = calls.filter((value) => value.id.startsWith("clerk:"));
@@ -522,12 +542,29 @@ test("seeks at arrival: the meeting is carried directly under the book's name, t
 	assert.ok(telemetry.some((row) => row.tool === "resolve" && row.origin === "policy" && row.ok && row.basis?.obligation === ACCESS));
 	const infers = telemetry.filter((row) => row.lane === "run" && row.event === "llm_bound");
 	assert.deepEqual(infers, [], "no LLM bind for the meeting or the check");
-	assert.equal(factQuestions(decisions).filter((question) => /globe-unpublished-story/.test(question.target)).length >= 1, true);
+	const compiles = decisions.filter((batch) => batch.family === COMPILE_FAMILY);
+	assert.ok(compiles.length >= 1 && demandAlias(compiles[0].questions.find((question) => question.key === "ask")), "the compile asked the gate's demand");
+	const firstCompile = decisions.findIndex((batch) => batch.family === COMPILE_FAMILY), firstRoute = decisions.findIndex((batch) => batch.family === ROUTE_FAMILY);
+	assert.ok(firstCompile >= 0 && (firstRoute < 0 || firstCompile < firstRoute), "the compile came before any route");
 	assert.ok(decisions.some((batch) => batch.family === BIND_FAMILY && batch.questions.some((question) => question.key === "skill")), "the check's approach was a Jev bind");
 });
 
+test("§135.30 addendum: seeks at arrival without the compile's ask -- the fact question is asked and recorded, selects nothing, and the check is the Keeper's", async (t) => {
+	// The owner's ruling (2026-09-24, gate #4 turn 1): an obligation check is selected only by the compile's predicates.
+	const { table, decisions, calls } = await arrival({ fact: "seeks", responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑抬了抬眼。" })], { stopReason: "toolUse" })] });
+	t.after(() => table.dispose());
+	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
+	assert.ok(!calls.some((value) => value.id.startsWith("clerk:") && (value.input.action?.obligation || value.input.effects?.some((effect) => effect.who === "Arty Wilmot"))),
+		"no meeting and no claimed check by the clerk");
+	assert.equal(factQuestions(decisions).filter((question) => /globe-unpublished-story/.test(question.target)).length, 1, "asked once, then the Keeper's for the run");
+	const route = table.telemetry("test-camp").find((row) => row.lane === "route" && row.purpose === "route" && (row.offered ?? []).includes(`resolve:obligation:${ACCESS}`));
+	const index = route.offered.indexOf(`resolve:obligation:${ACCESS}`);
+	assert.equal(route.answers[`need_${index + 1}`].choice, "seeks", "the seeks answer is recorded on the route row");
+	assert.ok(!(route.selected ?? []).includes(`resolve:obligation:${ACCESS}`), "and selects nothing");
+});
+
 test("SL-12 (§135.28): Jev cannot tell the approach -- the clerk rolls the rules default, the first of the investigator's highest, with no LLM step", async (t) => {
-	const { table, calls, requests } = await arrival({ fact: "seeks", bind: { skill: "unknown", bonus: "none", penalty: "none", intent: "social" },
+	const { table, calls, requests } = await arrival({ fact: "seeks", compile: "demand", bind: { skill: "unknown", bonus: "none", penalty: "none", intent: "social" },
 		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");

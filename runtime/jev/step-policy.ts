@@ -23,7 +23,7 @@ import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts'
 import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
 import {answerOf, clears} from './decision-gate.ts';
-import {COMPILE_FAMILY, compileBatch, compileDigest, compileReaches, interpretCompile, type FeatureRows} from './route-compile.ts';
+import {COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, reachable, type FeatureRows} from './route-compile.ts';
 
 type Row = Record<string, any>;
 export type Json = null | boolean | number | string | Json[] | {[key: string]: Json};
@@ -183,13 +183,18 @@ export interface RunView {
   plan?: PlanArtifact;
   /** §135.30: the compile's feature rows, from the latest read (absent: the read carried none, and no compile is asked). */
   rows?: FeatureRows;
-  /** §135.30: the run's one compile is spent (asked, or switched off for the run). */
-  compiled?: boolean;
+  /** §135.30: the compile is switched off for the run (the SL-12 policy: the replays' control arm). */
+  compileOff?: boolean;
+  /**
+   * §135.30 (addendum 2026-09-24): the keys of the candidates a compile of this run was asked over (those a predicate could
+   * select then). A read that issues one not among them owes another compile before the next route question.
+   */
+  compiledOver?: string[];
 }
 export type StepRequest =
   | {kind: 'direct'; item: PendingItem}
   | {kind: 'decide'; purpose: 'route'; digest: string}
-  /** §135.30: the typed-feature compile, once per run, before the first route question. */
+  /** §135.30: the typed-feature compile, before a route question, when the read offers a candidate no compile of the run was asked over. */
   | {kind: 'decide'; purpose: 'compile'; digest: string}
   /** `offline`: a clerk bind settled without asking Jev (its budget is spent): rules defaults, else the Keeper (§135.28). */
   | {kind: 'decide'; purpose: 'bind' | 'locate'; item: PendingItem; offline?: string}
@@ -247,8 +252,9 @@ export function next(view: RunView): StepRequest {
     return {kind: 'infer', purpose: head.purpose === 'bind' ? 'bind' : 'adjudicate', reason: 'jev_budget', item: head};
   }
   if (exhausted(view.budget)) return {kind: 'infer', purpose: 'compose', reason: 'jev_budget'};
-  // §135.30: before the first route question, one compile reads the declaration into typed features, when the rows let a
-  // predicate reach an offered candidate. Once per run.
+  // §135.30: before a route question, one compile reads the declaration into typed features whenever the read offers a
+  // candidate a predicate can select that no compile of this run was asked over (addendum 2026-09-24: not only before the
+  // first route -- an exit the Keeper's write unlocked, or the gate of the scene the clerk moved into, gets one too).
   if (compileDue(view)) return {kind: 'decide', purpose: 'compile', digest: compileDigest(view)};
   // Guard 1: the same question over the same candidates and materials is not asked twice.
   const current = routeDigest(view);
@@ -270,9 +276,13 @@ export {MARGIN_MIN, MARGIN_RATIO} from './decision-gate.ts';
 const PRECEDENCE: Record<string, number> = {person: 0, mod_check: 1, obligation_check: 2, 'core-check': 3, clue: 4, handout: 4, move: 5};
 const rank = (candidate: Candidate): number => PRECEDENCE[candidate.family] ?? PRECEDENCE['core-check'];
 
-/** §135.30: the compile is owed: not spent, no route asked yet, and some offered candidate is one a predicate can select. */
+/**
+ * §135.30: the compile is owed: not switched off, and some offered candidate is one a predicate can select that no compile
+ * of this run was asked over (addendum 2026-09-24; it replaced "only before the run's first route question", which let a
+ * candidate issued after the first route -- gate #4's morgue exit, unlocked by the Keeper's clue -- reach only the route).
+ */
 export function compileDue(view: RunView): boolean {
-  return !view.compiled && !view.observations.some(value => value.kind === 'decide' && value.purpose === 'route') && compileReaches(view.candidates, view.rows);
+  return !view.compileOff && compileReaches(view.candidates, view.rows, view.compiledOver);
 }
 
 /**
@@ -288,6 +298,9 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
   const exit = answerOf(result, 'exit');
   const selected: Array<{candidate: Candidate; confidence?: number}> = [];
   for (const [index, candidate] of offered.entries()) {
+    // §135.30 addendum (owner, 2026-09-24): an obligation check or a stated meeting is selected only by the compile's
+    // predicates. Its own question (§135.26's `seeks`) is still asked and recorded; its answer selects nothing.
+    if (compileOnly(candidate)) continue;
     const key = `need_${index + 1}`, {choice, confidence} = answerOf(result, key);
     const selects = candidate.routeFact?.selects ?? 'now';
     if (choice === selects && clears(result, key, selects, confidence, gate)) selected.push({candidate, confidence});
@@ -484,7 +497,7 @@ export interface TelemetryRow {
 }
 
 export function initialView(input: {runId: string; rawInput: string; context: TurnContext; candidates: Candidate[]; budget?: Partial<Budget>; readFirst?: boolean;
-  /** §135.30: the typed-feature compile before the first route (default true; `false` is the SL-12 policy, the replays' control arm). */
+  /** §135.30: the typed-feature compile before a route (default true; `false` is the SL-12 policy, the replays' control arm). */
   compile?: boolean; rows?: FeatureRows}): RunView {
   // The product already reads before the Keeper's first request (§124 prescreen); the loop keeps that
   // order: the first step of a run is the read, so the route sees the located material. Runs 8-10 of the
@@ -492,7 +505,7 @@ export function initialView(input: {runId: string; rawInput: string; context: Tu
   return {runId: input.runId, rawInput: input.rawInput, stateVersion: 0, context: input.context, candidates: input.candidates, materials: [],
     located: false, observations: [], pending: input.readFirst === false ? [] : [{kind: 'direct', purpose: 'read'}], asked: [], consumed: [],
     budget: {jevCalls: 0, jevMs: 0, steps: 0, runMs: 0, ...DEFAULT_BUDGET, ...(input.budget ?? {})},
-    ...(input.rows ? {rows: input.rows} : {}), ...(input.compile === false ? {compiled: true} : {})};
+    ...(input.rows ? {rows: input.rows} : {}), ...(input.compile === false ? {compileOff: true} : {})};
 }
 
 export {bytes as jsonBytes};
@@ -509,7 +522,8 @@ const observe = (view: RunView, value: Omit<Observation, 'step'>) => view.observ
 export function startStep(view: RunView, request: Exclude<StepRequest, {kind: 'finish'}>): number {
   view.budget.steps++;
   if (request.kind === 'decide' && request.purpose === 'route') view.asked.push(request.digest);
-  else if (request.kind === 'decide' && request.purpose === 'compile') view.compiled = true;
+  else if (request.kind === 'decide' && request.purpose === 'compile')
+    view.compiledOver = [...new Set([...(view.compiledOver ?? []), ...reachable(view.candidates, view.rows).map(candidate => candidate.key)])];
   else if (request.kind === 'decide') view.pending.shift();
   else if (request.kind === 'infer') {
     if (request.item && view.pending[0] === request.item) view.pending.shift();
@@ -533,8 +547,9 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
   const routed = interpretRoute(view, offered, result, gate);
   view.pending.push(...routed.pending);
   // §135.26: a candidate asked by its own fact and not selected (`not`, `unknown`, or below the gates) is the Keeper's for
-  // the rest of the run: it is not asked again on the next route.
-  if (result.status === 'complete') for (const candidate of offered) if (candidate.routeFact && !(routed.selected ?? []).includes(candidate.key)) {
+  // the rest of the run: it is not asked again on the next route. §135.30 addendum: so is a candidate only the compile
+  // selects, whatever its route answer (it stays offered to the Keeper).
+  if (result.status === 'complete') for (const candidate of offered) if ((candidate.routeFact || compileOnly(candidate)) && !(routed.selected ?? []).includes(candidate.key)) {
     if (!view.consumed.includes(candidate.key)) view.consumed.push(candidate.key);
     view.candidates = view.candidates.filter(value => value.key !== candidate.key);
   }
@@ -769,7 +784,7 @@ export interface StepPolicyOptions {
   gate?: number;
   /** Read before the first route (default true): the loop's first step is the read. */
   readFirst?: boolean;
-  /** §135.30: the typed-feature compile before the first route (default true); `false` is the SL-12 policy. */
+  /** §135.30: the typed-feature compile before a route (default true); `false` is the SL-12 policy. */
   compile?: boolean;
   /** The run's clock (§135.25). With it, each folded step stamps `budget.runMs` from `startedAt`; without it the time budget never runs out. */
   clock?: () => number;

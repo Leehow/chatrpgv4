@@ -87,7 +87,7 @@ export interface HybridEngineOptions {
   maxSteps?: number;
   /** The run's clock (§135.25); tests pass a stub. Defaults to `Date.now`. */
   now?: () => number;
-  /** §135.30: the typed-feature compile before the first route (default true). `false` is the SL-12 policy: the replays' control arm, and tests whose subject is the route. */
+  /** §135.30: the typed-feature compile before a route that has an uncompiled reachable candidate (default true). `false` is the SL-12 policy: the replays' control arm, and tests whose subject is the route. */
   compile?: boolean;
 }
 

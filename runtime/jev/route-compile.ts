@@ -1,7 +1,8 @@
 /**
  * The typed-feature compile (contract §135.30; the owner's ruling "Routing asks what the player does, never whether a
- * candidate is due", 2026-09-24). One Jev question per run, after the first read and before the first route question,
- * reads the player's declaration into closed features whose options are the kernel's own rows (`FeatureRows`, built by
+ * candidate is due", 2026-09-24). One Jev question, before the route question whenever the read offers a candidate a
+ * predicate can select that no compile of the run was asked over (at the first read, and again after a later read issues
+ * one), reads the player's declaration into closed features whose options are the kernel's own rows (`FeatureRows`, built by
  * `compileRows` in `compile-rows.ts` from the same reads the candidates come from); predicates in code then select the
  * clerk's candidates from the cleared features. Nothing here reads the player's words: the words go to Jev as data, and
  * the options are rows plus `none` and `unclear`. Pure.
@@ -88,6 +89,12 @@ export interface CompilePredicate {
   decided(cleared: Cleared): boolean;
   /** The predicate over cleared rows and the candidate's own values: selects the candidate, or not. */
   fires(candidate: Candidate, cleared: Cleared): Fired | undefined;
+  /**
+   * The only selector of the candidates it reads (§135.30, addendum 2026-09-24): the route's own question about them
+   * (§135.26's fact question, or `need`) is still asked and recorded, but never selects them; unselected, they are the
+   * Keeper's for the run.
+   */
+  sole?: boolean;
 }
 
 const basisOf = (candidate: Candidate): Row => object(candidate.basis);
@@ -107,7 +114,7 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
     reads: candidate => candidate.family === 'move' && typeof candidate.bound.to === 'string',
     decided: cleared => !!cleared.destination,
     fires: (candidate, cleared) => cleared.destination?.row === candidate.bound.to ? {} : undefined},
-  {name: 'obligation_check', askable: rows => has(rows, 'ask'),
+  {name: 'obligation_check', askable: rows => has(rows, 'ask'), sole: true,
     reads: candidate => candidate.family === 'obligation_check' && !!text(basisOf(candidate).obligation),
     decided: cleared => !!cleared.ask,
     fires: (candidate, cleared) => {
@@ -117,7 +124,7 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
       if (cleared.act?.row && intents.length && !intents.includes(cleared.act.row)) return undefined;
       return {};
     }},
-  {name: 'stated_meeting', askable: rows => has(rows, 'addressee') || has(rows, 'ask'),
+  {name: 'stated_meeting', askable: rows => has(rows, 'addressee') || has(rows, 'ask'), sole: true,
     reads: candidate => candidate.family === 'person' && candidate.clerk === 'stated_obligation' && basisOf(candidate).step === 'meet',
     decided: cleared => !!cleared.addressee || !!cleared.ask,
     fires: (candidate, cleared) => {
@@ -141,9 +148,22 @@ export function predicateOf(candidate: Candidate, rows: FeatureRows | undefined)
   const predicate = COMPILE_PREDICATES.find(value => value.reads(candidate));
   return predicate && rows && predicate.askable(rows) ? predicate : undefined;
 }
-/** The compile is worth one question when some offered candidate is one a predicate can select. */
-export function compileReaches(candidates: Candidate[], rows: FeatureRows | undefined): boolean {
-  return askedFamilies(rows).length > 0 && candidates.some(candidate => predicateOf(candidate, rows) !== undefined);
+/** The offered candidates a predicate can select with these rows. */
+export function reachable(candidates: Candidate[], rows: FeatureRows | undefined): Candidate[] {
+  return askedFamilies(rows).length > 0 ? candidates.filter(candidate => predicateOf(candidate, rows) !== undefined) : [];
+}
+/**
+ * The compile is worth a question when some offered candidate is one a predicate can select and no compile of the run
+ * has been asked over it yet (`over`: the keys earlier compiles of the run were asked over). So a candidate a later read
+ * issues -- an exit the Keeper's own write unlocked, the gate of the scene the clerk just moved into -- gets a compile too
+ * (§135.30, addendum 2026-09-24).
+ */
+export function compileReaches(candidates: Candidate[], rows: FeatureRows | undefined, over: readonly string[] = []): boolean {
+  return reachable(candidates, rows).some(candidate => !over.includes(candidate.key));
+}
+/** A candidate only the compile selects (a predicate marked `sole` reads it): the route never selects it (§135.30 addendum). */
+export function compileOnly(candidate: Candidate): boolean {
+  return COMPILE_PREDICATES.find(value => value.reads(candidate))?.sole === true;
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -238,7 +258,7 @@ export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows'>,
   return {selected, decided, fellThrough, features, reason: selected.length ? `selected_${selected.length}` : decided.length ? 'decided_none' : 'fell_through'};
 }
 
-/** The dedupe identity of the compile question (one per run; recorded with the step). */
+/** The dedupe identity of the compile question (recorded with the step). */
 export function compileDigest(view: Pick<CompileView, 'rawInput' | 'candidates' | 'rows'>): string {
   return digest([COMPILE_FAMILY, view.rawInput, view.candidates.map(value => value.key), view.rows ?? null]);
 }
