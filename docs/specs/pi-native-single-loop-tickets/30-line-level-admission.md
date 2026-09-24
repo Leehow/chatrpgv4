@@ -87,4 +87,16 @@ Every round over 13 s carried a `person` line; 4 of the 6 also a `move` (gate #1
 **Decisions.**
 - *The line threshold* stays the fast-path confidence, 0.87, as ruled. On the two turns that motivated the ruling it fires on no line, so **line-level admission as ruled changes nothing on long gate #2's turns 6 and 14**. It fires where the typed reviewer is sure of a line (gate #1 turn 13, gate #2 turn 12), and there no cleared line was one the lane refused.
 - *The remainder* is reviewed by a fresh lane round on its own lines (the pre-registered rule: single lines p50 3.4 s against whole batches 4.0 s, not slower).
-- For the owner, not decided here: at 0.70 the same corpus clears 55 line-runs, including turn 14's `time` line in 2 of 3 runs and turn 6's `time` line in 3 of 3, with no lane-alone refusal among them; the evidence for going that low is this 25-batch corpus only (a per-line lane label over SL-10's refused batches would be the measurement). The slowness is where a `person` line sits beside a `move` or others; the `threat` line is not slow.
+- For the owner, not decided here: at 0.70 the same corpus clears 55 line-runs, including turn 14's `time` line in 2 of 3 runs and turn 6's `time` line in both runs Jev answered, with no lane-alone refusal among them; the evidence for going that low is this 25-batch corpus only (a per-line lane label over SL-10's refused batches would be the measurement). The slowness is where a `person` line sits beside a `move` or others; the `threat` line is not slow.
+
+### 2026-09-24 — replay pre-registration (before any replay run)
+
+Fixtures `longgate30-t6` and `longgate30-t14`, built by `gate-fixture.mjs` from long gate #2 (read only; commit `b321fd185`). Recorded Keeper, live Jev, the live lane (`opencode-go/deepseek-v4.1-flash`, `low`), seed 1, 3 runs each; a `review_pending` refusal, or a result whose `admission.not_landed` is `review_pending`, is resent once at once (the whole call, which the host narrows to what did not land).
+
+- **Product arm** (`run.mjs --fixture longgate30-tN --runs 3 --llm replay --lane live --seed 1`; the line threshold is 0.87):
+  - turn 14: no line clears in any run (its `time` line typed at most 0.75 in measurement 2), so the Keeper's `threat` + `time` batch is reviewed whole; the lane admits it before the 13 s cap in at least 2 of 3 runs, and the `time` receipt lands in 3 of 3 (a run past the cap through its resend);
+  - turn 6: no line clears; the Keeper's `person` + `time` + `clue` batch is admitted by the lane in at least 2 of 3 runs.
+  - So the ticket's acceptance ("the plain lines land at once") is **not expected to be met** in this arm: the measurement says the typed reviewer never reaches 0.87 on these lines.
+- **Exploratory arm** (`--fast-min 0.70`: the fast path and the line threshold at 0.70; not the product setting):
+  - turn 14: the `time` line clears in at least 2 of 3 runs; in those runs the `threat` line left is not reviewed and the batch lands whole within 2 s of its review start, with no lane round;
+  - turn 6: the `time` line clears in the runs where Jev answers; the `person` + `clue` remainder goes to the lane alone and the batch lands whole in at least 2 of 3 runs.
