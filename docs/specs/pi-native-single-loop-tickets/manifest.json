@@ -149,6 +149,21 @@
       "id": "SL-29",
       "file": "29-pdf-modules-live-tables.md",
       "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-30",
+      "file": "30-line-level-admission.md",
+      "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-31",
+      "file": "31-ordinary-binder-defaults.md",
+      "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-32",
+      "file": "32-pdf-import-reads-before-guidance.md",
+      "status": "ready-for-human"
     }
   ],
   "relatedSpecs": [
