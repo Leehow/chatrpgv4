@@ -724,8 +724,11 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	// Whether a typed answer could stand at all on this batch; when it could not, the row names no typed fallback.
 	const primary = fastMin !== undefined || reviewer === "jev" || lineMin !== undefined || options.typedAttempt !== undefined;
 	const stop = new AbortController();
+	// A review that began here waits its whole cap (timers may fire a millisecond early against the clock, so it is never
+	// shortened); a remainder resumed from a split waits only what is left of the batch's (§32.12.3).
+	const left = (ms: number) => options.startedAt === undefined ? ms : Math.max(1, ms - (Date.now() - began));
 	const lane = reviewAdmission({ ...options, signal: options.signal ? AbortSignal.any([options.signal, stop.signal]) : stop.signal,
-		timeoutMs: Math.max(1, hardCapMs - (Date.now() - began)) });
+		timeoutMs: left(hardCapMs) });
 	// The typed attempt reads every answer (minimum 0) and this function applies each threshold itself: one call serves all.
 	const typed = options.typedAttempt ? Promise.resolve(options.typedAttempt) : typedAttempt(options, env, began, 0);
 	const stands = (attempt: TypedAttempt): string | undefined => {
@@ -788,7 +791,7 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	const waiting = new Map<string, Promise<Event>>([
 		["lane", lane.then((value): Event => ({ kind: "lane", value }))],
 		["typed", typed.then((value): Event => ({ kind: "typed", value }))],
-		["cap", new Promise<Event>((settle) => { timer = setTimeout(() => settle({ kind: "cap" }), Math.max(0, capMs - (Date.now() - began))); timer.unref?.(); })],
+		["cap", new Promise<Event>((settle) => { timer = setTimeout(() => settle({ kind: "cap" }), left(capMs)); timer.unref?.(); })],
 	]);
 	let laneDone: AdmissionOutcome | undefined, typedDone: TypedAttempt | undefined;
 	try {
