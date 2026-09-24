@@ -17975,6 +17975,136 @@ the old run's); a decided candidate is consumed and an undecided one reaches the
 from the compile; the engine's compile row. The mutation record and the pre-registered replays of the gate #3 turns are
 in the SL-13 ticket's Comments and `experiments/single-loop-routing/RESULTS-20260923.md`.
 
+### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
+
+SL-15 takes §135.31 (§135.30 is SL-13's; §-numbers are stable ids). The
+single-loop parts apply to `PI_COC_LOOP_ENGINE=hybrid-v1` only. The telemetry's `args` and the turn record's `reads`
+apply to both engines. The spec's ruling "The Keeper is shown what the run has read" (owner, 2026-09-24) binds it.
+
+**Evidence.** Live gate #3 (`gate3-haunting-2329`, turn 3, "我回诺特办公室，揪住他的领子一拳打过去……"): three `look`
+calls, each its own model round. `{focus: "scene"}` and `{focus: "npc", name: "Steven Knott"}` came in the first model
+response (15.4 s), right after the clerk executed `apply:move:commission-briefing`. `{focus: "session"}` came after the
+Keeper's own `resolve` opened the fight (`session:combat-start`). The kernel answered in 7, 4 and 6 ms. The run's own
+read ran after the move (step s4, 102 ms) and after the fight opened (the fresh read after the combat start, and the
+clerk's defence at s15), so the scene, the landlord's card and the fight were data the run held or could fetch by code.
+The tool rows recorded `call_id: null` with `focus` and `about` only, no step; the turn record kept nothing of them,
+because only writes enter `calls` (with `params_sha256`).
+
+**The rule: before each model step the `coc-clerk` message (§135.8) also carries `carried`.** It is read from the
+run's latest fresh read (the read step, or the re-read after every write, §135.5) and from the candidates, never from
+prose. Three kinds of view, each exactly what `look` returns for it:
+
+| view | when | shape (the kernel read) |
+| --- | --- | --- |
+| scene | the active scene of the latest fresh read differs from the scene of the run's first read; once per scene per run | `table.look {focus: "scene"}`: `{where, present}`, with each `present` entry reduced to its `name`, `called` and `role` (the dossiers are what the person cards carry) |
+| person | a candidate of this run names them (below) and they are not an investigator; once per person per run | `table.look {focus: "npc", name}` without `kind` (the §135.20 person body's shape) |
+| session | a session is active at the latest fresh read; carried again whenever it differs from the last one carried in this run | `{session, pending_choice}`: the fresh read's `table.resolve.options` `context.session` and `context.pending_choice`, which are byte-identical to `table.look {focus: "session"}` (tested); when that read failed, a `table.look {focus: "session"}` |
+
+**Who a candidate names.** Closed structure, never words: a candidate's `bound.target`, `bound.actor` and `bound.who`
+(and the same three in each of its `variants`), `bound.name` of an `npc`-family candidate (the disposition write), the
+options of a closed unbound `target` or `actor` parameter, the `who` of a meeting it carries (`before`, §135.26), and a
+pending-defence row's `actor` and `attacker` (`basis.row`). The candidates are those this run's clerk executed
+(`clerk_did`), the latest fresh read's issued candidates, the policy's pending items, and the operation this step hands
+the Keeper (`left_to_you`, `complete`). An investigator (the capsule's `known.investigator` id or name, a session
+participant with `side: "investigator"`) is not a person here: `look focus=npc` does not answer for one. A person whose
+card already reached the Keeper as an issued person body (§135.20) in this run is not repeated; a name `look` does not
+resolve is listed as `not_found`.
+
+**What the gate turn would have been carried, as ruled.** After the clerk's move: the scene view of Knott's Office.
+Knott's card: not at that step, because no candidate named him there (the fresh read after the move issued exits and
+the ordinary check; with no session open there is no attack candidate, and he was already introduced, so no person
+candidate). From the fight's first fresh read on: his card (the pending defence's actor, then the disposition write's
+`name`) and the session view. Whether a person present in a scene the run moved into should be carried is the owner's
+to rule; it is not in this section.
+
+**Ceilings: the carried section's own (owner decision 2026-09-24, amending this section's first version); cuts: §135.20's.**
+One view is at most `CARRIED_VIEW_BYTES` (4 KiB) and all views of one message share `CARRIED_VIEWS_BYTES` (12 KiB;
+`runtime/jev/carried-views.ts`), served session, then people in the order they were named, then scene. §135.20's 1 KiB
+per body and 8 KiB per read stay for the issued section (the run packet's `issued`); the carried section does not share
+them. The first version bounded a carried view like a candidate body, and the cut dropped what the view is for (a card's
+`mechanics`, which says whether a person has a stat block; a scene's exits and people).
+
+**The clerk orders the fields before it cuts** (owner decision 2026-09-24: neither bigger ceilings nor a kernel card
+reorder; the carried view is the clerk's projection). What the Keeper needs to act travels first and prose last; nothing
+is renamed or invented, and every field a list does not name follows in `look`'s own order (`CARD_FIELD_ORDER`,
+`SCENE_FIELD_ORDER`):
+
+- a person card: identity (`name`, `called`, `id`, `role`, `scene`, `visibility`); then `mechanics` and the fight's fields
+  (`combat_tactic`, the standing defence of §11.5.2; `combat_disposition` and `combat_standing` of §11.5.3;
+  `deflect_options`); then what drives them (`wants`, `fears`, `hides`, and `relationships`, where a Mod's first
+  impression sits); then what they know and what was said (`knows`, `knowledge`, `believes`, `hides_claims`,
+  `would_lie_about`, `ledger`, `keeper_note`); then the rest (voice, personality, `properties`, recent speech, reunion…);
+- a scene view: `where.scene`, `display_name`, `summary`, the exits, the affordances, the assets and `obligations` when
+  the view has them; then `present` (reduced as above); then the rest of `where` (the dramatic question, the pressure
+  moves, the way back, the Keeper's notes…).
+
+A view is then cut the way `fitBody` cuts a body: its trailing fields first, then long strings (the first three fields,
+the identity, are kept). A wrapper's inner fields (`where.*`, `session.*`) are the view's fields for both steps; a cut
+says `truncated: true` and names the fields as `omitted_fields` (`"where.keeper_notes"`). The session view is not
+reordered. A view that does not fit the message's budget, could not be
+read, or does not resolve is listed in `omitted` with `budget`, `read_failed` or `not_found`. Nothing is dropped
+silently.
+
+Measured on the gate state (`gate3-haunting-2329` before turn 3, the clerk's move applied, on the emitted kernel; the
+first version's "4.5 KB and 4.0 KB" came from a fresh campaign and from the driver's result text, which is truncated at
+4 KB):
+
+| view | whole (`look`) | carried: ordered, then the 4 KiB cut | 4 KiB cut in `look`'s order (superseded) | 1 KiB cut (first version) |
+| --- | --- | --- | --- | --- |
+| scene, Knott's Office | 7,817 B (`present` alone is 4,877 B: the dossiers of the people there) | 3,021 B, whole: `present` reduced to Knott's name, called and role | 2,929 B, `present` omitted | 354 B |
+| card, Steven Knott | 8,299 B | 3,736 B: identity, `mechanics`, `combat_tactic`, `combat_disposition`, `combat_standing`, `deflect_options`, wants/fears/hides, `knows`, `would_lie_about`, `ledger`, `keeper_note`, `node_id`, `summary`, `voice`, `mask` kept; `in exchange`, `personality`, `social_role`, `lie_options`, `availability`, `properties`, `recent_speech`, `reunion` omitted | 3,981 B, `mechanics` and the fight's fields omitted | 794 B |
+| session, the fight open | 886 B | whole | whole | whole |
+
+The message carrying the office and the card is 7,002 B of the 12 KiB. On a fresh campaign (the seam tests') a card
+(about 3.9 KB) and the Globe's scene view travel whole.
+
+**What the Keeper reads.** `carried: {head, views: [{focus, name?, view, truncated?, omitted_fields?}], omitted?:
+[{focus, name?, reason}]}`. `focus` is `look`'s own (`scene`, `npc`, `session`) and `name` is the scene handle or the
+person as `look` names them. The head says: the host read these from the run's fresh read before this step; they are
+current as of this step, so do not look them again; a truncated view is cut to its budget, so look only for a field it
+omits; Keeper-only, never player text. The host keys, the reads and the digests stay off it. With `carried` the
+message is sent even when nothing else is new (§135.8's "nothing new to say: no message" counts `carried` as new).
+A view carried once stays in the request (§135.23: append-only), which is why a scene or a person is not repeated.
+
+**Telemetry.**
+
+- `lane: "run"`, `event: "carried"`, one row per message that carries something: `run`, `step`, `views: [{focus,
+  name?, bytes, truncated?}]`, `omitted`, `bytes`, `reads` (kernel reads the step made for it) and `ms`.
+- **A `look` or `lookup` tool row records its arguments** (both engines, both outcomes): `args` is the call's parameters
+  as the Keeper sent them, without host-only keys (`campaign`, `call_id`, anything `_`-prefixed), each string cut to 200
+  code points and the cut ones named in `args_cut`. `focus` and `about` stay as they were. The arguments the tool schema
+  declares as the Keeper's own prose rather than a selector -- a source `question`, an adaptation `request`, and the
+  evidence question a `kind: support` lookup takes as its `query` -- are not written; their keys are named in
+  `args_withheld` (§22's #65 rule, "`question` is the Keeper's prose and is not written to telemetry", holds). This
+  widens the tool row's "names only" to every selector argument of these two tools: the next diet is measured on what
+  the Keeper asked for.
+- **On hybrid-v1 a model-origin `look`/`lookup` row names the step it came from:** `origin: "model"`, `run`, `step`.
+  The engine announces each model tool call on the bus before it executes (`coc:model-step`, `{toolCallId, run, step,
+  operation}`); the kernel extension keeps the announcement until that call's row is written. §135.7's "a model-origin
+  call's rows are unchanged" holds for every other verb.
+
+**The turn record keeps the reads.** A delivery (`narrate`, explicit or implicit, and `ask`) carries the turn's `look`
+and `lookup` calls from the kernel extension as the host-only param `keeper_reads: [{tool, args, ok, run?, step?}]`
+(at most 64, the first 64 of the turn; the Keeper cannot supply it, the extension deletes one it sends), with the same
+`args` as the row and `withheld` for the prose keys left out. The kernel writes them on the turn record as `reads:
+[{tool, args, params_sha256, withheld?, ok, run?, step?}]`, where `params_sha256` is
+the kernel's `jsonDigest(args)`, the same digest `calls` keeps for a write. `keeper_reads` is not part of the delivery's
+idempotency digest (a recovered delivery replays whatever reads it carried). A turn with no reads has no `reads` key;
+a stranded turn's record (§73) has none, because no delivery carried them. A malformed `keeper_reads` is
+`invalid_params`.
+
+**Three ends (§31).** *Writer:* the fresh read (session view) and the projection's reads (scene, people), from the
+kernel; the kernel extension (tool rows, `keeper_reads`) and the kernel (`reads`). *Reader:* the Keeper, through the
+`coc-clerk` message; the measurement scripts and `kpi.py`, through the rows and the record. *Actor:* the Keeper, who
+does not repeat the look. Whether it does not is counted per run in the SL-15 ticket's Comments.
+
+*Tests.* `tests/extension/single-loop-carried-views.test.mjs`, on the emitted kernel through the vendored driver with the
+faux provider and a stub Jev: after a clerk move, the scene view (and no people when no candidate names one); at a pending
+defence, the defender's card and the session view, byte-equal to `look`; with a session active, the session view before
+every model step it changed for; each view at most 4 KiB and the message's at most 12 KiB, cut and marked; a model-origin
+`look` row carries `args`, `run` and `step`; the turn record's `reads` with the digest. The mutation record is in the SL-15
+ticket's Comments.
+
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 
 A **mechanical shape** is a typed value from one closed catalog that states a rule the module prints: a

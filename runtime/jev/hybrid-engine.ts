@@ -22,7 +22,8 @@
  *   is the delivery, and the clerk never writes one;
  * - projection: before each model step, one `coc-clerk` message: what the clerk did this turn (committed, with
  *   receipts, the kernel row each came from and any rules default it took, §135.28), the operation the clerk could not
- *   bind and left to the Keeper (`left_to_you`), or the batch step that returned to it;
+ *   bind and left to the Keeper (`left_to_you`), or the batch step that returned to it, and what the run has read that
+ *   the Keeper would otherwise `look` for (§135.31: the scene it moved into, the people its steps name, the session);
  * - record: every run/step event as a `lane: "run"` telemetry row of the campaign;
  * - turn close (§135.11): before a run with no delivery evidence finishes, the policy's `turn_close` operation asks the
  *   kernel extension's turn-close port (`coc:turn-close`) what the turn close did. A delivery this run committed (the
@@ -48,6 +49,7 @@ import { compileRows } from './compile-rows.ts';
 import { interpretCompile, type FeatureRows } from './route-compile.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
+import { carriedSection, namedPeople, readCarriedViews } from './carried-views.ts';
 import {
   CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, interpretRoute, overRun, ROUTE_FAMILY,
   type BindRecord, type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
@@ -58,6 +60,7 @@ const object = (value: unknown): Row => value && typeof value === 'object' && !A
 const array = (value: unknown): any[] => Array.isArray(value) ? value : [];
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8');
 
 /** The kernel extension's bus payload (`coc:kernel-bridge`, contract §12.8). */
 export interface KernelBridge {
@@ -218,6 +221,19 @@ interface RunState {
   deferred: DeferredStep[];
   /** §135.11: the turn-close steer the next model step carries (the kernel extension's own `coc-host` message). */
   steer?: Row;
+  /**
+   * §135.31: the scene the run's first read found and the latest fresh read's; the fresh read's session view (`'read'`
+   * when `table.resolve.options` failed while the capsule shows a session); the investigators, who are not people here.
+   */
+  firstScene?: string;
+  scene?: string;
+  sessionView?: Row | 'read';
+  investigators: string[];
+  /** §135.31: the people the candidates this run's clerk executed named, in order; the latest fresh read's issued candidates. */
+  named: string[];
+  issued?: Candidate[];
+  /** §135.31: what the Keeper was already shown this run: scenes, people (names and card ids), the last session view's digest. */
+  shown: {scenes: Set<string>; people: Set<string>; session?: string};
 }
 
 /**
@@ -247,6 +263,16 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const [capsule, status, applyOptions, resolveOptions] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options')]);
     const table = readTable(capsule, status);
     run.fight = object(object(resolveOptions.context).session ?? object(capsule.where).session);
+    // §135.31: what the projection carries is this read's: the scene, the session view `look focus=session` would return
+    // (the resolve options' context holds the same two values), and who the investigators are.
+    const context = object(resolveOptions.context), active = (value: unknown) => Object.keys(object(value)).length > 0;
+    run.firstScene ??= table.context.scene;
+    run.scene = table.context.scene;
+    run.sessionView = Object.hasOwn(context, 'session') ? (active(context.session) ? {session: context.session, pending_choice: context.pending_choice ?? null} : undefined)
+      : active(object(capsule.where).session) ? 'read' : undefined;
+    const party = object(capsule.known).investigator;
+    run.investigators = (Array.isArray(party) ? party : [party]).flatMap(value => [text(object(value).id), text(object(value).name)])
+      .concat(array(run.fight.participants).filter(value => object(value).side === 'investigator').map(value => text(object(value).name))).filter(Boolean);
     // §11.5.3: an NPC's turn without a standing action reads that NPC's card, which says whether a disposition is
     // still to be inferred and carries what it is inferred from. Nothing else reads a card here.
     const fight = run.fight, npcTurn = fight.kind === 'combat' && fight.status === 'active' && !fight.pending_defense && text(fight.turn_of)
@@ -259,7 +285,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       // §135.30: the compile's feature rows, from the same reads.
       rows: () => compileRows({capsule, applyOptions, resolveOptions})};
   }
-  const freshOf = (run: RunState) => tableReads(run).then(read => ({context: read.table.context, candidates: read.candidates(), rows: read.rows()}), () => undefined);
+  const freshOf = (run: RunState) => tableReads(run).then(read => {
+    const candidates = read.candidates();
+    run.issued = candidates;
+    return {context: read.table.context, candidates, rows: read.rows()};
+  }, () => undefined);
 
   function makePorts(run: RunState): RunDriverPorts {
     return {
@@ -302,10 +332,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           }
           // Candidates are built after the locate, so a located clue or handout is among them.
           const fresh = {context: table.context, candidates: candidates(), rows: rows()};
+          run.issued = fresh.candidates;
           // §135.20: the bodies of the issued candidates, which the Keeper would otherwise look or lookup, ride on the read
           // artifact and reach the Keeper in the run's packet (a packet of their own when the prescreen did not run).
           const issued = await readCandidateBodies({candidates: fresh.candidates, capsule, call}).catch(() => undefined);
           packet = withIssuedBodies(packet, issued);
+          // §135.31: a person whose card went to the Keeper as an issued body is not carried again this run.
+          for (const entry of issued?.bodies ?? []) if (entry.family === 'person') for (const name of [entry.name, text(entry.body.id)]) if (name) run.shown.people.add(name);
           if (packet && table.binding && bridge?.campaign)
             api?.events?.emit?.('coc:run-prescreen', {campaign: bridge.campaign, turn: table.binding.turn, run: run.runId, message: packet});
           const ms = Date.now() - began;
@@ -322,26 +355,28 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       },
       operations: {
         async execute(proposal, invocation) {
-          if (proposal.origin === 'model' && invocation.executeModelTool) return modelStep(run, proposal, invocation.executeModelTool);
+          if (proposal.origin === 'model' && invocation.executeModelTool) return modelStep(run, proposal, invocation.executeModelTool, invocation.stepId);
           if (proposal.operation === 'llm_proposal') return {status: 'ok', artifact: {kind: 'execute', executed: {ok: true, summary: {slot: 'llm_proposal'}}}};
           if (proposal.operation === 'execute') return clerkStep(run, object(proposal.params), invocation);
           if (proposal.operation === 'turn_close') return turnCloseStep(run);
           return {status: 'refused', reason: 'unknown_policy_operation', artifact: {kind: 'execute', executed: {ok: false, summary: {refused: 'unknown_policy_operation'}}}};
         },
       },
-      projection: {project: ({view, step, stepId}) => projection(run, view as RunView<StepPolicyState> & {policyState: StepPolicyState}, step, stepId)},
+      projection: {project: ({view, step, stepId}) => projection(run, view as unknown as {policyState: StepPolicyState}, step, stepId)},
       ...(jev ? {decision: {decide: request => decide(run, request)}} : {}),
     };
   }
 
   /** One Keeper call of the batch its response made. A step that fails sends the rest of the batch back unrun. */
-  async function modelStep(run: RunState, proposal: {operation: string; assistantMessage?: unknown; toolCall?: {id: string}}, execute: () => Promise<any>) {
+  async function modelStep(run: RunState, proposal: {operation: string; assistantMessage?: unknown; toolCall?: {id: string}}, execute: () => Promise<any>, stepId: string) {
     if (run.batch?.message !== proposal.assistantMessage) run.batch = {message: proposal.assistantMessage};
     const batch = run.batch!;
     if (batch.fell) {
       const reason = `batch_step_fell: ${batch.fell}`;
       return {status: 'refused' as const, reason, artifact: {kind: 'execute', executed: {ok: false, summary: {tool: proposal.operation, skipped: true, after: batch.fellAt ?? null}}, skipped: true}};
     }
+    // §135.31: the kernel extension's tool row names the step a model call came from (announced before it runs).
+    if (proposal.toolCall?.id) api?.events?.emit?.('coc:model-step', {toolCallId: proposal.toolCall.id, run: run.runId, step: stepId, operation: proposal.operation});
     const toolResult = await execute();
     const delivery = !toolResult.isError ? DELIVERY_VERBS[proposal.operation] : undefined;
     const fell = toolResult.isError ? `${proposal.operation}_refused` : proposal.operation === 'resolve' && failedCheck(toolResult.details) ? 'check_failed' : undefined;
@@ -403,6 +438,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
     record({lane: 'run', event: 'bind', run: run.runId, step: invocation.stepId, candidate: candidate.key, clerk: candidate.clerk, call_id: callId, status: packet.status,
       bindings: bindRecords(candidate, extra, array(params.bindings) as BindRecord[])});
+    // §135.31: the people an executed clerk step names are carried to the Keeper before its next model step.
+    if (ok) for (const name of namedPeople(candidate)) if (!run.named.includes(name)) run.named.push(name);
     run.clerkDid.push({step: invocation.stepId, operation: tool, label: candidate.label, clerk: candidate.clerk, call_id: callId, status: packet.status,
       receipts: packet.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
       result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null, ...(result.obligation ? {obligation: result.obligation} : {})} : {effects: args.effects}) as Json,
@@ -498,8 +535,46 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     carried = run.deferred.length ? {campaign: bridge?.campaign, run: run.runId, ...(run.turn !== undefined ? {turn: run.turn} : {}), deferred: run.deferred} : undefined;
   }
 
+  /**
+   * §135.31: the views due before this model step -- the scene the run moved into, the people its candidates name, the
+   * session when it changed -- read and bounded (runtime/jev/carried-views.ts); one `lane: "run"`, `event: "carried"` row.
+   */
+  async function carriedFor(run: RunState, view: {policyState: StepPolicyState}, request: Row, stepId: string): Promise<Json | undefined> {
+    if (!bridge?.call || !bridge.campaign) return undefined;
+    const state = view.policyState?.view;
+    // Pending: what the latest fresh read issued (a candidate the route left to the Keeper is still the Keeper's to do) and
+    // the policy's pending items.
+    const issued = [...(run.issued ?? []), ...array(state?.pending).map(item => object(item).candidate).filter(Boolean)] as Candidate[];
+    // The operation this step hands the Keeper (`left_to_you`, `complete`), by its key, else as the request shows it.
+    const operation = object(request.operation);
+    const handed = request.candidate ? issued.find(candidate => candidate.key === request.candidate) ?? {family: text(operation.family), bound: object(operation.bound)} : undefined;
+    const investigators = new Set(run.investigators);
+    const people = [...run.named, ...[...issued, ...(handed ? [handed] : [])].flatMap(candidate => namedPeople(candidate as Candidate))]
+      .filter((name, index, all) => all.indexOf(name) === index && !investigators.has(name) && !run.shown.people.has(name));
+    const scene = run.scene && run.firstScene !== undefined && run.scene !== run.firstScene && !run.shown.scenes.has(run.scene) ? run.scene : undefined;
+    const sessionView = run.sessionView, session = sessionView === 'read' ? 'read' as const
+      : sessionView && digest(sessionView) !== run.shown.session ? sessionView : undefined;
+    if (!scene && !people.length && !session) return undefined;
+    const carried = await readCarriedViews({call, ...(scene ? {scene} : {}), people, skip: run.shown.people, ...(session ? {session} : {})}).catch(() => undefined);
+    if (!carried) return undefined;
+    const ids = new Set(carried.views.flatMap(entry => entry.id ? [entry.id] : []));
+    for (const entry of carried.views) {
+      if (entry.focus === 'scene' && entry.name) run.shown.scenes.add(entry.name);
+      if (entry.focus === 'session') run.shown.session = digest(entry.read ? {session: entry.view.session ?? null, pending_choice: entry.view.pending_choice ?? null} : sessionView);
+      if (entry.focus === 'npc' && entry.id) run.shown.people.add(entry.id);
+    }
+    // A name is settled once its card went (now or earlier under another name), or once `look` does not resolve it.
+    for (const {name, id} of carried.resolved) if (ids.has(id) || run.shown.people.has(id)) run.shown.people.add(name);
+    for (const entry of carried.omitted) if (entry.focus === 'npc' && entry.reason === 'not_found' && entry.name) run.shown.people.add(entry.name);
+    record({lane: 'run', event: 'carried', run: run.runId, step: stepId,
+      views: carried.views.map(entry => ({focus: entry.focus, ...(entry.name ? {name: entry.name} : {}), bytes: bytes(entry.view),
+        ...(entry.truncated ? {truncated: true, omitted_fields: entry.omitted_fields ?? []} : {})})),
+      omitted: carried.omitted, bytes: carried.bytes, reads: carried.reads, ms: carried.ms});
+    return carriedSection(carried);
+  }
+
   /** The run's note to the Keeper before a model step. Nothing new to say: no message. */
-  function projection(run: RunState, view: {policyState: StepPolicyState}, step: {purpose: string; reason: string; request?: unknown}, stepId: string) {
+  async function projection(run: RunState, view: {policyState: StepPolicyState}, step: {purpose: string; reason: string; request?: unknown}, stepId: string) {
     const content: Row = {kind: 'single_loop_step', purpose: step.purpose, reason: step.reason};
     run.lastInferAt = now() - run.startedAt;
     // §135.25: the compose the budget chose lists the clerk steps it left undone; the next run's first note says so once.
@@ -555,6 +630,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const plan = view.policyState?.view?.plan;
     if ((step.reason === 'batch_fallen' || budget.batch_fallen === true) && plan) Object.assign(content, {batch: plan.steps,
       batch_note: 'Your last batch stopped where a step failed; the steps after it were not executed. Decide what that failure means.'});
+    const shown = await carriedFor(run, view, request, stepId);
+    if (shown) content.carried = shown;
     const messages: Row[] = [];
     if (Object.keys(content).length > 3 || fresh.length) messages.push({role: 'custom', customType: CLERK_TYPE, content: JSON.stringify(content), display: false,
       details: {coc_host: true, run: run.runId, step: stepId, ...(run.turn !== undefined ? {turn: run.turn} : {})}, timestamp: Date.now()});
@@ -592,7 +669,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const allowance = readJevPreselectAllowanceMs(options.env as NodeJS.ProcessEnv), startedAt = now(), budgetMs = turnBudgetMs(options.env);
       const run: RunState = {runId: context.runId, rawInput: context.rawInput, inputRevision: context.inputRevision, session: context.session as unknown as Row,
         startedAt, allowanceDeadline: Date.now() + allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
-        identities: new Map(), budgetMs, deferred: []};
+        identities: new Map(), budgetMs, deferred: [], investigators: [], named: [], shown: {scenes: new Set(), people: new Set()}};
       const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
         ...(options.compile === false ? {compile: false} : {})});
       return {policy: budgetRows(run, policy), ports: makePorts(run), maxSteps: options.maxSteps ?? 48};

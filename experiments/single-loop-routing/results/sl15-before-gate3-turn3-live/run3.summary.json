@@ -1,0 +1,412 @@
+{
+ "run": 3,
+ "fixture": "/Users/haoli/leehow/code/chatrpgv4-wt-sl15/experiments/single-loop-routing/fixtures/gate3-turn3",
+ "admission": "lane",
+ "keeper": "live grok-build/grok-4.7-build-fast",
+ "thinking": "low",
+ "arm": "after",
+ "latency": false,
+ "seed": null,
+ "wall_ms": 43631,
+ "budget": {
+  "turn": 3,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d1ab-c8c3-7722-8868-70829ef18733",
+  "budget_ms": 45000,
+  "elapsed_ms": 41234,
+  "elapsed_at_compose": 36518,
+  "over_budget": false,
+  "deferred_by_budget": [],
+  "run_id": "e4b913f5-e979-4aeb-8715-a51d37483096"
+ },
+ "status": "delivered",
+ "reason": "implicit_narrate",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 6417,
+   "ttfb_ms": 1161,
+   "input": 42012,
+   "cache_read": 1152,
+   "cache_write": 0,
+   "output": 669,
+   "reasoning": 257,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 3111,
+   "ttfb_ms": 828,
+   "input": 629,
+   "cache_read": 43136,
+   "cache_write": 0,
+   "output": 275,
+   "reasoning": 124,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "compose",
+   "ms": 1677,
+   "ttfb_ms": 728,
+   "input": 1256,
+   "cache_read": 43648,
+   "cache_write": 0,
+   "output": 136,
+   "reasoning": 34,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 4,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 4154,
+   "ttfb_ms": 1512,
+   "input": 4786,
+   "cache_read": 43648,
+   "cache_write": 0,
+   "output": 404,
+   "reasoning": 279,
+   "tools": [
+    "apply",
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 5,
+   "turn": 0,
+   "purpose": "compose",
+   "ms": 4123,
+   "ttfb_ms": 854,
+   "input": 3236,
+   "cache_read": 44032,
+   "cache_write": 0,
+   "output": 437,
+   "reasoning": 157,
+   "tools": [],
+   "stop": "stop",
+   "effort": "low"
+  },
+  {
+   "step": 6,
+   "turn": 0,
+   "purpose": "compose",
+   "ms": 4702,
+   "ttfb_ms": 1075,
+   "input": 3605,
+   "cache_read": 44032,
+   "cache_write": 0,
+   "output": 422,
+   "reasoning": 203,
+   "tools": [],
+   "stop": "stop",
+   "effort": "low"
+  }
+ ],
+ "steps": {
+  "operate": 10,
+  "decide": 3,
+  "infer": 6,
+  "finish": 1
+ },
+ "llm_steps": 6,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate",
+  "compose",
+  "adjudicate",
+  "compose",
+  "compose"
+ ],
+ "jev_calls": 8,
+ "route_rows": 2,
+ "calls": [
+  {
+   "tool": "apply",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "move",
+      "to": "commission-briefing"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": false,
+   "error": "needs",
+   "input": {
+    "action": {
+     "intent": "combat",
+     "goal": "握住诺特的领子打他一拳，逼他说清这房子里死过谁",
+     "method": "一只手握住衣领，另一只拳头直接打向他的脸",
+     "target": "Steven Knott",
+     "weapon": "unarmed",
+     "stakes": "若打不到或被他挡开，这一拳会把雇主和委托一起搞破",
+     "actor": "托马斯·海斯"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "npc",
+      "name": "Steven Knott",
+      "archetype": "ordinary_adult",
+      "why": "房东不是打手，按普通成年人给战斗数值。"
+     },
+     {
+      "kind": "npc",
+      "name": "Steven Knott",
+      "reunion": {
+       "background": [
+        "离开约一个钟头后，诺特仍在办公室里等调查结果，桌面上摊着租金账。"
+       ],
+       "reports": [
+        "我在等实在的东西，不是再听一遍鬼故事。"
+       ],
+       "open_threads": [
+        "报馆没交出剪报，委托还开着。"
+       ]
+      },
+      "why": "海斯从报馆回到办公室，诺特仍在。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "goal": "握住诺特的领子打他一拳，逼他说清这房子里死过谁",
+     "method": "一只手握住衣领，另一只拳头直接打向他的脸",
+     "target": "Steven Knott",
+     "weapon": "unarmed",
+     "stakes": "若打不到或被他挡开，这一拳会把雇主和委托一起搞破",
+     "actor": "托马斯·海斯"
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "defense": "dodge",
+     "decision": "combat:defend",
+     "actor": "steven-knott",
+     "goal": "combat:defend",
+     "method": "combat:defend"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "npc",
+      "name": "Steven Knott",
+      "disposition": "avoids_fighting",
+      "why": "房东被揪住领子后只想脱身，不想跟雇来的侦探对打。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "goal": "诺特不肯还手，这一拳已经落空，打架到此为止",
+     "method": "他挣开衣领，退到桌子后面，不再动手",
+     "actor": "Steven Knott",
+     "decision": "combat:end",
+     "outcome": "stalemate"
+    }
+   }
+  }
+ ],
+ "match": [],
+ "admissions": [
+  {
+   "verb": "apply",
+   "origin": "policy",
+   "clerk": "declared_bookkeeping",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 356,
+   "jev_ms": 353,
+   "confidence": null,
+   "jev_fallback": "low_confidence",
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[8]",
+    "row": {
+     "alias": "effect:8",
+     "effect": {
+      "kind": "move",
+      "to": "commission-briefing"
+     },
+     "description": {
+      "kind": "move",
+      "to": "commission-briefing",
+      "display_name": "Knott's Office",
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    }
+   },
+   "path": "lane",
+   "fast_path": true,
+   "jev_confidence": 0.66,
+   "line_verdicts": [
+    "authorized"
+   ],
+   "lane_ms": 3
+  },
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 3,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null,
+   "path": "lane",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null
+  },
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 0,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null,
+   "path": null,
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null
+  }
+ ],
+ "clerk": [
+  {
+   "tool": "apply",
+   "call_id": "t3-c1",
+   "ok": true,
+   "ms": 440,
+   "clerk": "declared_bookkeeping",
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[8]",
+    "row": {
+     "alias": "effect:8",
+     "effect": {
+      "kind": "move",
+      "to": "commission-briefing"
+     },
+     "description": {
+      "kind": "move",
+      "to": "commission-briefing",
+      "display_name": "Knott's Office",
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "call_id": "t3-c5",
+   "ok": true,
+   "ms": 451,
+   "clerk": "session_step",
+   "basis": {
+    "read": "table.resolve.options",
+    "path": "context.session.pending_defense",
+    "row": {
+     "for": "npc",
+     "actor": "steven-knott",
+     "attack_command_id": "t3-c4",
+     "revision": 2,
+     "attacker": "thomas-hayes",
+     "options": [
+      "dodge",
+      "fight_back",
+      "none"
+     ],
+     "standing": {
+      "defense": "dodge",
+      "basis": "rule-default"
+     }
+    },
+    "standing": {
+     "defense": "dodge",
+     "basis": "rule-default"
+    }
+   }
+  }
+ ],
+ "misses": []
+}
