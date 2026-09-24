@@ -446,7 +446,10 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
   const admissions = own.filter(row => row.lane === 'admission').map(row => ({verb: row.verb, origin: row.origin ?? 'model', clerk: row.clerk ?? null,
     verdict: row.verdict ?? null, ok: row.ok, skipped: row.skipped ?? null, reviewer: row.reviewer ?? null, ms: row.ms ?? null, jev_ms: row.jev_ms ?? null,
     confidence: row.confidence ?? null, jev_fallback: row.jev_fallback ?? null, basis: row.basis ?? null,
-    path: row.path ?? null, fast_path: row.fast_path ?? null, jev_confidence: row.jev_confidence ?? null, line_verdicts: row.line_verdicts ?? null, lane_ms: row.lane_ms ?? null}));
+    path: row.path ?? null, fast_path: row.fast_path ?? null, jev_confidence: row.jev_confidence ?? null, line_verdicts: row.line_verdicts ?? null, lane_ms: row.lane_ms ?? null,
+    // SL-18 (§32.12): the compile's evidence, or why it was refused; the lane's first byte and a cut at the cap.
+    predicate: row.predicate ?? null, features: row.features ?? null, binding_paths: row.binding_paths ?? null, compile_refused: row.compile_refused ?? null,
+    first_byte_ms: row.first_byte_ms ?? null, timed_out: row.timed_out ?? null}));
   const budgetRow = own.filter(row => row.lane === 'run' && row.event === 'budget' && row.decision === 'summary').at(-1) ?? null;
   const clerk = own.filter(row => row.origin === 'policy' && row.tool).map(row => ({tool: row.tool, call_id: row.call_id, ok: row.ok, ms: row.ms, clerk: row.clerk, basis: row.basis}));
   const misses = routeRows.filter(row => ['low_confidence', 'jev_unavailable', 'jev_no_answer', 'repeated_question'].includes(String(row.reason)));
@@ -495,7 +498,7 @@ export async function main(argv: string[]): Promise<void> {
       selections: summary.selections.map(entry => `${entry.by}:${entry.keys.join('+')}`),
       executed: summary.calls.map(call => `${call.origin === 'policy' ? 'H' : 'M'}:${call.tool}${call.ok ? '' : `!${call.error}`}${call.obligation ? `[${call.obligation.handle}:${call.obligation.settled ? 'settled' : 'open'}]` : ''}`),
       match: summary.match.map(row => `${row.baseline}: ${row.matched === null ? 'n/a' : row.matched ? `yes(${row.origin})` : 'NO'}`),
-      admissions: summary.admissions.map(row => `${row.origin}/${row.verb}:${row.skipped ?? row.verdict}${row.path ? `@${row.path}` : row.reviewer ? `@${row.reviewer}` : ''}${row.ms !== null ? ` ${row.ms}ms` : ''}${row.jev_confidence ?? row.confidence ? ` c=${row.jev_confidence ?? row.confidence}` : ''}`)}));
+      admissions: summary.admissions.map(row => `${row.origin}/${row.verb}:${row.skipped ?? row.verdict}${row.path ? `@${row.path}` : row.reviewer ? `@${row.reviewer}` : ''}${row.ms !== null ? ` ${row.ms}ms` : ''}${row.jev_confidence ?? row.confidence ? ` c=${row.jev_confidence ?? row.confidence}` : ''}${row.compile_refused ? ` refused=${row.compile_refused}` : ''}`)}));
   }
   writeFileSync(join(outDir, 'summaries.json'), JSON.stringify(summaries, null, 1) + '\n');
   console.log(`results: ${outDir}`);

@@ -23,9 +23,14 @@ import { agentHomeOf } from "../ui/hints.ts";
  */
 export type LaneFailureReason = "model_unavailable" | "model_error" | "bad_output" | "timeout";
 
+/**
+ * `firstByteMs`: from the lane request (the round's own clock) to the provider's response headers, when they arrived
+ * (contract §32.12). A round cut by its deadline after the headers carries it too, which is what separates "the provider
+ * never answered" from "it answered and then streamed past the cap".
+ */
 export type LaneResult<T> =
-	| { ok: true; value: T; ms: number; model: string; raw: string; usage?: ReturnType<typeof providerUsage> }
-	| { ok: false; reason: LaneFailureReason; detail: string; ms: number; model?: string };
+	| { ok: true; value: T; ms: number; model: string; raw: string; usage?: ReturnType<typeof providerUsage>; firstByteMs?: number }
+	| { ok: false; reason: LaneFailureReason; detail: string; ms: number; model?: string; firstByteMs?: number };
 
 /** `provider/model`. A model id may contain slashes itself, so split on the first one only. */
 export function parseModelRef(raw: string): { provider: string; id: string } | undefined {
@@ -250,7 +255,7 @@ function bodyReasoningEffort(body: Record<string, unknown>): string | null {
  * Every row swallows its own failure. Telemetry that breaks a turn is worse than telemetry that is
  * missing a line, and the callers' own `record` swallows too -- this is the second net, not the first.
  */
-function laneCallRows(request: LaneRequest<unknown>) {
+function laneCallRows(request: LaneRequest<unknown>, onFirstByte?: () => void) {
 	const record = request.record;
 	let startedAt = Date.now();
 	const write = async (row: Record<string, unknown>): Promise<void> => {
@@ -293,6 +298,7 @@ function laneCallRows(request: LaneRequest<unknown>) {
 				// on every stalled round (2026-09-15, turn 2: 200 in 612 ms, then 126 s and no blocks).
 				// `hook_ms` separates them: near zero on a stalled round exonerates the host.
 				const at = Date.now();
+				onFirstByte?.();
 				await write({
 					phase: "response",
 					status: response?.status ?? null,
@@ -358,6 +364,9 @@ export async function runLane<T>(request: LaneRequest<T>): Promise<LaneResult<T>
 	request = {...request, providerBudget:request.providerBudget ?? independent!.budget};
 	const began = Date.now();
 	let label: string | undefined;
+	let firstByteMs: number | undefined;
+	const firstByte = () => { firstByteMs ??= Date.now() - began; };
+	const stamped = (result: LaneResult<T>): LaneResult<T> => firstByteMs === undefined ? result : { ...result, firstByteMs };
 	// One controller for this round: the caller's signal and the timeout both cut the same completion.
 	const controller = new AbortController();
 	const relay = () => controller.abort();
@@ -386,8 +395,10 @@ export async function runLane<T>(request: LaneRequest<T>): Promise<LaneResult<T>
 	try {
 		const attempt = runLaneAttempt(request, controller.signal, began, (value) => {
 			label = value;
-		});
-		return deadline ? await Promise.race([attempt, deadline]) : await attempt;
+		}, firstByte);
+		// The deadline races the whole completion (§32.12): headers, silence or a steady trickle, a round with no answer by
+		// the cap ends here whatever its stream is doing.
+		return stamped(deadline ? await Promise.race([attempt, deadline]) : await attempt);
 	} finally {
 		if (timer) clearTimeout(timer);
 		request.signal?.removeEventListener("abort", relay);
@@ -400,6 +411,7 @@ async function runLaneAttempt<T>(
 	signal: AbortSignal,
 	began: number,
 	remember: (label: string) => void,
+	firstByte?: () => void,
 ): Promise<LaneResult<T>> {
 	let label: string | undefined;
 	try {
@@ -411,7 +423,7 @@ async function runLaneAttempt<T>(
 		remember(label);
 		// The completion is timed on its own, apart from the prompt build, the model resolution above
 		// and the shape work below: the lane's single `ms` cannot be decomposed, and #67 needs it to be.
-		const rows = laneCallRows(request as LaneRequest<unknown>);
+		const rows = laneCallRows(request as LaneRequest<unknown>, firstByte);
 		// The lane names its own reasoning effort. `complete()` is the full `stream()` road, which
 		// carries no provider-neutral level for us, and every API's absent-level default is the
 		// provider's ceiling rather than a floor (see `laneReasoningOptions`).

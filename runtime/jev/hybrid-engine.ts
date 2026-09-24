@@ -182,6 +182,15 @@ export function bindRecords(candidate: Candidate, extra: Record<string, Json>, s
       : {name, path: composed.has(name) ? 'composed' as const : 'stated' as const, value});
   return [...shape, ...settled];
 }
+/**
+ * §32.12: the bind records as admission reads them -- each parameter's name and path, and every parameter the call carries
+ * from the bind step (`extra`) with no record listed with `path: null`, so the compile's evidence is refused for it.
+ */
+export function admissionBindings(records: BindRecord[], extra: Record<string, Json>): Array<{name: string; path: string | null}> {
+  const named = new Set(records.map(entry => entry.name));
+  return [...records.map(entry => ({name: entry.name, path: entry.path})),
+    ...Object.keys(extra).filter(name => !named.has(name)).map(name => ({name, path: null}))];
+}
 /** The Keeper's line for a clerk write that took a rules default (§135.28), or none. */
 function defaultLine(candidate: Candidate): string | undefined {
   const basis = object(candidate.basis), defaults = object(basis.rule_default);
@@ -410,6 +419,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (!session || !dispatcher || !bridge?.campaign) return {status: 'unavailable' as const, reason: 'operation_gateway_unavailable',
       artifact: {kind: 'execute', executed: {ok: false, summary: {origin: 'policy', refused: 'operation_gateway_unavailable'}}}};
     const {tool, args} = keeperCall(candidate, extra);
+    // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
+    // Computed before the dispatch (§32.12): admission reads it off the host origin to admit a compile selection.
+    const bindings = bindRecords(candidate, extra, array(params.bindings) as BindRecord[]);
     const readSet: ReadSet = [{kind: 'world', resource: run.scope.campaign!, revision: digest([run.turn, run.inputRevision])}];
     run.lease ??= new TaskLease({owner: 'single-loop-clerk', goal: run.rawInput.trim() || 'single-loop clerk step', scope: run.scope, capabilities: ['apply', 'resolve'],
       readSet, signal: invocation.signal,
@@ -435,7 +447,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         return {status: 'absent', activeTurn: result.active_turn as number};
       },
       trace: row => record({lane: 'run', event: 'operation_stage', run: run.runId, step: invocation.stepId, ...row}),
-      origin: {origin: 'policy', run: run.runId, step: invocation.stepId, clerk: candidate.clerk, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {})},
+      origin: {origin: 'policy', run: run.runId, step: invocation.stepId, clerk: candidate.clerk, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
+        bindings: admissionBindings(bindings, extra) as Json},
     };
     const packet = await dispatcher.dispatch(operation, context);
     const ok = packet.status === 'succeeded', callId = run.identities.get(operation.id)?.callId ?? null;
@@ -444,9 +457,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const {goal: _goal, method: _method, ...shown} = object(tool === 'resolve' ? args.action : {}) as Row;
     const obligation = obligationClerkLine(candidate, ok, result, packet.receipts), crossed = ok ? obligationCrossing(candidate, result, packet.receipts) : undefined;
     const binding = defaultLine(candidate);
-    // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
     record({lane: 'run', event: 'bind', run: run.runId, step: invocation.stepId, candidate: candidate.key, clerk: candidate.clerk, call_id: callId, status: packet.status,
-      bindings: bindRecords(candidate, extra, array(params.bindings) as BindRecord[])});
+      bindings});
     // §135.31: the people an executed clerk step names are carried to the Keeper before its next model step.
     if (ok) for (const name of namedPeople(candidate)) if (!run.named.includes(name)) run.named.push(name);
     run.clerkDid.push({step: invocation.stepId, operation: tool, label: candidate.label, clerk: candidate.clerk, call_id: callId, status: packet.status,

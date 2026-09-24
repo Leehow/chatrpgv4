@@ -248,3 +248,20 @@ Mutations, each run against the files above and then restored from a saved copy:
 - The 0.87 threshold has no margin on that bank.
 - The deferral note to the next turn lives in the engine's memory, so a restart between turns loses it.
 - `kpi.py` does not yet group admission rows by `path`.
+
+### 2026-09-24 — owner rulings after live gate #6: admission within the turn (SL-18, contract §32.12)
+
+Live gate #6 (`gate6-haunting-0335`, turn 2) paid 57.2 s for one lane review (headers at 1.7 s, then 55 s of streaming
+under the 120 s cap) and 2.8 s for the clerk's obligation check the compile had already selected; the turn took 112 s.
+Across gates #3–#6 no clerk write took this ticket's fast path (the clerk's moves were typed 0.72–0.80, under 0.87), so
+every one went to the lane. The owner ruled, and SL-18 implements (ticket `18-admission-within-the-turn.md`):
+
+- **The lane review's cap is 12 s** (was 120 s; `PI_COC_ADMISSION_TIMEOUT_MS` still overrides), measured from the lane
+  request; past it the review ends `review_timeout`, a refusal naming the cap, never an admit, and not an outage. This
+  ticket's typed attempt keeps its own 4 s cap in front.
+- **A clerk write the compile selected is admitted on the compile's evidence** (`path: "compile"`, no lane and no typed
+  call) when every feature its predicate reads cleared the gate and every bound parameter has a recorded SL-12 path. It
+  sits in front of this ticket's fast path for those writes only; a Keeper's bookkeeping batch, and a clerk write the
+  compile did not select, still take §32.11 exactly as measured here. The 0.87 threshold and its measurement are
+  unchanged.
+- Every admission row carries `origin`, `path`, `ms`, and `first_byte_ms` for the lane (§32.7's addendum).

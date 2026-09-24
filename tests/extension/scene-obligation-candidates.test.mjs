@@ -18,6 +18,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { createRealCampaign, openTable } from "./harness.mjs";
+import { withOriginTamper } from "./origin-tamper.mjs";
 import { buildCandidates, keeperCall, obligationCandidates } from "../../runtime/jev/candidates.ts";
 import { COMPILE_FAMILY, compileBatch } from "../../runtime/jev/route-compile.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
@@ -419,12 +420,18 @@ const clerkNotes = (context) => context.messages.flatMap((message) => {
 	const start = text.indexOf('{"kind":"single_loop_step"');
 	return start < 0 ? [] : [JSON.parse(text.slice(start, text.lastIndexOf("}") + 1))];
 });
-async function hybrid({ responses, admission, seed = PASS }) {
+/**
+ * `reviewed`: the clerk's check reaches the admission review, as a clerk check without the compile's evidence does. Since
+ * §32.12 a check the compile selected is admitted on that evidence, so a test whose subject is what a clerk refusal does
+ * strips `basis.compile` from the dispatch's host origin (`origin-tamper.mjs`).
+ */
+async function hybrid({ responses, admission, seed = PASS, reviewed = false }) {
 	const requests = [];
 	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch) => decideGate(batch) } });
+	const withoutEvidence = (origin) => { if (origin?.basis?.compile) delete origin.basis.compile; return origin; };
 	const table = await openTable({
 		realKernel: true, prepareWorkspace: metArty, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: seed },
-		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
+		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: reviewed ? withOriginTamper(engine, withoutEvidence) : engine.extension }],
 		...(admission ? { laneResponses: { admission } } : {}),
 		responses: responses.map((response) => (context) => { requests.push(context); return response; }),
 	});
@@ -454,6 +461,8 @@ test("a clerk refusal stays off the Keeper's refusal budget: recorded on the cle
 	const attempt = (goal) => fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "social", skill: "Persuade", target: "Arty Wilmot", goal, method: goal } })], { stopReason: "toolUse" });
 	const { table } = await hybrid({
 		// Three refusals of one class (resolve, needs, action_not_authorized): the clerk's check, then two Keeper attempts.
+		// The clerk's check is reviewed only without the compile's evidence (§32.12).
+		reviewed: true,
 		admission: [refuse, refuse, refuse],
 		responses: [attempt("请他通融一下"), attempt("换个说法再请他通融"), fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑摇头。" })], { stopReason: "toolUse" })],
 	});
