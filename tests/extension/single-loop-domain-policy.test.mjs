@@ -79,6 +79,8 @@ const clerkNotes = (context) => context.messages.flatMap((message) => {
 
 test("the run reads first, Jev routes over host-issued candidates, the clerk's move is the Keeper's own apply through the gateway, and a scene change is read again", async (t) => {
 	const campaign = "test-camp";
+	let routesAsked = 0;
+	const nextRoute = () => ++routesAsked;
 	// The table has been told where to dig (the lead clue landed on turn 1), so the kernel issues the Globe as a move.
 	const prepareWorkspace = (workspace) => kernelSteps(workspace, campaign, [
 		["table.open", {}], ["table.player_input", { text: "我听着" }],
@@ -92,9 +94,10 @@ test("the run reads first, Jev routes over host-issued candidates, the clerk's m
 		async after(method, payload) { modHooks.push(["after", method, payload.call_id ?? null]); } })); } };
 	const table = await hybridTable({
 		realKernel: true, prepareWorkspace, extra: [mods],
-		// First route: the move the player declared; after the move, nothing more before the Keeper writes.
-		decide: (batch, count) => batch.family !== ROUTE_FAMILY ? answered(batch)
-			: count === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target) ? "now" : undefined)
+		// First route: the move the player declared; after the move, nothing more before the Keeper writes. The §135.30
+		// compile answers `unknown` here (the default below), so nothing clears and every candidate reaches the route.
+		decide: (batch) => batch.family !== ROUTE_FAMILY ? answered(batch)
+			: nextRoute(batch) === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target) ? "now" : undefined)
 				: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
 		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你到了报馆。" })], { stopReason: "toolUse" })],
 	});

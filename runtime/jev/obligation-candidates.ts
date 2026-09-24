@@ -114,16 +114,22 @@ function guardedFor(reads: ObligationReads, row: Row): {words: string[]; detail:
  * obligation guards? `seeks` selects it; `not`/`unknown` leave it to the Keeper for the run (§135.26).
  */
 function routeFact(reads: ObligationReads, row: Row): Candidate['routeFact'] | undefined {
-  const {detail} = guardedFor(reads, row);
-  if (!detail.length) return undefined;
-  const things = detail.map(value => { const item = object(value);
-    return item.clue ? `clue ${text(item.clue)}${text(item.summary) ? ` (${text(item.summary)})` : ''}` : item.exit ? `the way to ${text(item.exit)}` : text(item.person); });
+  const things = guardedThings(reads, row);
+  if (!things.length) return undefined;
   return {target: `is the player's declared action after any of: ${things.join('; ')}?`, selects: 'seeks',
     instructions: 'Judge one fact about the player\'s input, not an order of steps: does the declared action seek any of the things listed '
       + '(to get it, find it, reach it or learn it)? Seeking one of them is enough. What the book demands on the way, and in what order, is not '
       + 'this question.',
     criteria: {seeks: 'The declared action is after at least one of the listed things.', not: 'The declared action is after something else.',
       unknown: 'The input does not tell whether it is after any of them.'}};
+}
+/**
+ * What an obligation stands in front of, in words Jev can judge (its guarded clues with their summaries, the exits' names,
+ * the people), read from the issued rows: the fact question's target (§135.26) and the compile's `ask` row (§135.30).
+ */
+export function guardedThings(reads: ObligationReads, row: Row): string[] {
+  return guardedFor(reads, row).detail.map(value => { const item = object(value);
+    return item.clue ? `clue ${text(item.clue)}${text(item.summary) ? ` (${text(item.summary)})` : ''}` : item.exit ? `the way to ${text(item.exit)}` : text(item.person); });
 }
 /** The name of the obligation an `after` row waits on, from the same issued list. */
 function afterName(reads: ObligationReads, row: Row): string {

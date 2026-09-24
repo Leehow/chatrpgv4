@@ -45,6 +45,8 @@ import { prepareKeeperSupport, prescreenEnabled } from '../../extensions/table/p
 import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev/agent/config.js';
 import type { HostOperationContext, OperationIdentity } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 import { buildCandidates, keeperCall } from './candidates.ts';
+import { compileRows } from './compile-rows.ts';
+import { interpretCompile, type FeatureRows } from './route-compile.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import { carriedSection, namedPeople, readCarriedViews } from './carried-views.ts';
@@ -85,6 +87,8 @@ export interface HybridEngineOptions {
   maxSteps?: number;
   /** The run's clock (§135.25); tests pass a stub. Defaults to `Date.now`. */
   now?: () => number;
+  /** §135.30: the typed-feature compile before the first route (default true). `false` is the SL-12 policy: the replays' control arm, and tests whose subject is the route. */
+  compile?: boolean;
 }
 
 /** `PI_COC_TURN_BUDGET_MS` (contract §135.25), read per run: a positive number of milliseconds, else the default. */
@@ -170,8 +174,12 @@ interface ClerkStep {step: string; operation: string; label: string; clerk?: str
  */
 export function bindRecords(candidate: Candidate, extra: Record<string, Json>, settled: BindRecord[]): BindRecord[] {
   const decided = new Set(settled.map(entry => entry.name)), composed = new Set(candidate.composed ?? []);
+  // §135.30: a closed parameter the compile settled (the attack's target) is Jev's, with the compile answer's distribution.
+  const compiled = object(object(object(candidate.basis).compile).bound);
   const shape: BindRecord[] = Object.entries(candidate.bound).filter(([name]) => name !== 'kind' && !decided.has(name) && !Object.hasOwn(extra, name))
-    .map(([name, value]) => ({name, path: composed.has(name) ? 'composed' : 'stated', value}));
+    .map(([name, value]) => Object.hasOwn(compiled, name)
+      ? {name, path: 'jev' as const, value, confidence: object(compiled[name]).confidence ?? null, distribution: object(compiled[name]).distribution ?? null}
+      : {name, path: composed.has(name) ? 'composed' as const : 'stated' as const, value});
   return [...shape, ...settled];
 }
 /** The Keeper's line for a clerk write that took a rules default (§135.28), or none. */
@@ -251,7 +259,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   };
 
   /** The kernel reads a step needs and the candidates they issue. Read-only. */
-  async function tableReads(run: RunState): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]}> {
+  async function tableReads(run: RunState): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]; rows: () => FeatureRows}> {
     const [capsule, status, applyOptions, resolveOptions] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options')]);
     const table = readTable(capsule, status);
     run.fight = object(object(resolveOptions.context).session ?? object(capsule.where).session);
@@ -273,12 +281,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // The pending choice this input answers is the one open when the run began (§135.2); one opened later is the Keeper's.
     run.answering ??= [text(object(object(resolveOptions.context).pending_choice).name), text(object(object(capsule.turn).pending_choice).name)].filter(Boolean);
     return {capsule, status, table,
-      candidates: () => buildCandidates({capsule, applyOptions, resolveOptions, located: run.located, answering: run.answering, ...(fighter ? {fighter} : {})}, run.rawInput)};
+      candidates: () => buildCandidates({capsule, applyOptions, resolveOptions, located: run.located, answering: run.answering, ...(fighter ? {fighter} : {})}, run.rawInput),
+      // §135.30: the compile's feature rows, from the same reads.
+      rows: () => compileRows({capsule, applyOptions, resolveOptions})};
   }
   const freshOf = (run: RunState) => tableReads(run).then(read => {
     const candidates = read.candidates();
     run.issued = candidates;
-    return {context: read.table.context, candidates};
+    return {context: read.table.context, candidates, rows: read.rows()};
   }, () => undefined);
 
   function makePorts(run: RunState): RunDriverPorts {
@@ -288,7 +298,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       read: {
         async read(_proposal, invocation) {
           const began = Date.now();
-          const {capsule, table, candidates} = await tableReads(run);
+          const {capsule, table, candidates, rows} = await tableReads(run);
           let bindingArtifact: Extract<StepArtifact, {kind: 'read'}>['binding'];
           if (table.scope && table.readSet && table.binding) {
             run.turn ??= table.turn; run.scope ??= table.scope; run.readSet ??= table.readSet;
@@ -321,7 +331,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             packet = message ? object(message) : undefined;
           }
           // Candidates are built after the locate, so a located clue or handout is among them.
-          const fresh = {context: table.context, candidates: candidates()};
+          const fresh = {context: table.context, candidates: candidates(), rows: rows()};
           run.issued = fresh.candidates;
           // §135.20: the bodies of the issued candidates, which the Keeper would otherwise look or lookup, ride on the read
           // artifact and reach the Keeper in the run's packet (a packet of their own when the prescreen did not run).
@@ -490,7 +500,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       } finally { lease.close(); }
     }
     const batch = question.batch as DecisionBatch | undefined;
-    if (!batch || (request.purpose !== 'route' && request.purpose !== 'bind'))
+    if (!batch || (request.purpose !== 'route' && request.purpose !== 'bind' && request.purpose !== 'compile'))
       return {status: 'unavailable' as const, artifact: {reason: batch ? `no_${request.purpose}_decider` : 'no_scope_binding'}};
     const began = Date.now();
     const lease = new TaskLease({owner: batch.family, goal: `run ${request.runId} ${request.purpose}`, scope: batch.scope, capabilities: ['decision'],
@@ -503,10 +513,16 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       // Every answer's distribution is retained (spec user story 28): the gates can be re-read from a live table.
       const offered = array(question.offered) as Candidate[];
       const routed = request.purpose === 'route' ? interpretRoute({located: question.located === true} as RunView, offered, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE) : undefined;
+      // §135.30: the compile row carries each feature's distribution and which predicates fired, as the policy will read them.
+      const compiled = request.purpose === 'compile'
+        ? interpretCompile({candidates: array(question.candidates) as Candidate[], rows: (question.rows ?? undefined) as FeatureRows | undefined}, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE)
+        : undefined;
       record({lane: 'route', purpose: request.purpose, run: run.runId, step: request.stepId, status: result.status, ms: Date.now() - began,
         ...(request.purpose === 'route' ? {offered: offered.map(candidate => candidate.key), selected: routed?.selected ?? [], exit: routed?.exit ?? null, reason: routed?.reason ?? null}
-          : {candidate: question.candidate ?? null}),
-        answers});
+          : compiled ? {features: compiled.features, fired: compiled.selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
+            selected: compiled.selected.map(entry => entry.candidate.key), decided: compiled.decided, fell_through: compiled.fellThrough, reason: compiled.reason}
+            : {candidate: question.candidate ?? null}),
+        ...(compiled ? {} : {answers})});
       return {status: result.status === 'complete' ? 'ok' as const : 'unavailable' as const, artifact: {kind: request.purpose, result} as StepArtifact};
     } finally { lease.close(); }
   }
@@ -654,7 +670,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const run: RunState = {runId: context.runId, rawInput: context.rawInput, inputRevision: context.inputRevision, session: context.session as unknown as Row,
         startedAt, allowanceDeadline: Date.now() + allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
         identities: new Map(), budgetMs, deferred: [], investigators: [], named: [], shown: {scenes: new Set(), people: new Set()}};
-      const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt});
+      const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
+        ...(options.compile === false ? {compile: false} : {})});
       return {policy: budgetRows(run, policy), ports: makePorts(run), maxSteps: options.maxSteps ?? 48};
     },
   };

@@ -29,6 +29,7 @@ One line: `next = determined(view) ? direct : jevRoute(candidates(view) ∪ {ask
 | `run.mjs` | `--llm replay` runs `product-entry.ts` (SL-02); `--llm none` or `--driver prototype` esbuild-bundles `run-entry.ts` (the prototype's own driver) and runs it |
 | `kernel.mjs` | JSON-RPC transport to `build/kernel/rpc.mjs` |
 | `fixture.mjs`, `baseline.mjs` | build `fixtures/<name>/workspace.tar.gz` from the App's data (read-only), position it before the turn with the campaign's own sidecar git; extract the live Keeper's baseline from the session file. Fixtures: `turn3` (the haunting, turn 3) and `fight-round` (the "打斗测试" table, turn 6, "继续揍他", made at SL-02) |
+| `gate-fixture.mjs` | SL-13: fixtures from a live gate's campaign (a `.coc` home the play driver wrote; read only), one per turn with a shared tarball (`turn.json`'s `tarball`), the recorded Keeper read from the play driver's RPC event log. Fixtures: `gate3-t1`, `gate3-t2`, `gate3-t3` (live gate #3, `gate3-haunting-2329`) |
 | `vault.mjs` | reads `EXT_JEV_APIKEY` from the App's encrypted secret vault into the child env; never prints it |
 | `RESULTS-20260923.md` | the runs, step traces and misses |
 
@@ -40,6 +41,8 @@ node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3
 node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 --llm replay            # product driver (SL-02)
 node experiments/single-loop-routing/run.mjs --fixture fight-round --runs 3 --llm replay --admission jev
 node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 --llm replay --driver prototype
+node experiments/single-loop-routing/run.mjs --fixture gate3-t2 --runs 5 --llm replay --seed 1                  # SL-13: the compile (default)
+node experiments/single-loop-routing/run.mjs --fixture gate3-t2 --runs 5 --llm replay --seed 1 --compile off    # SL-13 control: the SL-12 policy
 node --test experiments/single-loop-routing/loop.test.mjs
 # SL-11: the same product driver with the real Keeper model (the App's grok-build login, copied without its refresh
 # token; the default model grok-build/grok-4.7-build-fast), a thinking level, and follow-on turns in one session:

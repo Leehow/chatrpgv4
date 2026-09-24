@@ -107,11 +107,13 @@ const toldWhereToDig = (workspace) => kernelSteps(workspace, [
 ]);
 
 test("§135.31 after a clerk move: the scene the run moved into and the people the fresh read's candidates name, each as look returns it, cut to 1 KiB and marked", async (t) => {
+	let routes = 0;
 	const table = await hybridTable({
 		prepareWorkspace: toldWhereToDig,
-		// First route: the move the player declared; after it, nothing more before the Keeper writes the prose.
-		decide: (batch, count) => batch.family !== ROUTE_FAMILY ? answered(batch)
-			: count === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target) ? "now" : undefined)
+		// First route: the move the player declared; after it, nothing more before the Keeper writes the prose. The §135.30
+		// compile answers `unknown` here (the default), so nothing clears and the move reaches the route.
+		decide: (batch) => batch.family !== ROUTE_FAMILY ? answered(batch)
+			: ++routes === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target) ? "now" : undefined)
 				: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
 		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你到了报馆。" })], { stopReason: "toolUse" })],
 	});

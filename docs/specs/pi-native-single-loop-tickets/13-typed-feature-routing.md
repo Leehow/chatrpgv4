@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 Stage: SL-13 (after SL-12; before SL-03)
 Spec: docs/specs/pi-native-single-loop.md (Rulings: "Routing asks what the player does, never whether a candidate is due", "Parameters-only steps never go to the LLM", "Parameter binding never goes to the LLM")
 
@@ -30,3 +30,111 @@ Changing the gates (0.6 + margin), the Keeper's prompt, or the candidate builder
 - `npm run test:ext`, the loop suites, and pytest green on the branch and after merging 0.9.5a.
 
 ## Comments
+
+### 2026-09-24 — implemented (branch `claude/sl13-20260924`, base `ef8efdf97`)
+
+Commits: `d4b09f5e4` contract §135.30; `fe54e7432` contract amendment (the attack with no cleared target falls through to
+its own bind); `a34455cbf` implementation and tests; `1098b9249` the gate fixtures, the control arm and the replay
+pre-registration; the scored replays and this close on top. 0.9.5a has not moved since `ef8efdf97`, so the branch is
+also the merged state.
+
+**Where each piece lives** (contract §135.30):
+
+| piece | code |
+| --- | --- |
+| feature rows (destination, addressee, ask, act, target, item) from the read's own kernel rows | `runtime/jev/compile-rows.ts` (`compileRows`); `obligation-candidates.ts` exports `guardedThings` (the fact question's words, shared) |
+| the compile question (rows + `none` + `unclear`), gated answers, predicates, decided / fell through | `runtime/jev/route-compile.ts` (`compileBatch`, `readFeatures`, `COMPILE_PREDICATES`, `interpretCompile`) |
+| the gates (unchanged, now shared by route, bind and compile) | `runtime/jev/decision-gate.ts` |
+| the step: once per run, before the first route; a selecting compile replaces the first fan-out; decided candidates consumed | `runtime/jev/step-policy.ts` (`compileDue`, `settleCompile`, `createStepPolicy` decide `compile`) |
+| rows on every read; the `lane: "route"`, `purpose: "compile"` row; a compile-settled parameter recorded as `jev` on the bind row; engine option `compile` (default true) | `runtime/jev/hybrid-engine.ts` |
+| prototype driver | `experiments/single-loop-routing/loop.ts` (`runTurn` handles `compile`; it asks one only when its refresh port carries rows) |
+| tests | `tests/extension/single-loop-compile.test.mjs` (9); `single-loop-domain-policy` and `scene-obligation-candidates` count route batches instead of all decisions (their stubs answer the compile `unknown`, so their route paths run as before) |
+| instrument | `experiments/single-loop-routing/gate-fixture.mjs`, fixtures `gate3/` (shared tarball), `gate3-t1..t3/`; `product-entry.ts --compile off`, the compile row and selections in the summary |
+
+**Decisions made here that the owner should confirm:**
+
+1. **An obligation check fires on the ask, never on the addressee alone.** Speaking to the gatekeeper is not seeking what
+   he guards. The addressee is a guard: cleared on someone else or on `none`, it blocks; the act, cleared outside a fight,
+   blocks when it is not one of the check's own closed intents (so "punch him" at the morgue cannot roll Persuade). The
+   ruling's wording ("the obligation whose meeting or demand is the addressee and the ask") admits the stricter "both";
+   with "both", t2 would have selected in 3/5 (the addressee cleared in 3/5).
+2. **A candidate the compile decided and did not select is the Keeper's for the rest of the run** (consumed, as §135.26's
+   fact question consumes an unselected obligation). "Decided" means the feature the predicate turns on cleared on a row
+   or on `none`; `unclear`, `unknown` or below the gate fall through to the `need` question.
+3. **Clue and handout names are `ask` rows, but no predicate selects a clue or a handout by the ask** (asking for a thing is
+   not getting it); they are there so "something else" is an answer. Clues, handouts, roster persons, Mod contact checks,
+   the ordinary check and session steps other than the investigator's attack keep the `need` question.
+4. **`target` is asked only in a fight** (its rows are the attack row's issued targets); outside one the people present
+   are the `addressee`'s rows. **`item` is asked whenever an investigator carries something, and no predicate reads it
+   yet**: the answer is only recorded on the compile row (§31's third end is the operator). Drop it, or name the predicate
+   that should read it.
+5. **`destination` rows are every move row the kernel issues**, a withheld one (unmet gate, guarded exit) included: the
+   answer is about the words; the predicate reaches only issued candidates.
+6. **The compile is asked once per run, before the first route, and only when a predicate can reach an offered
+   candidate**; it is not re-asked after a scene change (the morgue's candidates at turn 1 go to the route, as before).
+7. **Fight-round miss (below):** "继续揍他" does not clear the only issued target (0.24–0.28), so the attack falls through
+   and the run spends one Jev decision more than SL-12's. Whether the attack predicate should fire on the act alone when
+   the kernel issues exactly one target is yours; it was not changed after the registration.
+
+**Replays** (product driver, replayed Keeper = the recorded gate #3 Keeper, live Jev, `--admission lane`, seed 1 unless
+named; pre-registered in `1098b9249`; full tables in `experiments/single-loop-routing/RESULTS-20260923.md`, traces under
+`results/sl13-*`). Jev decisions = the run's `lane: "route"` rows (c compile, r route, b bind); the prescreen's own Jev calls
+come on top (the same read in both arms; 3–19 per run, the first run of each arm the highest).
+
+| arm | runs | selected | by | Jev decisions per run | LLM steps | live rows |
+| --- | --- | --- | --- | --- | --- | --- |
+| t1 compile (`apply:move:newspaper-morgue`) | 5 | **5/5** | compile, destination 0.99–1.0 | c r r = 3 | 5 | 5/11 |
+| t1 control | 5 | 5/5 | route, need 0.79–0.82 | r r r = 3 | 5 | 5/11 |
+| t2 compile (`resolve:obligation:globe-clippings-access`) | 5 | **5/5** | compile, ask 0.71–0.79 (addressee cleared 3/5, act social 0.95–0.97) | c b r = 3 | **1** | 2/2 |
+| t2 control | 5 | 0/5 | fact `not` 0.15–0.30 | r r = 2 | 2 | 2/2 |
+| t3 compile (`apply:move:commission-briefing`) | 5 | **5/5** | compile, destination 0.99; the morgue's check decided (ask `none` 0.94–0.95), never selected | c r r b r (r) = 5–6 | 6 | 7/7 |
+| t3 control | 5 | 5/5 | route, need 0.87–0.89 | r r r b r r = 6 | 6 | 7/7 |
+| turn3-obligations seed 4 | 3 | move 3/3 (compile, 1.0); morgue check 1/3 (route) | | c r r r r / c r r r r / c r b r r r | 5 / 5 / 4 | 11/11 |
+| fight-round | 3 | attack 3/3 **by the route**; compile 0/3 | act 0.99, target 0.24–0.28 (not cleared) | c r b r = 4 (SL-12: 3) | 2 | 5/5 |
+
+Against the acceptance: turn 1 ≥ 4/5 **met (5/5)**; turn 2 ≥ 4/5 **met (5/5)**, its approach bound by SL-12 with no model
+call (Jev `Persuade` 0.72–0.79, every parameter path `jev`; the claimed roll failed 5/5 under seed 1, the obligation stayed
+open); turn 3 ≥ 4/5 **met (5/5)**. Regressions: turn3-obligations unchanged (11/11, 4–5 LLM steps as SL-12's 4–5);
+fight-round unchanged in live rows and LLM steps (5/5, 2) but **one Jev decision more** per run, the registered "attack by
+the compile ≥ 2/3" **missed (0/3)**.
+
+What the numbers do and do not show: the replay reproduces the live failure only on turn 2 (control 0/5 → compile 5/5, one
+model step fewer). On turns 1 and 3 the control's route also selects 5/5 on this instrument (the live turn 1 sat at 0.61 vs
+0.37; the replay's read gives 0.79–0.82), so there the compile adds margin (0.99–1.0), not the outcome; a live gate can say
+whether it fixes turn 1 on the table.
+
+**Mutations** (each applied to the worktree file, the covering test file `tests/extension/single-loop-compile.test.mjs` run
+with `--test-concurrency=2`, the file restored; all 14 killed):
+
+| mutation | file | killed | failing tests |
+| --- | --- | --- | --- |
+| M1 move predicate disabled | `route-compile.ts` | yes | 4 |
+| M2 obligation predicate disabled | `route-compile.ts` | yes | 1 |
+| M3 attack predicate disabled | `route-compile.ts` | yes | 1 |
+| M4 gate ignored (any row answer clears) | `route-compile.ts` | yes | 1 |
+| M5a invented option read as a row | `route-compile.ts` | yes | 1 |
+| M5b invented option offered in the question | `route-compile.ts` | yes | 1 |
+| M5c a family with no rows asked | `route-compile.ts` | yes | 1 |
+| M6 compile does not replace the fan-out (selected not queued) | `step-policy.ts` | yes | 7 |
+| M7 decided candidates not consumed | `step-policy.ts` | yes | 4 |
+| M8 compile asked again after a route | `step-policy.ts` | yes | 4 |
+| M9 addressee guard removed | `route-compile.ts` | yes | 1 |
+| M10 act guard removed | `route-compile.ts` | yes | 1 |
+| M11 compile row not recorded | `hybrid-engine.ts` | yes | 1 |
+| M12 read carries no rows | `hybrid-engine.ts` | yes | 1 |
+
+Before the owner's throttle, M1–M5b had also run against the nine single-loop test files (loop suite, `single-loop-*`,
+`scene-obligation-candidates`): killed with 4 / 1 / 1 / 1 / 8 / 1 failing; that run was stopped there and the loop redone on
+the one covering file.
+
+**Counts:**
+
+| suite | baseline `ef8efdf97` (own worktree) | branch `a34455cbf` |
+| --- | --- | --- |
+| `npm run build:runtime` | exit 0 | exit 0 |
+| `npm run test:ext` | 2821: 2820 pass, 1 fail (`npc-preparation-integration`: "independent NPC and material decisions must coexist", a timing assertion, run while the machine was at load 38+) | 2830/2830 (the baseline's 2821 + 9 SL-13 tests) |
+| loop suites (`loop.test.mjs`, `single-loop-*.test.mjs`, `scene-obligation-candidates.test.mjs`) | — | 93/93 |
+| `uv run --frozen python -m pytest tests/kernel tests/play` | not run | not run: nothing the kernel reads changed (`kernel-ts/`, `content/`, `tests/kernel`, `tests/play` untouched; `build/kernel/` byte-identical to the baseline's build) |
+
+**Not shown:** a live table (not in scope); the Keeper reading `basis.compile`; the compile at a table whose first read
+materials give the need question 0.61, as the live turn 1 did.
