@@ -302,3 +302,13 @@ Pre-registered in `fad63b88c`, scored in `6da66c50a`.
 
 Still owed: the live-table gate (SL-02/SL-05), not delegable.
 
+
+### 2026-09-24 — the obligation's fact question no longer selects (pointer to the SL-13 follow-up)
+
+Owner ruling after live gate #4 (turn 1: the fact question answered `seeks` 0.55 for `globe-clippings-access` on "go to the
+morgue and read the old reports", the clerk staged Arty and rolled the check, and §32 admission refused it; about 20 s
+lost): an obligation check and a stated meeting are selected only by the §135.30 compile's predicates (the `ask` feature on
+the demand, with the addressee guard). SO-04's fact question (§135.26) is still asked and its answer recorded on the route
+row, but it selects nothing; after the route the candidate is the Keeper's for the run. Contract §135.30.1 (amends
+§135.26); implementation, tests, mutations and replays in `docs/specs/pi-native-single-loop-tickets/13-typed-feature-routing.md`
+(Comments, "SL-13 follow-up").

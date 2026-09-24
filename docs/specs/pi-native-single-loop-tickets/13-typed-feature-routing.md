@@ -138,3 +138,69 @@ the one covering file.
 
 **Not shown:** a live table (not in scope); the Keeper reading `basis.compile`; the compile at a table whose first read
 materials give the need question 0.61, as the live turn 1 did.
+
+### 2026-09-24 — SL-13 follow-up after live gate #4 (branch `claude/sl13b-20260924`, base `db056b144`)
+
+**A. The live turn with no compile.** Live gate #4 turn 1 (`gate4-haunting-0214`, run `run-01a0d20e-…22e`) had no compile
+row. Cause, reproduced on the gate #4 turn-1 fixture's first read (`experiments/single-loop-routing/probe-reads.mjs`): the
+commission's clues were not yet revealed, so all seven exits carried `unlock_when.met: false` (the morgue's:
+`clue_discovered: knott-research-leads`) and the builder issues no move for such a row (`runtime/jev/candidates.ts:278`);
+the destination rows existed, but no offered candidate was one a predicate could select, so no compile before the first
+route (correct). The Keeper's clue (s3/s4) unlocked the exits, and `compileDue` (`runtime/jev/step-policy.ts:274-276` on
+`db056b144`) owed the compile only while no route had been asked, so the move went to the `need` question (s5) and the
+morgue's check to the fact question (s8). Not the cause: empty rows, the engine option, a digest collision, the read's
+rows (all present). Gate #3's turn 1 did not show it because gate #3's turn 0 had already revealed the clues.
+
+Fix (§135.30.1): the compile is due whenever an offered candidate a predicate can select is outside
+`RunView.compiledOver` (the keys the run's compiles were asked over), so a later read's reachable candidates get one too,
+including a scene the clerk moved into. Decision 6 above ("not re-asked after a scene change") is superseded by this.
+
+**B. Owner ruling: an obligation step is selected only by the compile.** `obligation_check` and `stated_meeting` are
+`sole` predicates; `interpretRoute` skips a `compileOnly` candidate; `settleRoute` consumes it after a complete route. The
+fact question is still asked and its answer recorded on the route row. §135.30.1, amending §135.26; pointer in
+`docs/specs/scene-obligations-as-candidates-tickets.md`.
+
+**The read's material (added to scope by the lead).** Every read of live gate #4 said `prescreen: {status: "not_run"}`:
+its source-mode launch did not set `PI_COC_JEV_PRESELECT`, the Jev preselect setting defaults to off, and the engine runs
+the read's prescreen only with it on (`runtime/jev/hybrid-engine.ts`, the read port). The replays set it (as the owner's
+App has it, SL-00 inventory), so they put 5–10 materials in front of the compile where the live table put none. The read
+row now names the reason (`preselect_off` etc., §135.6). Not changed: whether the hybrid engine's read should ignore the
+setting (the setting is the user's, the engine is opt-in, and the stub-port tests drive the read without it); a live gate
+of this engine should launch with `PI_COC_JEV_PRESELECT=1`. **Turn 2's ask 0.35:** the ask rows on gate #3's and gate #4's
+morgue states are byte-identical (`{"demand": "Access to the Globe clippings", "guards": ["clue globe-unpublished-story
+(An unpublished 1918 feature …)", "clue macario-tragedy (…)"]}`, the clue's summary, the handout's name); the obligation row
+has no play-language label (`kernel-ts/read/obligations.ts` issues the module's `name` only) and the guarded clues are
+unrevealed (no `clue_labels`), so there is no kernel label to use; the addressee rows differ only by the table's own labels.
+The replay without the prescreen reproduces the live distribution (`none` 0.35–0.39 / obligation 0.26–0.31 / clue
+0.18–0.22, 0/5 selected); with it, obligation 0.82–0.87, 5/5.
+
+**Replays** (pre-registered in `e0d421251`; tables in `RESULTS-20260923.md`, "sl13b"): gate4-t1 move by the compile 10/10
+(on/off), the morgue check 0/10; gate3-t1 move 10/10, check 0/10; gate3-t2 check 5/5 with the material, 0/5 without;
+gate3-t3 move 10/10. Registered miss: gate4-t1 LLM steps 4, not ≤ 3 (the instrument's delivery path; the live table's
+count was 4 too). **Finding for the owner:** where the declaration names what the gate guards without addressing its keeper
+(gate #4 t1, gate #3 t1), the ask clears on the obligation in 20/20 runs (0.60–0.97) and the addressee's cleared `none` is
+the only thing that keeps the check from being selected and refused as it was live.
+
+**Mutations** (each applied, the four covering files run -- `single-loop-compile`, `scene-obligation-candidates`,
+`single-loop-binding`, `single-loop-domain-policy` -- file restored; all killed):
+
+| mutation | file | failing tests |
+| --- | --- | --- |
+| MA1 the compile only before the run's first route (the parent's rule) | `step-policy.ts` | 3 (incl. the gate #4 turn-1 test) |
+| MA2 `compiledOver` never recorded | `step-policy.ts` | 5 |
+| MA3 `compileReaches` ignores the keys already compiled | `route-compile.ts` | 5 |
+| MA4 never a second compile in a run | `step-policy.ts` | 1 |
+| MB1 the route's `seeks` selects again | `step-policy.ts` | 4 |
+| MB2 `obligation_check` not sole | `route-compile.ts` | 4 |
+| MB3 `stated_meeting` not sole | `route-compile.ts` | 1 |
+| MB4 a compile-only candidate not consumed after the route | `step-policy.ts` | 1 |
+
+The new test file run against the parent's code (`db056b144`, scratch worktree, `compileOnly` import dropped): the gate #4
+turn-1 test fails ("the compile runs before the next route": `route`), as do the ruling-B test and the amended
+"route earlier in the run" case.
+
+**Suites** (leehow-pc): `test:ext` 2842/2842 at `e715c2cdf`; loop suites 105/105 at `e0d421251`. pytest not run: nothing the
+kernel reads changed (`kernel-ts/`, `content/` untouched).
+
+**Also seen:** gate #4's sidecar repository has no `turn 1:` commit; turn 1's record landed in the `turn 2:` commit
+(`28b1a51`). `gate-fixture.mjs` now takes the oldest commit holding the record; the cause is not investigated here.

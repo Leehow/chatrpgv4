@@ -1,0 +1,828 @@
+{
+ "run": 1,
+ "fixture": "gate3-t1",
+ "admission": "lane",
+ "keeper": "replay",
+ "thinking": "off",
+ "arm": "after",
+ "latency": false,
+ "seed": "1",
+ "wall_ms": 4511,
+ "budget": {
+  "turn": 1,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d230-7f8e-77bc-80c7-9f6a25a49441",
+  "budget_ms": 45000,
+  "elapsed_ms": 3530,
+  "elapsed_at_compose": 3307,
+  "over_budget": false,
+  "deferred_by_budget": [],
+  "run_id": "6f7a43cf-3a2f-4e27-b042-8f50d118039a"
+ },
+ "compile": "on",
+ "compile_row": {
+  "turn": 1,
+  "lane": "route",
+  "purpose": "compile",
+  "run": "run-01a0d230-7f8e-77bc-80c7-9f6a25a49441",
+  "step": "run-01a0d230-7f8e-77bc-80c7-9f6a25a49441:s2",
+  "status": "complete",
+  "ms": 648,
+  "features": {
+   "destination": {
+    "rows": {
+     "destination_1": "chapel-of-contemplation-ruins",
+     "destination_2": "newspaper-morgue",
+     "destination_3": "central-library",
+     "destination_4": "hall-of-records",
+     "destination_5": "neighborhood-gossip",
+     "destination_6": "previous-tenants",
+     "destination_7": "corbitt-house-ground"
+    },
+    "choice": "destination_2",
+    "row": "newspaper-morgue",
+    "confidence": 0.8,
+    "probabilities": {
+     "destination_7": 0,
+     "destination_4": 0,
+     "destination_1": 0,
+     "unclear": 0.01,
+     "destination_6": 0,
+     "destination_3": 0,
+     "destination_5": 0,
+     "none": 0.16,
+     "destination_2": 0.83
+    },
+    "cleared": true
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "Steven Knott"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.32,
+    "probabilities": {
+     "addressee_1": 0.33,
+     "none": 0.55,
+     "unclear": 0.12
+    },
+    "cleared": false
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:knott-keys",
+     "ask_2": "handout:Handout 1: Mr. Knott's Commission"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.53,
+    "probabilities": {
+     "ask_2": 0.05,
+     "ask_1": 0.14,
+     "none": 0.65,
+     "unclear": 0.16
+    },
+    "cleared": true
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.95,
+    "probabilities": {
+     "act_8": 0,
+     "act_11": 0,
+     "act_7": 0,
+     "act_6": 0,
+     "unclear": 0,
+     "act_10": 0.01,
+     "act_1": 0.96,
+     "act_5": 0,
+     "none": 0,
+     "act_9": 0,
+     "act_3": 0.01,
+     "act_4": 0,
+     "act_2": 0.02
+    },
+    "cleared": true
+   }
+  },
+  "fired": [
+   {
+    "predicate": "move",
+    "candidate": "apply:move:newspaper-morgue",
+    "features": {
+     "destination": "newspaper-morgue",
+     "ask": null,
+     "act": "investigate"
+    }
+   }
+  ],
+  "selected": [
+   "apply:move:newspaper-morgue"
+  ],
+  "decided": [
+   "apply:move:central-library",
+   "apply:move:hall-of-records",
+   "apply:move:neighborhood-gossip",
+   "apply:move:previous-tenants"
+  ],
+  "fell_through": [
+   "apply:clue:knott-keys",
+   "apply:handout:Handout 1: Mr. Knott's Commission",
+   "resolve:core-check:ordinary-check"
+  ],
+  "reason": "selected_1",
+  "run_id": "6f7a43cf-3a2f-4e27-b042-8f50d118039a"
+ },
+ "selections": [
+  {
+   "by": "compile",
+   "keys": [
+    "apply:move:newspaper-morgue"
+   ]
+  }
+ ],
+ "compile_rows": [
+  {
+   "turn": 1,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d230-7f8e-77bc-80c7-9f6a25a49441",
+   "step": "run-01a0d230-7f8e-77bc-80c7-9f6a25a49441:s2",
+   "status": "complete",
+   "ms": 648,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "chapel-of-contemplation-ruins",
+      "destination_2": "newspaper-morgue",
+      "destination_3": "central-library",
+      "destination_4": "hall-of-records",
+      "destination_5": "neighborhood-gossip",
+      "destination_6": "previous-tenants",
+      "destination_7": "corbitt-house-ground"
+     },
+     "choice": "destination_2",
+     "row": "newspaper-morgue",
+     "confidence": 0.8,
+     "probabilities": {
+      "destination_7": 0,
+      "destination_4": 0,
+      "destination_1": 0,
+      "unclear": 0.01,
+      "destination_6": 0,
+      "destination_3": 0,
+      "destination_5": 0,
+      "none": 0.16,
+      "destination_2": 0.83
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Steven Knott"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.32,
+     "probabilities": {
+      "addressee_1": 0.33,
+      "none": 0.55,
+      "unclear": 0.12
+     },
+     "cleared": false
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:knott-keys",
+      "ask_2": "handout:Handout 1: Mr. Knott's Commission"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.53,
+     "probabilities": {
+      "ask_2": 0.05,
+      "ask_1": 0.14,
+      "none": 0.65,
+      "unclear": 0.16
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_1",
+     "row": "investigate",
+     "confidence": 0.95,
+     "probabilities": {
+      "act_8": 0,
+      "act_11": 0,
+      "act_7": 0,
+      "act_6": 0,
+      "unclear": 0,
+      "act_10": 0.01,
+      "act_1": 0.96,
+      "act_5": 0,
+      "none": 0,
+      "act_9": 0,
+      "act_3": 0.01,
+      "act_4": 0,
+      "act_2": 0.02
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "move",
+     "candidate": "apply:move:newspaper-morgue",
+     "features": {
+      "destination": "newspaper-morgue",
+      "ask": null,
+      "act": "investigate"
+     }
+    }
+   ],
+   "selected": [
+    "apply:move:newspaper-morgue"
+   ],
+   "decided": [
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants"
+   ],
+   "fell_through": [
+    "apply:clue:knott-keys",
+    "apply:handout:Handout 1: Mr. Knott's Commission",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "selected_1",
+   "run_id": "6f7a43cf-3a2f-4e27-b042-8f50d118039a"
+  },
+  {
+   "turn": 1,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d230-7f8e-77bc-80c7-9f6a25a49441",
+   "step": "run-01a0d230-7f8e-77bc-80c7-9f6a25a49441:s5",
+   "status": "complete",
+   "ms": 359,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "central-library",
+      "destination_2": "hall-of-records",
+      "destination_3": "neighborhood-gossip",
+      "destination_4": "previous-tenants",
+      "destination_5": "corbitt-house-ground",
+      "destination_6": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.96,
+     "probabilities": {
+      "destination_4": 0,
+      "unclear": 0.02,
+      "destination_5": 0,
+      "none": 0.97,
+      "destination_1": 0.01,
+      "destination_3": 0,
+      "destination_2": 0,
+      "destination_6": 0
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Arty Wilmot",
+      "addressee_2": "Ruth Blake"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.65,
+     "probabilities": {
+      "unclear": 0.22,
+      "addressee_2": 0.02,
+      "addressee_1": 0.03,
+      "none": 0.73
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "obligation:globe-clippings-access",
+      "ask_2": "clue:globe-fire-cutoff",
+      "ask_3": "handout:Boston Globe City Desk Copy — Held from Print (1918)"
+     },
+     "choice": "ask_1",
+     "row": "obligation:globe-clippings-access",
+     "confidence": 0.84,
+     "probabilities": {
+      "unclear": 0.02,
+      "ask_3": 0.01,
+      "ask_2": 0.07,
+      "ask_1": 0.87,
+      "none": 0.03
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_1",
+     "row": "investigate",
+     "confidence": 0.94,
+     "probabilities": {
+      "unclear": 0,
+      "act_5": 0,
+      "act_9": 0,
+      "act_6": 0,
+      "act_11": 0,
+      "act_4": 0,
+      "act_2": 0.02,
+      "act_1": 0.96,
+      "none": 0,
+      "act_3": 0.02,
+      "act_7": 0,
+      "act_8": 0,
+      "act_10": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [],
+   "selected": [],
+   "decided": [
+    "apply:move:corbitt-house-ground",
+    "apply:move:commission-briefing",
+    "resolve:obligation:globe-clippings-access"
+   ],
+   "fell_through": [
+    "apply:clue:globe-fire-cutoff",
+    "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+    "resolve:natural-npc:first-impression:托马斯·海斯:Ruth Blake",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "decided_none",
+   "run_id": "6f7a43cf-3a2f-4e27-b042-8f50d118039a"
+  }
+ ],
+ "prescreen": "off",
+ "reads": [
+  {
+   "scene": "commission-briefing",
+   "prescreen": "not_run",
+   "materials": 0,
+   "jev_calls": 0,
+   "ms": null
+  },
+  {
+   "scene": "newspaper-morgue",
+   "prescreen": "not_run",
+   "materials": 0,
+   "jev_calls": 0,
+   "ms": null
+  }
+ ],
+ "status": "delivered",
+ "reason": "implicit_narrate",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 44334,
+   "cache_read": 0,
+   "cache_write": 44334,
+   "output": 153,
+   "reasoning": null,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 306,
+   "cache_read": 44334,
+   "cache_write": 307,
+   "output": 49,
+   "reasoning": null,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 103,
+   "cache_read": 44640,
+   "cache_write": 104,
+   "output": 45,
+   "reasoning": null,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 4,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 410,
+   "cache_read": 44743,
+   "cache_write": 410,
+   "output": 53,
+   "reasoning": null,
+   "tools": [
+    "lookup"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 5,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 3605,
+   "cache_read": 45153,
+   "cache_write": 3606,
+   "output": 107,
+   "reasoning": null,
+   "tools": [],
+   "stop": "stop",
+   "effort": null
+  }
+ ],
+ "steps": {
+  "operate": 8,
+  "decide": 4,
+  "infer": 5,
+  "finish": 1
+ },
+ "llm_steps": 5,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 4,
+ "route_rows": 4,
+ "calls": [
+  {
+   "tool": "apply",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "move",
+      "to": "newspaper-morgue"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": false,
+   "error": "not_here",
+   "input": {
+    "effects": [
+     {
+      "kind": "clue",
+      "clue": "knott-keys",
+      "how": "海斯当面接下委托，诺特交出钥匙、地址和预付报酬。",
+      "from": "Steven Knott",
+      "label": "科比特宅的钥匙与地址"
+     },
+     {
+      "kind": "handout",
+      "name": "Handout 1: Mr. Knott's Commission",
+      "label": "诺特先生的委托"
+     },
+     {
+      "kind": "cash",
+      "delta": 20,
+      "source": "quote",
+      "with": "Steven Knott",
+      "currency": "USD",
+      "why": "诺特按约定预付一天二十美元。"
+     },
+     {
+      "kind": "define",
+      "name": "科比特宅钥匙",
+      "description": "一串钢制房门钥匙，挂在一只旧钥匙圈上，是波士顿科比特宅的正门钥匙。",
+      "category": "item"
+     },
+     {
+      "kind": "object",
+      "name": "科比特宅钥匙",
+      "to": "托马斯·海斯",
+      "definition": "科比特宅钥匙",
+      "from": "Steven Knott",
+      "handover": "given",
+      "why": "诺特把房子钥匙交给接了委托的海斯。"
+     },
+     {
+      "kind": "time",
+      "minutes": 25,
+      "why": "从诺特的事务所到《波士顿环球报》社。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Arty Wilmot",
+      "name": "戴绿眼罩的编辑",
+      "why": "剪报室门口，按他戴着绿眼罩、拦着外人的样子称呼，还没自报姓名。"
+     },
+     {
+      "kind": "person",
+      "who": "Ruth Blake",
+      "name": "整理剪报的女人",
+      "why": "地下室里整理卷宗的人，尚未自报姓名。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "海斯第一次走进剪报室，与门口那位戴绿眼罩的编辑照面。",
+     "method": "当面开口，说明来查旧报。",
+     "actor": "托马斯·海斯",
+     "target": "Arty Wilmot",
+     "decision": "natural-npc:first-impression"
+    }
+   },
+   "passed": false,
+   "level": "failure"
+  },
+  {
+   "tool": "lookup",
+   "origin": "model",
+   "ok": false,
+   "error": "needs",
+   "input": {
+    "kind": "source",
+    "source_mode": "answer",
+    "query": "Handout 1: Mr. Knott's Commission",
+    "question": "What address, payment, and research directions does Mr. Knott's commission handout give the investigators?"
+   }
+  }
+ ],
+ "match": [
+  {
+   "baseline": "clue knott-keys",
+   "matched": false
+  },
+  {
+   "baseline": "handout Handout 1: Mr. Knott's Commission",
+   "matched": false
+  },
+  {
+   "baseline": "cash null",
+   "matched": false
+  },
+  {
+   "baseline": "define 科比特宅钥匙",
+   "matched": false
+  },
+  {
+   "baseline": "object 托马斯·海斯",
+   "matched": false
+  },
+  {
+   "baseline": "move newspaper-morgue",
+   "matched": true,
+   "origin": "policy"
+  },
+  {
+   "baseline": "time 25",
+   "matched": false
+  },
+  {
+   "baseline": "person Arty Wilmot",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "person Ruth Blake",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "resolve natural-npc:first-impression vs Arty Wilmot",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "narrate",
+   "matched": true,
+   "origin": "implicit"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "origin": "policy",
+   "clerk": "declared_bookkeeping",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 362,
+   "jev_ms": 357,
+   "confidence": null,
+   "jev_fallback": "low_confidence",
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[2]",
+    "row": {
+     "alias": "effect:2",
+     "effect": {
+      "kind": "move",
+      "to": "newspaper-morgue"
+     },
+     "description": {
+      "kind": "move",
+      "to": "newspaper-morgue",
+      "display_name": "Boston Globe offices",
+      "unlock_when": {
+       "condition": "clue_discovered: knott-research-leads",
+       "met": true
+      },
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    },
+    "compile": {
+     "predicate": "move",
+     "features": {
+      "destination": "newspaper-morgue",
+      "ask": null,
+      "act": "investigate"
+     }
+    }
+   },
+   "path": "lane",
+   "fast_path": true,
+   "jev_confidence": 0.82,
+   "line_verdicts": [
+    "authorized"
+   ],
+   "lane_ms": 4
+  },
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 5,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null,
+   "path": "lane",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null
+  },
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "entailed",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 1,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null,
+   "path": "lane",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null
+  }
+ ],
+ "clerk": [
+  {
+   "tool": "apply",
+   "call_id": "t1-c1",
+   "ok": true,
+   "ms": 417,
+   "clerk": "declared_bookkeeping",
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[2]",
+    "row": {
+     "alias": "effect:2",
+     "effect": {
+      "kind": "move",
+      "to": "newspaper-morgue"
+     },
+     "description": {
+      "kind": "move",
+      "to": "newspaper-morgue",
+      "display_name": "Boston Globe offices",
+      "unlock_when": {
+       "condition": "clue_discovered: knott-research-leads",
+       "met": true
+      },
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    },
+    "compile": {
+     "predicate": "move",
+     "features": {
+      "destination": "newspaper-morgue",
+      "ask": null,
+      "act": "investigate"
+     }
+    }
+   }
+  }
+ ],
+ "misses": []
+}
