@@ -1,0 +1,127 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z/events.jsonl",
+  "record": ".coc/repos/longgate-haunting-0624.git acd3030:turns/0012.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我在主卧里搜床底、床垫和衣柜。",
+ "llm_calls": 3,
+ "llm_ms_total": 30547,
+ "calls": [
+  {
+   "at": "2026-09-24T10:36:12.106Z",
+   "provider_ms": 6400,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 11811,
+    "output": 549,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "investigate",
+       "goal": "在主卧搜床底、床垫和衣柜时察觉床的异动",
+       "method": "手电筒照着搜床底和衣柜，同时留意正在悬起的床",
+       "rule": "The bed attack",
+       "step": 0,
+       "stakes": "没看见床冲过来就会被撞上"
+      }
+     },
+     "id": "call-0da1c8c8-8b51-4117-9630-aec1e069a779-0|fc_2fc613d2-b7a0-9f5c-ae33-653395406226_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:36:23.470Z",
+   "provider_ms": 2437,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 14521,
+    "output": 128,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "flee",
+       "goal": "躲开飞过来的床",
+       "method": "床冲向窗边时侧身躲开",
+       "rule": "The bed attack",
+       "step": 1,
+       "stakes": "被床撞出窗户"
+      }
+     },
+     "id": "call-d41bdf40-f7bf-4568-8e05-74209865ec5c-1|fc_55dbc2e2-7ce4-9c4d-8eb8-5222252bdf1c_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:36:32.074Z",
+   "provider_ms": 21710,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 14916,
+    "output": 460,
+    "cache_read": 33152
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "resolve",
+   "call_id": "call-0da1c8c8-8b51-4117-9630-aec1e069a779-0|fc_2fc613d2-b7a0-9f5c-ae33-653395406226_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-d41bdf40-f7bf-4568-8e05-74209865ec5c-1|fc_55dbc2e2-7ce4-9c4d-8eb8-5222252bdf1c_0",
+   "ok": false
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "resolve",
+   "verdict": "authorized",
+   "ms": 4099,
+   "origin": "model"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "not_authorized",
+   "ms": 6035,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "resolve",
+   "target": null,
+   "intent": "investigate",
+   "modifiers": null
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "roll:spot-hidden-t12-c1",
+   "kind": "roll",
+   "decision": null,
+   "skill": "Spot Hidden",
+   "npc": null,
+   "level": "failure"
+  }
+ ]
+}

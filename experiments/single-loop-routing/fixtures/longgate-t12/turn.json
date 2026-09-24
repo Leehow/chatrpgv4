@@ -1,0 +1,13 @@
+{
+ "campaign": "longgate-haunting-0624",
+ "module": "the-haunting",
+ "turn": 12,
+ "commit_before": "6bea683",
+ "commit_after": "acd3030",
+ "player_input": "我在主卧里搜床底、床垫和衣柜。",
+ "tarball": "../longgate/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/longgate-haunting-0624",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z"
+ }
+}
