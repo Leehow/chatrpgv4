@@ -1,0 +1,148 @@
+[
+  {
+    "model": "google/gemini-2.5-flash-lite",
+    "calls": 159,
+    "ok": 0,
+    "failed": 159,
+    "failure_reasons": {
+      "model_error": 159
+    },
+    "latency_ms": {
+      "p50": null,
+      "p90": null,
+      "p95": null,
+      "max": null
+    },
+    "over_13s_share": null,
+    "over_13s_count": 0,
+    "verdict_agreement": {
+      "labelled_cases": 53,
+      "run_level_matches": 0,
+      "run_level_total": 0,
+      "run_level_agreement": null,
+      "cases_all_3_match_recorded": 0,
+      "cases_ge2_match_recorded": 0,
+      "cases_ge1_match_recorded": 0
+    },
+    "self_agreement": {
+      "cases_all_3_runs_agree_with_each_other": 0,
+      "of_cases": 53
+    }
+  },
+  {
+    "model": "grok-build/grok-4.7-build-fast",
+    "calls": 159,
+    "ok": 159,
+    "failed": 0,
+    "failure_reasons": {},
+    "latency_ms": {
+      "p50": 5159,
+      "p90": 11144,
+      "p95": 13715,
+      "max": 15201
+    },
+    "over_13s_share": 0.05660377358490566,
+    "over_13s_count": 9,
+    "verdict_agreement": {
+      "labelled_cases": 53,
+      "run_level_matches": 94,
+      "run_level_total": 159,
+      "run_level_agreement": 0.5911949685534591,
+      "cases_all_3_match_recorded": 26,
+      "cases_ge2_match_recorded": 29,
+      "cases_ge1_match_recorded": 39
+    },
+    "self_agreement": {
+      "cases_all_3_runs_agree_with_each_other": 37,
+      "of_cases": 53
+    }
+  },
+  {
+    "model": "opencode-go/deepseek-v4.1-flash",
+    "calls": 159,
+    "ok": 158,
+    "failed": 1,
+    "failure_reasons": {
+      "model_error": 1
+    },
+    "latency_ms": {
+      "p50": 4118,
+      "p90": 7814,
+      "p95": 9766,
+      "max": 35311
+    },
+    "over_13s_share": 0.02531645569620253,
+    "over_13s_count": 4,
+    "verdict_agreement": {
+      "labelled_cases": 53,
+      "run_level_matches": 99,
+      "run_level_total": 158,
+      "run_level_agreement": 0.6265822784810127,
+      "cases_all_3_match_recorded": 27,
+      "cases_ge2_match_recorded": 33,
+      "cases_ge1_match_recorded": 39
+    },
+    "self_agreement": {
+      "cases_all_3_runs_agree_with_each_other": 40,
+      "of_cases": 53
+    }
+  },
+  {
+    "model": "opencode-go/qwen3.8-flash",
+    "calls": 159,
+    "ok": 89,
+    "failed": 70,
+    "failure_reasons": {
+      "model_error": 70
+    },
+    "latency_ms": {
+      "p50": 22921,
+      "p90": 55793,
+      "p95": 60000,
+      "max": 60001
+    },
+    "over_13s_share": 0.7752808988764045,
+    "over_13s_count": 69,
+    "verdict_agreement": {
+      "labelled_cases": 53,
+      "run_level_matches": 58,
+      "run_level_total": 89,
+      "run_level_agreement": 0.651685393258427,
+      "cases_all_3_match_recorded": 8,
+      "cases_ge2_match_recorded": 18,
+      "cases_ge1_match_recorded": 32
+    },
+    "self_agreement": {
+      "cases_all_3_runs_agree_with_each_other": 10,
+      "of_cases": 53
+    }
+  },
+  {
+    "model": "xai/grok-4.6",
+    "calls": 159,
+    "ok": 159,
+    "failed": 0,
+    "failure_reasons": {},
+    "latency_ms": {
+      "p50": 8408,
+      "p90": 14102,
+      "p95": 17586,
+      "max": 22592
+    },
+    "over_13s_share": 0.14465408805031446,
+    "over_13s_count": 23,
+    "verdict_agreement": {
+      "labelled_cases": 53,
+      "run_level_matches": 76,
+      "run_level_total": 159,
+      "run_level_agreement": 0.4779874213836478,
+      "cases_all_3_match_recorded": 20,
+      "cases_ge2_match_recorded": 26,
+      "cases_ge1_match_recorded": 30
+    },
+    "self_agreement": {
+      "cases_all_3_runs_agree_with_each_other": 41,
+      "of_cases": 53
+    }
+  }
+]
