@@ -1,0 +1,13 @@
+{
+ "campaign": "gate3-haunting-2329",
+ "module": "the-haunting",
+ "turn": 1,
+ "commit_before": "c65d6a2",
+ "commit_after": "380440f",
+ "player_input": "我接。先去《环球报》剪报室，翻科比特宅这些年的旧报道。",
+ "tarball": "../gate3/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/gate3-haunting-2329",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/gate3-haunting-2329-20260924T032940Z"
+ }
+}

@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { createRealCampaign, openTable } from "./harness.mjs";
 import { buildCandidates, keeperCall, obligationCandidates } from "../../runtime/jev/candidates.ts";
+import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { BIND_FAMILY, CLERK_AUTHORITY, ROUTE_FAMILY, bindBatch, bindingOf, initialView, interpretBind, interpretRoute, next, routeBatch, settleExecute, settleRead } from "../../runtime/jev/step-policy.ts";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { issuedSection, readCandidateBodies } from "../../runtime/jev/candidate-bodies.ts";
@@ -492,8 +493,10 @@ async function arrival({ fact, responses, firstExit = "finish", bind = { skill: 
 	const decisions = [], requests = [], calls = [];
 	let routes = 0;
 	const probe = { name: "so04-call-probe", factory(pi) { pi.on("tool_call", (event) => { calls.push({ id: event.toolCallId, tool: event.toolName, input: structuredClone(event.input) }); }); } };
+	// The §135.30 compile answers `unknown` (the default), so nothing clears and the obligation reaches the fact question.
 	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch) => { decisions.push(batch); return batch.family === BIND_FAMILY
 		? answered(batch, (question) => bind[question.key])
+		: batch.family === COMPILE_FAMILY ? answered(batch)
 		: (routes++, answered(batch, (question) => question.key === "exit" ? (routes === 1 ? firstExit : "finish") : question.criteria.seeks ? fact : undefined)); } } });
 	const table = await openTable({
 		realKernel: true, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: PASS },

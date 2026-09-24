@@ -2,6 +2,7 @@
  * Replay a fixture turn through the single-loop routing.
  *
  *   node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 --llm replay [--admission lane|jev] [--out <dir>]
+ *     [--compile on|off]   (SL-13: `off` runs the engine without the typed-feature compile of contract §135.30, the SL-12 policy)
  *     [--arm after|before] [--latency none|live]   (SL-10: `before` sets the time budget out of reach and the bookkeeping
  *     admission fast path off; `live` makes the replayed Keeper and admission lane wait their recorded live times)
  *   node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 [--llm none] [--driver prototype]

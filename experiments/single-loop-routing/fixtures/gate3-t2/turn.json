@@ -1,0 +1,13 @@
+{
+ "campaign": "gate3-haunting-2329",
+ "module": "the-haunting",
+ "turn": 2,
+ "commit_before": "380440f",
+ "commit_after": "cecf84b",
+ "player_input": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。",
+ "tarball": "../gate3/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/gate3-haunting-2329",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/gate3-haunting-2329-20260924T032940Z"
+ }
+}
