@@ -24,7 +24,7 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { runDriver } from "./pi-agent-core.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
-import { COMPILE_FAMILY, NONE, UNCLEAR, compileBatch, compileOnly, compileReaches, interpretCompile } from "../../runtime/jev/route-compile.ts";
+import { COMPILE_FAMILY, NONE, UNCLEAR, compileBatch, compileOnly, compileReaches, interpretCompile, predicateOf } from "../../runtime/jev/route-compile.ts";
 import { bindRecords, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { ROUTE_FAMILY, compileDue, createStepPolicy, initialView, interpretRoute, next, routeBatch, settleCompile, settleExecute, settleInfer, settleRead, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
 
@@ -329,6 +329,83 @@ test("§135.30 addendum (owner, 2026-09-24): the route's seeks never selects an 
 	const office_ = built(office()).candidates.find((candidate) => candidate.key === "apply:move:morgue");
 	const moved = initialView({ runId: "r", rawInput: INPUT, context, candidates: [office_], readFirst: false });
 	assert.deepEqual(interpretRoute(moved, [office_], answer({ need_1: ["now", 0.95], exit: ["continue", 0.9] }), 0.6).selected, ["apply:move:morgue"]);
+});
+
+/**
+ * SL-19 (§135.30.2): the office outside a fight with the kernel's first-blow row -- Knott and the filing woman have stat
+ * blocks, the editor has none, so he is present (an addressee, a target row) but not a target the kernel issues.
+ */
+function brawl({ targets = ["Steven Knott", "Ruth"], weapons = ["unarmed", ".38 Revolver"] } = {}) {
+	const reads = office();
+	reads.capsule.present = [{ name: "Steven Knott", role: "employer", called: { name: "史蒂文·诺特" } },
+		{ name: "Ruth", role: "helpful_staff", untold: { label: "the filing woman" } }, { name: "Arty", role: "gatekeeper", called: { name: "the editor" } }];
+	reads.resolveOptions.context = { first_blow: { decision: "combat:attack", intent: "combat", actor: "Hayes", targets, weapons } };
+	return reads;
+}
+const FIRST_BLOW = "resolve:combat:first-blow";
+
+test("SL-19 rows: outside a fight the target rows are the people present -- the addressee rows -- only when the kernel issues a first blow", () => {
+	const rows = compileRows(brawl());
+	assert.deepEqual(rows.target, rows.addressee, "the same identities and the same words");
+	assert.deepEqual(rows.target.map((row) => row.id), ["Steven Knott", "Ruth", "Arty"], "everyone present, the editor without a stat block included");
+	assert.ok(rows.act.some((row) => row.id === "combat"), "outside a session the act rows are the resolve intents");
+	assert.equal(compileRows(office()).target.length, 0, "no first-blow row: nothing to attack, target not asked");
+	const none = brawl({ targets: [] });
+	assert.equal(compileRows(none).target.length, 0, "a row that names no one issues no target rows");
+	assert.equal(buildCandidates(none, INPUT).some((candidate) => candidate.key === FIRST_BLOW), false);
+	// In a running fight the rows stay the investigator's issued attack targets, and no first blow is built.
+	const inFight = fight();
+	inFight.resolveOptions.context.first_blow = brawl().resolveOptions.context.first_blow;
+	assert.deepEqual(compileRows(inFight).target.map((row) => row.id), ["Knott", "Wilmot"]);
+	assert.equal(buildCandidates(inFight, INPUT).some((candidate) => candidate.key === FIRST_BLOW), false);
+});
+
+test("SL-19 candidate: the first blow is the kernel's row as a clerk candidate, compile-only; the in-session attack predicate does not read it", () => {
+	const blow = buildCandidates(brawl(), INPUT).find((candidate) => candidate.key === FIRST_BLOW);
+	assert.equal(blow.clerk, "first_blow");
+	assert.deepEqual([blow.bound.intent, blow.bound.decision, blow.bound.goal], ["combat", "combat:attack", INPUT]);
+	assert.deepEqual(blow.unbound.map((value) => [value.name, value.options]), [["target", ["Steven Knott", "Ruth"]], ["weapon", ["unarmed", ".38 Revolver"]]]);
+	assert.equal(blow.unbound.some((value) => value.ruleDefault), false, "a target and a weapon have no rules default (§135.28)");
+	assert.equal(compileOnly(blow), true);
+	assert.equal(predicateOf(blow, compileRows(brawl())).name, "first_blow", "read by its own predicate, not the in-session attack's");
+	const attack = buildCandidates(fight(), INPUT).find((candidate) => candidate.bound.decision === "combat:attack");
+	assert.equal(predicateOf(attack, compileRows(fight())).name, "attack");
+	const single = buildCandidates(brawl({ targets: ["Steven Knott"], weapons: ["unarmed"] }), INPUT).find((candidate) => candidate.key === FIRST_BLOW);
+	assert.deepEqual([single.bound.target, single.bound.weapon, single.unbound.length], ["Steven Knott", "unarmed", 0], "one value issued: stated");
+});
+
+test("SL-19 predicate: act combat and a fightable target select the first blow with the target bound; below the gate, another act, or someone the kernel cannot fight do not", () => {
+	const { view } = compileWith(compileView(brawl()), { act: ["combat", 0.9], target: ["Ruth", 0.86, { target_1: 0.1, target_2: 0.86, none: 0.02, unclear: 0.02 }], addressee: ["Ruth", 0.9] });
+	assert.ok(!view.consumed.includes(FIRST_BLOW));
+	const head = next(view);
+	assert.deepEqual([head.kind, head.purpose], ["decide", "bind"], "the weapon is still a closed choice: Jev binds it");
+	const blow = head.item.candidate;
+	assert.equal(blow.key, FIRST_BLOW);
+	assert.equal(blow.bound.target, "Ruth");
+	assert.equal(blow.basis.compile.predicate, "first_blow");
+	assert.deepEqual(blow.basis.compile.bound.target, { value: "Ruth", confidence: 0.86, distribution: { target_1: 0.1, target_2: 0.86, none: 0.02, unclear: 0.02 } });
+	assert.deepEqual(bindRecords(blow, {}, []).find((entry) => entry.name === "target").path, "jev");
+	// Below the gate: nothing selected, nothing decided; the route never selects it either (compile-only).
+	const low = compileWith(compileView(brawl()), { act: ["combat", 0.45, { act_4: 0.45, act_2: 0.4 }], target: ["Steven Knott", 0.9] }).view;
+	assert.ok(!low.pending.some((item) => item.candidate?.key === FIRST_BLOW) && !low.consumed.includes(FIRST_BLOW), "falls through");
+	// Another act decided: not the player's attack this turn.
+	const social = compileWith(compileView(brawl()), { act: ["social", 0.9], target: ["Steven Knott", 0.9] }).view;
+	assert.ok(social.consumed.includes(FIRST_BLOW) && !social.pending.some((item) => item.candidate?.key === FIRST_BLOW));
+	// The editor is present but has no stat block: the kernel did not issue him, so it is decided without firing.
+	const editor = compileWith(compileView(brawl()), { act: ["combat", 0.9], target: ["Arty", 0.9] }).view;
+	assert.ok(editor.consumed.includes(FIRST_BLOW) && !editor.pending.some((item) => item.candidate?.key === FIRST_BLOW));
+	// Combat with the target unclear: undecided, left to the Keeper through the route (which never selects it).
+	const unclear = compileWith(compileView(brawl()), { act: ["combat", 0.9], target: [UNCLEAR, 0.9] }).view;
+	assert.ok(!unclear.consumed.includes(FIRST_BLOW) && !unclear.pending.some((item) => item.candidate?.key === FIRST_BLOW));
+	const request = next(unclear);
+	assert.equal(request.purpose, "route");
+	const { batch, offered } = routeBatch(unclear, scope, []);
+	const index = offered.findIndex((candidate) => candidate.key === FIRST_BLOW);
+	assert.ok(index >= 0, "its need question is still asked and recorded");
+	const result = answer({ ...Object.fromEntries(offered.map((_, at) => [`need_${at + 1}`, ["later", 0.9]])), [`need_${index + 1}`]: ["now", 0.97], exit: ["continue", 0.9] });
+	assert.equal(interpretRoute(unclear, offered, result, 0.6).selected.includes(FIRST_BLOW), false, "now at 0.97 selects nothing");
+	settleRoute(unclear, startStep(unclear, request), batch, offered, result, 5, 0.6);
+	assert.ok(unclear.consumed.includes(FIRST_BLOW), "the Keeper's for the rest of the run");
 });
 
 /** One run on the vendored driver with stub ports; `compile` switches the typed-feature compile. Returns the decide log. */

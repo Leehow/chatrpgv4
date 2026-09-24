@@ -195,9 +195,12 @@ export function admissionBindings(records: BindRecord[], extra: Record<string, J
 function defaultLine(candidate: Candidate): string | undefined {
   const basis = object(candidate.basis), defaults = object(basis.rule_default);
   if (basis.binding !== 'rule-default' || !Object.keys(defaults).length) return undefined;
-  const rules: Record<string, string> = {highest_offered_skill: 'the investigator\'s highest of the offered skills', no_modifier: 'no modifier'};
+  const rules: Record<string, string> = {highest_offered_skill: 'the investigator\'s highest of the offered skills', no_modifier: 'no modifier',
+    card_disposition: 'the combat tactic their card states, through the combat disposition table'};
+  // The card's word stands in for a person's own parameters, not for the player's words (§11.5.3 amendment).
+  const card = Object.values(defaults).every(value => text(object(value).rule) === 'card_disposition');
   return `rules default: ${Object.entries(defaults).map(([name, value]) => `${name} ${String(object(value).value)} (${rules[text(object(value).rule)] ?? text(object(value).rule)})`).join(', ')}; `
-    + 'the player\'s words did not settle it. If the fiction calls for another choice, settle it with your own operation.';
+    + (card ? 'their own parameters did not settle it.' : 'the player\'s words did not settle it.') + ' If the fiction calls for another choice, settle it with your own operation.';
 }
 
 /** Per-run state the ports share; the policy's own state stays in the driver. */

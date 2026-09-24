@@ -24,7 +24,7 @@ import { withOriginTamper } from "./origin-tamper.mjs";
 import { DEFAULT_ADMISSION_TIMEOUT_MS, REVIEW_TIMEOUT, admissionTimeoutMs, compileAdmission } from "../../extensions/kernel/admission.ts";
 import { admissionBindings, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { BIND_FAMILY } from "../../runtime/jev/step-policy.ts";
-import { COMPILE_FAMILY, interpretCompile } from "../../runtime/jev/route-compile.ts";
+import { COMPILE_FAMILY, COMPILE_PREDICATES, FEATURE_FAMILIES, interpretCompile } from "../../runtime/jev/route-compile.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const MORGUE = "newspaper-morgue", ACCESS = "globe-clippings-access";
@@ -220,6 +220,15 @@ test("§32.12 compileAdmission: the gate #6 check (addressee 0.55 cleared by the
 	// A family the compile never asked is not read: the move reads its destination only.
 	assert.equal(compileAdmission({ origin: "policy", bindings: [{ name: "to", path: "stated" }],
 		basis: { compile: { predicate: "move", features: { destination: "morgue" }, read_features: { destination: { row: "morgue", confidence: 0.99, cleared: true } } } } })?.ok, true);
+});
+
+test("§32.12: every compile predicate declares the feature families it reads (first_blow included), so its selections carry read_features", () => {
+	const declared = Object.fromEntries(COMPILE_PREDICATES.map((predicate) => [predicate.name, [...(predicate.features ?? [])]]));
+	assert.deepEqual(declared.first_blow, ["act", "target"]);
+	for (const [name, families] of Object.entries(declared)) {
+		assert.ok(families.length > 0, `${name} declares its features`);
+		assert.ok(families.every((family) => FEATURE_FAMILIES.includes(family)), `${name} reads only compile families`);
+	}
 });
 
 test("§32.12: the bind records admission reads list a parameter the bind step carried with no record as path null", () => {

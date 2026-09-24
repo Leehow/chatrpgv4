@@ -94,6 +94,16 @@
       "id": "SL-18",
       "file": "18-admission-within-the-turn.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-19",
+      "file": "19-disposition-default-and-first-blow.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-20",
+      "file": "20-finish-after-settlement.md",
+      "status": "ready-for-agent"
     }
   ],
   "relatedSpecs": [

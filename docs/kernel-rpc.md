@@ -765,6 +765,52 @@ answered.
 Tests: `tests/kernel/test_npc_standing_action.py` (emitted kernel), `tests/extension/mechanics-shape.test.mjs`,
 `tests/extension/single-loop-candidates.test.mjs`, `tests/extension/single-loop-domain-policy.test.mjs`.
 
+**Amendment (2026-09-24, SL-19 of `docs/specs/pi-native-single-loop.md`): the disposition's rules default is the
+card's word.** The spec's ruling "An NPC's disposition takes the card's word before the Keeper's" (owner, 2026-09-24).
+At live gates #3–#6 Jev answered Knott's disposition question `avoids_fighting` at 0.31 / 0.28 / 0.40 / 0.59, never at
+the 0.6 gate, so every fight paid a Keeper step (`clerk_unbound`, 4–10 s) for it.
+
+*Where the card's word can come from.* An authored disposition (`combat.disposition`, source 1 above) never reaches the
+inference: the kernel reads it, issues the standing from it, and the card issues no inference input, so there is no
+bind to default. The one word a card can carry while it has no disposition is its **tactic** (§11.5.2's
+`combat_tactic`), when someone stated it: the book (`basis: "authored"`, the record's `combat.defense`) or the Keeper
+(`basis: "keeper"`, `apply npc {defense, why}`). A `rule-default` tactic is arithmetic over the person's Fighting and
+Dodge, not a word about the person, and gives no default. The disposition table maps a stated tactic to a disposition:
+
+- **The table** gains `tactic_dispositions`, a closed map from a §11.9 defence word to a disposition word. Shipped rows:
+  `fight_back` → `fights_then_flees` (fights back while the fight goes its way, and does not strike first at someone it
+  is not hostile to), `dodge` → `avoids_fighting` (gets out of the way rather than strike); `none` has no row (a person
+  the book says does not defend says nothing about whether they attack). These rows are SL-19's reading, recorded in the
+  ticket for the owner to confirm or change; they are data, and the kernel holds no word of them. A key outside the
+  three defence words or a value outside the four dispositions is refused as `campaign_not_ready` when a view is read,
+  like every other row of the table. The section is optional: a table without it issues no default.
+- **The card** (`look focus=npc`), for a person without a disposition, adds to `combat_disposition` (beside `options`
+  and `material`) `default: {disposition, rule: "card_disposition", from: {combat_tactic: {defense, basis}}}` when the
+  card's tactic is stated and the table maps its word. Otherwise no `default`: the card says nothing.
+- **The bind** (§135.28): the inference candidate's `disposition` parameter carries that default (`ruleDefault: {rule:
+  "card_disposition", value, read: ["combat_tactic"]}`) with its own composed `why` ("<name>'s card states their
+  combat tactic (<defense>, <basis>), which the combat disposition table reads as <word>; their own parameters did not
+  settle it."). Jev is asked exactly as before. An answer that clears the gate is Jev's word and the write is unchanged.
+  Below the gate, `unknown`, Jev unavailable or the run's Jev budget spent, `clerkBind` takes the default: the clerk
+  writes it with the default's `why`, the call's basis carries `binding: "rule-default"` and `rule_default:
+  {disposition: {value, rule: "card_disposition", read: ["combat_tactic"]}}`, the `event: "bind"` row records
+  `{name: "disposition", path: "rule-default", rule: "card_disposition"}` beside the Jev answer it replaced, and the
+  host's `_inferred` marker names `read: ["combat_tactic"]`, so the kernel writes `basis: "inferred"` with that `read`
+  (still once per campaign; `disposition_already_set` unchanged). The Keeper's `coc-clerk` note says which rule gave it.
+  Only when the card has no `default` is the Keeper asked, as before.
+
+*Knott.* `content/starters/the-haunting` prints nothing for him: his record has no `combat` (no tactic, no disposition,
+no action) and no `mechanics.profile`. At gate #6 before turn 3 his card reads `mechanics: null`, `combat_tactic:
+{defense: null, basis: "rule-default"}`, `combat_disposition: {disposition: null, basis: null, options, material}`; after
+the Keeper pins an archetype his tactic is `{dodge, rule-default}`. Neither is the card's word, so his default stays
+absent and the Keeper is still asked for his disposition at a live table with this starter. §135.28's "a combat
+disposition: no default. Jev only" is amended to this.
+
+*Tests.* `tests/kernel/test_npc_standing_action.py` (the card's `default` from an authored and a Keeper tactic, none
+from a rule-default one, the table's section refused when malformed), `tests/extension/single-loop-binding.test.mjs`
+(the default taken when Jev answers `unknown` and below the gate, Jev's word when it clears, no default → the Keeper),
+`tests/extension/single-loop-domain-policy.test.mjs` (the clerk's write at the seam on the emitted kernel).
+
 ### 11.6 结果与收据
 
 `outcome.kind` 取 `check`、`opposed`、`combined`、`social`、`psychology`、`healing`、`push`、`luck`、`magic`、`development`、`combat`、`chase`、`sanity`、`none`。每种至少有 `level` 或 `status`、涉及的骰面与目标值、`effects`。`effects` 每条 `{kind: hp|san|mp|luck|condition|ammo|position, subject, before, after}`。
@@ -6973,8 +7019,8 @@ no typed call** when all of these hold (`compileAdmission` in `extensions/kernel
 2. its `basis.compile` names a predicate of `COMPILE_PREDICATES` (`runtime/jev/route-compile.ts`);
 3. every feature the predicate **fired on** cleared at the gate -- §135.2's gates: reported confidence at 0.6 or above, or
    the margin rule. The families a predicate can read are declared on it (`features`): `move` reads `destination`;
-   `obligation_check` reads `ask`, `addressee` and `act`; `stated_meeting` reads `addressee` and `ask`; `attack` reads `act`
-   and `target`. The features it fired on are those of its families among the cleared rows `basis.compile.features` names;
+   `obligation_check` reads `ask`, `addressee` and `act`; `stated_meeting` reads `addressee` and `ask`; `attack` and
+   `first_blow` (SL-19, §135.30.2) read `act` and `target`. The features it fired on are those of its families among the cleared rows `basis.compile.features` names;
    each must have its `read_features` record, and that record must say `cleared: true`. A guard family that did not clear
    (an `unclear` addressee or act) is not a feature the predicate fired on and is **not evidence against**: the predicate
    already refuses to fire when the addressee clears on someone else or on `none`, or the act clears on another intent
@@ -17312,6 +17358,8 @@ precedence, `guarded_by` withheld, `reaction: "preordained"`).
   write carries the host-only `_inferred` marker; below the gate it is the Keeper's.
 - `stated_obligation` (e), SO-04: the next step of a scene obligation the module states, as `table.apply.options`
   issues it — its meeting, or its check with a closed approach binder (§135.26).
+- `first_blow` (SL-19, §135.30.2): the investigator's first attack outside a fight, as `table.resolve.options`
+  issues it (`context.first_blow`), selected only by the compile's `first_blow` predicate.
 
 Ruling (d), fetching data, is the read step itself. The run executes a policy-origin write only for a candidate
 whose `clerk` is in this list. Anything else is refused with `not_clerk_authority` before it reaches the kernel.
@@ -17965,7 +18013,8 @@ words:
   today**, so an obligation check's or a Mod check's intent is Jev's alone and has no default; a kernel that issues a
   declared intent on either row makes it the default without a change to the policy's rule.
 - **A target, a weapon, an actor, a defence among options, an NPC's action among its issued actions, a combat
-  disposition:** no default. Jev only.
+  disposition:** no default. Jev only. (Amended 2026-09-24 by SL-19, §11.5.3: a combat disposition defaults to the card's stated tactic
+  through the disposition table, rule `card_disposition`, when the card has one.)
 
 `clerkBind` (the clerk branch of `interpretBind`) takes each closed parameter's Jev answer when it clears the gate, else
 its default. When one is left with neither, the candidate is the Keeper's (below). Otherwise the candidate runs `direct`,
@@ -18256,6 +18305,65 @@ reachable candidate. `tests/extension/scene-obligation-candidates.test.mjs`: the
 compile's ask; `seeks` at arrival without the compile's ask selecting nothing, recorded on the route row.
 `tests/extension/single-loop-binding.test.mjs` and `single-loop-domain-policy.test.mjs` follow (the check selected by the
 compile; the morgue's read owing a compile). The mutation record and the replays are in the SL-13 ticket's Comments.
+
+#### 135.30.2 Addendum (2026-09-24, SL-19): the first blow is the clerk's to select
+
+The spec's ruling "The first blow is the clerk's to select" (owner, 2026-09-24). **Evidence** (live gate #5, turn 3,
+"…揪住他的领子一拳打过去…"): the second compile at Knott's office read `addressee` Knott at 1.0 and `act` `combat` at 0.90, but
+outside a session §135.30 gave the compile no `target` rows and the builder no attack candidate, so the attack went to
+the Keeper (13.6 s, with a refused `resolve` and an `apply` first). At gate #6 the same turn read `act` `combat` at 0.45.
+
+**What the builders issued outside a session (found, SL-19).** Nothing for a fight: `table.resolve.options` listed the
+combat decisions by name only (`decisions[]`, no targets, no weapons), and `buildCandidates` offers the specialised
+families only as a running session's steps, so the one resolve candidate outside a session was the ordinary check. A
+first blow needs a kernel row, because its parameters are the kernel's: who can be fought and what the investigator
+can hit with.
+
+**The kernel's row.** `table.resolve.options.context.first_blow` is `null` or `{decision: "combat:attack", intent:
+"combat", actor, targets, weapons}`: issued when no combat and no chase is active and the party is one investigator
+(`actor`, the sheet's name: the actor a resolve without `actor` defaults to); `targets` are the people present
+(`capsule.present`'s identities: the record's display name) that the combat engine can fight -- a stat block (the
+book's `mechanics.profile`, or one the table pinned from an archetype, §34.10) and not incapacitated
+(`incapacitatedBy` of their conditions); `weapons` are the investigator's own (`weaponOptions`, `unarmed` always
+among them). No target, no row. A person with no stat block is not a target: the engine refuses an attack on them
+(`needs` `archetype`), and pinning an archetype -- "chosen from who this person is" -- is the Keeper's. The row is a read
+and names nothing the resolve does not already accept; the kernel still opens the session, settles the attack and its
+pending defence, and issues every later step, exactly as for the Keeper's own `resolve`.
+
+**The candidate** (`runtime/jev/candidates.ts`): outside a live combat or chase, the row is one clerk candidate, key
+`resolve:combat:first-blow`, family `combat`, clerk authority **`first_blow`** (§135.3's list gains it: the
+investigator's first attack outside a fight, as the kernel's first-blow row issues it), bound `{intent, decision}` from
+the row and `goal`/`method` composed from the player's words; `target` and `weapon` are stated when the row issues one
+value and closed unbound parameters over the row's lists otherwise. Neither has a rules default (§135.28): the target
+comes from the compile, the weapon from Jev's bind, and one left unbound hands the candidate to the Keeper
+(`clerk_unbound`).
+
+**The `target` rows outside a session** (amends §135.30's table and its "outside a fight … `target` has no rows"): when
+the read carries a first-blow row, the `target` family's rows are the people present -- the `addressee` family's rows,
+the same identities and words; otherwise `target` has no rows outside a session and is not asked, as before. Inside a
+running combat the rows stay the investigator's issued attack targets.
+
+**The predicate `first_blow`** (`COMPILE_PREDICATES`, `sole: true`): reads the `first_blow` candidate; decided when
+`act` cleared on another act, or on `combat` with `target` cleared; fires when `act` cleared on `combat` (the row's own
+`intent`, a resolve intent, since outside a session the `act` rows are the resolve intents) and `target` cleared on one
+of the candidate's issued targets, binding `target` (its `event: "bind"` record is path `jev` with the compile's
+confidence and distribution, as for the in-session attack). `target` cleared on a person present the kernel cannot
+fight (no stat block) decides it without firing: the Keeper's for the run. The in-session `attack` predicate now reads
+only the session's own attack (clerk `session_step`). The first blow is **compile-only**, like an obligation step
+(§135.30.1): the route's `need` question about it is asked and recorded but never selects it, because starting a fight
+is what the player does, which is the compile's to read, never whether a candidate is due. The compile is owed
+whenever the read issues it (it is reachable), so the first read in a scene with someone fightable present asks one.
+
+**Knott at gates #5 and #6.** His book prints no numbers and the table had pinned none before turn 3, so the first-blow
+row issued no target there: the Keeper pins the archetype and throws the punch, as it did live. Once a stat block
+exists (the Keeper's pin, a book that prints one), the compile selects the first blow.
+
+*Tests.* `tests/extension/single-loop-compile.test.mjs`: the `target` rows outside a session only with a first-blow row
+and equal to the addressee rows; the predicate fires on `combat` + a fightable person, not below the gate, not on
+another act, not on a person without a stat block; the first blow compile-only at the route. `tests/kernel/test_jev_resolve.py`
+(the row on the emitted kernel: none for Knott without numbers, then his name after an archetype pin; none in a fight).
+`tests/extension/single-loop-domain-policy.test.mjs`: the clerk's first blow at the seam on the emitted kernel opens the
+fight. The replays are in the SL-19 ticket's Comments.
 
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
 

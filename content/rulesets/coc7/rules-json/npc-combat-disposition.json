@@ -35,5 +35,10 @@
         {"action": "attack"}
       ]
     }
+  },
+  "tactic_note": "Contract §11.5.3, amendment 2026-09-24 (SL-19): the disposition a person's stated tactic reads as, when they have no disposition. Only a tactic someone stated counts -- the book's (the record's combat.defense) or the Keeper's (apply npc defense) -- never the rules default from Fighting and Dodge. It is the rules default of the clerk's disposition bind when Jev does not settle one. Keys are the defence words (dodge, fight_back, none), values the four dispositions; a defence word without a row gives no default.",
+  "tactic_dispositions": {
+    "fight_back": "fights_then_flees",
+    "dodge": "avoids_fighting"
   }
 }
