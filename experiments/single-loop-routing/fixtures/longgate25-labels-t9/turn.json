@@ -1,0 +1,13 @@
+{
+ "campaign": "longgate-haunting-0624",
+ "module": "the-haunting",
+ "turn": 9,
+ "commit_before": "d86a591",
+ "commit_after": "193894e",
+ "player_input": "我去科比特宅，先绕着房子外面走一圈，看窗户、门锁和地下室的通气窗。",
+ "tarball": "../longgate25-labels-t16/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/longgate-haunting-0624",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z"
+ }
+}

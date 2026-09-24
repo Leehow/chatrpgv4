@@ -1,0 +1,129 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z/events.jsonl",
+  "record": ".coc/repos/longgate-haunting-0624.git 193894e:turns/0009.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我去科比特宅，先绕着房子外面走一圈，看窗户、门锁和地下室的通气窗。",
+ "llm_calls": 3,
+ "llm_ms_total": 29080,
+ "calls": [
+  {
+   "at": "2026-09-24T10:32:56.529Z",
+   "provider_ms": 10412,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 13862,
+    "output": 1075,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "move",
+        "to": "corbitt-house-ground",
+        "via": "不拿钥匙，离开诺特办公室，走到科比特宅外面绕房一圈",
+        "travel_minutes": 40,
+        "label": "科比特宅"
+       },
+       {
+        "kind": "time",
+        "minutes": 40,
+        "why": "从诺特办公室走到罗克斯伯里的科比特宅"
+       }
+      ]
+     },
+     "id": "call-596620c2-c99e-4efc-82fe-7165441aa3c8-0|fc_188aac4d-73a6-9459-b4e9-d7c0842cc1d7_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:33:17.923Z",
+   "provider_ms": 9114,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 25043,
+    "output": 701,
+    "cache_read": 33152
+   },
+   "tool_calls": []
+  },
+  {
+   "at": "2026-09-24T10:33:27.057Z",
+   "provider_ms": 9554,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 8811,
+    "output": 934,
+    "cache_read": 49536
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "apply",
+   "call_id": "call-596620c2-c99e-4efc-82fe-7165441aa3c8-0|fc_188aac4d-73a6-9459-b4e9-d7c0842cc1d7_0",
+   "ok": true
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 4068,
+   "origin": "model"
+  },
+  {
+   "verb": "apply",
+   "verdict": "entailed",
+   "ms": 4438,
+   "origin": "policy"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "apply",
+   "kind": "move",
+   "target": "corbitt-house-ground",
+   "minutes": 40
+  },
+  {
+   "verb": "apply",
+   "kind": "time",
+   "target": null,
+   "minutes": 40
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "move:corbitt-house-ground-t9-c1",
+   "kind": "move",
+   "to": "corbitt-house-ground"
+  },
+  {
+   "id": "time:t9-c1",
+   "kind": "time"
+  },
+  {
+   "id": "map:player-corbitt-house-map-t9",
+   "kind": "map"
+  },
+  {
+   "id": "clue:nailed-windows-t9",
+   "kind": "clue",
+   "clue": "nailed-windows"
+  }
+ ]
+}

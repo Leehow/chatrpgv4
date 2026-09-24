@@ -22,8 +22,11 @@ export const COMPILE_FAMILY = 'single-loop-compile';
 /** The feature families, in the order their questions are asked (§135.30's table). */
 export const FEATURE_FAMILIES = ['destination', 'addressee', 'ask', 'act', 'target', 'item'] as const;
 export type FeatureFamily = typeof FEATURE_FAMILIES[number];
-/** One option of a feature: the kernel row's identity and the row's own words, which are all Jev reads of it. */
-export interface FeatureRow {id: string; describe: Json}
+/**
+ * One option of a feature: the kernel row's identity and the row's own words, which are all Jev reads of it. `guard`
+ * (§135.30.4): for a destination whose move the kernel holds back, the kernel's own guard; never shown to Jev.
+ */
+export interface FeatureRow {id: string; describe: Json; guard?: Json}
 export type FeatureRows = {[family in FeatureFamily]?: FeatureRow[]};
 /** The two answers every feature has besides its rows. */
 export const NONE = 'none', UNCLEAR = 'unclear';
@@ -244,6 +247,20 @@ export interface CompileOutcome {
   fellThrough: string[];
   features: Record<string, FeatureRecord>;
   reason: string;
+  /** §135.30.4: the cleared destination the kernel holds back (no issued move goes there), with the kernel's guard. */
+  guarded?: GuardedDestination[];
+}
+export interface GuardedDestination {to: string; place: string; guard: Json}
+
+/**
+ * §135.30.4: `destination` cleared on a row whose move no issued candidate carries, and the row names the kernel's
+ * guard: the place the player declared, and what the book says opens it. Nothing is selected or consumed for it.
+ */
+export function guardedDestinations(rows: FeatureRows | undefined, candidates: Candidate[], cleared: Cleared): GuardedDestination[] {
+  const to = cleared.destination?.row;
+  const row = to ? rows?.destination?.find(value => value.id === to) : undefined;
+  if (!to || !row || row.guard === undefined || candidates.some(candidate => candidate.family === 'move' && candidate.bound.to === to)) return [];
+  return [{to, place: text(object(row.describe).place) || to, guard: row.guard}];
 }
 
 /**
@@ -276,7 +293,9 @@ export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows'>,
     } else if (predicate?.decided(cleared, candidate)) decided.push(candidate.key);
     else fellThrough.push(candidate.key);
   }
-  return {selected, decided, fellThrough, features, reason: selected.length ? `selected_${selected.length}` : decided.length ? 'decided_none' : 'fell_through'};
+  const guarded = guardedDestinations(view.rows, view.candidates, cleared);
+  return {selected, decided, fellThrough, features, reason: selected.length ? `selected_${selected.length}` : decided.length ? 'decided_none' : 'fell_through',
+    ...(guarded.length ? {guarded} : {})};
 }
 
 /**

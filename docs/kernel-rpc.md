@@ -17330,7 +17330,8 @@ The builder moved from `experiments/single-loop-routing/candidates.ts` into the 
 it. It reads `table.capsule`, `table.apply.options`, `table.resolve.options` and the entities the run's read
 located, and nothing else. It never classifies text.
 
-- `apply.options` moves whose `unlock_when.met` is not `false`, and its scene clues;
+- `apply.options` moves whose `unlock_when.met` is not `false`, and its scene clues (a move row also says what the place is,
+  and an unmet unlock names what opens it: §135.30.4);
 - the scene's handout assets (`capsule.where.assets`, `kind: "handout"`), except one the kernel marks `shown:
   true` (SL-07: the capsule marks a handout row from the world's `handouts_shown`). A located handout whose handle
   is in `table.apply.options.context.handouts_shown` is not offered either. A handout already handed over is
@@ -18368,7 +18369,7 @@ every fresh read).
 
 | family | a row is | read from | read by |
 | --- | --- | --- | --- |
-| `destination` | a place the kernel offers as a move: its `to` and `display_name` | `table.apply.options` rows of kind `move` (all of them, a withheld one included: the answer is about the words; the predicate only reaches issued candidates) | the move predicate |
+| `destination` | a place the kernel offers as a move: its `to` and `display_name` (since §135.30.4 also the place's other names, summary, where-words, people and things) | `table.apply.options` rows of kind `move` (all of them, a withheld one included: the answer is about the words; the predicate only reaches issued candidates) | the move predicate |
 | `addressee` | a person present: the table's own label (`called.name`, else `untold.label`), the role and the record name | `table.capsule.present` | the obligation predicates |
 | `ask` | an open obligation's demand (its `name` and what it guards, §135.26), an issued clue (its summary), a scene handout not yet shown (its name) | `table.apply.options.obligations` (state `open`), the `table.apply.options` clue rows without `guarded_by`, `capsule.where.assets` | the obligation predicates (a clue or handout answer is "something else") |
 | `act` | in a running combat on the investigator's turn, each action the session issues for the investigator (`context.session.actions[].decision`); otherwise each canonical resolve intent (the Keeper's `resolve` tool enum, `resolveIntents()`) | `table.resolve.options` session view; the tool definition | the attack predicate; the obligation check's act guard |
@@ -18542,6 +18543,87 @@ another act, not on a person without a stat block; the first blow compile-only a
 (the row on the emitted kernel: none for Knott without numbers, then his name after an archetype pin; none in a fight).
 `tests/extension/single-loop-domain-policy.test.mjs`: the clerk's first blow at the seam on the emitted kernel opens the
 fight. The replays are in the SL-19 ticket's Comments.
+
+#### 135.30.4 Addendum (2026-09-24, SL-25): a destination row is the place as the player can name it; a cleared guarded destination is reported with its guard
+
+SL-25 takes §135.30.4 (§135.30.3 is SL-26's; §-numbers are stable ids). The spec's ruling "A place the kernel offers must
+be recognisable from what the player says" (owner, 2026-09-24) binds it. It amends §135.30's table (the `destination`
+row), §135.2's first bullet (what a move row carries) and §135.8 (what the Keeper is told).
+
+**Evidence** (long live gate, `longgate-haunting-0624`, the `lane: "route"`, `purpose: "compile"` rows). Turn 6, "我去罗克斯伯里疗养院，
+请求探视维托里奥·马卡里奥…": the six destination rows were `{place: "Boston Globe offices"}`, …, `{place: "previous-tenants"}`,
+`{place: "corbitt-house-ground"}` -- the sanatorium was a file name, and the Macarios the player named were in no row --
+so `destination` answered `none` 0.99 (replayed on `1dccf4578`: 0.99, 3/3). Turn 11, "我上二楼…再去主卧": `upper-floor-bedroom`
+0.37 against `none` 0.60 (replayed: `none` 0.52–0.54, not cleared, 3/3). Six of the haunting's twelve scenes had no
+authored name: their graph `name` is a placeholder ("scene previous tenants"), which `displayName` reads back as the handle.
+Turn 16, "我打着手电，沿楼梯下地下室。": `basement-rites` cleared at 0.96, but its exit's `unlock_when` was unmet (`clue_discovered:
+corbitt-diaries`, the diaries clue refused at turn 14), so no move was issued, the compile `decided_none`, and the Keeper,
+told nothing, narrated "no stairs down" for four turns while the book's unlock -- the diaries in the nailed-shut cupboard
+of the same floor -- waited. Turn 9's first compile cleared `corbitt-house-ground` (0.91) behind the unrevealed keys clue
+in the same way.
+
+**The move row says what the place is** (`table.apply.options`, `kernel-ts/read/destination-rows.ts`). Each `move` row's
+`description` keeps the exit's own fields (`to`, `display_name`, `travel_minutes`, `unlock_when`, `material`) and gains
+`destination`, read from the graph and the world, every key present only when it has content:
+
+- `names`: the module's other names for the place -- `destination_identity`'s `canonical_name` and `aliases` (the
+  authored label mechanism the admission's destination view already reads, §32), less the row's `display_name`;
+- `summary`: the scene's authored prose (`prose`/`description`/`note`/`summary` of its record), else the node's
+  `summary` when it is not the node's own `name` (a graph that copied the name into the summary authored none);
+- `where`: the scene's authored where-words (`location_tags`);
+- `people`: who the world places there (`world.npc_presence`), by the table's name for them (`personLabel`, §79);
+- `things`: the scene's assets by name (`sceneAssets`: maps, handouts, images; never a clue).
+
+`display_name` is unchanged: the table's own label for the place (`world.scene_labels`, written in the play language by the
+move that named it) when it exists, else the book's name (`placeName`: the record's name, else `destination_identity`'s
+`canonical_name`), else the handle.
+
+**An unmet unlock names what opens it.** A `move` row whose `unlock_when.met` is `false` adds, inside `unlock_when`, the
+guard's own data: for `clue_discovered: <clue>`, `clue: {clue, says, found_at}` -- `says` is the clue node's own words
+(`summary`, else `name`), and `found_at` lists each scene where the book puts that clue (`sceneClueIds`) as `{scene,
+display_name, cues}`, `cues` being the `cue` of every affordance of that scene that grants it (`clue_id` /
+`grants_clue_ids`); for `flag_set: <flag>`, `flag: <flag>`. A met or unknown (`null`) unlock is unchanged. Nothing is
+worded here: every string is authored graph data or a kernel id.
+
+**The destination row** (`compileRows`, `runtime/jev/compile-rows.ts`; amends §135.30's table): `{place, handle?, names?,
+summary?, where?, people?, things?}` -- `place` is `display_name` (else the handle), `handle` the handle when `place` is not
+it, and the rest is the move row's `destination`. A row whose move is not issued carries a `guard` beside its `describe`,
+never shown to Jev: the row's `unlock_when` without `met` when it is `false`, or `{obligation: <handle>, demand: <the
+obligation's name>}` when the row is `guarded_by` an open obligation (§134.10). The rows are still every move row, a
+guarded one included (the answer is about the words; the predicate reaches only issued candidates).
+
+**The guarded report.** When `destination` clears on a row and no issued move candidate goes there, the compile outcome
+carries `guarded: [{to, place, guard}]` from that row. It is recorded on the compile row (`lane: "route"`, `purpose:
+"compile"`, key `guarded`) and on the policy's compile step, and the Keeper's next `coc-clerk` message (§135.8) carries it
+once, as `guarded` with `guarded_note`: the player's declaration goes to this place, the way is closed by the book's own
+condition (the guard), nothing was executed for it, and the guard says what opens it and where the book puts that. The
+compile selects nothing for it and consumes nothing new (the move was never a candidate); what the Keeper does -- play the
+search the guard names, open the way with its own write, or narrate the door shut -- is the Keeper's.
+
+**Content (the haunting).** The six scenes without an authored name gain `destination_identity` (English, the graph's
+language; §23: no per-language table): `previous-tenants` "Roxbury Sanitarium", `corbitt-house-ground` "The Corbitt House",
+`upper-floor-bedroom` "Corbitt House upper floor", `basement-rites` "Corbitt House basement", `neighborhood-gossip`
+"Corbitt House neighborhood", `corbitt-confrontation` "Corbitt's Hiding Place", with aliases from the pages the scenes
+cite. The play-language label is not authored: it is the table's own (`world.scene_labels`), as for every place. A
+campaign is a compile snapshot: an existing campaign sees the names after its module is re-registered, a new one at once.
+The guidance bundles are re-stamped with `guidanceFingerprint` (text unchanged, as at §136.26).
+
+**Three ends (§31).** *Writer:* the kernel (`destination`, `unlock_when.clue`/`flag`) and the graph's authors
+(`destination_identity`). *Reader:* `compileRows` (the row words for Jev, the guard beside them) and `interpretCompile`
+(`guarded`). *Actor:* Jev reads the words; the Keeper reads `guarded` in the `coc-clerk` message; the operator reads the
+compile row.
+
+**Not changed.** The predicates, the gates, which candidates are issued (a guarded move is still not one), the capsule's
+exits (the Keeper's capsule already names `unlock_when.condition`; the guard's words travel only with a cleared destination),
+§32 admission.
+
+*Tests.* `tests/kernel/test_jev_apply.py`: the move rows' `destination` on the emitted kernel over the haunting (the
+sanatorium's name, where-words and the Macarios; no summary where the graph's is the name) and an unmet unlock's `clue`
+(the diaries' words, the ground floor and the cupboard's cue), unchanged once the clue is found.
+`tests/extension/single-loop-compile.test.mjs`: the destination row's words; the guard kept off `describe`; `guarded` when
+the destination clears on a guarded row, none below the gate, none when the move is issued; the obligation guard; the
+engine's compile row and the `coc-clerk` message carrying it once. The replays of the long gate's turns 6, 9, 11 and 16
+are in the SL-25 ticket's Comments.
 
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
 
