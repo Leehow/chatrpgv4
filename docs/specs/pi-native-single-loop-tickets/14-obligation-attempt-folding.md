@@ -4,11 +4,10 @@ Spec: docs/specs/pi-native-single-loop.md (Ruling: "An ordinary check on an obli
 
 # SL-14 — An ordinary check that covers an open obligation is that obligation's attempt
 
-## Evidence (live gate #3, campaign `gate3-haunting-2329`, turn 2)
+## Evidence (live gate #3, campaign `gate3-haunting-2329`, turn 2; corrected 2026-09-24)
 
-- `turns/0002.json`: the Keeper's call `t2-c1` was `core-check:ordinary-check`, skill Persuade, 44 vs 40, failure, bonus 1, `effects: []`, no `obligation` on the action.
-- The capsule at that turn listed `globe-clippings-access` `open`, who Arty Wilmot, cue "next: Persuade, Intimidate, Charm or Fast Talk (regular) against Arty Wilmot; resolve with action.obligation; guards globe-unpublished-story, macario-tragedy".
-- After the turn the obligation is still `open` and nothing records an attempt; the editor refused only in prose.
+- The owner first read `turns/0002.json` as an ordinary Persuade with no `obligation`. That was a misread of a truncated dump: the call `t2-c1` carried `action.obligation`, its result holds `obligation: {handle: globe-clippings-access, settled: false}` with the book's failure and push lines, and the obligation stayed `open` because a failed attempt does not settle it (owner ruling Q4). The claim path worked at the table.
+- What the gate did show, and what this ticket fixes: without the claim the same call goes to the social adjudication (no roll, the book's difficulty ignored), and an explicit ordinary check without the claim rolls but counts as nothing. The kernel now folds such a check into the obligation's attempt (§134.17).
 
 ## Scope
 
