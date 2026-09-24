@@ -1,5 +1,6 @@
 /**
- * A built-in starter has no original document. Real table 2026-09-22 (the-haunting, turn 1): the
+ * A built-in starter that names no source has no original document (the Haunting ships its window since
+ * §14.16, so the no-document case is played on `voice-bench`, which declares none). Real table 2026-09-22 (the-haunting, turn 1): the
  * Keeper passed four clue handles it held from the capsule to `lookup kind=module` and got
  * `not_found`, then asked `lookup kind=source source_mode=answer` and was told to bind the original
  * PDF with `module.source.bind` -- a fix no Keeper can execute and no such PDF exists for.
@@ -11,7 +12,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { openTable, waitForIdle } from "./harness.mjs";
+import { createRealCampaign, openTable, waitForIdle } from "./harness.mjs";
 
 const HANDLES = "knott-macario-summary knott-keys knott-commission knott-research-leads";
 
@@ -52,7 +53,9 @@ test("module lookup resolves the exact handles the Keeper holds, several at once
 });
 
 test("a source lookup on a module without an original document names the road that works", async t => {
-	const table = await openTable({ realKernel: true, campaign: "starter-no-source", responses: [
+	const table = await openTable({ realKernel: true, campaign: "starter-no-source", seedCampaign: false,
+		prepareWorkspace: workspace => { createRealCampaign(workspace, "starter-no-source", { module: "voice-bench", pregen: "shen-zhiwei" }); },
+		responses: [
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage("开场之后多写的一句，应被替换"),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", source_mode: "answer", query: "Steven Knott commission briefing",

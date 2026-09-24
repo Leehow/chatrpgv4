@@ -6,6 +6,7 @@ import { KernelError , isKernelError } from "../kernel/client.ts";
 import { readerInput, wakeReaderSlots } from "./reader.ts";
 import { reviewCandidate } from "./reader-review.ts";
 import { sourceAsset, closeSourceDocuments, sourceRenderVersion } from "./source.ts";
+import { registerSourcePdf, SourceUnreadable } from "./source-registration.ts";
 import { publishableAssetNodes, validateMapRegions } from "./map-publication.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
 import type {FreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
@@ -294,16 +295,19 @@ export class ReadingService implements ReadingBridge {
 			if (!model.vision) throw error("vision_required", "the configured reader cannot receive images", "select a reader model with image input");
 			const path = resolve(this.deps.home, params.pdf);
 			this.deps.progress({ stage: "source" });
-			let source: Awaited<ReturnType<HostRuntime["sourceInfo"]>>;
-			try { source = await this.runtime().sourceInfo({ pdf: path, cache: this.deps.home }, signal); }
-			catch (failure) {
-				if (isKernelError(failure)) throw failure;
-				throw error("bad_pdf", `the original PDF could not be opened: ${failure instanceof Error ? failure.message : String(failure)}`,
-					"choose an accessible, readable original PDF");
+			let bound: Row;
+			try {
+				const runtime = (() => { try { return this.runtime(); } catch (failure) { throw new SourceUnreadable(failure); } })();
+				bound = await registerSourcePdf({ runtime, call: this.deps.call, pdf: path, cache: this.deps.home, signal,
+					params: { ...(mid ? { module_id: mid } : {}), ...(campaign !== undefined ? { campaign } : {}), title: basename(path, ".pdf") } });
+			} catch (failure) {
+				if (!(failure instanceof SourceUnreadable)) throw failure;
+				if (isKernelError(failure.failure)) throw failure.failure;
+				throw error("bad_pdf", `the original PDF could not be opened: ${failure.message}`, "choose an accessible, readable original PDF");
 			}
-			const bound = await this.deps.call("module.source.bind", { source,
-				...(mid ? { module_id: mid } : {}), ...(campaign !== undefined ? { campaign } : {}), title: basename(path, ".pdf") });
 			mid = bound.module_id;
+			// §14.16.3: the book is a built-in starter's source; its authored graph is already playable.
+			if (Array.isArray(bound.starters)) return { ok: true, module_id: mid, opening_ready: true, starters: bound.starters };
         }
 		if (!mid) throw error("needs_source", "choose a PDF or an existing module", "pass pdf or module_id");
 		if (params.purpose === "guidance") {
