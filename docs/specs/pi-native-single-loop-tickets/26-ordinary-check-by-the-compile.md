@@ -154,3 +154,8 @@ to the Keeper), or let the compile's cleared act settle it as it settles the int
 comes before the declared move; the destination guard leaves such a check to the Keeper unless the first compile reads
 `act` investigate. (3) The replayed Keeper still runs the module's bed-attack rule step 0 (Spot Hidden) after the clerk's
 Spot Hidden; a live Keeper sees `clerk_did`. Worth watching at the next live gate.
+
+**Suites (leehow-pc).** At `4be7922ee`: `ext` 2906/2906 (exit 0, 134 s), `loop` 137/137 (exit 0, 29 s). At `a64164a4a`
+(after the telemetry commit): `loop` 137/137 (exit 0); `ext` 2904/2906 twice, with a different pair each time
+(`continuity-audit`/`workspace-lifecycle`, then two `jev-source-domain` timing tests) while the box ran at load 50–55 on
+16 threads; each of those files passes on the Mac at the same HEAD (3/3 and 1/1), and none is touched by this change.
