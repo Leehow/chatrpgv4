@@ -320,7 +320,10 @@ test("§135.30 addendum (owner, 2026-09-24): the route's seeks never selects an 
 	const plain = buildCandidates(bare, INPUT).find((candidate) => candidate.family === "obligation_check");
 	assert.equal(plain.routeFact, undefined);
 	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [plain], readFirst: false });
-	assert.deepEqual(interpretRoute(view, [plain], answer({ need_1: ["now", 0.95], exit: ["continue", 0.9] }), 0.6).selected, []);
+	const nowResult = answer({ need_1: ["now", 0.95], exit: ["continue", 0.9] });
+	assert.deepEqual(interpretRoute(view, [plain], nowResult, 0.6).selected, []);
+	settleRoute(view, startStep(view, next(view)), routeBatch(view, scope, []).batch, [plain], nowResult, 5, 0.6);
+	assert.ok(view.consumed.includes(plain.key), "consumed after the route, like a fact-question candidate");
 	// A move keeps the route's need question.
 	const office_ = built(office()).candidates.find((candidate) => candidate.key === "apply:move:morgue");
 	const moved = initialView({ runId: "r", rawInput: INPUT, context, candidates: [office_], readFirst: false });
