@@ -20,6 +20,21 @@ const admissionRows = (table) => table.telemetry().filter((row) => row.lane === 
 const verdict = (row) => fauxAssistantMessage(JSON.stringify(row));
 /** §32.12.2: the lane and the typed answer race; a lane answer delayed past Jev's makes the order the test's own. */
 const slowVerdict = (row, ms) => async () => { await new Promise((resolve) => setTimeout(resolve, ms)); return fauxAssistantMessage(JSON.stringify(row)); };
+/**
+ * §32.12.3: a lane step for the rest of a split batch. Whether the batch's own round reaches the provider before the typed
+ * answer aborts it is the scheduler's business, so the step reads its request: a round still proposing `cleared` (the
+ * whole batch) waits and says nothing useful; the rest's round answers `row`. Given twice, one per possible round.
+ */
+const restStep = (cleared, row) => {
+	const step = async (context) => {
+		const text = (context?.messages ?? []).flatMap((message) => (message.role === "user" ? message.content : [])).map((block) => block.text ?? "").join("");
+		const proposes = text.slice(text.indexOf("[The Keeper now proposes]"));
+		await new Promise((resolve) => setTimeout(resolve, cleared.test(proposes) ? 5000 : 300));
+		return fauxAssistantMessage(JSON.stringify(cleared.test(proposes) ? { verdict: "not_authorized", grounds: "the batch's own round" } : row));
+	};
+	return [step, step];
+};
+const restRequests = (table, cleared) => table.lanes.admission.requests().filter((text) => !cleared.test(text.slice(text.indexOf("[The Keeper now proposes]"))));
 
 function distribution(keys, chosen, confidence) {
 	const rest = keys.length > 1 ? (1 - confidence) / (keys.length - 1) : 0;
@@ -98,19 +113,21 @@ test("below the threshold the lane decides, and its refusal stands", async (t) =
 	assert.equal(typeof row.lane_ms, "number");
 });
 
-test("a typed refusal on any line escalates to the lane, however confident; it never refuses on its own here", async (t) => {
+test("a typed refusal on any line escalates that line to the lane, however confident; it never refuses on its own here (§32.12.3: the confident line is admitted at once)", async (t) => {
 	installJev(t, [{ verdict: "authorized", confidence: 0.99 }, { verdict: "not_authorized", confidence: 0.99 }]);
 	const table = await openTable({ responses: turn(bookkeeping), env: KEY,
-		laneResponses: { admission: [slowVerdict({ verdict: "authorized", grounds: "the player named the Globe morgue" }, 300)] } });
+		laneResponses: { admission: restStep(/apply move/, { verdict: "authorized", grounds: "the player named the Globe morgue" }) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 
-	assert.equal(table.lanes.admission.requests().length, 1);
-	assert.equal(kernelCalls(table, "table.apply").length, 1, "the lane admitted it");
-	const [row] = admissionRows(table);
-	assert.equal(row.path, "lane");
-	assert.equal(row.jev_fallback, "typed_refusal");
-	assert.deepEqual(row.line_verdicts, ["authorized", "not_authorized"]);
+	assert.equal(restRequests(table, /apply move/).length, 1, "one lane round on the remainder");
+	assert.equal(kernelCalls(table, "table.apply").length, 1, "the lane admitted the remainder, so the whole batch landed");
+	assert.deepEqual(kernelCalls(table, "table.apply")[0].params.effects.map((effect) => effect.kind), ["move", "clue"], "in the batch's own order");
+	const [admitted, rest] = admissionRows(table);
+	assert.deepEqual([admitted.path, admitted.line_level, admitted.lines], ["typed", "admitted", [1]]);
+	assert.deepEqual([rest.path, rest.line_level, rest.lines, rest.verdict], ["lane", "remainder", [2], "authorized"]);
+	assert.equal(rest.jev_fallback, "typed_refusal", "the typed refusal of the clue line escalated it and refused nothing");
+	assert.deepEqual(rest.line_verdicts, ["not_authorized"]);
 });
 
 test("an uncertain line escalates too", async (t) => {
@@ -142,14 +159,17 @@ test("a resolve on an investigator is not on the fast path: however confident th
 	assert.equal(row.jev_fallback, undefined, "the typed answer could not stand here, so no fallback is named");
 });
 
-test("a batch carrying a kind §32 ties to consent (an item) is not a bookkeeping batch: a confident typed admission does not stand, the lane decides", async (t) => {
+test("a batch carrying a kind §32 ties to consent (an item) is not a bookkeeping batch: a confident typed admission does not stand for the item, the lane decides it (§32.12.3: the clue line is admitted at once)", async (t) => {
 	installJev(t, [{ verdict: "authorized", confidence: 0.99 }]);
 	const table = await openTable({ env: KEY,
 		responses: turn([{ kind: "clue", clue: "globe-unpublished-story" }, { kind: "item", name: "剪报", quantity: 1, why: "带走" }]),
-		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "taking the clippings away was not asked", missing: "whether to take them" }, 300)] } });
+		laneResponses: { admission: restStep(/apply clue/, { verdict: "not_authorized", grounds: "taking the clippings away was not asked", missing: "whether to take them" }) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
-	assert.equal(table.lanes.admission.requests().length, 1);
-	assert.equal(kernelCalls(table, "table.apply").length, 0, "the lane's refusal stood");
-	assert.equal(admissionRows(table)[0].path, "lane");
+	assert.equal(restRequests(table, /apply clue/).length, 1);
+	const applies = kernelCalls(table, "table.apply");
+	assert.deepEqual(applies.map((entry) => entry.params.effects.map((effect) => effect.kind)), [["clue"]], "the lane's refusal of the item stood; the clue went on alone");
+	const rows = admissionRows(table);
+	assert.deepEqual(rows.map((row) => [row.path, row.line_level, row.verdict]), [["typed", "admitted", "authorized"], ["lane", "remainder", "not_authorized"]]);
+	assert.match(rows[1].proposed.join(" "), /apply item/);
 });
