@@ -322,6 +322,15 @@ export interface ProductRunOptions {
    */
   lane?: 'replay' | 'live';
   laneModel?: string;
+  /**
+   * SL-36: `live` gives the module's reading service a real reader (`readerModel`, default the Keeper's
+   * `grok-build/grok-4.7-build-fast`, the reader long gate #3 used), with the App's grok-build credential copied into the
+   * disposable workspace (refresh token removed), so a recorded `lookup kind=source` reads the book for real.
+   */
+  reader?: 'none' | 'live';
+  readerModel?: string;
+  /** SL-36: before each `then` turn, wait up to this long for a pending consultation to settle (`answer_landed|unavailable`). */
+  waitAnswerMs?: number;
 }
 
 /**
@@ -359,6 +368,7 @@ export interface ProductRunSummary {
   /** SL-13 follow-up: every compile row of the run (§135.30.1: one per read that issues uncompiled reachable candidates), the prescreen arm and each read's prescreen status. */
   compile_rows: Row[]; prescreen: string; reads: Row[];
   calls: Row[]; match: Row[]; admissions: Row[]; clerk: Row[]; misses: Row[];
+  turn_walls_ms: number[];
 }
 
 function matchBaseline(baseline: Row, calls: Row[]): Row[] {
@@ -410,6 +420,11 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
   if (live) liveKeeperHome(workspace, agentDir);
   const laneLive = options.lane === 'live', laneModel = options.laneModel ?? 'opencode-go/deepseek-v4.1-flash';
   if (laneLive) liveLaneHome(workspace, agentDir, laneModel.slice(0, laneModel.indexOf('/')));
+  const readerLive = options.reader === 'live', readerModel = options.readerModel ?? 'grok-build/grok-4.7-build-fast';
+  const readerProvider = readerModel.slice(0, readerModel.indexOf('/'));
+  // A grok-build reader takes the App's OAuth access token (refresh removed); another provider its stored credential.
+  if (readerLive && readerProvider === 'grok-build' && !live) liveKeeperHome(workspace, agentDir);
+  else if (readerLive && readerProvider !== 'grok-build') liveLaneHome(workspace, agentDir, readerProvider);
   const restore = setEnv({
     ...Object.fromEntries(Object.keys(process.env).filter(name => /(_API_KEY|_TOKEN|_SECRET)$/.test(name)).map(name => [name, undefined])),
     EXT_JEV_APIKEY: key, PI_COC_KERNEL_CMD: undefined, PI_COC_HOME: workspace, PI_CODING_AGENT_DIR: agentDir, PI_COC_CAMPAIGN: campaign,
@@ -417,6 +432,7 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
     PI_COC_VERIFIER_MODEL: 'verifier/v1', PI_COC_MEMORY_MODEL: 'memory/m1', PI_COC_ADMISSION_MODEL: laneLive ? laneModel : 'admission/a1',
     PI_COC_LANE_THINKING: laneLive ? 'low' : undefined,
     PI_COC_ADMISSION_REVIEWER: admission, PI_COC_JEV_PRESELECT: options.prescreen === 'off' ? '0' : '1', PI_GROK_BUILD_IMAGE_TOOLS: '0',
+    PI_COC_BUILD_MODEL: readerLive ? readerModel : undefined,
     PI_COC_TURN_BUDGET_MS: arm === 'before' ? '3600000' : undefined, PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: arm === 'before' ? 'off' : options.fastMin,
     // SO-04: the kernel's dice are seeded (the kernel subprocess inherits this), so a passing and a failing roll are
     // both reproducible; the seed is recorded in the summary.
@@ -458,6 +474,11 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
     const modelRuntime = await ModelRuntime.create({authPath: join(workspace, 'auth.json'), modelsPath: null, modelsStorePath: join(workspace, 'models-store.json'), refreshOnCreate: false});
     for (const provider of [keeper, verifier, memory, admissionLane]) modelRuntime.registerNativeProvider(provider.provider);
     let keeperModel: any = keeper.getModel();
+    if (readerLive && readerProvider === 'grok-build' && !live) {
+      // SL-36: the reader's model must be known to the session (its vision is read there); the Keeper stays the replay.
+      const {createAuthProvider} = await import(join(REPO, 'extensions/grok-build-oauth/agent/provider.js'));
+      modelRuntime.registerProvider(readerProvider, await createAuthProvider());
+    }
     if (live) {
       // The product's own provider registration (the extension's `createAuthProvider`), reading the copied credential.
       const {createAuthProvider} = await import(join(REPO, 'extensions/grok-build-oauth/agent/provider.js'));
@@ -507,8 +528,21 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
       }
       if (['run_start', 'run_end', 'step_start', 'step_end', 'operation_settled', 'delivery_accepted'].includes(event.type)) events.push(event);
     });
+    const turnWalls: number[] = [];
+    let turnBegan = Date.now();
     await session.prompt(fixture.player_input);
-    for (const next of options.then ?? []) { turnIndex++; state.cursor = Number.MAX_SAFE_INTEGER; await session.prompt(next); }
+    turnWalls.push(Date.now() - turnBegan);
+    const telemetryFile = join(workspace, '.coc/campaigns', campaign, 'telemetry.jsonl');
+    for (const next of options.then ?? []) {
+      if (options.waitAnswerMs) {
+        const until = Date.now() + options.waitAnswerMs;
+        const settled = () => existsSync(telemetryFile) && readFileSync(telemetryFile, 'utf8').split('\n').some(line => /"event":"answer_(landed|unavailable)"/.test(line));
+        while (!settled() && Date.now() < until) await sleep(1000);
+        log({wait_answer: settled() ? 'settled' : 'timeout', waited_ms: options.waitAnswerMs - Math.max(0, until - Date.now())});
+      }
+      turnIndex++; state.cursor = Number.MAX_SAFE_INTEGER; turnBegan = Date.now(); await session.prompt(next); turnWalls.push(Date.now() - turnBegan);
+    }
+    log({turn_walls_ms: turnWalls});
   } finally {
     try { if (runner?.hasHandlers?.('session_shutdown')) await runner.emit({type: 'session_shutdown', reason: 'quit'}); } catch { /* the run is over */ }
     try { session?.dispose(); } catch { /* the run is over */ }
@@ -555,8 +589,11 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
     calls: calls.map(call => ({tool: call.tool, origin: call.origin, ok: call.ok, error: call.error, input: call.input,
       ...(call.obligation ? {obligation: call.obligation} : {}), ...(call.obligation_open ? {obligation_open: call.obligation_open} : {}),
       ...(call.passed !== undefined ? {passed: call.passed, level: call.level} : {})})), match: matchBaseline(baseline, calls),
-    admissions, clerk, misses};
+    admissions, clerk, misses,
+    // SL-36: each turn's own wall, and the whole campaign telemetry (a background reading's rows carry no run of their own).
+    turn_walls_ms: array(trace.find(row => row.turn_walls_ms)?.turn_walls_ms)};
   mkdirSync(outDir, {recursive: true});
+  if (options.reader === 'live') writeFileSync(join(outDir, `run${run}.telemetry.jsonl`), telemetry.map(row => JSON.stringify(row)).join('\n') + '\n');
   writeFileSync(join(outDir, `run${run}.trace.jsonl`), [...trace.map(row => ({lane: 'replay', ...row})), ...events.map(row => ({lane: 'event', ...row})), ...own].map(row => JSON.stringify(row)).join('\n') + '\n');
   writeFileSync(join(outDir, `run${run}.summary.json`), JSON.stringify(summary, null, 1) + '\n');
   if (dumpRequests) writeFileSync(join(outDir, `run${run}.requests.jsonl`), [...requests.map(row => ({kind: 'request', ...row})),
@@ -576,13 +613,16 @@ export async function main(argv: string[]): Promise<void> {
   const compile = arg('--compile', 'on') as 'on' | 'off';
   const prescreen = arg('--prescreen', 'on') as 'on' | 'off';
   const lane = arg('--lane', 'replay') as 'replay' | 'live', laneModel = argv.includes('--lane-model') ? arg('--lane-model', '') : undefined;
+  const reader = arg('--reader', 'none') as 'none' | 'live', readerModel = argv.includes('--reader-model') ? arg('--reader-model', '') : undefined;
+  const waitAnswerMs = argv.includes('--wait-answer') ? Number(arg('--wait-answer', '0')) : undefined;
   const then = argv.flatMap((value, index) => value === '--then' ? [argv[index + 1]] : []);
   const outDir = arg('--out', join(REPO, 'experiments/single-loop-routing/results', `${new Date().toISOString().replace(/[:.]/g, '-')}-product-${name.split('/').filter(Boolean).at(-1)}-${admission}${keeper === 'live' ? `-live-${thinking ?? 'low'}` : ''}`));
   const summaries: ProductRunSummary[] = [];
   for (let run = 1; run <= runs; run++) {
-    const summary = await productReplayOnce(name, run, outDir, admission, {keeper, arm, latency, compile, prescreen, lane, ...(laneModel ? {laneModel} : {}), ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {}), ...(seed ? {seed} : {}), ...(fastMin ? {fastMin} : {})});
+    const summary = await productReplayOnce(name, run, outDir, admission, {keeper, arm, latency, compile, prescreen, lane, reader, ...(readerModel ? {readerModel} : {}),
+      ...(waitAnswerMs ? {waitAnswerMs} : {}), ...(laneModel ? {laneModel} : {}), ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {}), ...(seed ? {seed} : {}), ...(fastMin ? {fastMin} : {})});
     summaries.push(summary);
-    console.log(JSON.stringify({run, fixture: name, admission, keeper: summary.keeper, thinking: summary.thinking, arm, latency, seed: summary.seed, wall_ms: summary.wall_ms,
+    console.log(JSON.stringify({run, fixture: name, admission, keeper: summary.keeper, thinking: summary.thinking, arm, latency, seed: summary.seed, wall_ms: summary.wall_ms, turn_walls_ms: summary.turn_walls_ms,
       budget: summary.budget ? {elapsed_at_compose: summary.budget.elapsed_at_compose, over: summary.budget.over_budget, deferred: array(summary.budget.deferred_by_budget).map((value: Row) => value.key)} : null,
       model_calls: summary.model_calls.map(call => `${call.purpose ?? '?'} ${call.ms ?? '?'}ms in ${call.input}+${call.cache_read}c out ${call.output}/r${call.reasoning ?? '?'} [${call.tools.join(',')}]`), status: summary.status, reason: summary.reason, steps: summary.steps,
       llm_steps: summary.llm_steps, llm_purposes: summary.llm_purposes, jev_calls: summary.jev_calls, route_rows: summary.route_rows, compile, prescreen,

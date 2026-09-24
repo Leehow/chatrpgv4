@@ -10,6 +10,9 @@
  *     [--lane replay|live] [--lane-model <provider/model>]   (SL-24: `live` puts every admission review to the real lane
  *     model, default opencode-go/deepseek-v4.1-flash, instead of replaying the recorded verdicts; a call the live table
  *     refused only with `review_timeout` is replayed, and a `review_pending` refusal is resent once, as its fix says)
+ *     [--reader none|live] [--reader-model <provider/model>] [--wait-answer <ms>]   (SL-36: `live` gives the reading service a
+ *     real reader, default grok-build/grok-4.7-build-fast with the App's credential copied; `--wait-answer` waits for a pending
+ *     consultation to settle before each `--then` turn)
  *   node experiments/single-loop-routing/run.mjs --fixture turn3 --runs 3 [--llm none] [--driver prototype]
  *
  * `--llm replay` runs the PRODUCT driver (SL-02): a real Pi session with PI_COC_LOOP_ENGINE=hybrid-v1, the

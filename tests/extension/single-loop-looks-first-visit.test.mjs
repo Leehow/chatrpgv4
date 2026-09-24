@@ -14,7 +14,7 @@
  */
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -25,7 +25,8 @@ import { supportChoices } from "./support-agent-helpers.mjs";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
-import { CARRIED_DOCUMENT, CARRIED_NO_DOCUMENT, CARRIED_PASSAGES_HEAD, CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, CARRIED_VIEWS_HEAD, carriedSection, readCarriedViews, scenePassages } from "../../runtime/jev/carried-views.ts";
+import { CARRIED_ANSWERS_HEAD, CARRIED_DOCUMENT, CARRIED_NO_DOCUMENT, CARRIED_PASSAGES_HEAD, CARRIED_PENDING_HEAD, CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, CARRIED_VIEWS_HEAD, carriedSection, readCarriedViews, scenePassages } from "../../runtime/jev/carried-views.ts";
+import { SOURCE_ANSWER_ALLOWANCE_MS } from "../../extensions/kernel/source-answers.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CAMPAIGN = "test-camp";
@@ -160,7 +161,7 @@ function passagesCarried(requests) {
 // The allowance is generous on purpose: these tests are about what the first model step carries, not about the
 // prescreen's budget (SL-22 has its own tests). Under a loaded 12-way test run the 12 s default expired on the second
 // read of the move test (status "fallback"), which said nothing about the carrying.
-async function hybridTable({ route, responses, allowanceMs = "60000", preselect = "1" }) {
+async function hybridTable({ route, responses, allowanceMs = "60000", preselect = "1", env = {} }) {
 	const requests = [];
 	const port = { async decide(batch) {
 		if (batch.family === ROUTE_FAMILY) return route(batch);
@@ -170,7 +171,7 @@ async function hybridTable({ route, responses, allowanceMs = "60000", preselect 
 	const engine = createHybridEngine({ env: { ...process.env, PI_COC_JEV_PRESELECT: preselect, EXT_JEV_APIKEY: "mechanical-test-key",
 		PI_COC_JEV_PRESELECT_ALLOWANCE_MS: allowanceMs }, decision: port });
 	const table = await openTable({
-		realKernel: true, prepareWorkspace: toldWhereToDig, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
+		realKernel: true, prepareWorkspace: toldWhereToDig, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", ...env },
 		runDriver: engine.runDriver,
 		extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
 		responses: responses.map((response) => (context) => { requests.push(context); return response; }),
@@ -241,6 +242,105 @@ test("§135.31.1 without a prescreen there are no passages: nothing is read or i
 	t.after(() => table.dispose());
 	await table.table.session.prompt("I look over Knott's desk for anything about the house.");
 	assert.deepEqual(passagesCarried(table.requests), []);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// §135.31.2 (SL-36, SL-37): a consultation past its allowance, and a text read still pending, ride in the note.
+// ---------------------------------------------------------------------------------------------------
+
+/** Every distinct clerk note of the table, in order (a request repeats the run's earlier notes, §135.23). */
+function distinctNotes(requests) {
+	const seen = new Set(), out = [];
+	for (const [index, context] of requests.entries()) for (const note of clerkNotes(context)) {
+		const key = JSON.stringify(note);
+		if (!seen.has(key)) { seen.add(key); out.push({ request: index, note }); }
+	}
+	return out;
+}
+const consult = (query, question) => fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", source_mode: "answer", query, question })], { stopReason: "toolUse" });
+const turnRecord = (table, turn) => JSON.parse(readFileSync(join(table.table.workspace, ".coc", "campaigns", CAMPAIGN, "turns", `${String(turn).padStart(4, "0")}.json`), "utf8"));
+
+test("§135.31.2 at the extension seam: a consultation past its allowance answers pending, the note carries it pending, and the next turn's first step carries the landed answer once", async (t) => {
+	let land;
+	const settled = new Promise((resolve) => { land = resolve; });
+	const ensures = [];
+	const answer = { status: "answered", answer: "Corbitt died in 1918; the house has been let since.", source_refs: [{ source_id: "pdf:the-haunting", pdf_index: 1 }],
+		limitations: "", authority: "source-consultation", prepared: false, supported: true };
+	const table = await hybridTable({
+		route: (batch) => answered(batch, (question) => question.key === "exit" ? "ask_llm" : undefined),
+		responses: [consult("commission-briefing", "Who lived in the house before?"), narrate("Knott shrugs and taps the lease."),
+			look("time"), narrate("You fold the paper and pocket it.")],
+	});
+	t.after(() => table.dispose());
+	// The turn's provider budget, as the task runtime would offer it: the consultation must not take it past its allowance.
+	const turnBudget = { signal: new AbortController().signal, deadlineAt: Date.now() + 600_000, async reserve() { return { settle() {}, release() {} }; } };
+	table.table.emit("coc:task-provider-budget", () => turnBudget);
+	table.table.emit("coc:reading-bridge", {
+		async ensure(_mid, params, _signal, options) {
+			ensures.push({ params, options });
+			return { state: "pending", job_id: "read-1", index: [{ name: "Knott's Office", pages: [[0, 0]] }], read: { purpose: "answer", focus: params.focus, question: params.question }, settled };
+		},
+		reading() { return false; },
+	});
+	await table.table.session.prompt("I ask Knott who lived in the house before.");
+
+	assert.equal(ensures.length, 1);
+	assert.equal(ensures[0].params.purpose, "answer");
+	assert.equal(ensures[0].options.allowanceMs, SOURCE_ANSWER_ALLOWANCE_MS, "the named default, not a literal at the call");
+	assert.equal(ensures[0].options.providerBudget, undefined, "past the allowance the reading is not the turn's provider work");
+	const result = table.table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "lookup");
+	const body = JSON.parse(result.content.map((block) => block.text ?? "").join(""));
+	assert.equal(body.source_answer.status, "pending");
+	assert.deepEqual(body.source_answer.index, [{ name: "Knott's Office", pages: [[0, 0]] }], "what the index holds on the focus");
+	const afterLookup = clerkNotes(table.requests[1]).at(-1);
+	assert.deepEqual(afterLookup.carried.pending.map((row) => [row.focus, row.purpose]), [["commission-briefing", "answer"]], "the note carries it pending");
+	assert.ok(afterLookup.carried.head.includes(CARRIED_PENDING_HEAD));
+	assert.equal(turnRecord(table, 2).closed_by, "narrate", "the turn delivered without the answer");
+
+	land({ state: "ready", generation: 2, source_answer: answer });
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	await table.table.session.prompt("I go on to the Globe tomorrow.");
+
+	const answers = distinctNotes(table.requests).flatMap(({ request, note }) => (note.carried?.views ?? [])
+		.filter((view) => view.focus === "source_answer").map((view) => ({ request, view })));
+	assert.equal(answers.length, 1, `carried once: ${JSON.stringify(answers)}`);
+	assert.equal(answers[0].request, 2, "on the next turn's first model step");
+	assert.equal(answers[0].view.name, "commission-briefing");
+	assert.equal(answers[0].view.view.answer, answer.answer);
+	assert.equal(answers[0].view.view.question, "Who lived in the house before?");
+	assert.ok(clerkNotes(table.requests[2]).at(-1).carried.head.includes(CARRIED_ANSWERS_HEAD));
+	const rows = table.table.telemetry(CAMPAIGN).filter((row) => row.lane === "reading" && String(row.event).startsWith("answer_"));
+	assert.deepEqual(rows.map((row) => row.event), ["answer_pending", "answer_landed"]);
+	assert.ok(rows.every((row) => !Object.hasOwn(row, "question")), "telemetry never writes the Keeper's question");
+});
+
+test("§22.4.4 at the extension seam: a pending text read with a draft delivers the draft, and the note carries the pending read", async (t) => {
+	const draft = "You read the lease twice while Knott watches the clock.";
+	const table = await hybridTable({
+		env: { PI_COC_SPEECH_STEER: "0" },
+		route: (batch) => answered(batch, (question) => question.key === "exit" ? "ask_llm" : undefined),
+		responses: [fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "commission-briefing", question: "What does the lease say?" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage(draft), fauxAssistantMessage("a leg nobody should ask for")],
+	});
+	t.after(() => table.dispose());
+	table.table.emit("coc:reading-bridge", {
+		async ensure(_mid, params) {
+			throw Object.assign(new Error("the source is still being read"), { code: "needs",
+				details: { reason: "reading_timeout", read: { purpose: "detail", focus: params.focus, question: params.question } } });
+		},
+		reading(_mid, params) { return params.focus === "commission-briefing"; },
+	});
+	await table.table.session.prompt("I read the lease.");
+
+	const note = clerkNotes(table.requests[1]).at(-1);
+	assert.deepEqual(note.carried.pending.map((row) => [row.focus, row.purpose]), [["commission-briefing", "detail"]]);
+	const record = turnRecord(table, 2);
+	assert.equal(record.closed_by, "narrate");
+	assert.equal(record.text, draft, "the delivered receipt is the Keeper's draft");
+	const delivery = table.table.telemetry(CAMPAIGN).filter((row) => row.lane === "delivery");
+	assert.deepEqual(delivery.filter((row) => row.reason === "reading_wait"), [], "no reading_wait drop");
+	assert.equal(delivery.filter((row) => row.reason === "reading_wait_draft_kept").length, 1);
+	assert.equal(table.requests.length, 2, "no steer bought a third model step");
 });
 
 // ---------------------------------------------------------------------------------------------------

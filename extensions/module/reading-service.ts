@@ -13,7 +13,13 @@ import type { HostRuntime } from "../../runtime/host.ts";
 import type {FreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
-export interface ReadingOptions {providerBudget?:TaskProviderBudget}
+/**
+ * `allowanceMs` (contract §22.4.3, SL-36): the foreground allowance of an in-turn source consultation. Past it `ensure`
+ * resolves `{state: "pending", job_id, read, index, settled}` instead of refusing with `reading_timeout`: the waiter leaves
+ * (§61 demotes the job), the reading goes on in the background, and `settled` is that same reading's outcome. The allowance's
+ * named default is the lookup's (`SOURCE_ANSWER_ALLOWANCE_MS`, `extensions/kernel/source-answers.ts`).
+ */
+export interface ReadingOptions {providerBudget?:TaskProviderBudget; allowanceMs?: number}
 type Row = Record<string, any>;
 type Call = (method: string, params: Row) => Promise<any>;
 export interface ReadingBridge {
@@ -62,6 +68,8 @@ interface PendingReading {
 	attached?: boolean;
 	/** §47. What this in-flight reading is of, so `reading()` can answer for it by name. */
 	of?: { campaign?: string; mid: string; focus: string; question: string };
+	/** §22.4.3. What the book's index holds on this consultation's focus, from the kernel's last reply. */
+	index?: Row[];
 }
 /**
  * How long a claimed reading job may report nothing at all before the host stops it. A reader child
@@ -430,9 +438,13 @@ export class ReadingService implements ReadingBridge {
 		let onAbort: (() => void) | undefined;
 		try {
 			const configured = Number(process.env.PI_COC_READ_WAIT_MS);
-			const wait = Number.isFinite(configured) && configured > 0 ? configured : 120_000;
-			const interrupted = new Promise<never>((_resolve, reject) => {
-				timer = setTimeout(() => reject(error("reading_timeout", "the source is still being read",
+			// §22.4.3: a consultation's allowance, when the caller gives one, replaces the foreground wait.
+			const allowance = options.allowanceMs;
+			const wait = allowance !== undefined ? allowance : Number.isFinite(configured) && configured > 0 ? configured : 120_000;
+			const interrupted = new Promise<Row>((resolvePending, reject) => {
+				timer = setTimeout(() => allowance !== undefined ? resolvePending({ state: "pending", ...(request.jobId ? { job_id: request.jobId } : {}),
+					...(request.attached ? { attached: true } : {}), read: { purpose: params.purpose, focus: params.focus ?? "", question: params.question ?? "" },
+					index: request.index ?? [], settled: request.task }) : reject(error("reading_timeout", "the source is still being read",
 					params.purpose === "opening" ? "return control, then call prepare-module again to rejoin the retained preparation"
 						: `use ask to return control; on a later player turn, ${params.purpose === 'answer' ? 'repeat lookup kind=source source_mode=answer' : 'retry the original action or lookup kind=source'} with the exact focus and question in details.read; do not invent another question`,
 					// The job handle travels beside `read` for telemetry (#65); the fix names only `read`, so the model does not see it.
@@ -526,6 +538,7 @@ export class ReadingService implements ReadingBridge {
 			}
 			request.jobId = response.job_id;
 			request.attached = response.attached === true;
+			if (Array.isArray(response.index)) request.index = response.index;
 			if (request.demotePending && response.job_id) {
 				request.demotePending = false;
 				this.unwait(mid, response.job_id, campaign);
@@ -873,7 +886,9 @@ export class ReadingService implements ReadingBridge {
 					if (isKernelError(failure) && failure.details?.reason === 'source_context_changed') throw failure;
 					// Provider/transport failure during verification preserves the completed read.
 					// A completed but rejected semantic review requires a source-grounded repair.
-					if (phaseCompleted) {
+					// §22.4.3: a review the gate found malformed is the reviewer's slip; the read stands, the next round only re-reviews.
+					const reviewSlip = isKernelError(failure) && failure.details?.reason === "answer_review_malformed";
+					if (phaseCompleted && !reviewSlip) {
 						readComplete = false;
 						try {
 							const checkpointPath = join(cwd, "read-complete.json");

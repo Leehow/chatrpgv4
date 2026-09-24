@@ -1,10 +1,11 @@
 /** A checked consultation is source evidence, never prepared graph material. */
 import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
-import { array, integer, number, row, type Row } from '../read/values.js';
+import { array, integer, number, row, string, type Row } from '../read/values.js';
+import { answerReviewShapeError } from './answer-review-shape.js';
 
 export const SOURCE_ANSWER_PROTOCOL = 'source-answer-v1';
-export const ANSWER_REVIEW_PATHS = ['/status', '/answer', '/source_refs', '/limitations'];
+export { ANSWER_REVIEW_PATHS } from './answer-review-shape.js';
 const statuses = ['answered', 'unresolved', 'conflict', 'requires_preparation'];
 const fail = (message: string): never => { throw new RpcError('invalid_params', message, { fix: 'repair the scoped answer against original pages; do not publish graph material through a consultation' }); };
 
@@ -25,18 +26,27 @@ export function checkSourceAnswer(value: unknown, packet: Row, seen?: Set<any>):
     return draft;
 }
 
+/**
+ * §22.4.1, as amended by §22.4.3 (SL-36). A malformed review is `answer_review_malformed`: the reviewer's slip, re-asked
+ * as a reviewer. A well-formed review that does not support every assigned field, or that names missing support, is
+ * `answer_review_refused`, with the first refused path and the reviewer's reason: the only review that refuses the read.
+ */
 export function checkSourceAnswerReview(draft: Row, review: Row, packet: Row, seen: Set<any>): void {
-    const max = number(row(packet.source).page_count), viewed = new Set([...seen].map(number)), checked = new Set<string>();
-    if (!Array.isArray(review.checked) || !Array.isArray(review.missing) || review.missing.length) fail('the independent answer review found missing source support');
-    for (const item of review.checked) {
-        if (!isJsonObject(item) || item.verdict !== 'supported' || typeof item.reason !== 'string' || !item.reason.trim()) fail('the independent answer review must support each assigned field with a reason');
-        const paths = item.paths ?? [item.path];
-        if (!Array.isArray(paths) || !paths.length || paths.some(path => !ANSWER_REVIEW_PATHS.includes(path))) fail('answer review contains an unassigned field');
-        if (!Array.isArray(item.source_refs) || !item.source_refs.length || item.source_refs.some((ref: Row) => !isJsonObject(ref) || !integer(ref.page) || number(ref.page) < 1 || number(ref.page) > max || !viewed.has(number(ref.page)))) fail('answer review cites an original page the reviewer did not view');
-        for (const path of paths) checked.add(path);
+    const max = number(row(packet.source).page_count), viewed = new Set([...seen].map(number));
+    const malformed = answerReviewShapeError(review, max, viewed, array(draft.source_refs).map(ref => number(ref.page)));
+    if (malformed) throw new RpcError('invalid_params', `the independent answer review is malformed: ${malformed}`, {
+        fix: 'the reviewer writes its review again in the protocol shape; the answer itself was not judged',
+        details: { reason: 'answer_review_malformed' } });
+    const refused = array(review.checked).find(item => item.verdict !== 'supported');
+    if (refused) {
+        const path = string(array(refused.paths ?? [refused.path])[0]);
+        throw new RpcError('invalid_params', `the independent answer review found ${path} ${refused.verdict}: ${string(refused.reason).slice(0, 600)}`, {
+            fix: 'repair the scoped answer against original pages; do not publish graph material through a consultation',
+            details: { reason: 'answer_review_refused', path, rule: string(refused.verdict) } });
     }
-    if (ANSWER_REVIEW_PATHS.some(path => !checked.has(path))) fail('answer review omitted assigned fields');
-    if (array(draft.source_refs).some(ref => !viewed.has(number(ref.page)))) fail('the reviewer must view every page cited by the answer');
+    if (array(review.missing).length) throw new RpcError('invalid_params', 'the independent answer review found missing source support', {
+        fix: 'repair the scoped answer against original pages; do not publish graph material through a consultation',
+        details: { reason: 'answer_review_refused', rule: 'missing' } });
 }
 
 export function sourceAnswerResult(draft: Row, moduleId: string): Row {

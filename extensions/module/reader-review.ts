@@ -6,6 +6,7 @@ import { readerInput, type ReaderRequest, type ReaderOutcome } from "./reader.ts
 import { draftHasMapRegions } from "./map-publication.ts";
 import { obligationReviewPaths } from "../../kernel-ts/modules/obligation-review.ts";
 import { shapeReviewPaths } from "../../kernel-ts/modules/shape-review.ts";
+import { answerReviewShapeError } from "../../kernel-ts/modules/answer-review-shape.ts";
 
 type Row = Record<string, any>;
 function numeric(value: any, path: string): string[] {
@@ -111,6 +112,23 @@ export function checkReviewEvidence(review: Row, paths: string[], pages: Set<num
 	}
 	if (paths.some(path => !checked.has(path))) throw new Error("review omitted assigned fields");
 	if (requiredPages.some(page => !pages.has(page))) throw new Error('scope review did not view every assigned source page');
+}
+
+/**
+ * §22.4.3 (SL-36): a source-answer review that does not satisfy its protocol. It is the reviewer's slip, not a finding
+ * about the answer: the unit's one semantic retry re-asks the reviewer with this error in `failure.json`, and a
+ * well-formed refusal is the only review that refuses the read (the gate at `module.read.finish`).
+ */
+export class AnswerReviewShapeError extends Error {
+	constructor(detail: string) {
+		super(`answer review schema error: ${detail}. This is a schema error in the review, not a finding about the answer: write the review again in the protocol shape.`);
+		this.name = "AnswerReviewShapeError";
+	}
+}
+/** §22.4.3: the answer review's protocol shape, the same function the publication gate runs; throws `AnswerReviewShapeError`. */
+export function checkAnswerReviewShape(review: Row, maxPage: number, viewed: ReadonlySet<number>, cited: number[]): void {
+	const error = answerReviewShapeError(review, maxPage, viewed, cited);
+	if (error) throw new AnswerReviewShapeError(error);
 }
 
 const reviewProtocol = 'source-review-groups-v6-focused-detail';
@@ -306,6 +324,7 @@ export async function reviewCandidate(options: {
 				const review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8"));
 				if (guidanceBytes && await readFile(join(cwd, "guidance.json"), "utf8") !== guidanceBytes) throw new Error("reviewer modified guidance");
 				checkReviewEvidence(review, paths, pages, requiredPages, options.draft);
+				if (answerTask) checkAnswerReviewShape(review, Number(options.task.source?.page_count) || Number.MAX_SAFE_INTEGER, pages, requiredPages);
 				results[index] = review;
 				if (cacheFile && approved(review,!!guidanceBytes)) {
 					try { await retainReview(cacheFile,key!,join(cwd,'review.json'),eventLog+'.images.jsonl',pages); }
@@ -327,6 +346,9 @@ export async function reviewCandidate(options: {
 				if (!(failure instanceof TransportFailure) && !semanticRetried && !options.signal.aborted) {
 					semanticRetried = true;
 					previousFailure = String(failure);
+					// §22.4.3: the re-ask is visible, and says whether it was the protocol shape or the review's own finding.
+					options.record({ lane: "reading", event: "review_retry", unit: index + 1, attempt,
+						cause: failure instanceof AnswerReviewShapeError ? "schema" : "review", detail: String(failure instanceof Error ? failure.message : failure).slice(0, 200) });
 					await writeFile(join(cwd, "failure.json"), JSON.stringify({error: previousFailure}) + "\n");
 					continue;
 				}

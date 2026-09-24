@@ -32,7 +32,7 @@ A map is orientation material. It never gates a move. The move lands with the sc
     `world.map_arrivals_pending`; late §39.2 card on the first `table.player_input` after publication, `late: true`,
     `scene`, `call_id t<N>-input`, once; unusable settlement row and `request` answering `state: "unusable"`; only
     `retry: true` or a completed publication replaces it; orphan recovery in `module.read.ahead` by dead `host-<pid>` +
-    free job lock; three ends) and §22.4.3 (foreground waits are text-only; `look focus=map` queues in the background and
+    free job lock; three ends) and §22.4.5 (foreground waits are text-only; `look focus=map` queues in the background and
     answers `map_preparing` / `map_unusable` at once). One-line pointers added to §107 and §39.2; nothing renumbered.
   - Changed: `reading.ts` (`queueArrivalMap`, `settleMap`, `mapSettlement`, `recoverOrphans`; finish(failed) settles a
     map; a completed map replaces the row; `request` unusable branch and `job_state`/`failed_job` on a blocked reply);

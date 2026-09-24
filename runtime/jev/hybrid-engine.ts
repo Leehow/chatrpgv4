@@ -96,6 +96,12 @@ export interface TurnClosePort {
   campaign?: string;
   verdict(): Record<string, unknown> | Promise<Record<string, unknown>>;
 }
+/** The kernel extension's consultation port (`coc:source-answers`, contract §135.31.2): what went pending, what landed since. */
+export interface SourceAnswersPort {
+  campaign?: string;
+  take(): {pending: Array<{focus: string; question: string; since_turn: number; purpose?: string}>;
+    landed: Array<{focus: string; question: string; since_turn: number; answer?: Row; unavailable?: string}>};
+}
 /** The kernel extension's canonical operation gateway (`coc:operation-dispatcher`). */
 export interface OperationGateway {
   dispatch(proposal: OperationProposal, context: HostOperationContext): Promise<ObservationPacket>;
@@ -297,7 +303,7 @@ interface RunState {
   issued?: Candidate[];
   /** §135.31: what the Keeper was already shown this run: scenes, people (names and card ids), the last session view's digest;
    *  §135.31.1: the scenes whose source passages were carried. */
-  shown: {scenes: Set<string>; people: Set<string>; session?: string; passages: Set<string>};
+  shown: {scenes: Set<string>; people: Set<string>; session?: string; passages: Set<string>; pending: Set<string>};
   /** §135.31.1 (SL-27): every material this run's prescreens prepared or reused, with the scene of the read. */
   passages: PassageSource[];
   /** §135.31.1: whether the module has an original document -- the capsule carries `reading` (§22) only then. */
@@ -316,6 +322,7 @@ interface RunState {
  */
 export function createHybridEngine(options: HybridEngineOptions): {runDriver: SessionRunDriver; extension: (pi: any) => void; bridge: () => KernelBridge | undefined} {
   let bridge: KernelBridge | undefined, gateway: OperationGateway | undefined, closer: TurnClosePort | undefined, api: any;
+  let consultations: SourceAnswersPort | undefined;
   const now = options.now ?? (() => Date.now());
   /** §135.25: the clerk steps the last run's budget deferred, for the next run's first note to the Keeper (session memory). */
   let carried: {campaign?: string; run: string; turn?: number; deferred: DeferredStep[]} | undefined;
@@ -687,9 +694,18 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §135.31.1: the passages of the run's current scene, on the run's first model step at it (once per scene per run).
     const at = run.scene && !run.shown.passages.has(run.scene) ? run.scene : undefined;
     const passageView = at ? scenePassages(run.passages, at) : undefined, passages = at && passageView ? {scene: at, view: passageView} : undefined;
-    if (!scene && !people.length && !session && !passages) return undefined;
+    // §135.31.2: consultations that landed since the last step, once each (taking them marks them carried), and the ones still
+    // reading, once per run each.
+    let taken: ReturnType<SourceAnswersPort['take']> = {pending: [], landed: []};
+    if (consultations && (!consultations.campaign || consultations.campaign === bridge.campaign)) {
+      try { taken = consultations.take(); } catch { /* the port never steers the run */ }
+    }
+    const answers = taken.landed.map(entry => ({name: entry.focus, view: entry.answer ? {question: entry.question, ...entry.answer}
+      : {question: entry.question, status: 'unavailable', reason: entry.unavailable ?? 'reading_failed'}}));
+    const pending = taken.pending.filter(entry => !run.shown.pending.has(JSON.stringify([entry.focus, entry.question])));
+    if (!scene && !people.length && !session && !passages && !answers.length && !pending.length) return undefined;
     const carried = await readCarriedViews({call, ...(scene ? {scene} : {}), people, skip: run.shown.people, ...(session ? {session} : {}),
-      ...(passages ? {passages} : {})}).catch(() => undefined);
+      ...(passages ? {passages} : {}), ...(answers.length ? {answers} : {}), ...(pending.length ? {pending} : {})}).catch(() => undefined);
     if (!carried) return undefined;
     const ids = new Set(carried.views.flatMap(entry => entry.id ? [entry.id] : []));
     for (const entry of carried.views) {
@@ -698,13 +714,16 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       if (entry.focus === 'npc' && entry.id) run.shown.people.add(entry.id);
       if (entry.focus === 'source' && entry.name) run.shown.passages.add(entry.name);
     }
+    for (const entry of carried.pending ?? []) run.shown.pending.add(JSON.stringify([entry.focus, entry.question]));
     // A name is settled once its card went (now or earlier under another name), or once `look` does not resolve it.
     for (const {name, id} of carried.resolved) if (ids.has(id) || run.shown.people.has(id)) run.shown.people.add(name);
     for (const entry of carried.omitted) if (entry.focus === 'npc' && entry.reason === 'not_found' && entry.name) run.shown.people.add(entry.name);
     record({lane: 'run', event: 'carried', run: run.runId, step: stepId,
       views: carried.views.map(entry => ({focus: entry.focus, ...(entry.name ? {name: entry.name} : {}), bytes: bytes(entry.view),
+        ...(entry.focus === 'source_answer' ? {status: entry.view.status ?? null} : {}),
         ...(entry.truncated ? {truncated: true, omitted_fields: entry.omitted_fields ?? []} : {})})),
-      omitted: carried.omitted, bytes: carried.bytes, reads: carried.reads, ms: carried.ms});
+      omitted: carried.omitted, ...(carried.pending?.length ? {pending: carried.pending.map(entry => ({focus: entry.focus, since_turn: entry.since_turn, purpose: entry.purpose ?? null}))} : {}),
+      bytes: carried.bytes, reads: carried.reads, ms: carried.ms});
     return carriedSection(carried, run.document === undefined ? {} : {document: run.document});
   }
 
@@ -831,7 +850,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const allowance = readJevPreselectAllowanceMs(options.env as NodeJS.ProcessEnv), startedAt = now(), budgetMs = turnBudgetMs(options.env);
       const run: RunState = {runId: context.runId, rawInput: context.rawInput, inputRevision: context.inputRevision, session: context.session as unknown as Row,
         startedAt, allowanceDeadline: Date.now() + allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
-        identities: new Map(), budgetMs, deferred: [], investigators: [], named: [], shown: {scenes: new Set(), people: new Set(), passages: new Set()}, passages: [],
+        identities: new Map(), budgetMs, deferred: [], investigators: [], named: [], shown: {scenes: new Set(), people: new Set(), passages: new Set(), pending: new Set()}, passages: [],
         guarded: [], guardedShown: 0,
         prescreenSpent: {reads: 0, jev_calls: 0, ms: 0}};
       const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
@@ -845,6 +864,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     pi.events.on('coc:kernel-bridge', (data: KernelBridge) => { bridge = data?.call ? data : undefined; });
     pi.events.on('coc:operation-dispatcher', (data: OperationGateway) => { gateway = data && typeof data.dispatch === 'function' ? data : undefined; });
     pi.events.on('coc:turn-close', (data: TurnClosePort) => { closer = data && typeof data.verdict === 'function' ? data : undefined; });
+    pi.events.on('coc:source-answers', (data: SourceAnswersPort) => { consultations = data && typeof data.take === 'function' ? data : undefined; });
     // The run owns the prescreen on this engine (§135.6); the context hook injects what the run prepared.
     const announce = () => { pi.events.emit('coc:loop-engine', {engine: 'hybrid-v1', prescreen: 'run'}); };
     announce();

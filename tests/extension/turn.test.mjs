@@ -8,6 +8,7 @@ import {join} from 'node:path';
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { extensionWords } from "../../extensions/ui/words.ts";
+import { KernelError } from "../../extensions/kernel/client.ts";
 import { assistantTexts, customMessages, openTable, waitFor, waitForIdle } from "./harness.mjs";
 
 const SEVEN = ["apply", "ask", "look", "lookup", "narrate", "recall", "resolve"];
@@ -261,30 +262,104 @@ test("a player input rejected after a source timeout gets a fresh bounded close-
 	assert.ok(deliveryTexts(table).includes(waitNotice));
 });
 
-test("a source-wait steer is spent once so the Keeper's own prose still closes the turn", async t => {
-	// The real Cold Harvest turn hung here: the Keeper answered the wait with prose instead of a narrate
-	// call, the host dropped that text on every leg, and once the first steer was spent agent_end stopped
-	// steering -- leaving the turn open with nothing delivered, so every later player input failed
-	// turn_state. The drop is worth one leg; after that the prose closes the turn as an implicit narrate.
-	const notice = "The farm's source is still being read, so you have not set out and no time has passed.";
-	const table = await openTable({ responses: [
+test("§22.4.4 a pending text read with a draft delivers the draft: no reading_wait drop, no steer, the prose is the turn's narrate", async t => {
+	// SL-37 (spec pi-native-single-loop, ruling "Reading never holds a turn" (c)). This used to drop the draft once and steer
+	// the Keeper to narrate the wait (the Cold Harvest fix kept that to one leg): on 血色公路 a player who declared a drive
+	// read only the host notice, four times, and long gate #3's t10 lost its first draft at 149 s. The draft is the delivery.
+	const draft = "You fold the map on your knee and ask the driver how far the farm still is.";
+	// The fake kernel has someone on stage; the §40 speech steer is another concern and is switched off here.
+	const table = await openTable({ env: { PI_COC_SPEECH_STEER: "0" }, responses: [
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "farm", question: "arrival details" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage(notice),
-		fauxAssistantMessage(notice),
+		fauxAssistantMessage(draft),
+		fauxAssistantMessage("a second leg nobody should ask for"),
 	] });
 	t.after(() => table.dispose());
 	table.emit("coc:reading-bridge", { async ensure() {
-		throw Object.assign(new Error("source read timed out"), { details: { reason: "reading_timeout" } });
-	} });
+		throw Object.assign(new Error("source read timed out"), { details: { reason: "reading_timeout", read: { purpose: "detail", focus: "farm", question: "arrival details" } } });
+	}, reading() { return true; } });
 
 	await table.session.prompt("I set out for the farm.");
 	await waitForIdle(table.session);
 
-	assert.equal(table.kernelRequests().filter(row => row.method === "table.narrate").length, 1,
-		"the second prose leg closes the turn through narrate instead of hanging it open");
-	assert.equal(assistantTexts(table.session).at(-1), notice, "the player finally sees the honest wait notice");
-	assert.equal(customMessages(table.session).filter(row => row.details?.kind === "reading-wait").length, 1,
-		"the source-wait steer is spent once, not re-sent on every leg");
+	const narrates = table.kernelRequests().filter(row => row.method === "table.narrate");
+	assert.equal(narrates.length, 1, "the draft closes the turn");
+	assert.equal(narrates[0].params.implicit, true);
+	assert.equal(narrates[0].params.text, draft, "the delivered receipt is the Keeper's draft, nothing spliced in");
+	const delivery = table.telemetry().filter(row => row.lane === "delivery");
+	assert.deepEqual(delivery.filter(row => row.reason === "reading_wait"), [], "no reading_wait drop");
+	assert.equal(delivery.filter(row => row.reason === "reading_wait_draft_kept").length, 1, "the kept draft is a recorded decision");
+	assert.equal(customMessages(table.session).filter(row => row.details?.kind === "reading-wait").length, 0, "no reading-wait steer");
+	await waitFor(() => delivery.concat(table.telemetry().filter(row => row.lane === "delivery")).some(row => String(row.reason).startsWith("preparation_wait_notice")),
+		{ label: "the host's decision about the notice" });
+	assert.deepEqual(customMessages(table.session, "coc-delivery").filter(row => row.details?.preparation_wait), [],
+		"a delivered draft is the turn's answer: no source-wait notice beside it");
+	const withheld = table.telemetry().filter(row => row.reason === "preparation_wait_notice_withheld");
+	assert.deepEqual(withheld.map(row => row.cause), ["draft_delivered"]);
+});
+
+test("§22.4.4 a pending text read with no draft at all gets the host's source-wait notice, not the generic one", async t => {
+	const thought = () => fauxAssistantMessage([{ type: "thinking", thinking: "private Keeper reasoning" }], { stopReason: "stop" });
+	const table = await openTable({ responses: [
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "farm", question: "arrival details" })], { stopReason: "toolUse" }),
+		thought(),
+		thought(),
+	] });
+	t.after(() => table.dispose());
+	table.emit("coc:reading-bridge", { async ensure() {
+		throw Object.assign(new Error("source read timed out"), { details: { reason: "reading_timeout", read: { purpose: "detail", focus: "farm", question: "arrival details" } } });
+	}, reading(_mid, params) { return params.focus === "farm"; } });
+
+	await table.session.prompt("I set out for the farm.");
+	await waitForIdle(table.session);
+	await waitFor(() => customMessages(table.session, "coc-delivery").length > 0, { label: "the settled run's notice" });
+	const notices = customMessages(table.session, "coc-delivery");
+	assert.deepEqual(notices.map(row => row.details.preparation_wait ?? null), [{ kind: "source", name: "farm" }], "the source-wait notice, once");
+	assert.equal(notices.filter(row => row.details.turn_unfinished).length, 0, "not the generic one beside it");
+	const row = table.telemetry().find(entry => entry.reason === "preparation_wait_notice");
+	assert.equal(row?.fallback, "no_draft");
+	assert.equal(table.kernelRequests().filter(entry => entry.method === "table.narrate").length, 0, "nothing was delivered in the Keeper's voice");
+});
+
+test("§22.4.4 no draft, and the read is no longer in flight: the generic notice, not a stale source-wait one", async t => {
+	const thought = () => fauxAssistantMessage([{ type: "thinking", thinking: "private Keeper reasoning" }], { stopReason: "stop" });
+	const table = await openTable({ responses: [
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "farm", question: "arrival details" })], { stopReason: "toolUse" }),
+		thought(),
+		thought(),
+	] });
+	t.after(() => table.dispose());
+	table.emit("coc:reading-bridge", { async ensure() {
+		throw Object.assign(new Error("source read timed out"), { details: { reason: "reading_timeout", read: { purpose: "detail", focus: "farm", question: "arrival details" } } });
+	}, reading() { return false; } });
+	await table.session.prompt("I set out for the farm.");
+	await waitForIdle(table.session);
+	await waitFor(() => customMessages(table.session, "coc-delivery").length > 0, { label: "the settled run's notice" });
+	const notices = customMessages(table.session, "coc-delivery");
+	assert.equal(notices.filter(row => row.details.turn_unfinished).length, 1);
+	assert.equal(notices.filter(row => row.details.preparation_wait).length, 0);
+	assert.equal(table.telemetry().find(entry => entry.reason === "preparation_wait_notice_withheld")?.fallback, "no_draft");
+});
+
+test("§22.4.4 a reading failure never reaches the prose: the refusal hands the Keeper no line for the player, and the delivered receipt is the draft", async t => {
+	const draft = "The clerk's ledger stays shut under your hand while you study the room.";
+	const table = await openTable({ env: { PI_COC_SPEECH_STEER: "0" }, responses: [
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "ledger", question: "what the ledger says" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage(draft),
+	] });
+	t.after(() => table.dispose());
+	table.emit("coc:reading-bridge", { async ensure() {
+		throw new KernelError({ code: "needs", message: "the reader host shut down", details: { reason: "reading_failed", read: { purpose: "detail", focus: "ledger", question: "what the ledger says" } } });
+	}, reading() { return false; } });
+	await table.session.prompt("I read the ledger.");
+	await waitForIdle(table.session);
+	const refusal = table.session.messages.find(message => message.role === "toolResult" && message.toolName === "lookup");
+	const text = JSON.stringify(refusal?.content ?? "");
+	assert.match(text, /Only the source material for ledger is unavailable/, "the refusal is the host's source-material fix (§22)");
+	assert.doesNotMatch(text, /tell (the player|them)|the host itself tells/i, "no instruction to put the failure in front of the player");
+	const narrates = table.kernelRequests().filter(row => row.method === "table.narrate");
+	assert.equal(narrates.length, 1);
+	assert.equal(narrates[0].params.text, draft, "the delivered receipt is the Keeper's draft");
+	assert.deepEqual(table.telemetry().filter(row => row.lane === "delivery" && row.reason === "reading_wait"), []);
 });
 
 test("a settled thinking-only run returns a service notice and releases the turn", async t => {

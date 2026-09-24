@@ -69,7 +69,8 @@ async function fixture(t){
     node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['scene-dock','scene-warehouse']};
   await finish(opening,draft);
   const acceptAnswer=async(campaign,question,answer)=>{
-    const scope=campaign?{campaign}:{},requested=await call('module.read.request',{module_id:mid,...scope,purpose:'answer',focus:'Harbor bell',question,foreground:true});
+    const scope=campaign?{campaign}:{},requested=await call('module.read.request',{module_id:mid,...scope,purpose:'answer',focus:'Harbor bell',question,foreground:true,memo:false});
+    // memo:false (§22.4.3): the fixture accepts a new answer on a focus the campaign already consulted, so it reads past the memo.
     const job=await call('module.read.claim',{module_id:mid,...scope,owner:'source-answer-fixture'});assert.equal(job.job_id,requested.job_id);
     const answerDraft={status:'answered',answer,source_refs:refs,limitations:'Only the cited authored notice is established.'},draftPath=join(job.work_dir,'draft.json'),reviewPath=join(job.work_dir,'review.json');
     await save(draftPath,answerDraft);await save(reviewPath,{draft_sha256:sha(await readFile(draftPath)),checked:[{

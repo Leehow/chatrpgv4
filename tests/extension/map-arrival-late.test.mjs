@@ -1,12 +1,12 @@
 /**
- * SL-34 (spec pi-native-single-loop, Ruling "Reading never holds a turn"; contract §107.1, §22.4.3, §39.2).
+ * SL-34 (spec pi-native-single-loop, Ruling "Reading never holds a turn"; contract §107.1, §22.4.5, §39.2).
  *
  * On the emitted kernel, over a read PDF whose index marks the Tower with a map: the table moved into the Tower while
  * the map was still being read, and the reader published it afterwards. On the first turn after that publication the
  * kernel mints the late first-arrival card; here, at the extension seam with the hybrid-v1 engine and a faux Keeper:
  * - the host renders its derivative through the same hop as an apply's, and the card rides that turn's delivery;
  * - the Keeper's `coc-clerk` note says the map arrived, once, and nothing private reaches the Keeper;
- * - `look {focus: "map"}` on a map still being read never holds the turn (§22.4.3): the host queues the reading in the
+ * - `look {focus: "map"}` on a map still being read never holds the turn (§22.4.5): the host queues the reading in the
  *   background and answers `map_preparing` at once.
  */
 import { strict as assert } from "node:assert";
@@ -138,7 +138,7 @@ test("§107.1 at the seam: the map published after the arrival is on the next tu
 	}
 });
 
-test("§22.4.3 at the seam: look focus=map on a map still being read answers map_preparing at once and never waits", async (t) => {
+test("§22.4.5 at the seam: look focus=map on a map still being read answers map_preparing at once and never waits", async (t) => {
 	const table = await openTable({ realKernel: true, seedCampaign: false, prepareWorkspace: towerWithALateMap(false),
 		responses: [fauxAssistantMessage([fauxToolCall("look", { focus: "map", name: "Harbor chart" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "你在塔下站了一会儿。" })], { stopReason: "toolUse" })] });
