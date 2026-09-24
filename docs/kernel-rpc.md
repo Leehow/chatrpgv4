@@ -17205,6 +17205,15 @@ itself on `coc:loop-engine` (`{prescreen: "run"}`), and the read hands its packe
 prescreen slot of the Keeper's request, under the same byte rules and the same `delivered` telemetry as before.
 NPC advice preparation is unchanged.
 
+*When the read runs without it (2026-09-24, after live gate #4).* The prescreen runs only when the engine has a Jev
+decision port, the Jev preselect setting is on (`ext.jev.preselectEnabled`; in source mode `PI_COC_JEV_PRESELECT=1`,
+§124.10), the read bound the run, and the allowance is not spent. Live gate #4 was launched from source mode without
+`PI_COC_JEV_PRESELECT`, so every read of that table ran without material (`prescreen: {status: "not_run"}`) while the
+replays, which set it, carried 10 materials on the same state; the owner's App has the setting on (the SL-00
+inventory). The read row's `prescreen` now says which condition failed: `{status: "not_run", reason: "no_jev" |
+"preselect_off" | "no_binding" | "allowance_spent" | "no_bridge"}`. A live gate of this engine launches with the
+setting as the App has it.
+
 ### 135.7 Telemetry
 
 - `lane: "route"`, one row per Jev answer. It carries `purpose` (`route`, `bind` or `bind-ordinary`), `run`,
