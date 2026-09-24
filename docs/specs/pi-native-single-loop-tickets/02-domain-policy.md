@@ -395,3 +395,25 @@ draft was gone, and the run ended `turn_close_steer_spent:no_delivered_evidence`
   of their own.
 - The fallback draft goes through §128.3 attribution. With Jev unreachable, that draft goes out without the say
   tokens the steer asked for.
+
+### 2026-09-24 — live gate #5 on the integration branch `a575e01e6` (gate #4 + SL-16 turn-close fallback + SL-13 follow-up + prescreen on via `PI_COC_JEV_PRESELECT=1`; driver.py, hybrid-v1, grok-4.7-build-fast low, campaign `gate5-haunting-0259`)
+
+Pre-registered in the session scratchpad (`live-gate-5-preregistration.md`). Same three sentences. First driver table with the prescreen on, matching the App.
+
+| turn | wall | model calls (s) | prescreen | compile | clerk executed | delivered |
+|---|---|---|---|---|---|---|
+| 1 accept + Globe | 66.1 s | 3 (43.4: 24.8 commission + 6.9 + 11.7 compose) | ran at the first read (7 Jev, 5 materials, 3.1 s); `allowance_spent` at the second | after the clue unlock: ask = obligation 0.92, addressee none 0.81 → correctly no check | nothing (the Keeper bundled the move with the commission's six effects; lane 7.7 s) | yes (`text_beside_tool_calls` drop recorded, then implicit narrate) |
+| 2 clippings | 41.4 s | 3 (25.5) | **fallback `binding_changed`, 0 materials, 6.9 s spent** | ask none 0.20, addressee unclear 0.21 → nothing | nothing | yes; Persuade 65/40 failure with the Keeper's claim; a speech steer (`unwrapped_quote`) cost one extra compose |
+| 3 punch Knott | 58.7 s | 5 (36.7) | ran twice (6.1 s finish_partial + 2.4 s timeout) | move 0.98 → executed; second compile addressee Knott 1.0, act combat 0.90 but no target rows outside a session → route | move; Knott's defence (fight back, stated); disposition Jev 0.28 → Keeper (9.8 s) | yes; looks 0; carried scene 3,013 B + Knott's card 3,725 B with mechanics + session |
+
+Scored: (1) met, with turn 2's fallback noted. (2) compile row, no premature check, delivered: met; wall 66.1 s and clerk move: not met (the commission turn's floor is the Keeper's own 24.8 s bookkeeping call). (3) delivered, ≤ 45 s, obligation on the roll: met; compile selection, clerk check, ≤ 2 calls: not met, all downstream of the prescreen fallback. (4) all met (first time). (5) all met: every turn delivered, every drop has a reason row, no `infer(bind)`, no stall. (6) met.
+
+Findings:
+- **Prescreen `binding_changed` fallback** (turn 2): assertSnapshot in extensions/table/prescreen.ts throws when any of 13 binding keys moved during the run; turn 1's post-turn lanes (npc, journal, memory, continuity review) land while turn 2's prescreen runs. Without material the compile is a coin flip (ask 0.20 here, 0.92 with material on turn 1). Fix in progress on `claude/sl17-20260924`.
+- **Prescreen cost**: 3.1 s, 6.9 s (wasted), 6.1 + 2.4 s per turn; `loop_packing failure: packing_limit` on every round. Same branch reports it.
+- **Disposition never binds** (0.31 / 0.28 / 0.59 across gates): each fight pays a ~10 s Keeper step for it. A rules default from the card (SL-15 already carries `combat_disposition`/`combat_tactic`) is the SL-12-shaped fix. Follow-up to file.
+- **Attack predicate needs a session**: outside a fight the compile has no target rows, so the first punch always goes to the Keeper (13.6 s here, with a refused resolve+apply). Follow-up: target rows from the people present when act = combat.
+- **Admission lane** 2.5–7.7 s per write, still never `typed`.
+- Gate #3 → #5 on the fight turn: 58.9 → 44.2 → 58.7 s (this one carried a real hit and Knott's fight-back), 8 → 7 → 5 calls, looks 3 → 1 → 0.
+
+Evidence: `chatrpgv4-wt-integ-sl/.coc/campaigns/gate5-haunting-0259/{telemetry.jsonl,turns/000{1,2,3}.json}`, `.coc/playtests/gate5-haunting-0259-20260924T065940Z/`.
