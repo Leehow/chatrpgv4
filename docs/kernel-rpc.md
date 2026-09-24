@@ -2580,6 +2580,49 @@ output bound), `tests/extension/reading-service.test.mjs` (a stage-lease refusal
 with the typed refusal; a transport failure gets two; background hand-off at close),
 `Electron/packages/pi-backend/test/coc-onboarding.test.ts` (the converse title).
 
+### §20 addendum 3 — reads during play pay from a lease sized to the book, and an overrun fails the call, not the lease (2026-09-24, SL-41; amends §20 addendum 2)
+
+**Evidence** (SL-29A on batch 4, 血色公路, 111 pages, campaign `sl29ab4-xuese-2401`). Addendum 2 sized only the import's
+stages. Every reader child of a read raised during play still took `independentProviderBudget` (`runtime/tasks.ts`:
+1,000,000 input tokens, 65,536 output, US$10, 16 actions) and the per-call output default of 8,192. The turn-blocking
+`last-chance-bar` read failed four rounds on it (`read-6` ×2, `read-12` ×2), each `budget_input_tokens` with `used`
+505,061–554,309, `held` 0 and the next image call asking for 500,000 (the reader's whole context): about ten real calls
+fill half the lease and the eleventh image call cannot be reserved. A consultation (`read-9`) ran out of its 16 actions.
+On the output side, `read-5` (`esso-station`) lost both its rounds and `read-4` (`church-lane`) five review attempts to a
+call that reported 8,414–12,554 output tokens against the 8,192 bound: an overrun cancelled the child's whole lease.
+
+**1. The in-play reads are stages of the same table.** `READING_STAGE_BUDGET.share` gains `detail` 0.25, `answer` 0.1
+and `map` 0.1: a play read reads a focused part of the book, and on any book under about a thousand pages the floor
+decides (8 whole-context reservations, 64 actions). A reading job that has no stage lease (§20 addendum 2 item 1) and
+whose purpose is `detail` (`map` when `material: "map"`) or `answer` is sized once, when the host starts it, by
+`readingStageBudget(stage, {pageCount: source.page_count, perPage: measuredPageCost(<the queue's module directory>)})`, and
+`{lane: "reading", event: "stage_budget", module_id, campaign, job_id, purpose, ...the size}` is written. The size travels
+with each reader child of the job (`ReaderRequest.readingLease`, host-only), and `runtime/tasks.ts` opens that child's
+lease from it (`openStageProviderBudget`) instead of the fixed one. It stays per child: an author round and each review
+unit have their own, so a refusal in one round leaves the next round a fresh lease (addendum 2 item 3 unchanged, no
+`final`). The lease bounds each call's output at `callOutputTokens` (32,768), as the import stages do. The refusal
+reasons of addendum 2 apply unchanged. Index, skeleton, opening and guidance jobs outside a stage lease keep the fixed
+lease; `PI_COC_READER_CMD` (no Pi child, no provider channel) still runs with none.
+
+**2. An overrun fails the call, not the lease.** For a stage lease (every import stage and every play read above): when a
+settle reports more than the call reserved in some dimension and the lease can still pay it — no dimension of the lease
+goes below zero once the actual usage is charged — the actual usage is charged, the call is recorded as refused with the
+typed record of addendum 2 (`reason: "budget_output_tokens"` for the output bound, `code: "task_budget_overrun"`,
+`overrun: true`, `requested` the reported amount, `reserved` the bound), and the lease is **not** cancelled: the child's
+next call reserves as usual and the round goes on. The reader outcome carries these records as `overruns`, its
+`lane: "reading"` round row carries `overruns` (their count), and each writes `{lane: "reading", event:
+"provider_overrun", module_id, campaign, job_id, purpose, phase, round, ...record}`. An overrun the lease cannot pay (a
+dimension in debt) cancels it as before, with the same refusal. Leases that are not reading stages (the Keeper's turn,
+the lanes, the fixed independent lease) keep cancelling on any overrun.
+
+*Tests.* `tests/extension/reading-stage-budget.test.mjs` (the three new shares on the page-count fixture: floor, share,
+ceiling, measured per-page cost; an overrun absorbed by a stage lease and one that leaves it in debt);
+`tests/extension/provider-refusal.test.mjs` (through the real child channel: an overrun on a stage lease is typed on the
+call and the next call is dispatched; a default lease still cancels); `tests/extension/reading-play-lease.test.mjs`
+(`runtime/tasks.ts` opens the sized lease for a play read: the Masks shape of three image calls charged whole passes on a
+111-page book where the fixed lease refused the third, and the reading service sizes a `detail`, `answer` and map job
+and writes the row). Mutations in the SL-41 ticket's Comments.
+
 ## 21. 调查员库：建一次，之后哪一局都能用（切片 12，票 #31）
 
 用户 2026-09-06 的四条拍板：**载入整卡快照原样带过**；**库里的卡与新模组时代不符也允许，原样不动**；**在战役里玩过之后每回合自动回流**；建卡与载入都要有入口。
@@ -2960,6 +3003,70 @@ once `needs` with `details.reason: "map_preparing"`, the descriptor and the job,
 when it is published and the place is narrated from the scene meanwhile. The look is not retried in that turn, and a
 settled (`unusable`) map answers `details.reason: "map_unusable"`. A descriptor without `material` is text and keeps
 the wait, the single automatic repair and the timeout exactly as written above.
+
+### 22.4.6 Reading capacity belongs to the turn: a blocking read goes first, background reads yield and never take the last slot (2026-09-24, SL-45; amends §22.2, §22.4.3 and §61)
+
+The owner's ruling (2026-09-24): reading capacity is for the turn. A read that holds a turn takes precedence over reads
+that do not; background reads yield a slot to a blocking read and never occupy the last one.
+
+**Evidence** (SL-29A on batch 4, 血色公路, campaign `sl29ab4-xuese-2401`, the fork's `deepen-queue.json` and the
+campaign's `lane: "reading"` rows). §61's rule was "one foreground and two background" *at claim time*, counted by each
+job's `foreground` flag. A demotion (§61, and §22.4.3's consultation past its 8 s allowance) turns a running blocking read
+into a background one without giving anything back, so background reads could hold all three slots: at 17:23:40 they
+were `read-4` (a read-ahead `detail` of `church-lane` nobody had asked about, 14 minutes, most of it output overruns),
+`read-9` (a consultation demoted at 17:21:21) and `read-11` (a consultation inside its allowance, demoted 8 s later). The
+turn-blocking `last-chance-bar` read `read-6` became blocking at t17's move (17:24:51.33) and was claimed 85 ms later
+only because `read-9` had failed at 17:24:16; its row's `queue_wait_ms: 379415` counted from its queueing as a read-ahead
+at 17:18:32, not from the moment it began to hold a turn, so the evidence could not tell a slot wait from a background
+wait. What t17 and t18 then waited on was the read itself refused by its fixed lease (§20 addendum 3).
+
+**Two classes, by the §61 flag at the moment of the decision.**
+- *Blocking*: a job whose `foreground` is set — a turn (or an import stage) is waiting on it now: a `detail`,
+  `material_pending` or opening read in its foreground wait, a consultation inside its allowance.
+- *Background*: every other job — a consultation past its allowance, a map (§22.4.5), a read-ahead, the index, and any
+  read whose last waiter left (§61's demotion).
+
+**Capacity.** `READING_SLOTS` (3, a named default in `kernel-ts/modules/reading.ts`) per module queue (the library's, or
+a campaign fork's). `module.read.claim` gives a pending blocking read any free slot; it claims a background read only
+while at least two slots are free, so a background read never takes the last one. Pending reads are ordered blocking
+first, then opening, then detail and answer, then the index, then first queued. A background read that finds only the
+last slot free is **paused**: it stays `queued` and is claimed when a slot frees. §22.2.1's one-focus rule is unchanged.
+
+**Displacement, not cancellation.** When a blocking read is pending, the one-focus rule lets it run, and every slot is
+held, the claim answers `{job_id: null, displace: <job_id>}` naming a running background read owned by the claiming host
+(`owner`): the one claimed most recently (`claimed_at`), which has the least work to lose. The host stops that job's
+reader child and gives the slot back with a new method; its next claim places the blocking read. A blocking read never
+displaces another blocking read; a background read never displaces anything; nothing is displaced on a clock.
+
+**`module.read.yield {module_id, job_id, lease, campaign?} -> {job_id, state, displaced}`.** Only the running attempt that
+holds `lease` may yield. The job returns to `queued` with its attempt directory kept (its next claim resumes from it,
+`resume_from`, §22.2), its publication lease is released, `displaced` counts how often it was displaced, and it is not
+finished: no `failed`, no `cancelled`, no `refusal`. A job that is no longer running answers its present `state`
+(idempotent); an unknown job or another attempt's lease is `invalid_params`. It is routed like `module.read.finish` —
+to the workspace whose queue holds that job id and lease — and never forks a campaign's module.
+
+**The telemetry names the class and the wait.** The kernel keeps `class_at` on each job: set when it is queued, promoted
+to blocking, demoted, or yielded. The host's `concurrency` row gains `class: "blocking" | "background"` and `slot_wait_ms`
+(milliseconds from `class_at` to the claim: how long the job waited *as what it is now*); `queue_wait_ms` (from the first
+queueing) is kept. A displacement writes `{lane: "reading", event: "displaced", module_id, campaign, job_id, purpose, focus,
+for_job, ran_ms}` once the job has been returned; a yield the kernel refused writes `yield_failed` with the detail, and the
+job is then left to the claim's stale recovery (§22.2) exactly like a hand-off (§20 addendum 2 item 5).
+
+**The host.** The reading service's pump claims past its own capacity only to place a blocking read one of its requests
+is waiting on; the process-wide reader-child permits (§22, 40 in all, 8 background) are unchanged.
+
+**Three ends (§31).** *Writer:* the kernel (`claim`'s class rule and `displace`, `yield`, `class_at`, `claimed_at`) and the
+host's displacement. *Reader:* the host's pump and the `concurrency` / `displaced` rows. *Actor:* none model-facing; the
+Keeper never sees slots.
+
+*Tests.* `tests/extension/reading-priority.test.mjs`: on the kernel, a background read never takes the last slot and
+waits while a blocking read takes it; three background reads holding every slot (after demotion) make a blocking claim
+answer `displace` with the youngest, the yield returns it `queued` with its attempt kept, the blocking read then claims,
+and the displaced read resumes from its attempt when a slot is free. On the reading service over that kernel, a blocking
+`detail` read arriving while three background consultations hold the slots is claimed within the consultation allowance,
+the displaced consultation is back in the queue (not failed or cancelled), and the rows name the classes and the wait.
+`tests/extension/prefetch-scheduling.test.mjs`'s claim sequence is amended to the last-slot rule. Mutations in the
+SL-45 ticket's Comments.
 
 ### 22.5 开场、失败与旧数据
 
@@ -11188,6 +11295,11 @@ library, and concurrency stays at one foreground plus two background leases for 
 Ordering among live foreground reads is still first-come-first-served: that a read for the party's
 current location should outrank an older live foreground read is a separate question this evidence
 does not settle, because only one wait was ever live at a time here.
+
+*2026-09-24 (SL-45):* the capacity rule in the paragraph above is replaced by §22.4.6: a blocking read takes any free
+slot, a background read never takes the last one, and a blocking read that finds every slot held displaces the youngest
+background read (returned `queued` with `module.read.yield`, never cancelled). The flag, the demotion and its trigger
+are unchanged.
 
 ## 62. A failed read is not an answer (2026-09-16)
 
