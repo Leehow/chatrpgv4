@@ -2415,6 +2415,39 @@ remains pending, and legacy synthetic fold tests are not gameplay evidence.
 - 同一本再跑一次：页文件复用，飞桨零调用。
 - 真桌：用这本书新建战役开三回合，开场材料来自构建而不是临场翻书。
 
+### §20 addendum — an unread book: the first reading comes before anything reads a graph (2026-09-24, SL-32)
+
+The production import is §22, not the historical `ingest` above; this addendum states the order the
+App's import (`inspect` → `guidance` → `opening` → `converse`, `pipicoc/onboarding-worker.ts` run by
+`Electron/packages/pi-backend/src/coc-onboarding.ts` through `runtime/preparation.ts`) owes a book
+nobody has read yet.
+
+- **`inspect` registers the source and publishes no graph.** After `module.source.bind` a fresh book
+  has `module.json` with `file_sha256` and `generation: 0`, and no `module-graph.json`.
+- **The `guidance` reading is that book's first reading** (§22.9). It publishes the first graph and
+  the accepted guidance together, under the module metadata lock. Nothing on the import path reads
+  `module-graph.json` before that reading lands: not the worker, not the guidance key, not a check.
+- **The guidance key is computed before the reading, so it binds only what exists before it** —
+  §22.9's source-file binding: the source's `file_sha256`, the selector protocol
+  (`setup-guidance-reference-v2`), the opening *as requested* (empty when the reading is to name it),
+  the play language, the occupation catalog and the author/reviewer/visual-guidance prompts. It never
+  binds the graph. Reading the graph for it failed every unread import with `ENOENT` before any
+  reader started (SL-29A, 血色公路, 2026-09-24; the last good import was 2026-09-18, and `d552e5f77`
+  removed the branch that skipped the read); binding the graph once it exists would re-key the same
+  book after its first reading, so a retry or a second campaign would read its guidance again.
+- **A starter ships its graph and skips the reading, as before.** Its key binds the graph's digest,
+  the opening scene resolved on it and the opening NPCs the author selects a guide from — what
+  `d552e5f77` introduced with the v2 reference protocol, and what the shipped
+  `character-guidance/<tag>.json` bundles are stamped with. That branch is unchanged. The two are
+  told apart by the module having a source file (`file_sha256`), the same discriminator the key used
+  before `d552e5f77` and the one that adds `visual-guidance.md` to the key's prompts.
+
+Tests: `tests/extension/onboarding-worker-unread-pdf.test.mjs` runs the built worker, the emitted
+kernel and the source helper on a PDF the test writes: `inspect` leaves no graph, `guidance` reaches a
+guidance reading (a stand-in reader records its task) instead of `ENOENT`, the queued job's key is the
+source-bound one, and a first graph written afterwards does not change it. It dies on the pre-fix
+order (the `ENOENT` of SL-29A) and on a variant that tolerates a missing graph but binds it once present.
+
 ## 21. 调查员库：建一次，之后哪一局都能用（切片 12，票 #31）
 
 用户 2026-09-06 的四条拍板：**载入整卡快照原样带过**；**库里的卡与新模组时代不符也允许，原样不动**；**在战役里玩过之后每回合自动回流**；建卡与载入都要有入口。
@@ -2711,6 +2744,8 @@ invalidate reuse. Concurrent identical page requests share rendering; persisted 
 require their content hash before delivery. Publication and player-facing source gates are unchanged.
 
 ### 22.9. Early character guidance and background opening (2026-09-08)
+
+> **Order on an unread book: §20 addendum (2026-09-24, SL-32).** The PDF guidance key below is computed before the first reading and never reads the graph.
 
 `module.read.request` additionally accepts purpose `guidance`, `play_language`
 (`zh-Hans` or `en`) and host-owned `guidance_key`. The key binds source bytes,
@@ -14651,6 +14686,14 @@ Cases: `tests/extension/setup.test.mjs`, one per kind. Each dies when the cause 
 generic sentence returns the three refusals to one text, an always-on text filter hides the
 explanation §26 lets the Keeper give, and a cause-blind `agent_end` reports the package read as a
 failed review.
+
+### §98 addendum 5 — setup on an imported book starts from the guidance its first reading accepted (2026-09-24, SL-32)
+
+Setup (`campaign.create` with the pinned `guidance_key`, then §98's card) needs accepted guidance, and on
+a PDF book nobody has read yet that guidance is the book's first reading (§20 addendum 2026-09-24): the
+host keys it from the source file, the reading publishes the first graph with it, and the key it was
+accepted under is the one `converse` pins. No setup step computes a key from, or waits on, a graph that
+the first reading has not published. A starter's setup is unchanged: its key binds its shipped graph.
 
 ## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
 
