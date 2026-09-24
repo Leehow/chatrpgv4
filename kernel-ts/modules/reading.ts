@@ -20,6 +20,7 @@ import { endings } from '../write/source.js';
 import { validSourceLanguage, vocabulary } from './contract.js';
 import { childPath, inside, resolvedPath } from './paths.js';
 import { ModuleStore, validateModuleId } from './store.js';
+import { playsFromReading, bindStarterSource, boundFileIntact, boundReadingState, declaredWindow, freshReadingState, starterDeclarationsForBook, starterSourceDeclaration, windowMatches, windowOf } from './bound-source.js';
 import { applyOpeningChoice, assembleVisual, attachMapCandidates, checkDraft, checkReview, reject, resolveStartScene } from './visual.js';
 import { pageSpans } from './transcription.js';
 const object = (value: any): boolean => isJsonObject(value);
@@ -78,7 +79,9 @@ export class Reading {
     constructor(readonly store: ModuleStore) { }
     private key(mid: string, job: string): string { return `${mid}/${job}`; }
     private ensureIndexJob(meta: Row, queue: Row[]): boolean {
-        if (meta.source !== 'pdf' || !truth(meta.reading_version) || truth(row(meta.reading).index_complete)
+        // Any module with a bound original document gets its reading index, a starter bound to its
+        // window included (§14.16.5): the index is what the capsule's `reading` section lists.
+        if (!object(meta.source_document) || !truth(meta.reading_version) || truth(row(meta.reading).index_complete)
             || queue.some(job => job.purpose === 'index')) return false;
         const source = row(meta.source_document), key = jsonDigest([source.file_sha256, 'index', '', '', '', []]);
         queue.push({ job_id: `read-${queue.length + 1}`, key, purpose: 'index', focus: '', question: '', pages: [], foreground: false, state: 'queued', attempts: 0, at: nowIso() });
@@ -90,7 +93,7 @@ export class Reading {
         this.owned();
         return withExclusiveLock(this.store.context.locks, join(this.store.moduleDir(mid), '.metadata.lock'), async () => { this.owned(); return action(); });
     }
-    static initialState(): Row { return { state: 'indexing', index_complete: false, viewed_pages: [], materials: [], missing: [] }; }
+    static initialState(): Row { return freshReadingState(); }
     async contained(root: string, value: any): Promise<string> {
         if (typeof value !== 'string')
             reject('a path must be a string');
@@ -107,6 +110,10 @@ export class Reading {
         const path = await resolvedPath(string(truth(source.path) ? source.path : ''));
         if (!await this.store.context.snapshots.isFile(path) || await sha256File(path) !== source.file_sha256)
             throw new RpcError('invalid_params', 'the original PDF bytes do not match source.file_sha256', { fix: 'inspect the original PDF again with the host page reader' });
+        // Contract §14.16: a book a built-in starter names is that starter's source, never a new module.
+        if (params.window !== undefined) return this.bindWindow(params.window, path, source);
+        const naming = await starterDeclarationsForBook(this.store.context, source.file_sha256);
+        if (naming.length) return this.bindNamedBook(naming);
         const title = string(truth(params.title) ? params.title : basename(path, extname(path)));
         return withExclusiveLock(this.store.context.locks, join(this.store.root, '.registry.lock'), async () => {
             this.owned();
@@ -131,9 +138,7 @@ export class Reading {
                             if (await this.store.context.snapshots.pathExists(queue))
                                 await rename(queue, join(dirname(queue), `legacy-queue-${uuid()}.json`));
                             await this.store.writeQueue(mid, []);
-                            meta.reading = Reading.initialState();
-                            if (truth(graph))
-                                meta.reading.materials = [{ purpose: 'detail', verification: 'legacy', node_ids: array(graph!.nodes).map(n => n.node_id), generation: meta.generation ?? 0 }];
+                            meta.reading = boundReadingState(truth(graph) ? graph! : null, meta.generation ?? 0);
                         }
                         Object.assign(meta, { reading_version: 1, source_document: { path: 'source.pdf', file_sha256: source.file_sha256, page_count: source.page_count } });
                         meta.page_count = source.page_count;
@@ -172,17 +177,62 @@ export class Reading {
             return { module_id: mid, replayed: false };
         });
     }
+    /** A starter this book belongs to: built-in windows need nothing from the book; the others need
+     *  their window extracted by the host and bound (§14.16.3). No `book-N` module is ever created. */
+    private async bindNamedBook(naming: Awaited<ReturnType<typeof starterDeclarationsForBook>>): Promise<Row> {
+        const windows: Row[] = [];
+        for (const declaration of naming) {
+            const id = declaration.module_id;
+            // Registration is what binds a built-in window, and it is idempotent.
+            if (declaration.built_in || !await this.store.exists(id)) await this.store.register(id);
+            if (declaration.built_in) continue;
+            const meta = await this.store.module(id);
+            if (windowMatches(meta, declaration) && await boundFileIntact(this.store.context, this.store.moduleDir(id), meta)) continue;
+            windows.push({ module_id: id, ...windowOf(declaration), physical_pages: [declaration.book.pages[0] + 1, declaration.book.pages[1] + 1] });
+        }
+        if (windows.length)
+            throw new RpcError('needs', 'this book is the source of a built-in starter: bind the starter\'s page window, not the whole book', {
+                fix: 'extract each window in details.windows from this PDF with the host PDF reader, then call module.source.bind with the extract as source and window {module_id, file_sha256, pages}',
+                details: { reason: 'source_window_required', windows } });
+        return { module_id: naming[0].module_id, replayed: true, starters: naming.map(declaration => declaration.module_id) };
+    }
+    /** Bind the host's extract of a starter's declared window as that starter's original document. */
+    private async bindWindow(window: any, path: string, source: Row): Promise<Row> {
+        if (!object(window) || typeof window.module_id !== 'string' || typeof window.file_sha256 !== 'string' || !Array.isArray(window.pages))
+            throw new RpcError('invalid_params', 'window needs module_id, the book\'s file_sha256 and its pages [first, last]');
+        const id = validateModuleId(window.module_id), declaration = await starterSourceDeclaration(this.store.context, id);
+        if (!declaration || declaration.book.file_sha256 !== window.file_sha256 || !equal(window.pages, declaration.book.pages))
+            throw new RpcError('invalid_params', `starter ${repr(id)} does not declare this window of this book`, {
+                details: { reason: 'source_window_mismatch', declared: declaration ? windowOf(declaration) : null } });
+        if (!await this.store.exists(id)) await this.store.register(id);
+        if (declaration.built_in) return { module_id: id, replayed: true, built_in: true };
+        return this.mutex(id, async () => {
+            const folder = this.store.moduleDir(id), meta = await this.store.module(id);
+            if (windowMatches(meta, declaration) && await boundFileIntact(this.store.context, folder, meta))
+                return { module_id: id, replayed: true, window: windowOf(declaration) };
+            await bindStarterSource(this.store.context, folder, meta, declaration,
+                { path, file_sha256: source.file_sha256, page_count: number(source.page_count) }, await this.store.readGraph(id));
+            await this.store.writeModule(meta);
+            return { module_id: id, replayed: false, window: windowOf(declaration) };
+        });
+    }
     async source(meta: Row): Promise<Row> {
         const source = meta.source_document;
         const missing = (message: string): never => { throw new RpcError('needs', message, { fix: 'bind the matching original PDF with module.source.bind', details: { reason: 'needs_source' } }); };
         // Contract §127.2: a module that never came from a document (a built-in starter) has nothing
         // to bind. Its refusal names the reads that do work instead of an instruction the Keeper
         // cannot carry out, and an error's fix is executed literally.
-        if (!object(source) && meta.source !== 'pdf')
-            throw new RpcError('needs', 'this module has no original source document: its authored graph is the whole source', {
+        if (!object(source) && meta.source !== 'pdf') {
+            // §14.16.5: a starter may name a window of a book this installation does not have. That is
+            // still no document for this table; the message says which, the fix is the same reads.
+            const declared = meta.source === 'starter' ? await starterSourceDeclaration(this.store.context, string(meta.id)) : null;
+            throw new RpcError('needs', declared
+                ? `this module names an original source document (${declared.source_id}) that is not bound on this installation: its authored graph is the whole source here`
+                : 'this module has no original source document: its authored graph is the whole source', {
                 fix: 'read what the module authored instead: lookup kind=module with a name or the exact handles already in your capsule (several handles may share one query),'
                     + ' or look focus=npc name=<person>, focus=scene or focus=clues; there is no document to consult or bind for this module',
-                details: { reason: 'no_source_document' } });
+                details: { reason: 'no_source_document', ...(declared ? { source_declared: declaredWindow(declared) } : {}) } });
+        }
         if (!object(source))
             missing('the original PDF is required for further reading');
         let path = childPath(this.store.moduleDir(meta.id), source.path);
@@ -274,7 +324,7 @@ export class Reading {
             return;
         }
         const mid = graph.moduleId;
-        if (!await this.store.exists(mid) || !truth((await this.store.module(mid)).reading_version))
+        if (!await this.store.exists(mid) || !playsFromReading(await this.store.module(mid)))
             return;
         const indexed = new Set((await this.store.sections(mid)).flatMap(section => [section.name ?? '', ...array(section.entities)]).filter(value => typeof value === 'string').map(normalize));
         for (const name of names) {
@@ -293,7 +343,7 @@ export class Reading {
     async queueAdjacentReading(graph: ModuleGraph, scene: Row): Promise<string[]> {
         if (graph.materialOverride) return [];
         const mid = graph.moduleId, queued: string[] = [];
-        if (!await this.store.exists(mid) || !truth((await this.store.module(mid)).reading_version))
+        if (!await this.store.exists(mid) || !playsFromReading(await this.store.module(mid)))
             return queued;
         for (const exit of graph.sceneExits(scene)) {
             if (await this.materialReady(mid, graph.scene(exit.to).node_id))
@@ -320,7 +370,7 @@ export class Reading {
         const mid = validateModuleId(params.module_id), queued: string[] = [];
         if (!await this.store.exists(mid)) return { queued };
         const meta = await this.store.module(mid), reading = row(meta.reading);
-        if (!truth(meta.reading_version)) return { queued };
+        if (!playsFromReading(meta)) return { queued };
         const ask = async (request: Row): Promise<Row | null> => {
             try {
                 const reply = await this.request({ module_id: mid, foreground: false, ...request });
@@ -437,7 +487,7 @@ export class Reading {
             revision: snapshotRevision,
             pdf: join(this.store.moduleDir(mid), 'source.pdf'), file_sha256: source.file_sha256, page_count: source.page_count,
             answers_revision: answerRevision, checked_answers: page, checked_answers_omitted: checked.length - page.length,
-            checked_answers_invalid: invalid, next};
+            checked_answers_invalid: invalid, next, ...(source.window ? {window: source.window} : {})};
     }
     /**
      * §22.2.1: which focus a reading reads, by structure: the graph nodes a focus names by id, handle, name
@@ -1028,9 +1078,10 @@ export class Reading {
         const graph = await this.store.readGraph(mid);
         if (graph && attachMapCandidates(graph, array(meta.reading.map_candidates), mid))
             await this.store.writeGraph(meta, graph);
-        if (seen.has(1) && typeof draft.title === 'string' && draft.title.trim())
+        // A starter's name and languages are its authored graph's; its window's first page is not its title page (§14.16.5).
+        if (meta.source === 'pdf' && seen.has(1) && typeof draft.title === 'string' && draft.title.trim())
             meta.title = draft.title.trim();
-        if (seen.has(1) && typeof draft.language === 'string' && draft.language.trim())
+        if (meta.source === 'pdf' && seen.has(1) && typeof draft.language === 'string' && draft.language.trim())
             meta.languages = [draft.language.trim()];
         meta.reading.viewed_pages = [...new Set([...array(meta.reading.viewed_pages).map(number), ...[...seen].map(page => page - 1)])].sort((a, b) => a - b);
         meta.reading.index_complete = true;

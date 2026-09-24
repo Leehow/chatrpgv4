@@ -34,11 +34,13 @@ export type RuntimeCheck = { kind: "source-draft"; packet: string; draft: string
 export type RuntimeSource = { pdf: string; cache: string };
 export type RuntimeSourceSearch = { pdf: string } & import('../extensions/module/source.ts').SourceSearchOptions;
 export type RuntimeSourceText = { pdf: string } & import('../extensions/module/source.ts').SourceTextOptions;
+export type RuntimeSourceWindow = { pdf: string } & import('../extensions/module/source.ts').SourceWindowOptions;
 export type RuntimePage = RuntimeSource & { page: number; box?: number[]; pixels?: number; format?: "png" | "jpeg" };
 type SourceInfo = Awaited<ReturnType<typeof import("../extensions/module/source.ts").sourceInfo>>;
 type SourcePage = Awaited<ReturnType<typeof import("../extensions/module/source.ts").sourcePage>>;
 type SourceSearch = Awaited<ReturnType<typeof import('../extensions/module/source.ts').sourceSearch>>;
 type SourceText = Awaited<ReturnType<typeof import('../extensions/module/source.ts').sourceText>>;
+type SourceWindow = Awaited<ReturnType<typeof import('../extensions/module/source.ts').sourceWindow>>;
 
 /** Captured deployment inputs are visible only to the host's fixed capability adapters. */
 export interface RuntimeContext {
@@ -60,6 +62,7 @@ export interface RuntimeCapabilities {
 	sourcePage?(context: RuntimeContext, page: RuntimePage, signal: AbortSignal): Promise<SourcePage>;
 	sourceSearch?(context: RuntimeContext, request: RuntimeSourceSearch, signal: AbortSignal): Promise<SourceSearch>;
 	sourceText?(context: RuntimeContext, request: RuntimeSourceText, signal: AbortSignal): Promise<SourceText>;
+	sourceWindow?(context: RuntimeContext, request: RuntimeSourceWindow, signal: AbortSignal): Promise<SourceWindow>;
 }
 
 type ConnectionOptions = Pick<KernelClientOptions, "timeoutMs" | "onDiagnostic" | "onRestart">;
@@ -79,6 +82,8 @@ export interface HostRuntime {
 	sourcePage(page: RuntimePage, signal?: AbortSignal): Promise<SourcePage>;
 	sourceSearch(request: RuntimeSourceSearch, signal?: AbortSignal): Promise<SourceSearch>;
 	sourceText(request: RuntimeSourceText, signal?: AbortSignal): Promise<SourceText>;
+	/** Contract §14.16: extract a physical page window of an original PDF into its own file. */
+	sourceWindow(request: RuntimeSourceWindow, signal?: AbortSignal): Promise<SourceWindow>;
 	close(): Promise<void>;
 }
 
@@ -244,6 +249,7 @@ export function createRuntime(binding: RuntimeBinding, host: RuntimeHostOptions 
 		sourcePage: (page, cancellation) => operation("sourcePage", capabilities.sourcePage && (s => capabilities.sourcePage!(context, page, s)), cancellation),
 		sourceSearch: (request, cancellation) => operation('sourceSearch', capabilities.sourceSearch && (s => capabilities.sourceSearch!(context, request, s)), cancellation),
 		sourceText: (request, cancellation) => operation('sourceText', capabilities.sourceText && (s => capabilities.sourceText!(context, request, s)), cancellation),
+		sourceWindow: (request, cancellation) => operation('sourceWindow', capabilities.sourceWindow && (s => capabilities.sourceWindow!(context, request, s)), cancellation),
 		close,
 	} satisfies HostRuntime);
 }
