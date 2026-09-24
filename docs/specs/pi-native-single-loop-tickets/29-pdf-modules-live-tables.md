@@ -60,3 +60,58 @@ These are the same sentence on the same page. The published copy carries the mis
 Not reached, so not scored: `converse`, the setup session, the script, the pre-registration, the table, and every table class. No campaign exists for book A.
 
 Evidence (git-ignored, kept): `/Users/haoli/leehow/code/chatrpgv4-wt-pdf-a/.coc/playtests/sl29-a-import/{guidance,opening}.events.jsonl` and `/Users/haoli/leehow/code/chatrpgv4-wt-pdf-a/.coc/modules/book-1/`, including `deepen-queue.json` (read-1…5 with states and details), `work/read-{1..5}/attempt-1/` (packets, drafts, `findings.json`, reader and reviewer `*.requests.jsonl`, image logs), `module.json` and `generations/generation-1-…/`.
+
+### 2026-09-24 — book A (血色公路) end to end on `519d7c3e3` (integration `65b1e76b9`: SL-28/31/32/33): import passes, setup passes, 20 turns played, and the investigator never reaches the town
+
+Fresh home `.coc/playtests/sl29-a-run2/home`, a new registration (`book-1`). The App's worker order was spawned as `runtime/preparation.ts` does (`29-book-a/worker.sh`). Model `grok-build/grok-4.7-build-fast` low with the App's grok login, Jev key from the App vault, zh-Hans. This was the only import on the Mac. The script and pre-registration (`29-book-a/script.md`, `29-book-a/preregistration.md`) were committed at `a6326293d` before the table opened. The table was played with `29-book-a/play.py` (one sentence a turn, structural branches only) on driver run `sl29a-xuese-1436-20260924T143912Z`, campaign `sl29a-xuese-1436`, hybrid-v1, PI_COC_JEV_PRESELECT=1. The per-turn structural table is `29-book-a/triage.txt` (from `29-book-a/triage.py`).
+
+**Import (Scope 1).**
+
+| step | wall | model calls (reader+review) | tokens in / out | result |
+| --- | --- | --- | --- | --- |
+| inspect | 1 s | 0 | – | `book-1`, 111 pages, no graph |
+| guidance | 152 s | 10 (6+4), 2 review rounds | 139K / 14K | ready, key `d333f169…`, scene 序幕, generation 1 |
+| opening | 142 s | 21 (11+10), 1 round, 5 units | 409K / 19K | `opening_ready: true`, generation 2 (4 nodes: module, rule 回头或继续，下场一样, 序幕, 欢迎来到"屠宰场"), `installed`. No retry needed and no same-span conflict (SL-33 holds on this book). |
+| converse | <1 s | 0 | – | campaign `sl29a-xuese-1436`, `opening_scene: prologue`, title `血色公路.pdf` |
+| total | ≈ 5 min | 31 | 548K / 32K | – |
+
+The worker's background index (`read-2`) and the detail job for 欢迎来到"屠宰场" (`read-4`) were cancelled when the worker exited (`The runtime owner or operation is closed or cancelled`). The table later redid both in the campaign's fork.
+
+**Setup (live, `driver.py --launcher bin/pi-coc-setup`, run `sl29a-xuese-1436-setup-20260924T143613Z`).** 3 turns, 53 s, 8 tool calls. The assistant opened with the guidance's prologue text and asked one question. The card was drafted from one player sentence: 雷·卡特, Private Investigator, Drive Auto 55 (meets the book's ≥ 55 constraint), revision 2. It was confirmed and handed off (`ready_for_table`). The assistant said that cash is reckoned in the modern era "because the book has no 1975 column". The rulebook's cash table stops at modern, so this is a stated fallback, not a defect.
+
+**Table (Scope 3).** The opening (turn 0, about 53 s after the driver started) landed at the fork sign. The billboard was already behind, so script turn 3 (the billboard) was answered honestly: "小牌不在前头了". No branch fired: `present`, `moved` and `hurt` were false every time.
+
+| class | pre-registered line | measured | verdict |
+| --- | --- | --- | --- |
+| delivery | 20/20 with prose | 20/20 settled, 0 stranded. In 4 turns (t4, t8, t15, t20) the player got **only the host's reading-wait notice** ("本桌需要的一段原文还在读取…随便说句话就能继续"): the Keeper's draft was dropped with `reading_wait`. | fail (4 turns with no fiction) |
+| wall | median ≤ 45 s, ≥ 80% ≤ 60 s | median 30.4 s, 15/20 ≤ 60 s (75%), max 211.5 s. All five over 60 s were the 120 s foreground map wait (t4 156, t8 174, t12 158, t15 164, t20 212). Without them: median 28 s, max 45 s. | fail, one cause |
+| routing | declared move to the graph's destination selected by the compile | the compile selected `apply:move:welcome-to-abattoir` on t4, t6 and t12. The Keeper tried the same move on t1, t7, t8, t14, t15 and t20. **All 9 moves refused**; active scene `prologue` for the whole table, clock 20 min. | routing right, move never lands (see P0) |
+| admission | no row > 12 s; clerk on compile | 7 clerk writes on `compile` at 0 ms. t7 lane `model_error` "Request timed out." after 10.0 s (deepseek-v4.1-flash): the move was refused "review unavailable". t14 `review_pending` at the 13.0 s cap (`cause: cap`). No `review_timeout`. | fail (t14 13.0 s) |
+| binding | `infer(bind)` = 0 | 0. Ordinary checks bound by compile/Jev: Navigate t2, Engineering t5, Spot Hidden t16, Listen t17. | pass |
+| looks | ≤ 1 per turn after first visit | 2 `lookup kind=module` (t14 "马瑟综合商店 阿巴托尔" → not_found, t20 "最后一站食宿"), 0 `lookup kind=source` | pass |
+| prescreen | status per read | `prepared` on every read, 2 candidates each (the scene never changed), 1.3–5.2 s, no fallback, no budget spent by it | pass |
+| drops | every drop has a reason | text_beside_tool_calls 9, floor_steer 4, reading_wait 4, all with rows | pass |
+| fiction/rules | rule holds; people from the book; checks rolled by `resolve`; speech tokens | The Keeper never narrated an arrival it had no receipt for. On t6 it kept the player at the bridge although the sentence said "到了镇口"; on t9–t11 and t13–t18 it said there was nobody to ask. No invented people, no stat blocks, no push. Psychology (t10) was correctly not rolled (no one present). The bridge check rolled **Engineering** (not on the sheet; base value) rather than a skill the investigator has. The verifier flagged player agency on t1 (parked the truck when the player said keep driving) and t15, and uncommitted state on t6 and t16. The t7 narration put host state into the fiction ("服务暂时没接上，你下一条再开过去就行"). Speech rows 0 (no NPC ever). | honest, but dead table |
+| stalls | none; provider errors listed | none at the table (Keeper provider errors 0). In reading: 3 `review_transport_retry` "source reviewer failed" in `read-3` | pass |
+| reading | every foreground read has rows and an outcome; timeouts listed; fork publishes; no same-span failure | the campaign forked at its first scoped read (`module-campaigns/sl29a-xuese-1436/modules/book-1`, now generation 3, 7 nodes: + scene 埃索加油站, clues 镇口人口标牌已经过时 and 加油站前的男人盯着来人). `read-1` index 97 s + audit 38 s, 11 calls. `read-2` detail 欢迎来到"屠宰场" completed 14:40:51 (before t4), 13 calls. `read-3` **map** detail (foreground, raised by the t4 move) 14:42:27–14:59:40, **79 calls (21+58), 2.12M in / 119K out, failed**. `read-4` (the map again) 14 calls, 549K in, read phase `ok: false` at 120 s, left `running` in the queue when the table stopped. | fail (P0 below) |
+
+Cost at the table: 43 Keeper provider calls, 75 lane calls (memory 22, verifier 21, journal 21, admission 11), 43 Jev prescreen deliveries. Reading in the fork: 117 calls, about 3.3M tokens in, most of it the failed map.
+
+**Findings, one root cause each**
+- **P0 routing/reading: first arrival is gated on the scene's map, and a map that fails review blocks the destination for good.** `kernel-ts/modules/reading.ts` `requireArrivalMapMaterial` refuses `apply move` into a scene whose record carries `map_candidates` until a reviewed map that depicts it is published (§107). The scene's own text was ready (`read-2` completed before t4). But the map of Abattoir (`read-3`, question "Prepare the source-backed map Abattoir, Texas that depicts 欢迎来到"屠宰场"…") spent 17 min and 79 calls. It then failed visual review, `invalid_params: visual review did not support ['/nodes/0/properties/map_regions', …/map_regions/1,3,4/source_box/*, …/placement/*]`: the reviewer judged three region boxes misplaced against the printed markers 2b and 2c. §107 says "a false candidate may settle as no usable map; it does not loop". A real map whose regions are refused never settles, so every later move re-raises `material_pending` and re-reads. Nine refused moves in 20 turns; the town (the book's whole play space) was never entered. System gap: a map is orientation material, and a failed or pending map should not hold the move. Settle the move and deliver the map when it lands, or settle the map as unusable after a refused review.
+- **P1 wall: the 120 s foreground wait is spent on the map, per move.** All five turns over 60 s were this wait (t4, t8, t12, t15, t20). The job outlived five waits and was unwaited each time (`unwaited` rows at 14:44:27, 14:48:37, 14:52:36, 14:56:25, 15:01:40).
+- **P1 delivery: a turn whose only action waited on reading delivers no fiction.** On t4, t8, t15 and t20 the Keeper's draft was dropped with `reading_wait` and the player read only the host notice. Per §22.4 the notice is the host's; but a player who declared a drive got neither the drive nor anything else for 2–3 min, four times.
+- **P2 admission: the lane reviewer (deepseek-v4.1-flash) timed out at 10.0 s on t7 and hit the 13 s cap on t14.** Both were the same move (key `868cdeabc5d5`, Jev `typed_refusal` fallback with confidence 0.26 and 0.62). The t7 refusal reached the fiction as "服务暂时没接上" (host state in prose, §47).
+- **P2 reading cost: review transport.** `read-3` had 3 `review_transport_retry` ("source reviewer failed") and 58 review calls across 2 rounds, 2.1M input tokens for one map, which is about 4× the whole import.
+- **P3 rules: the bridge check rolled Engineering**, which the investigator does not have, not a skill on the sheet. The prologue rule (turn back or continue, same end) was never exercised: the player never turned back.
+- **P3 fiction: player agency.** On t1 the Keeper parked the truck when the player said keep driving (verifier `player_agency`, continuity finding). On t15 the Keeper put the player back in the truck and started it. On t16 "引擎没响" contradicted t15 (`uncommitted_state`).
+- **P4 import: title `血色公路.pdf`.** The App passes the upload name, extension included, as the campaign title (`coc-onboarding.ts` `converse`: `title: job.name`).
+- **P4 import: background work dies with the worker.** The worker's own index and detail jobs are cancelled at exit, so the table re-reads them (index 11 calls, detail 13 calls).
+- Held: SL-32 (guidance on an unread PDF) and SL-33 (no same-span refusal, no duplicate opening reading); the fork publishes privately; no provider errors at the table; no stall; no invented NPCs or receipts.
+
+Evidence (git-ignored, kept):
+- import: `/Users/haoli/leehow/code/chatrpgv4-wt-pdf-a/.coc/playtests/sl29-a-run2/{inspect,guidance,opening,converse}.events.jsonl`; library module `…/sl29-a-run2/home/.coc/modules/book-1/`
+- setup: `/Users/haoli/leehow/code/chatrpgv4-wt-pdf-a/.coc/playtests/sl29a-xuese-1436-setup-20260924T143613Z/`
+- table: playtest `/Users/haoli/leehow/code/chatrpgv4-wt-pdf-a/.coc/playtests/sl29a-xuese-1436-20260924T143912Z/` (turn-N.json, events.jsonl); campaign `…/sl29-a-run2/home/.coc/campaigns/sl29a-xuese-1436/` (turns/0000–0020.json, telemetry.jsonl)
+- reading: fork `…/sl29-a-run2/home/.coc/module-campaigns/sl29a-xuese-1436/modules/book-1/` (`deepen-queue.json` with read-3's full refusal, `work/read-{1..4}/`) and `…/sl29-a-run2/home/.coc/reading-telemetry.jsonl`
+- per-turn prose and tool dump (not committed, it carries book-derived text): `…/sl29-a-run2/prose.txt`

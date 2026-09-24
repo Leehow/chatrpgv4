@@ -1,7 +1,7 @@
 """Per-turn structural triage of a driver table (same columns as the long-gate triage): python3 triage.py <campaign> <run>"""
 import json, sys, os, glob, collections, statistics
 W=os.environ.get('WT','/Users/haoli/leehow/code/chatrpgv4-wt-pdf-a'); CID, RUN = sys.argv[1], sys.argv[2]
-C=f'{W}/.coc/campaigns/{CID}'; P=f'{W}/.coc/playtests/{RUN}'
+C=os.path.join(os.environ.get('PI_COC_HOME',W),'.coc','campaigns',CID); P=f'{W}/.coc/playtests/{RUN}'
 rows=[json.loads(l) for l in open(f'{C}/telemetry.jsonl') if l.strip()]
 by=collections.defaultdict(list)
 for r in rows: by[r.get('turn')].append(r)
@@ -35,8 +35,12 @@ for dt in sorted(glob.glob(f'{P}/turn-*.json'), key=lambda p:int(p.split('-')[-1
     m,rec=mech(n)
     ms=[(x.get('kind'), x.get('skill') or x.get('to') or x.get('resource') or x.get('name') or '', x.get('roll') or x.get('after') or '') for x in m]
     san+= [n for x in m if x.get('kind')=='roll' and str(x.get('skill')).upper() in ('SAN','SANITY')]
+    rd=[r for r in R if r.get('lane')=='reading' and (r.get('phase') or r.get('event') in ('stalled','unwaited','concurrency'))]
+    reads=[f"{r.get('purpose')}:{r.get('focus','')}:{r.get('phase') or r.get('event')}:{r.get('ms','')}{'' if r.get('ok',True) else ':FAIL'}" for r in rd if r.get('phase') in ('read','index') or r.get('event')=='stalled' or r.get('ok') is False]
+    srcs=[t for t in d.get('tools') or [] if t['name']=='lookup' and (t.get('args') or {}).get('kind')=='source']
+    timeouts=sum(1 for t in d.get('tools') or [] if 'reading_timeout' in (t.get('result_text') or ''))
     closed=f"{(rec or {}).get('closed_by')}/{(rec or {}).get('closed_how')}" if rec else 'no-record'
-    print(f"{n} | {d['wall_seconds']:.1f} {d.get('settle_class')} | {len(pc)} ({sum(r.get('ms',0) for r in pc)}) | {' / '.join(pre) or '-'} | {'; '.join(comp) or '-'} | {','.join(routes) or '-'} | {'; '.join(binds) or '-'} | {','.join(adms) or '-'} | {','.join(looks) or 0} | {drops} | {' '.join(bud)} | {ends} | {ms} | {closed}")
+    print(f"{n} | {d['wall_seconds']:.1f} {d.get('settle_class')} | {len(pc)} ({sum(r.get('ms',0) for r in pc)}) | {' / '.join(pre) or '-'} | {'; '.join(comp) or '-'} | {','.join(routes) or '-'} | {'; '.join(binds) or '-'} | {','.join(adms) or '-'} | {','.join(looks) or 0} | {drops} | {' '.join(bud)} | {ends} | {ms} | {closed} | reads {reads} src_lookups {len(srcs)} reading_timeouts {timeouts}")
 print('\n=== table-wide')
 w=sorted(walls); print('walls', [round(x) for x in walls]); 
 if w: print('median', round(statistics.median(w),1), '<=60s', sum(1 for x in w if x<=60), '/', len(w), 'max', round(max(w),1))
