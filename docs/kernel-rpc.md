@@ -18703,8 +18703,9 @@ t10's source lookup came one turn after the arrival.
   `reused`, §135.6), structure only: (1) every `kind: "source"` material (a checked answer, a native page, a supported
   consultation: the book's own words) of a read made at that scene; (2) the `graph_entity` materials of the scene's own
   entity (the entity whose `name` is the scene handle) and of every entity one of whose located units names the scene
-  handle as a value (a relation's `to`, an authored `scene_id`): what the module authored about the place and about what
-  is there. Handle equality, never words.
+  handle as a value (a relation's `to`, an authored `scene_id`): what the module authored about the place, about what
+  is there, and about the places that lead to or from it (on the gate state the ground floor's passages held the upper
+  floor and the basement, the places the t11 and t15/t16 source lookups asked about). Handle equality, never words.
 - **Shape.** One view `{focus: "source", name: <scene handle>, view}`. `view` holds one entry per passage: a book
   passage under its material label, `{authority, content, provenance?}`; a graph entity under its locator (`scene:<handle>`,
   `beat:<handle>`), its located units merged into `{entity, authored?, relations?}` (the identity once, not once per
@@ -18715,8 +18716,12 @@ t10's source lookup came one turn after the arrival.
   (12 KiB) is shared, served session, people, scene, then the passages; a view past it is `omitted` with `budget`. No
   kernel read: the row's `reads` does not count it.
 - **The head** adds: the passages are what this run's prescreen located about the scene -- the book's passages, and the
-  module's authored material on it; a module without an original document (a built-in starter) has no more than its
-  authored graph, and `lookup kind=source` answers it `no_source_document`.
+  module's authored material on it. Then the module's source, when the read knows it: the capsule carries `reading` (the
+  book's table of contents, §22) only for a module that came from an original document, so without it the head says this
+  module has no original document, its authored graph is its whole source, these passages are what it says about the
+  scene, and `lookup kind=source` answers `no_source_document` here; with it, that `lookup kind=source` reads the document
+  for what the passages do not cover. (First written as one generic sentence about built-in starters; in three live-Keeper
+  runs of t10 every first response still went to `lookup kind=source` with the passages and that sentence in front of it.)
 - **Why beside the packet.** The packet is the prescreen's answer to the player's request across every family and stays
   as it is (§124.4's delivered accounting reads it). Five source lookups went out with the scene's units in it; the carried
   view names them as the scene's source. The duplicated bytes are measured in the ticket.
