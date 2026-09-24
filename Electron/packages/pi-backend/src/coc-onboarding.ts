@@ -2,7 +2,7 @@
 import type { ChildProcessByStdio } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, mkdirSync, readFileSync, writeFileSync, renameSync, appendFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { extname, join, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 
@@ -38,6 +38,15 @@ const PREPARATION_STOPPED = 'The preparation stopped before it answered. Your so
  */
 function refuse(code: string, message: string): Error {
   return Object.assign(new Error(message), {code});
+}
+/**
+ * The book's name from the upload's file name (contract §98 addendum 6): the extension is the file's,
+ * not the book's, so the campaign `converse` creates is titled `血色公路`, not `血色公路.pdf`.
+ */
+export function bookTitle(name: unknown): unknown {
+  if (typeof name !== 'string') return name;
+  const stem = name.slice(0, name.length - extname(name).length);
+  return stem || name;
 }
 /** What the overlay shows when a phase failed: the same pair, carried on the snapshot. */
 type Refusal = {code: string; message: string};
@@ -289,8 +298,9 @@ export class CocOnboardingHost {
       // language (BUG-039). Codes are settled on the way out as well as on the way in, so a job
       // recorded before this rule still answers with a caption the renderer can find.
       const failure=saved.state==='failed'
-        ? captioned(this.contentRoot,{code:typeof saved.code==='string'?saved.code:'',
-            message:typeof saved.error==='string'?saved.error:''},'preparation_failed')
+        ? {...captioned(this.contentRoot,{code:typeof saved.code==='string'?saved.code:'',
+            message:typeof saved.error==='string'?saved.error:''},'preparation_failed'),
+          ...(typeof saved.reason==='string'?{reason:saved.reason}:{}),...(saved.refusal?{refusal:saved.refusal}:{})}
         : undefined;
       return {stage:saved.stage,progress:saved.progress,candidates:saved.candidates,error:failure,
         state:saved.state==='running'&&!alive?'paused':saved.state,stopping:saved.state==='paused'&&alive};
@@ -391,8 +401,10 @@ export class CocOnboardingHost {
       const latest=this.load(job.id,job.session);
       if(latest.preparation?.[phase]?.attempt!==attempt||latest.preparation[phase].state!=='running')return;
       const failed=captioned(this.contentRoot,refusal(error,'preparation_failed'),'preparation_failed');
+      // A typed refusal (contract §20 addendum 2) stays on the phase: its reason and the ceiling it hit.
       this.patch(latest,{preparation:{...latest.preparation,[phase]:{state:error.code==='needs_choice'?'needs_choice':'failed',
-        attempt,error:failed.message,code:failed.code,candidates:error.candidates}}});
+        attempt,error:failed.message,code:failed.code,candidates:error.candidates,
+        ...(typeof error.reason==='string'?{reason:error.reason}:{}),...(error.refusal&&typeof error.refusal==='object'?{refusal:error.refusal}:{})}}});
     });
   }
   async invoke(params: Row, session: string, model: {id: string; thinking: string; vision: boolean}): Promise<Row> {
@@ -504,7 +516,7 @@ export class CocOnboardingHost {
         // The host injects the extension's difficulty setting (contract §33.1); it is not a
         // player-editable import field, so only the converse run input carries it, never the job.
         const difficulty=params.difficulty&&typeof params.difficulty==='object'&&!Array.isArray(params.difficulty)?{difficulty:params.difficulty}:{};
-        await this.run('converse', {...job,title:job.name,play_language:job.play_language??await this.playLanguage(undefined),...difficulty},job);
+        await this.run('converse', {...job,title:bookTitle(job.name),play_language:job.play_language??await this.playLanguage(undefined),...difficulty},job);
         this.patch(job,{state:'conversing'});
       } else throw refuse('unknown_action', 'Unknown onboarding action');
       return this.withWords(this.snapshot(this.load(job.id,session)),job.play_language);

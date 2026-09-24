@@ -2,7 +2,7 @@ import {afterEach, expect, it, vi} from 'vitest';
 import {mkdir, mkdtemp, readFile,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
-import {CocOnboardingHost} from '../src/coc-onboarding.js';
+import {CocOnboardingHost, bookTitle} from '../src/coc-onboarding.js';
 import {prepareRulesPresentation} from '../../../../extensions/module/character-presentation.ts';
 import {PRESENTATION_REFERENCE_PROTOCOL} from '../../../../runtime/jev/presentation-references.ts';
 
@@ -543,4 +543,38 @@ it('never shows a crashed worker\'s stderr, and keeps it in the event log',async
   const events=await readFile(join(home,'.coc/imports',job.id,'events.jsonl'),'utf8');
   expect(events).toContain('secret/reader.ts');
   expect(NOISE.length).toBeGreaterThan(0);
+});
+
+// SL-35 (contract §98 addendum 6, §20 addendum 2).
+it('titles the campaign with the book, not the upload file name',async()=>{
+  expect(bookTitle('血色公路.pdf')).toBe('血色公路');
+  expect(bookTitle('Call of Cthulhu - Masks of Nyarlathotep (Larry DiTillio, Lynn Willis, Mike Mason etc.).pdf'))
+    .toBe('Call of Cthulhu - Masks of Nyarlathotep (Larry DiTillio, Lynn Willis, Mike Mason etc.)');
+  expect(bookTitle('v1.2 notes.PDF')).toBe('v1.2 notes');
+  expect(bookTitle('.pdf')).toBe('.pdf');
+  expect(bookTitle(undefined)).toBe(undefined);
+  const {host}=await service();
+  const runs:Array<{action:string;data:any}>=[];
+  vi.spyOn(host as any,'run').mockImplementation((action:any,data:any)=>{runs.push({action,data});
+    return action==='guidance'?Promise.resolve({module_id:'book-1',guidance:{scene:'Dock'},guidance_key:'a'.repeat(64)}):
+      action==='converse'?Promise.resolve({}):new Promise(()=>{});});
+  const job=await host.invoke({action:'select',source:'module',module_id:'book-1',name:'血色公路.pdf'},'one',model);
+  await new Promise(resolve=>setTimeout(resolve,0));
+  await host.invoke({action:'converse',id:job.id},'one',model);
+  expect(runs.find(run=>run.action==='converse')!.data.title).toBe('血色公路');
+});
+it('keeps a typed provider refusal on the failed phase and its snapshot',async()=>{
+  const {host}=await service();
+  const refusal={message:"provider_budget_refused: budget_input_tokens (the call asked for 500000 inputTokens; the lease's ceiling is 1000000, 649066 used, 0 held by other calls)",
+    rule:'provider_budget_refused',reason:'budget_input_tokens'};
+  vi.spyOn(host as any,'run').mockImplementation(()=>Promise.reject(Object.assign(new Error(`The reading of "Start: Lima" was refused: ${refusal.message}.`),
+    {code:'needs',reason:'reading_failed',refusal})));
+  const job=await host.invoke({action:'select',source:'module',module_id:'book-1',name:'Masks.pdf'},'one',model);
+  await new Promise(resolve=>setTimeout(resolve,0));
+  const failed=await host.invoke({action:'status',id:job.id},'one',model);
+  expect(failed.preparation.guidance.state).toBe('failed');
+  expect(failed.preparation.guidance.error.reason).toBe('reading_failed');
+  expect(failed.preparation.guidance.error.refusal).toEqual(refusal);
+  expect(failed.error.refusal.reason).toBe('budget_input_tokens');
+  expect(failed.error.message).toMatch(/budget_input_tokens.*ceiling is 1000000, 649066 used/);
 });

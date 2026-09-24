@@ -13,6 +13,7 @@ import { playLanguageTag, resolveUiWords } from '../runtime/ui-words.ts';
 import { prepareUiWords } from '../extensions/module/ui-presentation.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
 import {createFreshSourceNavigator} from '../runtime/jev/fresh-source-navigator.ts';
+import {withStageLease, type ReadingStage} from '../runtime/jev/reading-stage-budget.ts';
 
 /**
  * A refusal the preparation overlay can show (contract §23): its code, and English for the log.
@@ -38,7 +39,8 @@ let reader: ReadingService | undefined;
 let stopping = false;
 const guidanceAbort = new AbortController();
 function stop() {
-  stopping = true; guidanceAbort.abort(); reader?.dispose();
+  // A pause hands the readings nobody waits on to the next owner (contract §20 addendum 2).
+  stopping = true; guidanceAbort.abort(); reader?.dispose({handOff: true});
   // ReadingService releases its claimed jobs before the kernel closes.
   if (!reader) void runtime?.close().catch(reportError);
 }
@@ -196,28 +198,33 @@ async function main() {
       model: () => ({id: input.model, vision: true, thinking: input.thinking}),
       progress: data => emit('progress', data), record: data => emit('telemetry', data)});
     let retry = input.retry === true;
-    const occupations = await call('setup.occupations');
-    const guidanceOptions = {home:input.home,contentRoot:context.contentRoot,module_id:input.module_id,
-      play_language:await playLanguageTag(context.contentRoot, input.play_language),
-      opening:input.start_scene,occupations:occupations.occupations};
-    // On an unread book this guidance reading *is* the first reading and publishes the first graph;
-    // the key is computed before it from the source file alone (§20 addendum 2026-09-24, SL-32).
-    const guidance_key = action==='guidance' ? await guidanceFingerprint(guidanceOptions) : undefined;
-    while (!stopping) {
-      try {
-        const prepared = await reader.prepare({module_id: input.module_id, start_scene: input.start_scene, retry,
-          ...(action==='guidance'?{purpose:'guidance',guidance_key,play_language:guidanceOptions.play_language,occupations:occupations.occupations}:{}),
-          ...(action==='opening'?{targeted:true}:{})},guidanceAbort.signal);
-        if(action==='guidance')return {...prepared,guidance_key,guidance:await acceptedGuidance(input.home,input.module_id,guidance_key!)};
-        return action==='opening'?prepared:await withGuidance(prepared);
+    // Contract §20 addendum 2: this stage's reading pays from one lease sized to the book -- its page count
+    // and the reader's measured cost per page of it -- never from a fixed lease per reader child.
+    return withStageLease(action as ReadingStage, {moduleDir: join(input.home, '.coc/modules', input.module_id), env: context.env,
+      signal: guidanceAbort.signal, report: row => emit('telemetry', {...row, module_id: input.module_id})}, async stage => {
+      const occupations = await call('setup.occupations');
+      const guidanceOptions = {home:input.home,contentRoot:context.contentRoot,module_id:input.module_id,
+        play_language:await playLanguageTag(context.contentRoot, input.play_language),
+        opening:input.start_scene,occupations:occupations.occupations};
+      // On an unread book this guidance reading *is* the first reading and publishes the first graph;
+      // the key is computed before it from the source file alone (§20 addendum 2026-09-24, SL-32).
+      const guidance_key = action==='guidance' ? await guidanceFingerprint(guidanceOptions) : undefined;
+      while (!stopping) {
+        try {
+          const prepared = await reader!.prepare({module_id: input.module_id, start_scene: input.start_scene, retry,
+            ...(action==='guidance'?{purpose:'guidance',guidance_key,play_language:guidanceOptions.play_language,occupations:occupations.occupations}:{}),
+            ...(action==='opening'?{targeted:true}:{})},guidanceAbort.signal,stage);
+          if(action==='guidance')return {...prepared,guidance_key,guidance:await acceptedGuidance(input.home,input.module_id,guidance_key!)};
+          return action==='opening'?prepared:await withGuidance(prepared);
+        }
+        catch (error) {
+          retry = false;
+          if (isKernelError(error) && error.details?.reason === 'reading_timeout') continue;
+          throw error;
+        }
       }
-      catch (error) {
-        retry = false;
-        if (isKernelError(error) && error.details?.reason === 'reading_timeout') continue;
-        throw error;
-      }
-    }
-    throw refuse('preparation_paused', 'Preparation paused');
+      throw refuse('preparation_paused', 'Preparation paused');
+    });
   }
   if (action === 'converse') {
     const campaign=input.campaign;
@@ -240,6 +247,8 @@ function reportError(error: any) {
   emit('error', {message: error?.said === true ? error.message : PREPARATION_STOPPED,
     ...(error?.said === true ? {} : {detail: error?.message === undefined ? String(error) : String(error.message)}),
     code: error?.code, reason: error?.details?.reason, fix: error?.fix,
+    // §22.3.1's refusal, typed for a provider refusal (contract §20 addendum 2): the event log keeps its cause.
+    ...(error?.details?.refusal ? {refusal: error.details.refusal} : {}),
     candidates: error?.details?.candidates?.map((row: any) => ({scene: row.scene, name: row.name, summary:row.summary}))});
   process.exitCode = 1;
 }
@@ -259,7 +268,8 @@ async function run() {
   finally {
     let deadline: NodeJS.Timeout | undefined;
     try {
-      if (reader) await Promise.race([reader.close(), new Promise<never>((_resolve, reject) => {
+      // Contract §20 addendum 2: readings nobody waits on are handed off, not cancelled, at exit.
+      if (reader) await Promise.race([reader.close({handOff: true}), new Promise<never>((_resolve, reject) => {
         deadline = setTimeout(() => reject(new KernelError({code: 'internal',
           message: 'Preparation readers did not stop after cancellation', details: {reason: 'runtime_shutdown'}})), 5000);
       })]);

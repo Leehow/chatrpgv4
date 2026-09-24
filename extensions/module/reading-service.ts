@@ -1,9 +1,10 @@
 /** A single host service for PDF preparation and foreground/background reading. */
-import { readFile, writeFile, mkdir, copyFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir, copyFile, appendFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { KernelError , isKernelError } from "../kernel/client.ts";
-import { readerInput, wakeReaderSlots } from "./reader.ts";
+import { readerInput, wakeReaderSlots, type ReaderOutcome } from "./reader.ts";
+import { providerRefusalText } from "../../runtime/jev/provider-budget.ts";
 import { reviewCandidate } from "./reader-review.ts";
 import { sourceAsset, closeSourceDocuments, sourceRenderVersion } from "./source.ts";
 import { registerSourcePdf, SourceUnreadable } from "./source-registration.ts";
@@ -16,7 +17,7 @@ export interface ReadingOptions {providerBudget?:TaskProviderBudget}
 type Row = Record<string, any>;
 type Call = (method: string, params: Row) => Promise<any>;
 export interface ReadingBridge {
-	prepare(params: Row, signal?: AbortSignal): Promise<Row>;
+	prepare(params: Row, signal?: AbortSignal, options?: ReadingOptions): Promise<Row>;
 	ensure(moduleId: string, params: Row, signal?: AbortSignal, options?:ReadingOptions): Promise<Row>;
 	/**
 	 * §47. Is the reading the Keeper's foreground wait gave up on *still* running? A
@@ -118,6 +119,19 @@ const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 const error = (reason: string, message: string, fix: string, extra: Row = {}) =>
 	new KernelError({ code: "needs", message, fix, details: { reason, ...extra } });
 /**
+ * Contract §20 addendum 2: a round that failed on the provider, typed. A refusal from a lease the job shares
+ * across its rounds (`shared`, a stage lease) is final: the second round would reserve from the same lease.
+ * The error's details carry §22.3.1's `rule`/`reason` strings, so the kernel keeps them on the failed job.
+ */
+function providerFailure(run: ReaderOutcome, shared: boolean): { error: KernelError; final: boolean } {
+	const refusal = run.refusal;
+	const message = refusal ? providerRefusalText(refusal)
+		: `reader_transport: the provider failed the round (${String(run.providerError).slice(0, 300)})`;
+	return { final: !!refusal && shared, error: new KernelError({ code: "needs", message, fix: "request the same reading with retry: true",
+		details: { reason: refusal ? refusal.reason : "transport", rule: refusal ? "provider_budget_refused" : "reader_transport",
+			...(refusal ? { refusal } : { provider_error: run.providerError }) } }) };
+}
+/**
  * §22.3.1 / §48: a reading the publication gate refused is said in one sentence built from the refusal the
  * kernel kept -- the field it refused and the gate's own reason, the same record findings.json holds. It is
  * written here, so it is branded `said` here; the preparation overlay shows it instead of the generic stop.
@@ -196,6 +210,8 @@ export class ReadingService implements ReadingBridge {
 	private heartbeats = new Map<string, number>();
 	/** Jobs this host stopped for going quiet, and how long they had been quiet: their finish is `failed`, not `cancelled`. */
 	private stalled = new Map<string, number>();
+	/** Jobs stopped at a hand-off (`dispose({handOff})`): their finish is left to the next owner's claim. */
+	private handedOff = new Set<string>();
 	private sweep: ReturnType<typeof setInterval> | undefined;
 	private stallNotified = false;
 	/** Per scoped module, the reason of the most recent wake no claim has answered yet: the claim row names it (contract §22, #65). */
@@ -240,13 +256,21 @@ export class ReadingService implements ReadingBridge {
 		return this.deps.runtime;
 	}
 
-	dispose() {
+	/**
+	 * Stop every claimed reading. With `handOff` (the onboarding worker's exit, contract §20 addendum 2), a
+	 * reading nobody is waiting on is handed off rather than cancelled: its reader child stops and the job is
+	 * left `running` with no lock holder, which the next owner's claim re-queues with its retained attempt.
+	 */
+	dispose(options: {handOff?: boolean} = {}) {
 		this.stopped = true;
 		this.stopSweep();
-		for (const controller of this.controllers.values()) controller.abort();
+		for (const [key, controller] of this.controllers) {
+			if (options.handOff && this.jobs.get(key)?.foreground !== true) this.handedOff.add(key);
+			controller.abort();
+		}
 	}
 
-	async close() { this.dispose(); try { await Promise.allSettled([...this.pumps.values()]); } finally { await closeSourceDocuments(); } }
+	async close(options: {handOff?: boolean} = {}) { this.dispose(options); try { await Promise.allSettled([...this.pumps.values()]); } finally { await closeSourceDocuments(); } }
 
 	/** The heartbeat of one claimed job. Called only where the reader reported something real. */
 	private beat(key: string) { if (this.heartbeats.has(key) || this.controllers.has(key)) this.heartbeats.set(key, Date.now()); }
@@ -304,7 +328,8 @@ export class ReadingService implements ReadingBridge {
 		return this.pump(moduleId, campaign);
 	}
 
-	async prepare(params: Row, signal?: AbortSignal): Promise<Row> {
+	/** `options.providerBudget` is the stage lease the whole preparation pays from (contract §20 addendum 2). */
+	async prepare(params: Row, signal?: AbortSignal, options: ReadingOptions = {}): Promise<Row> {
 		const campaign = this.campaign(params);
 		let mid = params.module_id;
 		if (params.pdf) {
@@ -328,21 +353,21 @@ export class ReadingService implements ReadingBridge {
         }
 		if (!mid) throw error("needs_source", "choose a PDF or an existing module", "pass pdf or module_id");
 		if (params.purpose === "guidance") {
-			const result = await this.ensure(mid, {...params, campaign:null, focus: params.start_scene || "", foreground:true}, signal);
+			const result = await this.ensure(mid, {...params, campaign:null, focus: params.start_scene || "", foreground:true}, signal, options);
 			return {...result, module_id:mid};
 		}
 		if (params.start_scene && params.targeted === true) {
-			await this.ensure(mid, {purpose:"opening", campaign:campaign ?? null, focus:params.start_scene, foreground:true, retry:params.retry===true}, signal);
+			await this.ensure(mid, {purpose:"opening", campaign:campaign ?? null, focus:params.start_scene, foreground:true, retry:params.retry===true}, signal, options);
 			return {ok:true, module_id:mid, opening_ready:true};
 		}
-		await this.ensure(mid, { purpose: "skeleton", campaign: null, foreground: true, retry: params.retry === true }, signal);
+		await this.ensure(mid, { purpose: "skeleton", campaign: null, foreground: true, retry: params.retry === true }, signal, options);
 		const status = await this.deps.call("module.status", { module_id: mid });
 		if (!params.start_scene && status.opening_candidates?.length > 1) {
 			throw new KernelError({ code: "needs_choice", message: "choose the opening for this new campaign",
 				fix: "match the player's intent to the candidate summaries, then pass its scene as start_scene in prepare-module",
 				details: { field: "start_scene", candidates: status.opening_candidates } });
 		}
-		await this.ensure(mid, { purpose: "opening", campaign: null, focus: params.start_scene ?? "", foreground: true, retry: params.retry === true }, signal);
+		await this.ensure(mid, { purpose: "opening", campaign: null, focus: params.start_scene ?? "", foreground: true, retry: params.retry === true }, signal, options);
 		return { ok: true, module_id: mid, opening_ready: true };
 	}
 
@@ -561,12 +586,12 @@ export class ReadingService implements ReadingBridge {
 								await this.runJob(job, controller.signal, campaign,this.jobBudgets.get(key));
 							}
 							catch (failure) {
-								try {
+								if (!this.handedOff.has(key)) try {
 									await this.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease,
 										...this.jobOutcome(key, controller.signal.aborted, String(failure)) }, campaign);
 								} catch { /* a closed kernel releases its leases; retained attempts remain reclaimable */ }
 							}
-							finally { this.controllers.delete(key); this.jobs.delete(key); this.jobBudgets.delete(key); this.cancelledJobs.delete(key); this.heartbeats.delete(key); this.stalled.delete(key); }
+							finally { this.controllers.delete(key); this.jobs.delete(key); this.jobBudgets.delete(key); this.cancelledJobs.delete(key); this.heartbeats.delete(key); this.stalled.delete(key); this.handedOff.delete(key); }
 						})();
 						const tracked = work.finally(() => active.delete(tracked));
 						active.add(tracked);
@@ -769,7 +794,19 @@ export class ReadingService implements ReadingBridge {
 						const pagesRead = [...new Set(rows.map(row => row.page))];
 						this.deps.record({ lane: "reading", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "",
 							model: model.id, thinking: model.thinking, phase, round, ms: run.ms, ok: run.ok, image_reads: imagePaths.size,
-							...(run.ok && !pageLogFailure ? { pages: pagesRead } : {}) });
+							...(run.ok && !pageLogFailure ? { pages: pagesRead } : {}), ...(run.usage ? { usage: run.usage } : {}),
+							...(run.refusal ? { refusal: run.refusal.reason } : run.providerError ? { refusal: "transport" } : {}) });
+						// §20 addendum 2: the reader's cost per page of this book, measured, for the next stage's lease.
+						if (run.usage) await appendFile(join(cwd, "usage.jsonl"), JSON.stringify({ job_id: job.job_id, phase, round, ok: run.ok && !pageLogFailure,
+							pages: run.ok && !pageLogFailure ? pagesRead.length : 0, usage: run.usage }) + "\n").catch(() => undefined);
+						if (!run.ok && (run.refusal || run.providerError)) {
+							const failure = providerFailure(run, !!providerBudget);
+							this.deps.record({ lane: "reading", event: "provider_refused", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose,
+								focus: job.focus ?? "", phase, round, ...(run.refusal ?? { reason: "transport", provider_error: run.providerError }) });
+							// A refusal from a lease this job shares across its rounds refuses the next round too: fail now.
+							if (failure.final) lastRound = round;
+							throw failure.error;
+						}
 						if (!run.ok) throw new Error(run.error || (run.timedOut ? "reader timed out" : run.stderr || "reader failed"));
 						if (pageLogFailure) throw pageLogFailure;
 						if (phase === "index-audit") {
@@ -866,6 +903,12 @@ export class ReadingService implements ReadingBridge {
 				}
 			}
 		} finally {
+			// Contract §20 addendum 2: a reading handed off at the owner's exit is not finished here. It stays
+			// `running` with no lock holder, and the next owner's claim re-queues it with this attempt retained.
+			if (this.handedOff.has(key)) {
+				this.note({ lane: "reading", event: "handed_off", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "" });
+				return;
+			}
 			// Completed jobs replay here; failed attempts release their claim and preserve all artifacts.
 			const outcome = this.jobOutcome(key, signal.aborted, detail);
 			await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,

@@ -202,7 +202,8 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 		if (log) appendFileSync(log, JSON.stringify({at: new Date().toISOString(), provider: ctx.model?.provider,
 			model: event.payload?.model, reasoning_effort: event.payload?.reasoning?.effort ?? event.payload?.reasoning_effort ?? null}) + "\n");
 	});
-	installChildProviderBudget(pi, env.PI_COC_PROVIDER_BUDGET === "ipc-v1");
+	// The owning lease's per-call output bound (contract §20 addendum 2); absent keeps the default.
+	installChildProviderBudget(pi, env.PI_COC_PROVIDER_BUDGET === "ipc-v1", Number(env.PI_COC_PROVIDER_OUTPUT_LIMIT) || undefined);
 	pi.on("context", (event: any) => {
 		const configured=Number(env.PI_COC_READER_IMAGE_HISTORY);
 		const result = boundImages(event.messages, sent, undefined, configured>0?configured:undefined);
