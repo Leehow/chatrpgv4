@@ -8,7 +8,9 @@
  *   reduced to who is there (`PRESENT_FIELDS`);
  * - a person: `table.look {focus: npc, name}` (without `kind`, the §135.20 person body's shape) for each person a
  *   candidate of this run names, read off the candidate's closed structure (`namedPeople`), never its words;
- * - the session: `{session, pending_choice}`, which the fresh read already holds from `table.resolve.options`.
+ * - the session: `{session, pending_choice}`, which the fresh read already holds from `table.resolve.options`;
+ * - a scene's source passages (§135.31.1, SL-27): what this run's prescreen located about the scene -- the book's own
+ *   passages and the module's authored material on the place and what is there -- grouped by entity (`scenePassages`).
  *
  * When each is due (once per scene, once per person, the session whenever it changed) is the engine's; this module reads
  * the views it is asked for, orders each view's fields so what the Keeper acts on comes first (`FIELD_ORDER`), and bounds
@@ -112,7 +114,7 @@ export function fitView(view: Row, max = CARRIED_VIEW_BYTES, first: readonly str
 
 /** One carried view as the host keeps it: `look`'s focus, the name `look` gives, the view, the cut marks and its read. */
 export interface CarriedView {
-  focus: 'scene' | 'npc' | 'session';
+  focus: 'scene' | 'npc' | 'session' | 'source';
   name?: string;
   /** The npc's own id from its card (the host's dedupe key); host-side only. */
   id?: string;
@@ -138,7 +140,7 @@ export interface CarriedViews {
  * active (then `look focus=session` is read). Read-only.
  */
 export async function readCarriedViews(input: {call: Call; scene?: string; people: readonly string[]; skip?: ReadonlySet<string>;
-  session?: Row | 'read'}): Promise<CarriedViews> {
+  session?: Row | 'read'; passages?: {scene: string; view: Row}}): Promise<CarriedViews> {
   const began = Date.now();
   let reads = 0;
   const read = async (method: string, params: Row): Promise<{ok: true; value: Row} | {ok: false; code: string}> => {
@@ -174,6 +176,8 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
       view: Array.isArray(answer.value.present) ? {...answer.value, present: answer.value.present.map(who)} : answer.value});
     else due.push({focus: 'scene', name: input.scene, read: {method: 'table.look', params}, reason: 'read_failed'});
   }
+  // §135.31.1: the passages are the prescreen's materials the run already holds; nothing is read for them. Served last.
+  if (input.passages) due.push({focus: 'source', name: input.passages.scene, view: input.passages.view, read: null});
   const views: CarriedView[] = [], omitted: CarriedViews['omitted'] = [];
   let total = 0;
   for (const item of due) {
@@ -196,6 +200,10 @@ export const CARRIED_VIEWS_HEAD = 'What look would return right now, read by the
   + 'the scene (it changed during this run), the card of each person a step of this turn names, and the session underway. '
   + 'They are current as of this step; do not look them again. A view marked truncated is cut to its budget: look only for a '
   + 'field it omits. Keeper-only material, never player text.';
+/** §135.31.1: what the Keeper is told about a scene's passages (`focus: "source"`), after the head above. */
+export const CARRIED_PASSAGES_HEAD = 'A view with focus source is the source passages this run\'s prescreen located about that scene: the book\'s '
+  + 'own passages, and what the module authored about the place and what is there. A module without an original document (a built-in '
+  + 'starter) has no source beyond its authored graph, and lookup kind=source answers it no_source_document.';
 
 /** One view as the Keeper reads it: `look`'s focus, the name, the view and the cut marks; the id and the read stay host-side. */
 function keeperView(entry: CarriedView): Row {
@@ -205,6 +213,75 @@ function keeperView(entry: CarriedView): Row {
 /** The Keeper-facing `carried` section of the `coc-clerk` message, or none. */
 export function carriedSection(carried: CarriedViews): Json | undefined {
   if (!carried.views.length && !carried.omitted.length) return undefined;
-  return {head: CARRIED_VIEWS_HEAD, views: carried.views.map(keeperView),
+  const head = carried.views.some(entry => entry.focus === 'source') ? `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD}` : CARRIED_VIEWS_HEAD;
+  return {head, views: carried.views.map(keeperView),
     ...(carried.omitted.length ? {omitted: carried.omitted} : {})} as Json;
+}
+
+/** One prescreen material of this run, with the scene of the read that prepared (or reused) it. */
+export interface PassageSource {scene: string; material: Row}
+
+const parsed = (value: unknown): Row => {
+  if (typeof value !== 'string') return object(value);
+  try { return object(JSON.parse(value)); } catch { return {}; }
+};
+/** Whether `value` holds `handle` as a whole string anywhere (a relation's `to`, an authored `scene_id`): handle equality. */
+function names(value: unknown, handle: string): boolean {
+  if (typeof value === 'string') return value === handle;
+  if (Array.isArray(value)) return value.some(item => names(item, handle));
+  return !!value && typeof value === 'object' && Object.values(value as Row).some(item => names(item, handle));
+}
+/** Merge one located unit's fields into an entity's passage: objects field by field, anything else kept from the first unit. */
+function mergeUnit(into: Row, unit: Row): void {
+  for (const [key, value] of Object.entries(unit)) {
+    if (!Object.hasOwn(into, key)) into[key] = structuredClone(value);
+    else if (value && typeof value === 'object' && !Array.isArray(value) && into[key] && typeof into[key] === 'object' && !Array.isArray(into[key]))
+      for (const [field, item] of Object.entries(value as Row)) if (!Object.hasOwn(into[key], field)) into[key][field] = structuredClone(item);
+  }
+}
+
+/**
+ * §135.31.1 (SL-27): the source passages of `scene` among this run's prescreen materials, as the carried view's body, or
+ * none. The book's passages (`kind: "source"`: a checked answer, a native page, a supported consultation) of a read made at
+ * the scene, under their labels; then the `graph_entity` materials of the scene's own entity and of every entity one of
+ * whose located units names the scene handle as a value, each under its locator with its units merged (the identity
+ * once). Book first, the scene's own entity next, the others in the packet's order. Structure and handle equality only.
+ */
+export function scenePassages(rows: readonly PassageSource[], scene: string): Row | undefined {
+  if (!scene) return undefined;
+  const book: Array<[string, Row]> = [];
+  const entities = new Map<string, {name: string; kind: string; units: Row[]; anchored: boolean}>();
+  const seen = new Set<string>();
+  for (const {scene: at, material} of rows) {
+    const key = JSON.stringify([material.kind, material.label, material.content]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (text(material.kind) === 'source') {
+      if (at !== scene) continue;
+      let label = text(material.label) || `passage ${book.length + 1}`;
+      for (let n = 2; book.some(([name]) => name === label); n++) label = `${text(material.label)} (${n})`;
+      book.push([label, {authority: material.authority ?? null, content: material.content ?? null, ...(material.provenance ? {provenance: material.provenance} : {})}]);
+      continue;
+    }
+    if (text(material.kind) !== 'graph_entity') continue;
+    const content = parsed(material.content), entity = object(content.entity), name = text(entity.name);
+    if (!name) continue;
+    const locator = text(object(material.provenance).locator) || `${text(entity.kind) || 'entity'}:${name}`;
+    const {entity: _stub, ...rest} = content;
+    const entry = entities.get(locator) ?? {name, kind: text(entity.kind), units: [], anchored: false};
+    if (!entry.units.length) entry.units.push({entity});
+    entry.units.push(rest);
+    entry.anchored ||= name === scene || names(rest, scene);
+    entities.set(locator, entry);
+  }
+  const anchored = [...entities.entries()].filter(([, entry]) => entry.anchored);
+  // The scene's own entity leads the graph passages.
+  anchored.sort(([, a], [, b]) => Number(b.kind === 'scene' && b.name === scene) - Number(a.kind === 'scene' && a.name === scene));
+  const view: Row = Object.fromEntries(book);
+  for (const [locator, entry] of anchored) {
+    const merged: Row = {};
+    for (const unit of entry.units) mergeUnit(merged, unit);
+    view[locator] = merged;
+  }
+  return Object.keys(view).length ? view : undefined;
 }
