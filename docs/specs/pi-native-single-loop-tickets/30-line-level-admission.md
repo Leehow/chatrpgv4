@@ -1,6 +1,7 @@
-Status: ready-for-agent
+Status: ready-for-human
 Stage: SL-30 (P1; amends SL-24)
 Spec: docs/specs/pi-native-single-loop.md (Ruling: "A batch is admitted line by line")
+Contract: docs/kernel-rpc.md §32.12.3 (amends §32.1, §32.10, §32.11, §32.12.2)
 
 # SL-30 — Line-level admission: typed-cleared lines go through, the lane reviews the rest
 
@@ -100,3 +101,57 @@ Fixtures `longgate30-t6` and `longgate30-t14`, built by `gate-fixture.mjs` from 
 - **Exploratory arm** (`--fast-min 0.70`: the fast path and the line threshold at 0.70; not the product setting):
   - turn 14: the `time` line clears in at least 2 of 3 runs; in those runs the `threat` line left is not reviewed and the batch lands whole within 2 s of its review start, with no lane round;
   - turn 6: the `time` line clears in the runs where Jev answers; the `person` + `clue` remainder goes to the lane alone and the batch lands whole in at least 2 of 3 runs.
+
+### 2026-09-24 — implemented, tested, replayed (branch `claude/sl30-20260924`, merged with the integration branch at `b8aced229`)
+
+**Commits.** `b321fd185` measurement 1 and pre-registration; `8050a51b4` measurement 2 and contract §32.12.3; `c31c7ef37` replay pre-registration and the replay's two additions; `0086d8a8e` the implementation and tests; `deb53c8ab` merge of `claude/integ-single-loop-20260923` at `b8aced229` (SL-32; clean, no admission code); `17f8beee8` every line's typed confidence on the row, and the replays; the commit carrying this comment.
+
+**Where each piece lives.**
+- `extensions/kernel/admission.ts`: `lineClearable`, `clearedLines` (pure), `remainderAttempt` (the batch's typed answer on the lines left), `effectSignature` (the §32.4 key fields of one effect, now shared by `admissionRequest`); `reviewAdmissionPrimary` gains `lineLevel`, `typedAttempt`, `startedAt`, `hardCapMs` and the `ok: "split"` outcome; the typed meta gains `line_confidences`.
+- `extensions/kernel/index.ts`: `admitAction` is now one `admitOne(proposal, part?)` (reuse, compile, kept pending, review, late/pending/outage/verdict, unchanged) run for the batch and, after a split, for the remainder; it narrows `payload.effects` when the remainder does not land and returns an `AdmissionPartial`; `partialAdmissionResult` puts `admission` and the `note` on the result, keeps `state.admissionSplit` for a whole-batch resend, and sets §78's flag; a kernel refusal of a narrowed batch carries `details.admission`.
+- `experiments/single-loop-routing/product-entry.ts`: `--fast-min` (an exploratory arm), a replayed Keeper resends a partly landed batch whose rest is pending, and the summary carries `line_level`, `lines`, `line_confidences`.
+
+**Tests.** New `tests/extension/admission-line-level.test.mjs`, 13 tests: `lineClearable`; `clearedLines` (0.87 at the threshold, 0.869 not, refusing lines, non-clearable kinds, fast path off, a resolve, mismatched lines, no typed lines); `remainderAttempt`; turn 14's shape (the threat left unreviewed, one call in the batch's order, no rest round) on the fake kernel and on the emitted kernel with its `time` and `threat` receipts; nothing cleared at 0.86; fast path off; the rest reviewed alone with the cleared line shown as admitted in this call and no second typed call; a rest the lane refuses (the cleared line alone lands; `admission.landed`, `admission.not_landed` with `action_not_authorized` and its `missing`, the note, the text the Keeper reads); a rest past the cap returned pending alone, at the batch's cap measured from the review's start, and collected by its own resend; a whole-batch resend applying only what did not land (`admission.already_landed`); the kernel refusing a narrowed batch (its refusal carries `details.admission`); §78 for a delivery behind a partial landing. The lane steps read their request, so which round the aborted batch round consumed does not decide a test. Updated in `admission-fast-path.test.mjs`: the typed-refusal test and the `item` test now assert the split (the confident line admitted at once, the refused or non-clearable line decided by the lane alone).
+
+**Mutations** (each applied in place, `admission-line-level`, `admission-fast-path` and `admission-late` run, the file restored). 16 of 16 killed; M10 survived the first round (the pending row's `ms` was measured from the remainder's own start either way) and was killed after the test also bounded the call's own `ms`.
+
+| mutation | file | failing |
+| --- | --- | --- |
+| M1 the line threshold exclusive | admission.ts | 1 |
+| M2 every kind clearable | admission.ts | 3 |
+| M3 a refusing line clears | admission.ts | 2 |
+| M4 no split | admission.ts | 9 |
+| M5 a remainder with no triggering kind is reviewed | index.ts | 2 |
+| M6 the remainder reviewed with the whole batch's lines | index.ts | 6 |
+| M7 the cleared lines not shown to the remainder's reviewer | index.ts | 1 |
+| M8 a new typed call for the remainder | index.ts | 7 |
+| M9 the batch not narrowed when the remainder fails | index.ts | 5 |
+| M10 the remainder's cap measured from the split | index.ts | 1 (after the fix) |
+| M11 no split record for a whole-batch resend | index.ts | 1 |
+| M12 no §78 flag on a partial landing | index.ts | 1 |
+| M13 the result says nothing of the partial landing | index.ts | 4 |
+| M14 a kernel refusal of the narrowed batch drops the held-back part | index.ts | 1 |
+| M15 the batch narrowed even when the remainder is admitted | index.ts | 2 |
+| M16 line level only on bookkeeping batches | admission.ts | 1 |
+
+Not covered by a test: the whole batch's key keeping the remainder's admitting verdict for the turn; a remainder admitted late (`typed_late`) inside a split.
+
+**Replays** (as pre-registered; `results/sl30-longgate30-t14`, `-t6`, `-fast070`, and `-fast070-lines`, which re-ran the exploratory arm once `line_confidences` was on the row; the four arms of the first round ran concurrently, one run at a time within each).
+
+*Product arm (0.87).* No line cleared in any run: every Keeper batch was reviewed whole by the lane, and every one landed.
+- Turn 14 (`threat`, `time`): the lane in 3.3, 4.4 and 12.9 s (`not_player_action` ×3); the `time:t14-c3` receipt landed 3 of 3, all before the cap. As predicted.
+- Turn 6 (`person`, `time`, `clue`): the lane in 9.9, 7.3 and 8.7 s; the `vittorio-bible-weapon` clue and the person landed 3 of 3. The clerk's move was admitted by the compile at 0 ms each time. As predicted.
+- The ticket's acceptance ("the plain lines land at once") is **not met**, as the pre-registration said it would not be: the typed reviewer does not reach 0.87 on those lines.
+
+*Exploratory arm (0.70; not the product setting).* **Missed**: no line cleared in any of 12 runs either. The rows of the re-run give why: in the product's own context the `time` line types at 0.48–0.60 on turn 14 and 0.55–0.61 on turn 6 (and turn 6's `clue` line is typed `not_authorized` 0.70–0.76), lower than the offline bank's 0.68–0.75. The bank's reconstruction omits the setup prologue; with the real context the typed reviewer is less sure of these lines, not more. Every batch was again admitted by the lane (4.0–9.9 s).
+
+**Suites** (leehow-pc):
+- `ext on leehow-pc @ 17f8beee8da5ad909d9f4952d9036f91a0d98055: exit=0 wall=205s` (2955/2955); also at `deb53c8ab`, 2955/2955.
+- `loop on leehow-pc @ 17f8beee8da5ad909d9f4952d9036f91a0d98055: exit=0 wall=100s` (149/149).
+- pytest was not run: nothing the kernel reads changed (`kernel-ts/`, `content/`, `tests/kernel`, `tests/play` untouched).
+
+**What this means, and what is open.**
+- Line-level admission works as ruled and is proven at the seam, but on the long tables it fires rarely (4.8% of line-runs offline, 0 of 6 Keeper batches in the replays), and never on the turns that motivated it. The ruling's premise ("the typed reviewer clears the plain lines") holds for latency, not for confidence.
+- What made turn 14 slow live was the provider's tail: the same batch answers in 3.3–12.9 s now. What is slow repeatably is a batch with a `person` line beside a `move` or others (every lane round over 13 s in measurement 2), not a `threat` line.
+- For the owner: a lower line threshold would not have helped either (0.70 cleared nothing in the product context). Levers that would: the typed family's calibration on these lines in the real context, or putting the `person` line's staging outside the lane's batch (it is a non-triggering kind, §32.1). Neither is decided here.
+- `kpi.py` does not yet group `line_level` rows. No live table.
