@@ -187,3 +187,66 @@ All 3 runs selected the check by the compile and delivered, with 1 LLM step (as 
 - Whether 12 s is enough for the table's reviewer: gate #6's lane (deepseek-v4.1-flash) answered 2.5–7.7 s on the clerk's
   writes and 57 s on one Keeper resolve. A slower reviewer (grok-4.6, 32 s p50 in SL-10's bank) would time out on most
   reviews, and every timeout refuses.
+
+### 2026-09-24 — owner ruling on the fork, the merge with SL-19, and the re-run
+
+**Ruling (owner, via the coordinator).** Take the alternative. The exemption counts only the features the predicate fired
+on (its families among the cleared rows in `basis.compile.features`), and each must have cleared the gate. A guard that
+did not clear (an `unclear` addressee) is not evidence against, because the predicate already refuses to fire when the
+addressee clears on someone else or on `none`. The exemption is refused when any feature the predicate fired on was
+below the gate, or when a bound parameter has no recorded path.
+
+**`b0026016a`: the change.**
+
+- `compileAdmission` iterates the predicate's families present in `basis.compile.features`.
+- A fired-on family with no `read_features` record is refused with `feature_unrecorded:<family>`.
+- §32.12 (3) and the §135.30 note are reworded to match.
+
+**Tests.**
+
+- New: an `unclear` addressee (0.47 against 0.45) with a cleared ask is admitted by the compile, with no lane request.
+- (c) now covers the cases that still go to the lane, through the real seam. The dispatch's host origin is rewritten by
+  `tests/extension/origin-tamper.mjs`. With the fired-on ask's record under the gate, the row reads
+  `compile_refused: feature_not_cleared:ask`. With a bound parameter with no path, it reads
+  `parameter_path_unrecorded:difficulty`.
+- `scene-obligation-candidates`' "a clerk refusal stays off the Keeper's refusal budget" now reviews the clerk's check
+  without the compile's evidence (`reviewed: true`). A compile-selected check is no longer reviewed, and that test's
+  subject is what a clerk refusal does.
+
+**Mutations re-run on the change** (the three covering files). All six were killed:
+
+| mutation | failing tests |
+| --- | --- |
+| M3 exemption without `basis.compile` | 4 |
+| M4 unrecorded parameter path accepted | 3 |
+| M5 fired-on feature under the gate ignored | 3 |
+| M9 `read_features` only for cleared families | 2 |
+| M14 an uncleared guard counted (the first reading) | 2 |
+| M15 a fired-on feature without a record accepted | 1 |
+
+The scratch mutation worktree is removed.
+
+**`b290399d7`: merge of `claude/integ-single-loop-20260923` at `89d4011a7` (SL-19).**
+
+- `route-compile.ts` keeps SL-19's attack guard (`clerk === 'session_step'`), its `first_blow` predicate and
+  `decided(cleared, candidate)`, beside SL-18's `features` and `read_features`.
+- `first_blow` declares `act` and `target`, and §32.12 lists it. A new test pins that every compile predicate declares
+  its families.
+- The manifest carries SL-18, SL-19 and SL-20.
+
+**Replay** (`results/sl18-gate3-t2-fired`, on `b290399d7`; seed 1, live Jev, prescreen on, lane admission replayed).
+The clerk's check is `path: "compile"` in **3/3**, as expected:
+
+| run | fired-on features in the admission row | path |
+| --- | --- | --- |
+| 1 | ask 0.75, act social 0.96 (the addressee did not clear, so it is not in the evidence) | compile, 0 ms |
+| 2 | ask 0.73, addressee Arty 0.62, act social 0.96 | compile, 0 ms |
+| 3 | ask 0.82, addressee Arty 0.62, act social 0.96 | compile, 0 ms |
+
+All three runs delivered with 1 LLM step and no lane request for the check. The first-reading replay
+(`results/sl18-gate3-t2`, 1/3) stays as the record of the fork.
+
+**Suites** (leehow-pc, `b290399d7`):
+`ext on leehow-pc @ b290399d7bd84a879db8d6df545b90af22d3e8ab: exit=0 wall=116s` (2878/2878);
+`loop on leehow-pc @ b290399d7bd84a879db8d6df545b90af22d3e8ab: exit=0 wall=27s` (117/117). pytest not run: nothing SL-18
+touches is read by the kernel. SL-19's `kernel-ts` change arrived with the merge and is covered by its own branch's runs.
