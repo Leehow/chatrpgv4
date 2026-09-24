@@ -1,5 +1,7 @@
 /** Shared delivery formatting only; callers own turn transitions, writes and commit recovery. */
 import { array, number, truth, type Row } from '../read/values.js';
+import { RpcError } from '../errors.js';
+import { isJsonObject, jsonDigest } from '../json.js';
 import { nowIso } from './store.js';
 import { bindMarkers, droppedMarkers, placeUnplacedMechanics, stripMarkers } from './text.js';
 import { speechPass, unresolvedSpeakers, type SpeakerResolver } from './speech.js';
@@ -44,4 +46,34 @@ export function deliveryRecord(turn: Row, text: string | null, receipts: Row[], 
         capsule: turn.capsule ?? null,
         intents: [...array(turn.intents)],
     };
+}
+
+/** Contract §135.31: at most this many of a turn's `look`/`lookup` calls ride on its delivery. */
+export const KEEPER_READS_MAX = 64;
+/**
+ * Contract §135.31: the turn's read-only Keeper calls, as the host carries them on the delivery (`keeper_reads`, host-only),
+ * for the turn record's `reads`: each call's arguments beside the digest `calls` keeps for a write. Absent: none.
+ */
+export function keeperReads(value: unknown): Row[] {
+    if (value == null)
+        return [];
+    if (!Array.isArray(value) || value.length > KEEPER_READS_MAX)
+        throw new RpcError('invalid_params', `keeper_reads must be a list of at most ${KEEPER_READS_MAX} reads`);
+    return value.map((entry, index) => {
+        const read = isJsonObject(entry) ? entry : undefined;
+        const withheld = read?.withheld;
+        if (!read || (read.tool !== 'look' && read.tool !== 'lookup') || !isJsonObject(read.args) || (read.ok !== undefined && typeof read.ok !== 'boolean')
+            || (read.run !== undefined && typeof read.run !== 'string') || (read.step !== undefined && typeof read.step !== 'string')
+            || (withheld !== undefined && (!Array.isArray(withheld) || withheld.some(key => typeof key !== 'string'))))
+            throw new RpcError('invalid_params', `keeper_reads[${index}] must be {tool: look | lookup, args: {...}, withheld?: [keys], ok?, run?, step?}`);
+        return {
+            tool: read.tool,
+            args: read.args,
+            params_sha256: jsonDigest(read.args),
+            ...(withheld !== undefined ? { withheld } : {}),
+            ...(read.ok !== undefined ? { ok: read.ok } : {}),
+            ...(read.run !== undefined ? { run: read.run } : {}),
+            ...(read.step !== undefined ? { step: read.step } : {})
+        };
+    });
 }

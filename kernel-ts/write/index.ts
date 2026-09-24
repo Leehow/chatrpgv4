@@ -33,7 +33,7 @@ import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcL
 import { asciiSlug, facts, publicContext, directorAdoption, offerLedger } from './text.js';
 import { obligationByHandle, obligationState } from '../read/obligations.js';
 import { statedHandleOf } from '../read/stated.js';
-import { deliveryText, deliveryRecord } from './delivery.js';
+import { deliveryText, deliveryRecord, keeperReads } from './delivery.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
@@ -877,6 +877,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         return value;
     }
     async function ask(params: Row): Promise<Row> {
+        // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.
+        const { keeper_reads: readsIn, ...delivered } = params, reads = keeperReads(readsIn);
+        params = delivered;
         const { campaign, snapshot, module } = await load(params), turn = snapshot.turn;
         const started = await createTurnTransaction(campaign, snapshot.world, turn).beginWrite('table.ask', params, {
             allowOpening: true
@@ -936,7 +939,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...deliveryRecord(turn, text, receipts, result, world),
             closed_by: 'ask',
             closed_how: 'explicit',
-            director_adoption: await adoption(campaign, module, turn, world, 'ask', snapshot.world)
+            director_adoption: await adoption(campaign, module, turn, world, 'ask', snapshot.world),
+            ...(reads.length ? { reads } : {})
         };
         await campaign.writeTurnRecord(record);
         await updateNpcLedger(campaign, module.graph, record);
@@ -954,6 +958,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         return result;
     }
     async function narrate(params: Row, report?: ProgressReporter): Promise<Row> {
+        // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.
+        const { keeper_reads: readsIn, ...delivered } = params, reads = keeperReads(readsIn);
+        params = delivered;
         const { campaign, snapshot, module } = await load(params), turn = snapshot.turn;
         const started = await createTurnTransaction(campaign, snapshot.world, turn).beginWrite('table.narrate', params, {
             allowOpening: true
@@ -1008,6 +1015,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             facts: factLists,
             director_adoption: await adoption(campaign, module, turn, world, 'narrate', snapshot.world),
             worldline: turn.worldline ?? null,
+            ...(reads.length ? { reads } : {}),
             // §128.3: a repeat inside a line the host wrapped is a finding on the delivery, the same
             // `warnings` rows the verifier's `unmarked_speech` lands in, never a refusal.
             ...(hostRepeats.length ? { warnings: hostRepeats.map(repeat => ({ lane: 'speech', kind: 'repeated_line',
