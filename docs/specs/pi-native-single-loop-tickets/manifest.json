@@ -198,11 +198,16 @@
     {
       "id": "SL-39",
       "file": "39-lane-latency-after-line-level-admission.md",
-      "status": "ready"
+      "status": "closed"
     },
     {
       "id": "SL-40",
       "file": "40-a-guard-is-a-condition-the-place-exists.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-41",
+      "file": "41-in-play-reads-share-the-stage-lease.md",
       "status": "ready"
     }
   ],
