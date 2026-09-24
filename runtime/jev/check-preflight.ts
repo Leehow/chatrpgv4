@@ -18,14 +18,19 @@ export interface CheckPreflightCheckpoint {version:2;campaign:string;turn:number
  */
 export type CheckPreflightAnswer={choice:string;confidence:number|null;probabilities:Record<string,number>|null};
 /** `route` and `consent`: the binder's own route and consent answers, reported for the record (they decide the disposition). */
-export interface CheckPreflightEvidence {profile?:CheckPreflightAnswer;route?:CheckPreflightAnswer;consent?:CheckPreflightAnswer}
+export interface CheckPreflightEvidence {profile?:CheckPreflightAnswer;route?:CheckPreflightAnswer;consent?:CheckPreflightAnswer;
+  /** The route batch's other answers (actor, intent, difficulty, bonus, penalty), reported for the record. */
+  parameters?:Record<string,CheckPreflightAnswer>}
 export interface CheckPreflightResult {advice:CheckPreflightAdvice;checkpoint?:CheckPreflightCheckpoint;decisionCalls:number;evidence?:CheckPreflightEvidence;
   check(signal?:AbortSignal,deadlineAt?:number):Promise<{status:'current'}|{status:'stale'|'unavailable';reason:string}>}
 export interface CheckPreflightInput {campaign:string;turn:number;rawInput:string;goal?:string;scope:ScopeBinding;readSet:ReadSet;
   publicContext?:Array<{role:'player'|'keeper';text:string}>;
   call(method:string,params:Record<string,unknown>):Promise<unknown>;decision:DecisionPort;lease:TaskLease;signal?:AbortSignal;
-  /** §135.30.3: the compile's cleared act settled roll-or-not; a `no_roll` route answer still asks the profile (reported in `evidence.route`). */
-  rollSettled?:boolean}
+  /**
+   * §135.30.3: the check the compile selected, with the act it read: roll-or-not and the intent are settled, so a `no_roll`
+   * route answer still asks the profile (reported in `evidence.route`); a single issued actor is stated.
+   */
+  compiled?:{intent:'investigate'|'social'}}
 
 function unknown(reason:string,calls=0):CheckPreflightResult {
   return{advice:{kind:'check_preflight',disposition:'unknown',unresolved:[reason],authorization:'advisory_only',settled:false},decisionCalls:calls,
@@ -75,7 +80,8 @@ function answerRecord(result:DecisionResult,key:string):CheckPreflightAnswer|und
 }
 function routeEvidence(result:DecisionResult):CheckPreflightEvidence {
   const route=answerRecord(result,'route'),consent=answerRecord(result,'consent');
-  return{...(route?{route}:{}),...(consent?{consent}:{})};
+  const parameters=Object.fromEntries(['actor','intent','difficulty','bonus','penalty'].flatMap(key=>{const value=answerRecord(result,key);return value?[[key,value]]:[];}));
+  return{...(route?{route}:{}),...(consent?{consent}:{}),...(Object.keys(parameters).length?{parameters}:{})};
 }
 /** The profile answer by skill name: the question's aliases (`profile_<index>` over the actor's own rows) read back. */
 function profileEvidence(options:OrdinaryResolveOptions,actor:string,result:DecisionResult):CheckPreflightEvidence|undefined {
@@ -104,7 +110,7 @@ export async function prepareCheckPreflight(input:CheckPreflightInput):Promise<C
     const routeRequest=batch(ordinaryRouteBatch({rawInput:input.rawInput,goal,options:decisionOptions}),input.scope,input.readSet,0);calls++;
     const routeResult=await bounded(()=>input.decision.decide(routeRequest,lease),signal,lease.context.budget.deadlineAt);signal.throwIfAborted();lease.assertActive();
     if(routeResult.status!=='complete')return make({kind:'check_preflight',disposition:'unknown',unresolved:[failure(routeResult)],authorization:'advisory_only',settled:false});
-    const route=interpretOrdinaryRoute(options,routeResult,input.rollSettled===true),routed=routeEvidence(routeResult);
+    const route=interpretOrdinaryRoute(options,routeResult,input.compiled),routed=routeEvidence(routeResult);
     if(route.disposition!=='ordinary')return{...make({kind:'check_preflight',disposition:route.disposition,unresolved:route.needs,authorization:'advisory_only',settled:false}),evidence:routed};
     const profileSpec=ordinaryProfileBatch({rawInput:input.rawInput,goal,options:decisionOptions,route});if(!profileSpec)
       return make({kind:'check_preflight',disposition:'unknown',unresolved:['ordinary_profile_unavailable'],authorization:'advisory_only',settled:false});

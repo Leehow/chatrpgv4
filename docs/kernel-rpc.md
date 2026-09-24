@@ -18585,8 +18585,12 @@ binder's skill, difficulty and dice and the compile's intent.
 **The cleared act settles roll-or-not** (owner ruling, 2026-09-24, after the long gate's turn-12 replays, where the binder's
 route question put `ordinary` against `no_roll` at 0.46–0.56 / 0.42–0.52 on "搜床底、床垫和衣柜" and one run of three was not
 rolled). For a check the compile selected, the binder's `no_roll` does not end the binding: the engine asks the binder with
-`rollSettled` (`prepareCheckPreflight`; `interpretOrdinaryRoute(options, result, rollSettled)` reads `no_roll` as `ordinary`,
-consent and every other answer unchanged), so the profile question is still asked. Then `settleOrdinaryBind` decides: when
+`compiled: {intent}` (`prepareCheckPreflight`; `interpretOrdinaryRoute(options, result, compiled)` reads `no_roll` as
+`ordinary`), so the profile question is still asked. The same argument settles the two parameters the compile and the kernel
+already give: the intent is the compile's act (the binder's intent answer does not decide, as the policy's override already
+said), and a single actor the kernel issues is stated (§135.28), whatever the actor question answered (the turn-12 replays
+answered it at 0.10–0.19, and one run's `unknown` left the check unbound). Consent, difficulty and the dice are the binder's
+as before. Then `settleOrdinaryBind` decides: when
 the binder answered `no_roll` and the skill **cleared** the gates, the check is rolled, reason `ordinary_compile_act`, and the
 executed candidate's basis carries `roll: {rule: "compile_act", binder: "no_roll", confidence}` (every row of the call and the
 Keeper's `clerk_did` show whose word decided the roll); when the skill did not clear, the binder's `no_roll` stands

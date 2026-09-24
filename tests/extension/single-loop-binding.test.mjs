@@ -21,6 +21,7 @@ import { runDriver } from "./pi-agent-core.mjs";
 import { SENTENCE_MAX } from "../../extensions/kernel/tools.ts";
 import { buildCandidates, keeperCall } from "../../runtime/jev/candidates.ts";
 import { highestOffered, obligationCandidates } from "../../runtime/jev/obligation-candidates.ts";
+import { interpretOrdinaryRoute } from "../../runtime/jev/ordinary-resolve-domain.ts";
 import { composeSentence } from "../../runtime/jev/composed-arguments.ts";
 import { admissionBindings, bindRecords, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { compileAdmission } from "../../extensions/kernel/admission.ts";
@@ -568,7 +569,24 @@ test("SL-26 (owner ruling 2026-09-24): a compile-selected check whose binder sai
 	assert.deepEqual(cleared.view.pending[0].candidate.basis.roll, { rule: "compile_act", binder: "no_roll", confidence: 0.44 });
 	const under = run(make({ compile: compiled }), { choice: "Spot Hidden", confidence: 0.45, probabilities: { "Spot Hidden": 0.5, Listen: 0.45 } });
 	assert.deepEqual([under.view.pending.length, under.row.reason, under.view.consumed.includes(ORDINARY_CHECK_KEY)], [0, "ordinary_no_roll", true], "the binder's no_roll stands");
-	// Without the compile's selection the binder never reaches a profile on no_roll (rollSettled is off), and nothing here changes.
+	// Without the compile's selection the binder never reaches a profile on no_roll (no `compiled`), and nothing here changes.
 	const plain = run(make({}), { choice: "Spot Hidden", confidence: 0.9 });
 	assert.deepEqual([plain.view.pending[0]?.purpose, plain.row.reason, plain.view.pending[0].candidate.basis.roll], ["execute", "ordinary_ordinary", undefined]);
+});
+
+test("SL-26 (§135.30.3): for the check the compile selected the binder's route reads roll-or-not, the intent and a single issued actor as settled", () => {
+	const options = { version: 1, profiles: [{ alias: "p0", actor: "Hayes", skill: "Spot Hidden", availability: "bound", value: 60 }],
+		decisions: [{ name: "core-check:ordinary-check", family: "core-check", description: null, capability: null }], revision: "r", world_revision: "w", context: {} };
+	const answers = (values) => ({ batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
+		answers: Object.fromEntries(Object.entries(values).map(([key, choice]) => [key, { status: "answered", type: "choice", choice, confidence: 0.5 }])) });
+	// The long gate's turn-12 shapes: no_roll by a hair; the actor question at 0.10-0.19 answered unknown.
+	const shaky = answers({ route: "no_roll", consent: "authorized", actor: "unknown", intent: "unknown", difficulty: "regular", bonus: "none", penalty: "none" });
+	assert.deepEqual(interpretOrdinaryRoute(options, shaky), { disposition: "no_roll", needs: [] }, "without the compile: as before");
+	assert.deepEqual(interpretOrdinaryRoute(options, answers({ route: "ordinary", consent: "authorized", actor: "unknown", intent: "investigate", difficulty: "regular", bonus: "none", penalty: "none" })).disposition,
+		"unknown", "without the compile an unknown actor still leaves it unbound");
+	assert.deepEqual(interpretOrdinaryRoute(options, shaky, { intent: "investigate" }),
+		{ disposition: "ordinary", actor: "Hayes", intent: "investigate", difficulty: "regular", bonus: "none", penalty: "none", needs: [] });
+	assert.equal(interpretOrdinaryRoute({ ...options, profiles: [...options.profiles, { ...options.profiles[0], alias: "p1", actor: "Ruth" }] }, shaky, { intent: "investigate" }).disposition,
+		"unknown", "two actors: the actor is still Jev's");
+	assert.equal(interpretOrdinaryRoute(options, answers({ route: "no_roll", consent: "unselected" }), { intent: "investigate" }).disposition, "needs_player", "consent still decides");
 });

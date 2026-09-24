@@ -62,10 +62,13 @@ export function ordinaryRouteBatch(input:{rawInput:string;goal:string;plan?:Json
 }
 
 /**
- * `rollSettled` (contract §135.30.3, owner ruling 2026-09-24): the compile's cleared act already settled that the declared
- * action is rolled, so the route answer `no_roll` does not end the binding here; the caller decides with the skill's answer.
+ * `compiled` (contract §135.30.3): the check the compile selected, with the act it read. The compile's cleared act settled
+ * that the declared action is rolled (owner ruling 2026-09-24), so the route answer `no_roll` does not end the binding here
+ * (the caller decides with the skill's answer), and it settled the intent, so the binder's intent answer does not decide
+ * either. A single actor the kernel issues is stated (§135.28), whatever the actor question answered.
  */
-export function interpretOrdinaryRoute(options:OrdinaryResolveOptions,result:DecisionResult|undefined,rollSettled=false):OrdinaryRouteChoice {
+export function interpretOrdinaryRoute(options:OrdinaryResolveOptions,result:DecisionResult|undefined,compiled?:{intent:'investigate'|'social'}):OrdinaryRouteChoice {
+  const rollSettled=compiled!==undefined;
   if(options.context.pending_choice)return{disposition:'needs_player',needs:['The existing pending mechanical choice must be resolved by its owner.']};
   if(options.context.session)return{disposition:'incumbent',needs:['The active subsystem requires its existing resolution owner.']};
   if(result?.status!=='complete')return{disposition:'unknown',needs:['The ordinary rule decision is unavailable.']};
@@ -74,8 +77,9 @@ export function interpretOrdinaryRoute(options:OrdinaryResolveOptions,result:Dec
   if(route==='needs_player'||consent==='unselected')return{disposition:'needs_player',needs:['The player has not authorized this consequential action.']};
   if(route==='incumbent')return{disposition:'incumbent',needs:['Use the existing resolution owner for this specialized rule family.']};
   if((route!=='ordinary'&&!(rollSettled&&route==='no_roll'))||consent!=='authorized')return{disposition:'unknown',needs:[consent==='unknown'?'Action authorization remains unknown.':'The required ordinary rule family remains unresolved.']};
-  const actors=[...new Set(options.profiles.map(value=>value.actor))],actorChoice=answer(result,'actor'),actor=actors.find((_,index)=>actorChoice===`actor_${index}`),
-    intent=answer(result,'intent'),difficulty=answer(result,'difficulty'),bonus=answer(result,'bonus'),penalty=answer(result,'penalty');
+  const actors=[...new Set(options.profiles.map(value=>value.actor))],actorChoice=answer(result,'actor'),
+    actor=compiled&&actors.length===1?actors[0]:actors.find((_,index)=>actorChoice===`actor_${index}`),
+    intent=compiled?compiled.intent:answer(result,'intent'),difficulty=answer(result,'difficulty'),bonus=answer(result,'bonus'),penalty=answer(result,'penalty');
   if(!actor||!['investigate','social','move'].includes(intent??'')||!['regular','hard','extreme'].includes(difficulty??'')
     ||!['none','one','two'].includes(bonus??'')||!['none','one','two'].includes(penalty??''))return{disposition:'unknown',needs:['An actor, difficulty or modifier is not bound.']};
   return{disposition:'ordinary',actor,intent:intent as OrdinaryRouteChoice['intent'],difficulty:difficulty as OrdinaryRouteChoice['difficulty'],
