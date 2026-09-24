@@ -8,8 +8,9 @@
  * transitions Pi's RunDriver uses through `createStepPolicy`, so the replay and the product cannot drift.
  */
 import type {DecisionBatch, DecisionResult, ReadSet, ScopeBinding} from '../../runtime/jev/contracts.ts';
+import {compileBatch} from '../../runtime/jev/route-compile.ts';
 import {
-  DEFAULT_CONFIDENCE_GATE, bindBatch, next, routeBatch, settleBind, settleExecute, settleInfer, settleLlmProposal, settleLocate,
+  DEFAULT_CONFIDENCE_GATE, bindBatch, doneThisTurn, next, routeBatch, settleBind, settleCompile, settleExecute, settleInfer, settleLlmProposal, settleLocate,
   settleOrdinaryBind, settleRead, settleRoute, startStep,
   type Candidate, type Json, type Material, type PendingItem, type RunView, type StepRequest, type TelemetryRow, type TurnContext,
 } from '../../runtime/jev/step-policy.ts';
@@ -62,6 +63,13 @@ export async function runTurn(ports: LoopPorts, initial: RunView, options: {gate
       const {batch, offered} = routeBatch(view, ports.scope, ports.readSet(view));
       const result = await ports.decide(batch), ms = ports.now() - began;
       note(settleRoute(view, step, batch, offered, result, ms, gate));
+      continue;
+    }
+    if (request.kind === 'decide' && request.purpose === 'compile') {
+      // §135.30: the typed-feature compile (asked only when the refresh port carries feature rows).
+      const batch = compileBatch(view, ports.scope, ports.readSet(view), doneThisTurn(view));
+      const result = await ports.decide(batch), ms = ports.now() - began;
+      note(settleCompile(view, step, batch, result, ms, gate));
       continue;
     }
     if (request.kind === 'decide' && request.purpose === 'locate') {

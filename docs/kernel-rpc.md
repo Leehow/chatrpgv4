@@ -17881,6 +17881,100 @@ the same way; a byte-silent stream still ends through the transport half. Mutati
 parent `cebffa0e1`; the error worded outside pi-ai's retry patterns and the wording assertion fails.
 `tests/extension/vendored-pi.test.mjs` pins the series.
 
+### 135.30 Routing asks what the player does: one compile per run reads the declaration into typed features, and predicates select the clerk's candidates (2026-09-24, SL-13; amends §135.1, §135.6, §135.7, §135.26)
+
+SL-13 takes §135.30 (§135.11–§135.29 are taken; §-numbers are stable ids). It applies to `PI_COC_LOOP_ENGINE=hybrid-v1`
+only; the legacy engine reads none of it. The spec's ruling "Routing asks what the player does, never whether a candidate
+is due" (owner, 2026-09-24) binds it.
+
+**Evidence** (live gate #3, `gate3-haunting-2329`, the route rows of its `telemetry.jsonl`). Turn 1, "我接。先去《环球报》剪报室，
+翻科比特宅这些年的旧报道。": the move to the morgue was offered and its `need` answered now 0.61 / later 0.37, confidence 0.42, so
+the whole turn went to the Keeper. Turn 2, "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。": the obligation's fact question
+answered `not` 0.54 / `seeks` 0.31. Each of those questions asks Jev whether a candidate is due, which is a judgment; what
+the sentence names (a place, a person, a thing sought, an act) is a parameter, and parameters are what Jev settles well.
+
+**The step.** After the run's first read and before its first route question, the policy asks one Jev question,
+`decide(compile)` (family `single-loop-compile`, version `1`), that reads the player's declaration into closed features.
+It is asked once per run, only before the first route, and only when the read's candidates include at least one a
+predicate below can select (a move, a scene-obligation candidate, the investigator's attack in a running fight);
+otherwise there is nothing for it to select and the route runs exactly as before. The existing guards apply unchanged
+(a spent Jev budget, no scope binding: no question). It is built in `runtime/jev/route-compile.ts` from the rows the
+read carried and nothing else; nothing classifies text, and there is no word list, pattern, embedding or lexical match
+anywhere in it.
+
+**Feature families and where their options come from.** One choice question per family that has rows; a family with
+no rows is not asked. The options are the rows, under aliases (`destination_1`, …, in the rows' own order) whose
+descriptors are the rows' own words, plus `none` (the declaration names none of the listed) and `unclear` (the input
+does not tell). The read builds the rows (`compileRows` in `runtime/jev/route-compile.ts`) from the same reads the
+candidates come from (§135.2) and carries them on the run view beside the candidates (`RunView.rows`, refreshed with
+every fresh read).
+
+| family | a row is | read from | read by |
+| --- | --- | --- | --- |
+| `destination` | a place the kernel offers as a move: its `to` and `display_name` | `table.apply.options` rows of kind `move` (all of them, a withheld one included: the answer is about the words; the predicate only reaches issued candidates) | the move predicate |
+| `addressee` | a person present: the table's own label (`called.name`, else `untold.label`), the role and the record name | `table.capsule.present` | the obligation predicates |
+| `ask` | an open obligation's demand (its `name` and what it guards, §135.26), an issued clue (its summary), a scene handout not yet shown (its name) | `table.apply.options.obligations` (state `open`), the `table.apply.options` clue rows without `guarded_by`, `capsule.where.assets` | the obligation predicates (a clue or handout answer is "something else") |
+| `act` | in a running combat on the investigator's turn, each action the session issues for the investigator (`context.session.actions[].decision`); otherwise each canonical resolve intent (the Keeper's `resolve` tool enum, `resolveIntents()`) | `table.resolve.options` session view; the tool definition | the attack predicate; the obligation check's act guard |
+| `target` | in a running combat, each target the session issues on the investigator's attack | `context.session.actions[decision = combat:attack].targets` | the attack predicate |
+| `item` | an object instance an investigator carries | `table.capsule.mods.objects.instances` whose `owner` is an investigator | none yet: recorded in the compile row only |
+
+Outside a fight the people present are the `addressee` family's rows, so `target` has no rows and is not asked. The
+`item` family has no reader among the predicates today; it is asked (it has rows) and its answer is only recorded, so a
+later predicate can be measured before it is written (a decision the owner confirms in the SL-13 ticket).
+
+**The predicates** (code, `COMPILE_PREDICATES` in `runtime/jev/route-compile.ts`; pure). A feature *clears* when its answer
+passes the route's own gates (§135.2's `clears`: reported confidence ≥ the gate, 0.6, or top ≥ 0.35 and ≥ 1.8 × the
+runner-up) and is a row (never `none`, `unclear` or `unknown`). A predicate fires only on cleared features:
+
+- **move**: `destination` cleared on the row whose `to` is the move candidate's `to` → that `apply:move` candidate;
+- **obligation check** (`resolve:obligation:<handle>`, §135.26): `ask` cleared on that obligation's demand, and the
+  `addressee`, when it cleared, is the check's person (its `target`, or the meeting it carries), and the `act`, when it
+  cleared outside a fight, is one of the check's own closed intents (`intent`'s options) → that candidate, whose meeting
+  and bind then run as §135.26 and §135.28 say;
+- **stated meeting** (a meeting-only obligation's person candidate): `addressee` cleared on its person, or `ask` cleared on
+  its demand with the `addressee` not cleared on someone else → that candidate;
+- **attack**: in a running combat, `act` cleared on `combat:attack` and `target` cleared on one of the targets the
+  investigator's attack row issues → that candidate, with `target` bound to the answer (when the kernel issued several,
+  the compile settles the closed parameter; its record on the `event: "bind"` row is path `jev`, with the compile's
+  confidence and distribution). A disposition bind stays a bind (§135.28).
+
+**Decided, selected, and what falls through.** A candidate a predicate can read is *decided* when the feature it turns
+on cleared: a move by `destination`; an obligation check by `ask`; a stated meeting by `addressee` or `ask`; the attack by
+`act` when it is another act, and by `act` and `target` together when it is the attack (the attack with no cleared target
+falls through, and its own bind settles the target). A decided candidate a predicate did not fire on is the Keeper's for the rest of the run: its key is consumed, as
+§135.26's fact question consumes an unselected obligation. Every other candidate falls through to the existing `need`
+question (§135.2, and §135.26's fact question for an obligation whose `ask` did not clear): a feature below the gate,
+`unclear`, not asked, or a candidate no predicate reads (a clue, a handout, a roster person, a Mod contact check, the
+ordinary check, a session step other than the investigator's attack). The exit question stays with the route. A
+selected candidate's `basis` gains `compile: {predicate, features}` (the cleared rows it fired on), which every row of the
+call and the Keeper's `clerk_did` carry (§135.7, §135.8).
+
+**It replaces the first fan-out.** When the compile selects, its candidates are the run's pending steps in the route's
+precedence (§135.26), and no route question is asked before them: the next route comes after them, over what the fresh
+read then offers less what the run consumed, and carries the exit question. When it selects nothing, the route question
+follows at once, over the candidates that fell through. So a run spends one compile call; a compile that selects
+replaces the first route call and the Jev calls of the run do not go up, and SL-12's binds are unchanged.
+
+**Telemetry (extends §135.7).** One `lane: "route"`, `purpose: "compile"` row per compile: `run`, `step`, `status`,
+`ms`, `features` (per family asked: `rows` alias → row id, `choice`, `row`, `confidence`, `probabilities`, `cleared`),
+`fired` (`[{predicate, candidate, features}]`), `selected` (candidate keys), `decided` (consumed keys), `fell_through`
+(candidate keys left to the route). It is counted as one Jev call in the run's budget.
+
+**Three ends (§31).** *Writer:* the read (`compileRows`, from the kernel's rows) and Jev (the answers). *Reader:* the
+policy's predicates (`interpretCompile`), which turn answers into pending clerk steps and consumed keys. *Actor:* the
+clerk, which executes what was selected through the canonical gateway (§135.4); the Keeper, told through `clerk_did` with
+`basis.compile`; the operator, through the compile row (the `item` family has only this reader today).
+
+**Not changed.** The gates (0.6 and the margin rule), the Keeper's prompt, the candidate builders' rows, SL-12's binds,
+§32 admission, the turn close and the time budget.
+
+*Tests.* `tests/extension/single-loop-compile.test.mjs`: rows from stub reads (a family without rows is not asked; options
+are rows plus `none`/`unclear`, and a row never offered is never an option); each predicate fires on a cleared row and never
+below the gate; a selecting compile replaces the first route (the next step is the clerk's, and the run's Jev calls equal
+the old run's); a decided candidate is consumed and an undecided one reaches the `need` question; the attack's target bound
+from the compile; the engine's compile row. The mutation record and the pre-registered replays of the gate #3 turns are
+in the SL-13 ticket's Comments and `experiments/single-loop-routing/RESULTS-20260923.md`.
+
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 
 A **mechanical shape** is a typed value from one closed catalog that states a rule the module prints: a

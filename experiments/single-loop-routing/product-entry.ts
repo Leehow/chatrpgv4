@@ -251,6 +251,8 @@ export interface ProductRunOptions {
   then?: string[];
   /** SO-04: `COC_KERNEL_SEED` for the kernel subprocess, recorded in the summary. */
   seed?: string;
+  /** SL-13: `off` runs the engine without the typed-feature compile (§135.30), the SL-12 policy: the control arm. */
+  compile?: 'on' | 'off';
 }
 
 /**
@@ -273,6 +275,8 @@ export interface ProductRunSummary {
   budget: Row | null;
   model_calls: ModelCall[];
   steps: Record<string, number>; llm_steps: number; llm_purposes: string[]; jev_calls: number; route_rows: number;
+  /** SL-13: the compile arm, the compile row (§135.30) if one was asked, and every clerk selection by who made it. */
+  compile: string; compile_row: Row | null; selections: Array<{by: string; keys: string[]}>;
   calls: Row[]; match: Row[]; admissions: Row[]; clerk: Row[]; misses: Row[];
 }
 
@@ -368,7 +372,7 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
       keeperModel = modelRuntime.getModel(liveProvider, liveModel);
       if (!keeperModel) throw new Error(`no model ${liveProvider}/${liveModel} in the account catalog`);
     }
-    const engine = createHybridEngine({env: process.env});
+    const engine = createHybridEngine({env: process.env, ...(options.compile === 'off' ? {compile: false} : {})});
     const settingsManager = SettingsManager.inMemory({compaction: {enabled: false}, retry: {enabled: false}});
     const resourceLoader = new DefaultResourceLoader({cwd: workspace, agentDir, settingsManager,
       // The Keeper's own prompt, as bin/pi-coc passes it (`--system-prompt prompts/keeper.md`).
@@ -436,7 +440,11 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
   const budgetRow = own.filter(row => row.lane === 'run' && row.event === 'budget' && row.decision === 'summary').at(-1) ?? null;
   const clerk = own.filter(row => row.origin === 'policy' && row.tool).map(row => ({tool: row.tool, call_id: row.call_id, ok: row.ok, ms: row.ms, clerk: row.clerk, basis: row.basis}));
   const misses = routeRows.filter(row => ['low_confidence', 'jev_unavailable', 'jev_no_answer', 'repeated_question'].includes(String(row.reason)));
+  const compileRow = routeRows.find(row => row.purpose === 'compile') ?? null;
+  const selections = routeRows.filter(row => (row.purpose === 'compile' || row.purpose === 'route') && array(row.selected).length)
+    .map(row => ({by: String(row.purpose), keys: array(row.selected).map(String)}));
   const summary: ProductRunSummary = {run, fixture: name, admission, keeper: live ? `live ${liveProvider}/${liveModel}` : 'replay', thinking, arm, latency, seed: options.seed ?? null, wall_ms: wall, budget: budgetRow,
+    compile: options.compile ?? 'on', compile_row: compileRow, selections,
     status: end?.status ?? null, reason: end?.reason ?? null, model_calls: modelCalls,
     steps: stepCounts, llm_steps: llmPurposes.length, llm_purposes: llmPurposes, jev_calls: jevCalls, route_rows: routeRows.length,
     calls: calls.map(call => ({tool: call.tool, origin: call.origin, ok: call.ok, error: call.error, input: call.input,
@@ -456,16 +464,20 @@ export async function main(argv: string[]): Promise<void> {
   const keeper = arg('--keeper', 'replay') as 'replay' | 'live', thinking = argv.includes('--thinking') ? arg('--thinking', 'low') : undefined;
   const model = argv.includes('--model') ? arg('--model', '') : undefined;
   const seed = argv.includes('--seed') ? arg('--seed', '') : undefined;
+  const compile = arg('--compile', 'on') as 'on' | 'off';
   const then = argv.flatMap((value, index) => value === '--then' ? [argv[index + 1]] : []);
   const outDir = arg('--out', join(REPO, 'experiments/single-loop-routing/results', `${new Date().toISOString().replace(/[:.]/g, '-')}-product-${name.split('/').filter(Boolean).at(-1)}-${admission}${keeper === 'live' ? `-live-${thinking ?? 'low'}` : ''}`));
   const summaries: ProductRunSummary[] = [];
   for (let run = 1; run <= runs; run++) {
-    const summary = await productReplayOnce(name, run, outDir, admission, {keeper, arm, latency, ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {}), ...(seed ? {seed} : {})});
+    const summary = await productReplayOnce(name, run, outDir, admission, {keeper, arm, latency, compile, ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {}), ...(seed ? {seed} : {})});
     summaries.push(summary);
     console.log(JSON.stringify({run, fixture: name, admission, keeper: summary.keeper, thinking: summary.thinking, arm, latency, seed: summary.seed, wall_ms: summary.wall_ms,
       budget: summary.budget ? {elapsed_at_compose: summary.budget.elapsed_at_compose, over: summary.budget.over_budget, deferred: array(summary.budget.deferred_by_budget).map((value: Row) => value.key)} : null,
       model_calls: summary.model_calls.map(call => `${call.purpose ?? '?'} ${call.ms ?? '?'}ms in ${call.input}+${call.cache_read}c out ${call.output}/r${call.reasoning ?? '?'} [${call.tools.join(',')}]`), status: summary.status, reason: summary.reason, steps: summary.steps,
-      llm_steps: summary.llm_steps, llm_purposes: summary.llm_purposes, jev_calls: summary.jev_calls, route_rows: summary.route_rows,
+      llm_steps: summary.llm_steps, llm_purposes: summary.llm_purposes, jev_calls: summary.jev_calls, route_rows: summary.route_rows, compile,
+      features: summary.compile_row ? Object.fromEntries(Object.entries(object(summary.compile_row.features)).map(([family, value]: [string, any]) =>
+        [family, `${value.row ?? value.choice}${value.confidence !== null ? ` ${value.confidence}` : ''}${value.cleared ? '' : ' (not cleared)'}`])) : null,
+      selections: summary.selections.map(entry => `${entry.by}:${entry.keys.join('+')}`),
       executed: summary.calls.map(call => `${call.origin === 'policy' ? 'H' : 'M'}:${call.tool}${call.ok ? '' : `!${call.error}`}${call.obligation ? `[${call.obligation.handle}:${call.obligation.settled ? 'settled' : 'open'}]` : ''}`),
       match: summary.match.map(row => `${row.baseline}: ${row.matched === null ? 'n/a' : row.matched ? `yes(${row.origin})` : 'NO'}`),
       admissions: summary.admissions.map(row => `${row.origin}/${row.verb}:${row.skipped ?? row.verdict}${row.path ? `@${row.path}` : row.reviewer ? `@${row.reviewer}` : ''}${row.ms !== null ? ` ${row.ms}ms` : ''}${row.jev_confidence ?? row.confidence ? ` c=${row.jev_confidence ?? row.confidence}` : ''}`)}));

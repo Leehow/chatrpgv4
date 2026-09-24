@@ -22,6 +22,8 @@ import type {DecisionBatch, DecisionResult, IntentBinding, ReadSet, ScopeBinding
 import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts';
 import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
+import {answerOf, clears} from './decision-gate.ts';
+import {COMPILE_FAMILY, compileBatch, compileDigest, compileReaches, interpretCompile, type FeatureRows} from './route-compile.ts';
 
 type Row = Record<string, any>;
 export type Json = null | boolean | number | string | Json[] | {[key: string]: Json};
@@ -179,10 +181,16 @@ export interface RunView {
   stopped?: {reason: string; purpose?: string};
   /** The Keeper batch in execution, if any (optional: a simple turn has none). */
   plan?: PlanArtifact;
+  /** §135.30: the compile's feature rows, from the latest read (absent: the read carried none, and no compile is asked). */
+  rows?: FeatureRows;
+  /** §135.30: the run's one compile is spent (asked, or switched off for the run). */
+  compiled?: boolean;
 }
 export type StepRequest =
   | {kind: 'direct'; item: PendingItem}
   | {kind: 'decide'; purpose: 'route'; digest: string}
+  /** §135.30: the typed-feature compile, once per run, before the first route question. */
+  | {kind: 'decide'; purpose: 'compile'; digest: string}
   /** `offline`: a clerk bind settled without asking Jev (its budget is spent): rules defaults, else the Keeper (§135.28). */
   | {kind: 'decide'; purpose: 'bind' | 'locate'; item: PendingItem; offline?: string}
   | {kind: 'infer'; purpose: 'bind' | 'adjudicate' | 'compose'; reason: string; item?: PendingItem; deferred?: DeferredStep[]}
@@ -239,32 +247,17 @@ export function next(view: RunView): StepRequest {
     return {kind: 'infer', purpose: head.purpose === 'bind' ? 'bind' : 'adjudicate', reason: 'jev_budget', item: head};
   }
   if (exhausted(view.budget)) return {kind: 'infer', purpose: 'compose', reason: 'jev_budget'};
+  // §135.30: before the first route question, one compile reads the declaration into typed features, when the rows let a
+  // predicate reach an offered candidate. Once per run.
+  if (compileDue(view)) return {kind: 'decide', purpose: 'compile', digest: compileDigest(view)};
   // Guard 1: the same question over the same candidates and materials is not asked twice.
   const current = routeDigest(view);
   if (view.asked.includes(current)) return {kind: 'infer', purpose: 'adjudicate', reason: 'repeated_question'};
   return {kind: 'decide', purpose: 'route', digest: current};
 }
 
-/** Margin gate parameters; every run records the raw distribution so they can be re-read. */
-export const MARGIN_MIN = 0.35, MARGIN_RATIO = 1.8;
-const leadOf = (result: DecisionResult | undefined, key: string, choice: string): {top: number; second: number} | undefined => {
-  const value = result?.answers?.[key];
-  const probabilities = value?.status === 'answered' && value.type === 'choice' ? value.probabilities : undefined;
-  if (!probabilities) return undefined;
-  const sorted = Object.entries(probabilities).sort((a, b) => b[1] - a[1]);
-  if (sorted[0]?.[0] !== choice) return undefined;
-  return {top: sorted[0][1], second: sorted[1]?.[1] ?? 0};
-};
-const answerOf = (result: DecisionResult | undefined, key: string): {choice?: string; confidence?: number} => {
-  const value = result?.answers?.[key];
-  return value?.status === 'answered' && value.type === 'choice' ? {choice: value.choice, confidence: value.confidence} : {};
-};
-/** An answer clears when its reported confidence meets the gate or its probability leads by a clear margin. */
-const clears = (result: DecisionResult | undefined, key: string, choice: string, confidence: number | undefined, gate: number): boolean => {
-  if (confidence === undefined || confidence >= gate) return true;
-  const lead = leadOf(result, key, choice);
-  return lead !== undefined && lead.top >= MARGIN_MIN && lead.top >= MARGIN_RATIO * lead.second;
-};
+/** The gates (§135.2): shared with the closed binds and the compile (§135.30), in `decision-gate.ts`. */
+export {MARGIN_MIN, MARGIN_RATIO} from './decision-gate.ts';
 
 /**
  * Structural precedence among operations judged needed on the same snapshot (design §11.3: writes keep
@@ -276,6 +269,11 @@ const clears = (result: DecisionResult | undefined, key: string, choice: string,
  */
 const PRECEDENCE: Record<string, number> = {person: 0, mod_check: 1, obligation_check: 2, 'core-check': 3, clue: 4, handout: 4, move: 5};
 const rank = (candidate: Candidate): number => PRECEDENCE[candidate.family] ?? PRECEDENCE['core-check'];
+
+/** §135.30: the compile is owed: not spent, no route asked yet, and some offered candidate is one a predicate can select. */
+export function compileDue(view: RunView): boolean {
+  return !view.compiled && !view.observations.some(value => value.kind === 'decide' && value.purpose === 'route') && compileReaches(view.candidates, view.rows);
+}
 
 /**
  * What a route answer makes determined. Also pure. The route is a fan-out (design §5.1, several needs
@@ -485,13 +483,16 @@ export interface TelemetryRow {
   reason?: string; offered?: number; detail?: Json;
 }
 
-export function initialView(input: {runId: string; rawInput: string; context: TurnContext; candidates: Candidate[]; budget?: Partial<Budget>; readFirst?: boolean}): RunView {
+export function initialView(input: {runId: string; rawInput: string; context: TurnContext; candidates: Candidate[]; budget?: Partial<Budget>; readFirst?: boolean;
+  /** §135.30: the typed-feature compile before the first route (default true; `false` is the SL-12 policy, the replays' control arm). */
+  compile?: boolean; rows?: FeatureRows}): RunView {
   // The product already reads before the Keeper's first request (§124 prescreen); the loop keeps that
   // order: the first step of a run is the read, so the route sees the located material. Runs 8-10 of the
   // prototype routed on an empty material list and sat at 0.52-0.58 for the declared move.
   return {runId: input.runId, rawInput: input.rawInput, stateVersion: 0, context: input.context, candidates: input.candidates, materials: [],
     located: false, observations: [], pending: input.readFirst === false ? [] : [{kind: 'direct', purpose: 'read'}], asked: [], consumed: [],
-    budget: {jevCalls: 0, jevMs: 0, steps: 0, runMs: 0, ...DEFAULT_BUDGET, ...(input.budget ?? {})}};
+    budget: {jevCalls: 0, jevMs: 0, steps: 0, runMs: 0, ...DEFAULT_BUDGET, ...(input.budget ?? {})},
+    ...(input.rows ? {rows: input.rows} : {}), ...(input.compile === false ? {compiled: true} : {})};
 }
 
 export {bytes as jsonBytes};
@@ -508,6 +509,7 @@ const observe = (view: RunView, value: Omit<Observation, 'step'>) => view.observ
 export function startStep(view: RunView, request: Exclude<StepRequest, {kind: 'finish'}>): number {
   view.budget.steps++;
   if (request.kind === 'decide' && request.purpose === 'route') view.asked.push(request.digest);
+  else if (request.kind === 'decide' && request.purpose === 'compile') view.compiled = true;
   else if (request.kind === 'decide') view.pending.shift();
   else if (request.kind === 'infer') {
     if (request.item && view.pending[0] === request.item) view.pending.shift();
@@ -542,6 +544,25 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
   return {step, kind: 'decide', purpose: 'route', choice: routed.choice ?? null, confidence: routed.confidence ?? null, ms, jev_calls: 1,
     reason: routed.reason, offered: offered.length, detail: {selected: routed.selected ?? null, exit: routed.exit ?? null, answers,
       offered_keys: offered.map(candidate => candidate.key), batch_state: batch.state as Json} as Json};
+}
+
+/**
+ * The compile's answer folded in (§135.30). The selected candidates become the run's pending steps in the route's
+ * precedence, so no route question comes before them (the compile replaces the first fan-out); a candidate the compile
+ * decided and did not select is the Keeper's for the rest of the run (consumed); the rest fall through to the route.
+ */
+export function settleCompile(view: RunView, step: number, batch: DecisionBatch, result: DecisionResult, ms: number, gate: number): TelemetryRow {
+  view.budget.jevCalls++;view.budget.jevMs += ms;
+  const outcome = interpretCompile(view, result, gate);
+  for (const key of outcome.decided) if (!view.consumed.includes(key)) view.consumed.push(key);
+  view.candidates = view.candidates.filter(value => !outcome.decided.includes(value.key));
+  const selected = [...outcome.selected].sort((a, b) => rank(a.candidate) - rank(b.candidate));
+  for (const {candidate} of selected) view.pending.push(...itemsFor(candidate));
+  const keys = selected.map(entry => entry.candidate.key);
+  observe(view, {kind: 'decide', purpose: 'compile', status: result.status, ...(keys.length ? {choice: keys.join(' + ')} : {}), reason: outcome.reason});
+  return {step, kind: 'decide', purpose: 'compile', choice: keys.length ? keys.join(' + ') : null, confidence: null, ms, jev_calls: 1, reason: outcome.reason,
+    detail: {features: outcome.features, fired: selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
+      selected: keys, decided: outcome.decided, fell_through: outcome.fellThrough, family: batch.family} as unknown as Json};
 }
 
 export function settleLocate(view: RunView, step: number, located: {calls: number; ms: number; summary: Json}, ms: number): TelemetryRow {
@@ -637,6 +658,7 @@ export function itemsFor(candidate: Candidate, reason?: string): PendingItem[] {
  */
 function applyFresh(view: RunView, fresh: Fresh): void {
   view.context = fresh.context;view.candidates = fresh.candidates.filter(candidate => !view.consumed.includes(candidate.key));view.stateVersion++;
+  if (fresh.rows) view.rows = fresh.rows;
   // A forced step the state no longer forces (the Keeper's own batch settled it first) is not owed any more.
   const live = new Set(view.candidates.map(candidate => candidate.key));
   view.pending = view.pending.filter(item => !item.candidate?.forced || live.has(item.candidate.key));
@@ -646,7 +668,8 @@ function applyFresh(view: RunView, fresh: Fresh): void {
 
 /** `bodies`: the issued candidates' bodies the read carried (§135.20); for the Keeper and the record, never the route question. */
 export interface ReadResult {materials: Material[]; located?: unknown; summary: Json; calls?: number; ms?: number; bodies?: import('./candidate-bodies.ts').CandidateBody[]}
-export interface Fresh {context: TurnContext; candidates: Candidate[]}
+/** `rows`: the compile's feature rows from the same reads (§135.30); absent when the reader builds none. */
+export interface Fresh {context: TurnContext; candidates: Candidate[]; rows?: FeatureRows}
 export function settleRead(view: RunView, step: number, read: ReadResult, fresh: Fresh, ms: number): TelemetryRow {
   // A read that folds Jev locate/qualification calls into itself still spends the run's Jev budget.
   view.budget.jevCalls += read.calls ?? 0;view.budget.jevMs += read.ms ?? 0;view.located = true;
@@ -712,6 +735,7 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
 /** Artifacts the product ports return, per step, so `reduce` can fold them with the transitions above. */
 export type StepArtifact =
   | {kind: 'route'; result: DecisionResult}
+  | {kind: 'compile'; result: DecisionResult}
   | {kind: 'bind'; result: DecisionResult}
   | {kind: 'bind-ordinary'; bound: OrdinaryBinding}
   | {kind: 'locate'; calls: number; ms: number; summary: Json}
@@ -745,6 +769,8 @@ export interface StepPolicyOptions {
   gate?: number;
   /** Read before the first route (default true): the loop's first step is the read. */
   readFirst?: boolean;
+  /** §135.30: the typed-feature compile before the first route (default true); `false` is the SL-12 policy. */
+  compile?: boolean;
   /** The run's clock (§135.25). With it, each folded step stamps `budget.runMs` from `startedAt`; without it the time budget never runs out. */
   clock?: () => number;
   /** When the run started on `clock` (default: the clock's reading at `initial`). */
@@ -782,7 +808,7 @@ function owesTurnClose(driver: DriverView<StepPolicyState>): boolean {
 const unavailable = (reason: string): DecisionResult => ({batchId: '', status: 'unavailable', answers: {}, coverage: {required: [], answered: [], unknown: []}, issues: [], failure: {code: reason, retryable: false}} as unknown as DecisionResult);
 const decisionOf = (observation: ObservationView): DecisionResult => {
   const artifact = observation.artifact as StepArtifact | undefined;
-  return observation.status === 'ok' && artifact && (artifact.kind === 'route' || artifact.kind === 'bind') ? artifact.result
+  return observation.status === 'ok' && artifact && (artifact.kind === 'route' || artifact.kind === 'bind' || artifact.kind === 'compile') ? artifact.result
     : unavailable(observation.status === 'ok' ? 'no_answer' : observation.status);
 };
 /** What a model-visible infer request says about the operation the LLM is asked to complete (never its host key). */
@@ -816,7 +842,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
     initial: input => {
       const startedAt = options.clock ? options.startedAt ?? options.clock() : undefined;
       const view = initialView({runId: input.runId, rawInput: input.rawInput, context: options.context,
-        candidates: options.candidates ?? [], budget: options.budget, readFirst: options.readFirst});
+        candidates: options.candidates ?? [], budget: options.budget, readFirst: options.readFirst, compile: options.compile});
       stamp(view, startedAt);
       return {gate, view, ...(startedAt !== undefined ? {startedAt} : {})};
     },
@@ -848,6 +874,12 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         if (!binding) return {kind: 'decide', purpose: 'route', question: unbound};
         const {batch, offered} = routeBatch(state, binding.scope, binding.readSet);
         return {kind: 'decide', purpose: 'route', question: {batch, offered, located: state.located, gate: driver.policyState.gate}};
+      }
+      if (request.kind === 'decide' && request.purpose === 'compile') {
+        if (!binding) return {kind: 'decide', purpose: 'compile', question: unbound};
+        // The candidates and rows ride with the question so the engine can record which predicates fired (§135.30).
+        return {kind: 'decide', purpose: 'compile', question: {batch: compileBatch(state, binding.scope, binding.readSet, doneThisTurn(state)),
+          candidates: state.candidates, rows: state.rows ?? null, gate: driver.policyState.gate}};
       }
       if (request.kind === 'decide' && request.purpose === 'locate') return {kind: 'decide', purpose: 'locate', question: {rawInput: state.rawInput}};
       if (request.kind === 'decide') {
@@ -920,6 +952,10 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         const {batch, offered} = binding ? routeBatch(policyState.view, binding.scope, binding.readSet)
           : {batch: {state: null} as unknown as DecisionBatch, offered: policyState.view.candidates};
         settleRoute(view, step, batch, offered, decisionOf(observation), observation.ms, policyState.gate);
+      } else if (request.kind === 'decide' && request.purpose === 'compile') {
+        const batch = binding ? compileBatch(policyState.view, binding.scope, binding.readSet, doneThisTurn(policyState.view))
+          : {family: COMPILE_FAMILY, questions: []} as unknown as DecisionBatch;
+        settleCompile(view, step, batch, decisionOf(observation), observation.ms, policyState.gate);
       } else if (request.kind === 'decide' && request.purpose === 'locate') {
         settleLocate(view, step, artifact?.kind === 'locate' ? artifact : {calls: 0, ms: 0, summary: {status: observation.status}}, observation.ms);
       } else if (request.kind === 'decide') {

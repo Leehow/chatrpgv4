@@ -1,0 +1,150 @@
+{
+ "run": 4,
+ "fixture": "gate3-t2",
+ "admission": "lane",
+ "keeper": "replay",
+ "thinking": "off",
+ "arm": "after",
+ "latency": false,
+ "seed": "1",
+ "wall_ms": 7022,
+ "budget": {
+  "turn": 2,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d1a4-b237-769c-aadf-6ed4e775789c",
+  "budget_ms": 45000,
+  "elapsed_ms": 5960,
+  "elapsed_at_compose": 5672,
+  "over_budget": false,
+  "deferred_by_budget": [],
+  "run_id": "2e437659-dff2-469c-a5e1-05ad266ce24a"
+ },
+ "compile": "off",
+ "compile_row": null,
+ "selections": [],
+ "status": "delivered",
+ "reason": "delivery_accepted",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 46157,
+   "cache_read": 0,
+   "cache_write": 46157,
+   "output": 67,
+   "reasoning": null,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 3732,
+   "cache_read": 46157,
+   "cache_write": 3733,
+   "output": 65,
+   "reasoning": null,
+   "tools": [
+    "narrate"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  }
+ ],
+ "steps": {
+  "operate": 3,
+  "decide": 2,
+  "infer": 2,
+  "finish": 1
+ },
+ "llm_steps": 2,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 9,
+ "route_rows": 2,
+ "calls": [
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "social",
+     "goal": "请剪报室编辑调出科比特宅这些年的旧剪报",
+     "method": "说明自己是受房东委托查证的私家侦探，请求按街道地址调出相关旧报",
+     "target": "Arty Wilmot",
+     "skill": "Persuade",
+     "obligation": "globe-clippings-access",
+     "modifiers": {
+      "bonus_dice": 1,
+      "reason": "来意具体：受房东委托、按地址查旧报，给了他一个可以当成自己量裁的理由"
+     }
+    }
+   },
+   "obligation": {
+    "handle": "globe-clippings-access",
+    "settled": true
+   },
+   "passed": true,
+   "level": "extreme"
+  },
+  {
+   "tool": "narrate",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "text": "你把外套里的纸条摊在柜台上，说明自己是私家侦探，受房东委托来查这栋房子的旧事，请他按地址调出这些年的剪报。\n\n戴绿眼罩的编辑听完，用铅笔在校样上点了一下，才抬眼。\n\n{{say:戴绿眼罩的编辑}}「房东的委托，不是报馆的委托。剪报室不招待公众，也不按一张私人口条给人翻档案。地址你留着自己用。要查，去图书馆，或者档案厅。这里，不行。」{{/say}}\n\n他用袖套擦了擦眼罩边缘，把校样往自己这边一拉，椅子仍旧不让。柜台这边没有文件夹递出来，楼梯口也没有人领你下去。"
+   }
+  }
+ ],
+ "match": [
+  {
+   "baseline": "resolve Persuade vs Arty Wilmot",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "narrate",
+   "matched": true,
+   "origin": "model"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 1,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null,
+   "path": "lane",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null
+  }
+ ],
+ "clerk": [],
+ "misses": []
+}
