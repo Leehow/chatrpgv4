@@ -1,0 +1,6 @@
+{"arm":"held","run":1,"skill":"Spot Hidden","disposition":"ordinary","profile":{"choice":"Spot Hidden","confidence":0.32,"held":true,"top":"Spot Hidden 0.34, unknown 0.29000000000000004, Appraise 0.13"},"named":{"choice":"none","confidence":0.99,"top":"none 0.99, Engineering 0.01, Fighting (Flail) 0"}}
+{"arm":"held","run":2,"skill":null,"disposition":"unknown"}
+{"arm":"held","run":3,"skill":"Spot Hidden","disposition":"ordinary","profile":{"choice":"Spot Hidden","confidence":0.29,"held":true,"top":"Spot Hidden 0.31, unknown 0.27, Mechanical Repair 0.17"},"named":{"choice":"none","confidence":0.99,"top":"none 0.99, Engineering 0.01, Art and Craft (Fine Art) 0"}}
+{"arm":"legacy","run":1,"skill":"Craft (Carpentry)","disposition":"ordinary","profile":{"choice":"Craft (Carpentry)","confidence":0.31,"held":false,"top":"Craft (Carpentry) 0.33, Engineering 0.27, unknown 0.17"}}
+{"arm":"legacy","run":2,"skill":"Craft (Carpentry)","disposition":"ordinary","profile":{"choice":"Craft (Carpentry)","confidence":0.31,"held":false,"top":"Craft (Carpentry) 0.33, Engineering 0.28, unknown 0.18000000000000002"}}
+{"arm":"legacy","run":3,"skill":"Engineering","disposition":"ordinary","profile":{"choice":"Engineering","confidence":0.3,"held":false,"top":"Engineering 0.32, Craft (Carpentry) 0.3, unknown 0.13"}}

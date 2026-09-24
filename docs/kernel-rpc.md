@@ -18722,7 +18722,8 @@ words:
     `unknown` 0.31 / Intimidate 0 at confidence 0.59; the old default took Intimidate (the investigator's highest of the
     four) and the §32 lane refused the clerk's check: "explaining purpose and asking a favor; nothing chooses coercion".
   The ordinary check has no approach default: its skill is the player's method, which the binder never picks by value
-  (§135.3 (c): an ambiguous one is the Keeper's).
+  (§135.3 (c): an ambiguous one is the Keeper's) Amended by §135.28.1 (SL-40): the binder chooses among the skills the
+  investigator holds unless the declaration names another.
 - **Dice modifiers** (`bonus`, `penalty`): `no_modifier`, the dice word `none`.
 - **The ordinary check's difficulty, dice and actor** (amended 2026-09-24 by SL-31, the spec's ruling "The ordinary
   check's difficulty and dice have rules defaults"). The ordinary binder (`bind-ordinary`) asks its route batch's
@@ -18856,6 +18857,57 @@ the gate on the question and in the engine's binder, the Keeper's line) and `adm
 turn-14 shape at the extension seam with the emitted kernel: rolled by the clerk, admitted `path: "compile"`); its
 mutations and replays are in the SL-31 ticket's Comments.
 
+#### 135.28.1 Addendum (2026-09-24, SL-40): the ordinary check's skill is one the investigator holds, unless the declaration names another
+
+SL-40 takes §135.28.1 (§-numbers are stable ids). The spec's ruling "A guard is a pacing condition; the place exists"
+(owner, 2026-09-24) carries it: "an ordinary check defaults to a skill the investigator holds". It amends §135.28's "The
+ordinary check has no approach default" for the single-loop clerk's binder only.
+
+**Evidence** (SL-29A, book A 血色公路, campaign `sl29a-xuese-1436`, turn 5, "过那座旧木桥之前我先下车，看看桥板和桥桩结不结实。").
+The compile selected the ordinary check (`act` `investigate` 0.98). The binder's profile question offered every skill of
+the rulebook's catalog -- the profile rows are the sheet's skills, then every catalog skill the sheet does not list, at its
+base chance, then the characteristics -- and answered Engineering 0.45 (Craft (Carpentry) 0.18, Spot Hidden 0.17), cleared
+by the margin rule; the clerk rolled Engineering at its base value. The investigator's sheet does not list Engineering; it
+lists Mechanical Repair 50 and Spot Hidden 50. The player named no skill.
+
+**The kernel says which rows the sheet holds** (`table.resolve.options`, `kernel-ts/runtime/resolve-operation.ts`). Each
+`profiles[]` row gains **`held`**: `true` when the investigator's sheet lists the skill (a key of `sheet.skills`, whatever
+its value) or it is a characteristic, `false` for a catalog skill the sheet does not list (its `value` is the base chance).
+Read from the sheet by key; no skill name is compared with a list.
+
+**The binder's two questions** (`ordinaryProfileBatch` with `held`, `runtime/jev/ordinary-resolve-domain.ts`; the
+single-loop binder asks it, `prepareCheckPreflight` with `defaults`). When the actor's rows carry `held` and at least one is
+held, the one profile batch (still one Jev call) asks:
+
+- **`profile`**: among the actor's **held** rows only, the skill or characteristic on the sheet that implements the
+  player's method for the declared act. The act rides on the question's state (`act`: the compile's act for a check the
+  compile selected, else the binder's intent answer). This is the default: a skill the investigator holds that fits the act
+  feature, chosen by Jev from the sheet's own rows, never by value and never from a list of skill names;
+- **`named`**: among the actor's rows the sheet does **not** hold, the one the declaration names by name, or `none`.
+
+**Which answer binds** (`selectOrdinaryProfile`). When `named` clears §135.2's gates (the policy's gate) on a row, that
+skill is the check's -- a skill absent from the sheet is chosen only when the declaration names it. Otherwise the `profile`
+answer is, as before (a held row; `unknown` leaves the check unbound, the Keeper's). The evidence the binder reports
+(`evidence.profile`, §135.30.3) is the answer taken, by skill name, so the bind record's `cleared` reads that answer; it
+gains `held` (the row's) and `named: true` when the skill came from `named`, and `evidence.named` records the `named`
+answer either way. The `lane: "route"`, `purpose: "bind-ordinary"` row's `skill` carries `held` and `named`.
+
+When no row carries `held` (a kernel without it) or the actor holds none, the batch is the one question over every row, as
+before. The legacy prescreen's advisory preflight and the ordinary-resolve task domain ask the one question as before.
+
+**Not changed.** The route batch, the difficulty and dice defaults (SL-31), the intent from the compile, the actor, the
+gates, admission (a skill answer under the gates is still `cleared: false`, and reviewed, §135.30.3).
+
+**Three ends (§31).** *Writer:* the kernel (`held`), Jev (`profile`, `named`). *Reader:* `selectOrdinaryProfile`, the bind
+records, admission. *Actor:* the kernel, which rolls the skill the investigator holds unless the player named another.
+
+*Tests.* `tests/extension/single-loop-binding.test.mjs`: on a fixture sheet (book A's investigator shape: held skills and
+catalog rows at base), the batch offers `profile` over held rows only and `named` over the rest; Engineering answered on
+`profile` is impossible (not an option), `named` at `none` binds the held answer (Spot Hidden); `named` cleared on
+Engineering binds it with `named: true`; `named` under the gate does not; rows without `held` ask the one question as
+before. `tests/kernel/test_jev_resolve.py`: `held` on the emitted kernel's profile rows follows the sheet's keys. The
+mutations are in the SL-40 ticket's Comments.
+
 ### 135.29 A provider attempt ends when its stream stops producing events (2026-09-24, SL-02 live-gate finding; amends the SL-01 attempts of `docs/specs/pi-native-single-loop-tickets/01-run-driver.md` and the premise of `runtime/launch.ts`'s idle timeout)
 
 **The finding.** `gate2-haunting-2153` (hybrid-v1, `grok-build/grok-4.7-build-fast` low, through the local proxy),
@@ -18956,7 +19008,7 @@ every fresh read).
 | --- | --- | --- | --- |
 | `destination` | a place the kernel offers as a move: its `to` and `display_name` (since §135.30.4 also the place's other names, summary, where-words, people and things) | `table.apply.options` rows of kind `move` (all of them, a withheld one included: the answer is about the words; the predicate only reaches issued candidates) | the move predicate |
 | `addressee` | a person present: the table's own label (`called.name`, else `untold.label`), the role and the record name | `table.capsule.present` | the obligation predicates |
-| `ask` | an open obligation's demand (its `name` and what it guards, §135.26), an issued clue (its summary), a scene handout not yet shown (its name) | `table.apply.options.obligations` (state `open`), the `table.apply.options` clue rows without `guarded_by`, `capsule.where.assets` | the obligation predicates (a clue or handout answer is "something else") |
+| `ask` | an open obligation's demand (its `name` and what it guards, §135.26), an issued clue (its summary), a scene handout not yet shown (its name) | `table.apply.options.obligations` (state `open`), the `table.apply.options` clue rows without `guarded_by`, `capsule.where.assets` | the obligation predicates (a clue or handout answer is "something else"; since §135.30.5 a clue answer is read by `guard_unlock` when the cleared destination's guard names that clue) |
 | `act` | in a running combat on the investigator's turn, each action the session issues for the investigator (`context.session.actions[].decision`); otherwise each canonical resolve intent (the Keeper's `resolve` tool enum, `resolveIntents()`) | `table.resolve.options` session view; the tool definition | the attack predicate; the obligation check's act guard |
 | `target` | in a running combat, each target the session issues on the investigator's attack | `context.session.actions[decision = combat:attack].targets` | the attack predicate |
 | `item` | an object instance an investigator carries | `table.capsule.mods.objects.instances` whose `owner` is an investigator | none yet: recorded in the compile row only |
@@ -19283,7 +19335,9 @@ carries `guarded: [{to, place, guard}]` from that row. It is recorded on the com
 once, as `guarded` with `guarded_note`: the player's declaration goes to this place, the way is closed by the book's own
 condition (the guard), nothing was executed for it, and the guard says what opens it and where the book puts that. The
 compile selects nothing for it and consumes nothing new (the move was never a candidate); what the Keeper does -- play the
-search the guard names, open the way with its own write, or narrate the door shut -- is the Keeper's.
+search the guard names, open the way with its own write, or narrate the door shut -- is the Keeper's. (Amended by §135.30.5:
+a guard the same compile's batch unlocks is reported `unlocked`, not `guarded`; and by §135.30.6: the guard says the place
+and its entrance exist, and the note says to narrate the entrance and what is missing, never the place as absent.)
 
 **Content (the haunting).** The six scenes without an authored name gain `destination_identity` (English, the graph's
 language; §23: no per-language table): `previous-tenants` "Roxbury Sanitarium", `corbitt-house-ground` "The Corbitt House",
@@ -19309,6 +19363,124 @@ sanatorium's name, where-words and the Macarios; no summary where the graph's is
 the destination clears on a guarded row, none below the gate, none when the move is issued; the obligation guard; the
 engine's compile row and the `coc-clerk` message carrying it once. The replays of the long gate's turns 6, 9, 11 and 16
 are in the SL-25 ticket's Comments.
+
+#### 135.30.5 Addendum (2026-09-24, SL-38): a guard is evaluated after the effects the same declaration files
+
+SL-38 takes §135.30.5 (§135.30.4 is SL-25's; §-numbers are stable ids). The spec's ruling "A guard is evaluated after the
+effects the same declaration files" (owner, 2026-09-24) binds it. It amends §135.30's predicates (a seventh,
+`guard_unlock`), §135.30.4's guarded report and §135.26's carried steps, for `PI_COC_LOOP_ENGINE=hybrid-v1` only.
+
+**Evidence** (long gate #3, `longgate3-haunting-1058` in the integration worktree's `.coc`, turn 1, "我接。先去《环球报》剪报室，
+翻科比特宅这些年的旧报道。", run `run-01a0d3ed-c76b-76f6-9f29-643a3a79eae8`, compile s2). `destination` cleared on
+`newspaper-morgue` at 1.0, `ask` on `clue:knott-research-leads` at 0.90, `act` `investigate` at 0.95. Every research exit
+was held by `clue_discovered: knott-research-leads`, so no move was issued: the compile reported the morgue `guarded` and
+selected nothing (`fell_through`: the office's two clues, its handout and the ordinary check). The Keeper then filed the
+accept (both clues, the cash, the key, the handout and the move in one batch), and introduced the morgue's people: four
+model steps (17.6, 11.5, 7.6 and 12.0 s) and a 13 s `review_pending` on a resolve, 73 s. At gate #2 the clue had landed
+at turn 0 and the same sentence compiled to the move.
+
+**The batch's staged effects.** A compile's selections are one batch: the clerk steps it makes pending. An effect of the
+batch that meets the guard of the destination the same compile cleared unlocks that destination. Two effects count, each
+matched by kernel ids, never by words:
+
+1. **A clue the declaration files.** `ask` cleared on an issued clue row `clue:<c>` and `destination` cleared on a row
+   whose guard is the kernel's unmet unlock naming that clue (`guard.clue.clue` is `c`, the typed data of §135.30.4). The
+   predicate **`guard_unlock`** (`COMPILE_PREDICATES`; families `ask` and `destination`) reads the issued `apply:clue`
+   candidate and fires then, selecting it. Until now a clue answer of `ask` had no reader (§135.30's table: "something
+   else"); it still has none otherwise. `guard_unlock` never *decides*: a clue it does not fire on falls through to the
+   route's `need` question exactly as before. It is askable for a clue candidate only when the rows carry that clue's `ask`
+   row and a destination row guarded by it (predicates' `askable` now also receives the candidate), so no other clue
+   becomes reachable and no other read owes a compile.
+2. **An obligation the clerk settles.** The `obligation_check` predicate fired on `resolve:obligation:<h>` and
+   `destination` cleared on a row the kernel holds `guarded_by` that obligation (guard `{obligation: <h>}`, §135.30.4).
+
+A guard of any other shape -- a `flag_set` unlock, a condition without a typed `clue`, a clue the batch does not select --
+is not unlocked by the batch, and the row is reported `guarded` as §135.30.4 says.
+
+**The move after the effect.** An unlocked row adds no candidate at compile time: the move is still not issued, and the
+compile does not evaluate the kernel's condition itself. The compile outcome carries **`unlocked: [{to, place, guard,
+after}]`** (`after`: the key of the selected step that unlocks it) in place of that row's `guarded` entry, and the policy
+stages the move after that step (`RunView.unlocks`). When the clerk step `after` lands, its fresh read *is* the guard's
+evaluation after the effect: the kernel issues `apply:move:<to>` when the effect met the guard, and the policy runs that
+move next, carrying the compile's record of it -- `basis.compile` with predicate `move`, the cleared rows as `features`,
+`read_features.destination`, and `unlocked_by: <after>` -- as §32.12.1 carries a compile record across a carried step (the
+fresh read's kernel row stays; nothing is re-bound). The move's key joins the run's `compileSelected` at the compile (it is
+the declaration's own step, §135.11 addendum SL-20).
+
+So the batch carries both, accept then move, as two clerk writes in that order. Each is admitted on its own compile
+evidence (§32.12): the clue by `guard_unlock` (its `ask` and `destination` records cleared), the move by `move` (its
+`destination` record cleared). That is §32.12.3's line-level admission applied to the clerk: neither line waits on the
+other's review, and a refusal of the move does not take the clue back. A clerk write stays a single effect.
+
+**When the unlock does not happen.** The step `after` is refused (by admission or the kernel), or it lands and the fresh
+read does not issue the move (an obligation's roll that failed leaves it `open`; a condition the clue alone does not meet):
+the move is not run, nothing is consumed for it, and the row goes to the Keeper as §135.30.4's `guarded` entry in the next
+`coc-clerk` note (`RunView.unlockMissed`, read by the engine), once. A staged move whose step never ran (the run ended, its
+budget spent) is dropped with the run.
+
+**Not changed.** The gates; the other predicates; which candidates the builder issues (a guarded move is still never one);
+§135.30.4's report for every guard the batch does not unlock; admission's rules.
+
+**Telemetry.** The compile row gains `unlocked`; `fired` lists `guard_unlock` with the clue; the move's `event: "bind"`,
+tool and admission rows carry `basis.compile.unlocked_by`.
+
+**Three ends (§31).** *Writer:* Jev (`ask`, `destination`), the predicate `guard_unlock`, the kernel (the fresh read that
+issues the move). *Reader:* `interpretCompile` (`unlocked`), `settleCompile` and `settleExecute` (the staged move),
+`compileAdmission`. *Actor:* the clerk (the clue, then the move); the Keeper, through `clerk_did` and, when an unlock misses,
+`guarded`; the operator, through the compile row.
+
+*Tests.* `tests/extension/single-loop-guard-unlock.test.mjs`: at the policy seam, the gate #3 turn-1 answers select the
+clue and stage the move, the move runs after the clue from the fresh read that issues it, carrying `basis.compile`
+(`move`, `unlocked_by`), and the compile row reports `unlocked`, no `guarded`; a move whose guard the batch does not unlock
+(no cleared `ask` on its clue, or a guard naming another clue) still falls through with `guarded`; the clue predicate never
+fires or decides without the guarded destination; an obligation guard staged after the obligation check, and a missed
+unlock reported `guarded`. On the emitted kernel over the haunting through the vendored driver (a stub Jev with the gate #3
+answers, the faux Keeper): the office's research exits held, the sentence's compile selects the clue, the clerk files it and
+then moves to the morgue, both admitted `path: "compile"` with no lane request. The mutations and the gate #3 turn-1 replay
+are in the SL-38 ticket's Comments.
+
+#### 135.30.6 Addendum (2026-09-24, SL-40): a guard is a pacing condition; the place and its entrance exist
+
+SL-40 takes §135.30.6. The spec's ruling "A guard is a pacing condition; the place exists" (owner, 2026-09-24) binds it. It
+amends §135.30.4 (the unmet unlock's data, the guarded report and its note).
+
+**Evidence** (long gate #3, turns 14–18). The basement's exit was held by `clue_discovered: corbitt-diaries` because the
+diaries in the storage-room cupboard were never opened. The compile reported the guard and its unlock (§135.30.4) and the
+note said "play toward it, open the way with your own write when the fiction does, or narrate the way shut". The Keeper
+narrated the guard as physical absence, three turns running: "壁橱后头是实墙…没有台阶，也没有往下的口子", while the book (the
+window's own answer at turn 15) has the basement reached from the ground floor by a bolted door, and the Keeper kept the
+diaries in view ("三本旧书…你没有翻开它们"). The house the fiction showed contradicted the house the book has.
+
+**The unmet unlock says the place and its way exist** (`table.apply.options`, `kernel-ts/read/destination-rows.ts`). A
+`move` row whose `unlock_when.met` is `false` adds, beside §135.30.4's `clue`/`flag`, **`exists: {place: true, entrance:
+true, from, from_place}`**: the place is in the book and so is the way to it from the scene the party is in (`from`, its
+handle; `from_place`, the table's label for it). It is a statement of the graph's structure: the row is an exit the scene
+has, and its `unlock_when` is a condition on taking it now, never on whether it is there. A met or unknown unlock is
+unchanged. The compile's guard (`compileRows`: `unlock_when` without `met`) carries it, so the guarded report does too.
+
+**What the book says about the entrance.** The guarded entry the Keeper's `coc-clerk` note carries gains **`entrance:
+{passages}`** when this run's prescreen located passages about the destination: §135.31.1's `scenePassages` for the
+destination handle (the book's passages of a read made there; the destination's own entity and every entity one of whose
+units names its handle, such as the scene whose edge leads there), fitted to the carried view's ceiling
+(`CARRIED_VIEW_BYTES`, marked `truncated` when cut). Where none were located the key is absent; nothing is read for it and
+nothing is selected by words. The current scene's own passages ride in `carried` as §135.31.1 says.
+
+**The guidance** (`guarded_note`, replaces §135.30.4's). The player's declaration goes to this place; the book's condition
+(guard) holds the way now, so nothing was executed for it. The guard is a pacing condition, not a wall: the place and its
+entrance exist (`exists`, from the scene named there). Narrate the entrance as the book has it (`entrance.passages` where
+given) and what is missing -- the guard's unlock and where the book puts it -- never the place or its way as absent (no
+blank wall, no missing stairs). Play toward the unlock, or open the way with your own write when the fiction does.
+
+**Not changed.** Which candidates are issued; the gates; the guard's own fields; the capsule's exits.
+
+**Three ends (§31).** *Writer:* the kernel (`exists`), this run's prescreen (the passages). *Reader:* `compileRows` (the
+guard), the engine's note (`entrance`). *Actor:* the Keeper, who narrates the way and what it lacks.
+
+*Tests.* `tests/kernel/test_jev_apply.py`: on the emitted kernel over the haunting, the office's held exits say the place
+and entrance exist from the office, and the ground floor's basement row names the ground floor; a met unlock carries no
+`exists`. `tests/extension/single-loop-destination-rows.test.mjs`: the guard carries `exists`; the note's guarded entry
+carries `entrance.passages` from the run's prescreen when it located the destination and none when it did not; the note's
+wording is asserted by structure only (its presence), never by prose.
 
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
 

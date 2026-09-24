@@ -83,3 +83,12 @@ export function unlockGuard(graph: ModuleGraph, world: Row, when: unknown): Row 
         return { flag: condition.flag_id };
     return {};
 }
+
+/**
+ * §135.30.6 (SL-40): a held exit is a pacing condition, not a wall. The row is an exit the scene has, so the place and
+ * the way to it from here exist; `unlock_when` says what must happen before the party takes it now. `from` is the
+ * scene the party is in (the exit's own end) and `from_place` the table's label for it. Structure only.
+ */
+export function guardedWay(graph: ModuleGraph, world: Row, scene: Row): Row {
+    return { exists: { place: true, entrance: true, from: graph.handle(scene), from_place: sceneLabel(graph, world, scene) } };
+}

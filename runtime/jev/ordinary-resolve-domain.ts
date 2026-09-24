@@ -7,7 +7,8 @@ import {clears} from './decision-gate.ts';
 
 export const ORDINARY_RESOLVE_VERSION='2';
 export type OrdinaryDisposition='ordinary'|'no_roll'|'incumbent'|'needs_player'|'unknown';
-export type OrdinaryProfile={alias:string;actor:string;skill:string;availability:'bound'|'unknown';value:number|null};
+/** `held` (§135.28.1, SL-40): the sheet lists the skill, or it is a characteristic; `false` for a catalog skill at its base chance. */
+export type OrdinaryProfile={alias:string;actor:string;skill:string;availability:'bound'|'unknown';value:number|null;held?:boolean};
 export type OrdinaryDecision={name:string;family:string;description:string|null;capability:string|null};
 export type OrdinaryResolveOptions={version:1;profiles:OrdinaryProfile[];decisions:OrdinaryDecision[];revision:string;world_revision:string;context:Record<string,Json>};
 /**
@@ -119,17 +120,51 @@ export function interpretOrdinaryRoute(options:OrdinaryResolveOptions,result:Dec
     bonus:bonus as OrdinaryRouteChoice['bonus'],penalty:penalty as OrdinaryRouteChoice['penalty'],needs:[],...(defaults?{paths}:{})};
 }
 
-export function ordinaryProfileBatch(input:{rawInput:string;goal:string;options:OrdinaryResolveOptions;route:OrdinaryRouteChoice}):Omit<DecisionBatch,'id'|'scope'|'readSet'>|undefined {
+/**
+ * §135.28.1 (SL-40): the single-loop binder chooses among the skills the sheet holds. With `held` and an actor whose rows say
+ * which the sheet holds (at least one held), the batch asks `profile` over the held rows only, for the declared act, and
+ * `named` over the rows the sheet does not hold: the one the declaration names by name, or none. Aliases stay
+ * `profile_<index>` over all of the actor's rows, so both answers read back the same way. Otherwise one question over
+ * every row, as before.
+ */
+export function ordinaryProfileBatch(input:{rawInput:string;goal:string;options:OrdinaryResolveOptions;route:OrdinaryRouteChoice;held?:boolean}):Omit<DecisionBatch,'id'|'scope'|'readSet'>|undefined {
   if(input.route.disposition!=='ordinary'||!input.route.actor)return undefined;const available=input.options.profiles.filter(value=>value.actor===input.route.actor);
   const {_binding,...context}=input.options.context;
+  const rows=(keep:(row:OrdinaryProfile)=>boolean)=>Object.fromEntries(available.flatMap((value,index)=>keep(value)?[[`profile_${index}`,{skill:value.skill,availability:value.availability}]]:[]));
+  if(input.held&&heldMode(available)){
+    return{model:JEV_MODEL,family:'ordinary-resolve',familyVersion:ORDINARY_RESOLVE_VERSION,
+      state:{rawInput:input.rawInput,goal:input.goal,context:context as Json,actor:input.route.actor,...(input.route.intent?{act:input.route.intent}:{})},questions:[
+        choice('profile','Select the single skill or characteristic on this investigator\'s sheet that implements the player-chosen method for the declared act. Choose by what the player does, never by its percentage. More than one genuinely different method still needs clarification.',
+          {...rows(value=>value.held===true),unknown:'No skill or characteristic on the sheet implements the method, or it is ambiguous.'}),
+        choice('named','Select the listed skill only when the player\'s declaration names that skill by name. These are skills the investigator does not hold. Choose none when the declaration names none of them.',
+          {...rows(value=>value.held!==true),none:'The declaration names none of these skills by name.'}),
+      ]};
+  }
   return{model:JEV_MODEL,family:'ordinary-resolve',familyVersion:ORDINARY_RESOLVE_VERSION,state:{rawInput:input.rawInput,goal:input.goal,context:context as Json,actor:input.route.actor},questions:[
     choice('profile','Select the single skill or characteristic that implements the player-chosen method. Do not substitute a similar skill for a missing required skill, choose by its percentage, or treat a missing binding as zero. More than one genuinely different method still needs clarification.',
-      {...Object.fromEntries(available.map((value,index)=>[`profile_${index}`,{skill:value.skill,availability:value.availability}])),unknown:'The required skill or method is unavailable or ambiguous.'})]};
+      {...rows(()=>true),unknown:'The required skill or method is unavailable or ambiguous.'})]};
 }
+/** §135.28.1: the actor's rows say which the sheet holds, and it holds at least one. */
+const heldMode=(rows:OrdinaryProfile[]):boolean=>rows.some(row=>row.held===true)&&rows.every(row=>typeof row.held==='boolean');
 
-export function selectOrdinaryProfile(options:OrdinaryResolveOptions,route:OrdinaryRouteChoice,result:DecisionResult|undefined):OrdinaryProfile|undefined {
-  if(route.disposition!=='ordinary'||!route.actor||result?.status!=='complete')return undefined;const available=options.profiles.filter(value=>value.actor===route.actor),selected=answer(result,'profile');
-  return available.find((_,index)=>selected===`profile_${index}`);
+/**
+ * The profile the binder takes. `held` (§135.28.1, SL-40; the single-loop binder, with the policy's gate): a `named` answer
+ * that clears the gates on a row the sheet does not hold is taken -- the declaration names that skill; otherwise the
+ * `profile` answer, which offers only held rows. `from` says which answer it was.
+ */
+export function pickOrdinaryProfile(options:OrdinaryResolveOptions,route:OrdinaryRouteChoice,result:DecisionResult|undefined,held?:{gate:number}):{profile?:OrdinaryProfile;from:'profile'|'named'} {
+  if(route.disposition!=='ordinary'||!route.actor||result?.status!=='complete')return{from:'profile'};
+  const available=options.profiles.filter(value=>value.actor===route.actor),at=(key:string)=>{const selected=answer(result,key);return available.find((_,index)=>selected===`profile_${index}`);};
+  if(held&&heldMode(available)){
+    const named=at('named'),given=result.answers.named,confidence=given?.status==='answered'&&given.type==='choice'&&typeof given.confidence==='number'?given.confidence:undefined;
+    if(named&&named.held!==true&&given?.status==='answered'&&given.type==='choice'&&clears(result,'named',given.choice,confidence,held.gate))return{profile:named,from:'named'};
+    const profile=at('profile');
+    return{...(profile&&profile.held===true?{profile}:{}),from:'profile'};
+  }
+  const profile=at('profile');return{...(profile?{profile}:{}),from:'profile'};
+}
+export function selectOrdinaryProfile(options:OrdinaryResolveOptions,route:OrdinaryRouteChoice,result:DecisionResult|undefined,held?:{gate:number}):OrdinaryProfile|undefined {
+  return pickOrdinaryProfile(options,route,result,held).profile;
 }
 
 export function ordinaryActionTemplate(input:{rawInput:string;goal:string;options:OrdinaryResolveOptions;route:OrdinaryRouteChoice;profile:OrdinaryProfile}):OrdinaryActionTemplate|undefined {

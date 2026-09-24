@@ -8,7 +8,7 @@ import {SessionView} from '../read/session-view.js';
 import {RuleObservations, semanticName} from '../read/rule-facts.js';
 import {taskWorldRevision} from '../read/context.js';
 import {RuleTables} from '../rules/tables.js';
-import {SkillResolver} from '../rules/skills.js';
+import {CHARACTERISTICS, SkillResolver} from '../rules/skills.js';
 import {RuleGraph} from '../rules/graph.js';
 import {array, row, string, number, type Row} from '../read/values.js';
 import {npcsPresent} from '../read/capsule.js';
@@ -49,8 +49,11 @@ export function ordinaryResolveHandlers(context: KernelContext): HandlerGroup {
             for (const skill of resolver.canonicalNames()) {
                 let value: number | null = null;
                 try { const target = resolver.targetValue(skill); if (Number.isSafeInteger(target) && target >= 0 && target <= 100) value = target; } catch { /* Missing profile values stay unknown. */ }
+                // §135.28.1 (SL-40): whether the sheet holds the row -- a skill the sheet lists (whatever its value) or a
+                // characteristic -- as against a catalog skill the sheet does not list, whose value is its base chance.
+                const held = Object.hasOwn(resolver.sheetSkills, skill) || Object.hasOwn(CHARACTERISTICS, skill);
                 profiles.push({alias: `profile:${profiles.length}`, actor: sheet.name, skill,
-                    availability: value === null ? 'unknown' : 'bound', value});
+                    availability: value === null ? 'unknown' : 'bound', value, held});
             }
         }
         const decisions = rules.decisionNodes().map(node => ({name: semanticName(node.node_id), family: rules.familyOf(node.node_id),
