@@ -17571,6 +17571,42 @@ policy over the emitted kernel's own reads at the morgue, and over stub reads fo
 state) and the clerk-refusal case at the extension seam; the mutation record is in the SO-04 ticket's Comments. The
 turn-3 replay on the obligation fixture variant is in `experiments/single-loop-routing/RESULTS-20260923.md`.
 
+### 135.27 The thinking schedule is a table mount (2026-09-23; amends the premise of §135.24)
+
+**What was wrong.** `extensions/thinking-schedule` (host contract §3.7: the table's chosen level for the first model
+request of an input, Pi's lowest supported level for the requests a non-delivery tool batch buys, the table's level
+back at `agent_settled`) was written on 2026-09-18 and declared in `package.json`'s `pi.extensions`, and it never ran
+at a table. Every Keeper launch — `bin/pi-coc` (`runtime/launch.ts`), the App's session (`pipicoc/rpc.mjs`) and the
+standalone package (`readDeployment`) — passes `--no-extensions`, which turns discovery off, and mounts the one list
+`COC_EXTENSIONS` in `runtime/deployment.mjs` explicitly. The extension was not on it. §135.24's "`extensions/
+thinking-schedule`'s follow-up `off` request lands on `low`" described a request nothing was sending; the SL-11
+probe measured the provider, not the extension. `tests/extension/thinking-schedule.test.mjs` proved the extension in
+isolation and nothing proved the mount.
+
+**The ruling.** The contract keeps the schedule: §3.7 of the host contract prescribes it, the 2026-09-23 SL-11 ruling
+("the table stays `low` until the owner picks from that table") is a ruling on the *first* request's level and is
+not touched by it, and nothing in this contract or `docs/specs/pi-native-single-loop.md` retired it (the design note
+that a single-loop schedule should follow the step's purpose rather than the count of tool batches is a later
+ticket, not a retirement). So it is mounted:
+
+- `COC_EXTENSIONS` ends with `thinking-schedule`. Both launches and the standalone manifest check derive from that
+  list, so the table, character creation and the package see the same mount; the extension itself installs no hook in
+  setup mode and registers no tool, and a lane child (`readerProviderExtensionPaths`) still does not mount it.
+- `pipicoc/runtime-dependencies.json` names `build/extensions/thinking-schedule/index.mjs`, so `build:runtime`
+  emits it and the package carries it; `readDeployment` refuses a package where it is missing, as for every other
+  entry of the list.
+
+**What changes at a table.** On the default Keeper model (`grok-build/grok-4.7-build-fast`) nothing: the follow-up
+`off` is clamped to `low`, the level the table already runs at (§135.24). On a model whose catalog exposes a lower
+level, the requests after the first non-delivery tool batch of an input run at that level and the table's own level
+returns for the next input, exactly as §3.7 states. The turn's first request, the lanes and the §32 review keep their
+own levels.
+
+*Tests.* `tests/extension/launch.test.mjs` ("the thinking schedule is mounted at every Keeper launch"): the entry is
+emitted, both layouts name it in the session mounts and not in the lane mounts, and the real `bin/pi-coc` argv
+carries it in play and in setup; `tests/extension/pipicoc-rpc.test.mjs` for the App's `keeperArguments` in both
+modes. Mutation: remove it from `COC_EXTENSIONS` and all of them fail.
+
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 
 A **mechanical shape** is a typed value from one closed catalog that states a rule the module prints: a

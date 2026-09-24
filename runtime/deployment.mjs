@@ -34,7 +34,10 @@ export const COMPILED_ENTRIES = Object.freeze({
  */
 export const PI_PACKAGE_ROOT = 'build/node_modules/@earendil-works/pi-coding-agent';
 export const PI_ENTRIES = Object.freeze({ pi: `${PI_PACKAGE_ROOT}/dist/cli.js`, piModule: `${PI_PACKAGE_ROOT}/dist/index.js` });
-export const COC_EXTENSIONS = Object.freeze(['kernel', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice']);
+// The COC extensions every Keeper session mounts, in load order (kernel first: it puts the RPC bridge on the bus).
+// `thinking-schedule` is the host contract's §3.7 request-level schedule (kernel contract §135.27); it registers no
+// tool and installs nothing in setup mode, but it must be here or it never runs at a table.
+export const COC_EXTENSIONS = Object.freeze(['kernel', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice', 'thinking-schedule']);
 /**
  * The extensions that register a model provider, read from the manifests that already declare it.
  *
