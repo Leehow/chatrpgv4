@@ -6503,7 +6503,7 @@ What is **not** put to review, decided by closed contract enums and never by rea
 - a `resolve` that settles the closed option the player was just asked (`ask` offered `dodge`/`fight_back`/`none`/`push`/`spend_luck`, the player answered in their own words, the Keeper writes `defense`, `push: true` or `luck` accordingly): the answer is the player's own choice, in whatever words it came. The second real table paid a full review, and two of its four timeouts, on exactly these combat rounds before this exemption existed;
 - a turn with no player text (the opening). The skip is a telemetry row, not a silence.
 
-A batch is reviewed whole and refused whole: a `clue` beside a `move` is admitted only when the player's
+A batch is reviewed whole and refused whole *(amended by §32.12.3, 2026-09-24: lines the typed answer admits at the fast-path confidence are admitted on their own, and the rest is reviewed as its own proposal)*: a `clue` beside a `move` is admitted only when the player's
 words authorise both. The review authorises the affected voluntary action, never its outcome, and never
 asks that the player knew or approved a hidden danger.
 
@@ -7332,6 +7332,131 @@ suites updated for concurrency):
 - a resend past the hard cap is `review_timeout`, and a third identical call is refused from the turn's verdict;
 - the `admission-late` row.
 Mutations are in the SL-24 ticket.
+
+#### 32.12.3 A batch is admitted line by line (2026-09-24, SL-30; amends §32.1, §32.10, §32.11 and §32.12.2)
+
+**Why.** Long gate #2 (`longgate2-haunting-0830`, lane `opencode-go/deepseek-v4.1-flash`). Turn 14's `apply threat` + `apply time`
+was typed `not_player_action` / `entailed` at 0.57, the lane gave no verdict in 13.0 s, the call went `review_pending`, and its
+resend ended `review_timeout` at the 26 s hard cap: the ten minutes of prying never happened for the kernel. Turn 6's
+`person` + `time` + `clue` waited 10.1 s. Owner ruling, 2026-09-24: the lines of a batch the typed reviewer admits at the
+fast-path confidence go through at once with their own receipts; only the remaining lines wait for the lane; a remainder
+that times out is returned pending on its own. The measurement is in the SL-30 ticket's Comments.
+
+**What the measurement says** (both long tables' 25 Keeper `apply` batches, 72 lines; typed 3 runs, the lane on each whole
+batch 3 runs and on each line alone 2 runs, uncapped):
+- The typed reviewer rarely reaches 0.87 on a line: 10 of 207 clearable line-runs (4.8%). `time` lines typed 0.68 p50, 4 of
+  53 at 0.87; `clue` 6 of 56; `threat`, `person`, `move`, `handout` none. Gate #2's turn 14 `time` line: 0.68–0.75; turn 6's
+  best line 0.75. So on the two batches that motivated the ruling, no line clears and nothing changes. Where it does fire
+  (gate #1 turn 13, gate #2 turn 12), no cleared line was refused by the lane on its own (0 of 10).
+- The lane is not slow on one line of any kind: medians 3.0–3.8 s (`threat` 3.0, `person` 3.7, `time` 3.3, `clue` 3.7). On
+  whole batches the tail is where a `person` line sits beside others: every one of the 6 rounds over 13 s carried a
+  `person` line (4 of them also a `move`); batches carrying a `threat` line had p90 6.4 s and none over 13 s. Turn 14's
+  whole batch answered in 4.5–10.5 s here: its live 13 s and 26 s were the provider's tail.
+
+**Lines no reviewer reads (owner ruling, 2026-09-24, amending this section the same day).** An `apply` effect §32.1 does not put
+to review on its own -- `person`, `threat`, `npc`, `flag`, `note`, `ruling`, `define`, `damage` and the rest of that class, a
+`move` that only renames the scene underfoot, an `object` adoption or same-owner edit -- is **not sent to the lane or to the
+typed reviewer at all**. `admissionRequest` builds a batch's lines from its reviewed effects only (`proposal.effects` maps each
+line to its effect); the key stays the whole batch's (§32.4). The unreviewed effects land with the batch on the same call:
+with the whole batch when its reviewed lines are admitted; with the cleared lines when a split's remainder does not land; not
+at all when the reviewed lines are refused (the call is refused, as before). *Why:* they are staging of what the book
+states, and the lane's verdict never turned on them (every `threat` line alone `not_player_action`, 18 of 18), while the
+lane's tail lived on the batches that carried them: rounds on batches with a `person` line had p90 34.9 s against 6.6 s
+for batches with neither, and all 6 rounds over 13 s carried one. The lane reviews only `move`, `clue`, `handout`, `time`,
+`cash`, `item`, `object`, `usage` and `map` lines; `resolve` is unchanged. Because both reviewers read the same lines
+(§32.10), the typed answer is also over the reviewed lines only. The line-level machinery below is unchanged; its
+non-triggering half of `lineClearable` no longer has lines to clear and stays for the rule's shape.
+
+**Which lines the typed answer may admit on their own** (`lineClearable`, `clearedLines` in `extensions/kernel/admission.ts`;
+closed contract enums, never the prose). A line of an `apply` batch is **cleared** when all of these hold:
+- its kind is one of §32.11's (`move`, `clue`, `handout`, `time`) or one §32.1 does not put to review (`threat`, `person`,
+  `npc`, `flag`, `note`, `define`, `damage`, ...). Never `cash` (§32.10's numeric commitment), `item`, `object`, `usage` or
+  `map` (§32.11's consent-bearing kinds): those lines always stay with the lane;
+- its typed line verdict admits (`authorized`, `entailed`, `not_player_action`). A typed refusal of a line never refuses, as
+  on the fast path: the line stays behind;
+- its line confidence is at the fast-path confidence or above (`PI_COC_ADMISSION_FAST_MIN_CONFIDENCE`, 0.87, §32.11). The
+  measurement does not move it. `off` turns line-level admission off with the fast path.
+
+A `resolve` is one line and is never split.
+
+**The split.** In `reviewAdmissionPrimary`, when the typed answer is in and no verdict stands for the whole batch (§32.12.2's
+sufficiency: the fast path, the family rule, a lane verdict with grounds), and some lines are cleared but not all, the
+review ends `ok: "split"` and the batch's lane round is aborted. It does not split after the lane has answered the batch,
+and a typed verdict that stands for the whole batch (every line cleared on a bookkeeping batch) is §32.11's fast path, not
+a split. `admitAction` (`extensions/kernel/index.ts`) then:
+1. admits the cleared lines on the typed answer (`path: "typed"`), keeping that verdict for the turn under the key a call
+   of only those lines would have (§32.4);
+2. takes the **remainder** (the other lines, in the batch's order) as a proposal of its own, with the key a call of only
+   those lines would have (its move targets' `registered_destination` and nothing else). If it carries no §32.1 triggering
+   kind it is not reviewed (a call of only those lines would not be), and the batch lands whole. Otherwise it goes through
+   the same steps any proposal does: §32.4 reuse, a kept pending review for its key, and the review;
+3. reviews the remainder with the lane alone: a fresh round on the remainder's lines, the cleared lines shown to the reviewer
+   under "Already settled this turn" as `admitted in this same call: <line>`, and the batch's typed answer carried as the
+   remainder's typed reading (`remainderAttempt`: the remainder's line verdicts, mapped as §32.10 maps a batch, the lowest
+   confidence; no new typed call). The pre-registered rule chose the fresh round over letting the batch's round decide the
+   remainder: the lane on single lines is not slower than on whole batches (3.4 s against 4.0 s at the median), and the
+   remainder's verdict is then about the lines it decides. The remainder is never split again;
+4. measures the remainder's cap and hard cap from the batch's review start (§32.12.2: the cap is the longest one call waits).
+   At the cap §32.12.2 applies to the remainder as to any proposal: a late admission when the remainder is bookkeeping-only
+   and its typed reading admits every remaining line at 0.70, otherwise `review_pending` for the remainder alone.
+
+**What lands.** One kernel call, the tool call's own `call_id`, the batch's order:
+- the remainder admitted (by the lane, late, by reuse, or unreviewed): the whole batch lands, as it would have;
+- the remainder refused (a lane verdict with grounds), returned `review_pending`, ended `review_timeout`, or unavailable:
+  `payload.effects` is narrowed to the cleared lines, which land alone with their receipts. The call is a success.
+
+The cleared lines are decided at once and are not held by the remainder's verdict; they land in this same call when it
+returns, which is when the Keeper could read them anyway. A cleared line that needs a remainder line to be valid (a `clue`
+beside the `move` that makes it discoverable) is refused by the kernel on its own terms (`not_here`), as it would be sent
+alone; that refusal carries `details.admission` (`attempted`: the cleared lines; `not_landed`: the remainder's own refusal), so
+the Keeper learns that nothing of the batch landed. Clerk (policy-origin) writes are single effects (`runtime/jev/candidates.ts`), so they are never split.
+
+**What the Keeper reads.** When the remainder did not land, the result carries
+`admission: {landed: [<lines>], not_landed: {lines: [<lines>], code, message, fix, details}}` (`not_landed` is the
+remainder's own refusal: `action_not_authorized`, `review_pending`, `review_timeout` or `admission_unavailable`, with its
+`details` as §32.2 and §32.12.2 give them) and a `note` naming what landed and what did not, saying the refusal's `fix`
+applies to those lines only, and, for `review_pending`, to resend exactly the lines in `admission.not_landed.lines` as one
+`apply` call, unchanged. §78 applies: a delivery written behind the call in the same message did not know part of it failed,
+and is refused once.
+
+**Resends.** The remainder's resend (those lines alone) has the remainder's key, so it collects the kept review, or reuses
+its verdict, exactly as §32.12.2 says. A resend of the **whole batch** after a split whose remainder did not land is
+recognised by the batch's key (`state.admissionSplit`, cleared with the next player input): the lines that already landed
+are dropped from it (matched by their identifying fields, `effectSignature`, §32.4's key fields) and the rest is admitted
+as the remainder; the result carries `admission.already_landed`. No line lands twice. When the remainder is admitted, the
+whole batch's key keeps its verdict for the turn like any.
+
+**Telemetry (amends §32.7).**
+- The cleared lines' row: `path: "typed"`, `reviewer: "jev"`, `line_level: "admitted"`, `lines` (1-based), `of_lines`,
+  `confidence` (their lowest), `line_min_confidence`, the typed attempt's `jev_*` fields and `line_verdicts` (every line's),
+  `key` the batch's, `proposed` the cleared lines.
+- Every row of the remainder's review (verdict, pending, late, outage, resend, `admission-late`): `line_level: "remainder"`,
+  `lines`, `of_lines`, `batch_key`; its `proposed` are the lines still waiting, `key` the remainder's own. A remainder with no
+  triggering kind leaves `skipped: "not_triggering"`.
+- A whole-batch resend that dropped landed lines: `skipped: "already_landed"`, `line_level: "resend"`, `already_landed`.
+
+**What this is not.** It does not change what §32.1 puts to review (a remainder is judged by the same rule a call of only
+those lines would be), what the lane judges, the fast path, the family rule, the late admission, or what refuses. The only
+lines no lane judged are the cleared lines, admitted at the fast-path confidence, which §32.11 already lets settle a whole
+bookkeeping batch alone. On the long tables it fires on 4.8% of line-runs; it does not help turns 6 and 14 of long gate #2,
+whose lines type at 0.68–0.75. What changed those two turns is the owner's amendment above (the lane no longer reads their
+`threat` and `person` lines): replayed, their lane rounds took 3.7–7.0 s and every line landed (SL-30 ticket).
+
+**Three ends (§31).** *Writer:* the typed answer's line verdicts (`clearedLines`), the remainder's lane round. *Reader:*
+`admitAction`, which narrows the batch, and the kept split (`state.admissionSplit`) for a whole-batch resend. *Actor:* the
+Keeper, through the result's `admission` block and `note`, the remainder's own refusal and its resend; the operator, through
+`line_level` rows.
+
+*Tests* (`tests/extension/admission-line-level.test.mjs`; `admission-fast-path.test.mjs`'s typed-refusal and item tests now
+assert the split): the owner's amendment (turn 14's `threat` + `time`: the lane and the typed reviewer read only the `time` line and
+both land, on the fake and the emitted kernel; a `person` + `move` batch: the lane sees only the move; a refusal of the reviewed
+lines lands nothing; a split whose rest is refused lands the cleared and the unreviewed lines); the pure rules (the kinds, the threshold at 0.87 and under it, refusing lines, fast path off, a resolve,
+mismatched lines, the remainder's typed reading); turn 14's shape (the threat left unreviewed, the batch whole, no lane
+call), on the fake kernel and on the emitted kernel with its receipts; nothing cleared at 0.86 (the whole batch reviewed);
+the remainder reviewed alone with the cleared line shown as admitted in this call and no second typed call; a remainder the
+lane refuses (the cleared line alone lands, the `admission` block and note); a remainder past the cap returned pending
+alone and collected by its own resend; a whole-batch resend applying only what did not land; §78 for a delivery behind a
+partial landing. Mutations are in the SL-30 ticket.
 
 ## 33. Creation difficulty: an extension setting scaled into chargen (2026-09-11)
 

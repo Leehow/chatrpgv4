@@ -1,0 +1,13 @@
+{
+ "campaign": "longgate2-haunting-0830",
+ "module": "the-haunting",
+ "turn": 6,
+ "commit_before": "3d39240",
+ "commit_after": "3198a0b",
+ "player_input": "我去罗克斯伯里疗养院，请求探视维托里奥·马卡里奥，问他在那房子里看见了什么。",
+ "tarball": "../longgate30/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/longgate2-haunting-0830",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate2-haunting-0830-20260924T123001Z"
+ }
+}

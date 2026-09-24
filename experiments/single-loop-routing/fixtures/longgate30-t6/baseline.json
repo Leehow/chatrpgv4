@@ -1,0 +1,234 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate2-haunting-0830-20260924T123001Z/events.jsonl",
+  "record": ".coc/repos/longgate2-haunting-0830.git 3198a0b:turns/0006.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我去罗克斯伯里疗养院，请求探视维托里奥·马卡里奥，问他在那房子里看见了什么。",
+ "llm_calls": 3,
+ "llm_ms_total": 28938,
+ "calls": [
+  {
+   "at": "2026-09-24T12:35:53.906Z",
+   "provider_ms": 8079,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 17142,
+    "output": 763,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "move",
+        "to": "previous-tenants"
+       }
+      ]
+     },
+     "id": "clerk-live:t6-c1",
+     "clerk_live": true
+    },
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "social",
+       "goal": "第一次面对面见到维托里奥·马卡里奥",
+       "method": "请求探视后走进病房",
+       "target": "Vittorio Macario",
+       "actor": "托马斯·海斯",
+       "decision": "natural-npc:first-impression"
+      }
+     },
+     "id": "call-edc643ec-8495-4463-86ed-13baddfdd473-0|fc_5d025a6e-4945-9d4f-abbe-c78629a6892b_0"
+    },
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "social",
+       "goal": "第一次面对面见到加布里埃拉·马卡里奥",
+       "method": "走进同一间病房",
+       "target": "Gabriela Macario",
+       "actor": "托马斯·海斯",
+       "decision": "natural-npc:first-impression"
+      }
+     },
+     "id": "call-edc643ec-8495-4463-86ed-13baddfdd473-1|fc_5d025a6e-4945-9d4f-abbe-c78629a6892b_1"
+    }
+   ]
+  },
+  {
+   "text": "维托里奥的印象已经落下。玩家点名的是请求探视他、问他看见了什么，不是径直走进加布里埃拉的病房。我按这个范围把探视和那一行经文落下来。",
+   "at": "2026-09-24T12:36:10.126Z",
+   "provider_ms": 10929,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 5700,
+    "output": 986,
+    "cache_read": 50176
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "person",
+        "who": "Vittorio Macario",
+        "name": "维托里奥·马卡里奥",
+        "why": "探视名单上写着这个名字，护士按这个称呼带路。"
+       },
+       {
+        "kind": "time",
+        "minutes": 40,
+        "why": "从科比特宅那条街赶到罗克斯伯里疗养院，并在门口办探视。"
+       },
+       {
+        "kind": "clue",
+        "clue": "vittorio-bible-weapon",
+        "from": "Vittorio Macario",
+        "how": "维托里奥把圣经翻开，指着一行不是经文的句子。",
+        "label": "他自己的武器"
+       }
+      ]
+     },
+     "id": "call-d3bf6600-e5d1-4ce6-bd4e-45cbd973f609-2|fc_6070f23c-6c65-91e7-aba0-0b0eb1333f56_0"
+    }
+   ]
+  },
+  {
+   "text": "你离开那条街，赶到罗克斯伯里疗养院。{{time}}门厅里石炭酸的气味盖过了煤炉。你报上维托里奥·马卡里奥的名字，请求探视，问他在那栋宅子里看见了什么。\n\n值班护士看了看你磨旧的大衣，又看了看探视簿。\n\n{{say:值班护士}}“可以进去。他不回答问题。那本书，别从他手里拿开。”{{/say}}\n\n她把你领进一间只有两张床的病房。靠窗那张床上，维托里奥把一本圣经抱在胸口，指节发白。你问他在房子里看见了什么。{{check:appearance}}他没有抬头，却把书翻开，把你的手按到某一行上。那一行的字迹和前后的经文不一样，像是后来才写进去的：魔鬼会被他自己的武器打败。{{clue:vittorio-bible-weapon}}\n\n他的嘴唇动了动，声音碎得几乎听不清。\n\n{{say:维托里奥·马卡里奥}}“眼睛……烧着……”{{/say}}\n\n再问下去，他只把那一行按得更紧，不再出声。另一张床拉着布帘，里面有人在轻轻地呼吸。",
+   "at": "2026-09-24T12:36:31.335Z",
+   "provider_ms": 9930,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 8831,
+    "output": 838,
+    "cache_read": 50176
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "apply",
+   "call_id": "clerk-live:t6-c1",
+   "ok": true,
+   "clerk_live": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-edc643ec-8495-4463-86ed-13baddfdd473-0|fc_5d025a6e-4945-9d4f-abbe-c78629a6892b_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-edc643ec-8495-4463-86ed-13baddfdd473-1|fc_5d025a6e-4945-9d4f-abbe-c78629a6892b_1",
+   "ok": false,
+   "host_refusal": "action_not_authorized"
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-d3bf6600-e5d1-4ce6-bd4e-45cbd973f609-2|fc_6070f23c-6c65-91e7-aba0-0b0eb1333f56_0",
+   "ok": true
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 0,
+   "origin": "policy"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "authorized",
+   "ms": 4579,
+   "origin": "model"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "not_authorized",
+   "ms": 3287,
+   "origin": "model"
+  },
+  {
+   "verb": "apply",
+   "verdict": "entailed",
+   "ms": 10062,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "apply",
+   "kind": "move",
+   "target": "previous-tenants",
+   "clerk_live": true
+  },
+  {
+   "verb": "resolve",
+   "decision": "natural-npc:first-impression",
+   "target": "Vittorio Macario",
+   "intent": "social",
+   "modifiers": null
+  },
+  {
+   "verb": "apply",
+   "kind": "person",
+   "target": "Vittorio Macario"
+  },
+  {
+   "verb": "apply",
+   "kind": "time",
+   "target": null,
+   "minutes": 40
+  },
+  {
+   "verb": "apply",
+   "kind": "clue",
+   "target": "vittorio-bible-weapon"
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "move:previous-tenants-t6-c1",
+   "kind": "move",
+   "to": "previous-tenants"
+  },
+  {
+   "id": "roll:mod-natural-npc-t6-c2",
+   "kind": "roll",
+   "decision": "natural-npc:first-impression",
+   "skill": "Appearance",
+   "npc": "vittorio-macario",
+   "level": "hard"
+  },
+  {
+   "id": "person:vittorio-macario-t6-c4",
+   "kind": "person",
+   "who": "vittorio-macario"
+  },
+  {
+   "id": "time:t6-c4",
+   "kind": "time"
+  },
+  {
+   "id": "clue:vittorio-bible-weapon-t6",
+   "kind": "clue",
+   "clue": "vittorio-bible-weapon"
+  }
+ ]
+}

@@ -55,6 +55,8 @@ import {
 	type AdmissionVerdict,
 	ADMITTING_VERDICTS,
 	type AdmissionOutcome,
+	type AdmissionProposal,
+	type TypedAttempt,
 	admissionPending,
 	admissionRefusal,
 	admissionRequest,
@@ -62,6 +64,8 @@ import {
 	admissionUnavailable,
 	compileAdmission,
 	type ClerkEvidence,
+	effectSignature,
+	remainderAttempt,
 	keyDigest,
 	lateAdmission,
 	NO_GROUNDS,
@@ -72,9 +76,22 @@ import {
 	registeredDestination,
 	reviewAdmissionPrimary,
 } from "./admission.ts";
+import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
 
 /** One review returned pending (§32.12.2): the lane still running, if it is, and the typed reading the Keeper was shown. */
 interface AdmissionPendingEntry { lane?: Promise<AdmissionOutcome>; typed?: TypedReading; capMs: number; hardCapMs: number; collected: boolean }
+/**
+ * §32.12.3: what line-level admission did to one call. `landed` lines go to the kernel in this call; `notLanded` lines (with
+ * the refusal their own review gave) do not. `alreadyLanded` lines were dropped from a resend of a split batch because an
+ * earlier call this turn landed them.
+ */
+interface AdmissionPartial {
+	landed: string[];
+	notLanded?: { lines: string[]; error: KernelError };
+	alreadyLanded?: string[];
+	wholeKey?: string;
+	landedSignatures?: string[];
+}
 
 type TurnState = "awaiting_player" | "open" | "acting" | "asked" | "committed";
 
@@ -498,6 +515,12 @@ interface TableState {
 	 * round keeps running (to the hard cap) so the Keeper's one resend collects it. Cleared with the next player input.
 	 */
 	admissionPending: Map<string, AdmissionPendingEntry>;
+	/**
+	 * §32.12.3: batches this turn split line by line whose remainder did not land, by the whole batch's proposal key: the
+	 * signatures of the lines that did land, so a resend of the whole call applies only what has not. Cleared with the
+	 * next player input.
+	 */
+	admissionSplit: Map<string, string[]>;
 	admissionRefused: string[];
 	/** §102: exact authored encounter destinations raised by a combat-start refusal in this turn. */
 	combatSceneMoves: Set<string>;
@@ -1403,6 +1426,7 @@ export default function (pi: ExtensionAPI) {
 		table.interruptedPlayerText = undefined;
 		table.admission = new Map();
 		table.admissionPending = new Map();
+		table.admissionSplit = new Map();
 		table.admissionRefused = [];
 		table.combatSceneMoves.clear();
 		// A cold recovered turn still owes the consequences already written by
@@ -1988,11 +2012,44 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
+	 * §32.12.3: the tool result of a call admission narrowed. `admission` says which lines landed with the receipts above and
+	 * which did not, with the refusal their own review gave (its `fix` applies to those lines alone); the `note` says it in
+	 * one place the Keeper reads. A later resend of the whole call applies only what did not land (`admissionSplit`).
+	 */
+	function partialAdmissionResult(state: TableState, result: Record<string, unknown>, partial: AdmissionPartial): Record<string, unknown> {
+		const notes: string[] = [];
+		const admission: Record<string, unknown> = {};
+		if (partial.alreadyLanded?.length) {
+			admission.already_landed = partial.alreadyLanded;
+			notes.push(`Line-level admission: ${partial.alreadyLanded.length} line(s) of this batch had already landed earlier this turn and were not applied again (admission.already_landed).`);
+		}
+		if (partial.notLanded) {
+			const error = partial.notLanded.error;
+			admission.landed = partial.landed;
+			admission.not_landed = { lines: partial.notLanded.lines, code: error.code, message: error.message,
+				...(error.fix ? { fix: error.fix } : {}), ...(error.details ? { details: error.details } : {}) };
+			const reason = asString(error.details?.reason) ?? error.code;
+			notes.push(`Line-level admission: only part of this batch landed. The typed review admitted ${partial.landed.length} line(s) at once and they landed with the receipts above (admission.landed). The other ${partial.notLanded.lines.length} line(s) were reviewed on their own and did not land (${reason}: ${error.message}); admission.not_landed is that part's own refusal, and its fix applies to those lines only. Do not narrate them as having happened.${reason === REVIEW_PENDING ? " To collect their review, resend exactly the lines in admission.not_landed.lines as one apply call, unchanged, as your next tool call (resending this whole call also works: the lines that landed are not applied twice)." : ""}`);
+			if (partial.wholeKey && partial.landedSignatures) state.admissionSplit.set(partial.wholeKey, partial.landedSignatures);
+			// §78: part of this effect did not happen, and a delivery written behind it in the same message did not know that.
+			if (state.deliveryBehindEffect?.size) state.effectRefusedBeforeDelivery = true;
+		}
+		if (!notes.length) return result;
+		const note = asString(result.note);
+		return { ...result, admission, note: note ? `${note} ${notes.join(" ")}` : notes.join(" ") };
+	}
+
+	/**
 	 * Put a `resolve` or `apply` to review before it reaches a Mod hook or the kernel, and throw
 	 * the refusal the Keeper reads when it is not admitted. A call that is not a proposed voluntary
 	 * investigator action goes straight on; the opening turn, which has no player words, puts
 	 * nothing to review and says so in telemetry. A verdict already given this turn for the same
 	 * proposal is reused, admitting and refusing alike (contract §32.4).
+	 *
+	 * §32.12.3: an `apply` batch may be admitted line by line. When the typed answer admits some of its lines at the
+	 * fast-path confidence and no verdict stood for the whole, the rest is reviewed on its own; when that remainder is not
+	 * admitted, `payload.effects` is narrowed to the admitted lines (in the batch's order) and what happened is returned
+	 * for the tool result. A resend of the whole batch after that applies only the lines that did not land.
 	 */
 	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal, providerBudget?: TaskProviderBudget,
 		// §135.7: a policy-origin call of the single-loop run names its origin and the kernel row it came from on
@@ -2000,7 +2057,7 @@ export default function (pi: ExtensionAPI) {
 		origin: Record<string, unknown> = {},
 		// §32.12: the dispatcher frame's host origin (never the tool arguments): who proposed this call, and for the clerk
 		// the compile's evidence and the bind records; `host` a host-dispatched call with no origin, `model` the Keeper's.
-		evidence: ClerkEvidence & { label?: string } = {}): Promise<void> {
+		evidence: ClerkEvidence & { label?: string } = {}): Promise<AdmissionPartial | undefined> {
 		// §32.12: every admission row says who proposed it, which path decided (`none` when no review ran) and how long it took.
 		const who = { origin: typeof origin.origin === "string" ? origin.origin : evidence.label ?? "model" };
 		const internalCombatMove = tool === "apply" ? combatSceneMove(state, payload) : undefined;
@@ -2021,61 +2078,48 @@ export default function (pi: ExtensionAPI) {
 				if (entity) destinations.push(registeredDestination(effect.to, entity));
 			} catch { /* The authoritative apply path will report a missing or invalid destination. */ }
 		}
-		const proposal = admissionRequest(tool, payload, { party: state.party.map((member) => member.name), scene: state.scene,
-			...(destinations.length ? {destinations} : {}), ...(state.answering ? { answered: state.answering } : {}) });
+		// The reviewer's scope for a set of this call's effects: the move targets among them, and nothing else (a part of a
+		// batch has the key a call carrying only that part would have, §32.4).
+		const scopeFor = (effects: Array<Record<string, unknown>>) => {
+			const targets = new Set(effects.filter((effect) => effect.kind === "move").map((effect) => effect.to));
+			const own = destinations.filter((value) => targets.has(value.requested));
+			return { party: state.party.map((member) => member.name), scene: state.scene,
+				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}) };
+		};
+		const effectsOf = () => (Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : []);
+		let proposal = admissionRequest(tool, payload, scopeFor(effectsOf()));
 		if (!proposal) return;
+		// §32.12.3: the whole batch again, after its typed-admitted lines landed and its remainder did not. Those lines are not
+		// applied twice: what is left is the remainder, which collects its own kept review (or reuses its verdict).
+		let alreadyLanded: string[] | undefined;
+		const splitBefore = tool === "apply" ? state.admissionSplit.get(proposal.key) : undefined;
+		if (splitBefore) {
+			const all = effectsOf(), keep = all.filter((effect) => !splitBefore.includes(effectSignature(effect)));
+			// The dropped lines as the reviewer would have read them, or by kind for an effect no reviewer reads (§32.12.3).
+			const shownAt = (index: number) => proposal!.effects?.indexOf(index) ?? index;
+			alreadyLanded = all.flatMap((effect, index) => keep.includes(effect) ? []
+				: [shownAt(index) >= 0 ? proposal!.lines[shownAt(index)]! : `apply ${String(effect.kind)} (not reviewed)`]);
+			payload.effects = keep;
+			await record({ lane: "admission", verb: tool, ok: true, skipped: "already_landed", key: keyDigest(proposal.key), path: "none", ms: 0,
+				line_level: "resend", already_landed: alreadyLanded, ...origin, ...who });
+			proposal = admissionRequest(tool, payload, scopeFor(keep));
+			if (!proposal) return { landed: [], alreadyLanded };
+		}
 		const digest = keyDigest(proposal.key);
 		// Lane rows name the verb as `verb`: `tool` is the tool-call row's own column, and readers
 		// (kpi.py, the tests) find a verb's call row by it.
 		if (!state.playerText) {
 			await record({ lane: "admission", verb: tool, ok: true, skipped: "no_player_text", key: digest, path: "none", ms: 0, ...origin, ...who });
-			return;
+			return alreadyLanded ? { landed: [], alreadyLanded } : undefined;
 		}
-		const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string, meta: Record<string, unknown> = {}, keep = true): Promise<void> => {
-			if (keep) state.admission.set(proposal.key, verdict);
-			const admitted = ADMITTING_VERDICTS.has(verdict.verdict);
-			const timedOut = verdict.verdict === REVIEW_TIMEOUT;
-			// A refusal costs the player the whole batch, and until now the row said only which verdict
-			// came back: the reviewer's own reasons and the effects it was judging lived in the thrown
-			// KernelError (which the Keeper reads and nobody keeps) and in a turn record whose `calls`
-			// stay empty for a refused call. That left "the reviewer misread plain words" and "the batch
-			// carried an effect nobody chose" indistinguishable after the fact -- 2026-09-15 turn 2,
-			// where a player asked in plain words for the keys and the address he had just been
-			// promised and the batch was refused whole. The grounds and the proposed effects are
-			// what decide between those two readings, so a refusal now carries them.
-			// §32.12.2 (SL-24): an admitting row carries them too. Until then an admitted `not_player_action` row had no
-			// `grounds` column at all, and the long gate's triage read four admissions as refusals "with no grounds".
-			// §32.10: which reviewer decided, and the typed route's own cost, so tables can be compared.
-			await record({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}),
-				...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}), path: verdict.path ?? "lane",
-				...(timedOut ? { timed_out: true, cap_ms: verdict.capMs ?? null } : {}), ...meta, ...origin, ...who,
-				grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), proposed: proposal.lines });
-			if (admitted) return;
-			// §32.12: a review cut at its cap judged nothing a rewording could repeat, so the reviewer is not told it refused.
-			if (timedOut) throw admissionTimedOut(proposal, verdict.capMs ?? 0, ms);
-			state.admissionRefused.push(`${proposal.lines.join(" | ")} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
-			throw admissionRefusal(proposal, verdict);
-		};
-		const remembered = state.admission.get(proposal.key);
-		if (remembered) return settle(remembered, true, 0);
 		// §32.12: a clerk write the compile selected is admitted on the compile's evidence -- no lane call, no typed call.
 		// Not kept for the turn: it is this call's evidence, so a Keeper's identical proposal is reviewed.
 		const compiled = compileAdmission(evidence);
-		if (compiled?.ok) {
-			const began = Date.now();
-			return settle({ verdict: "authorized", grounds: `compile: ${compiled.predicate} fired on ${Object.entries(compiled.features).map(([family, value]) => `${family}=${String(value.row)}`).join(", ")}`,
-				reviewer: "compile", path: "compile" }, false, Date.now() - began, undefined,
-				{ predicate: compiled.predicate, features: compiled.features, binding_paths: compiled.bindingPaths }, false);
-		}
-		const refusedCompile = compiled ? { compile_refused: compiled.reason } : {};
+		const refusedCompile = compiled && !compiled.ok ? { compile_refused: compiled.reason } : {};
 		const ctx = sessionCtx;
-		if (!ctx) {
-			await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, path: "none", ms: 0, ...refusedCompile, ...origin, ...who });
-			throw admissionUnavailable(proposal, "session_gone", "the session was gone before the review could start");
-		}
-		const context: AdmissionContext = {
+		const context = (): AdmissionContext => ({
 			turn: state.turn,
-			playerText: state.playerText,
+			playerText: state.playerText!,
 			...(state.interruptedPlayerText ? { interruptedPlayerText: state.interruptedPlayerText } : {}),
 			investigators: state.party,
 			...(state.scene?.label ?? state.scene?.handle ? { scene: state.scene.label ?? state.scene.handle } : {}),
@@ -2086,91 +2130,191 @@ export default function (pi: ExtensionAPI) {
 			],
 			landed: state.landed,
 			refused: state.admissionRefused,
-		};
-		const review = () => reviewAdmissionPrimary({ campaign: state.campaign, ctx, proposal, context, providerBudget,
-			record: (row) => record({ verb: tool, ...row, ...origin }), ...(signal ? { signal } : {}) });
-		// §32.12.2: what the lane of a review this call no longer waits for answered in the end, for the record only. A late
-		// lane refusal after a late admission changes nothing that landed; it is what the late admission is measured by.
-		const watchLate = (lane: Promise<AdmissionOutcome> | undefined, answered: string, entry?: AdmissionPendingEntry) => {
-			void lane?.then(async (value) => {
-				if (entry?.collected) return;
-				await record({ lane: "admission-late", verb: tool, key: digest, answered, ms: value.ms, ...(value.model ? { model: value.model } : {}),
-					...(value.ok === true ? { verdict: value.verdict.verdict, grounds: value.verdict.grounds.slice(0, 200) } : value.ok === false ? { reason: value.reason } : {}),
-					...origin, ...who });
-			}, () => {});
-		};
-		// §32.12.2: the Keeper's one resend of a call returned pending collects the review it left running (or, when the lane
-		// had answered without grounds, runs it once more). Whatever it does not produce by the hard cap is `review_timeout`.
-		const pending = state.admissionPending.get(proposal.key);
-		if (pending) {
-			state.admissionPending.delete(proposal.key);
-			pending.collected = true;
-		}
-		const began = Date.now();
-		const outcome = pending?.lane ? await pending.lane : await review();
-		const resent = pending ? { resend: true, resend_wait_ms: Date.now() - began, lane_ms: outcome.ms } : {};
-		const noVerdict = outcome.ok === "late" || outcome.ok === false && outcome.reason === NO_GROUNDS
-			|| outcome.ok === true && outcome.verdict.verdict === REVIEW_TIMEOUT;
-		if (pending && noVerdict) {
-			if (outcome.ok === "late") watchLate(outcome.lane, REVIEW_TIMEOUT);
-			return settle({ verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${pending.hardCapMs} ms hard cap`, reviewer: "lane", path: "lane", capMs: pending.hardCapMs },
-				false, Date.now() - began, outcome.ok === "late" ? undefined : outcome.model,
-				{ ...(outcome.ok === "late" ? {} : outcome.meta ?? {}), ...resent, ...(outcome.ok === false ? { lane_no_grounds: true } : {}), ...refusedCompile });
-		}
-		if (outcome.ok === "late") {
-			// §32.12.2: the cap passed with nothing sufficient. A bookkeeping-only batch the typed reviewer admitted at the late
-			// threshold lands on it; anything else goes back to the Keeper pending, the lane still running for its one resend.
-			const late = lateAdmission(proposal, outcome.typed);
-			const meta = { ...outcome.meta, ...refusedCompile, late_rule: late.ok ? "typed_late" : late.reason,
-				...(late.ok ? { late_min_confidence: late.minConfidence, confidence: outcome.typed?.confidence ?? null } : {}) };
-			if (late.ok) {
-				watchLate(outcome.lane, "typed_late");
-				return settle(late.verdict, false, outcome.ms, undefined, { ...meta, path: "typed_late" });
+		});
+
+		/**
+		 * One proposal through reuse, the compile's evidence, a kept pending review and the review itself; throws the refusal
+		 * the Keeper reads. `part` is a split batch's remainder (§32.12.3): its rows say so, its review carries the batch's
+		 * typed answer and the batch's clock, and it is never split again. A split of the top-level batch is returned.
+		 */
+		const admitOne = async (proposal: AdmissionProposal, part?: { rows: Record<string, unknown>; attempt: TypedAttempt; landedLines: string[]; startedAt: number; capMs: number; hardCapMs: number }):
+			Promise<Extract<AdmissionOutcome, { ok: "split" }> | undefined> => {
+			const digest = keyDigest(proposal.key), partRows = part?.rows ?? {};
+			const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string, meta: Record<string, unknown> = {}, keep = true): Promise<void> => {
+				if (keep) state.admission.set(proposal.key, verdict);
+				const admitted = ADMITTING_VERDICTS.has(verdict.verdict);
+				const timedOut = verdict.verdict === REVIEW_TIMEOUT;
+				// A refusal costs the player the whole batch, and until now the row said only which verdict
+				// came back: the reviewer's own reasons and the effects it was judging lived in the thrown
+				// KernelError (which the Keeper reads and nobody keeps) and in a turn record whose `calls`
+				// stay empty for a refused call. That left "the reviewer misread plain words" and "the batch
+				// carried an effect nobody chose" indistinguishable after the fact -- 2026-09-15 turn 2,
+				// where a player asked in plain words for the keys and the address he had just been
+				// promised and the batch was refused whole. The grounds and the proposed effects are
+				// what decide between those two readings, so a refusal now carries them.
+				// §32.12.2 (SL-24): an admitting row carries them too. Until then an admitted `not_player_action` row had no
+				// `grounds` column at all, and the long gate's triage read four admissions as refusals "with no grounds".
+				// §32.10: which reviewer decided, and the typed route's own cost, so tables can be compared.
+				await record({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}),
+					...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}), path: verdict.path ?? "lane",
+					...(timedOut ? { timed_out: true, cap_ms: verdict.capMs ?? null } : {}), ...meta, ...partRows, ...origin, ...who,
+					grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), proposed: proposal.lines });
+				if (admitted) return;
+				// §32.12: a review cut at its cap judged nothing a rewording could repeat, so the reviewer is not told it refused.
+				if (timedOut) throw admissionTimedOut(proposal, verdict.capMs ?? 0, ms);
+				state.admissionRefused.push(`${proposal.lines.join(" | ")} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
+				throw admissionRefusal(proposal, verdict);
+			};
+			const remembered = state.admission.get(proposal.key);
+			if (remembered) return settle(remembered, true, 0);
+			if (!part && compiled?.ok) {
+				const began = Date.now();
+				return settle({ verdict: "authorized", grounds: `compile: ${compiled.predicate} fired on ${Object.entries(compiled.features).map(([family, value]) => `${family}=${String(value.row)}`).join(", ")}`,
+					reviewer: "compile", path: "compile" }, false, Date.now() - began, undefined,
+					{ predicate: compiled.predicate, features: compiled.features, binding_paths: compiled.bindingPaths }, false);
 			}
-			const entry: AdmissionPendingEntry = { ...(outcome.lane ? { lane: outcome.lane } : {}), ...(outcome.typed ? { typed: outcome.typed } : {}),
-				capMs: outcome.capMs, hardCapMs: outcome.hardCapMs, collected: false };
-			state.admissionPending.set(proposal.key, entry);
-			watchLate(outcome.lane, REVIEW_PENDING, entry);
-			const waitMs = outcome.lane ? Math.max(0, outcome.hardCapMs - outcome.ms) : outcome.hardCapMs;
-			await record({ lane: "admission", verb: tool, ok: true, verdict: REVIEW_PENDING, admitted: false, reused: false, ms: outcome.ms, key: digest,
-				reviewer: "lane", ...meta, path: "lane", cause: outcome.cause, wait_ms: waitMs, typed: outcome.typed ? typedDetails(outcome.typed) : null,
-				proposed: proposal.lines, ...origin, ...who });
-			throw admissionPending(proposal, outcome.capMs, outcome.ms, waitMs, outcome.typed);
-		}
-		if (!outcome.ok) {
-			await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}),
-				...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), path: "lane", ...outcome.meta, ...resent, ...refusedCompile, ...origin, ...who });
-			state.admissionOutage += 1;
-			const streak = state.admissionOutage;
-			if (streak >= 2 && !state.admissionOutageNotified) {
-				state.admissionOutageNotified = true;
-				// The operator's surface (contract §32.2): out of fiction, once per streak, with the fix.
-				const status = {
-					campaign: state.campaign,
-					turn: state.turn,
-					status: "down",
-					streak,
-					cause: outcome.reason,
-					detail: outcome.detail.slice(0, 200),
-					...(outcome.model ? { model: outcome.model } : {}),
-					fix: "The action review keeps failing, so player actions keep being refused. Choose a healthy model under Fast model in settings (the review reads it each time it runs), or set PI_COC_ADMISSION_MODEL to a healthy provider/model and start a new session.",
-				};
-				try {
-					pi.appendEntry("coc-admission-status", status);
-				} catch {
-					/* the notice must never break a turn */
+			if (!ctx) {
+				await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, path: "none", ms: 0, ...refusedCompile, ...partRows, ...origin, ...who });
+				throw admissionUnavailable(proposal, "session_gone", "the session was gone before the review could start");
+			}
+			const base = context();
+			const reviewContext = part ? { ...base, landed: [...base.landed, ...part.landedLines.map((line) => `admitted in this same call: ${line}`)] } : base;
+			const review = () => reviewAdmissionPrimary({ campaign: state.campaign, ctx, proposal, context: reviewContext, providerBudget,
+				record: (row) => record({ verb: tool, ...row, ...origin }), ...(signal ? { signal } : {}),
+				...(part ? { typedAttempt: part.attempt, startedAt: part.startedAt, timeoutMs: part.capMs, hardCapMs: part.hardCapMs } : { lineLevel: tool === "apply" }) });
+			// §32.12.2: what the lane of a review this call no longer waits for answered in the end, for the record only. A late
+			// lane refusal after a late admission changes nothing that landed; it is what the late admission is measured by.
+			const watchLate = (lane: Promise<AdmissionOutcome> | undefined, answered: string, entry?: AdmissionPendingEntry) => {
+				void lane?.then(async (value) => {
+					if (entry?.collected) return;
+					await record({ lane: "admission-late", verb: tool, key: digest, answered, ms: value.ms, ...(value.model ? { model: value.model } : {}),
+						...(value.ok === true ? { verdict: value.verdict.verdict, grounds: value.verdict.grounds.slice(0, 200) } : value.ok === false ? { reason: value.reason } : {}),
+						...partRows, ...origin, ...who });
+				}, () => {});
+			};
+			// §32.12.2: the Keeper's one resend of a call returned pending collects the review it left running (or, when the lane
+			// had answered without grounds, runs it once more). Whatever it does not produce by the hard cap is `review_timeout`.
+			const pending = state.admissionPending.get(proposal.key);
+			if (pending) {
+				state.admissionPending.delete(proposal.key);
+				pending.collected = true;
+			}
+			const began = Date.now();
+			const outcome = pending?.lane ? await pending.lane : await review();
+			// §32.12.3: the typed answer admitted some lines and not the rest; the caller reviews the rest.
+			if (outcome.ok === "split") return outcome;
+			const resent = pending ? { resend: true, resend_wait_ms: Date.now() - began, lane_ms: outcome.ms } : {};
+			const noVerdict = outcome.ok === "late" || outcome.ok === false && outcome.reason === NO_GROUNDS
+				|| outcome.ok === true && outcome.verdict.verdict === REVIEW_TIMEOUT;
+			if (pending && noVerdict) {
+				if (outcome.ok === "late") watchLate(outcome.lane, REVIEW_TIMEOUT);
+				return settle({ verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${pending.hardCapMs} ms hard cap`, reviewer: "lane", path: "lane", capMs: pending.hardCapMs },
+					false, Date.now() - began, outcome.ok === "late" ? undefined : outcome.model,
+					{ ...(outcome.ok === "late" ? {} : outcome.meta ?? {}), ...resent, ...(outcome.ok === false ? { lane_no_grounds: true } : {}), ...refusedCompile });
+			}
+			if (outcome.ok === "late") {
+				// §32.12.2: the cap passed with nothing sufficient. A bookkeeping-only batch the typed reviewer admitted at the late
+				// threshold lands on it; anything else goes back to the Keeper pending, the lane still running for its one resend.
+				const late = lateAdmission(proposal, outcome.typed);
+				const meta = { ...outcome.meta, ...refusedCompile, late_rule: late.ok ? "typed_late" : late.reason,
+					...(late.ok ? { late_min_confidence: late.minConfidence, confidence: outcome.typed?.confidence ?? null } : {}) };
+				if (late.ok) {
+					watchLate(outcome.lane, "typed_late");
+					return settle(late.verdict, false, outcome.ms, undefined, { ...meta, path: "typed_late" });
 				}
-				pi.events.emit("coc:admission-status", status);
+				const entry: AdmissionPendingEntry = { ...(outcome.lane ? { lane: outcome.lane } : {}), ...(outcome.typed ? { typed: outcome.typed } : {}),
+					capMs: outcome.capMs, hardCapMs: outcome.hardCapMs, collected: false };
+				state.admissionPending.set(proposal.key, entry);
+				watchLate(outcome.lane, REVIEW_PENDING, entry);
+				const waitMs = outcome.lane ? Math.max(0, outcome.hardCapMs - outcome.ms) : outcome.hardCapMs;
+				await record({ lane: "admission", verb: tool, ok: true, verdict: REVIEW_PENDING, admitted: false, reused: false, ms: outcome.ms, key: digest,
+					reviewer: "lane", ...meta, path: "lane", cause: outcome.cause, wait_ms: waitMs, typed: outcome.typed ? typedDetails(outcome.typed) : null,
+					proposed: proposal.lines, ...partRows, ...origin, ...who });
+				throw admissionPending(proposal, outcome.capMs, outcome.ms, waitMs, outcome.typed);
 			}
-			throw admissionUnavailable(proposal, outcome.reason, outcome.detail, streak);
+			if (!outcome.ok) {
+				await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}),
+					...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), path: "lane", ...outcome.meta, ...resent, ...refusedCompile, ...partRows, ...origin, ...who });
+				state.admissionOutage += 1;
+				const streak = state.admissionOutage;
+				if (streak >= 2 && !state.admissionOutageNotified) {
+					state.admissionOutageNotified = true;
+					// The operator's surface (contract §32.2): out of fiction, once per streak, with the fix.
+					const status = {
+						campaign: state.campaign,
+						turn: state.turn,
+						status: "down",
+						streak,
+						cause: outcome.reason,
+						detail: outcome.detail.slice(0, 200),
+						...(outcome.model ? { model: outcome.model } : {}),
+						fix: "The action review keeps failing, so player actions keep being refused. Choose a healthy model under Fast model in settings (the review reads it each time it runs), or set PI_COC_ADMISSION_MODEL to a healthy provider/model and start a new session.",
+					};
+					try {
+						pi.appendEntry("coc-admission-status", status);
+					} catch {
+						/* the notice must never break a turn */
+					}
+					pi.events.emit("coc:admission-status", status);
+				}
+				throw admissionUnavailable(proposal, outcome.reason, outcome.detail, streak);
+			}
+			// A live verdict, admitting or refusing, proves the review is back: the outage streak ends. A review cut at its cap
+			// (§32.12), a late admission and a pending return (§32.12.2) are none of these: they neither count nor reset it.
+			if (outcome.verdict.verdict !== REVIEW_TIMEOUT) {
+				state.admissionOutage = 0;
+				state.admissionOutageNotified = false;
+			}
+			await settle(outcome.verdict, false, pending ? Date.now() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile, ...partRows });
+		};
+
+		const split = await admitOne(proposal);
+		if (!split) return alreadyLanded ? { landed: [], alreadyLanded } : undefined;
+		// §32.12.3: the typed answer admitted these lines on their own at the fast-path confidence. They land in this call
+		// whatever becomes of the rest; the rest is reviewed on its own.
+		// Line indices are the reviewed effects' (§32.12.3); an effect no reviewer reads lands with the batch, so it goes with
+		// the cleared lines when the rest does not land.
+		const effects = effectsOf(), shown = proposal.effects ?? effects.map((_, index) => index);
+		const cleared = split.cleared, rest = shown.map((_, line) => line).filter((line) => !cleared.includes(line));
+		const clearedEffects = cleared.map((line) => effects[shown[line]!]!), restEffects = rest.map((line) => effects[shown[line]!]!);
+		const clearedLinesText = cleared.map((line) => proposal!.lines[line]!), restLines = rest.map((line) => proposal!.lines[line]!);
+		const withheld = new Set(rest.map((line) => shown[line]!));
+		const landing = effects.filter((_, index) => !withheld.has(index));
+		const answer = split.attempt.typed!;
+		const lineVerdicts = cleared.map((index) => answer.lines![index]!);
+		const clearedVerdict: AdmissionVerdict = { verdict: batchVerdict(lineVerdicts.map((line) => line.verdict)),
+			grounds: `typed review admitted line${cleared.length > 1 ? "s" : ""} ${cleared.map((index) => index + 1).join(", ")} at or above ${split.meta.line_min_confidence}`,
+			reviewer: "jev", path: "typed" };
+		// Kept for the turn under the key a call of only these lines would have (§32.4).
+		const clearedProposal = admissionRequest(tool, { effects: clearedEffects }, scopeFor(clearedEffects));
+		if (clearedProposal) state.admission.set(clearedProposal.key, clearedVerdict);
+		const lineNumbers = (indices: number[]) => indices.map((index) => index + 1);
+		await record({ lane: "admission", verb: tool, ok: true, verdict: clearedVerdict.verdict, admitted: true, reused: false, ms: split.ms, key: digest,
+			model: ADMISSION_JEV_MODEL, reviewer: "jev", path: "typed", line_level: "admitted", lines: lineNumbers(cleared), of_lines: shown.length,
+			confidence: Math.min(...lineVerdicts.map((line) => line.confidence)), ...split.meta, ...refusedCompile, ...origin, ...who,
+			grounds: clearedVerdict.grounds, proposed: clearedLinesText });
+		const partRows = { line_level: "remainder", lines: lineNumbers(rest), of_lines: shown.length, batch_key: digest };
+		const remainder = admissionRequest(tool, { effects: restEffects }, scopeFor(restEffects));
+		if (!remainder) {
+			// §32.1: what is left carries no triggering kind, and a call of only those lines would not be reviewed at all. Since the
+			// owner's amendment to §32.12.3 the rest holds only reviewed lines, so this guards a shape that cannot arise today.
+			await record({ lane: "admission", verb: tool, ok: true, skipped: "not_triggering", path: "none", ms: 0, proposed: restLines, ...partRows, ...origin, ...who });
+			return alreadyLanded ? { landed: [], alreadyLanded } : undefined;
 		}
-		// A live verdict, admitting or refusing, proves the review is back: the outage streak ends. A review cut at its cap
-		// (§32.12), a late admission and a pending return (§32.12.2) are none of these: they neither count nor reset it.
-		if (outcome.verdict.verdict !== REVIEW_TIMEOUT) {
-			state.admissionOutage = 0;
-			state.admissionOutageNotified = false;
+		try {
+			await admitOne(remainder, { rows: partRows, attempt: remainderAttempt(split.attempt, rest), landedLines: clearedLinesText,
+				startedAt: split.startedAt, capMs: split.capMs, hardCapMs: split.hardCapMs });
+		} catch (error) {
+			if (!isKernelError(error)) throw error;
+			// The remainder did not land: this call carries the admitted lines and the unreviewed ones, in the batch's order.
+			payload.effects = landing;
+			return { landed: clearedLinesText, notLanded: { lines: restLines, error }, ...(alreadyLanded ? { alreadyLanded } : {}),
+				wholeKey: proposal.key, landedSignatures: landing.map(effectSignature) };
 		}
-		await settle(outcome.verdict, false, pending ? Date.now() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile });
+		// The remainder was admitted: the whole batch lands, in its own order, and its verdict is kept for the turn like any.
+		const admittedRest = state.admission.get(remainder.key);
+		if (admittedRest) state.admission.set(proposal.key, admittedRest);
+		return alreadyLanded ? { landed: [], alreadyLanded } : undefined;
 	}
 
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
@@ -3083,6 +3227,9 @@ export default function (pi: ExtensionAPI) {
 		}
 		const startedAt = new Date().toISOString();
 		const began = Date.now();
+		// §32.12.3: a batch admitted line by line lands its admitted lines; the result (or the kernel's refusal of them) says
+		// what did not land.
+		let partial: AdmissionPartial | undefined;
 		// Progress frames (contract §1) are requested only when the runtime gave us its
 		// update channel; each frame becomes one partial result on the tool status line.
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
@@ -3167,7 +3314,7 @@ export default function (pi: ExtensionAPI) {
 			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
 			// proposal pays for no definition agent and reaches no transaction.
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery();
-			if (spec.name === "resolve" || spec.name === "apply") await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence);
+			if (spec.name === "resolve" || spec.name === "apply") partial = await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence);
 			// Contract §128.3. An explicit narrate is never steered for speech (§128.2), so attribution is
 			// the only leg its unwrapped passages get; it runs before the Mod hooks so the continuity review
 			// reads the text the kernel will commit. An ask carries no attribution of its own.
@@ -3242,7 +3389,7 @@ export default function (pi: ExtensionAPI) {
 					if(await prepare(toolCallId,readingModule,failure,ensurePending)===false)throw new KernelError({code:'needs',message:'The source preparation has no tracked mutation owner',details:{reason:'source_preparation_not_owned'}});
 				} else await ensurePending(read,signal);
 				// Retry the original identity only after the exact source publication; consent and Mod gates run again.
-				if(spec.name==='resolve'||spec.name==='apply')await admitAction(state,spec.name,payload,signal,providerBudget,origin,evidence);
+				if(spec.name==='resolve'||spec.name==='apply')partial=(await admitAction(state,spec.name,payload,signal,providerBudget,origin,evidence))??partial;
 				if(mods){
 					const again=await mods.prepare(spec.name,payload,signal,providerBudget);
 					if(spec.name==='narrate'||spec.name==='ask'){prepared=again;notePrepared(state,again);}
@@ -3259,6 +3406,7 @@ export default function (pi: ExtensionAPI) {
 			if (result._task_advance && dispatcher.tracksMutation(toolCallId))
                 pi.events.emit('coc:task-receipt-advance', result._task_advance);
 			const completedCombatMove = spec.name === "apply" ? combatSceneMove(state, payload) : undefined;
+			if (partial) result = partialAdmissionResult(state, result, partial);
 			applyToolSuccess(state, spec.name, toolCallId, result);
 			if (spec.name === 'resolve') {
 				// A replay describes the original declaration, not necessarily a still-live attack.
@@ -3369,6 +3517,11 @@ export default function (pi: ExtensionAPI) {
 			// the mechanism is the ordering, not the reason.
 			if (EFFECT_TOOLS.has(spec.name) && state.deliveryBehindEffect?.size) state.effectRefusedBeforeDelivery = true;
 			if (spec.name === "recall") error = state.recallPages.diagnostic(error);
+			// §32.12.3: the kernel refused the lines admission let through; the lines it held back did not land either.
+			if (partial?.notLanded && isKernelError(error)) error = new KernelError({ code: error.code, message: error.message,
+				...(error.codeDetail ? { code_detail: error.codeDetail } : {}), retryable: error.retryable, next: error.next, ...(error.fix ? { fix: error.fix } : {}),
+				details: { ...(error.details ?? {}), admission: { attempted: partial.landed, not_landed: { lines: partial.notLanded.lines, code: partial.notLanded.error.code,
+					message: partial.notLanded.error.message, ...(partial.notLanded.error.details ? { details: partial.notLanded.error.details } : {}) } } } });
 			if (spec.name === "recall" && isKernelError(error) && error.details?.reason === "recall_page_stale") state.recallPages.forget(params);
 			const code = isKernelError(error) ? error.code : "internal";
 			// §22: the table now knows which material is unread. It does not know that the campaign is
@@ -3694,6 +3847,7 @@ export default function (pi: ExtensionAPI) {
 				recent: [],
 				admission: new Map(),
 				admissionPending: new Map(),
+				admissionSplit: new Map(),
 				admissionRefused: [],
 				combatSceneMoves: new Set(),
 				admissionOutage: 0,
@@ -4112,6 +4266,7 @@ export default function (pi: ExtensionAPI) {
 			state.resend = undefined;
 			state.admission = new Map();
 			state.admissionPending = new Map();
+			state.admissionSplit = new Map();
 			state.admissionRefused = [];
 			state.combatSceneMoves.clear();
 			state.landed = [];
