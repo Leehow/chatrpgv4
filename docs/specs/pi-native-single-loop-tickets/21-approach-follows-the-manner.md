@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 Stage: SL-21 (amends SL-12's approach default; after SL-18)
 Spec: docs/specs/pi-native-single-loop.md (Ruling: "The approach follows the declaration's manner, not the actor's numbers")
 
@@ -55,3 +55,101 @@ Registered predictions (mine):
 - What would falsify the fix rather than the model: a compile-selected check with a lane row and no `compile_refused`, or
   a `rule: highest_offered_skill` record while Jev's answer led with an offered skill. A run in which Jev leads with
   `unknown` and the fallback takes Intimidate is the rule doing what it says (reported, not a defect).
+
+### 2026-09-24 — implemented (branch `claude/sl21-20260924`, base `97285f39f`)
+
+**Commits.** `fccce8f18` contract: §135.28's approach bullet (dated SL-21 amendment: `jev_lead`, then
+`highest_offered_skill`), the path table and the Keeper line; new §32.12.1 (the compile's evidence survives the step the
+book puts first); §135.30's `basis.compile` line. `d30f84488` implementation and tests. `5e0f7b1ad` the cause, the
+reproduction, this ticket's pre-registration and the `gate7-t2` fixture. The commit carrying this comment has the replay
+results, the SL-12 pointer and the manifest.
+
+**What changed.**
+
+- `runtime/jev/obligation-candidates.ts`: the approach's parameter carries `ruleDefault: {rule: "jev_lead", fallback?:
+  {rule: "highest_offered_skill", value | by}}`. The fallback is absent when the kernel binds no value.
+- `runtime/jev/step-policy.ts`:
+  - `RuleDefault` gains `jev_lead` and `fallback`.
+  - `ruleDefaultOf` takes Jev's leading choice and returns the rule that decided. `jev_lead` takes the lead when it is an
+    offered option (never `unknown`), else the fallback.
+  - `clerkBind` keeps each unsettled parameter's lead. The record is `path: rule-default, rule: jev_lead` with the
+    answer's confidence and distribution. The basis gets `rule_default: {skill: {value, rule: "jev_lead"}}`.
+- The exemption path:
+  - `itemsFor` puts the selected candidate's `basis.compile` on the carried step as `thenCompile`.
+  - `settleExecute` re-applies it to the re-issued candidate through `carryCompile` (`runtime/jev/route-compile.ts`).
+    `carryCompile` keeps the fresh row, adds `basis.compile`, and re-binds any compile-settled parameter. It fails
+    closed when that value is no longer offered.
+- `runtime/jev/hybrid-engine.ts`: the Keeper's rules-default line glosses `jev_lead`.
+- SL-22's areas (the read step's Jev accounting, `exhausted`/`jev_budget`) are untouched.
+
+**Tests.**
+
+- `tests/extension/single-loop-binding.test.mjs`, 4 new, 3 updated:
+  - gate #7's answer binds Persuade `jev_lead` with its distribution over Hayes-like values, at any confidence; above
+    the gate it is `jev`;
+  - the fallback is taken only on `unknown`, unanswered, unavailable, a non-offered lead, or a spent budget; with no
+    fallback a lead still binds and `unknown` goes to the Keeper;
+  - through the carried meeting, the hand-on and the bind, `basis.compile` survives and `compileAdmission` admits;
+  - a compile-settled parameter is re-bound, and not carried when no longer offered;
+  - the structural test gains two `jev_lead` shapes.
+- `tests/extension/admission-within-turn.test.mjs`, 1 new with 3 subtests: the gate #7 shape at the seam, with the
+  emitted kernel and Arty not staged. Jev at 0.9 gives `jev`; at 0.59 it gives `jev_lead`. Both are admitted `path:
+  compile` with no lane. The carried check with its ask under the gate goes to the lane with `compile_refused:
+  feature_not_cleared:ask`. The first two subtests failed before the fix: no `basis.compile`, and Intimidate.
+- `scene-obligation-candidates.test.mjs`: the rule shape.
+
+**Mutations.** Run in this worktree. Each mutation was applied in turn, then the binding, admission, scene-obligation,
+compile and domain-policy suites ran, then the file was restored. All 8 were killed.
+
+| mutation | file | failing tests |
+| --- | --- | --- |
+| M1 Jev's lead ignored (always the fallback) | `step-policy.ts` | 5 |
+| M2 the highest skill used although there is a lead (fallback first) | `step-policy.ts` | 4 |
+| M3 compile basis lost on the hand-on (`follow = found`) | `step-policy.ts` | 7 |
+| M4 `thenCompile` not recorded on the carried step | `step-policy.ts` | 5 |
+| M5 compile basis lost on the bind (`clerkBind` drops `compile`) | `step-policy.ts` | 3 |
+| M6 `carryCompile` fails open | `route-compile.ts` | 1 |
+| M7 a lead outside the offered options taken | `step-policy.ts` | 1 |
+| M8 compile-settled values not re-bound | `route-compile.ts` | 1 |
+
+M3's 7 includes `§32.12 (a)`. That is the 12 s real-socket timing test, which does not read the hand-on. It passes at
+HEAD here and on leehow-pc, so treat it as load noise and not as a kill.
+
+**Replays.** Live Jev, the replayed Keeper, lane admission replayed, prescreen on, one process at a time.
+
+| fixture / arm | run | compile ask / addressee / act | meeting | approach record | check's admission row |
+| --- | --- | --- | --- | --- | --- |
+| `gate3-t2` (seed 1) | 1 | 0.76 / 0.52 ✓ / 0.97 | — (Arty on stage) | Persuade `jev` 0.76 | **compile**, 0 ms, no lane |
+| | 2 | 0.78 / 0.49 ✓ / 0.97 | — | Persuade `jev` 0.76 | **compile**, 0 ms, no lane |
+| | 3 | 0.84 / 0.56 ✓ / 0.97 | — | Persuade `jev` 0.75 | **compile**, 0 ms, no lane |
+| `gate7-t2` (seed 1) | 1 | 0.88 / 0.52 ✓ / 0.95 | Arty staged | Persuade `jev` 0.65 | **compile**, 0 ms, `basis.compile` present, no lane |
+| | 2 | 0.87 / 0.43 ✗ / 0.96 | Arty staged | Persuade `jev` 0.67 | **compile**, 0 ms, no lane |
+| | 3 | 0.84 / 0.40 ✗ / 0.96 | Arty staged | Persuade `jev` 0.62 | **compile**, 0 ms, no lane |
+| `gate7-t2` extra (seed 2, not registered) | 1 | 0.92 / 0.44 ✗ / 0.96 | Arty staged | Persuade `jev` 0.68 | **compile**, no lane |
+| | 2 | 0.90 / 0.42 ✗ / 0.95 | Arty staged | **Persuade `rule-default`, `rule: jev_lead`, 0.55** | **compile**, `binding_paths.skill: rule-default`, no lane |
+| | 3 | 0.92 / 0.44 ✗ / 0.97 | Arty staged | Persuade `jev` 0.63 | **compile**, no lane |
+| `gate7-t2` control: M3 applied for this arm only (seed 1) | 1 | 0.90 / 0.53 ✓ / 0.97 | Arty staged | Persuade `jev_lead` 0.56 | **lane, no `compile_refused`, no `basis.compile`** |
+| | 2 | 0.90 / 0.49 ✗ / 0.96 | Arty staged | Persuade `jev` 0.63 | **lane, no `compile_refused`** |
+| | 3 | 0.81 / 0.67 ✓ / 0.97 | Arty staged | Persuade `jev` 0.68 | **lane, no `compile_refused`** |
+
+The registered acceptance is met in both fixtures, 3/3 each. The compile selected the check, and every approach was
+Persuade. The check's admission row was `path: compile` with zero lane requests for it, including the three `gate7-t2`
+runs where the addressee did not clear.
+
+No registered run fell under the gate, so `jev_lead` was not exercised in the scored arms. The extra arm's run 2 was
+under the gate: it bound `jev_lead` Persuade and was admitted by the compile, the gate #7 case end to end. The
+control's run 1 also bound `jev_lead` at 0.56.
+
+The control reproduces the live defect 3/3: `path: lane`, no `compile_refused`, no `basis.compile` on the row. The
+lane's `not_authorized` in the control is the recorded gate #7 verdict replayed, not a new judgment. Predictions held.
+No `Intimidate` appeared in any clerk write. Results are in `experiments/single-loop-routing/results/sl21-{gate3-t2,
+gate7-t2,gate7-t2-extra,gate7-t2-control-no-carry}`.
+
+**Suites** (leehow-pc, at `5e0f7b1ad`):
+
+- `test:ext` 2892/2892, exit 0.
+- Loop suites 127/127, exit 0.
+- pytest not run: no kernel input changed (`kernel-ts/`, `content/`, `prompts/`, `tests/kernel` and `tests/play` are
+  untouched).
+
+**Not done.** No live table and no packaging.

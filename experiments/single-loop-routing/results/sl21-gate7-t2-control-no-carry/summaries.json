@@ -1,0 +1,2183 @@
+[
+ {
+  "run": 1,
+  "fixture": "gate7-t2",
+  "admission": "lane",
+  "keeper": "replay",
+  "thinking": "off",
+  "arm": "after",
+  "latency": false,
+  "seed": "1",
+  "wall_ms": 7994,
+  "budget": {
+   "turn": 2,
+   "lane": "run",
+   "event": "budget",
+   "decision": "summary",
+   "run": "run-01a0d2e5-2266-7364-b4d2-24fb85656838",
+   "budget_ms": 45000,
+   "elapsed_ms": 6854,
+   "elapsed_at_compose": 6600,
+   "over_budget": false,
+   "deferred_by_budget": [],
+   "run_id": "b7821c2f-5c45-4ab8-aed3-d8a81c1f5bbc"
+  },
+  "compile": "on",
+  "compile_row": {
+   "turn": 2,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d2e5-2266-7364-b4d2-24fb85656838",
+   "step": "run-01a0d2e5-2266-7364-b4d2-24fb85656838:s2",
+   "status": "complete",
+   "ms": 314,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "central-library",
+      "destination_2": "hall-of-records",
+      "destination_3": "neighborhood-gossip",
+      "destination_4": "previous-tenants",
+      "destination_5": "corbitt-house-ground",
+      "destination_6": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.79,
+     "probabilities": {
+      "destination_5": 0.01,
+      "destination_1": 0,
+      "destination_2": 0,
+      "none": 0.82,
+      "unclear": 0.17,
+      "destination_6": 0,
+      "destination_3": 0,
+      "destination_4": 0
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Arty Wilmot",
+      "addressee_2": "Ruth Blake"
+     },
+     "choice": "addressee_1",
+     "row": "Arty Wilmot",
+     "confidence": 0.53,
+     "probabilities": {
+      "addressee_1": 0.65,
+      "addressee_2": 0.01,
+      "none": 0.01,
+      "unclear": 0.33
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "obligation:globe-clippings-access",
+      "ask_2": "clue:globe-fire-cutoff",
+      "ask_3": "handout:Boston Globe City Desk Copy — Held from Print (1918)"
+     },
+     "choice": "ask_1",
+     "row": "obligation:globe-clippings-access",
+     "confidence": 0.9,
+     "probabilities": {
+      "ask_1": 0.91,
+      "ask_3": 0.01,
+      "ask_2": 0.06,
+      "none": 0.01,
+      "unclear": 0.01
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_2",
+     "row": "social",
+     "confidence": 0.97,
+     "probabilities": {
+      "act_10": 0,
+      "act_2": 0.98,
+      "act_11": 0,
+      "act_3": 0,
+      "none": 0,
+      "unclear": 0,
+      "act_4": 0,
+      "act_6": 0,
+      "act_5": 0,
+      "act_9": 0,
+      "act_8": 0,
+      "act_1": 0.02,
+      "act_7": 0
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "侦探徽章"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.85,
+     "probabilities": {
+      "item_4": 0,
+      "item_2": 0,
+      "item_1": 0,
+      "item_3": 0,
+      "none": 0.87,
+      "unclear": 0.13
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "obligation_check",
+     "candidate": "resolve:obligation:globe-clippings-access",
+     "features": {
+      "destination": null,
+      "addressee": "Arty Wilmot",
+      "ask": "obligation:globe-clippings-access",
+      "act": "social",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "resolve:obligation:globe-clippings-access"
+   ],
+   "decided": [
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:corbitt-house-ground",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "apply:clue:globe-fire-cutoff",
+    "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+    "resolve:natural-npc:first-impression:托马斯·海斯:Ruth Blake",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "selected_1",
+   "run_id": "b7821c2f-5c45-4ab8-aed3-d8a81c1f5bbc"
+  },
+  "selections": [
+   {
+    "by": "compile",
+    "keys": [
+     "resolve:obligation:globe-clippings-access"
+    ]
+   }
+  ],
+  "compile_rows": [
+   {
+    "turn": 2,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d2e5-2266-7364-b4d2-24fb85656838",
+    "step": "run-01a0d2e5-2266-7364-b4d2-24fb85656838:s2",
+    "status": "complete",
+    "ms": 314,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "central-library",
+       "destination_2": "hall-of-records",
+       "destination_3": "neighborhood-gossip",
+       "destination_4": "previous-tenants",
+       "destination_5": "corbitt-house-ground",
+       "destination_6": "commission-briefing"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.79,
+      "probabilities": {
+       "destination_5": 0.01,
+       "destination_1": 0,
+       "destination_2": 0,
+       "none": 0.82,
+       "unclear": 0.17,
+       "destination_6": 0,
+       "destination_3": 0,
+       "destination_4": 0
+      },
+      "cleared": true
+     },
+     "addressee": {
+      "rows": {
+       "addressee_1": "Arty Wilmot",
+       "addressee_2": "Ruth Blake"
+      },
+      "choice": "addressee_1",
+      "row": "Arty Wilmot",
+      "confidence": 0.53,
+      "probabilities": {
+       "addressee_1": 0.65,
+       "addressee_2": 0.01,
+       "none": 0.01,
+       "unclear": 0.33
+      },
+      "cleared": true
+     },
+     "ask": {
+      "rows": {
+       "ask_1": "obligation:globe-clippings-access",
+       "ask_2": "clue:globe-fire-cutoff",
+       "ask_3": "handout:Boston Globe City Desk Copy — Held from Print (1918)"
+      },
+      "choice": "ask_1",
+      "row": "obligation:globe-clippings-access",
+      "confidence": 0.9,
+      "probabilities": {
+       "ask_1": 0.91,
+       "ask_3": 0.01,
+       "ask_2": 0.06,
+       "none": 0.01,
+       "unclear": 0.01
+      },
+      "cleared": true
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_2",
+      "row": "social",
+      "confidence": 0.97,
+      "probabilities": {
+       "act_10": 0,
+       "act_2": 0.98,
+       "act_11": 0,
+       "act_3": 0,
+       "none": 0,
+       "unclear": 0,
+       "act_4": 0,
+       "act_6": 0,
+       "act_5": 0,
+       "act_9": 0,
+       "act_8": 0,
+       "act_1": 0.02,
+       "act_7": 0
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "开锁工具",
+       "item_3": "手电筒",
+       "item_4": "侦探徽章"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.85,
+      "probabilities": {
+       "item_4": 0,
+       "item_2": 0,
+       "item_1": 0,
+       "item_3": 0,
+       "none": 0.87,
+       "unclear": 0.13
+      },
+      "cleared": true
+     }
+    },
+    "fired": [
+     {
+      "predicate": "obligation_check",
+      "candidate": "resolve:obligation:globe-clippings-access",
+      "features": {
+       "destination": null,
+       "addressee": "Arty Wilmot",
+       "ask": "obligation:globe-clippings-access",
+       "act": "social",
+       "item": null
+      }
+     }
+    ],
+    "selected": [
+     "resolve:obligation:globe-clippings-access"
+    ],
+    "decided": [
+     "apply:move:central-library",
+     "apply:move:hall-of-records",
+     "apply:move:neighborhood-gossip",
+     "apply:move:previous-tenants",
+     "apply:move:corbitt-house-ground",
+     "apply:move:commission-briefing"
+    ],
+    "fell_through": [
+     "apply:clue:globe-fire-cutoff",
+     "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+     "resolve:natural-npc:first-impression:托马斯·海斯:Ruth Blake",
+     "resolve:core-check:ordinary-check"
+    ],
+    "reason": "selected_1",
+    "run_id": "b7821c2f-5c45-4ab8-aed3-d8a81c1f5bbc"
+   }
+  ],
+  "prescreen": "on",
+  "reads": [
+   {
+    "scene": "newspaper-morgue",
+    "prescreen": "prepared",
+    "materials": 10,
+    "jev_calls": 12,
+    "ms": 5550
+   }
+  ],
+  "status": "delivered",
+  "reason": "implicit_narrate",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 48782,
+    "cache_read": 0,
+    "cache_write": 48782,
+    "output": 90,
+    "reasoning": null,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 336,
+    "cache_read": 48782,
+    "cache_write": 336,
+    "output": 51,
+    "reasoning": null,
+    "tools": [],
+    "stop": "stop",
+    "effort": null
+   }
+  ],
+  "steps": {
+   "operate": 5,
+   "decide": 2,
+   "infer": 2,
+   "finish": 1
+  },
+  "llm_steps": 2,
+  "llm_purposes": [
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 14,
+  "route_rows": 2,
+  "calls": [
+   {
+    "tool": "apply",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "person",
+       "who": "Arty Wilmot",
+       "name": "Arty Wilmot",
+       "why": "The book puts Arty Wilmot here for \"Access to the Globe clippings\", under the book's name; player: \"我说明来意，请他帮忙调出科比特宅这些年的旧剪报。\""
+      }
+     ]
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": false,
+    "error": "needs",
+    "input": {
+     "action": {
+      "obligation": "globe-clippings-access",
+      "intent": "social",
+      "skill": "Persuade",
+      "actor": "托马斯·海斯",
+      "target": "Arty Wilmot",
+      "goal": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。",
+      "method": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": false,
+    "error": "needs",
+    "input": {
+     "action": {
+      "intent": "social",
+      "goal": "Get Arty Wilmot to pull the Corbitt House clippings after hearing the purpose",
+      "method": "Explain the commission and ask him to bring the old clippings for that house",
+      "target": "Arty Wilmot",
+      "skill": "Persuade",
+      "obligation": "globe-clippings-access",
+      "stakes": "Arty refuses the basement and keeps the files closed"
+     }
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "resolve Persuade vs Arty Wilmot",
+    "matched": false
+   },
+   {
+    "baseline": "narrate",
+    "matched": true,
+    "origin": "implicit"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "resolve",
+    "origin": "policy",
+    "clerk": "stated_obligation",
+    "verdict": "not_authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 2,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.apply.options",
+     "path": "obligations[0]",
+     "row": {
+      "handle": "globe-clippings-access",
+      "name": "Access to the Globe clippings",
+      "who": "Arty Wilmot",
+      "state": "open",
+      "trigger": {
+       "kind": "attempt",
+       "guards": {
+        "clues": [
+         "globe-unpublished-story",
+         "macario-tragedy"
+        ]
+       }
+      },
+      "next": {
+       "kind": "check",
+       "target": "Arty Wilmot",
+       "selection": "approach",
+       "approaches": [
+        {
+         "skill": "Persuade"
+        },
+        {
+         "skill": "Intimidate"
+        },
+        {
+         "skill": "Charm"
+        },
+        {
+         "skill": "Fast Talk"
+        }
+       ],
+       "difficulty": "regular"
+      },
+      "reaction": "preordained",
+      "mod_contact": [
+       {
+        "mod": "natural-npc",
+        "check": "natural-npc:first-impression",
+        "clerk": false
+       }
+      ],
+      "book": {
+       "failure": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt.",
+       "fumble": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
+       "push": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room."
+      },
+      "source": [
+       {
+        "page": 448,
+        "anchor": "Arty Wilmot"
+       }
+      ]
+     },
+     "obligation": "globe-clippings-access",
+     "step": "check",
+     "binding": "rule-default",
+     "rule_default": {
+      "skill": {
+       "value": "Persuade",
+       "rule": "jev_lead"
+      }
+     }
+    },
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 1,
+    "timed_out": null
+   },
+   {
+    "verb": "resolve",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "not_authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 1,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": null,
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 0,
+    "timed_out": null
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "apply",
+    "call_id": "t2-c1",
+    "ok": true,
+    "ms": 53,
+    "clerk": "stated_obligation",
+    "basis": {
+     "read": "table.apply.options",
+     "path": "obligations[0]",
+     "row": {
+      "handle": "globe-clippings-access",
+      "name": "Access to the Globe clippings",
+      "who": "Arty Wilmot",
+      "state": "open",
+      "trigger": {
+       "kind": "attempt",
+       "guards": {
+        "clues": [
+         "globe-unpublished-story",
+         "macario-tragedy"
+        ]
+       }
+      },
+      "next": {
+       "kind": "meet",
+       "person": "Arty Wilmot"
+      },
+      "then": {
+       "kind": "check",
+       "target": "Arty Wilmot",
+       "selection": "approach",
+       "approaches": [
+        {
+         "skill": "Persuade"
+        },
+        {
+         "skill": "Intimidate"
+        },
+        {
+         "skill": "Charm"
+        },
+        {
+         "skill": "Fast Talk"
+        }
+       ],
+       "difficulty": "regular"
+      },
+      "reaction": "preordained",
+      "mod_contact": [
+       {
+        "mod": "natural-npc",
+        "check": "natural-npc:first-impression",
+        "clerk": false
+       }
+      ],
+      "book": {
+       "failure": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt.",
+       "fumble": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
+       "push": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room."
+      },
+      "source": [
+       {
+        "page": 448,
+        "anchor": "Arty Wilmot"
+       }
+      ]
+     },
+     "obligation": "globe-clippings-access",
+     "step": "meet"
+    }
+   },
+   {
+    "tool": "resolve",
+    "call_id": "t2-c2",
+    "ok": false,
+    "ms": 4,
+    "clerk": "stated_obligation",
+    "basis": {
+     "read": "table.apply.options",
+     "path": "obligations[0]",
+     "row": {
+      "handle": "globe-clippings-access",
+      "name": "Access to the Globe clippings",
+      "who": "Arty Wilmot",
+      "state": "open",
+      "trigger": {
+       "kind": "attempt",
+       "guards": {
+        "clues": [
+         "globe-unpublished-story",
+         "macario-tragedy"
+        ]
+       }
+      },
+      "next": {
+       "kind": "check",
+       "target": "Arty Wilmot",
+       "selection": "approach",
+       "approaches": [
+        {
+         "skill": "Persuade"
+        },
+        {
+         "skill": "Intimidate"
+        },
+        {
+         "skill": "Charm"
+        },
+        {
+         "skill": "Fast Talk"
+        }
+       ],
+       "difficulty": "regular"
+      },
+      "reaction": "preordained",
+      "mod_contact": [
+       {
+        "mod": "natural-npc",
+        "check": "natural-npc:first-impression",
+        "clerk": false
+       }
+      ],
+      "book": {
+       "failure": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt.",
+       "fumble": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
+       "push": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room."
+      },
+      "source": [
+       {
+        "page": 448,
+        "anchor": "Arty Wilmot"
+       }
+      ]
+     },
+     "obligation": "globe-clippings-access",
+     "step": "check",
+     "binding": "rule-default",
+     "rule_default": {
+      "skill": {
+       "value": "Persuade",
+       "rule": "jev_lead"
+      }
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "clerk": "stated_obligation"
+   }
+  ],
+  "misses": []
+ },
+ {
+  "run": 2,
+  "fixture": "gate7-t2",
+  "admission": "lane",
+  "keeper": "replay",
+  "thinking": "off",
+  "arm": "after",
+  "latency": false,
+  "seed": "1",
+  "wall_ms": 6096,
+  "budget": {
+   "turn": 2,
+   "lane": "run",
+   "event": "budget",
+   "decision": "summary",
+   "run": "run-01a0d2e5-41b5-7364-b4d2-24ffaae4d1ee",
+   "budget_ms": 45000,
+   "elapsed_ms": 5201,
+   "elapsed_at_compose": 4947,
+   "over_budget": false,
+   "deferred_by_budget": [],
+   "run_id": "281bc7fe-ac7f-4a04-9efe-a672f92e07c0"
+  },
+  "compile": "on",
+  "compile_row": {
+   "turn": 2,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d2e5-41b5-7364-b4d2-24ffaae4d1ee",
+   "step": "run-01a0d2e5-41b5-7364-b4d2-24ffaae4d1ee:s2",
+   "status": "complete",
+   "ms": 315,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "central-library",
+      "destination_2": "hall-of-records",
+      "destination_3": "neighborhood-gossip",
+      "destination_4": "previous-tenants",
+      "destination_5": "corbitt-house-ground",
+      "destination_6": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.84,
+     "probabilities": {
+      "destination_3": 0,
+      "none": 0.86,
+      "unclear": 0.13,
+      "destination_4": 0,
+      "destination_2": 0,
+      "destination_5": 0.01,
+      "destination_1": 0,
+      "destination_6": 0
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Arty Wilmot",
+      "addressee_2": "Ruth Blake"
+     },
+     "choice": "addressee_1",
+     "row": "Arty Wilmot",
+     "confidence": 0.49,
+     "probabilities": {
+      "unclear": 0.36,
+      "none": 0.01,
+      "addressee_1": 0.62,
+      "addressee_2": 0.01
+     },
+     "cleared": false
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "obligation:globe-clippings-access",
+      "ask_2": "clue:globe-fire-cutoff",
+      "ask_3": "handout:Boston Globe City Desk Copy — Held from Print (1918)"
+     },
+     "choice": "ask_1",
+     "row": "obligation:globe-clippings-access",
+     "confidence": 0.9,
+     "probabilities": {
+      "unclear": 0,
+      "none": 0.01,
+      "ask_3": 0.01,
+      "ask_2": 0.06,
+      "ask_1": 0.92
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_2",
+     "row": "social",
+     "confidence": 0.96,
+     "probabilities": {
+      "act_9": 0,
+      "act_11": 0,
+      "none": 0,
+      "act_2": 0.97,
+      "act_8": 0,
+      "act_10": 0,
+      "act_4": 0,
+      "act_7": 0,
+      "unclear": 0,
+      "act_6": 0,
+      "act_1": 0.03,
+      "act_5": 0,
+      "act_3": 0
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "侦探徽章"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.85,
+     "probabilities": {
+      "unclear": 0.13,
+      "item_3": 0,
+      "item_4": 0,
+      "item_2": 0,
+      "item_1": 0,
+      "none": 0.87
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "obligation_check",
+     "candidate": "resolve:obligation:globe-clippings-access",
+     "features": {
+      "destination": null,
+      "ask": "obligation:globe-clippings-access",
+      "act": "social",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "resolve:obligation:globe-clippings-access"
+   ],
+   "decided": [
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:corbitt-house-ground",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "apply:clue:globe-fire-cutoff",
+    "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+    "resolve:natural-npc:first-impression:托马斯·海斯:Ruth Blake",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "selected_1",
+   "run_id": "281bc7fe-ac7f-4a04-9efe-a672f92e07c0"
+  },
+  "selections": [
+   {
+    "by": "compile",
+    "keys": [
+     "resolve:obligation:globe-clippings-access"
+    ]
+   }
+  ],
+  "compile_rows": [
+   {
+    "turn": 2,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d2e5-41b5-7364-b4d2-24ffaae4d1ee",
+    "step": "run-01a0d2e5-41b5-7364-b4d2-24ffaae4d1ee:s2",
+    "status": "complete",
+    "ms": 315,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "central-library",
+       "destination_2": "hall-of-records",
+       "destination_3": "neighborhood-gossip",
+       "destination_4": "previous-tenants",
+       "destination_5": "corbitt-house-ground",
+       "destination_6": "commission-briefing"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.84,
+      "probabilities": {
+       "destination_3": 0,
+       "none": 0.86,
+       "unclear": 0.13,
+       "destination_4": 0,
+       "destination_2": 0,
+       "destination_5": 0.01,
+       "destination_1": 0,
+       "destination_6": 0
+      },
+      "cleared": true
+     },
+     "addressee": {
+      "rows": {
+       "addressee_1": "Arty Wilmot",
+       "addressee_2": "Ruth Blake"
+      },
+      "choice": "addressee_1",
+      "row": "Arty Wilmot",
+      "confidence": 0.49,
+      "probabilities": {
+       "unclear": 0.36,
+       "none": 0.01,
+       "addressee_1": 0.62,
+       "addressee_2": 0.01
+      },
+      "cleared": false
+     },
+     "ask": {
+      "rows": {
+       "ask_1": "obligation:globe-clippings-access",
+       "ask_2": "clue:globe-fire-cutoff",
+       "ask_3": "handout:Boston Globe City Desk Copy — Held from Print (1918)"
+      },
+      "choice": "ask_1",
+      "row": "obligation:globe-clippings-access",
+      "confidence": 0.9,
+      "probabilities": {
+       "unclear": 0,
+       "none": 0.01,
+       "ask_3": 0.01,
+       "ask_2": 0.06,
+       "ask_1": 0.92
+      },
+      "cleared": true
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_2",
+      "row": "social",
+      "confidence": 0.96,
+      "probabilities": {
+       "act_9": 0,
+       "act_11": 0,
+       "none": 0,
+       "act_2": 0.97,
+       "act_8": 0,
+       "act_10": 0,
+       "act_4": 0,
+       "act_7": 0,
+       "unclear": 0,
+       "act_6": 0,
+       "act_1": 0.03,
+       "act_5": 0,
+       "act_3": 0
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "开锁工具",
+       "item_3": "手电筒",
+       "item_4": "侦探徽章"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.85,
+      "probabilities": {
+       "unclear": 0.13,
+       "item_3": 0,
+       "item_4": 0,
+       "item_2": 0,
+       "item_1": 0,
+       "none": 0.87
+      },
+      "cleared": true
+     }
+    },
+    "fired": [
+     {
+      "predicate": "obligation_check",
+      "candidate": "resolve:obligation:globe-clippings-access",
+      "features": {
+       "destination": null,
+       "ask": "obligation:globe-clippings-access",
+       "act": "social",
+       "item": null
+      }
+     }
+    ],
+    "selected": [
+     "resolve:obligation:globe-clippings-access"
+    ],
+    "decided": [
+     "apply:move:central-library",
+     "apply:move:hall-of-records",
+     "apply:move:neighborhood-gossip",
+     "apply:move:previous-tenants",
+     "apply:move:corbitt-house-ground",
+     "apply:move:commission-briefing"
+    ],
+    "fell_through": [
+     "apply:clue:globe-fire-cutoff",
+     "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+     "resolve:natural-npc:first-impression:托马斯·海斯:Ruth Blake",
+     "resolve:core-check:ordinary-check"
+    ],
+    "reason": "selected_1",
+    "run_id": "281bc7fe-ac7f-4a04-9efe-a672f92e07c0"
+   }
+  ],
+  "prescreen": "on",
+  "reads": [
+   {
+    "scene": "newspaper-morgue",
+    "prescreen": "prepared",
+    "materials": 10,
+    "jev_calls": 7,
+    "ms": 3874
+   }
+  ],
+  "status": "delivered",
+  "reason": "implicit_narrate",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 48702,
+    "cache_read": 0,
+    "cache_write": 48702,
+    "output": 90,
+    "reasoning": null,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 336,
+    "cache_read": 48702,
+    "cache_write": 336,
+    "output": 51,
+    "reasoning": null,
+    "tools": [],
+    "stop": "stop",
+    "effort": null
+   }
+  ],
+  "steps": {
+   "operate": 5,
+   "decide": 2,
+   "infer": 2,
+   "finish": 1
+  },
+  "llm_steps": 2,
+  "llm_purposes": [
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 9,
+  "route_rows": 2,
+  "calls": [
+   {
+    "tool": "apply",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "person",
+       "who": "Arty Wilmot",
+       "name": "Arty Wilmot",
+       "why": "The book puts Arty Wilmot here for \"Access to the Globe clippings\", under the book's name; player: \"我说明来意，请他帮忙调出科比特宅这些年的旧剪报。\""
+      }
+     ]
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": false,
+    "error": "needs",
+    "input": {
+     "action": {
+      "obligation": "globe-clippings-access",
+      "skill": "Persuade",
+      "intent": "social",
+      "actor": "托马斯·海斯",
+      "target": "Arty Wilmot",
+      "goal": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。",
+      "method": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": false,
+    "error": "needs",
+    "input": {
+     "action": {
+      "intent": "social",
+      "goal": "Get Arty Wilmot to pull the Corbitt House clippings after hearing the purpose",
+      "method": "Explain the commission and ask him to bring the old clippings for that house",
+      "target": "Arty Wilmot",
+      "skill": "Persuade",
+      "obligation": "globe-clippings-access",
+      "stakes": "Arty refuses the basement and keeps the files closed"
+     }
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "resolve Persuade vs Arty Wilmot",
+    "matched": false
+   },
+   {
+    "baseline": "narrate",
+    "matched": true,
+    "origin": "implicit"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "resolve",
+    "origin": "policy",
+    "clerk": "stated_obligation",
+    "verdict": "not_authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 1,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.apply.options",
+     "path": "obligations[0]",
+     "row": {
+      "handle": "globe-clippings-access",
+      "name": "Access to the Globe clippings",
+      "who": "Arty Wilmot",
+      "state": "open",
+      "trigger": {
+       "kind": "attempt",
+       "guards": {
+        "clues": [
+         "globe-unpublished-story",
+         "macario-tragedy"
+        ]
+       }
+      },
+      "next": {
+       "kind": "check",
+       "target": "Arty Wilmot",
+       "selection": "approach",
+       "approaches": [
+        {
+         "skill": "Persuade"
+        },
+        {
+         "skill": "Intimidate"
+        },
+        {
+         "skill": "Charm"
+        },
+        {
+         "skill": "Fast Talk"
+        }
+       ],
+       "difficulty": "regular"
+      },
+      "reaction": "preordained",
+      "mod_contact": [
+       {
+        "mod": "natural-npc",
+        "check": "natural-npc:first-impression",
+        "clerk": false
+       }
+      ],
+      "book": {
+       "failure": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt.",
+       "fumble": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
+       "push": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room."
+      },
+      "source": [
+       {
+        "page": 448,
+        "anchor": "Arty Wilmot"
+       }
+      ]
+     },
+     "obligation": "globe-clippings-access",
+     "step": "check"
+    },
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 0,
+    "timed_out": null
+   },
+   {
+    "verb": "resolve",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "not_authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 1,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": null,
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 1,
+    "timed_out": null
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "apply",
+    "call_id": "t2-c1",
+    "ok": true,
+    "ms": 43,
+    "clerk": "stated_obligation",
+    "basis": {
+     "read": "table.apply.options",
+     "path": "obligations[0]",
+     "row": {
+      "handle": "globe-clippings-access",
+      "name": "Access to the Globe clippings",
+      "who": "Arty Wilmot",
+      "state": "open",
+      "trigger": {
+       "kind": "attempt",
+       "guards": {
+        "clues": [
+         "globe-unpublished-story",
+         "macario-tragedy"
+        ]
+       }
+      },
+      "next": {
+       "kind": "meet",
+       "person": "Arty Wilmot"
+      },
+      "then": {
+       "kind": "check",
+       "target": "Arty Wilmot",
+       "selection": "approach",
+       "approaches": [
+        {
+         "skill": "Persuade"
+        },
+        {
+         "skill": "Intimidate"
+        },
+        {
+         "skill": "Charm"
+        },
+        {
+         "skill": "Fast Talk"
+        }
+       ],
+       "difficulty": "regular"
+      },
+      "reaction": "preordained",
+      "mod_contact": [
+       {
+        "mod": "natural-npc",
+        "check": "natural-npc:first-impression",
+        "clerk": false
+       }
+      ],
+      "book": {
+       "failure": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt.",
+       "fumble": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
+       "push": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room."
+      },
+      "source": [
+       {
+        "page": 448,
+        "anchor": "Arty Wilmot"
+       }
+      ]
+     },
+     "obligation": "globe-clippings-access",
+     "step": "meet"
+    }
+   },
+   {
+    "tool": "resolve",
+    "call_id": "t2-c2",
+    "ok": false,
+    "ms": 2,
+    "clerk": "stated_obligation",
+    "basis": {
+     "read": "table.apply.options",
+     "path": "obligations[0]",
+     "row": {
+      "handle": "globe-clippings-access",
+      "name": "Access to the Globe clippings",
+      "who": "Arty Wilmot",
+      "state": "open",
+      "trigger": {
+       "kind": "attempt",
+       "guards": {
+        "clues": [
+         "globe-unpublished-story",
+         "macario-tragedy"
+        ]
+       }
+      },
+      "next": {
+       "kind": "check",
+       "target": "Arty Wilmot",
+       "selection": "approach",
+       "approaches": [
+        {
+         "skill": "Persuade"
+        },
+        {
+         "skill": "Intimidate"
+        },
+        {
+         "skill": "Charm"
+        },
+        {
+         "skill": "Fast Talk"
+        }
+       ],
+       "difficulty": "regular"
+      },
+      "reaction": "preordained",
+      "mod_contact": [
+       {
+        "mod": "natural-npc",
+        "check": "natural-npc:first-impression",
+        "clerk": false
+       }
+      ],
+      "book": {
+       "failure": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt.",
+       "fumble": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
+       "push": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room."
+      },
+      "source": [
+       {
+        "page": 448,
+        "anchor": "Arty Wilmot"
+       }
+      ]
+     },
+     "obligation": "globe-clippings-access",
+     "step": "check"
+    }
+   },
+   {
+    "tool": "resolve",
+    "clerk": "stated_obligation"
+   }
+  ],
+  "misses": []
+ },
+ {
+  "run": 3,
+  "fixture": "gate7-t2",
+  "admission": "lane",
+  "keeper": "replay",
+  "thinking": "off",
+  "arm": "after",
+  "latency": false,
+  "seed": "1",
+  "wall_ms": 7065,
+  "budget": {
+   "turn": 2,
+   "lane": "run",
+   "event": "budget",
+   "decision": "summary",
+   "run": "run-01a0d2e5-5b59-7364-b4d2-250354954b07",
+   "budget_ms": 45000,
+   "elapsed_ms": 6156,
+   "elapsed_at_compose": 5920,
+   "over_budget": false,
+   "deferred_by_budget": [],
+   "run_id": "54add68b-cb35-458b-9be2-33296819e61c"
+  },
+  "compile": "on",
+  "compile_row": {
+   "turn": 2,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d2e5-5b59-7364-b4d2-250354954b07",
+   "step": "run-01a0d2e5-5b59-7364-b4d2-250354954b07:s2",
+   "status": "complete",
+   "ms": 326,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "central-library",
+      "destination_2": "hall-of-records",
+      "destination_3": "neighborhood-gossip",
+      "destination_4": "previous-tenants",
+      "destination_5": "corbitt-house-ground",
+      "destination_6": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.82,
+     "probabilities": {
+      "none": 0.85,
+      "destination_4": 0,
+      "destination_3": 0,
+      "unclear": 0.14,
+      "destination_5": 0.01,
+      "destination_2": 0,
+      "destination_1": 0,
+      "destination_6": 0
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Arty Wilmot",
+      "addressee_2": "Ruth Blake"
+     },
+     "choice": "addressee_1",
+     "row": "Arty Wilmot",
+     "confidence": 0.67,
+     "probabilities": {
+      "none": 0.01,
+      "addressee_2": 0.01,
+      "addressee_1": 0.75,
+      "unclear": 0.23
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "obligation:globe-clippings-access",
+      "ask_2": "clue:globe-fire-cutoff",
+      "ask_3": "handout:Boston Globe City Desk Copy — Held from Print (1918)"
+     },
+     "choice": "ask_1",
+     "row": "obligation:globe-clippings-access",
+     "confidence": 0.81,
+     "probabilities": {
+      "none": 0.03,
+      "ask_2": 0.1,
+      "unclear": 0.01,
+      "ask_3": 0.01,
+      "ask_1": 0.85
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_2",
+     "row": "social",
+     "confidence": 0.97,
+     "probabilities": {
+      "none": 0,
+      "act_6": 0,
+      "act_8": 0,
+      "unclear": 0,
+      "act_1": 0.03,
+      "act_5": 0,
+      "act_9": 0,
+      "act_10": 0,
+      "act_3": 0,
+      "act_2": 0.97,
+      "act_7": 0,
+      "act_11": 0,
+      "act_4": 0
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "侦探徽章"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.87,
+     "probabilities": {
+      "none": 0.89,
+      "item_4": 0,
+      "item_1": 0,
+      "unclear": 0.11,
+      "item_2": 0,
+      "item_3": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "obligation_check",
+     "candidate": "resolve:obligation:globe-clippings-access",
+     "features": {
+      "destination": null,
+      "addressee": "Arty Wilmot",
+      "ask": "obligation:globe-clippings-access",
+      "act": "social",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "resolve:obligation:globe-clippings-access"
+   ],
+   "decided": [
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:corbitt-house-ground",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "apply:clue:globe-fire-cutoff",
+    "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+    "resolve:natural-npc:first-impression:托马斯·海斯:Ruth Blake",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "selected_1",
+   "run_id": "54add68b-cb35-458b-9be2-33296819e61c"
+  },
+  "selections": [
+   {
+    "by": "compile",
+    "keys": [
+     "resolve:obligation:globe-clippings-access"
+    ]
+   }
+  ],
+  "compile_rows": [
+   {
+    "turn": 2,
+    "lane": "route",
+    "purpose": "compile",
+    "run": "run-01a0d2e5-5b59-7364-b4d2-250354954b07",
+    "step": "run-01a0d2e5-5b59-7364-b4d2-250354954b07:s2",
+    "status": "complete",
+    "ms": 326,
+    "features": {
+     "destination": {
+      "rows": {
+       "destination_1": "central-library",
+       "destination_2": "hall-of-records",
+       "destination_3": "neighborhood-gossip",
+       "destination_4": "previous-tenants",
+       "destination_5": "corbitt-house-ground",
+       "destination_6": "commission-briefing"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.82,
+      "probabilities": {
+       "none": 0.85,
+       "destination_4": 0,
+       "destination_3": 0,
+       "unclear": 0.14,
+       "destination_5": 0.01,
+       "destination_2": 0,
+       "destination_1": 0,
+       "destination_6": 0
+      },
+      "cleared": true
+     },
+     "addressee": {
+      "rows": {
+       "addressee_1": "Arty Wilmot",
+       "addressee_2": "Ruth Blake"
+      },
+      "choice": "addressee_1",
+      "row": "Arty Wilmot",
+      "confidence": 0.67,
+      "probabilities": {
+       "none": 0.01,
+       "addressee_2": 0.01,
+       "addressee_1": 0.75,
+       "unclear": 0.23
+      },
+      "cleared": true
+     },
+     "ask": {
+      "rows": {
+       "ask_1": "obligation:globe-clippings-access",
+       "ask_2": "clue:globe-fire-cutoff",
+       "ask_3": "handout:Boston Globe City Desk Copy — Held from Print (1918)"
+      },
+      "choice": "ask_1",
+      "row": "obligation:globe-clippings-access",
+      "confidence": 0.81,
+      "probabilities": {
+       "none": 0.03,
+       "ask_2": 0.1,
+       "unclear": 0.01,
+       "ask_3": 0.01,
+       "ask_1": 0.85
+      },
+      "cleared": true
+     },
+     "act": {
+      "rows": {
+       "act_1": "investigate",
+       "act_2": "social",
+       "act_3": "move",
+       "act_4": "combat",
+       "act_5": "flee",
+       "act_6": "cast",
+       "act_7": "idle",
+       "act_8": "meta",
+       "act_9": "stuck",
+       "act_10": "ambiguous",
+       "act_11": "montage"
+      },
+      "choice": "act_2",
+      "row": "social",
+      "confidence": 0.97,
+      "probabilities": {
+       "none": 0,
+       "act_6": 0,
+       "act_8": 0,
+       "unclear": 0,
+       "act_1": 0.03,
+       "act_5": 0,
+       "act_9": 0,
+       "act_10": 0,
+       "act_3": 0,
+       "act_2": 0.97,
+       "act_7": 0,
+       "act_11": 0,
+       "act_4": 0
+      },
+      "cleared": true
+     },
+     "item": {
+      "rows": {
+       "item_1": "笔记本",
+       "item_2": "开锁工具",
+       "item_3": "手电筒",
+       "item_4": "侦探徽章"
+      },
+      "choice": "none",
+      "row": null,
+      "confidence": 0.87,
+      "probabilities": {
+       "none": 0.89,
+       "item_4": 0,
+       "item_1": 0,
+       "unclear": 0.11,
+       "item_2": 0,
+       "item_3": 0
+      },
+      "cleared": true
+     }
+    },
+    "fired": [
+     {
+      "predicate": "obligation_check",
+      "candidate": "resolve:obligation:globe-clippings-access",
+      "features": {
+       "destination": null,
+       "addressee": "Arty Wilmot",
+       "ask": "obligation:globe-clippings-access",
+       "act": "social",
+       "item": null
+      }
+     }
+    ],
+    "selected": [
+     "resolve:obligation:globe-clippings-access"
+    ],
+    "decided": [
+     "apply:move:central-library",
+     "apply:move:hall-of-records",
+     "apply:move:neighborhood-gossip",
+     "apply:move:previous-tenants",
+     "apply:move:corbitt-house-ground",
+     "apply:move:commission-briefing"
+    ],
+    "fell_through": [
+     "apply:clue:globe-fire-cutoff",
+     "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+     "resolve:natural-npc:first-impression:托马斯·海斯:Ruth Blake",
+     "resolve:core-check:ordinary-check"
+    ],
+    "reason": "selected_1",
+    "run_id": "54add68b-cb35-458b-9be2-33296819e61c"
+   }
+  ],
+  "prescreen": "on",
+  "reads": [
+   {
+    "scene": "newspaper-morgue",
+    "prescreen": "prepared",
+    "materials": 8,
+    "jev_calls": 8,
+    "ms": 4880
+   }
+  ],
+  "status": "delivered",
+  "reason": "implicit_narrate",
+  "model_calls": [
+   {
+    "step": 1,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 48784,
+    "cache_read": 0,
+    "cache_write": 48784,
+    "output": 90,
+    "reasoning": null,
+    "tools": [
+     "resolve"
+    ],
+    "stop": "toolUse",
+    "effort": null
+   },
+   {
+    "step": 2,
+    "turn": 0,
+    "purpose": "adjudicate",
+    "ms": null,
+    "ttfb_ms": null,
+    "input": 336,
+    "cache_read": 48784,
+    "cache_write": 336,
+    "output": 51,
+    "reasoning": null,
+    "tools": [],
+    "stop": "stop",
+    "effort": null
+   }
+  ],
+  "steps": {
+   "operate": 5,
+   "decide": 2,
+   "infer": 2,
+   "finish": 1
+  },
+  "llm_steps": 2,
+  "llm_purposes": [
+   "adjudicate",
+   "adjudicate"
+  ],
+  "jev_calls": 10,
+  "route_rows": 2,
+  "calls": [
+   {
+    "tool": "apply",
+    "origin": "policy",
+    "ok": true,
+    "error": null,
+    "input": {
+     "effects": [
+      {
+       "kind": "person",
+       "who": "Arty Wilmot",
+       "name": "Arty Wilmot",
+       "why": "The book puts Arty Wilmot here for \"Access to the Globe clippings\", under the book's name; player: \"我说明来意，请他帮忙调出科比特宅这些年的旧剪报。\""
+      }
+     ]
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "policy",
+    "ok": false,
+    "error": "needs",
+    "input": {
+     "action": {
+      "obligation": "globe-clippings-access",
+      "skill": "Persuade",
+      "intent": "social",
+      "actor": "托马斯·海斯",
+      "target": "Arty Wilmot",
+      "goal": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。",
+      "method": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。"
+     }
+    }
+   },
+   {
+    "tool": "resolve",
+    "origin": "model",
+    "ok": false,
+    "error": "needs",
+    "input": {
+     "action": {
+      "intent": "social",
+      "goal": "Get Arty Wilmot to pull the Corbitt House clippings after hearing the purpose",
+      "method": "Explain the commission and ask him to bring the old clippings for that house",
+      "target": "Arty Wilmot",
+      "skill": "Persuade",
+      "obligation": "globe-clippings-access",
+      "stakes": "Arty refuses the basement and keeps the files closed"
+     }
+    }
+   }
+  ],
+  "match": [
+   {
+    "baseline": "resolve Persuade vs Arty Wilmot",
+    "matched": false
+   },
+   {
+    "baseline": "narrate",
+    "matched": true,
+    "origin": "implicit"
+   }
+  ],
+  "admissions": [
+   {
+    "verb": "resolve",
+    "origin": "policy",
+    "clerk": "stated_obligation",
+    "verdict": "not_authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 1,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": {
+     "read": "table.apply.options",
+     "path": "obligations[0]",
+     "row": {
+      "handle": "globe-clippings-access",
+      "name": "Access to the Globe clippings",
+      "who": "Arty Wilmot",
+      "state": "open",
+      "trigger": {
+       "kind": "attempt",
+       "guards": {
+        "clues": [
+         "globe-unpublished-story",
+         "macario-tragedy"
+        ]
+       }
+      },
+      "next": {
+       "kind": "check",
+       "target": "Arty Wilmot",
+       "selection": "approach",
+       "approaches": [
+        {
+         "skill": "Persuade"
+        },
+        {
+         "skill": "Intimidate"
+        },
+        {
+         "skill": "Charm"
+        },
+        {
+         "skill": "Fast Talk"
+        }
+       ],
+       "difficulty": "regular"
+      },
+      "reaction": "preordained",
+      "mod_contact": [
+       {
+        "mod": "natural-npc",
+        "check": "natural-npc:first-impression",
+        "clerk": false
+       }
+      ],
+      "book": {
+       "failure": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt.",
+       "fumble": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
+       "push": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room."
+      },
+      "source": [
+       {
+        "page": 448,
+        "anchor": "Arty Wilmot"
+       }
+      ]
+     },
+     "obligation": "globe-clippings-access",
+     "step": "check"
+    },
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 0,
+    "timed_out": null
+   },
+   {
+    "verb": "resolve",
+    "origin": "model",
+    "clerk": null,
+    "verdict": "not_authorized",
+    "ok": true,
+    "skipped": null,
+    "reviewer": "lane",
+    "ms": 1,
+    "jev_ms": null,
+    "confidence": null,
+    "jev_fallback": null,
+    "basis": null,
+    "path": "lane",
+    "fast_path": null,
+    "jev_confidence": null,
+    "line_verdicts": null,
+    "lane_ms": null,
+    "predicate": null,
+    "features": null,
+    "binding_paths": null,
+    "compile_refused": null,
+    "first_byte_ms": 0,
+    "timed_out": null
+   }
+  ],
+  "clerk": [
+   {
+    "tool": "apply",
+    "call_id": "t2-c1",
+    "ok": true,
+    "ms": 46,
+    "clerk": "stated_obligation",
+    "basis": {
+     "read": "table.apply.options",
+     "path": "obligations[0]",
+     "row": {
+      "handle": "globe-clippings-access",
+      "name": "Access to the Globe clippings",
+      "who": "Arty Wilmot",
+      "state": "open",
+      "trigger": {
+       "kind": "attempt",
+       "guards": {
+        "clues": [
+         "globe-unpublished-story",
+         "macario-tragedy"
+        ]
+       }
+      },
+      "next": {
+       "kind": "meet",
+       "person": "Arty Wilmot"
+      },
+      "then": {
+       "kind": "check",
+       "target": "Arty Wilmot",
+       "selection": "approach",
+       "approaches": [
+        {
+         "skill": "Persuade"
+        },
+        {
+         "skill": "Intimidate"
+        },
+        {
+         "skill": "Charm"
+        },
+        {
+         "skill": "Fast Talk"
+        }
+       ],
+       "difficulty": "regular"
+      },
+      "reaction": "preordained",
+      "mod_contact": [
+       {
+        "mod": "natural-npc",
+        "check": "natural-npc:first-impression",
+        "clerk": false
+       }
+      ],
+      "book": {
+       "failure": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt.",
+       "fumble": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
+       "push": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room."
+      },
+      "source": [
+       {
+        "page": 448,
+        "anchor": "Arty Wilmot"
+       }
+      ]
+     },
+     "obligation": "globe-clippings-access",
+     "step": "meet"
+    }
+   },
+   {
+    "tool": "resolve",
+    "call_id": "t2-c2",
+    "ok": false,
+    "ms": 3,
+    "clerk": "stated_obligation",
+    "basis": {
+     "read": "table.apply.options",
+     "path": "obligations[0]",
+     "row": {
+      "handle": "globe-clippings-access",
+      "name": "Access to the Globe clippings",
+      "who": "Arty Wilmot",
+      "state": "open",
+      "trigger": {
+       "kind": "attempt",
+       "guards": {
+        "clues": [
+         "globe-unpublished-story",
+         "macario-tragedy"
+        ]
+       }
+      },
+      "next": {
+       "kind": "check",
+       "target": "Arty Wilmot",
+       "selection": "approach",
+       "approaches": [
+        {
+         "skill": "Persuade"
+        },
+        {
+         "skill": "Intimidate"
+        },
+        {
+         "skill": "Charm"
+        },
+        {
+         "skill": "Fast Talk"
+        }
+       ],
+       "difficulty": "regular"
+      },
+      "reaction": "preordained",
+      "mod_contact": [
+       {
+        "mod": "natural-npc",
+        "check": "natural-npc:first-impression",
+        "clerk": false
+       }
+      ],
+      "book": {
+       "failure": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt.",
+       "fumble": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
+       "push": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room."
+      },
+      "source": [
+       {
+        "page": 448,
+        "anchor": "Arty Wilmot"
+       }
+      ]
+     },
+     "obligation": "globe-clippings-access",
+     "step": "check"
+    }
+   },
+   {
+    "tool": "resolve",
+    "clerk": "stated_obligation"
+   }
+  ],
+  "misses": []
+ }
+]
