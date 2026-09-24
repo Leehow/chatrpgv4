@@ -108,6 +108,20 @@ test('an output overrun names the bound it broke; a settle for an ungranted call
   assert.equal(other.refusal.code, 'provider_model_changed');
 });
 
+test('§20 addendum 3 on a stage lease an output overrun fails that call, typed, and the round goes on to the next call', async t => {
+  const f = await child(t, [{call: 'text', end: 'ok', usage: {...usage, output: 101}}, {call: 'text', end: 'ok'}]), root = lease();
+  t.after(() => root.close());
+  const outcome = await f.run(createTaskProviderBudget(root, {absorbOverrun: true}));
+  assert.equal(outcome.ok, true, JSON.stringify(outcome));
+  assert.equal(outcome.refusal, undefined);
+  assert.equal(outcome.overruns.length, 1);
+  assert.deepEqual([outcome.overruns[0].reason, outcome.overruns[0].code, outcome.overruns[0].requested, outcome.overruns[0].reserved, outcome.overruns[0].overrun],
+    ['budget_output_tokens', 'task_budget_overrun', 101, 100, true]);
+  assert.equal((await f.calls()).length, 2, 'the next call was dispatched');
+  assert.equal(root.signal.aborted, false, 'the lease was not cancelled');
+  assert.equal(outcome.usage.outputTokens, 101 + 5, 'the overrun is charged as reported');
+});
+
 test('a round that ends on a provider error without any refusal is a transport failure', async t => {
   const f = await child(t, [{call: 'text', end: 'error', message: 'Connection error.'}]), root = lease();
   t.after(() => root.close());

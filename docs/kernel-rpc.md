@@ -3049,8 +3049,10 @@ to the workspace whose queue holds that job id and lease — and never forks a c
 to blocking, demoted, or yielded. The host's `concurrency` row gains `class: "blocking" | "background"` and `slot_wait_ms`
 (milliseconds from `class_at` to the claim: how long the job waited *as what it is now*); `queue_wait_ms` (from the first
 queueing) is kept. A displacement writes `{lane: "reading", event: "displaced", module_id, campaign, job_id, purpose, focus,
-for_job, ran_ms}` once the job has been returned; a yield the kernel refused writes `yield_failed` with the detail, and the
-job is then left to the claim's stale recovery (§22.2) exactly like a hand-off (§20 addendum 2 item 5).
+for_job, ran_ms, displaced}` once the job has been returned. A yield the kernel refuses would leave the slot held for the
+life of the kernel (a live kernel counts its own publication lease as active), so the host then writes `yield_failed` with
+the detail and finishes that attempt `cancelled` — its evidence kept, `retry: true` reads it again; the only cancellation
+here, and it is the refusal's, not the displacement's.
 
 **The host.** The reading service's pump claims past its own capacity only to place a blocking read one of its requests
 is waiting on; the process-wide reader-child permits (§22, 40 in all, 8 background) are unchanged.

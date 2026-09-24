@@ -40,6 +40,7 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
         'module.read.claim': params => reading.claim(params),
         'module.read.finish': params => reading.finish(params),
         'module.read.unwait': params => reading.unwait(params),
+        'module.read.yield': params => reading.yield(params),
         'module.opening.choose': params => reading.chooseOpening(params),
         'module.list': async () => {
             const modules = [];
@@ -144,9 +145,9 @@ export function createModuleRuntime(context: KernelContext) {
     // Claims, finishes and unwaits instead follow the workspace that already owns the job, so a
     // shared prefetch is never stranded by a fork that happened after it was queued.
     const forking = new Set(['module.read.request', 'module.opening.choose']);
-    const claimsOrFinishes = new Set(['module.read.claim', 'module.read.finish', 'module.read.unwait']);
-    // Both name one job, so both follow the workspace whose queue holds that job id.
-    const byJobId = new Set(['module.read.finish', 'module.read.unwait']);
+    const claimsOrFinishes = new Set(['module.read.claim', 'module.read.finish', 'module.read.unwait', 'module.read.yield']);
+    // Each names one job, so each follows the workspace whose queue holds that job id.
+    const byJobId = new Set(['module.read.finish', 'module.read.unwait', 'module.read.yield']);
     const queuedJobs = async (value: typeof library, id: string, jobId?: any, lease?: any): Promise<boolean> =>
         (await value.store.queue(id)).some(job => jobId === undefined
             ? job.state === 'queued'
@@ -191,7 +192,7 @@ export function createModuleRuntime(context: KernelContext) {
                 // Ordinal job ids collide between the shared library and a campaign fork. A finish
                 // carries the opaque attempt lease, so route by both; otherwise a private `read-7`
                 // can capture the shared `read-7` and reject a valid publication.
-                const lease = method === 'module.read.finish' ? params.lease : undefined;
+                const lease = method === 'module.read.finish' || method === 'module.read.yield' ? params.lease : undefined;
                 return (await queuedJobs(value, id, params.job_id, lease) ? value : library).handlers[method](params);
             }
             if (await queuedJobs(value, id)) return value.handlers[method](params);

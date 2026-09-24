@@ -7,7 +7,8 @@ export interface ProviderModel {
   cost:{input:number;output:number;cacheRead:number;cacheWrite:number;tiers?:Array<{input:number;output:number;cacheRead:number;cacheWrite:number}>};
 }
 export interface ProviderBound {model:ProviderModel;inputTokens:number;outputTokens:number}
-export interface ProviderCharge {settle(usage?:unknown):void;release():void}
+/** `settle` answers the call's own refusal when a stage lease absorbed its overrun (contract §20 addendum 3); nothing otherwise. */
+export interface ProviderCharge {settle(usage?:unknown):ProviderRefusal|undefined;release():void}
 export interface TaskProviderBudget {
   readonly signal:AbortSignal;
   readonly deadlineAt:number;
@@ -87,14 +88,14 @@ export function boundProviderRequest(model:ProviderModel, payload:any, outputLim
   providerSpend(bound);
   return {payload:bounded,bound};
 }
-export function createTaskProviderBudget(lease:TaskLease, options:{record?:(event:Record<string,unknown>)=>void;changed?:()=>void|Promise<void>;callOutputTokens?:number}={}):TaskProviderBudget {
+export function createTaskProviderBudget(lease:TaskLease, options:{record?:(event:Record<string,unknown>)=>void;changed?:()=>void|Promise<void>;callOutputTokens?:number;absorbOverrun?:boolean}={}):TaskProviderBudget {
   const emit=(event:Record<string,unknown>)=>{try{options.record?.({...event,taskId:lease.context.id,rootId:lease.context.rootId});}catch{/* Accounting does not depend on telemetry. */}};
   const changed=async()=>{await options.changed?.();};
   // Refunds may lag on disk; a conservative dispatched reservation must not.
   const changedLater=()=>{void changed().catch(()=>{});};
   return {signal:lease.signal,deadlineAt:lease.context.budget.deadlineAt,...(options.callOutputTokens?{callOutputTokens:options.callOutputTokens}:{}),async reserve(bound,signal) {
     const spend=providerSpend(bound);
-    const reservation=await lease.reserveQueued(spend,signal);
+    const reservation=await lease.reserveQueued(spend,signal,{absorbOverrun:options.absorbOverrun===true});
     try {
       await changed();
       lease.assertActive();
@@ -103,7 +104,9 @@ export function createTaskProviderBudget(lease:TaskLease, options:{record?:(even
     emit({kind:'provider-reservation',model:`${bound.model.provider}/${bound.model.id}`,reserved:spend});
     let done=false;
     return {settle(usage) {if(done)return;done=true;const actual=providerUsage(usage);
-      try{emit({kind:'provider-usage',model:`${bound.model.provider}/${bound.model.id}`,usage:actual??spend,known:!!actual});reservation.settle(actual);}
+      try{emit({kind:'provider-usage',model:`${bound.model.provider}/${bound.model.id}`,usage:actual??spend,known:!!actual});
+        const overrun=reservation.settle(actual);if(!overrun)return undefined;
+        const refusal=providerRefusal(overrun);emit({kind:'provider-overrun',model:`${bound.model.provider}/${bound.model.id}`,refusal});return refusal;}
       finally{changedLater();}},release(){if(done)return;done=true;try{reservation.release();emit({kind:'provider-undispatched'});}finally{changedLater();}}};
   }};
 }

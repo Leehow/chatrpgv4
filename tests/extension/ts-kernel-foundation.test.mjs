@@ -49,7 +49,7 @@ test("the public vocabulary and error frames match the locked Python reference",
     "voice.job", "voice.submit", "voice.fail",
     "npc.job", "npc.submit", "npc.fail", "npc.perspective", "npc.perspectives", "npc.responses.job", "npc.responses.submit",
     "adaptation.prepare", "adaptation.status", "adaptation.draft", "adaptation.review", "adaptation.fail", "adaptation.cancel",
-    "mods.prefetch.accept", "mods.prefetch.targets", "mods.identity.plan", "module.read.unwait",
+    "mods.prefetch.accept", "mods.prefetch.targets", "mods.identity.plan", "module.read.unwait", "module.read.yield",
     "memory.evidence", "memory.source", "module.source.answer.peek", "module.source.snapshot", "module.source.materials.snapshot", "table.apply.options",
     "table.call_status", "table.fulfillment.options", "table.fulfillment.prepare", "table.resolve.options"]);
   assert.deepEqual([...api.KNOWN_METHODS].filter(name => !currentOnly.has(name)).sort(), reference.rpc.methods);
