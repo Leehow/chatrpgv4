@@ -155,3 +155,32 @@ Not covered by a test: the whole batch's key keeping the remainder's admitting v
 - What made turn 14 slow live was the provider's tail: the same batch answers in 3.3–12.9 s now. What is slow repeatably is a batch with a `person` line beside a `move` or others (every lane round over 13 s in measurement 2), not a `threat` line.
 - For the owner: a lower line threshold would not have helped either (0.70 cleared nothing in the product context). Levers that would: the typed family's calibration on these lines in the real context, or putting the `person` line's staging outside the lane's batch (it is a non-triggering kind, §32.1). Neither is decided here.
 - `kpi.py` does not yet group `line_level` rows. No live table.
+
+### 2026-09-24 — the owner's amendment: lines no reviewer reads are not sent to the lane
+
+**Ruling (owner, via the coordinator, 2026-09-24).** Of the two levers in the previous comment, the second, made structural: an `apply` effect of a kind §32.1 never reviews on its own (`person`, `threat`, `npc`, `flag`, `note`, `define`, `damage` and the rest of that class; also a scene rename and an `object` adoption, which §32.1's predicate already exempts) is removed from the lines the lane sees and lands with the batch on the same call. The lane reviews only `move`, `clue`, `handout`, `time`, `cash`, `item`, `object`, `usage`, `map`; `resolve` unchanged. The line-level machinery stays. No recalibration of the typed family here.
+
+**Implementation** (`785487730`):
+- `admissionRequest` (`extensions/kernel/admission.ts`) builds an `apply` proposal's lines and kinds from the reviewed effects only, with `proposal.effects` mapping each line to its effect; the key is still the whole batch's (§32.4). The typed reviewer reads the same lines (§32.10: both reviewers read one proposal).
+- `admitAction` (`extensions/kernel/index.ts`) maps line indices through `proposal.effects`. When a split's rest does not land, the call lands the cleared lines **and** the unreviewed effects (`landing`), in the batch's order, and the whole-batch resend record covers all of them. A refusal of the reviewed lines refuses the call as before: nothing lands.
+- Contract §32.12.3 amended with the rule and its reason: batches with a `person` line had lane p90 34.9 s against 6.6 s for batches with neither, all 6 rounds over 13 s carried one, and every `threat` line alone was `not_player_action` (18/18).
+
+**Tests** (`admission-line-level.test.mjs`, now 16): turn 14's `threat` + `time`, where the lane and the typed reviewer read only the `time` line, and both land, on the fake and the emitted kernel (with `time:` and `threat:` receipts); a `person` + `move` batch where the lane sees only the move and the person lands; a lane refusal of the reviewed lines lands nothing; a split whose rest is refused lands the cleared and the unreviewed lines. The earlier tests that used `threat` as the clearable line now use `time` + `clue`.
+
+**Mutations** (all 18 rerun on the amended tree):
+- M17 (unreviewed lines sent to the reviewers again) is killed by 4 tests. M18 (unreviewed lines held back with a refused rest) is killed by 1.
+- M1–M4 and M6–M16 are still killed.
+- M5 (a rest with no triggering kind is reviewed anyway) now survives. It is an equivalent mutant: since the amendment, a rest holds only reviewed lines, so the unreviewed-rest guard it mutates cannot be reached. The guard stays, with a comment saying so.
+
+**Replays** (merged tree `505b6a9e3`, integration at `9ab3e753f` with SL-31; `results/sl30-amended-longgate30-t14`, `-t6`; recorded Keeper, live Jev, live lane, seed 1, 3 runs each). Every baseline row matched in 6 of 6 runs.
+
+| turn | the lane read | lane rounds | before the amendment (same arm, `results/sl30-longgate30-*`) |
+| --- | --- | --- | --- |
+| 14 | `apply time` only | 6.9, 3.7, 6.8 s | 3.3, 4.4, 12.9 s (`threat` + `time`) |
+| 6 | `apply time`, `apply clue` | 6.0, 7.0, 5.8 s | 9.9, 7.3, 8.7 s (`person` + `time` + `clue`) |
+
+What landed:
+- turn 14: the move (compile), the STR roll, `threat corbitt-haunting`, and the `time` receipt (`time:t14-c3` or `-c4`);
+- turn 6: the move (compile), the first-impression roll, `person Vittorio Macario`, `time 40`, and `clue vittorio-bible-weapon`.
+
+The coordinator's expectation was every lane round under about 5 s. That is **not met**: only 1 of 6 rounds came in under 5 s, and the rest took 5.8–7.0 s. Turn 6's median fell from 8.7 to 6.0 s. Turn 14's did not fall (6.8 against 4.4 s), with n = 3 each. The typed confidence on the `time` line alone is 0.51–0.65, so nothing cleared on the line path either.

@@ -7385,7 +7385,8 @@ whole batch's key keeps its verdict for the turn like any.
 those lines would be), what the lane judges, the fast path, the family rule, the late admission, or what refuses. The only
 lines no lane judged are the cleared lines, admitted at the fast-path confidence, which §32.11 already lets settle a whole
 bookkeeping batch alone. On the long tables it fires on 4.8% of line-runs; it does not help turns 6 and 14 of long gate #2,
-whose lines type at 0.68–0.75.
+whose lines type at 0.68–0.75. What changed those two turns is the owner's amendment above (the lane no longer reads their
+`threat` and `person` lines): replayed, their lane rounds took 3.7–7.0 s and every line landed (SL-30 ticket).
 
 **Three ends (§31).** *Writer:* the typed answer's line verdicts (`clearedLines`), the remainder's lane round. *Reader:*
 `admitAction`, which narrows the batch, and the kept split (`state.admissionSplit`) for a whole-batch resend. *Actor:* the
