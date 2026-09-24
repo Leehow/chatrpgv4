@@ -205,7 +205,12 @@ export class TaskLease {
     return new TaskLease({ ...options, scope: this.#context.scope, readSet: this.#context.readSet }, this);
   }
 
-  reserve(spend: BudgetSpend, options: {waitable?: boolean} = {}): { settle(actual?: Partial<BudgetSpend>): void; release(): void } {
+  /**
+   * `absorbOverrun` (contract §20 addendum 3, SL-41): a settle that reports more than was reserved is charged, and when every
+   * lease on the chain can still pay it the overrun is returned as the call's refusal instead of cancelling the root. An
+   * overrun that leaves any lease in debt cancels as before.
+   */
+  reserve(spend: BudgetSpend, options: {waitable?: boolean; absorbOverrun?: boolean} = {}): { settle(actual?: Partial<BudgetSpend>): BudgetRefusal | undefined; release(): void } {
     validSpend(spend);
     const reserved = structuredClone(spend), chain: TaskLease[] = [];
     for (let task: TaskLease | undefined = this; task; task = task.#parent) chain.push(task);
@@ -234,10 +239,12 @@ export class TaskLease {
       // Negative remaining budget is honest debt after an actual provider overrun, never permission.
       if (overrun) {
         const refusal = this.#refusal('task_budget_overrun', overrun, used[overrun], reserved[overrun]);
+        if (options.absorbOverrun && chain.every(task => SPEND_KEYS.every(key => task.#context.budget[BUDGET_FIELDS[key]] >= 0))) return refusal;
         chain.at(-1)!.cancel(refusal); throw refusal;
       }
+      return undefined;
     };
-    return { settle, release: () => settle(ZERO) };
+    return { settle, release: () => { settle(ZERO); } };
   }
 
   #refusal(code: 'task_budget_exhausted' | 'task_budget_overrun', dimension: keyof BudgetSpend, requested: number, reserved?: number): BudgetRefusal {
@@ -247,14 +254,14 @@ export class TaskLease {
   }
 
   /** Wait for existing reservations to settle; never borrow beyond any ancestor's ceiling. */
-  async reserveQueued(spend: BudgetSpend, signal?: AbortSignal): Promise<ReturnType<TaskLease['reserve']>> {
+  async reserveQueued(spend: BudgetSpend, signal?: AbortSignal, options: {absorbOverrun?: boolean} = {}): Promise<ReturnType<TaskLease['reserve']>> {
     validSpend(spend);
     const requested = structuredClone(spend);
     const cancellation = signal ? AbortSignal.any([this.signal, signal]) : this.signal;
     for (;;) {
       cancellation.throwIfAborted();
       this.assertActive();
-      try { return this.reserve(requested); }
+      try { return this.reserve(requested, options); }
       catch (error) {
         if (!(error instanceof ContractError) || error.code !== 'task_budget_exhausted') throw error;
         for (let task: TaskLease | undefined = this; task; task = task.#parent) {

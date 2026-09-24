@@ -42,6 +42,21 @@ function refusalOf(value: any): Row | null {
 const FOCUSED = ['opening', 'detail'];
 /** §22.4.3 (SL-36): at most this many memoised answers (and index rows) travel with one consultation reply. */
 const ANSWER_MEMO_LIMIT = 4;
+/**
+ * §22.4.6 (SL-45): the reading slots of one module queue. A blocking read (`foreground`: a turn waits on it now) may take
+ * any free slot; a background read is claimed only while it would leave one free, so it never takes the last one.
+ */
+export const READING_SLOTS = 3;
+/**
+ * §22.4.6: a job enters its present class (queued, promoted, demoted or yielded) at this moment; the slot wait counts from
+ * it, so it keeps milliseconds (the host's `slot_wait_ms`), unlike the second-precision `at`.
+ */
+const classNow = (): string => new Date().toISOString();
+function enterClass(job: Row, foreground: boolean): void {
+    if (truth(job.foreground) === foreground && truth(job.class_at)) return;
+    job.foreground = foreground;
+    job.class_at = classNow();
+}
 const uuid = (): string => randomUUID().replaceAll('-', '');
 /** Whether a process id names a live process; EPERM is a live process this user may not signal. */
 function processAlive(pid: number): boolean {
@@ -722,7 +737,7 @@ export class Reading {
             }
             if (settling) {
                 if (truth(params.foreground) && !truth(settling.foreground)) {
-                    settling.foreground = true;
+                    enterClass(settling, true);
                     await this.store.writeQueue(mid, queue);
                 }
                 return { ...result, state: 'reading', job_id: settling.job_id, attached: true, ...await this.answerKnown(mid, purpose, focus) };
@@ -739,9 +754,8 @@ export class Reading {
                         existing.task_preparation=clone(preparation);
                         boundPreparation=true;
                     }
-                    if (truth(params.foreground)) {
-                        existing.foreground = true;
-                    }
+                    if (truth(params.foreground) && !truth(existing.foreground))
+                        enterClass(existing, true);
                     if(boundPreparation||truth(params.foreground))await this.store.writeQueue(mid,queue);
                     return { ...result, state: existing.state === 'running' ? 'reading' : 'queued', job_id: existing.job_id, ...await this.answerKnown(mid, purpose, focus) };
                 }
@@ -758,6 +772,7 @@ export class Reading {
                     return { ...result, state: 'blocked', missing: [existing.detail ?? 'reading failed'], ...(existing.refusal ? { refusal: existing.refusal } : {}), job_state: existing.state, failed_job: existing.job_id, fix: 'request the same reading with retry: true' };
             }
             const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), ...(repair ? { repair } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
+            job.class_at = job.at;
             if(preparation)job.task_preparation=clone(preparation);
             if (purpose === 'answer') job.context_generation = meta.generation ?? 0;
             // The repair extends the reading it repairs: the reader starts from that draft, not from nothing.
@@ -801,10 +816,38 @@ export class Reading {
         return this.mutex(mid, async () => {
             const queue = await this.store.queue(mid), job = queue.find(entry => entry.job_id === jobId);
             if (job && ['queued', 'running'].includes(string(job.state)) && truth(job.foreground)) {
-                job.foreground = false;
+                enterClass(job, false);
                 await this.store.writeQueue(mid, queue);
             }
             return { job_id: jobId, foreground: false };
+        });
+    }
+    /**
+     * Contract §22.4.6 (SL-45). A background reading displaced by a blocking one gives its slot back without being
+     * finished: the running attempt that holds `lease` returns the job to `queued`, keeps its attempt directory (the next
+     * claim resumes from it) and releases its publication lease. Not a failure, not a cancellation, no refusal. A job that
+     * is no longer running answers its present state, so a repeated yield is harmless.
+     */
+    async yield(params: Row): Promise<Row> {
+        const mid = validateModuleId(params.module_id), jobId = params.job_id;
+        if (typeof jobId !== 'string' || !jobId)
+            throw new RpcError('invalid_params', 'params.job_id is required');
+        return this.mutex(mid, async () => {
+            const queue = await this.store.queue(mid), job = queue.find(entry => entry.job_id === jobId);
+            if (!job)
+                throw new RpcError('invalid_params', 'unknown reading job');
+            if (job.state !== 'running')
+                return { job_id: jobId, state: job.state, displaced: number(job.displaced ?? 0) };
+            if (typeof params.lease !== 'string' || !params.lease || job.lease !== params.lease)
+                throw new RpcError('invalid_params', 'this reading attempt no longer owns its slot');
+            job.state = 'queued';
+            job.displaced = number(job.displaced ?? 0) + 1;
+            job.class_at = classNow();
+            for (const key of ['owner', 'lease', 'claimed_at', 'claim_seq'])
+                delete job[key];
+            await this.store.writeQueue(mid, queue);
+            await this.release(mid, jobId);
+            return { job_id: jobId, state: 'queued', displaced: job.displaced };
         });
     }
     async claim(params: Row): Promise<Row> {
@@ -841,21 +884,23 @@ export class Reading {
             const pending = queue.filter(job => job.state === 'queued').sort((a, b) =>
                 Number(!truth(a.foreground)) - Number(!truth(b.foreground)) ||
                 purposePriority(a) - purposePriority(b) || compareUnicode(a.at, b.at));
-            if (active.length >= 3) {
-                await this.store.writeQueue(mid, queue);
-                return { job_id: null };
-            }
             const identity = pending.length && active.length ? await this.focusIdentity(mid) : () => new Set<string>();
+            // §22.4.6: a blocking read the one-focus rule lets run, refused only because every slot is held.
+            let crowded = false;
             for (const job of pending) {
                 if (job.purpose === 'answer' && !equal(job.context_generation, meta.generation ?? 0)) {
                     Object.assign(job, { state: 'failed', detail: 'source context changed; request a fresh consultation' });
                     continue;
                 }
-                const foreground = truth(job.foreground);
-                if (active.filter(other => truth(other.foreground) === foreground).length >= (foreground ? 1 : 2)
-                    // §22.2.1: never two readings of one focus at once, by the focus's identity rather than its spelling.
-                    || active.some(other => Reading.meet(identity(other.focus), identity(job.focus))))
+                const blocking = truth(job.foreground);
+                // §22.2.1: never two readings of one focus at once, by the focus's identity rather than its spelling.
+                if (active.some(other => Reading.meet(identity(other.focus), identity(job.focus))))
                     continue;
+                // §22.4.6: a blocking read takes any free slot; a background read never takes the last one.
+                if (active.length >= (blocking ? READING_SLOTS : READING_SLOTS - 1)) {
+                    if (blocking && active.length >= READING_SLOTS) crowded = true;
+                    continue;
+                }
                 const shared = await this.store.context.locks.acquire(join(directory, '.reader.lock'), 'shared', { nonblocking: true });
                 if (!shared)
                     continue;
@@ -882,7 +927,9 @@ export class Reading {
                     }
                     if (truth(job.work_dir))
                         job.resume_from = job.work_dir;
-                    Object.assign(job, { state: 'running', owner: string(truth(params.owner) ? params.owner : 'host'), lease: uuid(), lock_version: 2, attempts: number(job.attempts) + 1, base_generation: meta.generation ?? 0 });
+                    Object.assign(job, { state: 'running', owner: string(truth(params.owner) ? params.owner : 'host'), lease: uuid(), lock_version: 2, attempts: number(job.attempts) + 1, base_generation: meta.generation ?? 0, claimed_at: nowIso(),
+                        // §22.4.6: the claim order, so displacement names the youngest even within one second.
+                        claim_seq: Math.max(0, ...queue.map(other => number(other.claim_seq ?? 0))) + 1 });
                     let work = join(directory, 'work', job.job_id, `attempt-${job.attempts}`);
                     while (await this.store.context.snapshots.pathExists(work)) {
                         job.attempts++;
@@ -917,7 +964,7 @@ export class Reading {
                         if(preparation) {preparation.currentRevision=(await sourcePreparationSnapshot(this.store.context,preparation.request.authority.campaign,mid)).revision;await this.store.writeQueue(mid,queue);}
                     }
                     const {task_preparation:_privatePreparation,...visibleJob}=job;
-                    const packet = { ...visibleJob, module_id: mid, source, concurrency: 3, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
+                    const packet = { ...visibleJob, module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
                     await writeJsonAtomic(join(work, 'packet.json'), packet);
                     this.owned();
                     return packet;
@@ -930,6 +977,15 @@ export class Reading {
                 }
             }
             await this.store.writeQueue(mid, queue);
+            // §22.4.6: every slot is held and a blocking read is waiting. Name the background read this owner claimed last
+            // (the least work to lose); the owner stops it and gives the slot back with `module.read.yield`.
+            if (crowded) {
+                const owner = string(truth(params.owner) ? params.owner : 'host');
+                const [youngest] = active.filter(job => !truth(job.foreground) && job.owner === owner && this.leases.has(this.key(mid, job.job_id)))
+                    .sort((a, b) => number(b.claim_seq ?? 0) - number(a.claim_seq ?? 0));
+                if (youngest)
+                    return { job_id: null, displace: youngest.job_id };
+            }
             return { job_id: null };
         });
     }

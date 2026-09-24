@@ -13,6 +13,7 @@ import type { HostRuntime } from "../../runtime/host.ts";
 import type {FreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
+import {measuredPageCost, playReadStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
 /**
  * `allowanceMs` (contract §22.4.3, SL-36): the foreground allowance of an in-turn source consultation. Past it `ensure`
  * resolves `{state: "pending", job_id, read, index, settled}` instead of refusing with `reading_timeout`: the waiter leaves
@@ -220,6 +221,13 @@ export class ReadingService implements ReadingBridge {
 	private stalled = new Map<string, number>();
 	/** Jobs stopped at a hand-off (`dispose({handOff})`): their finish is left to the next owner's claim. */
 	private handedOff = new Set<string>();
+	/**
+	 * §22.4.6 (SL-45). Background jobs this host stopped to give their slot to a blocking read: when, and for which job.
+	 * Their attempt is returned with `module.read.yield`, never finished.
+	 */
+	private displaced = new Map<string, {at: number; forJob?: string}>();
+	/** When this host started each claimed job, for the displacement row's `ran_ms`. */
+	private startedAt = new Map<string, number>();
 	private sweep: ReturnType<typeof setInterval> | undefined;
 	private stallNotified = false;
 	/** Per scoped module, the reason of the most recent wake no claim has answered yet: the claim row names it (contract §22, #65). */
@@ -511,6 +519,50 @@ export class ReadingService implements ReadingBridge {
 				detail: failure instanceof Error ? failure.message : String(failure) }));
 	}
 
+	/**
+	 * §22.4.6. The job a request of this host is blocked on (a turn waits on it now) when that job is not running here yet:
+	 * the pump may then claim past its own capacity, to place it or to learn which background read yields.
+	 */
+	private blockingWaiting(mid: string, campaign: string | undefined): string | undefined {
+		for (const request of this.requests.values()) {
+			const of = request.of;
+			if (!of || of.mid !== mid || of.campaign !== campaign || request.cancelled || !request.foreground || !request.jobId) continue;
+			if (!this.jobs.has(JSON.stringify([campaign, mid, request.jobId]))) return request.jobId;
+		}
+		return undefined;
+	}
+
+	/**
+	 * §22.4.6. Stop a background reading this pump runs so a blocking read takes its slot, and wait until the slot is
+	 * back (its attempt returned with `module.read.yield`). Never a blocking reading, never one this pump does not run.
+	 */
+	private async displace(mid: string, campaign: string | undefined, jobId: string, running: Map<string, Promise<void>>): Promise<boolean> {
+		const key = JSON.stringify([campaign, mid, jobId]), job = this.jobs.get(key), tracked = running.get(key);
+		if (!job || !tracked || job.foreground === true || this.displaced.has(key)) return false;
+		this.displaced.set(key, { at: Date.now(), forJob: this.blockingWaiting(mid, campaign) });
+		this.controllers.get(key)?.abort();
+		await tracked;
+		return true;
+	}
+
+	/**
+	 * §22.4.6. Return a displaced reading's attempt to the queue. A yield the kernel refuses would leave the slot held for
+	 * the life of the kernel, so the attempt is then finished `cancelled` (its evidence kept, `retry: true` re-reads it).
+	 */
+	private async yieldSlot(job: Row, campaign: string | undefined, key: string): Promise<void> {
+		const displaced = this.displaced.get(key), started = this.startedAt.get(key);
+		const row = { lane: "reading", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "",
+			...(displaced?.forJob ? { for_job: displaced.forJob } : {}), ...(started !== undefined ? { ran_ms: Date.now() - started } : {}) };
+		try {
+			const result = await this.call("module.read.yield", { module_id: job.module_id, job_id: job.job_id, lease: job.lease }, campaign);
+			this.note({ ...row, event: "displaced", displaced: result?.displaced });
+		} catch (failure) {
+			this.note({ ...row, event: "yield_failed", detail: failure instanceof Error ? failure.message : String(failure) });
+			await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease, outcome: "cancelled",
+				detail: "displaced by a blocking reading; the slot could not be returned" }, campaign).catch(() => undefined);
+		}
+	}
+
 	private async fulfil(mid: string, params: Row, request: PendingReading, campaign: string | undefined): Promise<Row> {
 		let retry = params.retry === true;
 		let answerGeneration: number | undefined;
@@ -568,6 +620,8 @@ export class ReadingService implements ReadingBridge {
 		const running = this.pumps.get(scope);
 		if (running) { this.pumpWakes.get(scope)?.(); return running; }
 		const active = new Set<Promise<void>>();
+		// §22.4.6: this pump's running jobs by key, so a displaced one can be awaited until its slot is back.
+		const runningJobs = new Map<string, Promise<void>>();
 		let wakeRequested = false;
 		const task = (async () => {
 			let capacity = 1;
@@ -575,7 +629,8 @@ export class ReadingService implements ReadingBridge {
 				while (!this.stopped) {
 					wakeRequested = false;
 					const wake = new Promise<void>(resolve => this.pumpWakes.set(scope, () => {wakeRequested = true; resolve();}));
-					while (active.size < capacity && !this.stopped) {
+					// §22.4.6: past its own capacity the pump claims only to place a blocking read one of its requests waits on.
+					while ((active.size < capacity || this.blockingWaiting(mid, campaign) !== undefined) && !this.stopped) {
 						const job = await this.bindBeforeClaim(mid, campaign, () => this.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}` }, campaign));
 						// A wake does not choose a job; the claim does. The row that names the job names the wake it answered,
 						// and a wake that found nothing queued says so instead of leaving no trace (#65).
@@ -583,6 +638,8 @@ export class ReadingService implements ReadingBridge {
 						this.wakes.delete(scope);
 						if (!job.job_id) {
 							if (wake !== undefined) this.deps.record({ lane: "reading", event: "claim_empty", module_id: mid, campaign, wake });
+							// §22.4.6: every slot is held and a blocking read waits; the claim names the background read that yields.
+							if (typeof job.displace === "string" && await this.displace(mid, campaign, job.displace, runningJobs)) continue;
 							break;
 						}
 						capacity = Math.max(1, Number(job.concurrency) || 1);
@@ -590,6 +647,7 @@ export class ReadingService implements ReadingBridge {
 						const controller = new AbortController();
 						this.controllers.set(key, controller);
 						this.jobs.set(key,job);
+						this.startedAt.set(key, Date.now());
 						this.heartbeats.set(key, Date.now());
 						this.startSweep();
 						if (this.stopped || this.cancelledJobs.has(key)) controller.abort();
@@ -599,17 +657,22 @@ export class ReadingService implements ReadingBridge {
 								await this.runJob(job, controller.signal, campaign,this.jobBudgets.get(key));
 							}
 							catch (failure) {
-								if (!this.handedOff.has(key)) try {
+								if (this.displaced.has(key)) await this.yieldSlot(job, campaign, key);
+								else if (!this.handedOff.has(key)) try {
 									await this.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease,
 										...this.jobOutcome(key, controller.signal.aborted, String(failure)) }, campaign);
 								} catch { /* a closed kernel releases its leases; retained attempts remain reclaimable */ }
 							}
-							finally { this.controllers.delete(key); this.jobs.delete(key); this.jobBudgets.delete(key); this.cancelledJobs.delete(key); this.heartbeats.delete(key); this.stalled.delete(key); this.handedOff.delete(key); }
+							finally { this.controllers.delete(key); this.jobs.delete(key); this.jobBudgets.delete(key); this.cancelledJobs.delete(key); this.heartbeats.delete(key); this.stalled.delete(key); this.handedOff.delete(key); this.displaced.delete(key); this.startedAt.delete(key); }
 						})();
-						const tracked = work.finally(() => active.delete(tracked));
+						const tracked = work.finally(() => { active.delete(tracked); runningJobs.delete(key); });
 						active.add(tracked);
+						runningJobs.set(key, tracked);
+						// §22.4.6: the row names the job's class and how long it waited as that class (`class_at`, kept by the kernel).
+						const since = (value: unknown) => Number.isFinite(Date.parse(String(value))) ? Math.max(0, Date.now() - Date.parse(String(value))) : undefined;
 						this.deps.record({lane: "reading", event: "concurrency", module_id: mid, campaign, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", ...(wake !== undefined ? { wake } : {}),
-							active: active.size, capacity, foreground:job.foreground === true, queue_wait_ms: Number.isFinite(Date.parse(job.at)) ? Math.max(0,Date.now()-Date.parse(job.at)) : undefined});
+							active: active.size, capacity, foreground:job.foreground === true, class: job.foreground === true ? "blocking" : "background",
+							slot_wait_ms: since(job.class_at ?? job.at), queue_wait_ms: since(job.at)});
 					}
 					if (!active.size) { if (wakeRequested) continue; return; }
 					await Promise.race([...active, wake]);
@@ -692,6 +755,18 @@ export class ReadingService implements ReadingBridge {
 			} catch { /* a fresh index has no retained candidates */ }
 		}
 		await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
+		// §20 addendum 3 (SL-41): a read raised during play has no stage lease; it is sized from the book like the import's
+		// stages, once per job, and every reader child of the job opens a lease of that size (runtime/tasks.ts).
+		const stage = providerBudget ? undefined : playReadStage(job);
+		const readingLease: StageBudget | undefined = stage ? readingStageBudget(stage, { pageCount: Number(job.source?.page_count) || 0,
+			perPage: await measuredPageCost(resolve(cwd, "..", "..", "..")) }) ?? undefined : undefined;
+		if (readingLease) this.deps.record({ lane: "reading", event: "stage_budget", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, ...readingLease });
+		// §20 addendum 3: a call a stage lease refused on an overrun it could pay; the round went on.
+		const overrunRows = (run: ReaderOutcome, phase: string, round: number, extra: Row = {}) => {
+			for (const overrun of run.overruns ?? []) this.deps.record({ lane: "reading", event: "provider_overrun", module_id: job.module_id, campaign,
+				job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", phase, round, ...extra, ...overrun });
+			return run;
+		};
 		let detail = "the reader did not produce a valid draft";
 		// §22.3.1: the refused field and the gate's reason, as findings.json records them, travel with the failure.
 		let refusal: Row | undefined;
@@ -755,8 +830,10 @@ export class ReadingService implements ReadingBridge {
 								cacheRoot:join(cache,'..','reviews'),
 								reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion),await readFile(join(this.runtime().contentRoot,'setup',job.purpose === 'answer' ? 'source-answer.md' : job.purpose === 'guidance' ? 'visual-guidance.md' : 'visual-reader.md'))])),
 								run: ({systemPrompt: _instructions, ...request}) => this.runtime().runTask({ kind: "reader", request: { ...request, providerBudget,
+									...(readingLease ? { readingLease } : {}),
 									priority: () => job.foreground === false ? "background" : "foreground",
-									prompt: { phase: "verify", guidance: job.purpose === "guidance", answer: job.purpose === "answer" } } }, request.signal),
+									prompt: { phase: "verify", guidance: job.purpose === "guidance", answer: job.purpose === "answer" } } }, request.signal)
+									.then(run => overrunRows(run, "verify", round)),
 								// Every verify row names the job and round it belongs to (#65); the reviewer adds unit and attempt.
 								record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", round, ...row, campaign }),
 								progress: row => this.deps.progress({ module_id: job.module_id, job_id: job.job_id, ...row, campaign }) });
@@ -769,7 +846,7 @@ export class ReadingService implements ReadingBridge {
 						const sourcePages = new Set<number>();
 
 						const reads = new Map<string, string>();
-						const run = await this.runtime().runTask({ kind: "reader", request: { providerBudget, cwd, model: model.id, thinking: model.thinking,
+						const run = await this.runtime().runTask({ kind: "reader", request: { providerBudget, ...(readingLease ? { readingLease } : {}), cwd, model: model.id, thinking: model.thinking,
 							...(["guidance", "answer"].includes(job.purpose) ? {imageHistory:4} : {}),
 							submission:["guidance","opening","detail","answer"].includes(job.purpose),
 							priority: () => job.foreground === false ? "background" : "foreground",
@@ -807,8 +884,9 @@ export class ReadingService implements ReadingBridge {
 						const pagesRead = [...new Set(rows.map(row => row.page))];
 						this.deps.record({ lane: "reading", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "",
 							model: model.id, thinking: model.thinking, phase, round, ms: run.ms, ok: run.ok, image_reads: imagePaths.size,
-							...(run.ok && !pageLogFailure ? { pages: pagesRead } : {}), ...(run.usage ? { usage: run.usage } : {}),
+							...(run.ok && !pageLogFailure ? { pages: pagesRead } : {}), ...(run.usage ? { usage: run.usage } : {}), ...(run.overruns?.length ? { overruns: run.overruns.length } : {}),
 							...(run.refusal ? { refusal: run.refusal.reason } : run.providerError ? { refusal: "transport" } : {}) });
+						overrunRows(run, phase, round);
 						// §20 addendum 2: the reader's cost per page of this book, measured, for the next stage's lease.
 						if (run.usage) await appendFile(join(cwd, "usage.jsonl"), JSON.stringify({ job_id: job.job_id, phase, round, ok: run.ok && !pageLogFailure,
 							pages: run.ok && !pageLogFailure ? pagesRead.length : 0, usage: run.usage }) + "\n").catch(() => undefined);
@@ -924,6 +1002,8 @@ export class ReadingService implements ReadingBridge {
 				this.note({ lane: "reading", event: "handed_off", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "" });
 				return;
 			}
+			// §22.4.6: a displaced reading gives its slot back and keeps its attempt; it is not finished.
+			if (this.displaced.has(key)) { await this.yieldSlot(job, campaign, key); return; }
 			// Completed jobs replay here; failed attempts release their claim and preserve all artifacts.
 			const outcome = this.jobOutcome(key, signal.aborted, detail);
 			await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,

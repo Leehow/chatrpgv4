@@ -62,9 +62,10 @@ function liveCalls(baseline: Row): Array<{message: number; name: string; argumen
     const row = ['apply', 'resolve', 'narrate', 'ask'].includes(toolCall.name) ? tools[cursor++] : undefined;
     // SL-24: a call the live host refused only because its review ran out of time (`host_refusal: review_timeout`) is
     // replayed: the refusal was the host's, and the replay puts the same call to today's admission. SL-23: likewise a call
-    // the preparation-wait gate blocked.
+    // the preparation-wait gate blocked. SL-45: and a call refused because the reading it waited on timed out or failed
+    // (`reading_timeout`, `reading_failed`): the refusal was the reading's, and the replay puts the call to today's reading.
     out.push({message, name: toolCall.name, arguments: object(toolCall.arguments),
-      ok: row ? row.ok !== false || row.host_refusal === 'review_timeout' || row.blocked === 'preparation_wait' : true});
+      ok: row ? row.ok !== false || ['review_timeout', 'reading_timeout', 'reading_failed'].includes(row.host_refusal) || row.blocked === 'preparation_wait' : true});
   }
   return out;
 }

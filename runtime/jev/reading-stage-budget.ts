@@ -11,7 +11,8 @@ import {join} from 'node:path';
 import {TaskLease} from './task-context.ts';
 import {createTaskProviderBudget, type TaskProviderBudget} from './provider-budget.ts';
 
-export type ReadingStage = 'inspect' | 'guidance' | 'opening' | 'prepare';
+/** The import's stages (§20 addendum 2) and the reads raised during play (§20 addendum 3): one table. */
+export type ReadingStage = 'inspect' | 'guidance' | 'opening' | 'prepare' | 'detail' | 'answer' | 'map';
 export interface PageCost {inputTokens: number; outputTokens: number; actions: number; costUsd: number}
 
 /**
@@ -19,7 +20,9 @@ export interface PageCost {inputTokens: number; outputTokens: number; actions: n
  *
  * - `perPage`: what one page costs the reader when this book has not measured it yet. Masks' measured
  *   opening round was 213,189 input / 11,401 output tokens over 16 page images in 6 calls.
- * - `share`: how much of the whole book, read once, a stage may spend. `inspect` makes no provider call.
+ * - `share`: how much of the whole book, read once, a stage may spend. `inspect` makes no provider call. The reads raised
+ *   during play (SL-41) read a focused part of the book: `detail` a scene, `answer` a consultation, `map` the map pages;
+ *   on any book under about a thousand pages the floor decides.
  * - `floor`: eight whole-context reservations of a 500,000-token reader, so a stalled image call and its
  *   retry fit in each of two rounds with the review still to pay; `ceiling`: the absolute cap.
  * - `minMeasuredPages`: fewer measured pages than this is not a measurement.
@@ -28,7 +31,7 @@ export interface PageCost {inputTokens: number; outputTokens: number; actions: n
  */
 export const READING_STAGE_BUDGET = Object.freeze({
   perPage: Object.freeze({inputTokens: 16_000, outputTokens: 1_000, actions: 0.5, costUsd: 0.03}),
-  share: Object.freeze({inspect: 0, guidance: 0.5, opening: 1, prepare: 1.5}),
+  share: Object.freeze({inspect: 0, guidance: 0.5, opening: 1, prepare: 1.5, detail: 0.25, answer: 0.1, map: 0.1}),
   floor: Object.freeze({inputTokens: 4_000_000, outputTokens: 262_144, actions: 64, costUsd: 10}),
   ceiling: Object.freeze({inputTokens: 40_000_000, outputTokens: 2_000_000, actions: 800, costUsd: 100}),
   minMeasuredPages: 4,
@@ -91,6 +94,15 @@ export async function measuredPageCost(moduleDir: string): Promise<PageCost | un
   return Object.fromEntries(DIMENSIONS.map(key => [key, total[key] / total.pages])) as unknown as PageCost;
 }
 
+/**
+ * The stage a reading job raised during play is sized as (§20 addendum 3): `detail` (`map` for a map's pages) and `answer`.
+ * Other purposes outside a stage lease keep the fixed per-child lease.
+ */
+export function playReadStage(job: {purpose?: unknown; material?: unknown}): ReadingStage | undefined {
+  if (job.purpose === 'detail') return job.material === 'map' ? 'map' : 'detail';
+  return job.purpose === 'answer' ? 'answer' : undefined;
+}
+
 /** Open the stage's lease. The caller closes it when the stage ends; readings it queued in the background keep their own. */
 export function openStageProviderBudget(sized: StageBudget, options: {signal?: AbortSignal; record?: (event: Record<string, unknown>) => void; now?: number} = {}):
   {budget: TaskProviderBudget; close(): void} {
@@ -98,7 +110,9 @@ export function openStageProviderBudget(sized: StageBudget, options: {signal?: A
   const lease = new TaskLease({owner, goal: `Read the book for the ${sized.stage} stage`, scope: {owner, audience: 'system'}, capabilities: [], readSet: [], signal: options.signal,
     budget: {deadlineAt: (options.now ?? Date.now()) + sized.deadlineMs, remainingInputTokens: sized.inputTokens, remainingOutputTokens: sized.outputTokens,
       remainingCostUsd: sized.costUsd, remainingActions: sized.actions}});
-  return {budget: createTaskProviderBudget(lease, {callOutputTokens: sized.callOutputTokens, ...(options.record ? {record: options.record} : {})}), close: () => lease.close()};
+  // §20 addendum 3: a stage lease absorbs an overrun it can still pay; the call is refused, the lease goes on.
+  return {budget: createTaskProviderBudget(lease, {callOutputTokens: sized.callOutputTokens, absorbOverrun: true, ...(options.record ? {record: options.record} : {})}),
+    close: () => lease.close()};
 }
 
 /**

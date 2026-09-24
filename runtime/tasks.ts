@@ -1,4 +1,5 @@
 import {independentProviderBudget} from "./jev/provider-budget.ts";
+import {openStageProviderBudget} from "./jev/reading-stage-budget.ts";
 /** Fixed host adapters; checking never opens a kernel or publishes an artifact. */
 import { accessSync, constants, statSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -283,8 +284,11 @@ export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
       command[0] = taskExecutable(context, command[0]);
       captured = { ...context, env: { ...context.env, PI_COC_READER_CMD: JSON.stringify(command) } };
     }
-    const independent = !request.providerBudget && !context.env.PI_COC_READER_CMD?.trim()
-      ? independentProviderBudget(`standalone-${task.kind}`, signal, request.timeoutMs ?? 3600000) : undefined;
+    // §20 addendum 3 (SL-41): a read raised during play carries its size (derived from the book by the reading service);
+    // each of its children opens a lease of that size. Anything else without an owner keeps the fixed lease.
+    const owned = !request.providerBudget && !context.env.PI_COC_READER_CMD?.trim();
+    const independent = owned ? (request.readingLease ? openStageProviderBudget(request.readingLease, {signal})
+      : independentProviderBudget(`standalone-${task.kind}`, signal, request.timeoutMs ?? 3600000)) : undefined;
     request.providerBudget ??= independent?.budget;
     try { return await runReader(request, await readerContext(captured, request, signal)); }
     finally { independent?.close(); }

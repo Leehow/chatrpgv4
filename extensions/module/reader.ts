@@ -19,6 +19,11 @@ export interface ReaderRequest {
 	providerBudget?: TaskProviderBudget;
 	/** Host-only scheduling priority; never sent to the model. */
 	priority?: ReaderPriority;
+	/**
+	 * Host-only (contract §20 addendum 3): the size of the lease a play read's child pays from, derived from the book by the
+	 * reading service. `runtime/tasks.ts` opens it when no `providerBudget` owns the child.
+	 */
+	readingLease?: import("../../runtime/jev/reading-stage-budget.ts").StageBudget;
 	/** The working directory: the claimed attempt directory. */
 	cwd: string;
 	/** The phase instruction for the claimed reading job. */
@@ -70,6 +75,8 @@ export interface ReaderOutcome {
 	usage?: {inputTokens:number;outputTokens:number;costUsd:number;actions:number;unknownCalls:number};
 	/** What refused a provider call, typed (contract §20 addendum 2); the first refusal, never the child's echo of it. */
 	refusal?: ProviderRefusal;
+	/** Calls a stage lease refused on an overrun it could still pay (contract §20 addendum 3); the round went on. */
+	overruns?: ProviderRefusal[];
 	/** The provider's own error when the round ended on one (stream timeout, connection error), for a `transport` failure. */
 	providerError?: string;
 	ok: boolean;
@@ -302,6 +309,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 		const seen = new Set<number>();
 		const channel = new AbortController();
 		const usage = {inputTokens:0,outputTokens:0,costUsd:0,actions:0,unknownCalls:0};
+		const overruns: ProviderRefusal[] = [];
 		if(request.providerBudget)child.on('message',async(message:any)=>{
 			try {
 				if(message?.type==='coc-provider-reserve') {
@@ -322,7 +330,8 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 					const actual=providerUsage(message.usage);
 					if(actual)for(const key of ['inputTokens','outputTokens','costUsd','actions'] as const)usage[key]+=actual[key];
 					else usage.unknownCalls++;
-					charge.settle(message.usage);
+					const overrun=charge.settle(message.usage);
+					if(overrun)overruns.push({...overrun,unknown_usage_calls:usage.unknownCalls});
 				}
 			}catch(error){
 				// A cancelled reading was not refused: it keeps the plain cancellation (§20 addendum 2). Nor is the
@@ -343,7 +352,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 			const done = () => {
 				const error = eventError ?? (refusal ? providerRefusalText(refusal) : providerError);
 				const failedOnProvider = !refusal && providerError !== undefined && providerError === lastProviderError;
-				resolve({ ...outcome, ...(request.providerBudget ? {usage} : {}), ...(refusal ? {refusal} : {}),
+				resolve({ ...outcome, ...(request.providerBudget ? {usage} : {}), ...(refusal ? {refusal} : {}), ...(overruns.length ? {overruns} : {}),
 					...(failedOnProvider ? {providerError: lastProviderError} : {}),
 					...(error ? { ok: false, error } : {}), ms: Date.now() - began, stderr: stderr.slice(-STDERR_KEEP), command });
 			};

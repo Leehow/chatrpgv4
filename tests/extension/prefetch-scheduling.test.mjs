@@ -73,9 +73,13 @@ test('real TS leases allow two background focuses while preserving one foregroun
  assert.deepEqual([a.focus,b.focus],['A','B']);assert.equal(a.concurrency,3);
  assert.equal((await claim(clients[2])).job_id,null,'third background cannot consume foreground slot');
  await request(clients[2],'Needed',true);const needed=await claim(clients[2]);assert.equal(needed.focus,'Needed');
- await finish(clients[0],a);const c=await claim(clients[0]);assert.equal(c.focus,'C','background failure does not suspend unrelated queue work');
- await finish(clients[2],needed);const promoted=await request(clients[2],'B',true);assert.equal(promoted.job_id,b.job_id);
+ // §22.4.6 (SL-45): with B and Needed running, C would take the last slot: a background read waits for two free slots.
+ await finish(clients[0],a);assert.equal((await claim(clients[0])).job_id,null,'a background read never takes the last slot');
+ await finish(clients[2],needed);const c=await claim(clients[0]);assert.equal(c.focus,'C','background failure does not suspend unrelated queue work');
+ const promoted=await request(clients[2],'B',true);assert.equal(promoted.job_id,b.job_id);
  await request(clients[2],'B',true,'A different question');
+ assert.equal((await claim(clients[2])).job_id,null,'B (now blocking) and C hold two slots: the index waits for the last one to stay free');
+ await finish(clients[0],c);
  const indexing=await claim(clients[2]);assert.equal(indexing.purpose,'index','only unrelated automatic indexing may use the free background slot');
  await finish(clients[2],indexing);
  await request(clients[2],'E');const e=await claim(clients[2]);assert.equal(e.focus,'E','promotion frees a background slot without duplicating the original job');
@@ -98,18 +102,24 @@ test('a foreground reading nobody waits on gives its lease back to the read the 
  const {module_id}=await client.call('module.source.bind',{source:{path:pdf,page_count:1,file_sha256:createHash('sha256').update(bytes).digest('hex')}});
  const request=(focus,foreground)=>client.call('module.read.request',{module_id,purpose:'detail',focus,foreground});
  const claim=()=>client.call('module.read.claim',{module_id});
+ // §22.4.6 (SL-45): every slot is held by a reading some turn waits on (two more blocking reads fill it).
  await request('Bar Cordano',true);
  const left=await claim();assert.equal(left.focus,'Bar Cordano');
+ const others=[];for(const focus of ['Dock','Gate']){await request(focus,true);others.push(await claim());}
+ assert.deepEqual(others.map(job=>job.focus),['Dock','Gate']);
  await request('museo-de-arqueologia',true);
- const indexing=await claim();assert.equal(indexing.purpose,'index','the running foreground read leaves only the automatic background index claimable');
+ assert.deepEqual(await claim(),{job_id:null},'a blocking read never displaces another blocking read');
  assert.deepEqual(await client.call('module.read.unwait',{module_id,job_id:left.job_id}),{job_id:left.job_id,foreground:false});
+ assert.deepEqual(await claim(),{job_id:null,displace:left.job_id},'the reading nobody waits on is the one that yields');
+ assert.deepEqual(await client.call('module.read.yield',{module_id,job_id:left.job_id,lease:left.lease}),{job_id:left.job_id,state:'queued',displaced:1});
  const here=await claim();
- assert.equal(here.focus,'museo-de-arqueologia','the read the table is blocked on takes the freed foreground lease');
- // The demoted reading was not cancelled: it still runs, still owns its lease, and still publishes.
- assert.deepEqual(await client.call('module.read.finish',{module_id,job_id:left.job_id,lease:left.lease,outcome:'failed',detail:'End the fixture without publishing a graph'}),{state:'failed'});
+ assert.equal(here.focus,'museo-de-arqueologia','the read the table is blocked on takes the freed slot');
  // Idempotent, and no state change for a job that is over or was never in the foreground.
  assert.deepEqual(await client.call('module.read.unwait',{module_id,job_id:left.job_id}),{job_id:left.job_id,foreground:false});
- await client.call('module.read.finish',{module_id,job_id:here.job_id,lease:here.lease,outcome:'failed',detail:'End the fixture without publishing a graph'});
+ for(const job of [here,...others])await client.call('module.read.finish',{module_id,job_id:job.job_id,lease:job.lease,outcome:'failed',detail:'End the fixture without publishing a graph'});
+ // The demoted reading was not cancelled: it comes back from its retained attempt and still publishes.
+ const back=await claim();assert.equal(back.job_id,left.job_id);assert.equal(back.resume_from,left.work_dir);
+ assert.deepEqual(await client.call('module.read.finish',{module_id,job_id:back.job_id,lease:back.lease,outcome:'failed',detail:'End the fixture without publishing a graph'}),{state:'failed'});
 });
 
 test('joining an active prefetch promotes its queued child without creating a second reader',async()=>{

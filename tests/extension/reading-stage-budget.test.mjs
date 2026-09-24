@@ -8,7 +8,7 @@ import {test} from 'node:test';
 import {mkdtemp, mkdir, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {READING_STAGE_BUDGET, readingStageBudget, measuredPageCost, openStageProviderBudget, withStageLease} from '../../runtime/jev/reading-stage-budget.ts';
+import {READING_STAGE_BUDGET, readingStageBudget, measuredPageCost, openStageProviderBudget, playReadStage, withStageLease} from '../../runtime/jev/reading-stage-budget.ts';
 import {BudgetRefusal, TaskLease} from '../../runtime/jev/task-context.ts';
 
 const model = {provider: 'test', id: 'vision', api: 'openai-responses', maxTokens: 16384, contextWindow: 500000,
@@ -135,4 +135,56 @@ test('the worker\'s stage runs its reading with the sized lease, reports it, and
   // A reader command that is not a Pi child has no provider channel: no lease, as runtime/tasks.ts.
   await withStageLease('opening', {moduleDir: dir, env: {PI_COC_READER_CMD: '["node","reader.mjs"]'}}, async reading => assert.equal(reading.providerBudget, undefined));
   await withStageLease('inspect', {moduleDir: dir, env: {}}, async reading => assert.equal(reading.providerBudget, undefined));
+});
+
+// ---------------------------------------------------------------------------------------------------
+// SL-41 (contract §20 addendum 3): the reads raised during play are stages of the same table.
+// ---------------------------------------------------------------------------------------------------
+
+test('§20 addendum 3 a play read is sized from the book like a stage: detail a quarter, answer and map a tenth, the floor and ceiling hold', () => {
+  assert.deepEqual({...READING_STAGE_BUDGET.share}, {inspect: 0, guidance: 0.5, opening: 1, prepare: 1.5, detail: 0.25, answer: 0.1, map: 0.1});
+  const masks = Object.fromEntries(['detail', 'answer', 'map'].map(stage => [stage, readingStageBudget(stage, {pageCount: 5_000})]));
+  assert.equal(masks.detail.inputTokens, Math.ceil(5_000 * 16_000 * 0.25));
+  assert.equal(masks.answer.inputTokens, 5_000 * 16_000 * 0.1);
+  assert.equal(masks.map.actions, Math.ceil(5_000 * 0.5 * 0.1));
+  // 血色公路 (111 pages): the floor decides, eight whole-context reservations where the fixed lease held two.
+  const book = readingStageBudget('detail', {pageCount: 111});
+  assert.deepEqual({input: book.inputTokens, output: book.outputTokens, actions: book.actions, usd: book.costUsd, call: book.callOutputTokens},
+    {input: 4_000_000, output: 262_144, actions: 64, usd: 10, call: 32_768});
+  assert.equal(readingStageBudget('detail', {pageCount: 100_000}).inputTokens, 40_000_000);
+  const measured = readingStageBudget('detail', {pageCount: 5_000, perPage: {inputTokens: 40_000, outputTokens: 1_000, actions: 1, costUsd: 0}});
+  assert.equal(measured.inputTokens, 40_000_000, 'a measurement raises it, the ceiling still caps it');
+  assert.equal(readingStageBudget('answer', {pageCount: 669, perPage: {inputTokens: 90_000, outputTokens: 1_000, actions: 1, costUsd: 0}}).inputTokens, Math.ceil(669 * 90_000 * 0.1));
+});
+
+test('§20 addendum 3 which reads are play stages: detail, a map\'s pages, a consultation; nothing else', () => {
+  assert.equal(playReadStage({purpose: 'detail'}), 'detail');
+  assert.equal(playReadStage({purpose: 'detail', material: 'map'}), 'map');
+  assert.equal(playReadStage({purpose: 'answer'}), 'answer');
+  for (const purpose of ['index', 'skeleton', 'opening', 'guidance', undefined]) assert.equal(playReadStage({purpose}), undefined, String(purpose));
+});
+
+test('§20 addendum 3 a stage lease absorbs an overrun it can pay: the call is refused and typed, the lease goes on; one it cannot pay cancels it', async () => {
+  const {budget, close} = openStageProviderBudget(readingStageBudget('detail', {pageCount: 111}));
+  try {
+    const overrun = await budget.reserve({model, inputTokens: 10_000, outputTokens: 8_192});
+    const refusal = overrun.settle({input: 9_000, output: 9_470, cacheRead: 0, cacheWrite: 0, cost: {total: 0}});
+    assert.deepEqual({reason: refusal.reason, code: refusal.code, dimension: refusal.dimension, requested: refusal.requested, reserved: refusal.reserved, overrun: refusal.overrun},
+      {reason: 'budget_output_tokens', code: 'task_budget_overrun', dimension: 'outputTokens', requested: 9_470, reserved: 8_192, overrun: true});
+    assert.equal(budget.signal.aborted, false, 'the lease is not cancelled');
+    const next = await budget.reserve({model, inputTokens: 10_000, outputTokens: 8_192});
+    assert.equal(next.settle({input: 9_000, output: 100, cacheRead: 0, cacheWrite: 0, cost: {total: 0}}), undefined, 'the next call reserves and settles as usual');
+  } finally { close(); }
+  // In debt: the lease's output remaining would go below zero, so the overrun still cancels it.
+  const lease = new TaskLease({owner: 'debt', goal: 'Refuse an overrun that cannot be paid', scope: {owner: 'debt', audience: 'system'}, capabilities: [], readSet: [],
+    budget: {deadlineAt: Date.now() + 10_000, remainingInputTokens: 100_000, remainingOutputTokens: 9_000, remainingCostUsd: 1, remainingActions: 5}});
+  const charge = lease.reserve({inputTokens: 10, outputTokens: 8_192, costUsd: 0, actions: 1}, {absorbOverrun: true});
+  assert.throws(() => charge.settle({outputTokens: 9_470}), error => error instanceof BudgetRefusal && error.code === 'task_budget_overrun');
+  assert.equal(lease.signal.aborted, true);
+  // Without the option (the Keeper's turn, the lanes, the fixed lease) any overrun still cancels.
+  const plain = new TaskLease({owner: 'plain', goal: 'Cancel on an overrun', scope: {owner: 'plain', audience: 'system'}, capabilities: [], readSet: [],
+    budget: {deadlineAt: Date.now() + 10_000, remainingInputTokens: 100_000, remainingOutputTokens: 100_000, remainingCostUsd: 1, remainingActions: 5}});
+  const call = plain.reserve({inputTokens: 10, outputTokens: 8_192, costUsd: 0, actions: 1});
+  assert.throws(() => call.settle({outputTokens: 9_470}), /task_budget_overrun/);
+  assert.equal(plain.signal.aborted, true);
 });

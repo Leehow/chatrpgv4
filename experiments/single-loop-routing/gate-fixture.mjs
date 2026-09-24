@@ -5,7 +5,14 @@
  * tree carries later background-lane writes and untracked job files), and the stage is tarred.
  *
  *   node experiments/single-loop-routing/gate-fixture.mjs --home <dir containing .coc> --campaign <id> --playtest <run dir>
- *     --turns 1,2,3 --name gate3
+ *     --turns 1,2,3 --name gate3 [--out <dir>] [--fork] [--queue-at <ISO time>]
+ *
+ * SL-45: `--out` writes the fixtures under another root than fixtures/ (a book the user imported must stay out of the
+ * repository: its source and reading work are book text). `--fork` also copies the campaign's private module
+ * (`module-campaigns/<campaign>`), where a PDF campaign reads. `--queue-at` sets that fork's reading queue to how it stood
+ * at that moment: a job queued after it is dropped; a job that was running then and failed or was cancelled after it is
+ * queued again in the background with its attempt dropped (its reading had not ended). A job that completed after it stays
+ * completed: its publication is on disk and cannot be unwound, and the fixture's turn.json says so.
  *
  * Writes fixtures/<name>/workspace.tar.gz and fixtures/<name>-t<N>/{turn.json,baseline.json} (turn.json names the shared
  * tarball). baseline.json is the recorded Keeper of that turn, read from the play driver's RPC event log: every assistant
@@ -19,11 +26,14 @@ import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync}
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {FIXTURES, removeTree} from './fixture.mjs';
+import {FIXTURES as REPO_FIXTURES, removeTree} from './fixture.mjs';
 
 const argv = process.argv.slice(2), arg = (name, fallback) => argv.includes(name) ? argv[argv.indexOf(name) + 1] : fallback;
 const home = resolve(arg('--home', '.')), campaign = arg('--campaign'), playtest = resolve(arg('--playtest'));
 const turns = String(arg('--turns', '1')).split(',').map(Number), name = arg('--name', campaign);
+const FIXTURES = argv.includes('--out') ? resolve(arg('--out')) : REPO_FIXTURES, fork = argv.includes('--fork'), queueAt = arg('--queue-at');
+if (queueAt && (!fork || !Number.isFinite(Date.parse(queueAt)))) throw new Error('--queue-at needs --fork and an ISO time');
+const kept = [];
 if (!campaign || !playtest) throw new Error('--campaign and --playtest are required');
 const coc = join(home, '.coc'), repo = join(coc, 'repos', `${campaign}.git`);
 const git = (...args) => {
@@ -47,8 +57,24 @@ if (!module) throw new Error('campaign.json names no module');
 const last = commitOf(Math.max(...turns));
 const stage = mkdtempSync(join(tmpdir(), 'single-loop-gate-fixture-'));
 try {
-  for (const [root, entry] of [['campaigns', campaign], ['repos', `${campaign}.git`], ['modules', module], ['mods', 'packages']])
+  for (const [root, entry] of [['campaigns', campaign], ['repos', `${campaign}.git`], ['modules', module], ['mods', 'packages'],
+    ...(fork ? [['module-campaigns', campaign]] : [])])
     cpSync(join(coc, root, entry), join(stage, '.coc', root, entry), {recursive: true});
+  if (queueAt) {
+    const path = join(stage, '.coc/module-campaigns', campaign, 'modules', module, 'deepen-queue.json'), at = Date.parse(queueAt);
+    const queue = JSON.parse(readFileSync(path, 'utf8')), then = [];
+    for (const job of queue) {
+      if (Date.parse(job.at) > at) continue;
+      const ended = Date.parse(job.finished_at ?? '');
+      if (['failed', 'cancelled'].includes(job.state) && Number.isFinite(ended) && ended > at || job.state === 'running') {
+        for (const key of ['lease', 'owner', 'work_dir', 'resume_from', 'detail', 'refusal', 'finished_at', 'result', 'lock_version', 'base_generation'])
+          delete job[key];
+        Object.assign(job, {state: 'queued', foreground: false});
+      } else if (job.state === 'completed' && Number.isFinite(ended) && ended > at) kept.push(job.job_id);
+      then.push(job);
+    }
+    writeFileSync(path, JSON.stringify(then, null, 1) + '\n');
+  }
   const copy = ['--git-dir', join(stage, '.coc/repos', `${campaign}.git`), '--work-tree', join(stage, '.coc/campaigns', campaign)];
   for (const args of [['reset', '--hard', last], ['clean', '-fdq']]) {
     const run = spawnSync('git', [...copy, ...args], {encoding: 'utf8'});
@@ -143,7 +169,8 @@ for (const turn of turns) {
   const dir = join(FIXTURES, `${name}-t${turn}`);
   mkdirSync(dir, {recursive: true});
   writeFileSync(join(dir, 'turn.json'), JSON.stringify({campaign, module, turn, commit_before: commitBefore, commit_after: commitAfter, player_input: input,
-    tarball: `../${name}/workspace.tar.gz`, source: {campaign: `${coc}/campaigns/${campaign}`, playtest}}, null, 1) + '\n');
+    tarball: `../${name}/workspace.tar.gz`, source: {campaign: `${coc}/campaigns/${campaign}`, playtest},
+    ...(queueAt ? {queue_at: queueAt, completed_after_queue_at: kept} : {})}, null, 1) + '\n');
   writeFileSync(join(dir, 'baseline.json'), JSON.stringify(baseline, null, 1) + '\n');
   console.log(JSON.stringify({turn, commit_before: commitBefore, commit_after: commitAfter, llm_calls: calls.length, tools: tools.map(tool => `${tool.tool}${tool.ok ? '' : '!'}${tool.clerk_live ? '(clerk)' : ''}`), admissions: admissions.length}));
 }
