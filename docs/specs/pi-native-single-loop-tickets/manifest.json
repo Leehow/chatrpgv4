@@ -89,6 +89,16 @@
       "id": "SL-15",
       "file": "15-projection-carries-the-read.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-19",
+      "file": "19-disposition-default-and-first-blow.md",
+      "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-20",
+      "file": "20-finish-after-settlement.md",
+      "status": "ready-for-agent"
     }
   ],
   "relatedSpecs": [
