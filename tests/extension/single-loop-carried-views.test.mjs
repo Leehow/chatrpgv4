@@ -19,7 +19,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { createRealCampaign, openTable } from "./harness.mjs";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
-import { CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, CARRIED_VIEWS_HEAD, carriedSection, fitView, namedPeople, readCarriedViews } from "../../runtime/jev/carried-views.ts";
+import { CARD_FIELD_ORDER, CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, CARRIED_VIEWS_HEAD, carriedSection, fitView, namedPeople, PRESENT_FIELDS, readCarriedViews } from "../../runtime/jev/carried-views.ts";
 import { readArguments } from "../../extensions/kernel/index.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
 
@@ -133,7 +133,10 @@ test("§135.31 after a clerk move: the scene the run moved into and the people t
 		["table.look", { focus: "npc", name: "Arty Wilmot" }], ["table.look", { focus: "npc", name: "Ruth Blake" }]]);
 	assert.equal(scene.truncated, undefined, `the Globe's scene view is ${size(lookScene)} bytes: carried whole`);
 	assert.deepEqual(scene.view.where, lookScene.where, "the scene view is look focus=scene");
-	assert.deepEqual(scene.view.present.map((person) => person.name), lookScene.present.map((person) => person.name));
+	// `present` is reduced to who is there: name, called and role; the dossiers are what the person cards carry.
+	assert.deepEqual(scene.view.present, lookScene.present.map((person) => Object.fromEntries(PRESENT_FIELDS.filter((key) => Object.hasOwn(person, key)).map((key) => [key, person[key]]))));
+	assert.ok(scene.view.present.length > 0 && scene.view.present.every((person) => Object.keys(person).every((key) => PRESENT_FIELDS.includes(key))));
+	assert.ok(lookScene.present.some((person) => Object.hasOwn(person, "wants")), "the look's own present carries dossiers; the carried one does not");
 	assert.ok(scene.view.where.affordances.length > 0 && scene.view.where.exits.length > 0);
 
 	// The people: the gatekeeper the Globe's obligation puts in the way (its carried meeting) and the archivist the Mod's
@@ -145,7 +148,7 @@ test("§135.31 after a clerk move: the scene the run moved into and the people t
 		assert.deepEqual(pick(entry.view, ["name", "id", "role", "wants", "fears", "hides", "voice"]), pick(card, ["name", "id", "role", "wants", "fears", "hides", "voice"]),
 			"a person's view is look focus=npc");
 		assert.equal(entry.truncated, undefined, `a card of ${size(card)} bytes travels whole`);
-		assert.deepEqual(Object.keys(entry.view), Object.keys(card), "every field of the card, mechanics and the combat fields among them");
+		assert.deepEqual(Object.keys(entry.view).sort(), Object.keys(card).sort(), "every field of the card, mechanics and the combat fields among them");
 		assert.ok(Object.hasOwn(entry.view, "mechanics"));
 	}
 	assert.ok(!JSON.stringify(carried.views).includes('"id":"thomas-hayes"'));
@@ -186,7 +189,7 @@ test("§135.31 at a pending defence: the defender's card and the session view, b
 	const { kind: _kind, ...card } = lookKnott;
 	assert.deepEqual(pick(knott.view, ["name", "id", "role", "wants"]), pick(card, ["name", "id", "role", "wants"]));
 	assert.equal(knott.truncated, undefined, `his card (${size(card)} bytes) travels whole`);
-	assert.deepEqual(Object.keys(knott.view), Object.keys(card));
+	assert.deepEqual(Object.keys(knott.view).sort(), Object.keys(card).sort());
 	assert.ok(Object.hasOwn(knott.view, "mechanics"), "the field that says whether he has a stat block");
 	assert.deepEqual(carried.views.map((entry) => entry.focus), ["session", "npc"], "served session, then people; no scene: the run did not move");
 	assert.equal(carried.views.filter((entry) => entry.focus === "npc").length, 1, "the investigator (the attacker, the target) is not a person here");
@@ -325,6 +328,37 @@ test("§135.31 ceilings: each view at most 4 KiB and the message's at most 12 Ki
 	assert.deepEqual(scene.view.where.scene, "hall");
 	assert.deepEqual(scene.omitted_fields, ["where.affordances", "present"]);
 	assert.ok(size(scene.view) <= CARRIED_VIEW_BYTES);
+});
+
+test("§135.31 the clerk orders a card before it cuts: mechanics and the fight's fields travel, the prose tail goes; a scene's present is who is there", async () => {
+	// A card shaped like the gate's Knott two turns in (8 KB): the kernel puts mechanics and the combat fields after about
+	// 5.5 KB of dossier, knowledge and ledger, so a cut in the kernel's order drops them.
+	const long = (n) => "p".repeat(n);
+	const card = { kind: "npc", name: "Steven Knott", called: { name: "Knott" }, id: "steven-knott", node_id: "npc-steven-knott", scene: "office", summary: "s",
+		visibility: "keeper-only", role: "employer", wants: "rent", fears: "ruin", hides: "rumour", voice: long(80), personality: long(1200), "in exchange": long(900),
+		knows: [{ clue: "c", summary: long(500) }], would_lie_about: ["x"], ledger: { note: long(700) }, keeper_note: long(150), social_role: long(290),
+		deflect_options: [{ deflect_id: "d", player_safe_line: long(150) }], lie_options: [], availability: null, mechanics: null,
+		combat_tactic: { defense: null, basis: "rule-default" }, combat_disposition: { disposition: null, options: { a: long(900) } },
+		combat_standing: { action: null, basis: "rule-default" }, properties: { note: long(600) }, recent_speech: [long(1200)], reunion: { background: [long(1000)] } };
+	const call = async (method, params) => params.focus === "scene"
+		? { where: { scene: "office", display_name: "Office", summary: "s", dramatic_question: long(80), pressure_moves: [long(130)], exits: [{ to: "a" }],
+			affordances: [{ id: "f", cue: long(300) }], keeper_notes: [long(270)] }, present: [{ name: "Steven Knott", called: { name: "Knott" }, role: "employer", wants: long(2000), hides: long(2000) }] }
+		: card;
+	assert.ok(size(card) > 8000);
+	const carried = await readCarriedViews({ call, scene: "office", people: ["Steven Knott"] });
+	const knott = carried.views.find((entry) => entry.focus === "npc");
+	assert.equal(knott.truncated, true);
+	for (const field of ["mechanics", "combat_tactic", "combat_disposition", "combat_standing", "deflect_options", "wants", "fears", "hides"])
+		assert.ok(Object.hasOwn(knott.view, field), `${field} travels`);
+	assert.deepEqual(Object.keys(knott.view).slice(0, 6), ["name", "called", "id", "role", "scene", "visibility"], "identity first");
+	assert.ok(knott.omitted_fields.includes("reunion") && knott.omitted_fields.includes("recent_speech"), "the prose tail goes");
+	assert.ok(!knott.omitted_fields.some((field) => CARD_FIELD_ORDER.includes(field) && CARD_FIELD_ORDER.indexOf(field) < CARD_FIELD_ORDER.indexOf("keeper_note")
+		&& ["mechanics", "combat_tactic", "combat_disposition", "combat_standing", "deflect_options"].includes(field)));
+	assert.ok(size(knott.view) <= CARRIED_VIEW_BYTES);
+	// The scene: present is who is there, whatever look put in it; exits and affordances travel ahead of the prose.
+	const scene = carried.views.find((entry) => entry.focus === "scene");
+	assert.deepEqual(scene.view.present, [{ name: "Steven Knott", called: { name: "Knott" }, role: "employer" }]);
+	assert.equal(scene.truncated, undefined, "reduced to who is there, the view fits whole");
 });
 
 test("§135.31 who a candidate names: closed fields of its structure, never its words", () => {

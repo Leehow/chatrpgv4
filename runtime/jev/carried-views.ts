@@ -4,13 +4,15 @@
  * run held or could fetch by code: the scene it had just been moved into, the card of the man it was about to hit, the
  * fight once it opened. The `coc-clerk` message now carries those views, exactly as `look` returns them:
  *
- * - the scene: `table.look {focus: scene}`, once the active scene differs from the one the run began in;
+ * - the scene: `table.look {focus: scene}`, once the active scene differs from the one the run began in, its `present`
+ *   reduced to who is there (`PRESENT_FIELDS`);
  * - a person: `table.look {focus: npc, name}` (without `kind`, the §135.20 person body's shape) for each person a
  *   candidate of this run names, read off the candidate's closed structure (`namedPeople`), never its words;
  * - the session: `{session, pending_choice}`, which the fresh read already holds from `table.resolve.options`.
  *
  * When each is due (once per scene, once per person, the session whenever it changed) is the engine's; this module reads
- * the views it is asked for and bounds them with ceilings of their own (owner decision 2026-09-24: §135.20's 1 KiB cut
+ * the views it is asked for, orders each view's fields so what the Keeper acts on comes first (`FIELD_ORDER`), and bounds
+ * them with ceilings of their own (owner decision 2026-09-24: §135.20's 1 KiB cut
  * dropped what a view is for -- a card's `mechanics`, a scene's exits and people), cut the way §135.20 cuts a body; a cut
  * is marked, and a view that does not fit, could not be read or does not resolve is listed with its reason. Never a silent
  * cut. §135.20's own ceilings stay for the issued bodies.
@@ -54,18 +56,42 @@ export function namedPeople(candidate: Pick<Candidate, 'family' | 'bound'> & Par
 }
 
 /**
- * Fit a view into `max` bytes the way `fitBody` fits a body. A wrapper's own fields count as the view's fields in order
- * (so the scene keeps `where.scene` and drops `present` and `where`'s tail first); cut fields are named with their
- * wrapper (`where.affordances`).
+ * §135.31 (owner decision 2026-09-24): the clerk orders a view's fields before it cuts, so what the Keeper needs to act
+ * travels first and prose last. Closed lists of `look`'s own field names, in priority order; every field a list does not
+ * name follows in the order `look` gave it. Nothing is renamed or invented.
+ *
+ * - a person card: identity; the rules numbers and the fight (`mechanics`, the standing defence, disposition and action of
+ *   §11.5.2-.3, `deflect_options`); what drives them (wants, fears, hides, and `relationships`, which carries the first
+ *   impression a Mod settled); what they know and what was said (knowledge, the ledger, the Keeper's note); the rest.
+ * - a scene view: where it is, the exits, the affordances, the assets and obligations, then `present` (reduced to who is
+ *   there, `PRESENT_FIELDS`), then the rest of `where` (the dramatic question, the pressure moves, the notes).
  */
-export function fitView(view: Row, max = CARRIED_VIEW_BYTES): {view: Row; truncated?: true; omitted_fields?: string[]} {
-  if (bytes(view) <= max) return {view};
-  const flat: Row = {};
+export const CARD_FIELD_ORDER: readonly string[] = Object.freeze(['name', 'called', 'id', 'role', 'scene', 'visibility',
+  'mechanics', 'combat_tactic', 'combat_disposition', 'combat_standing', 'deflect_options',
+  'wants', 'fears', 'hides', 'relationships',
+  'knows', 'knowledge', 'believes', 'hides_claims', 'would_lie_about', 'ledger', 'keeper_note']);
+export const SCENE_FIELD_ORDER: readonly string[] = Object.freeze(['where.scene', 'where.display_name', 'where.summary',
+  'where.exits', 'where.affordances', 'where.assets', 'where.obligations', 'present']);
+/** A person in a carried scene view's `present`: who is there; their dossier is what the person cards carry. */
+export const PRESENT_FIELDS: readonly string[] = Object.freeze(['name', 'called', 'role']);
+/** The field order a carried view of `focus` is cut in (§135.31); none for the session, which `look` orders already. */
+export const FIELD_ORDER: Readonly<Record<string, readonly string[]>> = Object.freeze({npc: CARD_FIELD_ORDER, scene: SCENE_FIELD_ORDER});
+
+/**
+ * Fit a view into `max` bytes the way `fitBody` fits a body. A wrapper's own fields count as the view's fields
+ * (`where.scene`, `session.round`); `first` puts the named fields (flat names) ahead of the rest, in its order, before
+ * the cut, which drops from the tail. Cut fields are named with their wrapper (`where.keeper_notes`).
+ */
+export function fitView(view: Row, max = CARRIED_VIEW_BYTES, first: readonly string[] = []): {view: Row; truncated?: true; omitted_fields?: string[]} {
+  const given: Row = {};
   for (const [key, value] of Object.entries(view)) {
     const inner = WRAPPERS.includes(key) ? object(value) : undefined;
-    if (inner && Object.keys(inner).length && value === inner) for (const [field, item] of Object.entries(inner)) flat[`${key}.${field}`] = item;
-    else flat[key] = value;
+    if (inner && Object.keys(inner).length && value === inner) for (const [field, item] of Object.entries(inner)) given[`${key}.${field}`] = item;
+    else given[key] = value;
   }
+  const flat: Row = {};
+  for (const key of first) if (Object.hasOwn(given, key)) flat[key] = given[key];
+  for (const [key, value] of Object.entries(given)) if (!Object.hasOwn(flat, key)) flat[key] = value;
   const nest = (row: Row): Row => {
     const out: Row = {};
     for (const [key, value] of Object.entries(row)) {
@@ -75,6 +101,7 @@ export function fitView(view: Row, max = CARRIED_VIEW_BYTES): {view: Row; trunca
     }
     return out;
   };
+  if (bytes(view) <= max) return {view: nest(flat)};
   // Nesting can cost a few bytes over the flat form (one wrapper with one field left); fit again a little tighter.
   for (let limit = max; limit > 0; limit -= 16) {
     const fitted = fitBody(flat, limit), nested = nest(fitted.body);
@@ -141,7 +168,10 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
   }
   if (input.scene) {
     const params = {focus: 'scene'}, answer = await read('table.look', params);
-    if (answer.ok) due.push({focus: 'scene', name: input.scene, view: answer.value, read: {method: 'table.look', params}});
+    // §135.31: `present` is reduced to who is there (the dossiers are what the person cards carry).
+    const who = (person: unknown): Row => Object.fromEntries(PRESENT_FIELDS.filter(key => Object.hasOwn(object(person), key)).map(key => [key, object(person)[key]]));
+    if (answer.ok) due.push({focus: 'scene', name: input.scene, read: {method: 'table.look', params},
+      view: Array.isArray(answer.value.present) ? {...answer.value, present: answer.value.present.map(who)} : answer.value});
     else due.push({focus: 'scene', name: input.scene, read: {method: 'table.look', params}, reason: 'read_failed'});
   }
   const views: CarriedView[] = [], omitted: CarriedViews['omitted'] = [];
@@ -149,7 +179,7 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
   for (const item of due) {
     const named = item.name ? {name: item.name} : {};
     if (item.reason || !item.view) { omitted.push({focus: item.focus, ...named, reason: item.reason ?? 'read_failed'}); continue; }
-    const fitted = fitView(item.view, CARRIED_VIEW_BYTES);
+    const fitted = fitView(item.view, CARRIED_VIEW_BYTES, FIELD_ORDER[item.focus] ?? []);
     const entry: CarriedView = {focus: item.focus, ...named, ...(item.id ? {id: item.id} : {}), view: fitted.view, read: item.read,
       ...(fitted.truncated ? {truncated: true as const} : {}), ...(fitted.omitted_fields ? {omitted_fields: fitted.omitted_fields} : {})};
     // The budget is what the Keeper reads (focus, name, view and the cut marks), not the host's id and read.
