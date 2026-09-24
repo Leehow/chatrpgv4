@@ -2710,6 +2710,144 @@ The reader's extraction scope remains the declared current focus/question and it
 
 Producer: the host writes a focused review-input artifact per existing review unit. Reader: the fresh reviewer sees its projection and can read the retained full task/candidate as needed. Adoption: the same reviewer submits the exact original pointers, and the unchanged host/kernel review and publication gates consume them. Tests preserve pointer coverage, original-page obligations, full-file fallback and candidate immutability while demonstrating native checked termination for detail author/reviewer.
 
+### 22.4.3 An in-turn source answer does not hold the turn: allowance, pending, memo, one reading per focus, and the reviewer's slip (2026-09-24, SL-36; amends §22.2, §22.2.1, §22.4, §22.4.1)
+
+The spec's ruling "Reading never holds a turn" (b) binds this section. **Evidence** (long gate #3, campaign
+`longgate3-haunting-1058`, the Haunting's built-in window of §14.16): five `lookup kind=source source_mode=answer` calls,
+each a read of 18-45 s plus a review of 18-29 s, serial, in the foreground of the turn: t10 110 s (failed), t11 51 s,
+t13 64 s, t14 42 s, t15 56 s. The five turns walled 159, 78, 89, 63 and 73 s; the other fifteen had a median of 33 s.
+t11 `upper-floor-bedroom` and t13 `upper floor bedroom` were both read fresh, because the reuse key was the focus and the
+exact question. t10's answer was refused with "the independent answer review must support each assigned field with a
+reason" after four reading rounds, all `ok: true`.
+
+**What t10 actually was** (`work/read-1/attempt-1/review.json` and `findings.json` in the fork). The review was
+well-formed: four entries, every one with a verdict, a reason and viewed pages. Three said `contradicted`: the answer
+said the rats had eaten the spoiled produce, and page 8 says the produce that had *not* spoiled; the repair round kept
+the same clause. The gate's one message covered a missing reason and a non-`supported` verdict alike, so the refusal
+read as a reviewer slip. It was a refusal. Under this section it is still one, and it now says so
+(`answer_review_refused`, the path and the reviewer's reason). What changes for t10 is the allowance: the refusal lands
+in the background and reaches the Keeper's note (below), and the turn is not held for it.
+
+**The allowance.** The lookup's consultation waits at most `SOURCE_ANSWER_ALLOWANCE_MS`, a named default of 8 000 ms in
+`extensions/kernel/source-answers.ts`, overridable by `PI_COC_SOURCE_ANSWER_ALLOWANCE_MS` (milliseconds, 0 or more). It
+replaces §22.4's 120 s foreground wait for this purpose only; `detail` and `material_pending` keep theirs (§22.4.4
+covers their delivery). Past the allowance the reading service's `ensure(..., {allowanceMs})` resolves
+`{state: "pending", job_id?, attached?, read, index, settled}` instead of refusing with `reading_timeout`: the waiter
+leaves, §61 demotes the job, the reading goes on, and `settled` is the same reading followed to its end. The
+consultation carries no turn provider budget: past the allowance it is not the turn's provider work, and it runs like a
+read-ahead.
+
+**What the lookup returns.** Three outcomes besides §22.4.1's checked answer, all `ok`, all Keeper-only:
+
+- `source_answer: {status: "pending", focus, index, note}`. `index` is the book index's rows on the focus (below). The
+  note says the answer is not here yet and the turn goes on without it; it is carried once when it lands and is kept in
+  the memo; use the carried passages, the capsule and the index rows; narrate what the investigator does meanwhile;
+  do not narrate what the book would say or put the reading into the fiction; do not send the lookup again this turn;
+  the pending read is the clerk's business, not the player's. `state.sourceWait` is not set: nothing is refused.
+- `source_answer: {status: "memo", answers: [{question, status, answer, source_refs, limitations, …}], note}`: the
+  campaign memo answered (below). The note says no new reading was made, and that `retry: true` reads the book for the
+  question past the memo.
+- a pending answer that lands, or fails, is carried in the clerk note (§135.31.2).
+
+**The memo, by focus.** A checked answer is already kept in the campaign fork's `module.json` `reading.answers`
+(§22.4.1). `module.read.request {purpose: "answer"}` now answers, after an exact accepted hit and before any queueing, from
+every accepted answer of the same source digest and context generation whose focus meets the request's focus, newest
+first, at most four: `{state: "ready", memo: [{focus, question, source_answer}]}`, with each one's retained evidence
+checked as an exact hit is (`source_answer_integrity`). `memo: false` (a boolean, answer only; `invalid_params`
+otherwise) skips it; the host sends it when the Keeper passed `retry: true`. A campaign's memo is its fork's: another
+campaign reads its own.
+
+**Question class: the Keeper's judgement, never the host's.** The ruling keys the memo by "normalised focus and question
+class". The host never classifies question text (§22.4.1, and no semantic lists). So the class is decided where the
+question was asked: the memo offers the focus's answers with the questions they answered, and the Keeper, which asked,
+takes them or sends `retry: true`. The exact normalised question is always a hit. A Jev-judged class (a closed choice
+among the memoised questions) was considered and not built: it adds a decision family to every consultation with a memo,
+where the Keeper is already reading the answers.
+
+**One reading per focus.** §22.2.1's attach rule now covers `answer`: a consultation whose focus meets a *running*
+answer job's focus attaches to it (`{state: "reading", job_id, attached: true}`) instead of queueing a second reading, and
+is judged afresh once that job settles, when the memo answers it. A consultation never attaches to an `opening` or
+`detail` job, nor they to it; claim's own one-focus rule (§22.2.1) already covered every purpose.
+
+**Focus identity, widened.** §22.2.1's structural identity (the nodes a focus names by id, handle, name or alias) also
+takes the node record's `display_name`, `name`, `scene_id` and `title`, and the place names the book gives a destination
+(`destination_identity.canonical_name` and `aliases`). "The Corbitt House" is `corbitt-house-ground`. Still equality of
+normalised names, never similarity. The widening applies wherever §22.2.1 applies.
+
+**What the index holds.** A consultation's reply that is still `queued` or `reading` carries `index`: the §22.1 index rows
+whose `name` meets the focus (`name`, `pages`, `topics`, `entities`; at most four). On the Haunting's window those are the
+authored scenes at their window pages (§14.16.5).
+
+**The reviewer's slip is not the read's.** One shape function, `answerReviewShapeError`
+(`kernel-ts/modules/answer-review-shape.ts`, no imports, loaded by both ends like `obligation-review.ts`), says whether a
+review satisfies its protocol: `checked` and `missing` arrays; each entry an object with a verdict of `supported`,
+`contradicted` or `unclear`, a nonempty `reason`, `paths` among the four assigned, and `source_refs` of pages within the
+source that the reviewer viewed; every assigned path covered; every page the answer cites viewed. Its verdict is not
+judged there.
+
+- The child's `submit_reading` runs it on a review submission, so the reviewer repairs the shape in place.
+- The host's `reviewCandidate` runs it after `checkReviewEvidence`; a failure is `AnswerReviewShapeError`, spent on the
+  unit's one semantic retry with the error in `failure.json` ("a schema error in the review, not a finding about the
+  answer"), recorded as `lane: "reading", event: "review_retry", cause: "schema"`. A unit that fails again fails the round
+  without `requires_repair` (a review failure keeps the completed read), so the next round only reviews.
+- The gate (`checkSourceAnswerReview` at `module.read.finish`) refuses a malformed review with
+  `details.reason: "answer_review_malformed"`, and the host treats that refusal as the reviewer's slip: the read is not
+  marked for repair, and the next round re-reviews it. A well-formed review that does not support every field, or names
+  missing support, is `answer_review_refused` with `details.path` (the first refused path) and `rule` (its verdict, or
+  `missing`), and the message carries the reviewer's reason: the only review that refuses the read. The old single
+  message is gone.
+
+**Three ends (§31).** *Writer:* the reading service (`pending`, `settled`), the kernel (`memo`, `attached`, `index`,
+the typed gate), the host's pending list (`extensions/kernel/source-answers.ts`). *Reader:* the lookup's result and the
+clerk note (§135.31.2). *Actor:* the Keeper, who narrates the turn without the answer, takes a memo answer or reads past
+it with `retry: true`, and does not ask again this turn.
+
+*Telemetry.* `lane: "reading"`: `answer_pending` (turn, focus, job_id), `answer_landed` / `answer_unavailable` (the same,
+with `ms` since pending and the answer's `status` or the failure's `reason`), `answer_memo` (turn, focus, `answers`), and
+`review_retry`. The Keeper's question is never written (§22's #65 rule).
+
+*Tests.* `tests/extension/source-answer-allowance.test.mjs` (the kernel on the Haunting's window: memo by another
+spelling and by the book's name for the place, no read, `memo: false`, campaign isolation, attach, the typed gate; the
+service: allowance to `pending` and the same reading settling later, the schema retry, the gate slip costing a
+verify-only round, a refusal refusing); `tests/extension/single-loop-looks-first-visit.test.mjs` (the seam, §135.31.2).
+The mutation record is in the SL-36 ticket's Comments.
+
+### 22.4.4 A turn whose only action waits on a read still delivers fiction (2026-09-24, SL-37; amends §22.4 and §47)
+
+The ruling "Reading never holds a turn" (c) binds this section. **Evidence.** SL-29A 血色公路: on t4, t8, t15 and t20 the
+Keeper's draft was dropped with `reading_wait` and the player read only the host's source-wait notice after 2-3 min; a
+player who declared a drive got neither the drive nor anything else, four times. On t7 the admission lane's failure
+reached the prose as a sentence about the service not connecting: `admissionUnavailable`'s fix told the Keeper to say
+it. Long gate #3 t10: the first draft was dropped with `reading_wait` at 149 s; the turn delivered at 159 s only because
+the Keeper narrated again.
+
+- **The draft is kept.** Prose written while a text read is pending (`sourceWait`: a `reading_timeout` or
+  `reading_failed` of a `detail` read or a `material_pending` read) is the turn's delivery. The `reading_wait` drop and
+  its one steer (§22.4's "use narrate to explain the wait" correction) are gone; the draft is closed by the implicit
+  narrate like any prose, still carrying `preparation_wait {kind: "source"}` for the audit (§37.3). The decision is a
+  row: `lane: "delivery", reason: "reading_wait_draft_kept"`. The other steers (floor, speech, pending choice) are
+  unchanged.
+- **The note carries the pending read.** On hybrid-v1 the clerk note's `carried.pending` lists it (`purpose: "detail"`),
+  while the reading service says that material is still in flight (§135.31.2).
+- **The host notice is the fallback when there is no draft.** A delivered draft (explicit or implicit narrate, or an
+  ask) is the turn's answer to a source wait: §47's source-wait notice is withheld and recorded
+  (`preparation_wait_notice_withheld`, `cause: "draft_delivered"`). A run that ends with no delivery while a source read is
+  pending gets the source-wait notice instead of §38's generic one, re-read first (§47); a read no longer in flight falls
+  back to the generic notice. Both rows carry `fallback: "no_draft"`. The adaptation wait's notice is unchanged.
+- **Lane and reader failures never reach the prose.** The source-wait instruction and `sourceMaterialRefusal`'s fix
+  end on the clerk's-business clause: the unread material, its wait and its failure are not put into the fiction or the
+  prose, the player is not asked to repeat, and the Keeper narrates what the investigator does meanwhile.
+  `admissionUnavailable`'s fix no longer asks the Keeper to tell the player anything: the lane's failure is the clerk's
+  business; the operator is told outside the game (§32.2, streak 2), and the Keeper closes the turn on what the player
+  said, without the refused batch.
+
+*Tests.* `tests/extension/turn.test.mjs` (a draft under a pending read is delivered as it is, no drop, no steer, notice
+withheld; no draft: the source-wait notice, or the generic one when the read has landed; a reading failure: no line for
+the player, the receipt is the draft); `tests/extension/host-state-not-fiction.test.mjs` (the delivered draft's notice
+decision); `tests/extension/admission.test.mjs` (the fix hands no line for the player);
+`tests/extension/single-loop-looks-first-visit.test.mjs` (the seam: the draft and the note). Mutations in the SL-37
+ticket's Comments.
+
 ### 22.5 开场、失败与旧数据
 
 setup 用 `prepare-module` 替换 `build-bundle/bind-source/build-opening` 的外部编排。输入真实 `pdf` 或既有 `module`，执行来源登记、定位、开场准备；调查员流程保持原职责。多开场选择沿用 `module.opening.choose`；候选来自已读原书，等待不能解决选择。源语言由读者判断，玩家语言继续使用 `play_language`。
@@ -9802,6 +9940,8 @@ Three unrelated live tables on 2026-09-16 delivered the same failure: the host h
 **A suspension that leaves no telemetry row cannot be diagnosed.** Two separate silences hid this class for a day, and both are closed. (1) The gate block above. (2) `refreshAdaptationWait` recorded only when `held` — the wait as it stood on the way *in* — so the turn on which a wait was **first** taken up, the one turn whose behaviour changes most, wrote nothing at all; it now records whenever a wait stands on either side of the re-read and marks that first one. The general rule: **a host decision that changes what the Keeper may do is a decision the run must be able to read back.**
 
 **What this does not change.** §36.15's turn ownership, job freshness, pin and acceptance semantics are untouched, and so is the audit's `preparation_wait` deferral basis (§37.3): it stays lawful for a turn whose prose does carry a wait line — the settled-receipts branch may still say the additional material is pending — and a turn that carries none defers as `chosen_action`, which needs no host-owned field. No new lane, no new verb, no new foreground model call, and no reading of delivered prose.
+
+**Amended 2026-09-24 (§22.4.4, SL-37).** For the source wait, a delivered draft is the turn's answer: the source-wait notice is withheld beside a delivery (recorded, `cause: "draft_delivered"`) and is the fallback for a run that delivers nothing. The source-wait instruction and the reading refusal's fix now end on the clerk's-business clause rather than "the host itself tells them"; `admissionUnavailable` hands the Keeper no line for the player. The adaptation wait is unchanged.
 
 ## 48. A player-bound message is written by the layer that emits it (2026-09-16)
 
@@ -19413,6 +19553,44 @@ on the emitted kernel through the vendored driver with a controlled prescreen, t
 scene's passages, the step after a clerk move carries the destination's, and no step carries a scene's twice; `look
 focus=object` on the emitted kernel answers a clue by its handle-shaped name, by its play-language label, a handout by its
 title, and still `unknown_entity` for a name that is none of them.
+
+#### 135.31.2 Addendum (2026-09-24, SL-36 and SL-37): a pending source read rides in `carried`, and a landed answer is carried once
+
+The spec's ruling "Reading never holds a turn" (b) and (c) binds it. Single-loop parts apply to
+`PI_COC_LOOP_ENGINE=hybrid-v1` only; on the legacy engine a landed answer reaches the Keeper through the memo when the
+lookup is repeated (§22.4.3).
+
+**The port.** At table open the kernel extension puts `coc:source-answers` on the bus (`{campaign, take()}`; withdrawn at
+shutdown, like `coc:turn-close`). `take()` answers `{pending, landed}`: `pending` is every consultation that went
+`pending` (§22.4.3) and has not settled (`purpose: "answer"`), plus the table's text read still waiting (`sourceWait`, while
+the reading service's `reading()` says that material is in flight; `purpose: "detail"`), each `{focus, question,
+since_turn, purpose}`; `landed` is every consultation that settled since and was not yet carried, `{focus, question,
+since_turn, answer}` or `{…, unavailable: <reason>}`. Taking a landed one marks it carried and drops it from the list:
+**once**. The list is the extension's, per campaign, so it outlives a reopen of the same campaign in the process; a
+restart loses it, and the memo answers the repeated lookup at once.
+
+**What the note carries.** Before each model step the engine takes the port.
+
+- A landed consultation is a view `{focus: "source_answer", name: <the focus as the Keeper asked it>, view: {question,
+  status, answer, limitations, source_refs, …}}` (a memo answer carries `answers`); a failed one is `view: {question,
+  status: "unavailable", reason}`. It is served right after the session view and before people, scene and passages, under
+  the carried view's own 4 KiB, cut in the order status, answer, answers, limitations, source_refs, question, and marked
+  when cut; the message's 12 KiB is shared, and a view past it is `omitted` with `budget`. Nothing is read for it.
+- `carried.pending` lists the pending reads, each once per run.
+- The head adds, when a view is `source_answer`: it is a consultation asked for earlier that has come back, carried once
+  and kept in the memo, a source consultation and not prepared material; one marked unavailable could not be read, which is
+  the clerk's business, never the fiction or the player's. When `pending` is present: those answers are not here yet and
+  will be carried once they land; use the passages and what is known, narrate what the investigator does meanwhile, and do
+  not ask again this turn.
+- A note with only a landed answer or only pending rows is still a note (§135.8's "nothing new to say" counts them as new).
+
+*Telemetry.* The `carried` row's views name `source_answer` with its `status`, and the row carries `pending: [{focus,
+since_turn, purpose}]` (never the question).
+
+*Tests.* `tests/extension/single-loop-looks-first-visit.test.mjs`, on the emitted kernel through the vendored driver with a
+stub reading bridge: a consultation past its allowance answers `pending` with the index rows, the next step's note carries it
+pending, and after it lands the next turn's first model step carries the answer once and no later note repeats it; a text
+read still pending rides as `pending` beside a delivered draft.
 
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 
