@@ -527,3 +527,22 @@ Follow-up options, each needing its own measurement:
 
 **Not verified.** No live table and no replay of gate #5. The context-hook reuse path (`reusePrescreen`) is unchanged: it already
 used the owner's per-key check and drops volatile memory as `owner_refresh_required`.
+
+### 2026-09-24 — live gate #6 on the integration branch `3d10e7cdf` (gate #5 + SL-17 prescreen binding drift; driver.py, hybrid-v1, PI_COC_JEV_PRESELECT=1, grok-4.7-build-fast low, campaign `gate6-haunting-0335`)
+
+Pre-registered in the session scratchpad (`live-gate-6-preregistration.md`). Same three sentences.
+
+| turn | wall | model calls (s) | prescreen | compile | clerk executed | delivered |
+|---|---|---|---|---|---|---|
+| 1 accept + Globe | 64.8 s | 4 (47.4) | prepared, 5 materials, 2.9 s | ask = obligation 0.87, addressee none → no check (correct) | nothing (Keeper bundled the move) | yes |
+| 2 clippings | **112.3 s** | 3 (34.9) | **prepared, 10 materials, 6.5 s** (no fallback) | **selected `resolve:obligation:globe-clippings-access`** (ask 0.91, addressee Arty 0.55) | **the obligation check**: Persuade by Jev 0.68, goal/method composed, executed in 3.0 s (lane 2.8 s); Persuade 16 = hard success, `obligation.settled: true` | yes |
+| 3 punch Knott | 61.6 s | 7 (34.6) | prepared twice (4.5 + 1.8 s) | move 0.99 → executed | move; Knott's dodge (19, hard success, stated); disposition Jev 0.40 → Keeper | yes (`implicit_narrate_refused` drop, then the SL-16 fallback delivered) |
+
+Scored: (1) every read row prepared or keyed; no `jev_calls: 0` after a run: met. (2) turn 2 materials, ask cleared, clerk check with a bind row, obligation on the roll, delivered: met, the first time the whole SO-04 + SL-12 + SL-13 chain ran at a live table; wall ≤ 45 s and ≤ 2 calls: **not met**, entirely after the clerk's success. (3) turns 1 and 3 delivered; walls 64.8 / 61.6 s: not met by 2–5 s; turn 3 looks 0: met. (4) all met.
+
+Findings:
+- **A lane review of 57.2 s** (HTTP 200 at 1.7 s, then the model streamed for 55 s) on the Keeper's later resolve targeting Ruth Blake, refused not_authorized. `admissionTimeoutMs` defaults to 120 s, so nothing cut it; the turn budget's 45 s cannot cut a running review either. Every clerk write across gates #3–#6 went through the lane (never typed). Ruling and fix on `claude/sl18-20260924`: the lane is capped inside the turn (12 s → `review_timeout`), and a clerk write the compile selected with cleared features and recorded parameter paths is admitted on that evidence (`path: compile`), no LLM review.
+- **After the clerk settled the declaration, the Keeper kept proposing**: route s6 low_confidence → LLM (first-impression check, then a Ruth Blake step). The exit question should lean to `finish` once the declaration's own step is settled; to measure on SL-13's fixtures before ruling.
+- Turn 1 and 3 walls sit at 62–65 s: the commission's 24.8 s Keeper call, the prescreen (2.9 / 4.5 + 1.8 s), lane reviews (3.9 / 4.9 + 3.1 s), and the disposition's Keeper step (turn 3) are the remaining costs; disposition default and prescreen calibration are the filed follow-ups.
+
+Evidence: `chatrpgv4-wt-integ-sl/.coc/campaigns/gate6-haunting-0335/{telemetry.jsonl,turns/000{1,2,3}.json}`, `.coc/playtests/gate6-haunting-0335-20260924T073558Z/`.
