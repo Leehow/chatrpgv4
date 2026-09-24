@@ -200,7 +200,8 @@ export interface RunView {
   compileSelected?: string[];
   /**
    * §135.11 addendum (SL-20): the declaration's own steps the clerk executed and that succeeded (the kernel took it; a
-   * resolve's check did not fail). Once one has, the route's exit leans to `finish`.
+   * resolve's check did not fail) since the run's last model step. While one stands, the route's exit leans to `finish`;
+   * the next model step clears it (once the Keeper is asked, it carries the run as before).
    */
   settled?: string[];
 }
@@ -556,6 +557,8 @@ export function startStep(view: RunView, request: Exclude<StepRequest, {kind: 'f
     view.compiledOver = [...new Set([...(view.compiledOver ?? []), ...reachable(view.candidates, view.rows).map(candidate => candidate.key)])];
   else if (request.kind === 'decide') view.pending.shift();
   else if (request.kind === 'infer') {
+    // §135.11 addendum (SL-20): a model step ends the lean; the Keeper, once asked, carries the rest of the run.
+    if (view.settled?.length) view.settled = [];
     if (request.item && view.pending[0] === request.item) view.pending.shift();
     else if (request.item) view.pending = view.pending.filter(value => value !== request.item);
     // A budget escalation of a pending bind still owes the execution of what the LLM would return (never a clerk's: §135.28).

@@ -25,7 +25,7 @@ import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY, NONE, UNCLEAR, compileBatch } from "../../runtime/jev/route-compile.ts";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
-import { BIND_FAMILY, createStepPolicy, initialView, next, routeBatch, settleCompile, settleExecute, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
+import { BIND_FAMILY, createStepPolicy, initialView, next, routeBatch, settleCompile, settleExecute, settleInfer, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
 
 const scope = { owner: "campaign:test", campaign: "test", worldline: "main", loop: 0, audience: "keeper" };
 const context = { scene: "morgue", clock: null, present: ["the editor"], receipts: [] };
@@ -125,6 +125,20 @@ test("§135.11 SL-20: continue or ask_llm that clears the gates on its own still
 	assert.deepEqual(row.detail.selected, ["apply:clue:cutoff"]);
 	const request = next(needed);
 	assert.deepEqual([request.kind, request.item?.purpose, request.item?.candidate?.key], ["direct", "execute", "apply:clue:cutoff"]);
+});
+
+test("§135.11 SL-20: the lean ends at the run's next model step -- once the Keeper is asked it carries the run, and a later unclear exit is its as before", () => {
+	const view = afterClerk();
+	routeWith(view, ["ask_llm", 0.93, { ask_llm: 0.93, continue: 0.04, finish: 0.03 }]);
+	const adjudicate = next(view);
+	assert.deepEqual([adjudicate.kind, adjudicate.purpose, adjudicate.reason], ["infer", "adjudicate", "ask_llm"]);
+	settleInfer(view, startStep(view, adjudicate), adjudicate, { items: [], detail: { proposals: ["resolve"] } }, 0, 0);
+	assert.deepEqual(view.settled, [], "the Keeper was asked: the settlement no longer leans");
+	// The Keeper's call ran (a model-origin execute) and the fresh read changed the receipts, so the route asks again.
+	settleExecute(view, ++view.budget.steps, { kind: "direct", purpose: "execute", call: { method: "resolve", params: { action: { decision: "combat:attack" } }, label: "resolve" } },
+		{ ok: true, summary: {} }, { context: { ...context, receipts: ["roll-2"] }, candidates: view.candidates, rows: view.rows }, 0);
+	assert.equal(routeWith(view, GATE6_EXIT).reason, "low_confidence");
+	assert.deepEqual(head(view), ["infer", "adjudicate", "low_confidence"], "read as before the settlement");
 });
 
 test("§135.11 SL-20 on the driver: a forced session step issued after the settlement still runs before the compose", async () => {

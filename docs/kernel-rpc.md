@@ -17519,7 +17519,12 @@ margin rule in 5/5 (0.61–0.63 against 0.18–0.21), so the rule leaves that ru
   unless the answer is `continue` or `ask_llm` and clears the gates on its own (§135.2's gates: 0.6, or top ≥ 0.35 and
   ≥ 1.8 × the runner-up), which hands the run to the Keeper as today (`ask_llm`, `no_candidate`). `read_more`, a
   `finish`, `none_of_above`, an answer below both gates, an unanswered exit and an unavailable Jev all compose. The route
-  row's `reason` is `settled` and it carries `settled` (the keys). It holds for every route question later in the run.
+  row's `reason` is `settled` and it carries `settled` (the keys). It holds until the run's next model step: once the
+  Keeper has been asked (the exit cleared `ask_llm`, a bind, a fallen batch, the compose itself), the exit is read as before
+  for the rest of the run, unless a later compile-selected clerk step settles again. A first version held for every later
+  route of the run; on the two-part declarations of gate #6 and gate #3 turn 3 ("go back to the office and punch him": the
+  clerk's move settled, the exit then cleared `ask_llm` and the Keeper ran the fight), a later route leaned and the replayed
+  Keeper's `combat:end` was never run in 8/9 runs, so the lean stops where the Keeper takes over.
 - **What is unchanged.** A step the kernel forces (an NPC's pending defence, §135.2) is at the head of the run's pending
   steps when the fresh read issues it, so it runs before the route is asked and before the compose. The compile, the
   binds, Guard 2, the time budget (§135.25) and the turn close are unchanged: the settled compose is a compose like the
