@@ -11,6 +11,7 @@ import {fulfillmentHandlers, fulfillmentPromiseNavigation} from './fulfillment-o
 import {array, string, type Row} from '../read/values.js';
 import {obligationNodes, openGuards, sceneObligations} from '../read/obligations.js';
 import {activeMods} from '../read/mods.js';
+import {destinationView, unlockGuard} from '../read/destination-rows.js';
 
 export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
     return {...fulfillmentHandlers(context), 'table.apply.options': async params => {
@@ -27,10 +28,16 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         for (const clue of cluesHere(graph,campaign.world,scene)) if (clue.discovered!==true)
             add({kind:'clue',clue:clue.name},{kind:'clue',...clue,authority:'authored_candidate_not_discovered'},guards.clues.get(string(graph.find(clue.name,['clue'])?.node_id)));
         const destinations=new Set<string>();
+        // §135.30.4: a move row says what the place is, and an unmet unlock names what opens it (the book's own data).
+        const conditions=new Map(graph.sceneExits(scene).map(exit=>[string(exit.to),exit.when]));
         for (const exit of [...array(where.exits),...array(where.back)]) {
             if (typeof exit.to!=='string' || destinations.has(exit.to)) continue;
             destinations.add(exit.to);
-            add({kind:'move',to:exit.to},{kind:'move',...exit,authority:'available_route_not_player_choice'},guards.exits.get(string(graph.find(exit.to,['scene'])?.node_id)));
+            const node=graph.find(exit.to,['scene']),unlock=exit.unlock_when;
+            const destination=node?destinationView(graph,campaign.world,node,string(exit.display_name||exit.to)):{};
+            const guarded=unlock&&unlock.met===false?{unlock_when:{...unlock,...unlockGuard(graph,campaign.world,conditions.get(exit.to))}}:{};
+            add({kind:'move',to:exit.to},{kind:'move',...exit,...guarded,...(Object.keys(destination).length?{destination}:{}),authority:'available_route_not_player_choice'},
+                guards.exits.get(string(node?.node_id)));
         }
         // Complete and untruncated, bound to the same revision; absent when the scene states none (§134.10).
         const obligations=obligationNodes(graph,scene).length?sceneObligations(graph,campaign.world,scene,{

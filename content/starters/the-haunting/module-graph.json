@@ -5432,6 +5432,14 @@
           "collection": "scenes",
           "record": {
             "scene_id": "basement-rites",
+            "destination_identity": {
+              "canonical_name": "Corbitt House basement",
+              "aliases": [
+                "the basement of the Corbitt House",
+                "the Corbitt House cellar",
+                "the sealed cellar"
+              ]
+            },
             "location_tags": [
               "basement",
               "cellar",
@@ -6096,6 +6104,12 @@
           "collection": "scenes",
           "record": {
             "scene_id": "corbitt-confrontation",
+            "destination_identity": {
+              "canonical_name": "Corbitt's Hiding Place",
+              "aliases": [
+                "Corbitt's lair"
+              ]
+            },
             "location_tags": [
               "corbitt",
               "confrontation",
@@ -6322,6 +6336,15 @@
           "collection": "scenes",
           "record": {
             "scene_id": "corbitt-house-ground",
+            "destination_identity": {
+              "canonical_name": "The Corbitt House",
+              "aliases": [
+                "Corbitt House",
+                "the old Corbitt place",
+                "the Corbitt residence",
+                "Corbitt House ground floor"
+              ]
+            },
             "location_tags": [
               "corbitt house",
               "old house",
@@ -6822,6 +6845,14 @@
           "collection": "scenes",
           "record": {
             "scene_id": "neighborhood-gossip",
+            "destination_identity": {
+              "canonical_name": "Corbitt House neighborhood",
+              "aliases": [
+                "the neighborhood around the Corbitt House",
+                "the street outside the Corbitt House",
+                "the neighbors of the Corbitt House"
+              ]
+            },
             "location_tags": [
               "neighborhood",
               "neighbors",
@@ -7136,6 +7167,13 @@
           "collection": "scenes",
           "record": {
             "scene_id": "previous-tenants",
+            "destination_identity": {
+              "canonical_name": "Roxbury Sanitarium",
+              "aliases": [
+                "the Roxbury Sanitarium",
+                "the sanitarium in Roxbury"
+              ]
+            },
             "location_tags": [
               "previous tenants",
               "macario",
@@ -7270,6 +7308,15 @@
           "collection": "scenes",
           "record": {
             "scene_id": "upper-floor-bedroom",
+            "destination_identity": {
+              "canonical_name": "Corbitt House upper floor",
+              "aliases": [
+                "the upper story of the Corbitt House",
+                "upstairs in the Corbitt House",
+                "the Corbitt House bedrooms",
+                "Corbitt's old bedroom"
+              ]
+            },
             "location_tags": [
               "upper floor",
               "bedroom",
