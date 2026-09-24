@@ -1,0 +1,102 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/gate7-haunting-0534-20260924T093426Z/events.jsonl",
+  "record": ".coc/repos/gate7-haunting-0534.git ae972a0:turns/0002.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。",
+ "llm_calls": 2,
+ "llm_ms_total": 8588,
+ "calls": [
+  {
+   "at": "2026-09-24T09:36:45.000Z",
+   "provider_ms": 4255,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 16762,
+    "output": 267,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "social",
+       "goal": "Get Arty Wilmot to pull the Corbitt House clippings after hearing the purpose",
+       "method": "Explain the commission and ask him to bring the old clippings for that house",
+       "target": "Arty Wilmot",
+       "skill": "Persuade",
+       "obligation": "globe-clippings-access",
+       "stakes": "Arty refuses the basement and keeps the files closed"
+      }
+     },
+     "id": "call-237fe62a-709d-444a-9399-41b3f02c4e34-0|fc_5871aaa1-ae84-99aa-814c-ba1639318c93_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T09:36:52.416Z",
+   "provider_ms": 4333,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 1018,
+    "output": 348,
+    "cache_read": 49792
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "resolve",
+   "call_id": "call-237fe62a-709d-444a-9399-41b3f02c4e34-0|fc_5871aaa1-ae84-99aa-814c-ba1639318c93_0",
+   "ok": true
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "resolve",
+   "verdict": "not_authorized",
+   "ms": 2527,
+   "origin": "policy"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "authorized",
+   "ms": 2177,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "resolve",
+   "skill": "Persuade",
+   "target": "Arty Wilmot",
+   "intent": "social",
+   "modifiers": null
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "person:arty-wilmot-t2-c1",
+   "kind": "person",
+   "who": "arty-wilmot"
+  },
+  {
+   "id": "roll:persuade-t2-c3",
+   "kind": "roll",
+   "decision": null,
+   "skill": "Persuade",
+   "npc": "arty-wilmot",
+   "level": "failure"
+  }
+ ]
+}
