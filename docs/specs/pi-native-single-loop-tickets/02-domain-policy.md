@@ -546,3 +546,22 @@ Findings:
 - Turn 1 and 3 walls sit at 62–65 s: the commission's 24.8 s Keeper call, the prescreen (2.9 / 4.5 + 1.8 s), lane reviews (3.9 / 4.9 + 3.1 s), and the disposition's Keeper step (turn 3) are the remaining costs; disposition default and prescreen calibration are the filed follow-ups.
 
 Evidence: `chatrpgv4-wt-integ-sl/.coc/campaigns/gate6-haunting-0335/{telemetry.jsonl,turns/000{1,2,3}.json}`, `.coc/playtests/gate6-haunting-0335-20260924T073558Z/`.
+
+### 2026-09-24 — live gate #7 on the integration branch `a1a266470` (gate #6 + SL-18 admission cap and compile-evidence admission + SL-19 disposition default / first blow + SL-20 finish after settlement; driver.py, hybrid-v1, PI_COC_JEV_PRESELECT=1, grok-4.7-build-fast low, campaign `gate7-haunting-0534`)
+
+Pre-registered in the session scratchpad (`live-gate-7-preregistration.md`). Same three sentences.
+
+| turn | wall | model calls (s) | compile | clerk executed / admission | delivered |
+|---|---|---|---|---|---|
+| 1 accept + Globe | 80.8 s | 3 (52.8: 28.2 commission + 9.7 + 16.0 compose) | move 1.0 → executed, **admission `path: compile`, 0 ms** | move; the exit after the move cleared `ask_llm` on its own (as the SL-20 measurement predicted for a move) | yes |
+| 2 clippings | **25.8 s** | 2 (8.6) | obligation check selected (ask 0.91, addressee 0.51) | check bound with **skill by rules default = Intimidate** (Jev Persuade 0.67, confidence 0.59 under the gate; the actor's highest offered skill is Intimidate); the lane **refused it**: "explaining purpose and asking a favor; nothing chooses coercion"; the Keeper then rolled Persuade with the claim (95, failure) | yes |
+| 3 punch Knott | 56.9 s | 7 (30.8) | move 0.98 → executed, admission `path: compile`; act combat 0.48 → first blow to the Keeper | move; Knott's dodge (89, failure; Brawl 13 hard success, hit); disposition bind `unavailable` (Jev budget spent) → Keeper | yes (explicit narrate after an `implicit_narrate_refused` drop) |
+
+Scored: (1) no admission row over 12 s (max 4.6 s): met. (2) compile selection and ≤ 45 s / ≤ 2 calls: met; `path: compile` on the check and a settled route: **not met**, the check was refused. (3) turn 3 delivered, looks 0, ≤ 60 s: met; first blow to the Keeper as expected. (4) turn 1 ≤ 65 s: **not met** (80.8 s: a 28 s commission call and a 16 s compose). (5) all met; compile-path admissions carry origin/path/ms. (6) met.
+
+Findings:
+- **The approach's numeric default contradicts the declaration's manner.** SL-12's `highest_offered_skill` chose Intimidate for a player who explained and asked; Jev had leaned Persuade 0.67 but sat under the gate. The lane refused correctly and the turn still delivered in 25.8 s, but the clerk's step was wasted. Ruling and fix: SL-21.
+- **The prescreen spends the run's Jev budget.** Turn 3's first read ran a 10.1 s prescreen (timeout) and the second read another 4 calls (aborted by timeout, 0 materials); the policy's Jev budget was then exhausted, the disposition bind was `unavailable`, and every later decide became a `compose` with reason `jev_budget` (five composes in one run, 22 s of model time). Fix: SL-22.
+- Turn 1's floor is unchanged (the Keeper's commission call, 24–28 s) and its compose ran 16 s; the move's admission by compile evidence worked (0 ms).
+
+Evidence: `chatrpgv4-wt-integ-sl/.coc/campaigns/gate7-haunting-0534/{telemetry.jsonl,turns/000{1,2,3}.json}`.
