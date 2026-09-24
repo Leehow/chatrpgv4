@@ -18581,6 +18581,17 @@ other than `ordinary` goes where it always went: `no_roll` consumes it, `needs_p
 `unknown` and `unavailable` are the Keeper's (`clerk_unbound`). On `ordinary` the clerk executes the check with the
 binder's skill, difficulty and dice and the compile's intent.
 
+**The cleared act settles roll-or-not** (owner ruling, 2026-09-24, after the long gate's turn-12 replays, where the binder's
+route question put `ordinary` against `no_roll` at 0.46–0.56 / 0.42–0.52 on "搜床底、床垫和衣柜" and one run of three was not
+rolled). For a check the compile selected, the binder's `no_roll` does not end the binding: the engine asks the binder with
+`rollSettled` (`prepareCheckPreflight`; `interpretOrdinaryRoute(options, result, rollSettled)` reads `no_roll` as `ordinary`,
+consent and every other answer unchanged), so the profile question is still asked. Then `settleOrdinaryBind` decides: when
+the binder answered `no_roll` and the skill **cleared** the gates, the check is rolled, reason `ordinary_compile_act`, and the
+executed candidate's basis carries `roll: {rule: "compile_act", binder: "no_roll", confidence}` (every row of the call and the
+Keeper's `clerk_did` show whose word decided the roll); when the skill did not clear, the binder's `no_roll` stands
+(`ordinary_no_roll`, the check consumed). The binder's roll-or-not answer is recorded on the `bind-ordinary` row either way. A
+check the route selected is bound exactly as before (no `rollSettled`).
+
 **The bind row carries the paths** (extends §135.28's `event: "bind"` row for this check): `decision` `stated` (the
 kernel's decision row), `actor` `stated` when the kernel issued one actor, else `jev`; `intent` `jev` with the compile's
 confidence and distribution; `skill` `jev` with the profile answer's **confidence**, **distribution** (by skill name)

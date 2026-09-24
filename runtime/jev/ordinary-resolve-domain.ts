@@ -61,15 +61,19 @@ export function ordinaryRouteBatch(input:{rawInput:string;goal:string;plan?:Json
     ]};
 }
 
-export function interpretOrdinaryRoute(options:OrdinaryResolveOptions,result:DecisionResult|undefined):OrdinaryRouteChoice {
+/**
+ * `rollSettled` (contract §135.30.3, owner ruling 2026-09-24): the compile's cleared act already settled that the declared
+ * action is rolled, so the route answer `no_roll` does not end the binding here; the caller decides with the skill's answer.
+ */
+export function interpretOrdinaryRoute(options:OrdinaryResolveOptions,result:DecisionResult|undefined,rollSettled=false):OrdinaryRouteChoice {
   if(options.context.pending_choice)return{disposition:'needs_player',needs:['The existing pending mechanical choice must be resolved by its owner.']};
   if(options.context.session)return{disposition:'incumbent',needs:['The active subsystem requires its existing resolution owner.']};
   if(result?.status!=='complete')return{disposition:'unknown',needs:['The ordinary rule decision is unavailable.']};
   const route=answer(result,'route'),consent=answer(result,'consent');
-  if(route==='no_roll')return{disposition:'no_roll',needs:[]};
+  if(route==='no_roll'&&!rollSettled)return{disposition:'no_roll',needs:[]};
   if(route==='needs_player'||consent==='unselected')return{disposition:'needs_player',needs:['The player has not authorized this consequential action.']};
   if(route==='incumbent')return{disposition:'incumbent',needs:['Use the existing resolution owner for this specialized rule family.']};
-  if(route!=='ordinary'||consent!=='authorized')return{disposition:'unknown',needs:[consent==='unknown'?'Action authorization remains unknown.':'The required ordinary rule family remains unresolved.']};
+  if((route!=='ordinary'&&!(rollSettled&&route==='no_roll'))||consent!=='authorized')return{disposition:'unknown',needs:[consent==='unknown'?'Action authorization remains unknown.':'The required ordinary rule family remains unresolved.']};
   const actors=[...new Set(options.profiles.map(value=>value.actor))],actorChoice=answer(result,'actor'),actor=actors.find((_,index)=>actorChoice===`actor_${index}`),
     intent=answer(result,'intent'),difficulty=answer(result,'difficulty'),bonus=answer(result,'bonus'),penalty=answer(result,'penalty');
   if(!actor||!['investigate','social','move'].includes(intent??'')||!['regular','hard','extreme'].includes(difficulty??'')

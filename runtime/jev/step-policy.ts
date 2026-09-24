@@ -660,7 +660,9 @@ export function settleLocate(view: RunView, step: number, located: {calls: numbe
  * and distribution by skill name, reported by the binder beside its action so the bind record can say whether it cleared.
  */
 export interface OrdinaryBinding {disposition: string; action?: Record<string, Json>; unresolved: string[]; calls: number; ms: number;
-  skill?: {choice: string; confidence?: number | null; probabilities?: Record<string, number> | null}}
+  skill?: {choice: string; confidence?: number | null; probabilities?: Record<string, number> | null};
+  /** The binder's own roll-or-not answer (§135.30.3): recorded; for a compile-selected check it does not decide. */
+  route?: {choice: string; confidence?: number | null; probabilities?: Record<string, number> | null}}
 /** The ordinary check's key as the builder mints it (§135.2). */
 export const ORDINARY_CHECK_KEY = `resolve:${ORDINARY_CHECK}`;
 /**
@@ -696,17 +698,26 @@ export function settleOrdinaryBind(view: RunView, step: number, candidate: Candi
   // §135.30.3: the intent the compile read is the check's intent; the binder's own reading of it is not a second answer.
   const compiled = object(object(object(candidate.basis).compile).bound);
   const action = bound.action && typeof object(compiled.intent).value === 'string' ? {...bound.action, intent: object(compiled.intent).value as Json} : bound.action;
-  const pending: PendingItem[] = bound.disposition === 'ordinary' && action
-    ? [{kind: 'direct', purpose: 'execute', candidate, extra: action, bindings: ordinaryBindings(candidate, action, bound.skill, gate)}]
-    : bound.disposition === 'no_roll' ? []
-      : bound.disposition === 'needs_player' ? [{kind: 'infer', purpose: 'compose', reason: 'needs_player'}]
+  const records = action ? ordinaryBindings(candidate, action, bound.skill, gate) : [];
+  // §135.30.3 (owner ruling 2026-09-24): the compile's cleared act settles roll-or-not. The binder's `no_roll` does not decide:
+  // with a skill that cleared the check is rolled, and the basis says so; with one that did not, the binder's `no_roll` stands.
+  const binderNoRoll = object(object(candidate.basis).compile).predicate === 'ordinary_check' && bound.route?.choice === 'no_roll' && bound.disposition === 'ordinary';
+  const skillCleared = records.find(entry => entry.name === 'skill')?.cleared === true;
+  const disposition = binderNoRoll && !skillCleared ? 'no_roll' : bound.disposition;
+  const executed = binderNoRoll && skillCleared
+    ? {...candidate, basis: {...object(candidate.basis), roll: {rule: 'compile_act', binder: 'no_roll', confidence: bound.route?.confidence ?? null}} as Json} : candidate;
+  const pending: PendingItem[] = disposition === 'ordinary' && action
+    ? [{kind: 'direct', purpose: 'execute', candidate: executed, extra: action, bindings: records}]
+    : disposition === 'no_roll' ? []
+      : disposition === 'needs_player' ? [{kind: 'infer', purpose: 'compose', reason: 'needs_player'}]
         : unsettled;
-  if (bound.disposition === 'no_roll') view.consumed.push(candidate.key);
+  if (disposition === 'no_roll') view.consumed.push(candidate.key);
   view.pending.unshift(...pending);
-  observe(view, {kind: 'decide', purpose: 'bind', status: bound.disposition, choice: candidate.key, summary: {disposition: bound.disposition,
-    ...(action ? {action} : {}), unresolved: bound.unresolved} as Json});
+  const reason = binderNoRoll ? (skillCleared ? 'ordinary_compile_act' : 'ordinary_no_roll') : `ordinary_${bound.disposition}`;
+  observe(view, {kind: 'decide', purpose: 'bind', status: disposition, choice: candidate.key, reason, summary: {disposition,
+    ...(action && disposition === 'ordinary' ? {action} : {}), unresolved: bound.unresolved, ...(bound.route ? {binder_route: bound.route.choice} : {})} as Json});
   return {step, kind: 'decide', purpose: 'bind', choice: candidate.key, confidence: null, ms, jev_calls: bound.calls,
-    reason: `ordinary_${bound.disposition}`, detail: action ?? null};
+    reason, detail: disposition === 'ordinary' ? action ?? null : null};
 }
 
 /** `offline`: the bind was settled without asking Jev (§135.28, its budget spent), so it spends none of it. */

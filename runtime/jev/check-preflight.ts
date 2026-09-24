@@ -23,7 +23,9 @@ export interface CheckPreflightResult {advice:CheckPreflightAdvice;checkpoint?:C
   check(signal?:AbortSignal,deadlineAt?:number):Promise<{status:'current'}|{status:'stale'|'unavailable';reason:string}>}
 export interface CheckPreflightInput {campaign:string;turn:number;rawInput:string;goal?:string;scope:ScopeBinding;readSet:ReadSet;
   publicContext?:Array<{role:'player'|'keeper';text:string}>;
-  call(method:string,params:Record<string,unknown>):Promise<unknown>;decision:DecisionPort;lease:TaskLease;signal?:AbortSignal}
+  call(method:string,params:Record<string,unknown>):Promise<unknown>;decision:DecisionPort;lease:TaskLease;signal?:AbortSignal;
+  /** §135.30.3: the compile's cleared act settled roll-or-not; a `no_roll` route answer still asks the profile (reported in `evidence.route`). */
+  rollSettled?:boolean}
 
 function unknown(reason:string,calls=0):CheckPreflightResult {
   return{advice:{kind:'check_preflight',disposition:'unknown',unresolved:[reason],authorization:'advisory_only',settled:false},decisionCalls:calls,
@@ -102,7 +104,7 @@ export async function prepareCheckPreflight(input:CheckPreflightInput):Promise<C
     const routeRequest=batch(ordinaryRouteBatch({rawInput:input.rawInput,goal,options:decisionOptions}),input.scope,input.readSet,0);calls++;
     const routeResult=await bounded(()=>input.decision.decide(routeRequest,lease),signal,lease.context.budget.deadlineAt);signal.throwIfAborted();lease.assertActive();
     if(routeResult.status!=='complete')return make({kind:'check_preflight',disposition:'unknown',unresolved:[failure(routeResult)],authorization:'advisory_only',settled:false});
-    const route=interpretOrdinaryRoute(options,routeResult),routed=routeEvidence(routeResult);
+    const route=interpretOrdinaryRoute(options,routeResult,input.rollSettled===true),routed=routeEvidence(routeResult);
     if(route.disposition!=='ordinary')return{...make({kind:'check_preflight',disposition:route.disposition,unresolved:route.needs,authorization:'advisory_only',settled:false}),evidence:routed};
     const profileSpec=ordinaryProfileBatch({rawInput:input.rawInput,goal,options:decisionOptions,route});if(!profileSpec)
       return make({kind:'check_preflight',disposition:'unknown',unresolved:['ordinary_profile_unavailable'],authorization:'advisory_only',settled:false});

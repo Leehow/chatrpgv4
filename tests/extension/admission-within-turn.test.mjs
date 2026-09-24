@@ -481,7 +481,7 @@ test("SL-21 (§32.12): the check the compile selected keeps its evidence through
  * Jev for the ordinary check at the office: the compile reads `investigate` 0.95 and no destination (0.96); the ordinary
  * binder answers an ordinary Spot Hidden (its profile answer as given); every route: finish.
  */
-function ordinaryJev(profile) {
+function ordinaryJev(profile, route = ["ordinary", 0.9]) {
 	return { decide: async (batch) => {
 		if (batch.family === COMPILE_FAMILY)
 			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(question.key === "act"
@@ -489,7 +489,7 @@ function ordinaryJev(profile) {
 				: question.key === "destination" ? ["none", 0.96] : ["unclear", 0.9])])));
 		if (batch.family === "ordinary-resolve")
 			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(question.key === "profile"
-				? profile(question) : [({ route: "ordinary", consent: "authorized", actor: "actor_0", intent: "social", difficulty: "regular", bonus: "none", penalty: "none" })[question.key] ?? "unknown", 0.9])])));
+				? profile(question) : question.key === "route" ? route : [({ consent: "authorized", actor: "actor_0", intent: "social", difficulty: "regular", bonus: "none", penalty: "none" })[question.key] ?? "unknown", 0.9])])));
 		return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
 			choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9])])));
 	} };
@@ -540,4 +540,28 @@ test("SL-26 (§32.12): compileAdmission refuses a bind record that says it did n
 	assert.deepEqual(compileAdmission(under), { ok: false, reason: "parameter_not_cleared:skill" });
 	assert.deepEqual(admissionBindings([{ name: "skill", path: "jev", value: "Listen", cleared: false }, { name: "intent", path: "jev", value: "investigate", confidence: 0.9 }], {}),
 		[{ name: "skill", path: "jev", cleared: false }, { name: "intent", path: "jev" }]);
+});
+
+test("SL-26 (owner ruling 2026-09-24): with the compile's act cleared, the binder's no_roll does not decide -- a cleared skill rolls, recorded; an uncleared one does not", async (t) => {
+	// The long gate's turn-12 run-1 shape: the compile reads investigate at 1.0; the binder's roll-or-not says no_roll by a hair.
+	const words = "我在主卧里搜床底、床垫和衣柜。";
+	const noRoll = ["no_roll", 0.44, { no_roll: 0.52, ordinary: 0.46, unknown: 0.02 }];
+	for (const [label, profile, rolled] of [
+		["the skill cleared (Spot Hidden 0.9): the roll happens", (question) => [spotHidden(question), 0.9, { [spotHidden(question)]: 0.92, unknown: 0.08 }], true],
+		["the skill under the gate (0.50 / 0.45): the binder's no_roll stands", (question) => [spotHidden(question), 0.45, { [spotHidden(question)]: 0.5, [libraryUse(question)]: 0.45, unknown: 0.05 }], false],
+	]) await t.test(label, async (tt) => {
+		const table = await hybrid(tt, { prepare: tookTheJob, compile: () => undefined, engine: { decision: ordinaryJev(profile, noRoll) }, responses: narrateOnly("床底只有灰。") });
+		await table.session.prompt(words);
+		const telemetry = table.telemetry("test-camp");
+		const binder = telemetry.find((row) => row.lane === "route" && row.purpose === "bind-ordinary");
+		assert.equal(binder.route?.choice, "no_roll", "the binder's roll-or-not answer is recorded");
+		assert.equal(binder.skill?.value, "Spot Hidden", "the binder was still asked for the skill");
+		const roll = telemetry.find((row) => row.tool === "resolve" && row.origin === "policy");
+		assert.equal(!!roll?.ok, rolled);
+		if (rolled) {
+			const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "resolve");
+			assert.deepEqual(row.basis.roll, { rule: "compile_act", binder: "no_roll", confidence: 0.44 }, "the clerk says whose word decided the roll");
+			assert.equal(row.path, "compile");
+		}
+	});
 });

@@ -550,11 +550,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
       try {
         const result = await prepareCheckPreflight({campaign: bridge.campaign, turn: run.turn, rawInput: run.rawInput, goal: run.rawInput, scope: run.scope,
-          readSet: run.readSet, publicContext: [{role: 'player', text: run.rawInput}], call: (method, params) => bridge!.call!(method, params), decision: jev!, lease});
+          readSet: run.readSet, publicContext: [{role: 'player', text: run.rawInput}], call: (method, params) => bridge!.call!(method, params), decision: jev!, lease,
+          // §135.30.3 (owner ruling 2026-09-24): the compile's cleared act settled roll-or-not; the binder's own answer is recorded.
+          rollSettled: object(object(candidate.basis).compile).predicate === 'ordinary_check'});
         // §135.30.3 (SL-26): the profile answer behind the skill rides with the action, so the bind record says whether it cleared.
         const skill = result.evidence?.profile;
         const bound = {disposition: result.advice.disposition, ...(result.advice.action ? {action: result.advice.action as unknown as Record<string, Json>} : {}),
-          unresolved: result.advice.unresolved, calls: result.decisionCalls, ms: Date.now() - began, ...(skill ? {skill} : {})};
+          unresolved: result.advice.unresolved, calls: result.decisionCalls, ms: Date.now() - began, ...(skill ? {skill} : {}),
+          ...(result.evidence?.route ? {route: result.evidence.route} : {})};
         record({lane: 'route', purpose: 'bind-ordinary', run: run.runId, step: request.stepId, candidate: candidate.key, disposition: bound.disposition,
           unresolved: bound.unresolved, ms: bound.ms, jev_calls: bound.calls,
           ...(skill ? {skill: {value: skill.choice, confidence: skill.confidence, distribution: skill.probabilities}} : {}),

@@ -550,3 +550,25 @@ test("SL-26 (§135.30.3): a Keeper resolve the kernel took consumes the ordinary
 	}
 	assert.deepEqual(consumedByResolve("apply"), []);
 });
+
+test("SL-26 (owner ruling 2026-09-24): a compile-selected check whose binder said no_roll is rolled when the skill cleared, and stays unrolled when it did not; a route-selected one is unchanged", () => {
+	const compiled = { predicate: "ordinary_check", features: { act: "investigate" }, bound: { intent: { value: "investigate", confidence: 1, distribution: { act_1: 1 } } } };
+	const make = (basis) => ({ key: ORDINARY_CHECK_KEY, verb: "resolve", family: "core-check", label: "check", source: "t", clerk: "declared_check",
+		bound: { decision: "core-check:ordinary-check", actor: "Hayes" }, unbound: [{ name: "profile, difficulty and modifiers", required: true, vocabulary: "closed", binder: "ordinary-resolve" }], basis });
+	const action = { actor: "Hayes", intent: "investigate", goal: "x", method: "x", skill: "Spot Hidden", decision: "core-check:ordinary-check",
+		modifiers: { difficulty: "regular", bonus_dice: 0, penalty_dice: 0, reason: "x" } };
+	const noRoll = { choice: "no_roll", confidence: 0.44, probabilities: { no_roll: 0.52, ordinary: 0.46 } };
+	const run = (candidate, skill) => {
+		const view = initialView({ runId: "r", rawInput: "x", context, candidates: [candidate], readFirst: false });
+		const row = settleOrdinaryBind(view, 1, candidate, { disposition: "ordinary", action, unresolved: [], calls: 2, ms: 5, skill, route: noRoll }, 5, 0.6);
+		return { view, row };
+	};
+	const cleared = run(make({ compile: compiled }), { choice: "Spot Hidden", confidence: 0.9 });
+	assert.deepEqual([cleared.view.pending[0]?.purpose, cleared.row.reason], ["execute", "ordinary_compile_act"]);
+	assert.deepEqual(cleared.view.pending[0].candidate.basis.roll, { rule: "compile_act", binder: "no_roll", confidence: 0.44 });
+	const under = run(make({ compile: compiled }), { choice: "Spot Hidden", confidence: 0.45, probabilities: { "Spot Hidden": 0.5, Listen: 0.45 } });
+	assert.deepEqual([under.view.pending.length, under.row.reason, under.view.consumed.includes(ORDINARY_CHECK_KEY)], [0, "ordinary_no_roll", true], "the binder's no_roll stands");
+	// Without the compile's selection the binder never reaches a profile on no_roll (rollSettled is off), and nothing here changes.
+	const plain = run(make({}), { choice: "Spot Hidden", confidence: 0.9 });
+	assert.deepEqual([plain.view.pending[0]?.purpose, plain.row.reason, plain.view.pending[0].candidate.basis.roll], ["execute", "ordinary_ordinary", undefined]);
+});
