@@ -136,6 +136,7 @@ test("§32.12.3: long gate #2's turn 14 -- the time line clears, the threat line
 		[["typed", "admitted", [2], "entailed"], ["none", "remainder", [1], "not_triggering"]]);
 	assert.ok(rows[0].ms < 2000, `the review did not wait for the lane (${rows[0].ms} ms)`);
 	assert.equal(rows[0].confidence, 0.93);
+	assert.deepEqual(rows[0].line_confidences, [0.55, 0.93], "every line's own confidence is on the row");
 	const [result] = toolResults(table.session, "apply");
 	assert.equal(result.isError, false);
 	assert.equal(result.details.admission, undefined, "everything landed: nothing to say");
@@ -149,6 +150,7 @@ test("§32.12.3: the typed answer clears no line (0.86) -- the batch is reviewed
 	await table.session.prompt(WORDS);
 	const rows = admissionRows(table);
 	assert.deepEqual(rows.map((row) => [row.path, row.line_level ?? null, row.verdict]), [["lane", null, "entailed"]]);
+	assert.deepEqual(rows[0].line_confidences, [0.55, 0.86], "a line that did not clear can be read back");
 	assert.equal(table.lanes.admission.requests().length, 1);
 	assert.deepEqual(effectsOf(table), [["threat", "time"]]);
 });

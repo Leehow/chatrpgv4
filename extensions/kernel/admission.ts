@@ -623,7 +623,7 @@ export function remainderAttempt(attempt: TypedAttempt, keep: number[]): TypedAt
 		: verdict === "uncertain" ? "whether the player chose this is not clear from their words" : "the player has not chosen this action") : undefined;
 	return {
 		typed: { status: "decided", verdict, grounds, ...(missing ? { missing } : {}), confidence, lines, calls: 0, elapsedMs: 0, usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 } },
-		meta: { jev_calls: 0, jev_confidence: confidence, line_verdicts: lines.map((line) => line.verdict), jev_carried: true },
+		meta: { jev_calls: 0, jev_confidence: confidence, line_verdicts: lines.map((line) => line.verdict), line_confidences: lines.map((line) => line.confidence), jev_carried: true },
 	};
 }
 
@@ -673,6 +673,8 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 		jev_input_tokens: typed.usage.inputTokens,
 		...(typed.confidence === undefined ? {} : { jev_confidence: typed.confidence }),
 		...(typed.lines ? { line_verdicts: typed.lines.map((line) => line.verdict) } : {}),
+		// §32.12.3: each line's own confidence, so a line-level decision (and one that did not happen) can be read back.
+		...(typed.lines ? { line_confidences: typed.lines.map((line) => line.confidence) } : {}),
 	} : { jev_calls: 0, jev_ms: Date.now() - began };
 	return { typed, meta };
 }

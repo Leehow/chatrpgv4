@@ -538,7 +538,7 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
     cause: row.cause ?? null, late_rule: row.late_rule ?? null, resend: row.resend ?? null, resend_wait_ms: row.resend_wait_ms ?? null,
     typed: row.typed ?? null, grounds: row.grounds ?? null, proposed: row.proposed ?? null,
     // SL-30 (§32.12.3): a line-level row, which lines it covers.
-    line_level: row.line_level ?? null, lines: row.lines ?? null, of_lines: row.of_lines ?? null}));
+    line_level: row.line_level ?? null, lines: row.lines ?? null, of_lines: row.of_lines ?? null, line_confidences: row.line_confidences ?? null}));
   const budgetRow = own.filter(row => row.lane === 'run' && row.event === 'budget' && row.decision === 'summary').at(-1) ?? null;
   const clerk = own.filter(row => row.origin === 'policy' && row.tool).map(row => ({tool: row.tool, call_id: row.call_id, ok: row.ok, ms: row.ms, clerk: row.clerk, basis: row.basis}));
   const misses = routeRows.filter(row => ['low_confidence', 'jev_unavailable', 'jev_no_answer', 'repeated_question'].includes(String(row.reason)));
