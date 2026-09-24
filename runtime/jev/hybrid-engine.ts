@@ -21,8 +21,8 @@
  *   the kernel extension's one ordinal. Only a candidate with clerk authority is run; a committed `narrate`/`ask`
  *   is the delivery, and the clerk never writes one;
  * - projection: before each model step, one `coc-clerk` message: what the clerk did this turn (committed, with
- *   receipts and the kernel row each came from), the operation the Keeper is asked to complete, or the batch step
- *   that returned to it;
+ *   receipts, the kernel row each came from and any rules default it took, §135.27), the operation the clerk could not
+ *   bind and left to the Keeper (`left_to_you`), or the batch step that returned to it;
  * - record: every run/step event as a `lane: "run"` telemetry row of the campaign;
  * - turn close (§135.11): before a run with no delivery evidence finishes, the policy's `turn_close` operation asks the
  *   kernel extension's turn-close port (`coc:turn-close`) what the turn close did. A delivery this run committed (the
@@ -48,7 +48,7 @@ import { obligationClerkLine, obligationCrossing } from './obligation-candidates
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import {
   CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, interpretRoute, overRun, ROUTE_FAMILY,
-  type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
+  type BindRecord, type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
 } from './step-policy.ts';
 
 type Row = Record<string, any>;
@@ -156,7 +156,29 @@ interface ClerkStep {step: string; operation: string; label: string; clerk?: str
   /** §135.26: the obligation step this was, with its receipt and page, in one line. */
   obligation?: string;
   /** §135.26 (owner ruling Q5): the open obligation whose guard this step crossed, in one line. */
-  obligation_open?: string}
+  obligation_open?: string;
+  /** §135.27: the parameters the clerk took by the rules default, in one line (the Keeper may settle it otherwise). */
+  binding?: string}
+
+/**
+ * §135.27: how each parameter of a clerk write got its value. The bind step's records (`jev`, `rule-default`) come with
+ * the step; every other bound parameter is the candidate's own: `composed` when the builder composed it, else `stated`
+ * (read from the kernel row the candidate came from). The effect kind is structure, not a parameter.
+ */
+export function bindRecords(candidate: Candidate, extra: Record<string, Json>, settled: BindRecord[]): BindRecord[] {
+  const decided = new Set(settled.map(entry => entry.name)), composed = new Set(candidate.composed ?? []);
+  const shape: BindRecord[] = Object.entries(candidate.bound).filter(([name]) => name !== 'kind' && !decided.has(name) && !Object.hasOwn(extra, name))
+    .map(([name, value]) => ({name, path: composed.has(name) ? 'composed' : 'stated', value}));
+  return [...shape, ...settled];
+}
+/** The Keeper's line for a clerk write that took a rules default (§135.27), or none. */
+function defaultLine(candidate: Candidate): string | undefined {
+  const basis = object(candidate.basis), defaults = object(basis.rule_default);
+  if (basis.binding !== 'rule-default' || !Object.keys(defaults).length) return undefined;
+  const rules: Record<string, string> = {highest_offered_skill: 'the investigator\'s highest of the offered skills', no_modifier: 'no modifier'};
+  return `rules default: ${Object.entries(defaults).map(([name, value]) => `${name} ${String(object(value).value)} (${rules[text(object(value).rule)] ?? text(object(value).rule)})`).join(', ')}; `
+    + 'the player\'s words did not settle it. If the fiction calls for another choice, settle it with your own operation.';
+}
 
 /** Per-run state the ports share; the policy's own state stays in the driver. */
 interface RunState {
@@ -367,10 +389,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const refusal = ok ? undefined : object(result.coc_error).code ?? result.code ?? packet.status;
     const {goal: _goal, method: _method, ...shown} = object(tool === 'resolve' ? args.action : {}) as Row;
     const obligation = obligationClerkLine(candidate, ok, result, packet.receipts), crossed = ok ? obligationCrossing(candidate, result, packet.receipts) : undefined;
+    const binding = defaultLine(candidate);
+    // §135.27: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
+    record({lane: 'run', event: 'bind', run: run.runId, step: invocation.stepId, candidate: candidate.key, clerk: candidate.clerk, call_id: callId, status: packet.status,
+      bindings: bindRecords(candidate, extra, array(params.bindings) as BindRecord[])});
     run.clerkDid.push({step: invocation.stepId, operation: tool, label: candidate.label, clerk: candidate.clerk, call_id: callId, status: packet.status,
       receipts: packet.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
       result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null, ...(result.obligation ? {obligation: result.obligation} : {})} : {effects: args.effects}) as Json,
-      ...(obligation ? {obligation} : {}), ...(crossed ? {obligation_open: crossed} : {})});
+      ...(obligation ? {obligation} : {}), ...(crossed ? {obligation_open: crossed} : {}), ...(binding ? {binding} : {})});
     const read = await freshOf(run);
     return {status: ok ? 'ok' as const : 'refused' as const, ...(ok ? {} : {reason: String(refusal)}),
       artifact: {kind: 'execute', executed: {ok, summary: {origin: 'policy', tool, call_id: callId, status: packet.status, receipts: packet.receipts,
@@ -405,6 +431,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   async function decide(run: RunState, request: {runId: string; stepId: string; purpose: string; question: unknown; signal: AbortSignal}) {
     const question = object(request.question);
     if (request.purpose === 'locate') return {status: 'ok' as const, artifact: {kind: 'locate', calls: 0, ms: 0, summary: {folded_into: 'read'}} as StepArtifact};
+    // §135.27: a clerk bind the policy settles without Jev (its budget is spent) asks nothing here.
+    if (question.offline) return {status: 'unavailable' as const, artifact: {reason: `offline_${text(question.offline)}`}};
     if (request.purpose === 'bind-ordinary') {
       const candidate = question.candidate as Candidate | undefined;
       if (!candidate || !run.scope || !run.readSet || run.turn === undefined || !bridge?.campaign || !bridge.call)
@@ -499,6 +527,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (step.purpose === 'bind' && operation) Object.assign(content, {complete: operation,
       instruction: 'The clerk chose this operation from the player\'s declared action. Call its verb once, with the bound values as given and '
         + 'the needed parameters filled in; decide nothing else in this response.'});
+    // §135.27: a clerk candidate the clerk could not bind is the Keeper's turn, never a parameter-filling request.
+    const unbound = object(request.clerk_unbound);
+    if (step.reason === 'clerk_unbound' && operation) {
+      record({lane: 'run', event: 'bind', run: run.runId, step: stepId, candidate: request.candidate ?? null, outcome: 'keeper', cause: unbound.cause ?? null,
+        unresolved: unbound.unresolved ?? [], bindings: unbound.bindings ?? []});
+      Object.assign(content, {left_to_you: {operation, unresolved: unbound.unresolved ?? [], cause: unbound.cause ?? null},
+        left_note: 'The clerk chose this operation from the player\'s declared action but could not settle the parameters listed as unresolved '
+          + 'from the kernel\'s options or a rules default, so nothing was executed for it. It is yours: do it, do something else, or narrate.'});
+    }
     const plan = view.policyState?.view?.plan;
     if ((step.reason === 'batch_fallen' || budget.batch_fallen === true) && plan) Object.assign(content, {batch: plan.steps,
       batch_note: 'Your last batch stopped where a step failed; the steps after it were not executed. Decide what that failure means.'});

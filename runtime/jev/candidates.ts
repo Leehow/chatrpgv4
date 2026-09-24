@@ -14,6 +14,7 @@
 import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
 import type {Candidate, Json, Unbound} from './step-policy.ts';
 import {DICE, guardsOf, obligationCandidates, preordainedContacts} from './obligation-candidates.ts';
+import {composeSentence} from './composed-arguments.ts';
 
 type Row = Record<string, any>;
 export {bindingOf, type Binding, type Candidate, type Json, type Unbound} from './step-policy.ts';
@@ -94,9 +95,10 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
   const participants = array(session.participants).map(object);
   const label = (id: string): string => text(participants.find(value => text(value.name) === id)?.label) || id;
   const investigator = (id: string): boolean => participants.find(value => text(value.name) === id)?.side === 'investigator';
-  // The player's own action carries the player's words; an NPC's carries the kernel row it came from.
+  // The player's own action carries the player's words (composed, §135.27); an NPC's carries the kernel row it came from.
   const words = (actor: string, decision: string): {goal: string; method: string} =>
     investigator(actor) ? {goal: rawInput, method: rawInput} : {goal: decision, method: decision};
+  const composedWords = (actor: string): Partial<Candidate> => investigator(actor) ? {composed: ['goal', 'method']} : {};
   const actorField = (actor: string): Record<string, Json> => investigator(actor) ? {} : {actor};
   const round = Number(session.round ?? 0), out: Candidate[] = [];
   // The kernel's own view of the fight, for Jev to judge a closed choice by (never an internal tag).
@@ -122,7 +124,7 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
           ...(defense.bound !== undefined ? {defense: defense.bound} : {}),
           // The player's answer settles the choice it answers (kernel `bindChoice`: the pending name or its binds).
           ...(answered ? {choice: {pending: text(pendingChoice.name)}} : {})},
-        unbound: defense.unbound ? [defense.unbound] : [], detail: situation,
+        unbound: defense.unbound ? [defense.unbound] : [], detail: situation, ...composedWords(actor),
         clerk: 'session_step', forced: true, basis: {read: 'table.resolve.options', path: 'context.session.pending_defense', row: pending as Json,
           ...(stands ? {standing: {defense: text(standing.defense), basis: text(standing.basis)}} : {})}});
     }
@@ -149,11 +151,15 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
         if (parameter.bound !== undefined) bound[name] = parameter.bound; else unbound.push(parameter.unbound!);
       }
       if (decision === 'combat:attack' && !strings(action.targets).length) continue;
-      // What the session view does not issue is not invented here: a manoeuvre's kind and an ending's outcome.
+      // What the session view does not issue is not invented here: a manoeuvre's kind and an ending's outcome. No data
+      // source gives them, so the player's manoeuvre or ending is the Keeper's to propose and is not issued to the clerk
+      // (§135.27); an NPC's stays one of its issued actions, and choosing it hands the turn to the Keeper.
       if (decision === 'combat:maneuver') { delete bound.goal; unbound.push({name: 'goal', required: true, vocabulary: 'open'}); }
       if (decision === 'combat:end') unbound.push({name: 'outcome', required: true, vocabulary: 'open'});
+      if (investigator(actor) && unbound.some(value => value.required && value.vocabulary === 'open')) continue;
       const described = [bound.target ? `at ${label(String(bound.target))}` : '', bound.weapon ? `with ${String(bound.weapon)}` : ''].filter(Boolean).join(' ');
-      own.push({...base, key: `resolve:${decision}:${actor}${turnKey}`, label: `${label(actor)}: ${decision}${described ? ` ${described}` : ''}`, bound, unbound});
+      own.push({...base, key: `resolve:${decision}:${actor}${turnKey}`, label: `${label(actor)}: ${decision}${described ? ` ${described}` : ''}`, bound, unbound,
+        ...composedWords(actor)});
     } else {
       const bound: Record<string, Json> = {intent: 'flee', decision, ...actorField(actor), ...words(actor, decision)};
       const unbound: Unbound[] = [];
@@ -163,7 +169,7 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
         if (parameter.bound !== undefined) bound.target = parameter.bound; else unbound.push(parameter.unbound!);
       }
       const suffix = text(action.action) || (text(action.method) ? `${decision}:${text(action.method)}` : '');
-      own.push({...base, key: `resolve:${decision}:${actor}:${suffix || index}${turnKey}`, label: `${label(actor)}: ${suffix || decision}`, bound, unbound});
+      own.push({...base, key: `resolve:${decision}:${actor}:${suffix || index}${turnKey}`, label: `${label(actor)}: ${suffix || decision}`, bound, unbound, ...composedWords(actor)});
     }
   }
   if (investigator(actor) || !own.length) return own;
@@ -216,7 +222,8 @@ function dispositionInference(actor: string, name: string, fighter: Row, relatio
   if (!read.length) return undefined;
   return {key: `apply:npc-disposition:${actor}`, verb: 'apply', family: 'npc', source: 'table.look',
     label: `How ${name} behaves in this fight, from their own parameters`,
-    bound: {kind: 'npc', name: actor, why: `Inferred once for this campaign from ${name}'s own parameters: ${read.join(', ')}.`},
+    bound: {kind: 'npc', name: actor, why: composeSentence(`Inferred once for this campaign from ${name}'s own parameters: ${read.join(', ')}.`)},
+    composed: ['why'],
     unbound: [{name: 'disposition', required: true, vocabulary: 'closed', options: words, descriptions: Object.fromEntries(words.map(word => [word, text(options[word]) || word])),
       instruction: `Select how ${name} behaves in a fight, judged only from their own parameters in the chosen operation's detail (person): what they `
         + 'want, fear and hide, their role toward the investigators, their voice, and any first impression. The fight shown there is where it will be '
@@ -294,7 +301,8 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   // The people present: a person effect records what this table calls them, in the play language. The capsule
   // already carries the table's own label for a person not yet introduced (`untold.label`); a person already
   // introduced needs no staging; anyone off the roster is never a candidate. Nothing is invented: without a label
-  // the name is open and only the LLM can fill it.
+  // the name has no data source (an improvised name), so staging that person is the Keeper's to propose and is not
+  // issued to the clerk (§135.27). The `why` is composed: the table's label and the player's words, quoted.
   for (const [index, person] of array(capsule.present).map(object).entries()) {
     if (!text(person.name) || text(object(person.called).name) || guards.people.has(text(person.name))) continue;
     // The person the book puts here as an obligation's meeting: the stated candidate replaces this one (§135.26).
@@ -302,10 +310,12 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     const meeting = meetings.get(text(person.name));
     if (meeting) { push(meeting); continue; }
     const label = text(object(person.untold).label);
+    if (!label) continue;
     push({key: `apply:person:${text(person.name)}`, verb: 'apply', family: 'person', source: 'capsule.present',
-      label: `Put ${text(person.name)} (${text(person.role) || 'person present'}) on stage${label ? ` as "${label}"` : ' under what this table calls them'}`,
-      bound: {kind: 'person', who: text(person.name), ...(label ? {name: label} : {})},
-      unbound: [...(label ? [] : [{name: 'name', required: true, vocabulary: 'open' as const}]), {name: 'why', required: false, vocabulary: 'open' as const}],
+      label: `Put ${text(person.name)} (${text(person.role) || 'person present'}) on stage as "${label}"`,
+      bound: {kind: 'person', who: text(person.name), name: label,
+        why: composeSentence(`The table's own label for ${text(person.name)} in this scene, staged for the player's declared action`, rawInput)},
+      unbound: [], composed: ['why'],
       clerk: 'declared_bookkeeping', basis: {read: 'table.capsule', path: `present[${index}]`, row: {name: text(person.name), role: text(person.role) || null, untold: person.untold ?? null} as Json}});
   }
   // Mod checks the active packages declare for the people present and not yet settled.
@@ -317,7 +327,8 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     push({key: `resolve:${decision}:${actor}:${target}`, verb: 'resolve', family: 'mod_check', source: 'capsule.mods.pending_contacts',
       label: `${decision} for ${actor} meeting ${target} (${text(contact.when)})`,
       bound: {decision, ...(actor ? {actor} : {}), target, goal: rawInput, method: rawInput},
-      unbound: [{name: 'intent', required: true, vocabulary: 'closed', options: resolveIntents()}],
+      // The Mod's declaration issues no intent, so the intent is Jev's alone: it has no rules default (§135.27).
+      unbound: [{name: 'intent', required: true, vocabulary: 'closed', options: resolveIntents()}], composed: ['goal', 'method'],
       clerk: 'mod_contact', basis: {read: 'table.capsule', path: `mods.pending_contacts[${index}]`, row: contact as Json}});
   }
   // The obligation checks, after the Mod contact checks (precedence person -> mod_check -> obligation_check -> ...).

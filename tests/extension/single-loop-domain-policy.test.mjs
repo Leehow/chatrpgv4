@@ -313,7 +313,8 @@ test("SL-08: a model's apply cannot carry the host-only inference marker: the Ke
 	await table.table.session.prompt("继续揍他");
 	const { events } = table;
 	const infers = events.filter((event) => event.type === "step_start" && event.kind === "infer");
-	assert.equal(infers[0].purpose, "bind", "below the gate the Keeper is asked to complete the write");
+	assert.equal(infers[0].purpose, "adjudicate", "below the gate the write is the Keeper's turn, never an LLM bind (§135.27)");
+	assert.equal(events.find((event) => event.type === "step_end" && event.kind === "infer")?.reason, "clerk_unbound");
 	const world = worldOf(table, campaign);
 	assert.equal(world.npc_disposition["steven-knott"].basis, "keeper", "the marker was stripped from the model's call");
 	assert.equal(world.npc_disposition["steven-knott"].read, undefined);
