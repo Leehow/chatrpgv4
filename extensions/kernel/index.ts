@@ -894,6 +894,49 @@ function readTelemetry(tool: string, params: Record<string, unknown>): Record<st
 	};
 }
 
+/** Contract §135.31: the read-only Keeper calls whose rows carry their arguments and whose calls ride on the turn record. */
+const READ_TOOLS: ReadonlySet<string> = new Set(["look", "lookup"]);
+/** Contract §135.31: a read's recorded argument strings are cut at this many code points (the one-sentence ceiling, §135.21). */
+const READ_ARG_MAX = 200;
+/** One read-only Keeper call of the open turn, as the delivery carries it to the turn record (§135.31 `keeper_reads`). */
+interface KeeperRead { tool: string; args: Record<string, unknown>; withheld?: string[]; ok: boolean; run?: string; step?: string }
+/**
+ * Contract §135.31 (and §22's #65 rule: the Keeper's prose is not written to telemetry): the arguments the tool schema
+ * declares as the Keeper's own prose rather than a selector -- a source `question`, an adaptation `request`, and the
+ * evidence question a `kind: support` lookup takes as its `query`.
+ */
+function proseArgument(key: string, params: Record<string, unknown>): boolean {
+	return key === "question" || key === "request" || (key === "query" && params.kind === "support");
+}
+
+/**
+ * Contract §135.31: a look/lookup call's arguments as the Keeper sent them, for its telemetry row and the turn record.
+ * Host-only keys (`campaign`, `call_id`, anything `_`-prefixed) are left out; the Keeper's prose (`proseArgument`) is not
+ * written and its keys are named in `withheld`; a string longer than `READ_ARG_MAX` code points is cut and named in `cut`.
+ * Never dropped silently.
+ */
+export function readArguments(params: Record<string, unknown>): { args: Record<string, unknown>; cut: string[]; withheld: string[] } {
+	const cut: string[] = [], withheld: string[] = [];
+	const clip = (value: unknown, path: string): unknown => {
+		if (typeof value === "string") {
+			const points = Array.from(value);
+			if (points.length <= READ_ARG_MAX) return value;
+			cut.push(path);
+			return points.slice(0, READ_ARG_MAX).join("");
+		}
+		if (Array.isArray(value)) return value.map((item, index) => clip(item, `${path}[${index}]`));
+		if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clip(item, `${path}.${key}`)]));
+		return value;
+	};
+	const args: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(params)) {
+		if (key === "campaign" || key === "call_id" || key.startsWith("_") || value === undefined) continue;
+		if (proseArgument(key, params)) { withheld.push(key); continue; }
+		args[key] = clip(value, key);
+	}
+	return { args, cut, withheld };
+}
+
 /** resolve telemetry carries two extra columns: which family this adjudication belongs to and which session it fell in (contract §11.6). */
 function resolveTelemetry(result: ResolveResult): Record<string, unknown> {
 	const outcomeKind = asString(result.outcome?.kind);
@@ -1107,6 +1150,22 @@ export default function (pi: ExtensionAPI) {
 	pi.events.on("coc:reading-bridge", (value) => {
 		reading = value && typeof (value as any).ensure === "function" ? value as any : undefined;
 	});
+	/** §135.31: the run step each model tool call came from, announced by the single-loop engine just before it runs. */
+	const modelSteps = new Map<string, { run: string; step: string }>();
+	pi.events.on("coc:model-step", (value) => {
+		const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
+		if (typeof data.toolCallId !== "string" || typeof data.run !== "string" || typeof data.step !== "string") return;
+		if (modelSteps.size >= 256) modelSteps.clear();
+		modelSteps.set(data.toolCallId, { run: data.run, step: data.step });
+	});
+	/** §135.31: the Keeper's look/lookup calls of the open turn, carried on the turn's delivery to its record (at most 64). */
+	let turnReads: { campaign: string; turn: number; rows: KeeperRead[] } | undefined;
+	const noteRead = (state: TableState, read: KeeperRead): void => {
+		if (turnReads?.campaign !== state.campaign || turnReads.turn !== state.turn) turnReads = { campaign: state.campaign, turn: state.turn, rows: [] };
+		if (turnReads.rows.length < 64) turnReads.rows.push(read);
+	};
+	const readsOfTurn = (state: TableState): KeeperRead[] =>
+		turnReads?.campaign === state.campaign && turnReads.turn === state.turn ? turnReads.rows.map((row) => ({ ...row })) : [];
 	// The setup process needs the kernel too (`campaign.*`, `module.*` and `setup.*` all live there),
 	// but it has no table: it registers none of the seven verbs, does not `table.open`, and runs no
 	// verifier lane (contract §14.4). The mode is read in the factory rather than at module top level:
@@ -2856,10 +2915,22 @@ export default function (pi: ExtensionAPI) {
 		const providerBudget = dispatcher.providerBudget(toolCallId) ?? foregroundProviderBudget?.();
 		delete params._standing_defense;
 		const state = table;
+		// §135.31: a look/lookup keeps the arguments the Keeper sent (before any host key is set or taken) and, on the
+		// single-loop engine, the run step it came from.
+		const readArgs = READ_TOOLS.has(spec.name) ? readArguments(params) : undefined;
+		const fromStep = modelSteps.get(toolCallId);
+		modelSteps.delete(toolCallId);
 		// §135.4/§135.7: a single-loop policy-origin call (the clerk's) says so on its rows; the model's own calls carry nothing new.
 		const host = dispatcher.hostOrigin(toolCallId);
 		const origin: Record<string, unknown> = host ? { origin: host.origin, run: host.run, step: host.step,
-			...(host.clerk ? { clerk: host.clerk } : {}), ...(host.basis !== undefined ? { basis: host.basis } : {}) } : {};
+			...(host.clerk ? { clerk: host.clerk } : {}), ...(host.basis !== undefined ? { basis: host.basis } : {}) }
+			: readArgs && fromStep ? { origin: "model", run: fromStep.run, step: fromStep.step } : {};
+		const readRow: Record<string, unknown> = readArgs ? { args: readArgs.args, ...(readArgs.cut.length ? { args_cut: readArgs.cut } : {}),
+			...(readArgs.withheld.length ? { args_withheld: readArgs.withheld } : {}) } : {};
+		const keepRead = (ok: boolean): void => {
+			if (readArgs && !host && state) noteRead(state, { tool: spec.name, args: readArgs.args, ...(readArgs.withheld.length ? { withheld: readArgs.withheld } : {}),
+				ok, ...(fromStep ? { run: fromStep.run, step: fromStep.step } : {}) });
+		};
 		// §11.5.3: `_inferred` marks the combat disposition Jev inferred for the clerk (authority disposition_inference),
 		// with the parameters read from the candidate's own basis. Host-only: no other call ever carries it.
 		if (spec.name === "apply" && Array.isArray(params.effects)) {
@@ -2912,6 +2983,11 @@ export default function (pi: ExtensionAPI) {
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
 		const invokeOperation = async () => {
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery(undefined, 'committing');
+			// §135.31: the delivery carries the turn's look/lookup calls to its turn record (host-only; after the Mod hooks).
+			if (spec.name === 'narrate' || spec.name === 'ask') {
+				const reads = readsOfTurn(state);
+				if (reads.length) payload.keeper_reads = reads; else delete payload.keeper_reads;
+			}
 			await dispatcher.beforeKernelInvoke(toolCallId, spec.method, payload);
 			return state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress);
 		};
@@ -2992,6 +3068,7 @@ export default function (pi: ExtensionAPI) {
 			// reads the text the kernel will commit. An ask carries no attribution of its own.
 			// `host_attributed` is the host's word about its own wraps; the Keeper never supplies it.
 			delete payload.host_attributed;
+			delete payload.keeper_reads;
 			if (spec.name === "ask") state.speechAttribution = undefined;
 			if (spec.name === "narrate" && typeof payload.text === "string") {
 				const attributed = await attributeUnwrappedSpeech(state, payload.text, signal, providerBudget);
@@ -3141,8 +3218,10 @@ export default function (pi: ExtensionAPI) {
 				...origin,
 				...(spec.name === "resolve" ? resolveTelemetry(result as ResolveResult) : {}),
 				...readTelemetry(spec.name, params),
+				...readRow,
 				...(spec.name === "recall" ? {response_bytes: Buffer.byteLength(JSON.stringify(result), "utf8")} : {}),
 			});
+			keepRead(true);
 			if (spec.name === "narrate" || spec.name === "ask") {
 				// A turn inside a session must be accountable on its own: round trips in combat are not the same as in investigation.
 				await record({
@@ -3250,7 +3329,10 @@ export default function (pi: ExtensionAPI) {
 				...(reason ? { reason } : {}),
 				...(detail ? { code_detail: detail } : {}),
 				...readingRefusalTelemetry(error),
+				...readTelemetry(spec.name, params),
+				...readRow,
 			});
+			keepRead(false);
 			return {
 				content: [{ type: "text", text: errorText(error) }],
 				...(state.reviewUnavailable || state.commitUnavailable ? {terminate: true} : {}),
@@ -4546,6 +4628,9 @@ export default function (pi: ExtensionAPI) {
 				// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
 				notePrepared(state, prepared);
 				await guardTaskDelivery(event.message, 'committing');
+				// §135.31: the host's own close carries the turn's look/lookup calls to its record too (after the Mod hooks).
+				const reads = readsOfTurn(state);
+				if (reads.length) params.keeper_reads = reads;
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 				// `applyToolSuccess`'s own `narrate` case already projected the mechanics and noted the
 				// commit. Projecting again here wrote the `coc-mechanics` entry twice for every turn the
