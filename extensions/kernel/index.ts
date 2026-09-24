@@ -10,7 +10,7 @@ import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
-import { adaptationModel, adaptationService } from './adaptation.ts';
+import { adaptationModel, adaptationService, adaptationWaitMs } from './adaptation.ts';
 import { fastLaneChoice } from '../lanes/subsession.ts';
 export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
@@ -623,23 +623,24 @@ function providerNoticeAfterMs(): number {
 const ADAPTATION_HELD = ["pending", "reviewing", "ready"];
 /** Terminal adaptation statuses the table is told about once, by name, and never held for (§60). */
 const ADAPTATION_OVER = ["stale", "failed"];
+/** A proposal name or a move's destination, compared as an id: case, a `scene:` qualifier and separators folded. */
+function destinationId(value: unknown): string {
+	return typeof value === "string" ? value.trim().toLowerCase().replace(/^scene\s*:\s*/, "").replace(/[\s_-]+/g, "-") : "";
+}
 /**
- * §111.1: the one write shape an in-flight adaptation wait may not take away. It enriches equipment
- * already owned and carries no movement, time, clue, payment, transfer, usage or state mutation.
+ * §135.11 addendum (2026-09-24, SL-23): the writes a held adaptation preparation owns, and the only ones. A preparation
+ * builds one destination, so what needs it is a move there, and a second preparation while this one holds the table.
+ * Everything else -- reads, checks, other effects, a move to a scene that exists, the next turn's clerk writes -- is not
+ * the wait's to refuse. It replaced a gate that let only narrate and the adaptation controls through (with §111.1's
+ * registration batch the one exception), which refused the long gate's diaries on turn 19 and the clerk's move to an
+ * existing scene on turn 20. A move whose destination the Keeper names differently is refused by the kernel itself
+ * (`destination_missing`), whose fix leads back to `prepare`, and that is refused here with the wait's instruction.
  */
-function registrationBookkeeping(input: Record<string, unknown>): boolean {
+function needsPreparation(name: string, input: Record<string, unknown>, wait: { name?: string }): boolean {
+	if (name === "lookup") return input.kind === "adaptation" && input.action === "prepare";
+	if (name !== "apply" || !wait.name) return false;
 	const effects = Array.isArray(input.effects) ? input.effects as Array<Record<string, unknown>> : [];
-	if (!effects.length) return false;
-	const defineKeys = new Set(["kind", "name", "description", "category", "template"]);
-	const adoptKeys = new Set(["kind", "name", "to", "adopt", "definition", "why"]);
-	const exact = (effect: Record<string, unknown>, allowed: ReadonlySet<string>) =>
-		Object.keys(effect).every(key => allowed.has(key));
-	return effects.every(effect => effect.kind === "define"
-		? exact(effect, defineKeys)
-		: effect.kind === "object" && typeof effect.adopt === "string" && !!effect.adopt.trim()
-			&& typeof effect.to === "string" && !!effect.to.trim() && exact(effect, adoptKeys))
-		&& effects.some(effect => effect.kind === "define")
-		&& effects.some(effect => effect.kind === "object");
+	return effects.some((effect) => effect?.kind === "move" && destinationId(effect.to) === destinationId(wait.name));
 }
 /** The one host steer of the turn floor (docs/specs/turn-floor.md D4), sent when a turn is about to close on prose alone. */
 const FLOOR_STEER =
@@ -1226,7 +1227,11 @@ export default function (pi: ExtensionAPI) {
 		if (state.steeredThisTurn) return { none: "steer_spent" };
 		if (state.preparationWait) {
 			state.steeredThisTurn = true;
-			return { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state, state.preparationWait) };
+			const kind = `${state.preparationWait.kind}-wait`;
+			// The wait's own fix (set when its drop held the draft) travels with this steer; left behind, it read as a repair
+			// the spent steer could not carry (`unsent_fix: adaptation-wait`, the long gate's turn 19).
+			if (state.deliveryFix?.kind === kind) state.deliveryFix = undefined;
+			return { kind, text: preparationWaitInstruction(state, state.preparationWait) };
 		}
 		// A source wait does not own the turn, so it only speaks when the turn is still owed a delivery
 		// and the kernel has left no fix of its own: say which material is unread, and let the Keeper close.
@@ -2849,7 +2854,7 @@ export default function (pi: ExtensionAPI) {
 			// the wording, it is false. So this branch says, in the same breath as the status, that the
 			// work is over.
 			return `Retained adaptation preparation${wait.name ? ` for ${wait.name}` : ''} is ${wait.status}, which means it has finished: nothing is still being prepared and nothing is still running.`
-				+ ` Use lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ''} before any other tool, then follow that result. Do not invent or restart it under another name.`
+				+ ` Before moving there, use lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ''}, then follow that result. Do not invent or restart it under another name.`
 				+ ` Never tell the player this is still being prepared, still being checked, or still pending — it is not, and the host has already told them whatever they needed to know out of fiction.`;
 		if (state.landed.length > 0) {
 			return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running, but this turn already settled: ${state.landed.join("; ")}. Use narrate to deliver exactly those settled consequences. Do not erase, repeat, or extend the settled effects, and do not introduce any fact the pending preparation has not supplied.${HOST_SAYS_THE_WAIT} Then return control without a story menu.`;
@@ -2859,7 +2864,7 @@ export default function (pi: ExtensionAPI) {
 		// twice. The verb that reports on a proposal is named here in full; the host re-reads the
 		// status at every turn boundary anyway, so this is for a Keeper that wants to look, not a poll
 		// it owes.
-		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Use narrate to take up what the player actually said and close the turn on it, without moving, charging, or introducing the destination.${HOST_SAYS_THE_WAIT}`
+		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Only a move to that destination waits for it; everything else the player chose settles as usual. Use narrate to take up what the player actually said and close the turn on it, without moving there or introducing the destination.${HOST_SAYS_THE_WAIT}`
 			+ ` The only call that reports on it is lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ""}; no module or source lookup can say anything about it.`;
 	}
 
@@ -3128,7 +3133,12 @@ export default function (pi: ExtensionAPI) {
                     if (!runtime) throw new KernelError({code: 'needs', message: 'The adaptation runtime is unavailable'});
                     // Contract §37.10.1: the fast model, read each time a creator or reviewer starts.
                     adaptations ??= adaptationService(runtime, (method, args) => state.kernel.call(method, args), () => adaptationModel(sessionCtx));
+                    const began = Date.now();
                     result = await adaptations.lookup(payload, signal);
+                    // SL-23: what a `prepare` cost the turn, against the budget it was given (the tool row's `ms` is the
+                    // whole call; this says how much of it was the foreground wait, and what the wait bought).
+                    if ((payload.action ?? 'status') === 'prepare') void record({lane: 'adaptation', event: 'prepare', turn: state.turn,
+                        proposal: asString(result.name) ?? null, status: asString(result.status) ?? null, ms: Date.now() - began, wait_budget_ms: adaptationWaitMs()});
                 } else result = (await invokeOperation()) ?? {};
             }
 			catch (failure) {
@@ -4285,13 +4295,10 @@ export default function (pi: ExtensionAPI) {
 			// narrate seventeen times (§77).
 			return { block: true, reason: blocked >= RUNAWAY_STOP_AT ? TURN_CLOSED_STOP : TURN_CLOSED_REASON };
 		}
-		const adaptationControl = name === 'lookup' && input.kind === 'adaptation' && ['status', 'cancel'].includes(String(input.action));
-		const registration = name === "apply" && registrationBookkeeping(input);
-		// Only an adaptation wait owns the rest of the turn: it is one named job with its own control verb,
-		// and nothing else can advance while the destination it is building is undecided. A source wait is
-		// not here on purpose -- one unread page never stopped the rest of the table from settling (§22).
-		const retainedTerminal = state.preparationWait?.status && !['pending', 'reviewing'].includes(state.preparationWait.status);
-		if (state.preparationWait && !registration && ((retainedTerminal && !adaptationControl) || (!retainedTerminal && name !== "narrate" && !adaptationControl))) {
+		// Only an adaptation wait owns anything, and only the writes that need what it is building (§135.11 addendum,
+		// SL-23): one named job with its own control verb. A source wait is not here on purpose -- one unread page never
+		// stopped the rest of the table from settling (§22).
+		if (state.preparationWait && needsPreparation(name, input, state.preparationWait)) {
 			// §47. This was the one tool-level block in this gate that recorded nothing — every other
 			// one writes `ok: false, code: "blocked"` — and the silence is why the defect it causes was
 			// unreadable for a day. On `game-1c0faba5` turn 12 and `game-3dd94f0a` turn 52 the shape is
@@ -4316,7 +4323,10 @@ export default function (pi: ExtensionAPI) {
 		// turn and not once a process: the boundary cannot re-arm what it no longer holds, and §60 took
 		// the dead job out of the kernel's cold-recovery scan so no later process finds it either.
 		const over = state.adaptationOver;
-		if (over) {
+		// SL-23: the notice is the Keeper's, and a clerk (policy-origin) write is never the call that spends it. A move to an
+		// existing scene is the likeliest thing to have staled the job, and refusing the next turn's clerk move for it is
+		// the turn-20 shape again; the notice stays armed for the Keeper's own first call.
+		if (over && dispatcher.hostOrigin(event.toolCallId)?.origin !== "policy") {
 			const adaptationVerb = name === "lookup" && input.kind === "adaptation";
 			state.adaptationOver = undefined;
 			if (!adaptationVerb) {
@@ -4587,7 +4597,12 @@ export default function (pi: ExtensionAPI) {
 				return dropText('standing_defense_unresolved');
 			}
 			const sourceWait = state.readingWait || state.sourceWait !== undefined;
-			if (state.preparationWait && !sourceWait) {
+			// §135.11 addendum (2026-09-24, SL-23): the wait steers once, like the floor and speech steers below, and holds the
+			// draft it drops. The steered second leg is delivered by the implicit narrate below, which carries the wait; a leg
+			// that brings nothing, or one the kernel refuses, falls back to this draft. Dropping every leg for as long as the
+			// preparation ran stranded the long gate's turn 19 over prose the Keeper had written twice.
+			if (state.preparationWait && !sourceWait && !state.steeredThisTurn) {
+				state.floorDraft = prose;
 				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state, state.preparationWait) };
 				return dropText("preparation_wait");
 			}

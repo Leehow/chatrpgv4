@@ -1,0 +1,13 @@
+{
+ "campaign": "longgate-haunting-0624",
+ "module": "the-haunting",
+ "turn": 19,
+ "commit_before": "2654622",
+ "commit_after": "b9e29f1",
+ "player_input": "我把找到的东西收好，离开宅子。",
+ "tarball": "../longgate/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/longgate-haunting-0624",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z"
+ }
+}

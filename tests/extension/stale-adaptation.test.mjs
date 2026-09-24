@@ -204,9 +204,9 @@ test("a preparation that really is still running names the one call that reports
 		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1", PI_COC_ADAPTATION_WAIT_MS: "0" },
 		responses: [
 			PENDING_TURN[0],
-			// A pending job still owns the turn, so this is refused -- and the refusal is the second
-			// place the Keeper reads about the job.
-			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "waiting" }] })], { stopReason: "toolUse" }),
+			// A pending job owns the move to its destination (SL-23), so this is refused -- and the refusal is
+			// the second place the Keeper reads about the job.
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "north-end-pawnshop" }] })], { stopReason: "toolUse" }),
 			...PENDING_TURN.slice(1),
 		],
 	});

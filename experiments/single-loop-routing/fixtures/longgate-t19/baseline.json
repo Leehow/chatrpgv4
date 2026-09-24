@@ -1,0 +1,204 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z/events.jsonl",
+  "record": ".coc/repos/longgate-haunting-0624.git b9e29f1:turns/0019.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我把找到的东西收好，离开宅子。",
+ "llm_calls": 6,
+ "llm_ms_total": 45203,
+ "calls": [
+  {
+   "at": "2026-09-24T10:41:47.592Z",
+   "provider_ms": 10159,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 11400,
+    "output": 733,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "lookup",
+     "arguments": {
+      "kind": "module",
+      "query": "outside Corbitt House street front",
+      "expected_kind": "scene"
+     },
+     "id": "call-be30765c-5d55-4f70-baa6-c5f52c3f064b-0|fc_c0072d72-b798-99cd-94b2-cf8b62a68e22_0"
+    },
+    {
+     "name": "look",
+     "arguments": {
+      "focus": "object",
+      "name": "Corbitt Diaries"
+     },
+     "id": "call-be30765c-5d55-4f70-baa6-c5f52c3f064b-1|fc_c0072d72-b798-99cd-94b2-cf8b62a68e22_1"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:41:57.871Z",
+   "provider_ms": 9893,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 2469,
+    "output": 790,
+    "cache_read": 44544
+   },
+   "tool_calls": [
+    {
+     "name": "lookup",
+     "arguments": {
+      "kind": "adaptation",
+      "action": "prepare",
+      "purpose": "new_destination",
+      "name": "corbitt-house-front",
+      "anchors": [
+       "corbitt-house-ground"
+      ],
+      "request": "The investigator packs what he has already found and walks out of the Corbitt House onto the public street in front of the house, the ordinary Boston sidewalk and facade, with no new clue, NPC, or danger. Connect it only as the exterior of the existing house so later returns use the front door."
+     },
+     "id": "call-85d0f811-74d4-44f2-a49c-d35c7a05aa08-2|fc_7ed86f7c-98bd-9081-bf63-e6c5e45235d0_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:42:07.802Z",
+   "provider_ms": 3124,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 3450,
+    "output": 196,
+    "cache_read": 44544
+   },
+   "tool_calls": [
+    {
+     "name": "lookup",
+     "arguments": {
+      "kind": "adaptation",
+      "action": "prepare",
+      "purpose": "new_destination",
+      "name": "corbitt-house-front",
+      "anchors": [
+       "scene: corbitt-house-ground"
+      ],
+      "request": "The investigator packs the closed diaries he already saw and walks out the front door onto the public street in front of the Corbitt House: ordinary Boston sidewalk and facade only, no new clue, NPC or danger. It exists so he can leave and later return by the front door."
+     },
+     "id": "call-cfc753b3-de9f-45d1-b282-2ba848421264-3|fc_a836200a-d6ef-9f42-9916-862db048e844_0"
+    }
+   ]
+  },
+  {
+   "text": "你要收起已经看见的那三本合着的旧日记，再走出这栋房子。日记还在屋里，出门这一步还没落到街上。",
+   "at": "2026-09-24T10:42:23.205Z",
+   "provider_ms": 10480,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 2779,
+    "output": 960,
+    "cache_read": 45568
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "define",
+        "name": "三本旧日记",
+        "description": "三本合着的旧装订日记，书脊上印着 W. Corbitt，纸页发黄，还没有被翻开。",
+        "category": "item"
+       },
+       {
+        "kind": "object",
+        "name": "三本旧日记",
+        "to": "托马斯·海斯",
+        "definition": "三本旧日记",
+        "document": {
+         "text": "",
+         "presentation": "book"
+        },
+        "why": "你把柜门里那三本合着的旧日记拿起来收好，没有翻开。"
+       }
+      ]
+     },
+     "id": "call-46dc5e92-a418-4b49-b98d-8f7abefff912-4|fc_001e889e-b3bb-95f4-ab16-ff5d6305d29d_0"
+    }
+   ]
+  },
+  {
+   "text": "你从地上撑起来，一手按着伤处，另一手把柜门里那三本合着的旧日记拢进怀里。书脊上的 W. Corbitt 仍朝外，纸页没有被翻开。前门还在过道那头。",
+   "at": "2026-09-24T10:42:33.718Z",
+   "provider_ms": 5085,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 3708,
+    "output": 340,
+    "cache_read": 45568
+   },
+   "tool_calls": []
+  },
+  {
+   "text": "你撑着橱柜站起来，伤处扯着，动作很慢。柜门里那三本旧日记还合着，书脊上的 W. Corbitt 朝外。你把它们连同自己的东西拢进大衣，纸页没有翻开。\n\n宅子还围着你。橱柜歪在墙根，厨房那两块撬开的地板底下仍往上冒冷气。前门还在，你还没跨出去。",
+   "at": "2026-09-24T10:42:38.835Z",
+   "provider_ms": 6462,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 2559,
+    "output": 421,
+    "cache_read": 46848
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "lookup",
+   "call_id": "call-be30765c-5d55-4f70-baa6-c5f52c3f064b-0|fc_c0072d72-b798-99cd-94b2-cf8b62a68e22_0",
+   "ok": true
+  },
+  {
+   "tool": "look",
+   "call_id": "call-be30765c-5d55-4f70-baa6-c5f52c3f064b-1|fc_c0072d72-b798-99cd-94b2-cf8b62a68e22_1",
+   "ok": false
+  },
+  {
+   "tool": "lookup",
+   "call_id": "call-85d0f811-74d4-44f2-a49c-d35c7a05aa08-2|fc_7ed86f7c-98bd-9081-bf63-e6c5e45235d0_0",
+   "ok": false
+  },
+  {
+   "tool": "lookup",
+   "call_id": "call-cfc753b3-de9f-45d1-b282-2ba848421264-3|fc_a836200a-d6ef-9f42-9916-862db048e844_0",
+   "ok": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-46dc5e92-a418-4b49-b98d-8f7abefff912-4|fc_001e889e-b3bb-95f4-ab16-ff5d6305d29d_0",
+   "ok": false,
+   "blocked": "preparation_wait"
+  }
+ ],
+ "admissions": [],
+ "actions": [
+  {
+   "verb": "lookup"
+  },
+  {
+   "verb": "lookup"
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": []
+}
