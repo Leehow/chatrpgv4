@@ -2,10 +2,14 @@
  * Contract §124.11 (live gate #5): a post-turn lane's write that lands while the read's prescreen runs voids only
  * the materials whose dependencies it reaches. Real kernel on the Haunting's opening; the lane writes go through
  * their real RPCs (`voice.submit` of the npc-voice lane, a `table.apply` move). Controlled typed decisions only.
+ *
+ * §124.11.1 (SL-44, long gate #4 t14): the reading store's revision is not a prescreen binding key. A source answer that
+ * lands mid-read writes the reader's bookkeeping (`meta.reading` of the module), which `source_revision` digests; the
+ * prescreen keeps its prepared result. The bookkeeping write here is that field, written as the reader writes it.
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdtemp, rm} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
@@ -39,7 +43,21 @@ async function openTable(t) {
   const capsule = await call('table.capsule'), context_ = capsule._context;
   const binding = {version: 1, campaign: 'c1', worldline: context_.worldline, loop: context_.loop, turn: context_.turn,
     source_revision: context_.source_revision};
-  return {call, capsule, binding};
+  return {call, capsule, binding, home};
+}
+
+/**
+ * A source answer lands (§22.4.3, SL-36): the reader records it in the module's own bookkeeping, `meta.reading.answers`.
+ * Returns the context before and after, so the test proves the write moved `source_revision` (and only it).
+ */
+async function answerLands(table) {
+  const before = (await table.call('table.capsule'))._context;
+  const path = join(table.home, '.coc', 'modules', 'the-haunting', 'module.json');
+  const meta = JSON.parse(await readFile(path, 'utf8'));
+  meta.reading = {...(meta.reading ?? {}), answers: {...(meta.reading?.answers ?? {}), 'sl44-landed': {status: 'answered', focus: 'corbitt-house-ground'}}};
+  await writeFile(path, JSON.stringify(meta, null, 2));
+  const after = (await table.call('table.capsule'))._context;
+  return {before, after};
 }
 
 /** The npc-voice lane's own write (contract §40.7): the job it opened after the last turn, submitted now. */
@@ -121,6 +139,37 @@ test('a stateStamp change drops only the current-state material that depends on 
   assert.deepEqual(pending, {kind: 'investigator', label: gap.label, reason: 'binding_changed', key: 'stateStamp'});
   assert.equal(run.message.details.prescreen.gap_details.find(value => value.reason === 'binding_changed').key, 'stateStamp');
   assert.deepEqual(run.prepared.binding_refresh, {changed: ['stateStamp'], dropped: 1});
+});
+
+test('§124.11.1 (gate #4 t14): a source answer landing before the finish decision moves source_revision, and the prescreen still prepares', async t => {
+  const table = await openTable(t);
+  let landed;
+  const run = await prepare(table, scripted([graphRead, 'finish'], {1: async () => { landed = await answerLands(table); }}));
+  assert.notEqual(landed.after.source_revision, landed.before.source_revision, 'the landing moved source_revision (the key gate #4 fell back on)');
+  assert.equal(landed.after.task_source_revision, landed.before.task_source_revision, 'the book itself did not change');
+  assert.equal(landed.after.source_revision === table.binding.source_revision, false, 'the prescreen was bound before the landing');
+  assert.equal(run.fallback, undefined, `no fallback: ${JSON.stringify(run.fallback?.reason)} ${JSON.stringify(run.fallback?.key)}`);
+  assert.ok(run.message && run.prepared, 'prepared, and the packet is delivered');
+  assert.ok(run.content.materials.some(material => material.kind === 'graph_entity'), 'the graph material it packed is published');
+  assert.ok(!run.content.gaps.some(gap => gap.reason === 'binding_changed'), 'nothing dropped for it');
+});
+
+test('§124.11.1: a source answer landing before a later catalog page does not refuse the page', async t => {
+  const table = await openTable(t);
+  const run = await prepare(table, scripted([graphRead, moreCatalog, 'finish'], {1: () => answerLands(table)}));
+  assert.equal(run.fallback, undefined, `no fallback: ${JSON.stringify(run.fallback?.reason)} ${JSON.stringify(run.fallback?.key)}`);
+  assert.ok(run.prepared.retrieval.steps >= 2, 'the page after the landing was read');
+  assert.ok(run.content.materials.some(material => material.kind === 'graph_entity'));
+});
+
+test('§124.11.1: a source answer landing between the run binding and the prescreen first read -- the catalog and the index are still taken', async t => {
+  const table = await openTable(t);
+  const landed = await answerLands(table);
+  assert.notEqual(landed.after.source_revision, table.binding.source_revision, 'the run is bound to the revision before the landing');
+  const run = await prepare(table, scripted([graphRead, 'finish']));
+  assert.equal(run.fallback, undefined, `no fallback: ${JSON.stringify(run.fallback?.reason)} ${JSON.stringify(run.fallback?.key)}`);
+  assert.ok(run.content.materials.some(material => material.kind === 'graph_entity'));
+  assert.notEqual(run.prepared.locate?.status, 'index_unavailable', `the locate read the index: ${JSON.stringify(run.prepared.locate)}`);
 });
 
 test('a scene change mid-run voids the result and the fallback names the key', async t => {
