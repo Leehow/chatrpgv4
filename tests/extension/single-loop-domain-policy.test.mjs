@@ -132,10 +132,11 @@ test("the run reads first, Jev routes over host-issued candidates, the clerk's m
 	// The Keeper's later narrate took the next ordinal: one mint for host and model.
 	assert.equal(telemetry.find((entry) => entry.tool === "narrate" && entry.ok)?.call_id, "t2-c2");
 
-	// The scene changed, so a read ran again before the next route.
+	// The scene changed, so a read ran again before the next route; the morgue's read issues candidates no compile of the
+	// run was asked over (its gate's check, the way back), so the compile comes first (§135.30 addendum, 2026-09-24).
 	const kinds = events.filter((event) => event.type === "step_start").map((event) => `${event.kind}${event.purpose ? `:${event.purpose}` : ""}`);
 	const executed = kinds.indexOf("operate", kinds.indexOf("decide:route") + 1);
-	assert.deepEqual(kinds.slice(executed, executed + 3), ["operate", "operate", "decide:route"], "move, then read, then the next route");
+	assert.deepEqual(kinds.slice(executed, executed + 4), ["operate", "operate", "decide:compile", "decide:route"], "move, then read, then the morgue's compile, then the next route");
 	const reads = telemetry.filter((entry) => entry.lane === "run" && entry.event === "read");
 	assert.equal(reads.length, 2);
 	assert.equal(reads[1].scene, "newspaper-morgue");

@@ -253,6 +253,12 @@ export interface ProductRunOptions {
   seed?: string;
   /** SL-13: `off` runs the engine without the typed-feature compile (§135.30), the SL-12 policy: the control arm. */
   compile?: 'on' | 'off';
+  /**
+   * SL-13 follow-up: `off` launches with the Jev preselect setting off (`PI_COC_JEV_PRESELECT=0`), as live gate #4's
+   * source-mode driver did: the run's read then attaches no prescreen material (its row says `not_run`). Default `on`,
+   * the owner's App (the SL-00 inventory: `ext.jev.preselectEnabled` true).
+   */
+  prescreen?: 'on' | 'off';
 }
 
 /**
@@ -277,6 +283,8 @@ export interface ProductRunSummary {
   steps: Record<string, number>; llm_steps: number; llm_purposes: string[]; jev_calls: number; route_rows: number;
   /** SL-13: the compile arm, the compile row (§135.30) if one was asked, and every clerk selection by who made it. */
   compile: string; compile_row: Row | null; selections: Array<{by: string; keys: string[]}>;
+  /** SL-13 follow-up: every compile row of the run (§135.30.1: one per read that issues uncompiled reachable candidates), the prescreen arm and each read's prescreen status. */
+  compile_rows: Row[]; prescreen: string; reads: Row[];
   calls: Row[]; match: Row[]; admissions: Row[]; clerk: Row[]; misses: Row[];
 }
 
@@ -332,7 +340,7 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
     EXT_JEV_APIKEY: key, PI_COC_KERNEL_CMD: undefined, PI_COC_HOME: workspace, PI_CODING_AGENT_DIR: agentDir, PI_COC_CAMPAIGN: campaign,
     PI_COC_MODE: 'play', PI_OFFLINE: '1', PI_COC_LOOP_ENGINE: 'hybrid-v1', PI_COC_MEMORY_BACKFILL: '0',
     PI_COC_VERIFIER_MODEL: 'verifier/v1', PI_COC_MEMORY_MODEL: 'memory/m1', PI_COC_ADMISSION_MODEL: 'admission/a1',
-    PI_COC_ADMISSION_REVIEWER: admission, PI_COC_JEV_PRESELECT: '1', PI_GROK_BUILD_IMAGE_TOOLS: '0',
+    PI_COC_ADMISSION_REVIEWER: admission, PI_COC_JEV_PRESELECT: options.prescreen === 'off' ? '0' : '1', PI_GROK_BUILD_IMAGE_TOOLS: '0',
     PI_COC_TURN_BUDGET_MS: arm === 'before' ? '3600000' : undefined, PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: arm === 'before' ? 'off' : undefined,
     // SO-04: the kernel's dice are seeded (the kernel subprocess inherits this), so a passing and a failing roll are
     // both reproducible; the seed is recorded in the summary.
@@ -441,10 +449,13 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
   const clerk = own.filter(row => row.origin === 'policy' && row.tool).map(row => ({tool: row.tool, call_id: row.call_id, ok: row.ok, ms: row.ms, clerk: row.clerk, basis: row.basis}));
   const misses = routeRows.filter(row => ['low_confidence', 'jev_unavailable', 'jev_no_answer', 'repeated_question'].includes(String(row.reason)));
   const compileRow = routeRows.find(row => row.purpose === 'compile') ?? null;
+  const compileRows = routeRows.filter(row => row.purpose === 'compile');
+  const reads = own.filter(row => row.lane === 'run' && row.event === 'read').map(row => ({scene: row.scene ?? null, prescreen: object(row.prescreen).status ?? null,
+    materials: object(row.prescreen).materials ?? 0, jev_calls: object(row.prescreen).jev_calls ?? 0, ms: object(row.prescreen).ms ?? null}));
   const selections = routeRows.filter(row => (row.purpose === 'compile' || row.purpose === 'route') && array(row.selected).length)
     .map(row => ({by: String(row.purpose), keys: array(row.selected).map(String)}));
   const summary: ProductRunSummary = {run, fixture: name, admission, keeper: live ? `live ${liveProvider}/${liveModel}` : 'replay', thinking, arm, latency, seed: options.seed ?? null, wall_ms: wall, budget: budgetRow,
-    compile: options.compile ?? 'on', compile_row: compileRow, selections,
+    compile: options.compile ?? 'on', compile_row: compileRow, selections, compile_rows: compileRows, prescreen: options.prescreen ?? 'on', reads,
     status: end?.status ?? null, reason: end?.reason ?? null, model_calls: modelCalls,
     steps: stepCounts, llm_steps: llmPurposes.length, llm_purposes: llmPurposes, jev_calls: jevCalls, route_rows: routeRows.length,
     calls: calls.map(call => ({tool: call.tool, origin: call.origin, ok: call.ok, error: call.error, input: call.input,
@@ -465,18 +476,20 @@ export async function main(argv: string[]): Promise<void> {
   const model = argv.includes('--model') ? arg('--model', '') : undefined;
   const seed = argv.includes('--seed') ? arg('--seed', '') : undefined;
   const compile = arg('--compile', 'on') as 'on' | 'off';
+  const prescreen = arg('--prescreen', 'on') as 'on' | 'off';
   const then = argv.flatMap((value, index) => value === '--then' ? [argv[index + 1]] : []);
   const outDir = arg('--out', join(REPO, 'experiments/single-loop-routing/results', `${new Date().toISOString().replace(/[:.]/g, '-')}-product-${name.split('/').filter(Boolean).at(-1)}-${admission}${keeper === 'live' ? `-live-${thinking ?? 'low'}` : ''}`));
   const summaries: ProductRunSummary[] = [];
   for (let run = 1; run <= runs; run++) {
-    const summary = await productReplayOnce(name, run, outDir, admission, {keeper, arm, latency, compile, ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {}), ...(seed ? {seed} : {})});
+    const summary = await productReplayOnce(name, run, outDir, admission, {keeper, arm, latency, compile, prescreen, ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {}), ...(seed ? {seed} : {})});
     summaries.push(summary);
     console.log(JSON.stringify({run, fixture: name, admission, keeper: summary.keeper, thinking: summary.thinking, arm, latency, seed: summary.seed, wall_ms: summary.wall_ms,
       budget: summary.budget ? {elapsed_at_compose: summary.budget.elapsed_at_compose, over: summary.budget.over_budget, deferred: array(summary.budget.deferred_by_budget).map((value: Row) => value.key)} : null,
       model_calls: summary.model_calls.map(call => `${call.purpose ?? '?'} ${call.ms ?? '?'}ms in ${call.input}+${call.cache_read}c out ${call.output}/r${call.reasoning ?? '?'} [${call.tools.join(',')}]`), status: summary.status, reason: summary.reason, steps: summary.steps,
-      llm_steps: summary.llm_steps, llm_purposes: summary.llm_purposes, jev_calls: summary.jev_calls, route_rows: summary.route_rows, compile,
-      features: summary.compile_row ? Object.fromEntries(Object.entries(object(summary.compile_row.features)).map(([family, value]: [string, any]) =>
-        [family, `${value.row ?? value.choice}${value.confidence !== null ? ` ${value.confidence}` : ''}${value.cleared ? '' : ' (not cleared)'}`])) : null,
+      llm_steps: summary.llm_steps, llm_purposes: summary.llm_purposes, jev_calls: summary.jev_calls, route_rows: summary.route_rows, compile, prescreen,
+      reads: summary.reads.map(row => `${row.scene}:${row.prescreen}/${row.materials}m/${row.jev_calls}j`),
+      features: summary.compile_rows.map(compiled => Object.fromEntries(Object.entries(object(compiled.features)).map(([family, value]: [string, any]) =>
+        [family, `${value.row ?? value.choice}${value.confidence !== null ? ` ${value.confidence}` : ''}${value.cleared ? '' : ' (not cleared)'}`]))),
       selections: summary.selections.map(entry => `${entry.by}:${entry.keys.join('+')}`),
       executed: summary.calls.map(call => `${call.origin === 'policy' ? 'H' : 'M'}:${call.tool}${call.ok ? '' : `!${call.error}`}${call.obligation ? `[${call.obligation.handle}:${call.obligation.settled ? 'settled' : 'open'}]` : ''}`),
       match: summary.match.map(row => `${row.baseline}: ${row.matched === null ? 'n/a' : row.matched ? `yes(${row.origin})` : 'NO'}`),

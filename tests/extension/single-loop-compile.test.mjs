@@ -13,14 +13,20 @@
  *   distribution and the predicates that fired; the selected step carries `basis.compile`.
  */
 import { strict as assert } from "node:assert";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { createRealCampaign } from "./harness.mjs";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { runDriver } from "./pi-agent-core.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
-import { COMPILE_FAMILY, NONE, UNCLEAR, compileBatch, compileReaches, interpretCompile } from "../../runtime/jev/route-compile.ts";
+import { COMPILE_FAMILY, NONE, UNCLEAR, compileBatch, compileOnly, compileReaches, interpretCompile } from "../../runtime/jev/route-compile.ts";
 import { bindRecords, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
-import { ROUTE_FAMILY, compileDue, createStepPolicy, initialView, next, routeBatch, settleCompile, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
+import { ROUTE_FAMILY, compileDue, createStepPolicy, initialView, interpretRoute, next, routeBatch, settleCompile, settleExecute, settleInfer, settleRead, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
 
 const scope = { owner: "campaign:test", campaign: "test", worldline: "main", loop: 0, audience: "keeper" };
 const context = { scene: "office", clock: null, present: ["史蒂文·诺特"], receipts: [] };
@@ -127,7 +133,7 @@ test("§135.30: a compile that selects is the first fan-out: the move runs next,
 	assert.ok(view.candidates.some((value) => value.key === "apply:clue:keys"), "a clue no predicate reads falls through");
 	assert.deepEqual([row.detail.selected, row.detail.decided, row.jev_calls], [["apply:move:morgue"], ["apply:move:library"], 1]);
 	assert.equal(view.budget.jevCalls, 1, "one Jev call spent");
-	// Once per run: the compile is spent.
+	// Not asked again over the same candidates (§135.30 addendum: only a candidate no compile of the run was asked over owes one).
 	view.pending = [];
 	assert.equal(compileDue(view), false);
 	assert.deepEqual([next(view).kind, next(view).purpose], ["decide", "route"]);
@@ -218,12 +224,110 @@ test("§135.30: nothing a predicate can reach, no compile; the rows alone never 
 	const { candidates } = built(office());
 	assert.equal(next(initialView({ runId: "r", rawInput: INPUT, context, candidates, readFirst: false })).purpose, "route");
 	assert.equal(next(initialView({ runId: "r", rawInput: INPUT, context, candidates, rows: compileRows(office()), readFirst: false, compile: false })).purpose, "route");
-	// After a route question the compile is not asked, even when a later read brings rows it could reach.
+	// §135.30 addendum (2026-09-24): a route question asked earlier in the run no longer rules the compile out -- a later
+	// read that brings rows reaching a candidate no compile was asked over owes one before the next route.
 	const late = initialView({ runId: "r", rawInput: INPUT, context, candidates, readFirst: false });
 	const route = next(late), step = startStep(late, route);
 	settleRoute(late, step, routeBatch(late, scope, []).batch, routeBatch(late, scope, []).offered, answer({ exit: ["ask_llm", 0.9] }), 5, 0.6);
 	late.rows = compileRows(office()); late.pending = [];
-	assert.equal(compileDue(late), false);
+	assert.equal(compileDue(late), true);
+	assert.deepEqual([next(late).kind, next(late).purpose], ["decide", "compile"]);
+	// Switched off for the run, never.
+	const off = initialView({ runId: "r", rawInput: INPUT, context, candidates, rows: compileRows(office()), readFirst: false, compile: false });
+	assert.equal(compileDue(off), false);
+});
+
+/** The emitted kernel over its JSONL RPC, one process per request list, on a prepared workspace; returns results by index. */
+const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+function kernelRun(workspace, campaign, requests) {
+	const input = requests.map(([method, params = {}], index) => JSON.stringify({ id: String(index), method, params: { campaign, ...params } })).join("\n");
+	const run = spawnSync(process.execPath, [join(REPO, "build/kernel/rpc.mjs"), "--workspace", workspace, "--content", join(REPO, "content")], { cwd: REPO, input: `${input}\n`, encoding: "utf8" });
+	const frames = run.stdout.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line)).filter((frame) => !frame.progress);
+	for (const frame of frames) if (!frame.ok) throw new Error(`kernel step ${frame.id} (${requests[Number(frame.id)][0]}) failed: ${JSON.stringify(frame.error)}`);
+	return frames.sort((a, b) => Number(a.id) - Number(b.id)).map((frame) => frame.result);
+}
+const kernelReads = (workspace, campaign) => {
+	const [capsule, applyOptions, resolveOptions] = kernelRun(workspace, campaign, [["table.capsule"], ["table.apply.options"], ["table.resolve.options"]]);
+	return { capsule, applyOptions, resolveOptions };
+};
+
+test("§135.30 addendum (live gate #4, turn 1): an exit the Keeper's clue unlocks after the run's first route gets the compile before the next route", (t) => {
+	// The state of gate #4's turn 1 on the emitted kernel: the haunting's opening office, the commission's clues not yet
+	// revealed, so every research exit is gated on `knott-research-leads` (`unlock_when.met: false`) and the builder issues
+	// no move. The first route runs without a compile (nothing a predicate can select); the Keeper reveals the clue; the
+	// fresh read issues the exits; the compile is due before the next route. Before the addendum it was never asked.
+	const workspace = mkdtempSync(join(tmpdir(), "sl13b-gate4-"));
+	t.after(() => rmSync(workspace, { recursive: true, force: true }));
+	const campaign = "gate4";
+	createRealCampaign(workspace, campaign);
+	const words = "我接。先去《环球报》剪报室，翻科比特宅这些年的旧报道。";
+	const [, opened] = kernelRun(workspace, campaign, [["table.open"], ["table.player_input", { text: words }]]);
+	const first = kernelReads(workspace, campaign), firstRows = compileRows(first), firstCandidates = buildCandidates(first, words);
+	const scene = { scene: first.capsule.where?.scene ?? null, clock: null, present: [], receipts: [] };
+	assert.ok(firstRows.destination.some((row) => row.id === "newspaper-morgue"), "the morgue is a destination row (withheld exits included)");
+	assert.ok(!firstCandidates.some((candidate) => candidate.family === "move"), "no move is issued: the exits wait on the commission's clue");
+	const view = initialView({ runId: "r", rawInput: words, context: scene, candidates: [], readFirst: false });
+	settleRead(view, 1, { materials: [], summary: {} }, { context: scene, candidates: firstCandidates, rows: firstRows }, 0);
+	const route = next(view);
+	assert.deepEqual([route.kind, route.purpose], ["decide", "route"], "nothing a predicate can select: the route, as at the table");
+	const { batch, offered } = routeBatch(view, scope, []);
+	settleRoute(view, startStep(view, route), batch, offered, answer({ exit: ["ask_llm", 0.83] }), 5, 0.6);
+	const adjudicate = next(view);
+	settleInfer(view, startStep(view, adjudicate), adjudicate, { items: [], detail: { proposals: ["apply"] } }, 0, 0);
+	// The Keeper's write (its tool call, run by the driver and folded as a model-origin execute): the commission's clue.
+	const effects = [{ kind: "clue", clue: "knott-research-leads", how: "诺特列出该去查的地方。", label: "查档的路" }];
+	kernelRun(workspace, campaign, [["table.apply", { call_id: `t${opened.turn}-c1`, effects }]]);
+	const second = kernelReads(workspace, campaign), secondCandidates = buildCandidates(second, words);
+	assert.ok(secondCandidates.some((candidate) => candidate.key === "apply:move:newspaper-morgue"), "the clue unlocked the morgue exit");
+	settleExecute(view, ++view.budget.steps, { kind: "direct", purpose: "execute", call: { method: "apply", params: { effects }, label: "apply" } },
+		{ ok: true, summary: {} }, { context: scene, candidates: secondCandidates, rows: compileRows(second) }, 0);
+	const request = next(view);
+	assert.deepEqual([request.kind, request.purpose], ["decide", "compile"], "the compile runs before the next route");
+	const question = compileBatch(view, scope, [], []);
+	const destination = question.questions.find((value) => value.key === "destination");
+	const morgue = Object.entries(destination.criteria).find(([, value]) => value?.handle === "newspaper-morgue")[0];
+	settleCompile(view, startStep(view, request), question, answer({ destination: [morgue, 0.99] }), 5, 0.6);
+	assert.equal(next(view).item?.candidate?.key, "apply:move:newspaper-morgue", "the compile selects the move");
+});
+
+test("§135.30 addendum (owner, 2026-09-24): the route's seeks never selects an obligation check or a stated meeting; its answer is recorded and the candidate is the Keeper's", () => {
+	const reads = morgue();
+	const { candidates } = built(reads);
+	const check = candidates.find((candidate) => candidate.family === "obligation_check");
+	assert.equal(compileOnly(check), true, "an obligation check is the compile's alone");
+	assert.equal(compileOnly(candidates.find((candidate) => candidate.key === "apply:clue:cutoff")), false, "a clue keeps the route's need question");
+	const meetingReads = morgue();
+	meetingReads.applyOptions.obligations[0] = { handle: "archivist", name: "The archivist", who: "Ruth", state: "open", trigger: { kind: "attempt", guards: { clues: ["cutoff"] } },
+		next: { kind: "meet", person: "Ruth" } };
+	const meeting = buildCandidates(meetingReads, INPUT).find((candidate) => candidate.clerk === "stated_obligation");
+	assert.equal(compileOnly(meeting), true, "a stated meeting is the compile's alone");
+	for (const candidate of [check, meeting]) {
+		const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [candidate], readFirst: false });
+		const request = next(view);
+		assert.equal(request.purpose, "route", "no rows: no compile, the route asks");
+		const { batch, offered } = routeBatch(view, scope, []);
+		assert.ok(batch.questions[0].criteria.seeks, "the fact question is still asked");
+		const result = answer({ need_1: ["seeks", 0.95], exit: ["continue", 0.9] });
+		assert.deepEqual(interpretRoute(view, offered, result, 0.6).selected, [], `${candidate.family}: seeks at 0.95 selects nothing`);
+		const row = settleRoute(view, startStep(view, request), batch, offered, result, 5, 0.6);
+		assert.equal(row.detail.answers.need_1.choice, "seeks", "the answer is recorded");
+		assert.ok(view.consumed.includes(candidate.key) && !view.candidates.length, "the Keeper's for the rest of the run");
+		assert.ok(!view.pending.some((item) => item.candidate?.key === candidate.key || item.candidate?.then === candidate.key), "nothing queued for the clerk");
+	}
+	// The now/later question of an obligation that guards nothing selects nothing either.
+	const bare = morgue();
+	bare.applyOptions.obligations[0].trigger = { kind: "attempt", guards: {} };
+	const plain = buildCandidates(bare, INPUT).find((candidate) => candidate.family === "obligation_check");
+	assert.equal(plain.routeFact, undefined);
+	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [plain], readFirst: false });
+	const nowResult = answer({ need_1: ["now", 0.95], exit: ["continue", 0.9] });
+	assert.deepEqual(interpretRoute(view, [plain], nowResult, 0.6).selected, []);
+	settleRoute(view, startStep(view, next(view)), routeBatch(view, scope, []).batch, [plain], nowResult, 5, 0.6);
+	assert.ok(view.consumed.includes(plain.key), "consumed after the route, like a fact-question candidate");
+	// A move keeps the route's need question.
+	const office_ = built(office()).candidates.find((candidate) => candidate.key === "apply:move:morgue");
+	const moved = initialView({ runId: "r", rawInput: INPUT, context, candidates: [office_], readFirst: false });
+	assert.deepEqual(interpretRoute(moved, [office_], answer({ need_1: ["now", 0.95], exit: ["continue", 0.9] }), 0.6).selected, ["apply:move:morgue"]);
 });
 
 /** One run on the vendored driver with stub ports; `compile` switches the typed-feature compile. Returns the decide log. */
@@ -294,6 +398,8 @@ test("§135.30 at the engine: the compile row carries each feature's distributio
 	await runDriver({ input: { runId: "run-1", inputRevision: "rev", rawInput: INPUT, scopeId: "root" }, policy: plan.policy, ports: plan.ports, engine: modelEngine,
 		emit: () => {}, signal: new AbortController().signal, maxSteps: 30 });
 	assert.equal(families[0], COMPILE_FAMILY, "the compile is the run's first Jev question");
+	// §135.6 (2026-09-24): a read without the prescreen says why -- here the preselect setting is off, as at live gate #4.
+	assert.deepEqual(rows.find((entry) => entry.lane === "run" && entry.event === "read")?.prescreen, { status: "not_run", reason: "preselect_off" });
 	const row = rows.find((entry) => entry.lane === "route" && entry.purpose === "compile");
 	assert.ok(row, "one compile row");
 	assert.deepEqual([row.features.destination.row, row.features.destination.cleared, row.features.destination.probabilities.destination_1], ["morgue", true, 0.91]);

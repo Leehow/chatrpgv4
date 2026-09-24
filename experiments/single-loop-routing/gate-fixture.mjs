@@ -11,7 +11,7 @@
  * tarball). baseline.json is the recorded Keeper of that turn, read from the play driver's RPC event log: every assistant
  * message's tool calls in order, whether each model-origin tool call was taken (`tool_execution_end`), the turn's §32
  * admission rows from the campaign telemetry, and the receipts of the turn record. A clerk (policy-origin) write the live
- * run made is prepended to the Keeper's first recorded message and marked `clerk_live: true`: the replayed Keeper does it
+ * run made is put at the head of the first recorded Keeper message sent after it and marked `clerk_live: true`: the replayed Keeper does it
  * only when the replay's own clerk did not (the replay drops a recorded call the run already carried out), so a run whose
  * clerk misses it still reaches the live state, with the extra model step counted.
  */
@@ -31,9 +31,14 @@ const git = (...args) => {
   if (run.status !== 0) throw new Error(`git ${args.join(' ')}: ${run.stderr}`);
   return run.stdout;
 };
-/** The commit whose subject is `turn <n>:` (the kernel's turn commit), by the sidecar repository's own log. */
+/**
+ * The commit whose subject is `turn <n>:` (the kernel's turn commit), by the sidecar repository's own log. A turn the
+ * kernel did not commit on its own (gate #4's turn 1 landed inside turn 2's commit) is the oldest commit whose tree holds
+ * its record: the state before it is then the previous turn's commit, and its record is read from where it first appears.
+ */
 const log = git('log', '--format=%h %s').split('\n').filter(Boolean).map(line => ({sha: line.slice(0, line.indexOf(' ')), subject: line.slice(line.indexOf(' ') + 1)}));
-const commitOf = turn => log.find(entry => entry.subject.startsWith(`turn ${turn}:`))?.sha;
+const holds = (sha, turn) => spawnSync('git', ['--git-dir', repo, 'cat-file', '-e', `${sha}:turns/${String(turn).padStart(4, '0')}.json`]).status === 0;
+const commitOf = turn => log.find(entry => entry.subject.startsWith(`turn ${turn}:`))?.sha ?? [...log].reverse().find(entry => holds(entry.sha, turn))?.sha;
 const campaignRecord = JSON.parse(readFileSync(join(coc, 'campaigns', campaign, 'campaign.json'), 'utf8'));
 const module = campaignRecord.module ?? campaignRecord.module_id;
 if (!module) throw new Error('campaign.json names no module');
@@ -73,16 +78,21 @@ for (const turn of turns) {
     at: new Date(event.message.timestamp).toISOString(), provider_ms: providerCalls[index]?.ms ?? null, stop_reason: event.message.stopReason, model: event.message.model ?? null,
     usage: {input: event.message.usage?.input ?? null, output: event.message.usage?.output ?? null, cache_read: event.message.usage?.cacheRead ?? null},
     tool_calls: (event.message.content ?? []).filter(block => block.type === 'toolCall').map(block => ({name: block.name, arguments: block.arguments, id: block.id}))}));
-  // The model-origin tool rows, in order, with whether each was taken.
-  const tools = calls.flatMap(call => call.tool_calls.map(toolCall => ({tool: toolCall.name, call_id: toolCall.id, ok: results.get(toolCall.id)?.isError !== true})));
-  // The clerk's writes of the live run (policy origin), from the campaign telemetry's tool rows, in their order.
+  // The clerk's writes of the live run (policy origin), from the campaign telemetry's tool rows, in their order. Each is
+  // put into the first recorded Keeper message that the live run sent after it (the replayed Keeper does it only when the
+  // replay's own clerk did not): gate #3's turn-3 move came before the Keeper's first message, gate #4's turn-1 move after
+  // it (the Keeper's clue unlocked that exit), and a move put before the clue it waited on replays a different turn.
   const clerk = telemetry.filter(row => row.turn === turn && row.origin === 'policy' && row.tool && row.call_id && row.ok !== false)
     .map(row => ({row, basis: row.basis ?? null})).filter(({basis}) => basis?.read === 'table.apply.options' && basis.row?.effect?.kind === 'move')
-    .map(({row, basis}) => ({name: 'apply', arguments: {effects: [{kind: 'move', to: basis.row.effect.to}]}, id: `clerk-live:${row.call_id}`, clerk_live: true}));
-  if (clerk.length && calls.length) {
-    calls[0].tool_calls.unshift(...clerk);
-    tools.unshift(...clerk.map(item => ({tool: 'apply', call_id: item.id, ok: true, clerk_live: true})));
+    .map(({row, basis}) => ({at: Date.parse(row.started_at ?? ''), item: {name: 'apply', arguments: {effects: [{kind: 'move', to: basis.row.effect.to}]}, id: `clerk-live:${row.call_id}`, clerk_live: true}}));
+  for (const {at, item} of [...clerk].reverse()) {
+    if (!calls.length) break;
+    const after = calls.findIndex(call => Number.isFinite(at) && Date.parse(call.at) > at);
+    calls[after < 0 ? calls.length - 1 : after].tool_calls.unshift(item);
   }
+  // The model-origin tool rows, in message order, with whether each was taken (a clerk write is marked, and was).
+  const tools = calls.flatMap(call => call.tool_calls.map(toolCall => toolCall.clerk_live ? {tool: toolCall.name, call_id: toolCall.id, ok: true, clerk_live: true}
+    : {tool: toolCall.name, call_id: toolCall.id, ok: results.get(toolCall.id)?.isError !== true}));
   const admissions = telemetry.filter(row => row.lane === 'admission' && row.turn === turn).map(row => ({verb: row.verb, verdict: row.verdict ?? null, ms: row.ms ?? null, origin: row.origin ?? 'model'}));
   // The live rows: what the live kernel took (a refused call is no row), in the shape `matchBaseline` compares.
   const actions = [];
@@ -97,7 +107,7 @@ for (const turn of turns) {
   if (calls.at(-1)?.stop_reason === 'stop' && !calls.at(-1).tool_calls.length) actions.push({verb: 'narrate', implicit: true});
   const commitBefore = commitOf(turn - 1), commitAfter = commitOf(turn);
   const baseline = {source: {events: `${playtest}/events.jsonl`, record: `.coc/repos/${campaign}.git ${commitAfter}:turns/${String(turn).padStart(4, '0')}.json`,
-    note: 'Recorded Keeper of the live gate; a live clerk write is prepended to the first message, marked clerk_live.'},
+    note: 'Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live.'},
   keeper_model: calls[0]?.model ?? null, player_text_recorded: input, llm_calls: calls.length, llm_ms_total: calls.reduce((sum, call) => sum + (call.provider_ms ?? 0), 0),
   calls, tools, admissions, actions,
   receipts: record.receipts.map(receipt => ({id: receipt.id, kind: receipt.kind, ...(receipt.kind === 'move' ? {to: receipt.to} : {}),

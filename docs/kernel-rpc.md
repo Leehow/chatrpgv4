@@ -17205,6 +17205,15 @@ itself on `coc:loop-engine` (`{prescreen: "run"}`), and the read hands its packe
 prescreen slot of the Keeper's request, under the same byte rules and the same `delivered` telemetry as before.
 NPC advice preparation is unchanged.
 
+*When the read runs without it (2026-09-24, after live gate #4).* The prescreen runs only when the engine has a Jev
+decision port, the Jev preselect setting is on (`ext.jev.preselectEnabled`; in source mode `PI_COC_JEV_PRESELECT=1`,
+§124.10), the read bound the run, and the allowance is not spent. Live gate #4 was launched from source mode without
+`PI_COC_JEV_PRESELECT`, so every read of that table ran without material (`prescreen: {status: "not_run"}`) while the
+replays, which set it, carried 10 materials on the same state; the owner's App has the setting on (the SL-00
+inventory). The read row's `prescreen` now says which condition failed: `{status: "not_run", reason: "no_jev" |
+"preselect_off" | "no_binding" | "allowance_spent" | "no_bridge"}`. A live gate of this engine launches with the
+setting as the App has it.
+
 ### 135.7 Telemetry
 
 - `lane: "route"`, one row per Jev answer. It carries `purpose` (`route`, `bind` or `bind-ordinary`), `run`,
@@ -17651,7 +17660,9 @@ holds it; `buildCandidates` calls it. Nothing is read from `on_enter`, a module'
   a meeting-only obligation's stated meeting) is not asked "now / later": it carries `routeFact`, and its `need_N`
   question is "is the player's declared action after any of: <what the obligation guards>?" with the answers `seeks` /
   `not` / `unknown`. The guarded things are named with the clues' summaries, the exits' names and the people; an
-  `after` obligation (the archivist) names what the obligation it waits on guards. `seeks` above the gates selects it,
+  `after` obligation (the archivist) names what the obligation it waits on guards. `seeks` above the gates selects it
+  (amended 2026-09-24 by §135.30.1: the answer is recorded and selects nothing; only the compile's predicates select an
+  obligation step),
   and the whole open sequence is then structure: the carried meeting directly (the book's name), the check bound and
   rolled with its claim, then a route on the new state. `not`, `unknown` or an answer below the gates leaves the
   obligation a Keeper-only row for the rest of the run: its candidate is consumed there and not asked again (no
@@ -17933,7 +17944,8 @@ the sentence names (a place, a person, a thing sought, an act) is a parameter, a
 
 **The step.** After the run's first read and before its first route question, the policy asks one Jev question,
 `decide(compile)` (family `single-loop-compile`, version `1`), that reads the player's declaration into closed features.
-It is asked once per run, only before the first route, and only when the read's candidates include at least one a
+It is asked once per run, only before the first route (amended 2026-09-24 by §135.30.1: before any route, whenever the
+read issues a reachable candidate no compile of the run was asked over), and only when the read's candidates include at least one a
 predicate below can select (a move, a scene-obligation candidate, the investigator's attack in a running fight);
 otherwise there is nothing for it to select and the route runs exactly as before. The existing guards apply unchanged
 (a spent Jev budget, no scope binding: no question). It is built in `runtime/jev/route-compile.ts` from the rows the
@@ -18012,6 +18024,54 @@ below the gate; a selecting compile replaces the first route (the next step is t
 the old run's); a decided candidate is consumed and an undecided one reaches the `need` question; the attack's target bound
 from the compile; the engine's compile row. The mutation record and the pre-registered replays of the gate #3 turns are
 in the SL-13 ticket's Comments and `experiments/single-loop-routing/RESULTS-20260923.md`.
+
+#### 135.30.1 Addendum (2026-09-24, after live gate #4; SL-13 follow-up): the compile runs whenever a new candidate is reachable, and it alone selects an obligation step
+
+**Evidence** (live gate #4, `gate4-haunting-0214`, the `lane: "route"` rows of its `telemetry.jsonl`, turn 1, "我接。先去《环球报》剪报
+室，翻科比特宅这些年的旧报道。", run `run-01a0d20e-6088-7125-b1ab-0973c812e22e`). (a) The run had no compile row. At its first read the
+commission's clues were not yet revealed, so every research exit carried `unlock_when.met: false` (`clue_discovered:
+knott-research-leads`); the builder issues no move for such a row (§135.2), no offered candidate was one a predicate could
+select, and the first route (s2) ran without a compile, as specified. The Keeper then revealed the clue (s3/s4); the
+fresh read issued the exits, but the compile was owed only "before the first route question", so the move reached the
+route's `need` question alone (s5, now 0.88) and the morgue's obligation, after the clerk's move, its fact question alone
+(s8). (b) That fact question answered `seeks` 0.55 (probabilities 0.69 / not 0.26) for `resolve:obligation:globe-clippings-access`;
+the margin rule cleared it, the clerk staged Arty, bound the check (skill `unknown` 0.98 → the rules default) and
+executed it, and §32 admission refused it `not_authorized` ("Player chose only to go to the Globe morgue and read old
+Corbitt House reports; said nothing about Arty Wilmot or a social approach to him"). The refusal was right and cost about
+20 s: the refused clerk write 3.6 s, one Keeper adjudication 10.7 s, and the Keeper's own refused resolve 5.5 s.
+
+**When the compile runs** (replaces "once per run, only before the first route"). The compile is due before a route
+question whenever the run's current candidates include one a predicate can select (with the rows the read carried) that
+no compile of this run has been asked over. The policy keeps the keys each compile was asked over (`RunView.compiledOver`:
+the candidates a predicate could select at that compile); a read that issues a reachable candidate outside that set -- an
+exit the Keeper's own write unlocked, the gate of a scene the clerk just moved into, a session action -- owes one more
+compile before the next route. A candidate a compile already saw (selected, decided or fallen through) never owes another;
+`compile: false` (the SL-12 control arm) still switches it off for the run; the budget, the scope binding and Guard 2 (after
+a model step only a direct step or the finish) are unchanged. Every other rule of §135.30 stands: a compile reads every
+offered candidate (a move that fell through an earlier compile can be decided by a later one), a selecting compile's
+candidates are the run's pending steps and no route comes before them, the decided ones are consumed. The Jev calls of
+a run go up by one only on a run whose later read issues new reachable candidates (gate #4's turn 1: the unlocked exits,
+and then the morgue's gate after the clerk's move); such a run spent a route question on each of them before.
+
+**An obligation step is selected only by the compile** (owner ruling, 2026-09-24). An obligation check
+(`resolve:obligation:<handle>`, with or without its carried meeting) and a stated meeting (a meeting-only obligation's
+person candidate) are selected only by the compile's `obligation_check` and `stated_meeting` predicates (the `ask` feature
+on the obligation's demand, with the addressee guard; for the stated meeting, also the addressee on its person). The
+route's own question about them -- §135.26's fact question (`seeks` / `not` / `unknown`), or the `need` question of an
+obligation that guards nothing -- is still asked and its answer recorded on the route row, but it never selects them;
+after a complete route they are consumed for the run, whatever the answer, and stay the Keeper's (the capsule shows the
+obligation row as before; the Keeper may still resolve it with `action.obligation`). In code: the predicates carry
+`sole: true`, `compileOnly(candidate)` in `runtime/jev/route-compile.ts` names such a candidate, and `interpretRoute` in
+`runtime/jev/step-policy.ts` skips it. This amends §135.26's "`seeks` above the gates selects it".
+
+*Tests.* `tests/extension/single-loop-compile.test.mjs`: the gate #4 turn-1 state on the emitted kernel (the haunting's
+opening office with the commission's clue unrevealed: no move issued, the first route without a compile, the Keeper's
+clue, then the compile before the next route, selecting the move); the route's `seeks` at 0.95 selecting neither an
+obligation check nor a stated meeting, recorded and consumed; a compile due after a route when a later read brings a
+reachable candidate. `tests/extension/scene-obligation-candidates.test.mjs`: the clerk's obligation steps selected by the
+compile's ask; `seeks` at arrival without the compile's ask selecting nothing, recorded on the route row.
+`tests/extension/single-loop-binding.test.mjs` and `single-loop-domain-policy.test.mjs` follow (the check selected by the
+compile; the morgue's read owing a compile). The mutation record and the replays are in the SL-13 ticket's Comments.
 
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
 

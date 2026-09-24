@@ -23,6 +23,8 @@ import { buildCandidates, keeperCall } from "../../runtime/jev/candidates.ts";
 import { highestOffered, obligationCandidates } from "../../runtime/jev/obligation-candidates.ts";
 import { composeSentence } from "../../runtime/jev/composed-arguments.ts";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { compileRows } from "../../runtime/jev/compile-rows.ts";
+import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import {
 	BIND_FAMILY, CLERK_AUTHORITY, createStepPolicy, initialView, interpretBind, itemsFor, next, settleBind, settleExecute, settleOrdinaryBind, settleRead, startStep,
 } from "../../runtime/jev/step-policy.ts";
@@ -224,14 +226,14 @@ test("§135.28 structure: no transition of the policy turns a clerk candidate in
 });
 
 /** One run of the product policy on the vendored driver with stub ports; `infer` is the fake model engine. */
-async function drive({ candidates, decide, infer, budget = {} }) {
+async function drive({ candidates, decide, infer, budget = {}, rows }) {
 	const log = [], events = [], inferred = [];
 	const policy = createStepPolicy({ context, scope, candidates: [], budget });
 	const toolResult = (proposal) => ({ role: "toolResult", toolCallId: proposal.toolCall.id, toolName: proposal.operation, content: [{ type: "text", text: "ok" }], isError: false, timestamp: 0 });
 	let remaining = candidates;
 	const ports = {
 		clock: { now: () => 0 },
-		read: { async read() { log.push("read"); return { status: "ok", artifact: { kind: "read", read: { materials: [], summary: {} }, fresh: { context, candidates: remaining } } }; } },
+		read: { async read() { log.push("read"); return { status: "ok", artifact: { kind: "read", read: { materials: [], summary: {} }, fresh: { context, candidates: remaining, ...(rows ? { rows } : {}) } } }; } },
 		decision: { async decide(request) { log.push(`decide:${request.purpose}${request.question?.offline ? ":offline" : ""}`);
 			if (!request.question?.batch) return { status: "unavailable", artifact: { reason: "no_batch" } };
 			return { status: "ok", artifact: { kind: request.purpose, result: decide(request.question.batch) } }; } },
@@ -262,15 +264,22 @@ async function drive({ candidates, decide, infer, budget = {} }) {
 	return { log, events, inferred };
 }
 const prose = () => fauxAssistantMessage("The editor waves you through.", { stopReason: "stop" });
-/** Route: `seeks`/`now` for every candidate question, `finish` after; bind: `unknown` for everything. */
-const routeAll = (batch) => answer(Object.fromEntries(batch.questions.map((question) => [question.key,
-	[question.key === "exit" ? "finish" : question.criteria.seeks ? "seeks" : "now", 0.95]])));
+/**
+ * Compile (§135.30): the ask cleared on the obligation's demand (the row whose words carry `demand`), the addressee on
+ * nobody's side (`none` is a guard; left unclear here), the rest unclear. Route: `seeks`/`now` for every candidate question,
+ * `finish` after -- since the §135.30 addendum the `seeks` answer selects nothing, so the compile is what selects the check.
+ */
+const demandAlias = (question) => Object.entries(question.criteria).find(([, value]) => value && typeof value === "object" && "demand" in value)?.[0];
+const routeAll = (batch) => batch.family === COMPILE_FAMILY
+	? answer(Object.fromEntries(batch.questions.map((question) => [question.key, question.key === "ask" ? [demandAlias(question), 0.95] : ["unclear", 0.9]])))
+	: answer(Object.fromEntries(batch.questions.map((question) => [question.key,
+		[question.key === "exit" ? "finish" : question.criteria.seeks ? "seeks" : "now", 0.95]])));
 const unknownAll = (batch) => answer(Object.fromEntries(batch.questions.map((question) => [question.key, ["unknown", 0.8]])));
 
 test("§135.28 on the driver: Jev unknown on every closed parameter -- the clerk rolls the defaulted approach, the fake infer(bind) port is never asked", async () => {
 	const check = checkOf(morgue());
 	// The intent is Jev's alone: give it an answer, as SO-04's replay did (social 0.84), and nothing else.
-	const { log, inferred } = await drive({ candidates: [check],
+	const { log, inferred } = await drive({ candidates: [check], rows: compileRows(morgue()),
 		decide: (batch) => batch.family === BIND_FAMILY ? answer({ skill: ["unknown", 0.8], bonus: ["unknown", 0.8], penalty: ["unknown", 0.8], intent: ["social", 0.84] }) : routeAll(batch),
 		infer: prose });
 	const clerk = log.find((entry) => entry.clerk === check.key);
@@ -283,14 +292,14 @@ test("§135.28 on the driver: Jev unknown on every closed parameter -- the clerk
 
 test("§135.28 on the driver: a clerk candidate without a default goes to the Keeper as an adjudication; a spent Jev budget binds by default with no Jev question", async () => {
 	const check = checkOf(morgue());
-	const unknown = await drive({ candidates: [check], decide: (batch) => batch.family === BIND_FAMILY ? unknownAll(batch) : routeAll(batch), infer: prose });
+	const unknown = await drive({ candidates: [check], rows: compileRows(morgue()), decide: (batch) => batch.family === BIND_FAMILY ? unknownAll(batch) : routeAll(batch), infer: prose });
 	assert.ok(!unknown.log.some((entry) => entry.clerk), "the intent has no default: nothing executed");
 	assert.deepEqual(unknown.inferred, ["adjudicate"], "the Keeper's turn, never a bind");
-	// Past the Jev budget (spent by the route question), the bind is offline: no Jev call; the intent has no default, so
-	// the Keeper; a candidate whose every closed parameter has a default is bound by the rules default alone.
+	// Past the Jev budget (spent by the compile that selected it), the bind is offline: no Jev call; the intent has no
+	// default, so the Keeper; a candidate whose every closed parameter has a default is bound by the rules default alone.
 	const defaulted = { ...check, key: "resolve:obligation:all-defaults", unbound: check.unbound.filter((value) => value.name !== "intent"), bound: { ...check.bound, intent: "social" } };
-	const spent = await drive({ candidates: [defaulted], budget: { maxJevCalls: 1 }, decide: routeAll, infer: prose });
-	assert.deepEqual(spent.log.filter((entry) => typeof entry === "string" && entry.startsWith("decide")), ["decide:route", "decide:bind:offline"], "no Jev question for the bind");
+	const spent = await drive({ candidates: [defaulted], rows: compileRows(morgue()), budget: { maxJevCalls: 1 }, decide: routeAll, infer: prose });
+	assert.deepEqual(spent.log.filter((entry) => typeof entry === "string" && entry.startsWith("decide")), ["decide:compile", "decide:bind:offline"], "no Jev question for the bind");
 	const clerk = spent.log.find((entry) => entry.clerk);
 	assert.deepEqual([clerk?.args.action.skill, clerk?.basis.binding], ["Persuade", "rule-default"]);
 	assert.ok(!spent.inferred.includes("bind"));

@@ -111,7 +111,9 @@ function guardedFor(reads: ObligationReads, row: Row): {words: string[]; detail:
 /**
  * The route question of an obligation candidate (owner ruling 2026-09-23): not "do this step now or later" -- the order
  * of steps is the Keeper's craft -- but a fact about the input Jev can judge: is the declaration after what the
- * obligation guards? `seeks` selects it; `not`/`unknown` leave it to the Keeper for the run (§135.26).
+ * obligation guards? Since the owner's ruling of 2026-09-24 (§135.30 addendum) its answer is recorded and selects
+ * nothing: an obligation check or a stated meeting is selected only by the compile's predicates, and after the route it
+ * is the Keeper's for the run whatever it answered (§135.26).
  */
 function routeFact(reads: ObligationReads, row: Row): Candidate['routeFact'] | undefined {
   const things = guardedThings(reads, row);
