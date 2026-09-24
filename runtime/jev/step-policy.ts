@@ -131,7 +131,11 @@ export type Exit = typeof EXITS[number];
 export const DEFAULT_CONFIDENCE_GATE = 0.6;
 /** The run's wall-time budget from its start (contract §135.25, `PI_COC_TURN_BUDGET_MS`): past it the next model step is the compose. */
 export const DEFAULT_TURN_BUDGET_MS = 45_000;
-/** The product's per-input preparation allowance (contract §124.10), reused as the per-run Jev budget. */
+/**
+ * The run's decision budget: its Jev decisions (route, compile, bind, the ordinary binder, the prototype's locate) may
+ * spend 24 calls and the preparation allowance's milliseconds (contract §124.10). A read's prescreen is not a decision and
+ * spends none of it (§135.6, SL-22 addendum): it has its own allowance.
+ */
 export const DEFAULT_BUDGET = {maxJevCalls: PREPARATION_DECISION_BUDGET.actions, maxJevMs: PRESELECT_ALLOWANCE_DEFAULT_MS, maxSteps: 40, maxRunMs: DEFAULT_TURN_BUDGET_MS};
 
 export interface Material {key: string; label: string; kind: string; preview: string}
@@ -217,6 +221,9 @@ export type StepRequest =
 
 export const exhausted = (budget: Budget): boolean =>
   budget.jevCalls >= budget.maxJevCalls || budget.jevMs >= budget.maxJevMs || budget.steps >= budget.maxSteps;
+/** The run has had its one compose for a spent decision budget (§135.25, SL-22 addendum). */
+export const budgetComposed = (view: Pick<RunView, 'observations'>): boolean =>
+  view.observations.some(value => value.kind === 'infer' && value.purpose === 'compose' && value.reason === 'jev_budget');
 /** The run's time budget is spent (§135.25). */
 export const overRun = (budget: Budget): boolean => budget.runMs >= budget.maxRunMs;
 /**
@@ -265,7 +272,10 @@ export function next(view: RunView): StepRequest {
     if (head.purpose === 'bind' && head.candidate?.clerk) return {kind: 'decide', purpose: 'bind', item: head, offline: 'jev_budget'};
     return {kind: 'infer', purpose: head.purpose === 'bind' ? 'bind' : 'adjudicate', reason: 'jev_budget', item: head};
   }
-  if (exhausted(view.budget)) return {kind: 'infer', purpose: 'compose', reason: 'jev_budget'};
+  // §135.25 (SL-22 addendum): a spent decision budget composes once. After that compose the Keeper's own batches carry the
+  // run: the step after one is the Keeper going on with its turn, never another compose for the same spent budget.
+  if (exhausted(view.budget)) return budgetComposed(view) ? {kind: 'infer', purpose: 'adjudicate', reason: 'keeper_carries'}
+    : {kind: 'infer', purpose: 'compose', reason: 'jev_budget'};
   // §135.30: before a route question, one compile reads the declaration into typed features whenever the read offers a
   // candidate a predicate can select that no compile of this run was asked over (addendum 2026-09-24: not only before the
   // first route -- an exit the Keeper's write unlocked, or the gate of the scene the clerk moved into, gets one too).
@@ -715,13 +725,17 @@ function applyFresh(view: RunView, fresh: Fresh): void {
     view.pending.unshift(...itemsFor(candidate, 'forced'));
 }
 
-/** `bodies`: the issued candidates' bodies the read carried (§135.20); for the Keeper and the record, never the route question. */
+/**
+ * `bodies`: the issued candidates' bodies the read carried (§135.20); for the Keeper and the record, never the route question.
+ * `calls`/`ms`: what the read's prescreen spent, reported only (§135.6, SL-22 addendum: not the decision budget's).
+ */
 export interface ReadResult {materials: Material[]; located?: unknown; summary: Json; calls?: number; ms?: number; bodies?: import('./candidate-bodies.ts').CandidateBody[]}
 /** `rows`: the compile's feature rows from the same reads (§135.30); absent when the reader builds none. */
 export interface Fresh {context: TurnContext; candidates: Candidate[]; rows?: FeatureRows}
 export function settleRead(view: RunView, step: number, read: ReadResult, fresh: Fresh, ms: number): TelemetryRow {
-  // A read that folds Jev locate/qualification calls into itself still spends the run's Jev budget.
-  view.budget.jevCalls += read.calls ?? 0;view.budget.jevMs += read.ms ?? 0;view.located = true;
+  // The read's prescreen has its own allowance and spends none of the decision budget (§135.6, SL-22 addendum): its calls
+  // and time are reported on the read's own row and summary, never added to `jevCalls`/`jevMs`.
+  view.located = true;
   const known = new Set(view.materials.map(value => value.key));
   view.materials.push(...read.materials.filter(value => !known.has(value.key)));
   applyFresh(view, fresh);

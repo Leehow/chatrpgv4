@@ -170,5 +170,5 @@ test('the run\'s read row names the key and counts the calls a discarded prescre
   assert.equal(row.prescreen.key, 'scene');
   assert.ok(fallback.jev_calls > 0);
   assert.equal(row.prescreen.jev_calls, fallback.jev_calls, 'the read row counts what the discarded prescreen spent');
-  assert.equal(read.artifact.read.calls, fallback.jev_calls, 'and so does the run budget the read charges');
+  assert.equal(read.artifact.read.calls, fallback.jev_calls, 'and so does the read artifact (reported only: the decision budget does not charge a read, §135.6 SL-22)');
 });

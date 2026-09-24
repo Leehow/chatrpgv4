@@ -2,8 +2,9 @@
  * The product side of `PI_COC_LOOP_ENGINE=hybrid-v1`: the policy and the ports Pi's RunDriver (vendored
  * agent-core, ADR-0006) drives each player input with. Pi knows nothing of what is here. Contract §135.
  *
- * - policy: `createStepPolicy` over the prototype's `next` (runtime/jev/step-policy.ts); its Jev budget is the
- *   prescreen allowance (`readJevPreselectAllowanceMs`), which is now the run's;
+ * - policy: `createStepPolicy` over the prototype's `next` (runtime/jev/step-policy.ts); its Jev budget is for the
+ *   run's decisions (24 calls and the allowance's milliseconds). The prescreen has its own per-input allowance
+ *   (`readJevPreselectAllowanceMs`) and spends none of the decision budget (§135.6, SL-22 addendum);
  * - read: the run's first step and the step after every scene change. Read-only kernel reads (`table.capsule`,
  *   `table.status`, `table.apply.options`, `table.resolve.options`), the product prescreen
  *   (`prepareKeeperSupport`: semantic locate + bounded reads) run as a policy-origin read inside the run, and the
@@ -51,8 +52,8 @@ import { obligationClerkLine, obligationCrossing } from './obligation-candidates
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import { carriedSection, namedPeople, readCarriedViews } from './carried-views.ts';
 import {
-  CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, interpretRoute, overRun, ROUTE_FAMILY,
-  type BindRecord, type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
+  CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, interpretRoute, overRun, ROUTE_FAMILY,
+  type BindRecord, type Budget, type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
 } from './step-policy.ts';
 
 type Row = Record<string, any>;
@@ -245,6 +246,15 @@ interface RunState {
   /** §135.11: the turn-close steer the next model step carries (the kernel extension's own `coc-host` message). */
   steer?: Row;
   /**
+   * §135.6 (SL-22 addendum): the run's previous read, by scene, with the prescreen outcome it ran or reused (absent when it
+   * ran none): a read on the same scene reuses it. The prepared packet is kept without its issued bodies.
+   */
+  lastRead?: {scene: string; outcome?: {step: string; materials: Material[]; message?: Row}};
+  /** §135.6 (SL-22 addendum): what the run's prescreens spent, reported in the budget summary (never the decision budget's). */
+  prescreenSpent: {reads: number; jev_calls: number; ms: number};
+  /** §135.25 (SL-22 addendum): the policy's decision budget as of its latest step, for the budget summary. */
+  decision?: Budget;
+  /**
    * §135.31: the scene the run's first read found and the latest fresh read's; the fresh read's session view (`'read'`
    * when `table.resolve.options` failed while the capsule shows a session); the investigators, who are not people here.
    */
@@ -330,16 +340,24 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
                 sourceType: 'turn', selector: {kind: 'utf16', start: 0, end: run.rawInput.length}}};
             bindingArtifact = {scope: run.scope, readSet: run.readSet, intent: run.intent};
           }
-          // The product prescreen, inside the run: the first read and the read after a scene change. Its allowance is
-          // the run's Jev budget (§135.6), so a re-read gets what the earlier steps left.
-          const remaining = run.allowanceDeadline - Date.now();
+          // The product prescreen, inside the run: the first read and the read after a scene change. It has its own per-input
+          // allowance, which no decision spends (§135.6, SL-22 addendum): a re-read on a changed scene gets what the earlier
+          // reads left of it, never more; a re-read on the same scene reuses the previous read's outcome.
+          const remaining = run.allowanceDeadline - Date.now(), scene = table.context.scene;
+          const reuse = run.lastRead?.scene === scene ? run.lastRead.outcome : undefined;
           // Why a read ran without it (§135.6, 2026-09-24): live gate #4's rows said only `not_run`, and the cause -- the
           // preselect setting off in its launch -- had to be found by reading the launcher.
           const skipped = !jev ? 'no_jev' : !prescreenEnabled(options.env as NodeJS.ProcessEnv) ? 'preselect_off' : !table.binding ? 'no_binding'
             : remaining <= 0 ? 'allowance_spent' : !(bridge?.call && bridge.campaign) ? 'no_bridge' : undefined;
           let materials: Material[] = [], calls = 0, prescreen: Row = {status: 'not_run', reason: skipped ?? null}, packet: Row | undefined;
-          if (!skipped && jev && bridge?.call && bridge.campaign && table.binding) {
-            const events: Row[] = [];
+          let outcome: {step: string; materials: Material[]; message?: Row} | undefined;
+          if (reuse) {
+            // The same scene as the run's previous read: its prescreen's outcome again, at no Jev call and no time (a fallback's
+            // outcome is no material; a re-run would only spend the remainder again).
+            materials = reuse.materials; packet = reuse.message; outcome = reuse;
+            prescreen = {status: 'reused', from: reuse.step, jev_calls: 0, ms: 0, materials: materials.length};
+          } else if (!skipped && jev && bridge?.call && bridge.campaign && table.binding) {
+            const events: Row[] = [], prescreenBegan = Date.now();
             const message = await prepareKeeperSupport({call: (method, params) => bridge!.call!(method, params), campaign: bridge.campaign,
               binding: table.binding, capsule, signal: invocation.signal, decision: jev, env: options.env as NodeJS.ProcessEnv,
               record: event => { events.push(event); record({...event, run: run.runId, step: invocation.stepId}); },
@@ -352,13 +370,17 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             if (found.located.length) run.located = found.located;
             // What the read did, as the route question sees it under "done this turn": the prototype's read summary
             // (runs 11-13 decided the declared move with it), including the locate's own judgment of what is relevant.
+            const prescreenMs = Date.now() - prescreenBegan;
             prescreen = {status: message ? 'prepared' : text(events.find(event => event.event === 'fallback' || event.event === 'skipped')?.event) || 'none',
-              jev_calls: calls, ms: Date.now() - began, materials: materials.length, supplied: prepared?.supplied ?? null,
+              jev_calls: calls, ms: prescreenMs, allowance_ms: Math.max(0, Math.floor(remaining)), materials: materials.length, supplied: prepared?.supplied ?? null,
               stop_reason: prepared?.stop_reason ?? null, locate: prepared?.locate ?? null, located: found.located.length,
               fallback: fallback?.reason ?? null, ...(fallback?.key ? {key: fallback.key} : {}),
               ...(prepared?.binding_refresh ? {binding_refresh: prepared.binding_refresh} : {})};
             packet = message ? object(message) : undefined;
+            outcome = {step: invocation.stepId, materials, ...(packet ? {message: packet} : {})};
+            run.prescreenSpent.reads++; run.prescreenSpent.jev_calls += calls; run.prescreenSpent.ms += prescreenMs;
           }
+          run.lastRead = {scene, ...(outcome ? {outcome} : {})};
           // Candidates are built after the locate, so a located clue or handout is among them.
           const fresh = {context: table.context, candidates: candidates(), rows: rows()};
           run.issued = fresh.candidates;
@@ -375,9 +397,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             candidates: fresh.candidates.map(candidate => candidate.key), prescreen,
             ...(issued ? {bodies: {count: issued.bodies.length, bytes: issued.bytes, reads: issued.reads, ms: issued.ms,
               truncated: issued.bodies.filter(entry => entry.truncated).length, omitted: issued.omitted.map(entry => `${entry.key}:${entry.reason}`)}} : {})});
+          // `calls`/`ms` are the prescreen's own, reported; the policy charges no read to the decision budget (§135.6, SL-22).
           const artifact: StepArtifact = {kind: 'read',
             read: {materials, summary: prescreen as Json, bodies: issued?.bodies ?? [],
-              calls, ms: prescreen.status === 'not_run' ? 0 : ms},
+              calls, ms: Number(prescreen.ms ?? 0)},
             fresh, ...(bindingArtifact ? {binding: bindingArtifact} : {})};
           return {status: 'ok', artifact};
         },
@@ -520,7 +543,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const began = Date.now();
       const lease = new TaskLease({owner: 'ordinary-resolve', goal: run.rawInput.trim() || 'ordinary check', scope: run.scope, capabilities: ['decision'],
         readSet: run.readSet, signal: request.signal,
-        budget: {deadlineAt: Math.max(Date.now() + 1_000, Math.min(run.allowanceDeadline, Date.now() + 15_000)), remainingInputTokens: 400_000,
+        // A decision's own lease, like the route's (§135.6, SL-22 addendum): never the prescreen allowance's remainder.
+        budget: {deadlineAt: Date.now() + 15_000, remainingInputTokens: 400_000,
           remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
       try {
         const result = await prepareCheckPreflight({campaign: bridge.campaign, turn: run.turn, rawInput: run.rawInput, goal: run.rawInput, scope: run.scope,
@@ -565,8 +589,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   /** §135.25: one `budget` summary row per run, and the deferred clerk steps carried to the next run's note. */
   function budgetSummary(run: RunState) {
     const elapsed = now() - run.startedAt;
+    const decision = run.decision;
     record({lane: 'run', event: 'budget', decision: 'summary', run: run.runId, budget_ms: run.budgetMs, elapsed_ms: elapsed,
-      elapsed_at_compose: run.lastInferAt ?? null, over_budget: elapsed >= run.budgetMs, deferred_by_budget: run.deferred});
+      elapsed_at_compose: run.lastInferAt ?? null, over_budget: elapsed >= run.budgetMs, deferred_by_budget: run.deferred,
+      // §135.25 (SL-22 addendum): the decisions' Jev budget and, beside it, what the prescreens spent of their own allowance.
+      decision_budget: decision ? {jev_calls: decision.jevCalls, jev_ms: decision.jevMs, max_jev_calls: decision.maxJevCalls, max_jev_ms: decision.maxJevMs,
+        spent: exhausted(decision)} : null,
+      prescreen: run.prescreenSpent});
     carried = run.deferred.length ? {campaign: bridge?.campaign, run: run.runId, ...(run.turn !== undefined ? {turn: run.turn} : {}), deferred: run.deferred} : undefined;
   }
 
@@ -629,6 +658,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       record({lane: 'run', event: 'budget_carried', run: run.runId, step: stepId, from_run: carried.run, deferred_by_budget: carried.deferred});
       carried = undefined;
     }
+    // §135.25 (SL-22 addendum): the one compose for a spent decision budget says so; the Keeper's own calls carry the rest.
+    if (step.reason === 'jev_budget' && step.purpose === 'compose') {
+      const spent = view.policyState?.view?.budget;
+      Object.assign(content, {decision_budget: {jev_calls: spent?.jevCalls ?? null, jev_ms: spent?.jevMs ?? null, max_jev_calls: spent?.maxJevCalls ?? null,
+        max_jev_ms: spent?.maxJevMs ?? null},
+      decision_budget_note: 'The host\'s decision budget for this turn is spent: no further step is routed from the player\'s words this turn '
+        + '(a step the kernel forces still runs). Your own tool calls carry the rest of the turn; then narrate.'});
+    }
     // §135.11 addendum (SL-20): the compose after the clerk settled the declaration says why it is the compose.
     if (step.reason === 'settled') content.settled_note = 'The clerk settled the player\'s declared step this turn (see clerk_did). Narrate its result '
       + 'and close the turn; a further check or step can wait for the player\'s next input unless the fiction cannot go on without it.';
@@ -685,6 +722,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   function budgetRows(run: RunState, policy: ReturnType<typeof createStepPolicy>): ReturnType<typeof createStepPolicy> {
     return {...policy, next(driver) {
       const request = policy.next(driver), budget = driver.policyState.view.budget;
+      run.decision = {...budget};
       if (overRun(budget) && request.kind !== 'finish') {
         const deferred = object(object(request.kind === 'infer' ? request.request : undefined).budget).deferred_by_budget;
         // compose: the budget chose it; compose_owed: a compose already pending (the turn close's steer, the route's finish);
@@ -707,7 +745,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const allowance = readJevPreselectAllowanceMs(options.env as NodeJS.ProcessEnv), startedAt = now(), budgetMs = turnBudgetMs(options.env);
       const run: RunState = {runId: context.runId, rawInput: context.rawInput, inputRevision: context.inputRevision, session: context.session as unknown as Row,
         startedAt, allowanceDeadline: Date.now() + allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
-        identities: new Map(), budgetMs, deferred: [], investigators: [], named: [], shown: {scenes: new Set(), people: new Set()}};
+        identities: new Map(), budgetMs, deferred: [], investigators: [], named: [], shown: {scenes: new Set(), people: new Set()},
+        prescreenSpent: {reads: 0, jev_calls: 0, ms: 0}};
       const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
         ...(options.compile === false ? {compile: false} : {})});
       return {policy: budgetRows(run, policy), ports: makePorts(run), maxSteps: options.maxSteps ?? 48};
