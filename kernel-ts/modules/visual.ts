@@ -9,6 +9,7 @@ import { obligationRefusals, type Refusal } from './obligation-shape.js';
 import { obligationReviewPaths, statesObligation } from './obligation-review.js';
 import { carriesMechanics, mechanicsRefusals } from './mechanics-shape.js';
 import { shapeReviewPaths, statesMechanics } from './shape-review.js';
+import { anchors, pages, recordSpans, sameSpan, spanOf, type Anchor } from './transcription.js';
 const object = (value: any): boolean => isJsonObject(value);
 export function reject(message: string, path = '/'): never {
     throw new RpcError('invalid_params', message, {
@@ -85,7 +86,29 @@ export function pointer(value: any, path: any): any {
     }
     return value;
 }
-export function mergeValue(old: any, proposed: any, path = ''): any {
+/**
+ * Contract §22.3.1: how a differing value for a published field is judged. `spans` answers the published
+ * and the proposed span of one field; `reviewed` says whether an independent review covers the field
+ * (publication), and is absent in the draft check, where a candidate replacement is collected for review
+ * instead. `accept` receives every re-transcription the merge accepted.
+ */
+export interface Retranscription {
+    spans(path: string): { existing: Anchor[]; proposed: Anchor[] };
+    reviewed?(path: string): boolean;
+    accept(path: string, previous: any, value: any): void;
+}
+export function contradiction(path: string, old: any, proposed: any, existing: Anchor[] = [], next: Anchor[] = []): never {
+    const known = existing.length > 0 && next.length > 0;
+    throw new RpcError('needs_choice', known
+        ? `the new reading contradicts a published value read from another passage: the published value was read from page(s) ${pages(existing).join(', ')} and the new value cites page(s) ${pages(next).join(', ')}`
+        : 'the new reading contradicts a published value', {
+        fix: known
+            ? 'keep the published value at details.path exactly as published; to correct how that same passage was transcribed, re-read the page it was read from (details.existing_pages), cite it in this item\'s source_refs and let the reviewer check it there'
+            : 'compare both sources and preserve the existing fact until the conflict is explicitly resolved',
+        details: { path, existing: old, proposed, ...(known ? { existing_pages: pages(existing), proposed_pages: pages(next) } : {}) },
+    });
+}
+export function mergeValue(old: any, proposed: any, path = '', transcription?: Retranscription): any {
     if (equal(old, proposed))
         return clone(old);
     const parts = path.split('/');
@@ -97,15 +120,23 @@ export function mergeValue(old: any, proposed: any, path = ''): any {
     if (object(old) && object(proposed)) {
         const out = new Map(entries(old));
         for (const [key, value] of entries(proposed))
-            out.set(key, out.has(key) ? mergeValue(out.get(key), value, `${path}/${key}`) : clone(value));
+            out.set(key, out.has(key) ? mergeValue(out.get(key), value, `${path}/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`, transcription) : clone(value));
         return orderedObject(out);
     }
     if (Array.isArray(old) && Array.isArray(proposed) && ['/aliases', '/source_refs', '/known_by_ids', '/asserted_by_ids'].some(key => path.endsWith(key))) {
         return clone([...old, ...proposed.filter(v => !old.some(item => equal(item, v)))]);
     }
-    throw new RpcError('needs_choice', 'the new reading contradicts a published value', {
-        fix: 'compare both sources and preserve the existing fact until the conflict is explicitly resolved', details: { path, existing: old, proposed },
-    });
+    if (transcription) {
+        // One field, one passage read twice: the later reading replaces the earlier once a review covers it.
+        const { existing, proposed: next } = transcription.spans(path);
+        const deferred = !transcription.reviewed && (!existing.length || !next.length);
+        if (deferred || existing.length && next.length && sameSpan(existing, next) && (transcription.reviewed?.(path) ?? true)) {
+            transcription.accept(path, clone(old), clone(proposed));
+            return clone(proposed);
+        }
+        contradiction(path, old, proposed, existing, next);
+    }
+    contradiction(path, old, proposed);
 }
 export function checkDraft(draft: any, packet: Row, contract: ModuleContract, seen?: ReadonlySet<number>): Row {
     if (!object(draft))
@@ -205,14 +236,24 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     if (filled.ready_nodes.some((id: string) => !defined.has(id)))
         reject('ready_nodes must be present in the draft so their material can be independently reviewed', '/ready_nodes');
     const knownNodes = new Map(array(packet.known_nodes).map(n => [n.node_id, n]));
-    for (const node of nodes) {
+    // §22.3.1: a differing value for a published field is judged by span here, before review. A
+    // re-transcription of the same span (or one whose span this check cannot see) owes the review.
+    // Merges run on `/<collection>/<id>` pointers, as publication's do (the NPC dossier union keys on them);
+    // a re-transcription is collected as the draft's own `/<collection>/<i>` pointer for the review.
+    const spans = row(packet.field_spans), retranscribed: string[] = [];
+    const judge = (base: string, draftBase: string, known: Row, drafted: Row): Retranscription => ({
+        spans: path => ({ existing: spanOf(spans, path, known.source_refs), proposed: anchors(drafted.source_refs) }),
+        accept: path => retranscribed.push(draftBase + path.slice(base.length)),
+    });
+    for (const [i, node] of nodes.entries()) {
         const known = knownNodes.get(node.node_id);
-        if (!known || !Object.hasOwn(known, 'ready') || known.node_kind === 'module' && !truth(known.ready))
+        // The placeholder module node of an unread book carries no source refs and nothing read.
+        if (!known || !Object.hasOwn(known, 'ready') || known.node_kind === 'module' && !Object.hasOwn(known, 'source_refs'))
             continue;
         const proposed = Object.fromEntries(entries(node).filter(([key]) => Object.hasOwn(known, key) && key !== 'source_refs'));
         if (!truth(known.ready) && filled.ready_nodes.includes(node.node_id))
             delete proposed.summary;
-        mergeValue(Object.fromEntries(Object.keys(proposed).map(key => [key, known[key]])), proposed, `/nodes/${node.node_id}`);
+        mergeValue(Object.fromEntries(Object.keys(proposed).map(key => [key, known[key]])), proposed, `/nodes/${node.node_id}`, judge(`/nodes/${node.node_id}`, `/nodes/${i}`, known, node));
     }
     const claimed = new Set<string>(), required = new Set<any>(filled.critical);
     if (!skeleton && filled.ready_nodes.length) required.add('/coverage');
@@ -258,10 +299,14 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
             claim.validity = known.validity ?? null;
         if (Object.keys(known).length) {
             const fields = Object.fromEntries(entries(claim).filter(([key]) => Object.hasOwn(known, key) && !['claim_id', 'source_refs'].includes(key)));
-            mergeValue(Object.fromEntries(Object.keys(fields).map(key => [key, known[key]])), fields, `/claims/${claim.claim_id}`);
+            mergeValue(Object.fromEntries(Object.keys(fields).map(key => [key, known[key]])), fields, `/claims/${claim.claim_id}`,
+                judge(`/claims/${claim.claim_id}`, `/claims/${i}`, known, claim));
         }
         required.add(`/claims/${i}`);
     }
+    // The field a later reading re-transcribed is named in the review, so the replacement is a reviewed one.
+    for (const path of retranscribed)
+        required.add(path);
     if (nodes.some(statesObligation)) {
         checkObligations(filled, packet, contract);
         for (const [i, node] of nodes.entries())
@@ -469,32 +514,53 @@ export function applyOpeningChoice(graph: Row, chosen: string, contract: ModuleC
     }
     return true;
 }
-export function assembleVisual(previous: Row | null, filled: Row, meta: Row, contract: ModuleContract): Row {
+/**
+ * The graph this reviewed draft publishes into `previous`. A re-transcription the merge accepts (§22.3.1)
+ * is pushed to `replaced` as `{path, previous, value, source_refs}`; the graph's `field_spans` record the
+ * span every written field was read from.
+ */
+export function assembleVisual(previous: Row | null, filled: Row, meta: Row, contract: ModuleContract, replaced: Row[] = []): Row {
     const graph = clone(previous || {
         contract_id: contract.graph.graph_contract_id, schema_version: 3, module_id: meta.id,
         nodes: [{ node_id: `module-${meta.id}`, node_kind: 'module', name: meta.title, visibility: 'keeper-only', properties: {}, aliases: [], summary: '', source_refs: [{ source_id: `pdf:${meta.id}`, pdf_index: 0 }] }],
         claims: [], relations: [],
     });
     const readyBefore = new Set(array(row(meta.reading).materials).flatMap(m => array(m.node_ids)));
+    const spans: Row = clone(row(graph.field_spans)), review = array(filled.required_review);
     for (const [collection, key] of [['nodes', 'node_id'], ['claims', 'claim_id']]) {
         const merged = new Map(array(graph[collection]).map(item => [item[key], item]));
-        for (const raw of filled[collection]) {
+        for (const [i, raw] of (filled[collection] as Row[]).entries()) {
             const value = clone(raw);
             value.source_refs = raw.source_refs.map((ref: Row) => ({ source_id: `pdf:${meta.id}`, pdf_index: typeof ref.page === 'bigint' ? ref.page - 1n : ref.page - 1, ...(Object.hasOwn(ref, 'box') ? { box: ref.box } : {}) }));
-            const id = value[key];
-            if (collection === 'nodes' && id === `module-${meta.id}` && previous === null)
-                merged.set(id, { ...merged.get(id), ...value });
+            const id = value[key], base = `/${collection}/${id}`, before = merged.get(id);
+            if (collection === 'nodes' && id === `module-${meta.id}` && previous === null) {
+                merged.set(id, { ...before, ...value });
+                recordSpans(spans, base, value, key, undefined, []);
+            }
+            else if (!before) {
+                merged.set(id, value);
+                recordSpans(spans, base, value, key, undefined, []);
+            }
             else {
-                if (collection === 'nodes' && merged.has(id) && !readyBefore.has(id) && filled.ready_nodes.includes(id) && Object.hasOwn(value, 'summary')) {
-                    const before = clone(merged.get(id));
-                    before.summary = value.summary;
-                    merged.set(id, before);
+                let current = before;
+                if (collection === 'nodes' && !readyBefore.has(id) && filled.ready_nodes.includes(id) && Object.hasOwn(value, 'summary')) {
+                    current = clone(before);
+                    current.summary = value.summary;
                 }
-                merged.set(id, merged.has(id) ? mergeValue(merged.get(id), value, `/${collection}/${id}`) : value);
+                // §22.3.1: the draft names this item `/<collection>/<i>`; a replacement needs a review of that field or an ancestor.
+                const drafted = `/${collection}/${i}`, accepted: Row[] = [];
+                merged.set(id, mergeValue(current, value, base, {
+                    spans: path => ({ existing: spanOf(spans, path, before.source_refs), proposed: anchors(value.source_refs) }),
+                    reviewed: path => { const at = drafted + path.slice(base.length); return review.some(item => at === item || at.startsWith(item + '/')); },
+                    accept: (path, previous, value) => accepted.push({ path, previous, value }),
+                }));
+                recordSpans(spans, base, value, key, before, accepted.map(item => item.path));
+                for (const item of accepted) replaced.push({ ...item, source_refs: clone(value.source_refs) });
             }
         }
         graph[collection] = [...merged.values()];
     }
+    graph.field_spans = spans;
     const nodes = new Map<string, Row>(graph.nodes.map((node: Row) => [node.node_id, node])), relations = new Map<string, Row>(graph.relations.map((rel: Row) => [rel.relation_id, rel]));
     for (const claim of graph.claims) {
         const target = row(claim.object).node_id;

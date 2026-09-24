@@ -53,6 +53,11 @@ interface PendingReading {
 	foreground: boolean;
 	/** §61. The last waiter left before this reading had a job id; demote it as soon as it has one. */
 	demotePending?: boolean;
+	/**
+	 * §22.2.1. The kernel answered with another identity's reading of the same focus: this request waits on
+	 * it and is judged afresh once it settles, and a cancelled wait never cancels that reading.
+	 */
+	attached?: boolean;
 	/** §47. What this in-flight reading is of, so `reading()` can answer for it by name. */
 	of?: { campaign?: string; mid: string; focus: string; question: string };
 }
@@ -111,6 +116,18 @@ function validCheckpoint(checkpoint: Row, bytes: Buffer, job: Row): boolean {
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const error = (reason: string, message: string, fix: string, extra: Row = {}) =>
 	new KernelError({ code: "needs", message, fix, details: { reason, ...extra } });
+/**
+ * §22.3.1 / §48: a reading the publication gate refused is said in one sentence built from the refusal the
+ * kernel kept -- the field it refused and the gate's own reason, the same record findings.json holds. It is
+ * written here, so it is branded `said` here; the preparation overlay shows it instead of the generic stop.
+ */
+function refusedReading(params: Row, refusal: Row, fix: string): KernelError {
+	const of = String(params.focus ?? "").trim(), at = typeof refusal.path === "string" && refusal.path ? ` at ${refusal.path}` : "";
+	const failure = new KernelError({ code: "needs", fix,
+		message: `The reading of ${of ? `"${of}"` : "this book"} was refused${at}: ${String(refusal.message).split("\n")[0].replace(/[.\s]+$/, "")}.`,
+		details: { reason: "reading_failed", refusal } });
+	return Object.assign(failure, { said: true });
+}
 /**
  * A draft the kernel refused with a fix is a repair, whatever the reading was for. Only an opening
  * used to get the round; an index refused for rows without their contents-page reference, or a
@@ -397,7 +414,7 @@ export class ReadingService implements ReadingBridge {
 					releaseWaiter();
 					if (request.waiters === 0) {
 						request.cancelled = true;
-						if (request.jobId) this.cancelJob(mid, request.jobId, campaign);
+						if (request.jobId && !request.attached) this.cancelJob(mid, request.jobId, campaign);
 					}
 					reject(error("reading_failed", "reading was cancelled", "retry explicitly when ready"));
 				};
@@ -479,12 +496,13 @@ export class ReadingService implements ReadingBridge {
 				if (running) { running.foreground = true; wakeReaderSlots(); }
 			}
 			request.jobId = response.job_id;
+			request.attached = response.attached === true;
 			if (request.demotePending && response.job_id) {
 				request.demotePending = false;
 				this.unwait(mid, response.job_id, campaign);
 			}
 			if (request.cancelled) {
-				if (request.jobId) this.cancelJob(mid, request.jobId, campaign);
+				if (request.jobId && !request.attached) this.cancelJob(mid, request.jobId, campaign);
 				break;
 			}
 			retry = false;
@@ -493,6 +511,7 @@ export class ReadingService implements ReadingBridge {
 				const choice = response.opening?.choice;
 				if (choice) throw new KernelError({ code: "needs_choice", message: "the book offers more than one opening",
 					fix: "choose one candidate using start_scene in prepare-module", details: choice });
+				if (response.refusal?.message) throw refusedReading(params, response.refusal, response.fix ?? "retry explicitly");
 				throw error("reading_failed", (response.missing ?? []).join("; ") || "the reading could not prepare this material", response.fix ?? "retry explicitly");
 			}
 			await Promise.race([this.pump(mid, campaign), delay(150)]);
@@ -573,12 +592,12 @@ export class ReadingService implements ReadingBridge {
 			check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
 		const task: Row = { purpose: job.purpose, ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			...(job.purpose === "guidance" ? {play_language:job.play_language, occupations:job.occupations.map((row:Row)=>({name:row.name}))} : {}),
-			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes,
+			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes, field_spans: job.field_spans ?? {},
 			known_claims: (job.known_claims ?? []).map((claim: Row) => Object.fromEntries(
 				["subject_id", "predicate", "object", "truth_status", "visibility", "reason", "known_by_ids", "asserted_by_ids", "validity"]
 					.filter(key => key in claim).map(key => [key, claim[key]]))),
 			vocabulary: job.vocabulary, coverage_domains: job.coverage_domains, commands };
-		if (job.purpose === "index") { delete task.index; delete task.known_nodes; delete task.known_claims; delete task.vocabulary; delete task.coverage_domains; delete task.commands.check; }
+		if (job.purpose === "index") { delete task.index; delete task.known_nodes; delete task.known_claims; delete task.field_spans; delete task.vocabulary; delete task.coverage_domains; delete task.commands.check; }
 		const freshSkeleton = !campaign && job.purpose === 'skeleton' && Array.isArray(job.known_nodes)
 			&& job.known_nodes.length === 1 && job.known_nodes[0].node_kind === 'module' && job.known_nodes[0].ready === false;
 		if (freshSkeleton && this.deps.navigateFresh) {
@@ -632,6 +651,8 @@ export class ReadingService implements ReadingBridge {
 		}
 		await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
 		let detail = "the reader did not produce a valid draft";
+		// §22.3.1: the refused field and the gate's reason, as findings.json records them, travel with the failure.
+		let refusal: Row | undefined;
 		try {
 			if (!model.vision) throw error("vision_required", "the reader has no image input", "select a model that supports images");
 			// Reader/check/review failures keep the existing two rounds. One opening semantic rejection
@@ -820,6 +841,8 @@ export class ReadingService implements ReadingBridge {
 						} catch { /* no completed read to invalidate */ }
 					}
 					detail = isKernelError(failure) ? failure.toToolText() : String(failure);
+					refusal = isKernelError(failure) ? { message: failure.message,
+						...Object.fromEntries(["path", "rule", "reason"].filter(key => typeof failure.details?.[key] === "string").map(key => [key, failure.details![key]])) } : undefined;
 					if (publishing && finishSemanticRejection(failure) && !finishRepairUsed) {
 						finishRepairUsed = true;
 						lastRound = Math.max(lastRound, round + 1);
@@ -840,8 +863,9 @@ export class ReadingService implements ReadingBridge {
 			}
 		} finally {
 			// Completed jobs replay here; failed attempts release their claim and preserve all artifacts.
+			const outcome = this.jobOutcome(key, signal.aborted, detail);
 			await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
-				...this.jobOutcome(key, signal.aborted, detail) }, campaign).catch(() => undefined);
+				...outcome, ...(outcome.outcome === "failed" && refusal ? { refusal } : {}) }, campaign).catch(() => undefined);
 		}
 	}
 }
