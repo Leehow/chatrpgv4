@@ -309,9 +309,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           }
           // The product prescreen, inside the run: the first read and the read after a scene change. Its allowance is
           // the run's Jev budget (§135.6), so a re-read gets what the earlier steps left.
-          let materials: Material[] = [], calls = 0, prescreen: Row = {status: 'not_run'}, packet: Row | undefined;
           const remaining = run.allowanceDeadline - Date.now();
-          if (jev && prescreenEnabled(options.env as NodeJS.ProcessEnv) && table.binding && remaining > 0 && bridge?.call && bridge.campaign) {
+          // Why a read ran without it (§135.6, 2026-09-24): live gate #4's rows said only `not_run`, and the cause -- the
+          // preselect setting off in its launch -- had to be found by reading the launcher.
+          const skipped = !jev ? 'no_jev' : !prescreenEnabled(options.env as NodeJS.ProcessEnv) ? 'preselect_off' : !table.binding ? 'no_binding'
+            : remaining <= 0 ? 'allowance_spent' : !(bridge?.call && bridge.campaign) ? 'no_bridge' : undefined;
+          let materials: Material[] = [], calls = 0, prescreen: Row = {status: 'not_run', reason: skipped ?? null}, packet: Row | undefined;
+          if (!skipped && jev && bridge?.call && bridge.campaign && table.binding) {
             const events: Row[] = [];
             const message = await prepareKeeperSupport({call: (method, params) => bridge!.call!(method, params), campaign: bridge.campaign,
               binding: table.binding, capsule, signal: invocation.signal, decision: jev, env: options.env as NodeJS.ProcessEnv,

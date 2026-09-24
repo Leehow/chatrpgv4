@@ -398,6 +398,8 @@ test("§135.30 at the engine: the compile row carries each feature's distributio
 	await runDriver({ input: { runId: "run-1", inputRevision: "rev", rawInput: INPUT, scopeId: "root" }, policy: plan.policy, ports: plan.ports, engine: modelEngine,
 		emit: () => {}, signal: new AbortController().signal, maxSteps: 30 });
 	assert.equal(families[0], COMPILE_FAMILY, "the compile is the run's first Jev question");
+	// §135.6 (2026-09-24): a read without the prescreen says why -- here the preselect setting is off, as at live gate #4.
+	assert.deepEqual(rows.find((entry) => entry.lane === "run" && entry.event === "read")?.prescreen, { status: "not_run", reason: "preselect_off" });
 	const row = rows.find((entry) => entry.lane === "route" && entry.purpose === "compile");
 	assert.ok(row, "one compile row");
 	assert.deepEqual([row.features.destination.row, row.features.destination.cleared, row.features.destination.probabilities.destination_1], ["morgue", true, 0.91]);
