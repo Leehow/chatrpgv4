@@ -37,7 +37,8 @@ const intentWords = (intent: string): string => {
  *   scene's handouts not yet shown;
  * - act: in a running session on the investigator's turn, the actions the session issues for them; outside a session,
  *   the canonical resolve intents;
- * - target: in a running combat on the investigator's turn, the targets its attack row issues;
+ * - target: in a running combat on the investigator's turn, the targets its attack row issues; outside a session, the
+ *   people present (the addressee rows) when the kernel issues a first blow (§135.30.2);
  * - item: the object instances an investigator carries.
  */
 export function compileRows(reads: StateReads): FeatureRows {
@@ -74,9 +75,12 @@ export function compileRows(reads: StateReads): FeatureRows {
   const act = live ? unique(actions.map(action => ({id: text(action.decision), describe: text(action.decision) as Json})))
     : resolveIntents().map(intent => ({id: intent, describe: intentWords(intent) as Json}));
   const label = (name: string): string => text(participants.find(value => text(value.name) === name)?.label) || name;
-  const target = live && session.kind === 'combat'
+  // Outside a session, the first blow (§135.30.2): with the kernel's first-blow row, the target rows are the people present,
+  // the addressee rows themselves; without it there is nothing to attack and `target` is not asked.
+  const firstBlow = object(resolveContext.first_blow);
+  const target = live ? session.kind === 'combat'
     ? unique(actions.filter(action => action.decision === 'combat:attack').flatMap(action => strings(action.targets)).map(name => ({id: name, describe: {fighter: label(name)} as Json})))
-    : [];
+    : [] : firstBlow.decision === 'combat:attack' && strings(firstBlow.targets).length ? addressee : [];
   const owner = (value: unknown): boolean => typeof value === 'string' ? investigators.has(value)
     : object(value).kind === 'investigator' || investigators.has(text(object(value).id)) || investigators.has(text(object(value).name));
   const item = unique(array(object(object(capsule.mods).objects).instances).map(object).filter(instance => text(instance.name) && owner(instance.owner))

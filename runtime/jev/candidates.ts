@@ -220,16 +220,42 @@ function dispositionInference(actor: string, name: string, fighter: Row, relatio
   if (impressions.length) material.first_impression = impressions.length === 1 ? impressions[0] : impressions;
   const read = Object.keys(material);
   if (!read.length) return undefined;
+  // The card's own word (§11.5.3 amendment, SL-19): a stated tactic the disposition table maps, issued by the kernel on the
+  // card as `default`. It is the bind's rules default when Jev does not settle one; without it the Keeper is asked.
+  const fallback = object(disposition.default), word = text(fallback.disposition), tactic = object(object(fallback.from).combat_tactic);
+  const ruleDefault = fallback.rule === 'card_disposition' && words.includes(word) ? {rule: 'card_disposition' as const, value: word, read: ['combat_tactic'],
+    composed: {why: composeSentence(`${name}'s card states their combat tactic (${text(tactic.defense)}, ${text(tactic.basis)}), which the combat disposition table reads as ${word}; their own parameters did not settle it.`)}} : undefined;
   return {key: `apply:npc-disposition:${actor}`, verb: 'apply', family: 'npc', source: 'table.look',
     label: `How ${name} behaves in this fight, from their own parameters`,
     bound: {kind: 'npc', name: actor, why: composeSentence(`Inferred once for this campaign from ${name}'s own parameters: ${read.join(', ')}.`)},
     composed: ['why'],
     unbound: [{name: 'disposition', required: true, vocabulary: 'closed', options: words, descriptions: Object.fromEntries(words.map(word => [word, text(options[word]) || word])),
+      ...(ruleDefault ? {ruleDefault} : {}),
       instruction: `Select how ${name} behaves in a fight, judged only from their own parameters in the chosen operation's detail (person): what they `
         + 'want, fear and hide, their role toward the investigators, their voice, and any first impression. The fight shown there is where it will be '
         + 'used, not evidence of their character. Choose unknown when those parameters do not tell.'}],
     detail: {person: material, fight: situation} as Json, clerk: 'disposition_inference', forced: true,
     basis: {read: 'table.look', path: 'combat_disposition', row: {npc: actor, read} as Json}};
+}
+
+/**
+ * The first blow (contract §135.30.2): the kernel's `context.first_blow` row -- the people present it can fight and the
+ * investigator's weapons -- as one clerk candidate. A parameter the row issues one value for is stated; several are a
+ * closed choice (the target from the compile, the weapon from Jev's bind); neither has a rules default (§135.28).
+ */
+function firstBlowCandidate(row: Row, rawInput: string): Candidate | undefined {
+  const targets = strings(row.targets), weapons = strings(row.weapons);
+  if (row.decision !== 'combat:attack' || !text(row.intent) || !targets.length || !weapons.length) return undefined;
+  const bound: Record<string, Json> = {intent: text(row.intent), decision: 'combat:attack', goal: rawInput, method: rawInput};
+  const unbound: Unbound[] = [];
+  for (const [name, options] of [['target', targets], ['weapon', weapons]] as const) {
+    const parameter = closedParameter(name, options);
+    if (parameter.bound !== undefined) bound[name] = parameter.bound; else unbound.push(parameter.unbound!);
+  }
+  return {key: 'resolve:combat:first-blow', verb: 'resolve', family: 'combat', source: 'table.resolve.options',
+    label: `${text(row.actor) || 'The investigator'}: combat:attack${typeof bound.target === 'string' ? ` at ${bound.target}` : ''}, opening a fight`,
+    bound, unbound, composed: ['goal', 'method'], clerk: 'first_blow',
+    basis: {read: 'table.resolve.options', path: 'context.first_blow', row: row as Json}};
 }
 
 /** Scene obligations (SO-04, contract §135.26): their candidates, what they guard, and the Mod checks they preordain. */
@@ -345,6 +371,9 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
       unbound: [...actor.unbound, {name: 'profile, difficulty and modifiers', required: true, vocabulary: 'closed' as const, binder: 'ordinary-resolve' as const}],
       clerk: 'declared_check', basis: {read: 'table.resolve.options', path: 'decisions', row: {name, family: text(decision.family) || null} as Json}});
   }
+  // The first blow (§135.30.2, SL-19): outside a fight, the investigator's attack as the kernel's first-blow row issues it.
+  // Only the compile selects it (its `first_blow` predicate): the target it reads, the weapon a closed Jev bind.
+  if (!sessionLive) { const blow = firstBlowCandidate(object(resolveContext.first_blow), rawInput); if (blow) push(blow); }
   for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice), object(reads.fighter), relationships))
     if (!candidate.forced) push(candidate);
   // Located entities the host can apply directly by handle.

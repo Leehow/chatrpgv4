@@ -1,0 +1,564 @@
+{
+ "run": 2,
+ "fixture": "fight-round-card",
+ "admission": "lane",
+ "keeper": "replay",
+ "thinking": "off",
+ "arm": "after",
+ "latency": false,
+ "seed": "1",
+ "wall_ms": 5976,
+ "budget": {
+  "turn": 6,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d283-9199-76d8-bfb7-6ffcba9034f7",
+  "budget_ms": 45000,
+  "elapsed_ms": 4981,
+  "elapsed_at_compose": 4673,
+  "over_budget": false,
+  "deferred_by_budget": [],
+  "run_id": "6aa1c3fd-5412-44cf-9d18-a95da6952b4a"
+ },
+ "compile": "on",
+ "compile_row": {
+  "turn": 6,
+  "lane": "route",
+  "purpose": "compile",
+  "run": "run-01a0d283-9199-76d8-bfb7-6ffcba9034f7",
+  "step": "run-01a0d283-9199-76d8-bfb7-6ffcba9034f7:s2",
+  "status": "complete",
+  "ms": 387,
+  "features": {
+   "destination": {
+    "rows": {
+     "destination_1": "chapel-of-contemplation-ruins",
+     "destination_2": "newspaper-morgue",
+     "destination_3": "central-library",
+     "destination_4": "hall-of-records",
+     "destination_5": "neighborhood-gossip",
+     "destination_6": "previous-tenants",
+     "destination_7": "corbitt-house-ground"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.72,
+    "probabilities": {
+     "destination_7": 0,
+     "destination_3": 0,
+     "destination_2": 0,
+     "unclear": 0.24,
+     "destination_1": 0,
+     "destination_6": 0,
+     "destination_5": 0,
+     "none": 0.76,
+     "destination_4": 0
+    },
+    "cleared": true
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "Steven Knott"
+    },
+    "choice": "unclear",
+    "row": null,
+    "confidence": 0.33,
+    "probabilities": {
+     "addressee_1": 0.23,
+     "unclear": 0.55,
+     "none": 0.22
+    },
+    "cleared": false
+   },
+   "act": {
+    "rows": {
+     "act_1": "combat:attack",
+     "act_2": "combat:maneuver",
+     "act_3": "combat:flee",
+     "act_4": "combat:end"
+    },
+    "choice": "act_1",
+    "row": "combat:attack",
+    "confidence": 0.99,
+    "probabilities": {
+     "act_3": 0,
+     "act_1": 0.99,
+     "act_2": 0,
+     "act_4": 0,
+     "unclear": 0.01,
+     "none": 0
+    },
+    "cleared": true
+   },
+   "target": {
+    "rows": {
+     "target_1": "steven-knott"
+    },
+    "choice": "unclear",
+    "row": null,
+    "confidence": 0.37,
+    "probabilities": {
+     "unclear": 0.58,
+     "target_1": 0.39,
+     "none": 0.03
+    },
+    "cleared": false
+   },
+   "item": {
+    "rows": {
+     "item_1": "笔记本"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.43,
+    "probabilities": {
+     "item_1": 0,
+     "unclear": 0.38,
+     "none": 0.62
+    },
+    "cleared": false
+   }
+  },
+  "fired": [],
+  "selected": [],
+  "decided": [],
+  "fell_through": [
+   "resolve:combat:attack:investigator",
+   "resolve:combat:flee:investigator"
+  ],
+  "reason": "fell_through",
+  "run_id": "6aa1c3fd-5412-44cf-9d18-a95da6952b4a"
+ },
+ "selections": [
+  {
+   "by": "route",
+   "keys": [
+    "resolve:combat:attack:investigator"
+   ]
+  }
+ ],
+ "compile_rows": [
+  {
+   "turn": 6,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d283-9199-76d8-bfb7-6ffcba9034f7",
+   "step": "run-01a0d283-9199-76d8-bfb7-6ffcba9034f7:s2",
+   "status": "complete",
+   "ms": 387,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "chapel-of-contemplation-ruins",
+      "destination_2": "newspaper-morgue",
+      "destination_3": "central-library",
+      "destination_4": "hall-of-records",
+      "destination_5": "neighborhood-gossip",
+      "destination_6": "previous-tenants",
+      "destination_7": "corbitt-house-ground"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.72,
+     "probabilities": {
+      "destination_7": 0,
+      "destination_3": 0,
+      "destination_2": 0,
+      "unclear": 0.24,
+      "destination_1": 0,
+      "destination_6": 0,
+      "destination_5": 0,
+      "none": 0.76,
+      "destination_4": 0
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Steven Knott"
+     },
+     "choice": "unclear",
+     "row": null,
+     "confidence": 0.33,
+     "probabilities": {
+      "addressee_1": 0.23,
+      "unclear": 0.55,
+      "none": 0.22
+     },
+     "cleared": false
+    },
+    "act": {
+     "rows": {
+      "act_1": "combat:attack",
+      "act_2": "combat:maneuver",
+      "act_3": "combat:flee",
+      "act_4": "combat:end"
+     },
+     "choice": "act_1",
+     "row": "combat:attack",
+     "confidence": 0.99,
+     "probabilities": {
+      "act_3": 0,
+      "act_1": 0.99,
+      "act_2": 0,
+      "act_4": 0,
+      "unclear": 0.01,
+      "none": 0
+     },
+     "cleared": true
+    },
+    "target": {
+     "rows": {
+      "target_1": "steven-knott"
+     },
+     "choice": "unclear",
+     "row": null,
+     "confidence": 0.37,
+     "probabilities": {
+      "unclear": 0.58,
+      "target_1": 0.39,
+      "none": 0.03
+     },
+     "cleared": false
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.43,
+     "probabilities": {
+      "item_1": 0,
+      "unclear": 0.38,
+      "none": 0.62
+     },
+     "cleared": false
+    }
+   },
+   "fired": [],
+   "selected": [],
+   "decided": [],
+   "fell_through": [
+    "resolve:combat:attack:investigator",
+    "resolve:combat:flee:investigator"
+   ],
+   "reason": "fell_through",
+   "run_id": "6aa1c3fd-5412-44cf-9d18-a95da6952b4a"
+  }
+ ],
+ "prescreen": "on",
+ "reads": [
+  {
+   "scene": "commission-briefing",
+   "prescreen": "prepared",
+   "materials": 8,
+   "jev_calls": 1,
+   "ms": 1255
+  }
+ ],
+ "status": "delivered",
+ "reason": "delivery_accepted",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 46362,
+   "cache_read": 0,
+   "cache_write": 46362,
+   "output": 43,
+   "reasoning": null,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 3948,
+   "cache_read": 46362,
+   "cache_write": 3948,
+   "output": 49,
+   "reasoning": null,
+   "tools": [
+    "narrate"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  }
+ ],
+ "steps": {
+  "operate": 6,
+  "decide": 5,
+  "infer": 2,
+  "finish": 1
+ },
+ "llm_steps": 2,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 6,
+ "route_rows": 5,
+ "calls": [
+  {
+   "tool": "resolve",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "weapon": "unarmed",
+     "decision": "combat:attack",
+     "target": "steven-knott",
+     "goal": "继续揍他",
+     "method": "继续揍他"
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "defense": "dodge",
+     "decision": "combat:defend",
+     "actor": "steven-knott",
+     "goal": "combat:defend",
+     "method": "combat:defend"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "npc",
+      "name": "steven-knott",
+      "why": "Steven Knott's card states their combat tactic (dodge, keeper), which the combat disposition table reads as avoids_fighting; their own parameters did not settle it.",
+      "disposition": "avoids_fighting"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "goal": "诺特趁你扑空，用拳头打回来",
+     "method": "近身挥拳",
+     "target": "investigator",
+     "actor": "Steven Knott",
+     "weapon": "unarmed",
+     "decision": "combat:attack"
+    }
+   }
+  },
+  {
+   "tool": "narrate",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "text": "拳头挥出去，肩头却先撞上桌沿。这一下完全落空，手掌拍在桌面上，椅子往后一滑。{{check:fighting-brawl}}\n\n诺特跟着还了一拳，也没打中。{{check:fighting}}他喘着气，血还挂在下巴上，攥钥匙的那只手仍缩在胸前。另一只拳头已经抬起来，朝你脸上砸过来。\n\n{{say:史蒂文·诺特}}「别再碰我。」{{/say}}"
+   }
+  }
+ ],
+ "match": [
+  {
+   "baseline": "resolve combat:attack vs Steven Knott",
+   "matched": true,
+   "origin": "policy"
+  },
+  {
+   "baseline": "resolve combat:defend vs investigator",
+   "matched": true,
+   "origin": "policy",
+   "defense": "dodge"
+  },
+  {
+   "baseline": "resolve combat:attack vs investigator",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "ask",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "ask",
+   "matched": true,
+   "origin": "model"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "resolve",
+   "origin": "policy",
+   "clerk": "session_step",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 2,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": {
+    "read": "table.resolve.options",
+    "path": "context.session.actions[0]",
+    "row": {
+     "decision": "combat:attack",
+     "actor": "investigator",
+     "targets": [
+      "steven-knott"
+     ],
+     "weapons": [
+      "unarmed"
+     ]
+    }
+   },
+   "path": "lane",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null
+  }
+ ],
+ "clerk": [
+  {
+   "tool": "resolve",
+   "call_id": "t6-c1",
+   "ok": true,
+   "ms": 179,
+   "clerk": "session_step",
+   "basis": {
+    "read": "table.resolve.options",
+    "path": "context.session.actions[0]",
+    "row": {
+     "decision": "combat:attack",
+     "actor": "investigator",
+     "targets": [
+      "steven-knott"
+     ],
+     "weapons": [
+      "unarmed"
+     ]
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "call_id": "t6-c2",
+   "ok": true,
+   "ms": 151,
+   "clerk": "session_step",
+   "basis": {
+    "read": "table.resolve.options",
+    "path": "context.session.pending_defense",
+    "row": {
+     "for": "npc",
+     "actor": "steven-knott",
+     "attack_command_id": "t6-c1",
+     "revision": 9,
+     "attacker": "investigator",
+     "options": [
+      "dodge",
+      "fight_back",
+      "none"
+     ],
+     "standing": {
+      "defense": "dodge",
+      "basis": "keeper"
+     }
+    },
+    "standing": {
+     "defense": "dodge",
+     "basis": "keeper"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "call_id": "t6-c3",
+   "ok": true,
+   "ms": 49,
+   "clerk": "disposition_inference",
+   "basis": {
+    "read": "table.look",
+    "path": "combat_disposition",
+    "row": {
+     "npc": "steven-knott",
+     "read": [
+      "agenda",
+      "fear",
+      "secret",
+      "voice",
+      "relationship_to_investigators",
+      "first_impression"
+     ]
+    },
+    "binding": "rule-default",
+    "rule_default": {
+     "disposition": {
+      "value": "avoids_fighting",
+      "rule": "card_disposition",
+      "read": [
+       "combat_tactic"
+      ]
+     }
+    }
+   }
+  }
+ ],
+ "misses": [
+  {
+   "turn": 6,
+   "lane": "route",
+   "purpose": "route",
+   "run": "run-01a0d283-9199-76d8-bfb7-6ffcba9034f7",
+   "step": "run-01a0d283-9199-76d8-bfb7-6ffcba9034f7:s8",
+   "status": "complete",
+   "ms": 369,
+   "offered": [],
+   "selected": [],
+   "exit": "ask_llm",
+   "reason": "low_confidence",
+   "answers": {
+    "exit": {
+     "choice": "ask_llm",
+     "confidence": 0.26,
+     "probabilities": {
+      "finish": 0.28,
+      "read_more": 0.01,
+      "continue": 0.27,
+      "ask_llm": 0.44
+     }
+    }
+   },
+   "run_id": "6aa1c3fd-5412-44cf-9d18-a95da6952b4a"
+  }
+ ]
+}

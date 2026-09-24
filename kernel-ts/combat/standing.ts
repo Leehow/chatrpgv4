@@ -100,6 +100,13 @@ export async function dispositionTable(context: KernelContext): Promise<Row> {
         if (!rules.length || bad >= 0 || Object.hasOwn(row(rules.at(-1)), 'when'))
             throw tableError(`npc-combat-disposition: ${name} needs rules ending in one without a condition`, file, { disposition: name, rule: bad >= 0 ? bad : rules.length - 1 });
     }
+    // SL-19: the optional map from a stated tactic (a §11.9 defence word) to a disposition word, closed on both sides.
+    if (Object.hasOwn(table, 'tactic_dispositions')) {
+        const map = table.tactic_dispositions;
+        const bad = isJsonObject(map) ? Object.entries(map).filter(([tactic, word]) => !DEFENSE_WORDS.includes(tactic) || !DISPOSITION_WORDS.includes(string(word))).map(([tactic]) => tactic) : null;
+        if (bad === null || bad.length)
+            throw tableError('npc-combat-disposition: tactic_dispositions maps a defence word to a disposition word', file, { tactics: bad, defenses: [...DEFENSE_WORDS], dispositions: [...DISPOSITION_WORDS] });
+    }
     return table;
 }
 /** Both tables a standing action reads. */
@@ -201,8 +208,21 @@ export function standingAction(graph: ModuleGraph, world: Row, handle: string, c
 export function cardAction(graph: ModuleGraph, world: Row, node: Row, combat: Row | null, table: Row | null = null): { combat_disposition: Row; combat_standing: Row } {
     const handle = graph.handle(node), disposition = dispositionOf(graph, world, handle);
     const keeper = keeperAction(world, handle, combat), authored = keeper ? null : authoredAction(graph, handle);
-    return { combat_disposition: disposition ? { ...disposition } : { disposition: null, basis: null, ...(table ? inferenceInput(graph, node, table) : {}) },
+    const fallback = !disposition && table ? cardDefault(graph, world, node, table) : null;
+    return { combat_disposition: disposition ? { ...disposition } : { disposition: null, basis: null, ...(table ? inferenceInput(graph, node, table) : {}), ...(fallback ? { default: fallback } : {}) },
         combat_standing: keeper ? { action: keeper, basis: 'keeper' } : authored ? { action: authored, basis: 'authored' } : { action: null, basis: 'rule-default' } };
+}
+/**
+ * The card's own word for a person without a disposition (§11.5.3, amendment 2026-09-24, SL-19): the tactic someone
+ * stated -- the book (`authored`) or the Keeper (`keeper`) -- read through the table's `tactic_dispositions`. A
+ * rule-default tactic is arithmetic over Fighting and Dodge, not a word about the person, and gives none.
+ */
+export function cardDefault(graph: ModuleGraph, world: Row, node: Row, table: Row): Row | null {
+    const tactic = cardTactic(graph, world, node);
+    if (tactic.defense === null || tactic.basis === 'rule-default')
+        return null;
+    const word = string(row(table.tactic_dispositions)[tactic.defense]);
+    return DISPOSITION_WORDS.includes(word) ? { disposition: word, rule: 'card_disposition', from: { combat_tactic: { ...tactic } } } : null;
 }
 /**
  * What a disposition is inferred from (§11.5.3 source 2): the closed words with the table's own descriptions, and the

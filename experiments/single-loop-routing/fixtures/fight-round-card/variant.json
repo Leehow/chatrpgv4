@@ -1,0 +1,16 @@
+{
+ "derived_from": "fight-round",
+ "source_tarball_sha256": "042d66a7580a4c862d22749305bb2bac22e4c769e1c53c214b0eeca99d322d58",
+ "change": "world.json patched before the turn and committed on top of commit_before",
+ "note": "a Keeper-written tactic (dodge) for Knott before turn 6",
+ "patch": {
+  "npc_defense": {
+   "steven-knott": {
+    "defense": "dodge",
+    "why": "He ducks behind the desk rather than hit back.",
+    "turn": 5
+   }
+  }
+ },
+ "commit_before": "1338f4b"
+}
