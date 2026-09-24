@@ -1,0 +1,16 @@
+{
+ "campaign": "gate6-haunting-0335",
+ "module": "the-haunting",
+ "turn": 3,
+ "commit_before": "26a78a4",
+ "commit_after": "8cd89ca",
+ "player_input": "我回诺特办公室，揪住他的领子一拳打过去，逼他说清这房子到底死过什么人。",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/gate6-haunting-0335",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/gate6-haunting-0335-20260924T073558Z"
+ },
+ "variant_of": {
+  "fixture": "gate6-t3",
+  "commit_before": "c0ae9fd"
+ }
+}
