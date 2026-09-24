@@ -289,7 +289,7 @@ must be explicitly cancelled by task 3.
 
 ### 3.7 首次判断保留桌面思考，工具续行降到最低档
 
-一次玩家输入里的每个工具结果都会让 Pi 再发一次模型请求；同一个会话档位原本会原样带到每次请求。PipiCOC 只在 `play` 模式安装 `thinking-schedule` 扩展：`before_agent_start` 记住玩家为这张桌子选择的档位，首个模型请求照常使用它；一个完整的非交付工具批返回后，扩展调用 `pi.setThinkingLevel("off")`，由 Pi 按当前模型能力向上夹到实际可用的最低档。真正支持关闭的模型续行不再 thinking，`grok-build/grok-4.6` 因而续行在 `minimal`，只提供 `low` 的模型续行仍是 `low`，不支持 reasoning 的模型保持 `off`。省略 reasoning 字段不被当成关闭思考，也不改 provider payload。
+一次玩家输入里的每个工具结果都会让 Pi 再发一次模型请求；同一个会话档位原本会原样带到每次请求。PipiCOC 只在 `play` 模式安装 `thinking-schedule` 扩展（它和其它 COC 扩展一样从 `runtime/deployment.mjs` 的 `COC_EXTENSIONS` 挂载，每次启动都带 `--no-extensions`，不在这张单子上的扩展不会在桌上跑——内核契约 §135.27）：`before_agent_start` 记住玩家为这张桌子选择的档位，首个模型请求照常使用它；一个完整的非交付工具批返回后，扩展调用 `pi.setThinkingLevel("off")`，由 Pi 按当前模型能力向上夹到实际可用的最低档。真正支持关闭的模型续行不再 thinking，`grok-build/grok-4.6` 因而续行在 `minimal`，只提供 `low` 的模型续行仍是 `low`，不支持 reasoning 的模型保持 `off`。省略 reasoning 字段不被当成关闭思考，也不改 provider payload。
 
 扩展在 `turn_end` 看完整 assistant 工具批，而不是在某一条工具结果到达时切档；这个事件发生在成功、被 gate 拦截、参数非法、截断与中止的结果都完成之后，也仍早于下一次 `prepareNextTurn`。因此并行批与顺序批都不会被中途结果误判。含 `narrate` 或 `ask` 的交付批不切，因为它不会购买下一次模型请求。自动重试、压缩续行和 `agent_end` 排入的续行仍属于同一次 agent prompt，保持低档。只有 `agent_settled` 才恢复本次输入开始时的档位，下一条玩家输入因此重新获得桌面档位。恢复只在当前档位仍是扩展刚设下的实际档位时发生；若外部在运行中另行改变档位，扩展不把人的新选择覆盖回去。`session_shutdown` 也做同一份有条件恢复。
 

@@ -114,7 +114,12 @@ test("off is never raised and an external in-run level change is not overwritten
 	assert.equal(changed.level(), "medium");
 });
 
-test("a real Pi blocked-tool loop still sends the reduced level on the next provider request", async (t) => {
+// Once from the source directory and once from the emitted entry `COC_EXTENSIONS` mounts at a table
+// (contract §135.27): the bundle the launch names must behave as the source does.
+for (const [origin, extensionPath] of [
+	["source", join(REPO, "extensions", "thinking-schedule")],
+	["emitted", join(REPO, "build", "extensions", "thinking-schedule", "index.mjs")],
+]) test(`a real Pi blocked-tool loop still sends the reduced level on the next provider request (${origin})`, async (t) => {
 	process.env.PI_COC_MODE = "play";
 	const workspace = await mkdtemp(join(tmpdir(), "coc-thinking-schedule-"));
 	t.after(() => rm(workspace, { recursive: true, force: true }));
@@ -147,7 +152,7 @@ test("a real Pi blocked-tool loop still sends the reduced level on the next prov
 		cwd: workspace,
 		agentDir: join(workspace, "agent"),
 		settingsManager,
-		additionalExtensionPaths: [join(REPO, "extensions", "thinking-schedule")],
+		additionalExtensionPaths: [extensionPath],
 		extensionFactories: [{
 			name: "step-tool",
 			factory(pi) {
