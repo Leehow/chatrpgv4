@@ -300,3 +300,21 @@ against 10.3–45.7 s. The persons are not the main cause, and n = 3 decides not
   `longgate24/`, `longgate24-t6` and `longgate24-t14`: the same bytes, with the tarball paths repointed.
 - **Admission code.** The merge changed no admission code (`admitAction` merged clean). The suites on the merged tree
   follow.
+
+**Turn 14 replayed on the final merged tree** (`results/sl24-longgate24-t14-merged2`, 3 runs, as above). The clue
+landed in **3/3** runs. Run 2 was the first live exercise of a pending return collected by its resend:
+
+1. The Keeper's clue batch came back `review_pending` at 13.0 s (`cause: cap`, `late_rule: typed_refusal`, typed
+   not_authorized 0.46 on the clue line).
+2. The replayed Keeper resent at once.
+3. The resend waited 0.8 s and collected the lane's `authorized`, after a 13.9 s round, and the clue landed.
+
+Runs 1 and 3 were admitted by the lane at 3.6 s and 5.8 s.
+
+**Suites on the final tree** (leehow-pc, `0af03907a`; the box was at load 32–46 from other workers):
+
+- `ext on leehow-pc @ 0af03907a9c5cd97fb50b5de0860758da2c9211d: exit=1 wall=242s`: 2927/2928. The one failure was
+  `session.test.mjs` "内核意外退出后重新拉起并重开桌" (a kernel-restart timing assertion). It passes 9/9 rerun alone on the
+  box, and it does not touch admission.
+- `loop on leehow-pc @ 0af03907a9c5cd97fb50b5de0860758da2c9211d: exit=0 wall=31s` (143/143).
+- pytest was not run: SL-24 changed nothing the kernel reads.
