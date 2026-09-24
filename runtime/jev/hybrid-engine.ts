@@ -642,14 +642,18 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const settled = array(question.settled).map(String);
       const routed = request.purpose === 'route' ? interpretRoute({located: question.located === true, settled} as RunView, offered, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE) : undefined;
       // §135.30: the compile row carries each feature's distribution and which predicates fired, as the policy will read them.
+      // §135.30.8 (SL-43): with the run's settled acts, so the row's `decided` is the policy's.
+      const actsSettled = array(question.actsSettled).map(String);
       const compiled = request.purpose === 'compile'
-        ? interpretCompile({candidates: array(question.candidates) as Candidate[], rows: (question.rows ?? undefined) as FeatureRows | undefined}, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE)
+        ? interpretCompile({candidates: array(question.candidates) as Candidate[], rows: (question.rows ?? undefined) as FeatureRows | undefined, actsSettled},
+          result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE)
         : undefined;
       record({lane: 'route', purpose: request.purpose, run: run.runId, step: request.stepId, status: result.status, ms: Date.now() - began,
         ...(request.purpose === 'route' ? {offered: offered.map(candidate => candidate.key), selected: routed?.selected ?? [], exit: routed?.exit ?? null, reason: routed?.reason ?? null,
           ...(settled.length ? {settled} : {})}
           : compiled ? {features: compiled.features, fired: compiled.selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
             selected: compiled.selected.map(entry => entry.candidate.key), decided: compiled.decided, fell_through: compiled.fellThrough, reason: compiled.reason,
+            ...(actsSettled.length || compiled.actsSettled?.length ? {acts_settled: [...new Set([...actsSettled, ...(compiled.actsSettled ?? [])])]} : {}),
             ...(compiled.guarded ? {guarded: compiled.guarded} : {}), ...(compiled.unlocked ? {unlocked: compiled.unlocked.map(unlockedRow)} : {})}
             : {candidate: question.candidate ?? null}),
         ...(compiled ? {} : {answers})});

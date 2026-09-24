@@ -87,6 +87,11 @@ export type Cleared = {[family in FeatureFamily]?: {row: string | null; confiden
  * the right answer's confidence and distribution.
  */
 export interface Fired {bound?: Record<string, Json>; from?: Record<string, FeatureFamily>}
+/**
+ * What the run already settled, as the predicates read it (§135.30.8, SL-43): the acts the run's obligation steps settled,
+ * and the act an obligation check fired on in this same compile. A declaration's act is settled once.
+ */
+export interface CompileRun {actsSettled: readonly string[]}
 export interface CompilePredicate {
   name: string;
   /**
@@ -103,12 +108,12 @@ export interface CompilePredicate {
    */
   askable(rows: FeatureRows, candidate?: Candidate): boolean;
   /** The compile settled this candidate one way or the other: the features it turns on cleared (a row or `none`). */
-  decided(cleared: Cleared, candidate: Candidate): boolean;
+  decided(cleared: Cleared, candidate: Candidate, run: CompileRun): boolean;
   /**
    * The predicate over cleared rows and the candidate's own values: selects the candidate, or not. `rows`: the compile's
    * feature rows, for a predicate that reads a cleared row's kernel data (§135.30.5: the destination's guard).
    */
-  fires(candidate: Candidate, cleared: Cleared, rows?: FeatureRows): Fired | undefined;
+  fires(candidate: Candidate, cleared: Cleared, rows: FeatureRows | undefined, run: CompileRun): Fired | undefined;
   /**
    * The only selector of the candidates it reads (§135.30, addendum 2026-09-24): the route's own question about them
    * (§135.26's fact question, or `need`) is still asked and recorded, but never selects them; unselected, they are the
@@ -136,6 +141,8 @@ const ORDINARY_ACTS: readonly string[] = ['investigate', 'social'];
 const clueOf = (candidate: Candidate): string => text(candidate.bound.clue);
 /** The clue a destination row's guard names: the kernel's typed unmet unlock (§135.30.4's `clue.clue`), else none. */
 const guardClue = (row: FeatureRow | undefined): string => text(object(object(row?.guard).clue).clue);
+/** §135.30.8: the cleared act is one an obligation step of the run (or of this compile) settled. */
+const actSettled = (cleared: Cleared, run: CompileRun): boolean => !!cleared.act?.row && run.actsSettled.includes(cleared.act.row);
 /** The obligation a destination row is held behind (§135.30.4's `{obligation, demand}` guard), else none. */
 const guardObligation = (row: FeatureRow | undefined): string => text(object(row?.guard).obligation);
 
@@ -198,12 +205,14 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
       if (cleared.ask?.row !== `clue:${clue}` || !to) return undefined;
       return guardClue(rows?.destination?.find(row => row.id === to)) === clue ? {} : undefined;
     }},
+  // §135.30.8 (SL-43): an act an obligation step of the run settled is not rolled again. The cleared act being one of them
+  // decides the check (consumed: the Keeper's for the run) without firing; any other act reads as before.
   {name: 'ordinary_check', features: ['act', 'addressee', 'ask', 'destination'], askable: rows => has(rows, 'act'),
     reads: candidate => candidate.clerk === 'declared_check' && candidate.bound.decision === ORDINARY_CHECK,
-    decided: () => false,
-    fires: (_candidate, cleared) => {
+    decided: (cleared, _candidate, run) => actSettled(cleared, run),
+    fires: (_candidate, cleared, _rows, run) => {
       const act = cleared.act?.row;
-      if (!act || !ORDINARY_ACTS.includes(act)) return undefined;
+      if (!act || !ORDINARY_ACTS.includes(act) || actSettled(cleared, run)) return undefined;
       if (act === 'social' && !cleared.addressee?.row) return undefined;
       if (cleared.destination?.row) return undefined;
       if (cleared.ask?.row?.startsWith('obligation:')) return undefined;
@@ -238,7 +247,9 @@ export function compileOnly(candidate: Candidate): boolean {
 // The question and its interpretation.
 // ---------------------------------------------------------------------------------------------------
 
-export interface CompileView {runId: string; rawInput: string; context: TurnContext; materials: Material[]; candidates: Candidate[]; rows?: FeatureRows; observations: unknown[]}
+export interface CompileView {runId: string; rawInput: string; context: TurnContext; materials: Material[]; candidates: Candidate[]; rows?: FeatureRows; observations: unknown[];
+  /** §135.30.8 (SL-43): the acts the run's obligation steps settled. */
+  actsSettled?: string[]}
 
 /** The compile question: one choice per family with rows. Packing halves material previews until the Jev limits hold. */
 export function compileBatch(view: CompileView, scope: ScopeBinding, readSet: ReadSet, done: Json[]): DecisionBatch {
@@ -298,6 +309,8 @@ export interface CompileOutcome {
   reason: string;
   /** §135.30.4: the cleared destination the kernel holds back (no issued move goes there), with the kernel's guard. */
   guarded?: GuardedDestination[];
+  /** §135.30.8 (SL-43): the acts this compile's obligation checks settled (the cleared act they fired on). */
+  actsSettled?: string[];
   /**
    * §135.30.5 (SL-38): the cleared destination a step of this batch unlocks (`after`: that step's key), with the compile's
    * record of the move the policy runs once the fresh read after that step issues it. Never also `guarded`.
@@ -336,14 +349,18 @@ export function guardedDestinations(rows: FeatureRows | undefined, candidates: C
  * The predicates over the gated answers. A selected candidate carries `basis.compile` (the predicate and the cleared
  * rows it fired on; for a closed parameter the compile settled, its value with the answer's confidence and distribution).
  */
-export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows'>, result: DecisionResult | undefined, gate: number): CompileOutcome {
+export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows' | 'actsSettled'>, result: DecisionResult | undefined, gate: number): CompileOutcome {
   const {features, cleared} = readFeatures(view.rows, result, gate);
   if (!result || result.status !== 'complete')
     return {selected: [], decided: [], fellThrough: view.candidates.map(candidate => candidate.key), features, reason: `jev_${result?.failure?.code ?? result?.status ?? 'unavailable'}`};
+  // §135.30.8 (SL-43): the act an obligation check fires on in this compile is settled for the compile's other candidates too.
+  const prior: CompileRun = {actsSettled: view.actsSettled ?? []};
+  const settles = settledActs(view.candidates, view.rows, cleared, prior);
+  const run: CompileRun = {actsSettled: [...new Set([...prior.actsSettled, ...settles])]};
   const selected: CompileSelection[] = [], decided: string[] = [], fellThrough: string[] = [];
   for (const candidate of view.candidates) {
     const predicate = predicateOf(candidate, view.rows);
-    const fired = predicate?.fires(candidate, cleared, view.rows);
+    const fired = predicate?.fires(candidate, cleared, view.rows, run);
     if (predicate && fired) {
       const read = Object.fromEntries(FEATURE_FAMILIES.filter(family => cleared[family]).map(family => [family, cleared[family]!.row]));
       const bound = fired.bound ?? {};
@@ -359,7 +376,7 @@ export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows'>,
       const chosen: Candidate = {...candidate, bound: {...candidate.bound, ...bound}, unbound: candidate.unbound.filter(value => !Object.hasOwn(bound, value.name)),
         basis: {...basisOf(candidate), compile: {predicate: predicate.name, features: read, read_features: readFeatures, ...(Object.keys(settled).length ? {bound: settled} : {})}} as Json};
       selected.push({candidate: chosen, predicate: predicate.name, features: read});
-    } else if (predicate?.decided(cleared, candidate)) decided.push(candidate.key);
+    } else if (predicate?.decided(cleared, candidate, run)) decided.push(candidate.key);
     else fellThrough.push(candidate.key);
   }
   // §135.30.5 (SL-38): a held destination a step of this batch unlocks is evaluated after that step (the policy stages the
@@ -374,7 +391,21 @@ export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows'>,
       read_features: {destination: {row: destination.row, confidence: destination.confidence, cleared: destination.cleared}}, unlocked_by: step.candidate.key} as Json});
   }
   return {selected, decided, fellThrough, features, reason: selected.length ? `selected_${selected.length}` : decided.length ? 'decided_none' : 'fell_through',
-    ...(guarded.length ? {guarded} : {}), ...(unlocked.length ? {unlocked} : {})};
+    ...(guarded.length ? {guarded} : {}), ...(unlocked.length ? {unlocked} : {}), ...(settles.length ? {actsSettled: settles} : {})};
+}
+
+/**
+ * §135.30.8 (SL-43): the acts this compile's obligation checks settle -- the cleared `act` of each obligation check the
+ * `obligation_check` predicate fires on. A check fired without a cleared act settles nothing here; its act is the intent
+ * it executes with (the policy's `settleExecute`).
+ */
+export function settledActs(candidates: Candidate[], rows: FeatureRows | undefined, cleared: Cleared, run: CompileRun): string[] {
+  const act = cleared.act?.row;
+  if (!act) return [];
+  return candidates.some(candidate => {
+    const predicate = predicateOf(candidate, rows);
+    return predicate?.name === 'obligation_check' && !!predicate.fires(candidate, cleared, rows, run);
+  }) ? [act] : [];
 }
 
 /**
