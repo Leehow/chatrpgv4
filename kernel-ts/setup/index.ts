@@ -8,6 +8,7 @@ import { loadModule } from '../read/campaign.js';
 import { playLanguageOf } from '../read/languages.js';
 import { scopedModuleRoot } from '../modules/campaign-scope.js';
 import { array, row, clone, string, number, integer, truth, repr, type Row } from '../read/values.js';
+import { playsFromReading } from '../modules/bound-source.js';
 import { RuleTables } from '../rules/tables.js';
 import type { createWriteRuntime } from '../write/index.js';
 import { type CampaignWriter, nowIso } from '../write/store.js';
@@ -134,7 +135,7 @@ export class Setup {
     if (issues.length) throw new RpcError('campaign_not_ready', 'Complete the actual card before opening play', {codeDetail: 'incomplete_investigator', details: {issues}});
     if (!imported && (!truth(row(meta.setup).confirmed_revision) || row(meta.setup).confirmed_revision !== row(meta.setup).draft_revision)) throw new RpcError('needs', 'Confirm the displayed draft before completing setup', {codeDetail: 'preview_required'});
     const moduleId = string(meta.module_id), module = await this.moduleMeta(moduleId, campaign.id);
-    const ready = module && (truth(module.reading_version) ? await this.writer.setupOpeningReady(moduleId, meta.opening_scene || '', campaign.id) : module.status === 'installed' || module.opening_ready === true);
+    const ready = module && (playsFromReading(module) ? await this.writer.setupOpeningReady(moduleId, meta.opening_scene || '', campaign.id) : module.status === 'installed' || module.opening_ready === true);
     if (!ready) {
       meta.setup ??= {}; meta.setup.waiting_for_opening = true; await campaign.writeCampaign(meta);
       throw new RpcError('campaign_not_ready', `module ${repr(moduleId)} is not installed and not opening_ready`,
@@ -142,7 +143,7 @@ export class Setup {
     }
     const generation = Math.trunc(number(module!.generation || 0));
     if (await this.writer.startSetupWorld(campaign, meta)) meta = await campaign.readCampaign();
-    const reading = truth(module!.reading_version) ? await this.wayOnRepair(moduleId, campaign.id, meta.opening_scene) : null;
+    const reading = playsFromReading(module!) ? await this.wayOnRepair(moduleId, campaign.id, meta.opening_scene) : null;
     const handoff: Row = {receipt: 'setup:handoff', module_id: moduleId, module_generation: generation, prologue: row(meta.setup).prologue ?? null,
       investigators: party.map(sheet => string(sheet.id)), at: nowIso(), launch: this.steps.launchLine(campaign.id), ...(reading ? {reading} : {})};
     const block: Row = {...row(meta.setup), handoff}; delete block.waiting_for_opening;

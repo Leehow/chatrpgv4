@@ -63,7 +63,12 @@ async function preparedTable(t, sceneReady) {
   const collision = { node_id: `location-${sceneHandle(destination)}`, node_kind: 'location', name: 'unready same-handle location', properties: {} };
   graph.nodes.push(collision);
   const meta = await store.module('the-haunting');
+  // A visually read book (§22): the Haunting stands in for one, so it is marked as one. A starter bound
+  // to its own window (§14.16) keeps its authored material and has no such gates.
+  // Its built-in window is taken away, as before the window shipped: these gates are the subject, not read-ahead.
   meta.reading_version = 1;
+  meta.source = 'pdf';
+  delete meta.source_document;
   meta.reading = { materials: [{ node_ids: sceneReady ? [current.node_id, destination.node_id] : [current.node_id, collision.node_id] }] };
   await store.writeGraph(meta, graph);
   await store.writeModule(meta);

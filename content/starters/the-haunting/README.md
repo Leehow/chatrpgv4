@@ -51,6 +51,19 @@ Mechanical hooks (Flesh Ward, floating knife, own-dagger exception) align with
 `../../../rulesets/coc7/rules-json/the-haunting.json`. Walter Corbitt presentation/stats are
 referenced from `../../../rulesets/coc7/rules-json/monsters.json`.
 
+## The built-in source window (SL-28, contract §14.16)
+
+By the owner's decision of 2026-09-24 this package ships the scenario's own pages: `source.pdf` is
+pages 446–462 (printed 435–451) of the *Call of Cthulhu Keeper Rulebook, 40th Anniversary Edition*,
+extracted once from the owner's copy with the import pipeline's PDF.js extractor
+(`node scripts/build-starter-source.ts the-haunting <book.pdf>`). `source-binding.json` declares
+which book (its sha256) and which pages, and the sha256 of the shipped window. Every campaign from
+this starter is bound to that window the way an imported PDF module is bound to its book: the same
+`source.pdf` store, the reading lane, `lookup kind=source` and the prescreen's source material. No
+other page of the Rulebook is shipped, and nothing else in this folder changed: the graph, its digest
+and the bundled guidance are as before. The paragraph above about private local bytes still holds
+for the handout and map images.
+
 ## Building the source-bound twin from the Rulebook (#29)
 
 This starter is an original derivative: it carries the scenario's structure, not the book's

@@ -38,8 +38,9 @@ def test_the_capsule_has_nine_sections_a_head_and_the_clock(kernel):
     assert knott["hides"] and knott["fears"]
     assert capsule["situations"] == [] and capsule["situations"] == kernel.table("look")["where"]["situations"]
     # the nine sections fit untouched; only the first-turn briefing (#22) had its roster
-    # lines shortened to its own 2KB, and says so
-    assert capsule.get("truncated", []) == ["module"]
+    # lines shortened to its own 2KB, and the book's navigation (§14.16: the Haunting reads its
+    # window) is cut to its 512 bytes, and both say so
+    assert capsule.get("truncated", []) == ["reading", "module"]
     for name, budget in BUDGETS.items():
         if name == "style":
             continue  # the first turn of the process doubles it (§13.6)

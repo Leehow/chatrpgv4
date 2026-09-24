@@ -10,6 +10,7 @@ import {assertSourcePreparationRequest,type SourcePreparationRequest} from '../.
 import {assertSourcePublicationAdvance,sourceAdvanceAuthority} from '../../runtime/jev/read-set.ts';
 import { Reading,sourcePreparationSnapshot,sourcePreparationScopeMatches,type OwnedSourcePreparation } from './reading.js';
 import { ModuleStore } from './store.js';
+import { playsFromReading } from './bound-source.js';
 import { ensureCampaignModule, moduleContext, scopedModuleRoot } from './campaign-scope.js';
 function required(params: Row, key: string): string {
     const value = params[key];
@@ -31,7 +32,8 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
                 throw new RpcError('needs', 'This module has no valid bound original PDF', {details: {reason: 'source_unavailable'}});
             return { version: 1, module_id: id, generation: meta.generation ?? 0,
                 revision: jsonDigest({source, generation: meta.generation ?? 0, graph_digest: meta.graph_digest ?? null}),
-                pdf: join(store.moduleDir(id), 'source.pdf'), file_sha256: source.file_sha256, page_count: source.page_count };
+                pdf: join(store.moduleDir(id), 'source.pdf'), file_sha256: source.file_sha256, page_count: source.page_count,
+                ...(source.window ? { window: source.window } : {}) };
         },
         'module.read.request': params => reading.request(params),
         'module.read.ahead': params => reading.queueAheadReading(params),
@@ -49,7 +51,8 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
         },
         'module.status': async (params): Promise<Row> => {
             const id = required(params, 'module_id'), meta = await store.module(id);
-            if (equal(meta.reading_version, 1)) {
+            // A starter bound to its window (§14.16) keeps the starter's status; the visual shape is a PDF book's.
+            if (equal(meta.reading_version, 1) && playsFromReading(meta)) {
                 const queue = await store.queue(id);
                 return {
                     module_id: id, title: meta.title ?? null, source: 'pdf', status: meta.status ?? null,
@@ -59,7 +62,8 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
                     opening_candidates: await store.candidates(await store.readGraph(id) || {}),
                 };
             }
-            const sections = await store.sections(id), counts: Row = {};
+            // The build lane's sections; a bound starter's reading index is reported under `reading` (§14.16.5).
+            const sections = meta.source === 'starter' && truth(meta.index_file) ? [] : await store.sections(id), counts: Row = {};
             for (const section of sections)
                 counts[string(section.status)] = (counts[string(section.status)] ?? 0) + 1;
             const graph = await store.readGraph(id), opening = graph !== null ? await store.opening(graph) : { opening_ready: false, missing: ['graph'] };
@@ -71,6 +75,9 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
                 queue: queue.map(job => Object.fromEntries(['section_id', 'status', 'priority', 'reason'].map(key => [key, job[key]]))),
                 playability: truth(report) ? { status: report.status ?? null, finding_counts: report.finding_counts ?? null, measures: report.measures ?? null } : null,
                 opening_ready: truth(opening.opening_ready), opening, opening_candidates: await store.candidates(graph || {}), install: meta.install ?? null,
+                ...(row(meta.source_document).window ? { source_window: row(meta.source_document).window,
+                    reading: { state: row(meta.reading).state ?? null, index_complete: truth(row(meta.reading).index_complete),
+                        sections: (await store.sections(id)).length } } : {}),
             };
         },
         'module.register': async (params) => {
@@ -121,7 +128,7 @@ export function createModuleRuntime(context: KernelContext) {
     const ahead = async (params: Row): Promise<Row> => {
         const id = required(params, 'module_id');
         let value = await owner(params.campaign, id);
-        if (!await value.store.exists(id) || !truth((await value.store.module(id)).reading_version)) return { queued: [] };
+        if (!await value.store.exists(id) || !playsFromReading(await value.store.module(id))) return { queued: [] };
         let focus = params.focus;
         if (params.campaign !== undefined) {
             const path = join(context.campaignsRoot, params.campaign, 'world.json');

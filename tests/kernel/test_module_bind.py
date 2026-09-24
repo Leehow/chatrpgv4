@@ -37,4 +37,7 @@ def test_starter_registration_copies_the_graph_and_installs_it(kernel: RpcClient
     assert again["generation"] == 1, "re-registering the same content graph is a no-op"
     status = kernel.ok("module.status", {"module_id": MODULE})
     assert status["opening_ready"] is True and status["sections"]["total"] == 0
+    # §14.16: the starter keeps its own status shape and says which window of which book it reads.
+    assert status["source"] == "starter" and status["source_window"]["pages"] == [446, 462]
+    assert status["reading"] == {"state": "ready", "index_complete": True, "sections": 12}
     assert kernel.err("module.register", {"module_id": "no-such-starter"})["code"] == "invalid_params"

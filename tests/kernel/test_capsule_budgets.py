@@ -104,7 +104,8 @@ def test_every_section_stays_within_its_budget_on_a_rich_state(kernel):
         assert size(capsule[name]) <= budget, (name, size(capsule[name]), budget)
 
     truncated = capsule.get("truncated", [])
-    valid_names = set(SECTION_BUDGETS) | {"style", "module"}  # #22: the first-turn briefing has its own 2KB
+    # #22: the first-turn briefing has its own 2KB; §14.16: the Haunting's bound window adds the `reading` section (512)
+    valid_names = set(SECTION_BUDGETS) | {"style", "module", "reading"}
     assert set(truncated) <= valid_names, truncated
     # every truncated name must actually be a key the capsule carries.
     assert set(truncated) <= set(capsule), truncated
