@@ -21,9 +21,14 @@
  *
  * Labels carry the demand and what it guards. The page, the handle's kernel tags and `authority` strings stay in
  * `basis`, which Jev and the model never read.
+ *
+ * Binding never goes to the LLM (§135.28): the approach among several and the dice words are closed Jev binds with a
+ * rules default each (the actor's highest current value among the offered approaches, first in the stated order on a
+ * tie; no modifier), and the meeting's `why` is composed from the demand and the player's words, quoted.
  */
-import type {Candidate, Json, Unbound} from './step-policy.ts';
+import type {Candidate, Json, RuleDefault, Unbound} from './step-policy.ts';
 import {ORDINARY_CHOICES} from './ordinary-resolve-domain.ts';
+import {composeSentence} from './composed-arguments.ts';
 
 type Row = Record<string, any>;
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
@@ -133,7 +138,7 @@ const basisOf = (row: Row, index: number, step: 'meet' | 'check'): Json =>
  * is the table's own label when the kernel issued one, else the book's name for the person (the record's `name`): the
  * book names who stands there, so no LLM step writes it (owner ruling 2026-09-23; §135.2's open name does not apply).
  */
-function meeting(reads: ObligationReads, row: Row, index: number): Candidate | undefined {
+function meeting(reads: ObligationReads, row: Row, index: number, rawInput = ''): Candidate | undefined {
   const next = object(row.next), name = text(next.person);
   const present = array(object(reads.capsule).present).map(object);
   const at = present.findIndex(person => text(person.name) === name);
@@ -145,8 +150,9 @@ function meeting(reads: ObligationReads, row: Row, index: number): Candidate | u
     : after ? `for "${text(row.name)}" once "${after}" is settled: ${name} is met next` : `for "${text(row.name)}": ${name} is met first`;
   return {key: `apply:person:${name}`, verb: 'apply', family: 'person', source: 'table.apply.options',
     label: `The book puts ${name}${role ? ` (${role})` : ''} here ${where}; put them on stage as "${label || name}"`,
-    bound: {kind: 'person', who: name, name: label || name},
-    unbound: [{name: 'why', required: false, vocabulary: 'open' as const}],
+    bound: {kind: 'person', who: name, name: label || name,
+      why: composeSentence(`The book puts ${name} here for "${text(row.name)}"${label ? ', named by the table\'s own label' : ', under the book\'s name'}`, rawInput)},
+    unbound: [], composed: ['why'],
     detail: {demand: text(row.name), stated_by: 'the module', ...(detail.length ? {guards: detail} : {})} as Json,
     clerk: 'stated_obligation', basis: basisOf(row, index, 'meet'), ...withFact(routeFact(reads, row))};
 }
@@ -160,6 +166,29 @@ function available(reads: ObligationReads, approaches: Row[], actor: string | un
     const profile = profiles.find(value => text(value.actor) === actor && text(value.skill) === text(approach.skill));
     return profile?.availability === 'bound' && Number(profile.value) >= Number(approach.minimum);
   });
+}
+
+/**
+ * The rules default of the approach (§135.28): the actor's highest current value among the offered approaches, read from
+ * the profiles the kernel issues in `table.resolve.options` (a value the kernel does not bind is not compared); a tie goes
+ * to the first in the book's stated order. Arithmetic over issued values, never over words. None when no offered approach
+ * has a bound value.
+ */
+export function highestOffered(reads: ObligationReads, skills: string[], actor: string): string | undefined {
+  const profiles = array(object(reads.resolveOptions).profiles).map(object);
+  let best: {skill: string; value: number} | undefined;
+  for (const skill of skills) {
+    const profile = profiles.find(value => text(value.actor) === actor && text(value.skill) === skill);
+    if (profile?.availability !== 'bound' || !Number.isSafeInteger(profile.value)) continue;
+    if (!best || Number(profile.value) > best.value) best = {skill, value: Number(profile.value)};
+  }
+  return best?.skill;
+}
+/** The approach's rules default: one value for a bound actor, one per actor when the actor is still to bind. */
+function approachDefault(reads: ObligationReads, skills: string[], actor: string | undefined, actors: string[]): RuleDefault | undefined {
+  if (actor) { const value = highestOffered(reads, skills, actor); return value ? {rule: 'highest_offered_skill', value} : undefined; }
+  const values = Object.fromEntries(actors.flatMap(name => { const value = highestOffered(reads, skills, name); return value ? [[name, value]] : []; }));
+  return Object.keys(values).length ? {rule: 'highest_offered_skill', by: {name: 'actor', values}} : undefined;
 }
 
 /** The obligation check: the book's stated price, with the closed approach binder (spec D6, clerk authority (e)). */
@@ -178,14 +207,17 @@ function check(reads: ObligationReads, row: Row, index: number, rawInput: string
   // Several approaches: the player's own words choose among the book's, never the clerk; with them the ordinary
   // binder's closed dice choice. One approach is bound. `maximum` is the kernel's to bind (§134.11).
   if (approach && skills.length > 1) {
-    unbound.push({name: 'skill', required: true, vocabulary: 'closed', options: skills,
+    const ruleDefault = approachDefault(reads, skills, actor, actors);
+    unbound.push({name: 'skill', required: true, vocabulary: 'closed', options: skills, ...(ruleDefault ? {ruleDefault} : {}),
       descriptions: Object.fromEntries(approaches.map(value => [text(value.skill),
         `${text(value.skill)}${Number.isSafeInteger(value.minimum) ? ` (the book asks for ${value.minimum} or more)` : ''}`])),
       instruction: `Select the approach the player's declared words take${target ? ` toward ${target}` : ''}: the one skill among these the investigator `
         + 'uses. Judge only the declared method, never the skill values. Choose unknown when the words do not settle which one.'});
     for (const name of ['bonus', 'penalty'] as const)
-      unbound.push({name, required: true, vocabulary: 'closed', options: Object.keys(DICE), descriptions: descriptors(name), instruction: ORDINARY_CHOICES[name].instructions});
+      unbound.push({name, required: true, vocabulary: 'closed', options: Object.keys(DICE), descriptions: descriptors(name), instruction: ORDINARY_CHOICES[name].instructions,
+        ruleDefault: {rule: 'no_modifier', value: 'none'}});
   }
+  // The obligation row declares no intent (§134.9 issues none), so the intent is Jev's alone: no rules default (§135.28).
   unbound.push({name: 'intent', required: true, vocabulary: 'closed', options: CHECK_INTENTS, descriptions: descriptors('intent'), instruction: ORDINARY_CHOICES.intent.instructions});
   const {words, detail} = guarded(reads, row);
   const how = approach ? listed(skills, 'or') : `the higher of ${listed(skills, 'and')}`;
@@ -194,7 +226,7 @@ function check(reads: ObligationReads, row: Row, index: number, rawInput: string
       + `${target ? ` against ${target}` : ''}${words.length ? ` before anyone gets ${listed(words, 'or')}` : ''}`,
     bound: {obligation: text(row.handle), ...(target ? {target} : {}), ...(actor ? {actor} : {}), ...(approach && skills.length === 1 ? {skill: skills[0]} : {}),
       goal: rawInput, method: rawInput},
-    unbound,
+    unbound, composed: ['goal', 'method'],
     detail: {demand: text(row.name), stated_by: 'the module', difficulty: text(next.difficulty),
       approaches: approaches.map(value => ({skill: text(value.skill), ...(Number.isSafeInteger(value.minimum) ? {minimum: value.minimum} : {})})),
       ...(detail.length ? {guards: detail} : {})} as Json,
@@ -218,7 +250,7 @@ export function obligationCandidates(reads: ObligationReads, rawInput = ''): Can
     if (row.state !== 'open') continue;
     const next = object(row.next), then = object(row.then);
     // A meeting the book puts before a check is carried by that check (owner ruling 2026-09-23); a meeting alone is routed.
-    const first = next.kind === 'meet' ? meeting(reads, row, index) : undefined;
+    const first = next.kind === 'meet' ? meeting(reads, row, index, rawInput) : undefined;
     const candidate = next.kind === 'check' ? check(reads, row, index, rawInput)
       : first && then.kind === 'check' ? check(reads, row, index, rawInput, then, first) ?? first
         : first;

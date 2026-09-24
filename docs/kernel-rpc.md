@@ -16995,7 +16995,8 @@ located, and nothing else. It never classifies text.
   is in `table.apply.options.context.handouts_shown` is not offered either. A handout already handed over is
   consumed by world state, never by its words;
 - people in `capsule.present` without `called`, staged under the capsule's own `untold.label`. Without a label
-  the name is an open parameter, and only the LLM fills it. Anyone off the roster is never a candidate. **Exception
+  the name is an open parameter, and only the LLM fills it (amended by §135.28: such a person is not issued to the
+  clerk; staging them is the Keeper's to propose). Anyone off the roster is never a candidate. **Exception
   (owner ruling 2026-09-23, SO-04, §135.26):** a scene obligation's `meet` step is data — the book names the person — so a
   stated meeting is staged under `untold.label` when the kernel issued one, else under the person's record `name`, with no
   LLM step;
@@ -17083,6 +17084,8 @@ still open (`run_input_stale`).
 §135.6) and closed bind (`single-loop-bind`, and the ordinary-check binder). When Jev chose an operation that
 has an open parameter, the run asks the LLM to fill it (`infer(bind)`). The projection names the operation, its
 bound values and what is missing. The LLM's answer is one call of that verb, executed as a model-origin call.
+Amended by §135.28: a clerk candidate never reaches `infer(bind)`; a parameter the clerk cannot bind (Jev, a rules
+default, stated or composed) hands the candidate to the Keeper as `infer(adjudicate)`, reason `clerk_unbound`.
 
 ### 135.5 Keeper batches; the plan is an artifact, never a second executor
 
@@ -17514,7 +17517,8 @@ holds it; `buildCandidates` calls it. Nothing is read from `on_enter`, a module'
   to the kernel (§134.11). `intent` is always a closed bind over the ordinary binder's intents (`investigate`,
   `social`, `move`): the resolve verb requires one and the kernel issues none, so a single-approach check is a
   one-question Jev bind, never an invented intent. Below the gates the operation goes to the LLM (`infer(bind)`, the
-  Keeper fills it). The dice words become `modifiers.bonus_dice`/`penalty_dice`; a die carries `modifiers.reason` =
+  Keeper fills it). Amended by §135.28: below the gates the approach and the dice take their rules defaults, and an
+  intent Jev does not settle hands the check to the Keeper (`clerk_unbound`), never an `infer(bind)`. The dice words become `modifiers.bonus_dice`/`penalty_dice`; a die carries `modifiers.reason` =
   the player's declaration, as the ordinary binder's template does (§113). No candidate is issued for a step with
   `served_by` (the Mod contact candidate is its candidate, §134.13), `approaches_unstated` or `difficulty_unstated`
   (the Keeper's, §134.2), a target not in `context.present`, or no approach the actor can take.
@@ -17606,6 +17610,123 @@ own levels.
 emitted, both layouts name it in the session mounts and not in the lane mounts, and the real `bin/pi-coc` argv
 carries it in play and in setup; `tests/extension/pipicoc-rpc.test.mjs` for the App's `keeperArguments` in both
 modes. Mutation: remove it from `COC_EXTENSIONS` and all of them fail.
+
+### 135.28 Binding never goes to the LLM: rules defaults, stated and composed parameters, and the Keeper's turn (2026-09-23, SL-12; amends §135.2, §135.4, §135.25, §135.26)
+
+SL-12 takes §135.28 (§135.11–§135.27 are taken, §135.27 by the thinking schedule on the same base; §-numbers are stable ids). It applies to `PI_COC_LOOP_ENGINE=hybrid-v1`
+only; the legacy engine reads none of it. The spec's ruling "Parameter binding never goes to the LLM" (owner,
+2026-09-23) binds it.
+
+**Evidence.** SO-04's replay (`turn3-obligations`, six runs): with Arty staged by the clerk, Jev answered the obligation
+check's approach `unknown` (0.76–0.80) every time, so `interpretBind` sent the operation to the Keeper as an
+`infer(bind)`: one model call per run for a four-way closed choice among the investigator's own skills. The builder also
+marked `why` (a person, a meeting), `goal` (a manoeuvre) and `outcome` (an ending) as `open`, and the policy sent every
+required open parameter, and every closed one Jev did not settle, to `infer(bind)` + `direct llm_proposal`.
+
+**The four ways a clerk parameter is bound.** None of them is a model call.
+
+| path | what | where |
+| --- | --- | --- |
+| `jev` | a closed parameter Jev answers above the gate (`decide(bind)`; the ordinary check's binder) | `interpretBind` / `settleOrdinaryBind` (`runtime/jev/step-policy.ts`) |
+| `rule-default` | a closed parameter Jev answers `unknown`, below the gate, or is not asked (unavailable, or the run's Jev budget is spent) | the default rides on the parameter (`Unbound.ruleDefault`), computed by the builder; `clerkBind` applies it |
+| `stated` | a value the kernel row issues: a single target, weapon, actor or approach, a standing's word, a difficulty, an obligation handle | the candidate builder (`candidates.ts`, `obligation-candidates.ts`) |
+| `composed` | an explanatory argument composed by code from the candidate's source and the player's words, quoted | `runtime/jev/composed-arguments.ts` (`composeSentence`) |
+
+**Rules defaults** (`Unbound.ruleDefault = {rule, value?, by?}`), arithmetic over values the kernel issued, never over
+words:
+
+- **The approach** (`skill` of an obligation check with several approaches, §135.26): `highest_offered_skill`, the
+  actor's highest current value among the offered approaches, read from the `value` of the actor's
+  `table.resolve.options` profile rows (`availability: "bound"` only; a value the kernel does not bind is not compared).
+  A tie goes to the first in the book's stated order. When the actor is itself still a closed choice, the default is one
+  value per actor (`by: {name: "actor", values}`) and follows the actor Jev bound. No bound value among the approaches:
+  no default. The ordinary check has no approach default: its skill is the player's method, which the binder never
+  picks by value (§135.3 (c): an ambiguous one is the Keeper's).
+- **Dice modifiers** (`bonus`, `penalty`): `no_modifier`, the dice word `none`.
+- **The intent:** the one the obligation, the Mod or the session declares. A session step binds its intent from the
+  session view (never asked). **Neither an obligation row (§134.9) nor a Mod contact row (§28) declares an intent
+  today**, so an obligation check's or a Mod check's intent is Jev's alone and has no default; a kernel that issues a
+  declared intent on either row makes it the default without a change to the policy's rule.
+- **A target, a weapon, an actor, a defence among options, an NPC's action among its issued actions, a combat
+  disposition:** no default. Jev only.
+
+`clerkBind` (the clerk branch of `interpretBind`) takes each closed parameter's Jev answer when it clears the gate, else
+its default. When one is left with neither, the candidate is the Keeper's (below). Otherwise the candidate runs `direct`,
+and a default it took is stamped on the operation's `basis` beside `obligation` / `standing`: `binding: "rule-default"`
+and `rule_default: {<parameter>: {value, rule}}`. That basis is the one every row of the call carries (the tool row and
+each `lane: "admission"` row, §135.7) and the one the Keeper's `coc-clerk` note shows (`clerk_did[].basis`), with one
+line (`clerk_did[].binding`): "rules default: skill Persuade (the investigator's highest of the offered skills); the
+player's words did not settle it. If the fiction calls for another choice, settle it with your own operation." The
+Keeper overrides with an ordinary operation of its own (its own receipt); there is no new verb and no pending state.
+
+**Composed explanations** (`composeSentence(lead, quote?)`): one sentence, `<lead>; player: "<the declaration>"`,
+whitespace runs folded to one space, at most `SENTENCE_MAX` (200) code points (§135.21), the quote shortened at a
+code-point boundary and ending with `...` when it would pass the ceiling (the lead is kept whole; a lead that alone
+passes it is shortened and carries no quote). The clerk fits its own sentence, so the kernel never refuses it for its
+length. Composed today, and marked on the candidate (`Candidate.composed`):
+
+- a stated meeting's `why`: `The book puts <person> here for "<demand>", under the book's name` (or `named by the table's
+  own label`), with the player's words;
+- a roster person's `why`: `The table's own label for <person> in this scene, staged for the player's declared action`,
+  with the player's words;
+- a combat disposition's `why` (the parameters it was read from, §11.5.3), shortened to the ceiling;
+- `goal` and `method` of the player's own check or session step, and of a Mod contact check: the declaration itself,
+  as before (they were never open; the path records them as composed).
+
+These words are the system language's and Keeper-facing: `why` is on no player projection. **A clue's `how` is not
+composed:** it is on the player's clue card (§80, `kernel-ts/read/mechanics.ts`: "the account the Keeper filed for this
+table"), so an English sentence there would be system language on a player surface, and a clue's authored cue (the
+kernel's `gate` string) is Keeper-only. The clerk's clue write leaves `how` out, as before. A handout effect has no
+explanatory field; a move has none (its destination is stated). `label`, `via` and `travel_minutes` stay optional and
+omitted: not explanatory, never invented (the kernel's defaults apply).
+
+**No clerk candidate reaches `infer(bind)`.** For a candidate with clerk authority (§135.3):
+
+- a required parameter no data source gives (`open`) is not the clerk's. The builder does not issue such a candidate:
+  a roster person without the table's own label (the name would be improvised), the player's manoeuvre (`goal`) and the
+  player's ending (`outcome`) are the Keeper's to propose. Amends §135.2's "without a label the name is an open
+  parameter, and only the LLM fills it" and "a parameter it does not issue … is open, for the LLM". An NPC's issued
+  manoeuvre or ending stays among its turn's variants; a candidate that still carries an open parameter (the variant Jev
+  chose, or a forced step whose one action is open) goes to `keeperOwns`;
+- a closed parameter left with neither a Jev answer nor a default, and an ordinary check the binder could not settle
+  (`incumbent`, `unknown`, `unavailable`), go to `keeperOwns`;
+- past the run's Jev budget a clerk bind is not escalated: `next` returns `decide(bind)` with `offline: "jev_budget"`,
+  the engine asks Jev nothing (`question.offline`), and `settleBind` applies the defaults without spending a Jev call
+  (else `keeperOwns`). A spent budget on an ordinary check is `keeperOwns`.
+
+`keeperOwns(candidate, cause, unresolved)` is one `infer(adjudicate)` with reason `clerk_unbound` carrying the
+candidate: the Keeper's turn, not a parameter-filling request. The step's key is consumed when it starts, so the
+candidate is not offered again this run, whoever does it. Its request carries the operation view and
+`clerk_unbound: {cause, unresolved, bindings}`; the Keeper's note says `left_to_you: {operation, unresolved, cause}`
+with the note that nothing was executed for it and it is the Keeper's to do, to replace or to narrate. There is no
+`complete` instruction and no `llm_proposal` slot. **The one remaining `infer(bind)`** is for a candidate without clerk
+authority: the prototype's candidates (`experiments/single-loop-routing`), and conceptually an operation the Keeper
+proposes, whose parameters the Keeper writes in its own call. The product builder issues no such candidate. §135.4's
+"when Jev chose an operation that has an open parameter, the run asks the LLM to fill it" and §135.26's "below the gates
+the operation goes to the LLM (`infer(bind)`, the Keeper fills it)" are amended to this; §135.25's "a forced step whose
+parameters are open (an `infer(bind)`) is not run" now reads: a forced clerk step handed to the Keeper is an
+`infer(adjudicate)`, which past the budget the compose replaces, listing it as deferred.
+
+**Telemetry (extends §135.7).** Every clerk write records one `lane: "run"`, `event: "bind"` row: `run`, `step`,
+`candidate`, `clerk`, `call_id`, `status` and `bindings: [{name, path, value, confidence?, distribution?, rule?}]`: the
+stated and composed parameters from the candidate, then the bind step's `jev` and `rule-default` records. A Jev record
+carries its answer's confidence and distribution; a `rule-default` record carries the rule and, when Jev was asked,
+the confidence and distribution of the answer it replaced. A candidate handed to the Keeper records `event: "bind"`,
+`outcome: "keeper"`, with `cause`, `unresolved` and the records the bind did settle. The `lane: "route"` bind rows
+(Jev's raw answers) are unchanged.
+
+**Three ends (§31).** *Writer:* the builder (defaults and composed arguments, from the kernel's issued rows and the
+player's input) and `clerkBind` (the choice between Jev and the default). *Reader:* the clerk's execution
+(`keeperCall`), the operation basis on every row, the Keeper's note. *Actor:* the kernel, which rolls the bound
+approach; the Keeper, who reads `binding` and `left_to_you`, and may settle a default otherwise with its own operation.
+
+**Tests:** `tests/extension/single-loop-binding.test.mjs` (rules defaults and the tie on stub reads; composed
+sentences at the ceiling; a structural test over every policy transition, every clerk authority, every binding shape
+and every Jev outcome that no clerk candidate becomes an `infer(bind)`; the vendored driver with a fake model engine that
+throws on an `infer(bind)`; the engine's bind row and note), `tests/extension/scene-obligation-candidates.test.mjs` (the
+default on the emitted kernel's own profiles at the morgue, and at the extension seam with Jev answering `unknown`),
+`tests/extension/single-loop-candidates.test.mjs`. The mutation record and the pre-registered replays are in the SL-12
+ticket's Comments and `experiments/single-loop-routing/RESULTS-20260923.md`.
 
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 

@@ -28,12 +28,26 @@ export type Json = null | boolean | number | string | Json[] | {[key: string]: J
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8');
 
+/**
+ * The rules default of a closed parameter (contract §135.28): the value it takes when Jev answers `unknown`, falls below
+ * the gate, or is not asked (unavailable, budget spent). Computed by the candidate builder as arithmetic over values the
+ * kernel issued, never from words: `highest_offered_skill` is the actor's highest current value among the offered
+ * approaches (ties: the first in the stated order), `no_modifier` is the dice word `none`. `by` holds one value per value
+ * of another parameter of the same candidate (the approach per actor when the actor is itself still to bind).
+ */
+export interface RuleDefault {rule: 'highest_offered_skill' | 'no_modifier'; value?: string; by?: {name: string; values: Record<string, string>}}
 /** closed: the host can issue the complete vocabulary; open: only a language model can produce the value. */
 export interface Unbound {name: string; required: boolean; vocabulary: 'closed' | 'open'; options?: string[]; binder?: 'ordinary-resolve';
   /** What each closed option means, from the contract or the kernel row that issued it (the bind's criteria). */
   descriptions?: Record<string, string>;
   /** The bind question's own instruction, when the generic one (the player's declaration, else the actor's choice) does not fit. */
-  instruction?: string}
+  instruction?: string;
+  /** §135.28: what the parameter is when Jev does not bind it. Absent: no default (a target, a weapon, an actor): the Keeper's. */
+  ruleDefault?: RuleDefault}
+/** How one parameter of a clerk step got its value (contract §135.28): the four ways, none of them a model call. */
+export type BindingPath = 'jev' | 'rule-default' | 'stated' | 'composed';
+/** One bound parameter as the `lane: "run"`, `event: "bind"` row records it; Jev's carries its distribution. */
+export interface BindRecord {name: string; path: BindingPath; value: Json; confidence?: number | null; distribution?: Record<string, number> | null; rule?: string}
 /** One shape a candidate takes once its `decision` is bound: the chosen action with its own parameters. */
 export interface CandidateVariant {label: string; bound: Record<string, Json>; unbound: Unbound[]; basis?: Json}
 /**
@@ -87,6 +101,11 @@ export interface Candidate {
    * it; any other answer leaves the candidate to the Keeper for the rest of the run.
    */
   routeFact?: {target: string; instructions: string; criteria: Record<string, string>; selects: string};
+  /**
+   * §135.28: the bound parameters the builder composed by code (an explanation from the candidate's sources and the
+   * player's quoted words). Every other bound parameter is stated: read from the kernel row the candidate came from.
+   */
+  composed?: string[];
 }
 export type Binding = 'none' | 'closed' | 'open';
 export function bindingOf(candidate: Candidate): Binding {
@@ -117,6 +136,8 @@ export interface PendingItem {
   reason?: string;
   /** An operation proposed by the LLM step (model-origin, design §4.1/§7.1): executed through the same entry as a host candidate. */
   call?: {method: string; params: Record<string, Json>; label: string};
+  /** §135.28: how each parameter the bind step settled got its value (`jev` or `rule-default`), carried to the clerk's row. */
+  bindings?: BindRecord[];
 }
 export interface Observation {
   step: number;
@@ -162,7 +183,8 @@ export interface RunView {
 export type StepRequest =
   | {kind: 'direct'; item: PendingItem}
   | {kind: 'decide'; purpose: 'route'; digest: string}
-  | {kind: 'decide'; purpose: 'bind' | 'locate'; item: PendingItem}
+  /** `offline`: a clerk bind settled without asking Jev (its budget is spent): rules defaults, else the Keeper (§135.28). */
+  | {kind: 'decide'; purpose: 'bind' | 'locate'; item: PendingItem; offline?: string}
   | {kind: 'infer'; purpose: 'bind' | 'adjudicate' | 'compose'; reason: string; item?: PendingItem; deferred?: DeferredStep[]}
   | {kind: 'finish'; reason: string};
 
@@ -209,10 +231,13 @@ export function next(view: RunView): StepRequest {
   }
   if (head?.kind === 'direct') return {kind: 'direct', item: head};
   if (head?.kind === 'infer') return {kind: 'infer', purpose: head.purpose as 'bind' | 'adjudicate' | 'compose', reason: head.reason ?? head.purpose, item: head};
-  // Guard 3: a spent Jev budget hands the rest of the run to the LLM.
-  if (head?.kind === 'decide') return exhausted(view.budget)
-    ? {kind: 'infer', purpose: head.purpose === 'bind' ? 'bind' : 'adjudicate', reason: 'jev_budget', item: head}
-    : {kind: 'decide', purpose: head.purpose as 'bind' | 'locate', item: head};
+  // Guard 3: a spent Jev budget hands the rest of the run to the LLM. A clerk bind is the exception (§135.28): parameter
+  // binding never goes to the LLM, so it is settled without asking Jev -- its rules defaults, else the Keeper's turn.
+  if (head?.kind === 'decide') {
+    if (!exhausted(view.budget)) return {kind: 'decide', purpose: head.purpose as 'bind' | 'locate', item: head};
+    if (head.purpose === 'bind' && head.candidate?.clerk) return {kind: 'decide', purpose: 'bind', item: head, offline: 'jev_budget'};
+    return {kind: 'infer', purpose: head.purpose === 'bind' ? 'bind' : 'adjudicate', reason: 'jev_budget', item: head};
+  }
   if (exhausted(view.budget)) return {kind: 'infer', purpose: 'compose', reason: 'jev_budget'};
   // Guard 1: the same question over the same candidates and materials is not asked twice.
   const current = routeDigest(view);
@@ -356,9 +381,14 @@ export function bindBatch(view: RunView, candidate: Candidate, scope: ScopeBindi
       criteria: {...Object.fromEntries(value.options!.map(option => [option, value.descriptions?.[option] ?? option])), unknown: 'Cannot be determined from the supplied state.'}}))};
 }
 
-/** Closed binding answers become bound values, or an LLM bind when any answer is unknown or unconfident. */
+/**
+ * Closed binding answers become bound values. For a clerk candidate (§135.28) a parameter Jev did not settle -- `unknown`,
+ * below the gate, not asked -- takes its rules default; one without a default hands the candidate to the Keeper
+ * (`keeperOwns`), never to an LLM bind. A candidate without clerk authority (the prototype's) keeps the LLM bind.
+ */
 export function interpretBind(candidate: Candidate, batch: DecisionBatch, result: DecisionResult | undefined, gate: number):
-  {pending: PendingItem[]; extra?: Record<string, Json>; confidence?: number; reason: string} {
+  {pending: PendingItem[]; extra?: Record<string, Json>; confidence?: number; reason: string; bindings?: BindRecord[]} {
+  if (candidate.clerk) return clerkBind(candidate, result, gate);
   const llm = (reason: string): {pending: PendingItem[]; reason: string} =>
     ({pending: [{kind: 'infer', purpose: 'bind', candidate, reason}, {kind: 'direct', purpose: 'llm_proposal', candidate}], reason});
   if (!result || result.status !== 'complete') return llm('jev_unavailable');
@@ -377,6 +407,77 @@ export function interpretBind(candidate: Candidate, batch: DecisionBatch, result
     return {pending: itemsFor(chosen), extra, confidence: lowest, reason: 'bound_variant'};
   }
   return {pending: [{kind: 'direct', purpose: 'execute', candidate, extra}], extra, confidence: lowest, reason: 'bound'};
+}
+
+/** The closed parameters a bind settles: required, closed, with the options the kernel issued. */
+const closedParameters = (candidate: Candidate): Unbound[] => candidate.unbound.filter(value => value.required && value.vocabulary === 'closed' && value.options?.length && !value.binder);
+/** A rules default for one parameter, given the values bound so far (a `by` default reads the parameter it depends on). */
+function ruleDefaultOf(parameter: Unbound, candidate: Candidate, extra: Record<string, Json>): string | undefined {
+  const rule = parameter.ruleDefault;
+  if (!rule) return undefined;
+  const value = rule.value ?? (rule.by ? rule.by.values[String(extra[rule.by.name] ?? candidate.bound[rule.by.name] ?? '')] : undefined);
+  return value !== undefined && parameter.options?.includes(value) ? value : undefined;
+}
+
+/**
+ * A clerk bind (§135.28). Each closed parameter is Jev's answer when it clears the gate, else its rules default; a
+ * parameter with neither leaves the candidate to the Keeper. A default is stamped on the operation's basis
+ * (`binding: "rule-default"`, with the defaulted values), which every row of the call and the Keeper's note carry.
+ */
+function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gate: number):
+  {pending: PendingItem[]; extra?: Record<string, Json>; confidence?: number; reason: string; bindings: BindRecord[]} {
+  const complete = result?.status === 'complete';
+  const extra: Record<string, Json> = {}, bindings: BindRecord[] = [], later: Unbound[] = [];
+  let lowest = 1, cause = complete ? '' : 'jev_unavailable';
+  for (const parameter of closedParameters(candidate)) {
+    const answered = complete ? result!.answers?.[parameter.name] : undefined;
+    const {choice, confidence} = answerOf(result, parameter.name);
+    const distribution = answered?.status === 'answered' && answered.type === 'choice' ? answered.probabilities ?? null : null;
+    if (choice && choice !== 'unknown' && parameter.options!.includes(choice) && (confidence === undefined || confidence >= gate)) {
+      extra[parameter.name] = choice; lowest = Math.min(lowest, confidence ?? 1);
+      bindings.push({name: parameter.name, path: 'jev', value: choice, confidence: confidence ?? null, distribution});
+      continue;
+    }
+    if (!cause) cause = !choice || choice === 'unknown' ? 'unknown_binding' : 'low_confidence';
+    later.push(parameter);
+    // The Jev answer that did not clear stays on record beside the default that replaced it.
+    if (complete) bindings.push({name: parameter.name, path: 'jev', value: null, confidence: confidence ?? null, distribution});
+  }
+  const defaults: Record<string, Json> = {}, unresolved: string[] = [];
+  for (const parameter of later) {
+    const value = ruleDefaultOf(parameter, candidate, extra);
+    if (value === undefined) { unresolved.push(parameter.name); continue; }
+    extra[parameter.name] = value; defaults[parameter.name] = {value, rule: parameter.ruleDefault!.rule};
+    const index = bindings.findIndex(entry => entry.name === parameter.name);
+    const record: BindRecord = {name: parameter.name, path: 'rule-default', value, rule: parameter.ruleDefault!.rule,
+      ...(index >= 0 ? {confidence: bindings[index].confidence, distribution: bindings[index].distribution} : {})};
+    if (index >= 0) bindings[index] = record; else bindings.push(record);
+  }
+  if (unresolved.length) return {pending: keeperOwns(candidate, cause || 'unknown_binding', unresolved, bindings), reason: 'clerk_unbound', bindings};
+  const bound: Candidate = Object.keys(defaults).length
+    ? {...candidate, basis: {...(candidate.basis && typeof candidate.basis === 'object' && !Array.isArray(candidate.basis) ? candidate.basis : {}),
+      binding: 'rule-default', rule_default: defaults} as Json}
+    : candidate;
+  // A closed choice among issued actions: the chosen variant replaces the choice and carries its own parameters on.
+  const variant = candidate.variants?.[String(extra.decision)];
+  if (variant) {
+    const chosen: Candidate = {...bound, label: variant.label, bound: {...variant.bound}, unbound: variant.unbound,
+      ...(variant.basis !== undefined ? {basis: variant.basis} : {}), variants: undefined};
+    return {pending: itemsFor(chosen), extra, confidence: lowest, reason: 'bound_variant', bindings};
+  }
+  return {pending: [{kind: 'direct', purpose: 'execute', candidate: bound, extra, bindings}], extra, confidence: lowest,
+    reason: Object.keys(defaults).length ? 'bound_rule_default' : 'bound', bindings};
+}
+
+/**
+ * A clerk candidate the clerk cannot bind (§135.28): dropped for the run and handed to the Keeper as the next model step
+ * (`infer(adjudicate)`, reason `clerk_unbound`), never an `infer(bind)`. The step carries the candidate so the Keeper is
+ * told what the clerk chose and what it could not settle; nothing was executed for it, and its key is consumed when the
+ * step starts, so it is not offered again this run.
+ */
+export function keeperOwns(candidate: Candidate, cause: string, unresolved: string[], bindings: BindRecord[] = []): PendingItem[] {
+  return [{kind: 'infer', purpose: 'adjudicate', reason: 'clerk_unbound', candidate,
+    extra: {cause, unresolved, ...(bindings.length ? {bindings: bindings as unknown as Json} : {})}}];
 }
 
 export interface TelemetryRow {
@@ -411,9 +512,15 @@ export function startStep(view: RunView, request: Exclude<StepRequest, {kind: 'f
   else if (request.kind === 'infer') {
     if (request.item && view.pending[0] === request.item) view.pending.shift();
     else if (request.item) view.pending = view.pending.filter(value => value !== request.item);
-    // A budget escalation of a pending bind still owes the execution of what the LLM would return.
+    // A budget escalation of a pending bind still owes the execution of what the LLM would return (never a clerk's: §135.28).
     if (request.reason === 'jev_budget' && request.purpose === 'bind' && request.item?.candidate)
       view.pending.unshift({kind: 'direct', purpose: 'llm_proposal', candidate: request.item.candidate});
+    // A clerk candidate handed to the Keeper (§135.28) is dropped for the run: not offered again, whoever does it now.
+    const dropped = request.purpose === 'adjudicate' ? request.item?.candidate : undefined;
+    if (dropped) {
+      if (!view.consumed.includes(dropped.key)) view.consumed.push(dropped.key);
+      view.candidates = view.candidates.filter(value => value.key !== dropped.key);
+    }
   } else view.pending.shift();
   return view.budget.steps;
 }
@@ -444,13 +551,23 @@ export function settleLocate(view: RunView, step: number, located: {calls: numbe
 }
 
 export interface OrdinaryBinding {disposition: string; action?: Record<string, Json>; unresolved: string[]; calls: number; ms: number}
+/** The ordinary binder's action as bind records (§135.28): Jev bound it; the declaration's own words are composed. */
+function ordinaryBindings(action: Record<string, Json>): BindRecord[] {
+  return Object.entries(action).map(([name, value]) => ({name, value, path: name === 'goal' || name === 'method' ? 'composed' as const : 'jev' as const}));
+}
 export function settleOrdinaryBind(view: RunView, step: number, candidate: Candidate, bound: OrdinaryBinding, ms: number): TelemetryRow {
   view.budget.jevCalls += bound.calls;view.budget.jevMs += bound.ms;
+  // An ordinary check the binder could not settle is the Keeper's (Ruling c: an ambiguous one goes to the boss); for a
+  // clerk candidate that is the Keeper's turn, never an LLM bind (§135.28). It has no rules default: its skill is the
+  // player's method, which no arithmetic picks.
+  const unsettled: PendingItem[] = candidate.clerk
+    ? keeperOwns(candidate, `ordinary_${bound.disposition}`, bound.unresolved)
+    : [{kind: 'infer', purpose: 'bind', candidate, reason: `ordinary_${bound.disposition}`}, {kind: 'direct', purpose: 'llm_proposal', candidate}];
   const pending: PendingItem[] = bound.disposition === 'ordinary' && bound.action
-    ? [{kind: 'direct', purpose: 'execute', candidate, extra: bound.action}]
+    ? [{kind: 'direct', purpose: 'execute', candidate, extra: bound.action, bindings: ordinaryBindings(bound.action)}]
     : bound.disposition === 'no_roll' ? []
       : bound.disposition === 'needs_player' ? [{kind: 'infer', purpose: 'compose', reason: 'needs_player'}]
-        : [{kind: 'infer', purpose: 'bind', candidate, reason: `ordinary_${bound.disposition}`}, {kind: 'direct', purpose: 'llm_proposal', candidate}];
+        : unsettled;
   if (bound.disposition === 'no_roll') view.consumed.push(candidate.key);
   view.pending.unshift(...pending);
   observe(view, {kind: 'decide', purpose: 'bind', status: bound.disposition, choice: candidate.key, summary: {disposition: bound.disposition,
@@ -459,8 +576,9 @@ export function settleOrdinaryBind(view: RunView, step: number, candidate: Candi
     reason: `ordinary_${bound.disposition}`, detail: bound.action ?? null};
 }
 
-export function settleBind(view: RunView, step: number, candidate: Candidate, batch: DecisionBatch, result: DecisionResult, ms: number, gate: number): TelemetryRow {
-  view.budget.jevCalls++;view.budget.jevMs += ms;
+/** `offline`: the bind was settled without asking Jev (§135.28, its budget spent), so it spends none of it. */
+export function settleBind(view: RunView, step: number, candidate: Candidate, batch: DecisionBatch, result: DecisionResult, ms: number, gate: number, offline = false): TelemetryRow {
+  if (!offline) { view.budget.jevCalls++;view.budget.jevMs += ms; }
   const bound = interpretBind(candidate, batch, result, gate);
   view.pending.unshift(...bound.pending);
   observe(view, {kind: 'decide', purpose: 'bind', status: result.status, choice: candidate.key, confidence: bound.confidence, reason: bound.reason,
@@ -497,11 +615,17 @@ export function settleLlmProposal(view: RunView, step: number, item: PendingItem
   return {step, kind: 'direct', purpose: 'llm_proposal', choice: item.candidate!.key, confidence: null, ms, jev_calls: 0, detail: summary};
 }
 
-/** The items that carry one candidate: direct when bound, a Jev bind when closed, an LLM bind when open. */
+/**
+ * The items that carry one candidate: direct when bound, a Jev bind when closed. A required parameter no data source
+ * gives (open) is an LLM bind only for a candidate without clerk authority; a clerk candidate with one is the Keeper's
+ * (§135.28: an improvised name or a manoeuvre's goal is the Keeper's to propose, not the clerk's to issue).
+ */
 export function itemsFor(candidate: Candidate, reason?: string): PendingItem[] {
   // A carried step runs first; the candidate it was carried for follows from the fresh read (settleExecute).
   if (candidate.before) return itemsFor({...candidate.before, then: candidate.key}, reason);
   const binding = bindingOf(candidate);
+  if (binding === 'open' && candidate.clerk)
+    return keeperOwns(candidate, 'open_parameters', candidate.unbound.filter(value => value.required && value.vocabulary === 'open').map(value => value.name));
   return binding === 'none' ? [{kind: 'direct', purpose: 'execute', candidate, ...(reason ? {reason} : {})}]
     : binding === 'closed' ? [{kind: 'decide', purpose: 'bind', candidate, ...(reason ? {reason} : {})}]
       : [{kind: 'infer', purpose: 'bind', candidate, reason: 'open_parameters'}, {kind: 'direct', purpose: 'llm_proposal', candidate}];
@@ -717,7 +841,9 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
             ...(request.item?.reason === 'batch_fallen' ? {batch_fallen: true} : {})}} : {}),
           ...(request.item?.candidate ? {candidate: request.item.candidate.key, operation: operationView(request.item.candidate),
             // Host-only: the kernel row the chosen operation came from, recorded with the step; never put in front of the model.
-            ...(request.item.candidate.basis !== undefined ? {basis: request.item.candidate.basis} : {})} : {})}};
+            ...(request.item.candidate.basis !== undefined ? {basis: request.item.candidate.basis} : {}),
+            // §135.28: a clerk candidate handed to the Keeper says what the clerk could not settle, and why.
+            ...(request.item.reason === 'clerk_unbound' ? {clerk_unbound: (request.item.extra ?? {}) as Json} : {})} : {})}};
       if (request.kind === 'decide' && request.purpose === 'route') {
         if (!binding) return {kind: 'decide', purpose: 'route', question: unbound};
         const {batch, offered} = routeBatch(state, binding.scope, binding.readSet);
@@ -726,6 +852,9 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       if (request.kind === 'decide' && request.purpose === 'locate') return {kind: 'decide', purpose: 'locate', question: {rawInput: state.rawInput}};
       if (request.kind === 'decide') {
         const candidate = request.item.candidate!;
+        // §135.28: a clerk bind past the Jev budget is settled without a question (rules defaults, else the Keeper).
+        if (request.offline) return {kind: 'decide', purpose: candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve') ? 'bind-ordinary' : 'bind',
+          question: {batch: undefined, candidate, offline: request.offline, reason: request.offline}};
         return candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve')
           ? {kind: 'decide', purpose: 'bind-ordinary', question: {candidate}}
           : {kind: 'decide', purpose: 'bind', question: binding ? {batch: bindBatch(state, candidate, binding.scope, binding.readSet), candidate: candidate.key} : unbound};
@@ -734,7 +863,8 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       const proposal: OperationProposal = item.purpose === 'read' ? {origin: 'policy', operation: 'read', readOnly: true, label: 'read the table state'}
         : item.purpose === 'llm_proposal' ? {origin: 'policy', operation: 'llm_proposal', readOnly: true, params: {candidate: item.candidate?.key}}
           : {origin: 'policy', operation: 'execute', readOnly: false, label: item.candidate?.label,
-            params: {candidate: item.candidate, extra: item.extra ?? {}, intent: driver.policyState.intent ?? null}};
+            params: {candidate: item.candidate, extra: item.extra ?? {}, intent: driver.policyState.intent ?? null,
+              ...(item.bindings ? {bindings: item.bindings as unknown as Json} : {})}};
       return {kind: 'operate', proposals: [proposal]};
     },
     reduce(policyState, observation, driver) {
@@ -793,11 +923,12 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       } else if (request.kind === 'decide' && request.purpose === 'locate') {
         settleLocate(view, step, artifact?.kind === 'locate' ? artifact : {calls: 0, ms: 0, summary: {status: observation.status}}, observation.ms);
       } else if (request.kind === 'decide') {
-        const candidate = request.item.candidate!;
+        const candidate = request.item.candidate!, offline = !!request.offline;
         if (candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve'))
-          settleOrdinaryBind(view, step, candidate, artifact?.kind === 'bind-ordinary' ? artifact.bound : {disposition: 'unavailable', unresolved: [], calls: 0, ms: 0}, observation.ms);
-        else settleBind(view, step, candidate, binding ? bindBatch(policyState.view, candidate, binding.scope, binding.readSet)
-          : {questions: []} as unknown as DecisionBatch, decisionOf(observation), observation.ms, policyState.gate);
+          settleOrdinaryBind(view, step, candidate, !offline && artifact?.kind === 'bind-ordinary' ? artifact.bound
+            : {disposition: 'unavailable', unresolved: offline ? [String(request.offline)] : [], calls: 0, ms: 0}, observation.ms);
+        else settleBind(view, step, candidate, binding && !offline ? bindBatch(policyState.view, candidate, binding.scope, binding.readSet)
+          : {questions: []} as unknown as DecisionBatch, offline ? unavailable(String(request.offline)) : decisionOf(observation), observation.ms, policyState.gate, offline);
       } else if (request.kind === 'infer') {
         const message = observation.message;
         const proposals = observation.proposals ?? [];
