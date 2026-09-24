@@ -56,12 +56,14 @@ function liveCalls(baseline: Row): Array<{message: number; name: string; argumen
   let cursor = 0;
   for (const [message, call] of array(baseline.calls).entries()) for (const toolCall of array(call.tool_calls)) {
     const row = ['apply', 'resolve', 'narrate', 'ask'].includes(toolCall.name) ? tools[cursor++] : undefined;
-    out.push({message, name: toolCall.name, arguments: object(toolCall.arguments), ok: row ? row.ok !== false : true});
+    // SL-24: a call the live host refused only because its review ran out of time (`host_refusal: review_timeout`) is
+    // replayed: the refusal was the host's, and the replay puts the same call to today's admission.
+    out.push({message, name: toolCall.name, arguments: object(toolCall.arguments), ok: row ? row.ok !== false || row.host_refusal === 'review_timeout' : true});
   }
   return out;
 }
 
-interface ReplayState {purpose?: string; done: Set<string>; messages: number[]; cursor: number; executed: Row[]}
+interface ReplayState {purpose?: string; done: Set<string>; messages: number[]; cursor: number; executed: Row[]; resent?: Set<string>}
 
 /** The text of every message the provider was sent (custom messages reach it converted, so the text is what is read). */
 const messageTexts = (context: Row): string[] => array(context.messages).map(message => typeof message.content === 'string' ? message.content
@@ -143,6 +145,17 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
     // SL-20: so is the compose after the clerk settled the declaration (§135.11 addendum): the note tells the Keeper to
     // narrate the settled step and close the turn, and the replay answers it with the delivery, as it answers the budget's.
     if (['run_budget', 'settled'].includes(String(latestNote(context).reason))) return delivery();
+    // SL-24 (§32.12.2): a call the host returned `review_pending` is resent once, unchanged, as its refusal's fix says. The
+    // recorded Keeper never saw that refusal; this models a Keeper that obeys it, as SL-10's budget compose modelled one
+    // that obeys the budget note. The resend is answered at once (no Keeper latency), the pessimistic case for the overlap.
+    const messages = array(context.messages);
+    const lastResult = [...messages].reverse().find((message: Row) => message.role === 'toolResult');
+    if (lastResult && object(object(object(lastResult.details).coc_error).details).reason === 'review_pending' && !state.resent?.has(lastResult.toolCallId)) {
+      (state.resent ??= new Set()).add(lastResult.toolCallId);
+      const original = messages.flatMap((message: Row) => message.role === 'assistant' ? array(message.content) : [])
+        .find((block: Row) => block.type === 'toolCall' && block.id === lastResult.toolCallId);
+      if (original) return answer([{name: String(original.name), arguments: object(original.arguments)}], 'resend:review_pending');
+    }
     const done = doneFrom(context), purpose = state.purpose;
     if (purpose === 'bind') {
       // The operation the clerk chose, from the run's own note to the Keeper.
@@ -263,6 +276,13 @@ export interface ProductRunOptions {
    * the owner's App (the SL-00 inventory: `ext.jev.preselectEnabled` true).
    */
   prescreen?: 'on' | 'off';
+  /**
+   * SL-24: `replay` (default) answers each admission review with the live table's recorded verdict; `live` puts it to the
+   * real lane model (`laneModel`, default the long gate's `opencode-go/deepseek-v4.1-flash`, credential copied from the
+   * App's agent home), so a review the live table cut at its cap is answered for real, at its real latency.
+   */
+  lane?: 'replay' | 'live';
+  laneModel?: string;
 }
 
 /**
@@ -270,6 +290,16 @@ export interface ProductRunOptions {
  * refresh token removed, so nothing this run does can rotate (and so invalidate) the App's own login. A token with
  * less than 20 minutes left is refused instead: sign the App in again first.
  */
+/** SL-24: the lane provider's credential, copied from the App's agent home into the disposable workspace (merged, never printed). */
+function liveLaneHome(workspace: string, agentDir: string, provider: string): void {
+  const credential = object(object(JSON.parse(readFileSync(join(AGENT_DIR, 'auth.json'), 'utf8')))[provider]);
+  if (!Object.keys(credential).length) throw new Error(`the App has no ${provider} credential for the live lane`);
+  for (const path of [join(workspace, 'auth.json'), join(agentDir, 'auth.json')]) {
+    const current = existsSync(path) ? object(JSON.parse(readFileSync(path, 'utf8'))) : {};
+    writeFileSync(path, JSON.stringify({...current, [provider]: credential}), {mode: 0o600});
+  }
+}
+
 function liveKeeperHome(workspace: string, agentDir: string): void {
   const credential = object(object(JSON.parse(readFileSync(join(AGENT_DIR, 'auth.json'), 'utf8')))['grok-build']);
   if (typeof credential.access !== 'string' || !credential.access || Number(credential.expires) - Date.now() < 20 * 60_000)
@@ -281,7 +311,7 @@ function liveKeeperHome(workspace: string, agentDir: string): void {
 }
 
 export interface ProductRunSummary {
-  run: number; fixture: string; admission: string; keeper: string; thinking: string; arm: string; latency: boolean; seed: string | null; wall_ms: number; status: string | null; reason: string | null;
+  run: number; fixture: string; admission: string; lane: string; keeper: string; thinking: string; arm: string; latency: boolean; seed: string | null; wall_ms: number; status: string | null; reason: string | null;
   budget: Row | null;
   model_calls: ModelCall[];
   steps: Record<string, number>; llm_steps: number; llm_purposes: string[]; jev_calls: number; route_rows: number;
@@ -339,11 +369,14 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
   const agentDir = join(workspace, 'agent');
   mkdirSync(agentDir, {recursive: true});
   if (live) liveKeeperHome(workspace, agentDir);
+  const laneLive = options.lane === 'live', laneModel = options.laneModel ?? 'opencode-go/deepseek-v4.1-flash';
+  if (laneLive) liveLaneHome(workspace, agentDir, laneModel.slice(0, laneModel.indexOf('/')));
   const restore = setEnv({
     ...Object.fromEntries(Object.keys(process.env).filter(name => /(_API_KEY|_TOKEN|_SECRET)$/.test(name)).map(name => [name, undefined])),
     EXT_JEV_APIKEY: key, PI_COC_KERNEL_CMD: undefined, PI_COC_HOME: workspace, PI_CODING_AGENT_DIR: agentDir, PI_COC_CAMPAIGN: campaign,
     PI_COC_MODE: 'play', PI_OFFLINE: '1', PI_COC_LOOP_ENGINE: 'hybrid-v1', PI_COC_MEMORY_BACKFILL: '0',
-    PI_COC_VERIFIER_MODEL: 'verifier/v1', PI_COC_MEMORY_MODEL: 'memory/m1', PI_COC_ADMISSION_MODEL: 'admission/a1',
+    PI_COC_VERIFIER_MODEL: 'verifier/v1', PI_COC_MEMORY_MODEL: 'memory/m1', PI_COC_ADMISSION_MODEL: laneLive ? laneModel : 'admission/a1',
+    PI_COC_LANE_THINKING: laneLive ? 'low' : undefined,
     PI_COC_ADMISSION_REVIEWER: admission, PI_COC_JEV_PRESELECT: options.prescreen === 'off' ? '0' : '1', PI_GROK_BUILD_IMAGE_TOOLS: '0',
     PI_COC_TURN_BUDGET_MS: arm === 'before' ? '3600000' : undefined, PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: arm === 'before' ? 'off' : undefined,
     // SO-04: the kernel's dice are seeded (the kernel subprocess inherits this), so a passing and a failing roll are
@@ -451,7 +484,10 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
     path: row.path ?? null, fast_path: row.fast_path ?? null, jev_confidence: row.jev_confidence ?? null, line_verdicts: row.line_verdicts ?? null, lane_ms: row.lane_ms ?? null,
     // SL-18 (§32.12): the compile's evidence, or why it was refused; the lane's first byte and a cut at the cap.
     predicate: row.predicate ?? null, features: row.features ?? null, binding_paths: row.binding_paths ?? null, compile_refused: row.compile_refused ?? null,
-    first_byte_ms: row.first_byte_ms ?? null, timed_out: row.timed_out ?? null}));
+    first_byte_ms: row.first_byte_ms ?? null, timed_out: row.timed_out ?? null,
+    // SL-24 (§32.12.2): the late decision, a pending return and its resend.
+    cause: row.cause ?? null, late_rule: row.late_rule ?? null, resend: row.resend ?? null, resend_wait_ms: row.resend_wait_ms ?? null,
+    typed: row.typed ?? null, grounds: row.grounds ?? null, proposed: row.proposed ?? null}));
   const budgetRow = own.filter(row => row.lane === 'run' && row.event === 'budget' && row.decision === 'summary').at(-1) ?? null;
   const clerk = own.filter(row => row.origin === 'policy' && row.tool).map(row => ({tool: row.tool, call_id: row.call_id, ok: row.ok, ms: row.ms, clerk: row.clerk, basis: row.basis}));
   const misses = routeRows.filter(row => ['low_confidence', 'jev_unavailable', 'jev_no_answer', 'repeated_question'].includes(String(row.reason)));
@@ -461,7 +497,7 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
     materials: object(row.prescreen).materials ?? 0, jev_calls: object(row.prescreen).jev_calls ?? 0, ms: object(row.prescreen).ms ?? null}));
   const selections = routeRows.filter(row => (row.purpose === 'compile' || row.purpose === 'route') && array(row.selected).length)
     .map(row => ({by: String(row.purpose), keys: array(row.selected).map(String)}));
-  const summary: ProductRunSummary = {run, fixture: name, admission, keeper: live ? `live ${liveProvider}/${liveModel}` : 'replay', thinking, arm, latency, seed: options.seed ?? null, wall_ms: wall, budget: budgetRow,
+  const summary: ProductRunSummary = {run, fixture: name, admission, lane: laneLive ? `live ${laneModel}` : 'replay', keeper: live ? `live ${liveProvider}/${liveModel}` : 'replay', thinking, arm, latency, seed: options.seed ?? null, wall_ms: wall, budget: budgetRow,
     compile: options.compile ?? 'on', compile_row: compileRow, selections, compile_rows: compileRows, prescreen: options.prescreen ?? 'on', reads,
     status: end?.status ?? null, reason: end?.reason ?? null, model_calls: modelCalls,
     steps: stepCounts, llm_steps: llmPurposes.length, llm_purposes: llmPurposes, jev_calls: jevCalls, route_rows: routeRows.length,
@@ -484,11 +520,12 @@ export async function main(argv: string[]): Promise<void> {
   const seed = argv.includes('--seed') ? arg('--seed', '') : undefined;
   const compile = arg('--compile', 'on') as 'on' | 'off';
   const prescreen = arg('--prescreen', 'on') as 'on' | 'off';
+  const lane = arg('--lane', 'replay') as 'replay' | 'live', laneModel = argv.includes('--lane-model') ? arg('--lane-model', '') : undefined;
   const then = argv.flatMap((value, index) => value === '--then' ? [argv[index + 1]] : []);
   const outDir = arg('--out', join(REPO, 'experiments/single-loop-routing/results', `${new Date().toISOString().replace(/[:.]/g, '-')}-product-${name.split('/').filter(Boolean).at(-1)}-${admission}${keeper === 'live' ? `-live-${thinking ?? 'low'}` : ''}`));
   const summaries: ProductRunSummary[] = [];
   for (let run = 1; run <= runs; run++) {
-    const summary = await productReplayOnce(name, run, outDir, admission, {keeper, arm, latency, compile, prescreen, ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {}), ...(seed ? {seed} : {})});
+    const summary = await productReplayOnce(name, run, outDir, admission, {keeper, arm, latency, compile, prescreen, lane, ...(laneModel ? {laneModel} : {}), ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {}), ...(seed ? {seed} : {})});
     summaries.push(summary);
     console.log(JSON.stringify({run, fixture: name, admission, keeper: summary.keeper, thinking: summary.thinking, arm, latency, seed: summary.seed, wall_ms: summary.wall_ms,
       budget: summary.budget ? {elapsed_at_compose: summary.budget.elapsed_at_compose, over: summary.budget.over_budget, deferred: array(summary.budget.deferred_by_budget).map((value: Row) => value.key)} : null,

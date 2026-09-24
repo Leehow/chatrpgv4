@@ -84,3 +84,78 @@ Decision rules, fixed now:
 - **The late admission's typed threshold** is the lowest *T* (0.05 steps) at which, over the typed-admitted
   late-eligible batches of SL-10's file plus corpus B, lane refusals are at most 2% of typed admissions; if no *T* reaches
   it, typed late admission is left at SL-10's 0.87.
+
+### 2026-09-24 — measurement 2 (scored against the pre-registration), and the decisions it forced
+
+Results are in `experiments/admission-jev-bank/results/sl24/`:
+- `longgate-lane-typed.jsonl`: corpus A, 72 rows;
+- `bank-late-cash-typed.jsonl`: corpus B, 95 rows.
+
+**Corpus A: the lane uncapped.** 72 rounds, 0 failures.
+
+| | n | p50 | p75 | p90 | p95 | max | > 12 s | > 20 s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| all | 72 | 3.7 s | 4.5 s | 8.6 s | 15.1 s | 45.7 s | 5 | 3 |
+| `apply` | 33 | 4.3 s | 6.8 s | 14.5 s | 26.9 s | 45.7 s | 4 | 3 |
+| `resolve` | 39 | 3.4 s | 4.2 s | 4.8 s | 8.1 s | 14.8 s | 1 | 0 |
+
+First byte: p50 1.6 s, max 3.0 s.
+
+The four batches the table cut, per run:
+
+| batch | lane (3 runs) | typed (verdict, confidence) |
+| --- | --- | --- |
+| t1: clue, cash, item, time, person | authorized 5.9 s, authorized 3.9 s, entailed 4.4 s | entailed / not_authorized ×2, 0.07–0.12 |
+| t6: move + 3 persons | authorized 35.2 s, 9.9 s, 15.5 s | not_authorized (the Gabriela person line) 0.48–0.53 |
+| t7: move + 2 persons | authorized 10.3 s, 21.5 s, 45.7 s | not_authorized (the move line) 0.22–0.37 |
+| t14: clue, time, threat | authorized 4.2 s, 4.7 s, 4.6 s | authorized 0.25–0.34 |
+
+**Scoring the predictions.**
+
+1. **Missed on the level, held on the tail.** p50 3.7 s (predicted 4–6), p90 8.6 s (predicted 10–18), 3 rounds over
+   20 s (predicted at least 1). The four cut batches are not all "not intrinsically slow": t1 and t14 are fast every time
+   (a 12 s cut there was the provider's tail), but t6 and t7, a move beside several `person` lines, are slow every time
+   (9.9–45.7 s). t7 answered under 20 s in only 1 of 3 runs.
+2. **Held.** 0 of 72 answers had empty grounds. The long gate's "no grounds" was the row, not the lane.
+3. **Held.** The lane admits t6, t7 and t14, and t1 too, in 3 of 3 runs each.
+4. **Held.** Typed agreed with the lane on admit/refuse in 22 of 33 `apply` rounds (67%) and 33 of 39 `resolve`
+   rounds. It refused a line the lane admitted in every run of t6 (a `person` line) and t7 (the move itself).
+5. **Held.** At minimum 0, typed admits 9 of corpus B's 20 lane refusals.
+
+**Decisions by the fixed rules.**
+
+- **The cap is 13 s.** The pooled p90 is 12.3 s, over corpus A plus the bank's 51 verdicts for the same lane model:
+  123 rounds, p50 3.6 s, p95 18.1 s, p97.5 21.4 s, p99 43.4 s, max 85.3 s. Rounded up, that is 13 s. 11 of 123 rounds
+  pass 13 s. The hard cap is 26 s, and 3 of 123 pass it.
+- **The late threshold is 0.70.** Over SL-10's 2 174 typed bookkeeping batches plus corpus B's 95, lane refusals as a
+  share of typed admissions are:
+
+  | *T* | 0.50 | 0.60 | 0.65 | 0.70 | 0.75 | 0.80 |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | lane refusals / typed admissions | 3.4% | 2.5% | 2.5% | **1.9%** (4/214) | 2.1% | 1.1% |
+
+  On `cash` batches alone, no false admission occurs at *T* ≥ 0.40 (35 admitted).
+
+**What these numbers say about the long gate's four writes under the new rule.**
+
+- None would have been a late admission: the typed confidences there were 0.07–0.53, or the typed answer refused.
+- t14 and t1 answer inside 13 s: they land directly.
+- t6 and t7 depend on the resend: the Keeper's step between the pending refusal and the resend overlaps the lane's tail,
+  and a round past 26 s ends `review_timeout`. By the measured runs, about a third of t6/t7 rounds pass 26 s.
+- The late admission, as calibrated, will rarely fire on this table. That is the measurement's answer, not a defect: typed
+  confidence on these Keeper batches is low (0.2–0.7).
+
+**Replay pre-registration (before any replay run).** Fixtures `longgate-t6` and `longgate-t14` are built by `gate-fixture.mjs`
+from the long gate (read only). The live Keeper's call that the host refused with `review_timeout` is now replayed, and
+marked `live_refused` in the baseline. Command: `run.mjs --fixture longgate-tN --runs 3 --llm replay --lane live --seed 1`.
+This means:
+- product driver, recorded Keeper, live Jev;
+- the real lane (`opencode-go/deepseek-v4.1-flash`, `low`);
+- a `review_pending` refusal is resent once at once. This models a Keeper that obeys the fix, with no Keeper latency,
+  which is the pessimistic case for the overlap.
+
+Registered acceptance (the lead's): the t6 move to `previous-tenants` and the t14 `corbitt-diaries` clue land. My
+predictions:
+- t14's clue lands in 3 of 3 runs, admitted by the lane before the cap.
+- t6's move lands in at least 2 of 3 runs, either before the cap or on the resend.
+- A t6 run that misses is the lane passing the 26 s hard cap. It ends `review_timeout` on the resend, and the row says so.

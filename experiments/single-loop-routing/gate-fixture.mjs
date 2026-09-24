@@ -92,12 +92,22 @@ for (const turn of turns) {
   }
   // The model-origin tool rows, in message order, with whether each was taken (a clerk write is marked, and was).
   const tools = calls.flatMap(call => call.tool_calls.map(toolCall => toolCall.clerk_live ? {tool: toolCall.name, call_id: toolCall.id, ok: true, clerk_live: true}
-    : {tool: toolCall.name, call_id: toolCall.id, ok: results.get(toolCall.id)?.isError !== true}));
+    : {tool: toolCall.name, call_id: toolCall.id, ok: results.get(toolCall.id)?.isError !== true,
+      // SL-24: why the live host refused it, from the refusal's closed `details.reason` (a review that ran out of time is
+      // the host's failure, not the Keeper's choice, and a replay can put the same call to today's admission).
+      ...(results.get(toolCall.id)?.isError === true && results.get(toolCall.id)?.result?.details?.coc_error?.details?.reason
+        ? {host_refusal: results.get(toolCall.id).result.details.coc_error.details.reason} : {})}));
   const admissions = telemetry.filter(row => row.lane === 'admission' && row.turn === turn).map(row => ({verb: row.verb, verdict: row.verdict ?? null, ms: row.ms ?? null, origin: row.origin ?? 'model'}));
   // The live rows: what the live kernel took (a refused call is no row), in the shape `matchBaseline` compares.
   const actions = [];
   for (const call of calls) for (const tool of call.tool_calls) {
-    if (!tool.clerk_live && results.get(tool.id)?.isError === true) continue;
+    const refused = results.get(tool.id)?.isError === true;
+    const timedOut = refused && results.get(tool.id)?.result?.details?.coc_error?.details?.reason === 'review_timeout';
+    if (!tool.clerk_live && refused && !timedOut) continue;
+    // SL-24: a call the live host refused only because its review ran out of time is an expected row, marked, so a replay
+    // shows whether today's admission lands it.
+    if (timedOut && tool.name === 'apply') { for (const effect of tool.arguments.effects ?? []) actions.push({verb: 'apply', kind: effect.kind,
+      target: effect.to ?? effect.who ?? effect.clue ?? effect.name ?? null, live_refused: 'review_timeout'}); continue; }
     if (tool.name === 'apply') for (const effect of tool.arguments.effects ?? []) actions.push({verb: 'apply', kind: effect.kind, target: effect.to ?? effect.who ?? effect.clue ?? effect.name ?? null,
       ...(tool.clerk_live ? {clerk_live: true} : {}), ...(effect.minutes ?? effect.travel_minutes ? {minutes: effect.minutes ?? effect.travel_minutes} : {})});
     else if (tool.name === 'resolve') { const action = tool.arguments.action ?? {}; actions.push({verb: 'resolve', ...(action.decision ? {decision: action.decision} : {}),
