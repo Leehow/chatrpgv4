@@ -159,6 +159,11 @@
       "id": "SL-31",
       "file": "31-ordinary-binder-defaults.md",
       "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-32",
+      "file": "32-pdf-import-reads-before-guidance.md",
+      "status": "ready-for-agent"
     }
   ],
   "relatedSpecs": [
