@@ -17854,7 +17854,8 @@ runner-up) and is a row (never `none`, `unclear` or `unknown`). A predicate fire
 
 **Decided, selected, and what falls through.** A candidate a predicate can read is *decided* when the feature it turns
 on cleared: a move by `destination`; an obligation check by `ask`; a stated meeting by `addressee` or `ask`; the attack by
-`act`. A decided candidate a predicate did not fire on is the Keeper's for the rest of the run: its key is consumed, as
+`act` when it is another act, and by `act` and `target` together when it is the attack (the attack with no cleared target
+falls through, and its own bind settles the target). A decided candidate a predicate did not fire on is the Keeper's for the rest of the run: its key is consumed, as
 §135.26's fact question consumes an unselected obligation. Every other candidate falls through to the existing `need`
 question (§135.2, and §135.26's fact question for an obligation whose `ask` did not clear): a feature below the gate,
 `unclear`, not asked, or a candidate no predicate reads (a clue, a handout, a roster person, a Mod contact check, the
