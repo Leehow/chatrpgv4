@@ -207,3 +207,7 @@ overwritten by the final ones (`results/sl26-longgate-t12-ruling`); the rows abo
 Spot Hidden (lane-reviewed, `entailed`/`authorized`). A live Keeper sees `clerk_did`; at the next live gate, check whether a
 declared search in the bedroom is rolled twice (the clerk's ordinary check and the rule's step) and whether the Keeper
 folds the rule's step into the clerk's roll.
+
+**Final suites (leehow-pc, after merging the integration branch at `36edf3abf`, SL-24).** `eda3a81b9`: `ext` 2941/2941
+(exit 0, 129 s, box load ~5); `loop` 149/149 (exit 0, 31 s). Before that merge, at `0742b6a91` (integration `c538a0ef5`):
+`ext` 2931/2931 (exit 0, load 22), `loop` 149/149.
