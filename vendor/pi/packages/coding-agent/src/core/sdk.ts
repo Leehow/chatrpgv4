@@ -17,6 +17,7 @@ import type { ResourceLoader } from "./resource-loader.ts";
 import { DefaultResourceLoader } from "./resource-loader.ts";
 import { getDefaultSessionDir, SessionManager } from "./session-manager.ts";
 import { SettingsManager } from "./settings-manager.ts";
+import { watchStreamProgress } from "./stream-progress.ts";
 import { time } from "./timings.ts";
 import {
 	createBashTool,
@@ -384,7 +385,13 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			if (options?.sessionId === sessionManager.getSessionId()) {
 				cacheWarmer.start({ model, context, options: requestOptions }, cacheContextIsCurrent(model));
 			}
-			return modelRuntime.streamSimple(model, context, requestOptions);
+			// The same idle allowance, measured on the events the agent consumes rather than on bytes: a
+			// stream that answers and then produces no event ends as a retryable error (stream-progress.ts).
+			return watchStreamProgress(
+				(signal) => modelRuntime.streamSimple(model, context, { ...requestOptions, signal }),
+				requestOptions.signal,
+				settingsManager.getHttpIdleTimeoutMs(),
+			);
 		},
 		onPayload: transformProviderPayload,
 		onResponse: handleProviderResponse,

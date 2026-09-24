@@ -17607,6 +17607,73 @@ emitted, both layouts name it in the session mounts and not in the lane mounts, 
 carries it in play and in setup; `tests/extension/pipicoc-rpc.test.mjs` for the App's `keeperArguments` in both
 modes. Mutation: remove it from `COC_EXTENSIONS` and all of them fail.
 
+### 135.29 A provider attempt ends when its stream stops producing events (2026-09-24, SL-02 live-gate finding; amends the SL-01 attempts of `docs/specs/pi-native-single-loop-tickets/01-run-driver.md` and the premise of `runtime/launch.ts`'s idle timeout)
+
+**The finding.** `gate2-haunting-2153` (hybrid-v1, `grok-build/grok-4.7-build-fast` low, through the local proxy),
+turn 2, twice (01:57Z and, after a restart, 02:04Z): read, route (`ask_llm`), `step_start infer`, `step_attempt` 1,
+`provider-request`, `provider-response 200` two seconds later, the assistant `message_start` -- and then nothing from
+the run: no `provider-call`, no `message_end`, no attempt 2, no `run_end`. The Keeper process sat at 0 % CPU on one
+established connection until the driver's own 300 s cut. The agent home carried `httpIdleTimeoutMs: 60000`. The same
+sentence on the same campaign later delivered in 65 s, so the stall is the stream's, not the request's content.
+
+**Why the idle timeout did not cut it.** The setting reaches the transport exactly as `runtime/launch.ts` says, on
+both engines and through a proxy: `main` calls `configureHttpDispatcher(settings.getHttpIdleTimeoutMs())` (undici
+`headersTimeout`/`bodyTimeout`) and `buildRequestOptions` passes it as the SDK request timeout, and the driven infer
+calls the same `streamFunction` with the same options `runLoop` does (`Agent.driveRun` → `streamAssistantResponse`).
+A byte-silent stream after its headers is cut there at the idle time and retried: retained grok-build tables carry
+those `error` rows at 60.3–62.7 s after the 200, and a real `bin/pi-coc` hybrid process against a local server that
+answers and goes silent retries it through `_recoverDrivenAttempt` as attempt 2 and 3 and ends the run. What those
+timers watch is *bytes*. A connection that keeps sending bytes no model event is made of -- SSE keep-alive comments,
+or event types the Responses adapter does not surface (`response.in_progress` and the like) -- is never idle to
+undici, and the SDK timeout has already been cleared by the response headers. pi-ai's `processResponsesStream` then
+waits on its iterator for as long as the provider holds the socket, no error ever arises, so `_recoverDrivenAttempt`
+is never asked and the run never ends. The legacy loop had the same exposure (§94's turn 117: a 200 whose stream
+never closed again, the turn `acting` for 23 minutes); only the App's turn watchdog ever ended those, as an abort.
+Nothing was swallowed on the driven path: the missing `message_end` and `provider-call` rows say the adapter's
+stream never produced a terminal event, which is the only place either comes from. The wire itself was not captured (see
+Diagnostics below), so which bytes Grok sent is an inference: with byte silence excluded by the retained 60 s cuts
+and by the reproduction, bytes that make no event are what is left, and the rule below covers every variant of it.
+
+**The rule.** A provider attempt ends when its stream stops producing events for the session's `httpIdleTimeoutMs`.
+The agent's stream function (vendored Pi patch `0003`, `packages/coding-agent/src/core/stream-progress.ts`, wired in
+`createAgentSession`) starts every attempt under a progress watchdog. From the attempt's first event (the adapter
+pushes it once the response has answered; until then the transport timeouts above govern), every event the agent
+would consume restarts the same allowance. When it runs out, the request is aborted and the attempt ends as a
+provider error, `stopReason: "error"`, `errorMessage` "Provider stream timed out: no response event for <n> ms",
+carrying the content the stream had produced. It is an error and not an abort because an abort is the caller
+revoking the run and is never retried (`launch.ts`); "timed out" is in pi-ai's retry patterns, so nothing new decides
+retryability. `httpIdleTimeoutMs: 0` (disabled) disables the watchdog with the rest.
+
+**Why the same number.** Measured over the RPC event logs of the retained playtests (`.coc/playtests/*/events.jsonl`,
+the gap between consecutive assistant `message_start`/`message_update` events of one message): on `grok-build`,
+21,001 gaps, the worst healthy silence is 23.1 s mid-stream and 20.1 s before the first delta (p99.9 mid-stream
+8.4 s). 60 s clears both by more than half again. On the retired `xai` provider (2026-09-11 to 09-13) 59 of 20,984
+first deltas came 60 s or more after the answer; those would now be retried, as the byte-silent ones already are.
+
+**What follows is the existing path, on both engines.** On hybrid-v1 the failed attempt goes to `recover` →
+`_recoverDrivenAttempt` → `_prepareRetry`: backoff, the failed attempt omitted from the model projection, and one more
+provider attempt of the same infer step, each a `step_attempt` row with attempt id `<stepId>#aN`, bounded by
+`retry.maxRetries` (default 3, so at most four attempts). When the retries are spent the step ends `unavailable`; a
+failed response is not steered (§135.11: the turn close is asked only after a model step that answered), so the run
+finishes `undelivered` with reason `model_unavailable:no_delivered_evidence`, and at `agent_settled` the player gets
+§38.7's terminal provider notice (it outranks §38's generic line). On legacy the same error goes to
+`_handlePostAgentRun`'s retry and the run settles the same way. A stream that stalls never holds the run.
+
+**Diagnostics.** No product switch dumps provider traffic. For a live capture, undici publishes each request's sent
+body and every received body chunk on `node:diagnostics_channel` (`undici:request:create`, `bodyChunkSent`,
+`headers`, `bodyChunkReceived`, `trailers`, `error`); a `NODE_OPTIONS=--import <file>` preload subscribing to them
+records what the provider actually sent after the 200 without touching the product (the request body is the payload
+the `before_provider_request` hook in `extensions/kernel/index.ts` sees).
+
+*Tests.* `tests/extension/provider-stream-stall.test.mjs`: a real socket speaking Responses SSE behind Pi's provider
+path, with the process dispatcher configured as `main` configures it. A stream that answers and then sends only SSE
+keep-alive comments ends each attempt with the timeout error, three `step_attempt` rows of one infer step, three
+requests, `run_end undelivered` and the §38.7 notice, inside a bounded wait; the same stall on the legacy loop settles
+the same way; a byte-silent stream still ends through the transport half. Mutation: the watchdog disabled
+(`watchStreamProgress` passing the stream through) and both keep-alive cases hang past the bound, exactly as on the
+parent `cebffa0e1`; the error worded outside pi-ai's retry patterns and the wording assertion fails.
+`tests/extension/vendored-pi.test.mjs` pins the series.
+
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 
 A **mechanical shape** is a typed value from one closed catalog that states a rule the module prints: a
