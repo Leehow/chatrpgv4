@@ -7,7 +7,19 @@ import { readerInput } from '../module/reader.ts';
 import { fastLaneChoice } from '../lanes/subsession.ts';
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 
-const FOREGROUND_WAIT_MS = 12_000;
+/**
+ * How long a `prepare` holds the Keeper's turn for its own job (§135.11 addendum, SL-23): the budget inside the turn.
+ *
+ * It was 12 000 ms, and it bought nothing it was paid for. Every retained `prepare` that started a job (seven, across the
+ * gate and playtest tables up to 2026-09-24) came back `pending` or `reviewing` after 12.1-12.6 s; none came back
+ * `ready`. The long gate's turn 19 is the shape: the creator took 12 s and the independent reviewer 22 s, so the job was
+ * ready 35 s after it started -- and the turn had already paid 12.2 s of its 60 s for a status it then had to wait on
+ * anyway. A creator and a reviewer, each a tool-using child on a fast model, cannot finish inside any wait a turn can
+ * afford; the result reaches the table through the host's wait notice and the next turn's status. What the short wait
+ * still catches is a job that ends at once (a task that cannot start fails in well under a second), so its result is
+ * read in the same call. `PI_COC_ADAPTATION_WAIT_MS` still overrides it.
+ */
+const FOREGROUND_WAIT_MS = 2_000;
 const TASK_TIMEOUT_MS = 30_000;
 const TASK_MAX_REQUESTS = 6;
 
@@ -26,11 +38,15 @@ export function adaptationModel(ctx: ExtensionContext | undefined): {name?: stri
     const chosen = fastLaneChoice(ctx, 'PI_COC_ADAPTATION_MODEL', table);
     return {...(chosen.model ? {name: chosen.model} : {}), thinking: chosen.thinking};
 }
+/** The foreground wait a `prepare` of a new job spends in the turn, read per call. */
+export function adaptationWaitMs(): number {
+    const configured = Number(process.env.PI_COC_ADAPTATION_WAIT_MS);
+    return process.env.PI_COC_ADAPTATION_WAIT_MS?.trim() && Number.isFinite(configured) && configured >= 0 ? configured : FOREGROUND_WAIT_MS;
+}
 export function adaptationService(runtime: HostRuntime, call: Call, model: () => {name?: string; thinking?: any}) {
     const tasks = new Map<string, {campaign: string; name: string; run: Promise<void>; controller: AbortController}>();
     async function waitFor(task: {run: Promise<void>; controller: AbortController}, signal?: AbortSignal) {
-        const configured = Number(process.env.PI_COC_ADAPTATION_WAIT_MS);
-        const wait = Number.isFinite(configured) && configured >= 0 ? configured : FOREGROUND_WAIT_MS;
+        const wait = adaptationWaitMs();
         let timer: ReturnType<typeof setTimeout> | undefined;
         let stop: (() => void) | undefined;
         try {

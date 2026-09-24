@@ -74,7 +74,16 @@ for (const turn of turns) {
   const slice = events.slice(start, end < 0 ? undefined : end + 1);
   const results = new Map(slice.filter(event => event.type === 'tool_execution_end').map(event => [event.toolCallId, event]));
   const providerCalls = telemetry.filter(row => row.lane === 'provider-call' && row.turn === turn);
+  // SL-23: the prose each assistant message streamed, from its text deltas. The persisted message is what the host left
+  // after its drops (a draft the host dropped is not in it), and a turn that stranded has no delivered text to replay.
+  const streamed = [];
+  let current = '';
+  for (const event of slice) {
+    if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') current += event.assistantMessageEvent.delta ?? '';
+    if (event.type === 'message_end' && event.message?.role === 'assistant') { streamed.push(current); current = ''; }
+  }
   const calls = slice.filter(event => event.type === 'message_end' && event.message?.role === 'assistant').map((event, index) => ({
+    ...(streamed[index] ? {text: streamed[index]} : {}),
     at: new Date(event.message.timestamp).toISOString(), provider_ms: providerCalls[index]?.ms ?? null, stop_reason: event.message.stopReason, model: event.message.model ?? null,
     usage: {input: event.message.usage?.input ?? null, output: event.message.usage?.output ?? null, cache_read: event.message.usage?.cacheRead ?? null},
     tool_calls: (event.message.content ?? []).filter(block => block.type === 'toolCall').map(block => ({name: block.name, arguments: block.arguments, id: block.id}))}));
@@ -91,12 +100,20 @@ for (const turn of turns) {
     calls[after < 0 ? calls.length - 1 : after].tool_calls.unshift(item);
   }
   // The model-origin tool rows, in message order, with whether each was taken (a clerk write is marked, and was).
-  const tools = calls.flatMap(call => call.tool_calls.map(toolCall => toolCall.clerk_live ? {tool: toolCall.name, call_id: toolCall.id, ok: true, clerk_live: true}
-    : {tool: toolCall.name, call_id: toolCall.id, ok: results.get(toolCall.id)?.isError !== true,
-      // SL-24: why the live host refused it, from the refusal's closed `details.reason` (a review that ran out of time is
-      // the host's failure, not the Keeper's choice, and a replay can put the same call to today's admission).
-      ...(results.get(toolCall.id)?.isError === true && results.get(toolCall.id)?.result?.details?.coc_error?.details?.reason
-        ? {host_refusal: results.get(toolCall.id).result.details.coc_error.details.reason} : {})}));
+  // SL-23: a call the live host refused for a preparation wait (a `blocked` row with `reason: preparation_wait`, paired by
+  // tool in order) is marked, so a replay can put it to the gate again: the gate, not the kernel, is what refused it.
+  // SL-24: a refused call also records why the live host refused it, from the refusal's closed `details.reason` (a review
+  // that ran out of time is the host's failure, not the Keeper's choice, and a replay can put the same call to today's
+  // admission).
+  const waitBlocks = telemetry.filter(row => row.turn === turn && row.code === 'blocked' && row.reason === 'preparation_wait' && !row.origin);
+  const tools = calls.flatMap(call => call.tool_calls.map(toolCall => {
+    if (toolCall.clerk_live) return {tool: toolCall.name, call_id: toolCall.id, ok: true, clerk_live: true};
+    const ok = results.get(toolCall.id)?.isError !== true;
+    const block = ok ? -1 : waitBlocks.findIndex(row => row.tool === toolCall.name);
+    const reason = ok ? undefined : results.get(toolCall.id)?.result?.details?.coc_error?.details?.reason;
+    return {tool: toolCall.name, call_id: toolCall.id, ok, ...(block >= 0 ? {blocked: waitBlocks.splice(block, 1)[0].reason} : {}),
+      ...(reason ? {host_refusal: reason} : {})};
+  }));
   const admissions = telemetry.filter(row => row.lane === 'admission' && row.turn === turn).map(row => ({verb: row.verb, verdict: row.verdict ?? null, ms: row.ms ?? null, origin: row.origin ?? 'model'}));
   // The live rows: what the live kernel took (a refused call is no row), in the shape `matchBaseline` compares.
   const actions = [];

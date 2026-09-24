@@ -1,0 +1,188 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z/events.jsonl",
+  "record": ".coc/repos/longgate-haunting-0624.git 30cf197:turns/0006.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我去罗克斯伯里疗养院，请求探视维托里奥·马卡里奥，问他在那房子里看见了什么。",
+ "llm_calls": 5,
+ "llm_ms_total": 38701,
+ "calls": [
+  {
+   "at": "2026-09-24T10:30:22.272Z",
+   "provider_ms": 7479,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 13386,
+    "output": 554,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "lookup",
+     "arguments": {
+      "kind": "source",
+      "source_mode": "answer",
+      "query": "previous-tenants",
+      "question": "What does the Roxbury Sanitarium interview with the Macarios look like on the page: who is present, visiting rules, what Vittorio and Gabriela do and say, and what the investigators can learn?"
+     },
+     "id": "call-0339f529-9f83-4fc4-a81f-77925bd30069-0|fc_4a1ca56a-93b2-9f6e-8167-8dc7791b7bb4_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:30:29.970Z",
+   "provider_ms": 2383,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 1468,
+    "output": 71,
+    "cache_read": 46464
+   },
+   "tool_calls": [
+    {
+     "name": "lookup",
+     "arguments": {
+      "kind": "module",
+      "query": "previous-tenants vittorio-macario gabriela-macario vittorio-bible-weapon",
+      "expected_kind": "scene"
+     },
+     "id": "call-32dc80a1-b361-4ca0-bab5-03e49155549c-1|fc_de2c254d-a34e-92fb-a990-26a654fe4d0c_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:30:32.489Z",
+   "provider_ms": 12076,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 1747,
+    "output": 1350,
+    "cache_read": 46464
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "move",
+        "to": "previous-tenants",
+        "label": "罗克斯伯里疗养院",
+        "via": "离开科比特宅那条街，前往罗克斯伯里疗养院探视"
+       },
+       {
+        "kind": "person",
+        "who": "Mr. Dooley",
+        "name": "杜利先生",
+        "why": "街角报摊摊主，上一回合已用这个称呼对着海斯说话。"
+       },
+       {
+        "kind": "person",
+        "who": "Vittorio Macario",
+        "name": "维托里奥·马卡里奥",
+        "why": "调查人按诺特交代的姓名前来探视。"
+       },
+       {
+        "kind": "person",
+        "who": "Gabriela Macario",
+        "name": "加布里埃拉·马卡里奥",
+        "why": "维托里奥的妻子，书中与他同在疗养院。"
+       }
+      ]
+     },
+     "id": "call-7571b82a-01a3-4085-b880-8f9111c0382e-2|fc_e802dce1-040f-930e-b12c-2e6028a05115_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:30:57.449Z",
+   "provider_ms": 8837,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 2188,
+    "output": 716,
+    "cache_read": 47232
+   },
+   "tool_calls": []
+  },
+  {
+   "at": "2026-09-24T10:31:06.306Z",
+   "provider_ms": 7926,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 2340,
+    "output": 866,
+    "cache_read": 47232
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "lookup",
+   "call_id": "call-0339f529-9f83-4fc4-a81f-77925bd30069-0|fc_4a1ca56a-93b2-9f6e-8167-8dc7791b7bb4_0",
+   "ok": false,
+   "host_refusal": "no_source_document"
+  },
+  {
+   "tool": "lookup",
+   "call_id": "call-32dc80a1-b361-4ca0-bab5-03e49155549c-1|fc_de2c254d-a34e-92fb-a990-26a654fe4d0c_0",
+   "ok": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-7571b82a-01a3-4085-b880-8f9111c0382e-2|fc_e802dce1-040f-930e-b12c-2e6028a05115_0",
+   "ok": false,
+   "host_refusal": "review_timeout"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "verdict": "review_timeout",
+   "ms": 12767,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "lookup"
+  },
+  {
+   "verb": "apply",
+   "kind": "move",
+   "target": "previous-tenants",
+   "live_refused": "review_timeout"
+  },
+  {
+   "verb": "apply",
+   "kind": "person",
+   "target": "Mr. Dooley",
+   "live_refused": "review_timeout"
+  },
+  {
+   "verb": "apply",
+   "kind": "person",
+   "target": "Vittorio Macario",
+   "live_refused": "review_timeout"
+  },
+  {
+   "verb": "apply",
+   "kind": "person",
+   "target": "Gabriela Macario",
+   "live_refused": "review_timeout"
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": []
+}

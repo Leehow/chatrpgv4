@@ -128,8 +128,7 @@
   {
    "tool": "lookup",
    "call_id": "call-0339f529-9f83-4fc4-a81f-77925bd30069-0|fc_4a1ca56a-93b2-9f6e-8167-8dc7791b7bb4_0",
-   "ok": false,
-   "host_refusal": "no_source_document"
+   "ok": false
   },
   {
    "tool": "lookup",
@@ -139,8 +138,7 @@
   {
    "tool": "apply",
    "call_id": "call-7571b82a-01a3-4085-b880-8f9111c0382e-2|fc_e802dce1-040f-930e-b12c-2e6028a05115_0",
-   "ok": false,
-   "host_refusal": "review_timeout"
+   "ok": false
   }
  ],
  "admissions": [
@@ -154,30 +152,6 @@
  "actions": [
   {
    "verb": "lookup"
-  },
-  {
-   "verb": "apply",
-   "kind": "move",
-   "target": "previous-tenants",
-   "live_refused": "review_timeout"
-  },
-  {
-   "verb": "apply",
-   "kind": "person",
-   "target": "Mr. Dooley",
-   "live_refused": "review_timeout"
-  },
-  {
-   "verb": "apply",
-   "kind": "person",
-   "target": "Vittorio Macario",
-   "live_refused": "review_timeout"
-  },
-  {
-   "verb": "apply",
-   "kind": "person",
-   "target": "Gabriela Macario",
-   "live_refused": "review_timeout"
   },
   {
    "verb": "narrate",

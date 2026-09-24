@@ -50,7 +50,7 @@ import { compileRows } from './compile-rows.ts';
 import { interpretCompile, type FeatureRows, type GuardedDestination } from './route-compile.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
-import { carriedSection, namedPeople, readCarriedViews } from './carried-views.ts';
+import { carriedSection, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
 import {
   CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, interpretRoute, overRun, ROUTE_FAMILY,
   type BindRecord, type Budget, type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
@@ -266,8 +266,13 @@ interface RunState {
   /** §135.31: the people the candidates this run's clerk executed named, in order; the latest fresh read's issued candidates. */
   named: string[];
   issued?: Candidate[];
-  /** §135.31: what the Keeper was already shown this run: scenes, people (names and card ids), the last session view's digest. */
-  shown: {scenes: Set<string>; people: Set<string>; session?: string};
+  /** §135.31: what the Keeper was already shown this run: scenes, people (names and card ids), the last session view's digest;
+   *  §135.31.1: the scenes whose source passages were carried. */
+  shown: {scenes: Set<string>; people: Set<string>; session?: string; passages: Set<string>};
+  /** §135.31.1 (SL-27): every material this run's prescreens prepared or reused, with the scene of the read. */
+  passages: PassageSource[];
+  /** §135.31.1: whether the module has an original document -- the capsule carries `reading` (§22) only then. */
+  document?: boolean;
   /** §135.30.4: the cleared destinations the kernel held back, with their guards; the Keeper is told each once. */
   guarded: GuardedDestination[];
   guardedShown: number;
@@ -304,6 +309,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // (the resolve options' context holds the same two values), and who the investigators are.
     const context = object(resolveOptions.context), active = (value: unknown) => Object.keys(object(value)).length > 0;
     run.firstScene ??= table.context.scene;
+    run.document = Object.hasOwn(capsule, 'reading');
     run.scene = table.context.scene;
     run.sessionView = Object.hasOwn(context, 'session') ? (active(context.session) ? {session: context.session, pending_choice: context.pending_choice ?? null} : undefined)
       : active(object(capsule.where).session) ? 'read' : undefined;
@@ -385,6 +391,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             run.prescreenSpent.reads++; run.prescreenSpent.jev_calls += calls; run.prescreenSpent.ms += prescreenMs;
           }
           run.lastRead = {scene, ...(outcome ? {outcome} : {})};
+          // §135.31.1: the scene's source passages are read off the prescreen's own materials (the packet before the issued bodies).
+          if (outcome?.message) {
+            let content: Row = {};
+            try { content = object(JSON.parse(String(outcome.message.content ?? ''))); } catch { content = {}; }
+            for (const material of array(content.materials).map(object)) run.passages.push({scene, material});
+          }
           // Candidates are built after the locate, so a located clue or handout is among them.
           const fresh = {context: table.context, candidates: candidates(), rows: rows()};
           run.issued = fresh.candidates;
@@ -625,14 +637,19 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const scene = run.scene && run.firstScene !== undefined && run.scene !== run.firstScene && !run.shown.scenes.has(run.scene) ? run.scene : undefined;
     const sessionView = run.sessionView, session = sessionView === 'read' ? 'read' as const
       : sessionView && digest(sessionView) !== run.shown.session ? sessionView : undefined;
-    if (!scene && !people.length && !session) return undefined;
-    const carried = await readCarriedViews({call, ...(scene ? {scene} : {}), people, skip: run.shown.people, ...(session ? {session} : {})}).catch(() => undefined);
+    // §135.31.1: the passages of the run's current scene, on the run's first model step at it (once per scene per run).
+    const at = run.scene && !run.shown.passages.has(run.scene) ? run.scene : undefined;
+    const passageView = at ? scenePassages(run.passages, at) : undefined, passages = at && passageView ? {scene: at, view: passageView} : undefined;
+    if (!scene && !people.length && !session && !passages) return undefined;
+    const carried = await readCarriedViews({call, ...(scene ? {scene} : {}), people, skip: run.shown.people, ...(session ? {session} : {}),
+      ...(passages ? {passages} : {})}).catch(() => undefined);
     if (!carried) return undefined;
     const ids = new Set(carried.views.flatMap(entry => entry.id ? [entry.id] : []));
     for (const entry of carried.views) {
       if (entry.focus === 'scene' && entry.name) run.shown.scenes.add(entry.name);
       if (entry.focus === 'session') run.shown.session = digest(entry.read ? {session: entry.view.session ?? null, pending_choice: entry.view.pending_choice ?? null} : sessionView);
       if (entry.focus === 'npc' && entry.id) run.shown.people.add(entry.id);
+      if (entry.focus === 'source' && entry.name) run.shown.passages.add(entry.name);
     }
     // A name is settled once its card went (now or earlier under another name), or once `look` does not resolve it.
     for (const {name, id} of carried.resolved) if (ids.has(id) || run.shown.people.has(id)) run.shown.people.add(name);
@@ -641,7 +658,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       views: carried.views.map(entry => ({focus: entry.focus, ...(entry.name ? {name: entry.name} : {}), bytes: bytes(entry.view),
         ...(entry.truncated ? {truncated: true, omitted_fields: entry.omitted_fields ?? []} : {})})),
       omitted: carried.omitted, bytes: carried.bytes, reads: carried.reads, ms: carried.ms});
-    return carriedSection(carried);
+    return carriedSection(carried, run.document === undefined ? {} : {document: run.document});
   }
 
   /** The run's note to the Keeper before a model step. Nothing new to say: no message. */
@@ -759,7 +776,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const allowance = readJevPreselectAllowanceMs(options.env as NodeJS.ProcessEnv), startedAt = now(), budgetMs = turnBudgetMs(options.env);
       const run: RunState = {runId: context.runId, rawInput: context.rawInput, inputRevision: context.inputRevision, session: context.session as unknown as Row,
         startedAt, allowanceDeadline: Date.now() + allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
-        identities: new Map(), budgetMs, deferred: [], investigators: [], named: [], shown: {scenes: new Set(), people: new Set()}, guarded: [], guardedShown: 0,
+        identities: new Map(), budgetMs, deferred: [], investigators: [], named: [], shown: {scenes: new Set(), people: new Set(), passages: new Set()}, passages: [],
+        guarded: [], guardedShown: 0,
         prescreenSpent: {reads: 0, jev_calls: 0, ms: 0}};
       const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
         ...(options.compile === false ? {compile: false} : {})});

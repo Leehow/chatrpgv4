@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {mkdtemp, mkdir, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {adaptationService} from '../../extensions/kernel/adaptation.ts';
+import {adaptationService, adaptationWaitMs} from '../../extensions/kernel/adaptation.ts';
 import {KernelError} from '../../extensions/kernel/client.ts';
 import {admissionRequest} from '../../extensions/kernel/admission.ts';
 
@@ -120,4 +120,22 @@ test('move admission sees the registered scene identity and binds it into verdic
     const proposal = admissionRequest('apply', {effects: effect}, scope('A plain hotel in Boston.'));
     assert.match(proposal.lines[0], /registered_destination=.*plain hotel in Boston/);
     assert.notEqual(proposal.key, admissionRequest('apply', {effects: effect}, scope('A guesthouse in Athens.')).key);
+});
+
+// SL-23 (§135.11 addendum 2026-09-24): the foreground wait is the prepare's budget inside the turn. It was 12 s, and every
+// retained prepare that started a job came back pending or reviewing after 12.1-12.6 s (the long gate's turn 19: 12.2 s).
+test('SL-23: a prepare of a new job waits at most its in-turn budget, 2 s by default, then answers pending', async () => {
+    const previous = process.env.PI_COC_ADAPTATION_WAIT_MS; delete process.env.PI_COC_ADAPTATION_WAIT_MS;
+    const f = await fixture({hold: true});
+    try {
+        assert.equal(adaptationWaitMs(), 2000);
+        const began = Date.now(), result = await f.service.lookup({campaign: 'c1', action: 'prepare', name: 'New route'});
+        const spent = Date.now() - began;
+        assert.equal(result.status, 'pending');
+        assert.ok(spent >= 1900 && spent < 4000, `the prepare held the turn ${spent} ms`);
+        process.env.PI_COC_ADAPTATION_WAIT_MS = '5';
+        assert.equal(adaptationWaitMs(), 5, 'the operator override still wins');
+        process.env.PI_COC_ADAPTATION_WAIT_MS = '';
+        assert.equal(adaptationWaitMs(), 2000, 'an empty override is no override');
+    } finally {f.release(); f.owner.abort(); if (previous == null) delete process.env.PI_COC_ADAPTATION_WAIT_MS; else process.env.PI_COC_ADAPTATION_WAIT_MS = previous;}
 });

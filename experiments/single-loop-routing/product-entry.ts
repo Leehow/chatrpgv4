@@ -9,7 +9,9 @@
  * Keeper's next recorded message, minus the calls the run already carried out; a bind step answers with the live
  * call that binds the chosen operation; the compose answers with the live turn's accepted delivery (its recorded
  * `ask`, or the delivered narration read from the fixture's own turn record). A recorded call the live kernel
- * refused is not replayed. The action-admission lane (§32) is a replay too: it answers each review with the live
+ * refused is not replayed; a call the live host refused for a preparation wait (`blocked: preparation_wait` in the
+ * baseline, SL-23) is, because that gate is what a replay of it tests. A turn that delivered nothing (stranded) answers
+ * its composes with the prose the live Keeper streamed, message by message. The action-admission lane (§32) is a replay too: it answers each review with the live
  * table's recorded verdict for the same verb, in order. Jev is live.
  */
 import {copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
@@ -57,13 +59,15 @@ function liveCalls(baseline: Row): Array<{message: number; name: string; argumen
   for (const [message, call] of array(baseline.calls).entries()) for (const toolCall of array(call.tool_calls)) {
     const row = ['apply', 'resolve', 'narrate', 'ask'].includes(toolCall.name) ? tools[cursor++] : undefined;
     // SL-24: a call the live host refused only because its review ran out of time (`host_refusal: review_timeout`) is
-    // replayed: the refusal was the host's, and the replay puts the same call to today's admission.
-    out.push({message, name: toolCall.name, arguments: object(toolCall.arguments), ok: row ? row.ok !== false || row.host_refusal === 'review_timeout' : true});
+    // replayed: the refusal was the host's, and the replay puts the same call to today's admission. SL-23: likewise a call
+    // the preparation-wait gate blocked.
+    out.push({message, name: toolCall.name, arguments: object(toolCall.arguments),
+      ok: row ? row.ok !== false || row.host_refusal === 'review_timeout' || row.blocked === 'preparation_wait' : true});
   }
   return out;
 }
 
-interface ReplayState {purpose?: string; done: Set<string>; messages: number[]; cursor: number; executed: Row[]; resent?: Set<string>}
+interface ReplayState {purpose?: string; done: Set<string>; messages: number[]; cursor: number; executed: Row[]; prose?: number; resent?: Set<string>}
 
 /** The text of every message the provider was sent (custom messages reach it converted, so the text is what is read). */
 const messageTexts = (context: Row): string[] => array(context.messages).map(message => typeof message.content === 'string' ? message.content
@@ -138,6 +142,19 @@ function keeperReplay(baseline: Row, delivered: string | undefined, state: Repla
       && array(recorded.arguments.options).every((option: unknown) => ['dodge', 'fight_back', 'none'].includes(String(option)));
     if (recorded && defenceAsk) return answer([{name: 'narrate', arguments: {text: String(recorded.arguments.text ?? delivered ?? '')}}], 'compose:recorded_defence_ask_as_narrate', recorded.message);
     if (recorded) return answer([recorded], 'compose:recorded_delivery', recorded.message);
+    // SL-23: a turn with no delivered text (it stranded) answers each compose with the next prose-only message the live
+    // Keeper streamed, in order.
+    if (!delivered) {
+      const prose = array(baseline.calls).map((call: Row, index: number) => ({index, text: String(call.text ?? '')}))
+        .filter((call: Row) => call.text && !array(array(baseline.calls)[call.index].tool_calls).length);
+      const next = prose[state.prose ?? 0];
+      if (next) {
+        state.prose = (state.prose ?? 0) + 1;
+        log({replay: 'compose:recorded_prose', message: next.index});
+        await sleep(providerMs(next.index));
+        return fauxAssistantMessage(next.text, {stopReason: 'stop'});
+      }
+    }
     log({replay: 'compose:delivered_text'});
     await sleep(providerMs(last));
     return fauxAssistantMessage(delivered ?? '', {stopReason: 'stop'});
@@ -219,6 +236,7 @@ function admissionReplay(baseline: Row, log: (row: Row) => void, latency = false
   // The live reviewed applies: those carrying a §32.1 triggering kind (admission.ts's TRIGGER_KINDS).
   const trigger = new Set(['move', 'clue', 'time', 'cash', 'item', 'handout', 'map', 'object', 'usage']);
   const calls = liveCalls(baseline).filter(call => call.ok);
+  const waitBlocked = array(baseline.tools).some((row: Row) => row.blocked === 'preparation_wait');
   const reviewable = (call: Row): boolean => call.name === 'resolve' || array(call.arguments.effects).some((effect: Row) => trigger.has(effect.kind));
   const records: Record<string, Array<Row & {names: string[]; kinds: string | null; used: boolean}>> = {apply: [], resolve: []};
   const byVerb: Record<string, Row[]> = {apply: calls.filter(call => call.name === 'apply' && reviewable(call)), resolve: calls.filter(call => call.name === 'resolve')};
@@ -253,6 +271,8 @@ function admissionReplay(baseline: Row, log: (row: Row) => void, latency = false
     // (SL-10 measures it); every recorded verdict of both fixtures is authorized/entailed, so an unrecorded review is
     // answered authorized and logged as such.
     if (!next && liveKeeper) return fauxAssistantMessage(JSON.stringify({verdict: 'authorized', grounds: 'live keeper run: admission not under test'}));
+    // SL-23: a call the live wait refused before any review has no live verdict; its admission is not what the replay tests.
+    if (!next && waitBlocked) return fauxAssistantMessage(JSON.stringify({verdict: 'authorized', grounds: 'refused by the wait live, never reviewed: admission not under test'}));
     if (!next) return fauxAssistantMessage('no recorded verdict for this review');
     return fauxAssistantMessage(JSON.stringify({verdict: next.verdict, grounds: `replayed live verdict (${next.ms} ms live)`}));
   };
@@ -396,7 +416,16 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
   const calls: Row[] = [];
   const state: ReplayState = {done: new Set(), messages: [], cursor: 0, executed: calls};
   const keeper = fauxProvider();
-  const replay = keeperReplay(baseline, delivered, state, log, latency);
+  const replayed = keeperReplay(baseline, delivered, state, log, latency);
+  // SL-27: with SINGLE_LOOP_DUMP_REQUESTS set, every replayed Keeper request (each message's role and text) and the tool
+  // calls answered to it go to run<N>.requests.jsonl, so a look's answer can be compared with what the Keeper was shown.
+  const dumpRequests = !!process.env.SINGLE_LOOP_DUMP_REQUESTS, requests: Row[] = [];
+  const replay = async (context: Row): Promise<Row> => {
+    const answer = await replayed(context);
+    if (dumpRequests) requests.push({request: requests.length, messages: array(context.messages).map((message: Row, index: number) => ({index, role: message.role,
+      text: messageTexts({messages: [message]})[0]})), answer: array(answer.content).filter((block: Row) => block.type === 'toolCall').map((block: Row) => ({name: block.name, arguments: block.arguments}))});
+    return answer;
+  };
   keeper.setResponses(Array.from({length: 24}, () => replay) as any);
   const lane = (provider: string, id: string) => fauxProvider({api: 'openai-completions', provider, models: [{id}]});
   const verifier = lane('verifier', 'v1'), memory = lane('memory', 'm1'), admissionLane = lane('admission', 'a1');
@@ -441,6 +470,7 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
           pi.on('tool_call', (event: Row) => { pending.set(event.toolCallId, {tool: event.toolName, id: event.toolCallId, origin: String(event.toolCallId).startsWith('clerk:') ? 'policy' : 'model', input: structuredClone(event.input)}); });
           pi.on('tool_result', (event: Row) => { const call = pending.get(event.toolCallId); if (!call) return; pending.delete(event.toolCallId);
             const details = object(event.details);
+            if (dumpRequests && ['look', 'lookup', 'recall'].includes(call.tool)) call.result_text = array(event.content).map((block: Row) => typeof block.text === 'string' ? block.text : '').join('');
             calls.push({...call, ok: !event.isError && !details.coc_error, error: object(details.coc_error).code ?? null,
               ...(details.obligation ? {obligation: details.obligation} : {}), ...(details.obligation_open ? {obligation_open: details.obligation_open} : {}),
               ...(object(details.outcome).passed !== undefined ? {passed: object(details.outcome).passed, level: object(details.outcome).level ?? null} : {})}); });
@@ -517,6 +547,9 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
   mkdirSync(outDir, {recursive: true});
   writeFileSync(join(outDir, `run${run}.trace.jsonl`), [...trace.map(row => ({lane: 'replay', ...row})), ...events.map(row => ({lane: 'event', ...row})), ...own].map(row => JSON.stringify(row)).join('\n') + '\n');
   writeFileSync(join(outDir, `run${run}.summary.json`), JSON.stringify(summary, null, 1) + '\n');
+  if (dumpRequests) writeFileSync(join(outDir, `run${run}.requests.jsonl`), [...requests.map(row => ({kind: 'request', ...row})),
+    ...calls.filter(call => call.result_text !== undefined).map(call => ({kind: 'read_result', tool: call.tool, id: call.id, input: call.input, ok: call.ok, text: call.result_text}))]
+    .map(row => JSON.stringify(row)).join('\n') + '\n');
   return summary;
 }
 

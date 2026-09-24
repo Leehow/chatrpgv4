@@ -146,7 +146,7 @@ The four batches the table cut, per run:
 - The late admission, as calibrated, will rarely fire on this table. That is the measurement's answer, not a defect: typed
   confidence on these Keeper batches is low (0.2–0.7).
 
-**Replay pre-registration (before any replay run).** Fixtures `longgate-t6` and `longgate-t14` are built by `gate-fixture.mjs`
+**Replay pre-registration (before any replay run).** Fixtures `longgate-t6` and `longgate-t14` (renamed `longgate24-t6`/`longgate24-t14` at the merge with SL-27, which built its own `longgate` fixtures; the result files still name the old ids) are built by `gate-fixture.mjs`
 from the long gate (read only). The live Keeper's call that the host refused with `review_timeout` is now replayed, and
 marked `live_refused` in the baseline. Command: `run.mjs --fixture longgate-tN --runs 3 --llm replay --lane live --seed 1`.
 This means:
@@ -291,3 +291,12 @@ against 10.3–45.7 s. The persons are not the main cause, and n = 3 decides not
   both languages.
 - `kpi.py` counts `review_pending` as a verdict, and does not yet group rows by `path` (`typed_late`) or read
   `admission-late` rows.
+
+### 2026-09-24 — merged with the integration branch at `c538a0ef5` (SL-23, SL-25, SL-27)
+
+- **Conflicts.** Two instrument files conflicted. `gate-fixture.mjs` now records both SL-23's `blocked: preparation_wait`
+  and SL-24's `host_refusal`. `product-entry.ts`'s `liveCalls` now replays both kinds of host refusal.
+- **Fixtures.** SL-27 had built fixtures under the same `longgate` name. SL-27's copies stay as they are. SL-24's are now
+  `longgate24/`, `longgate24-t6` and `longgate24-t14`: the same bytes, with the tarball paths repointed.
+- **Admission code.** The merge changed no admission code (`admitAction` merged clean). The suites on the merged tree
+  follow.

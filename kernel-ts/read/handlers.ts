@@ -337,7 +337,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             if (!contextRead) await requireNoTransition(campaign, contributions);
             const scene = graph.scene(world.active_scene);
             if (focus === "object")
-                return objectLook(world, params.name);
+                return objectLook(world, params.name, graph);
             if (focus === "scene") {
                 await campaign.preload();
                 return sceneView(campaign, module);

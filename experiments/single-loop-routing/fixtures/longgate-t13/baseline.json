@@ -1,0 +1,404 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z/events.jsonl",
+  "record": ".coc/repos/longgate-haunting-0624.git 83b0c27:turns/0013.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我把主卧的窗户和地板敲一遍，找暗格。",
+ "llm_calls": 6,
+ "llm_ms_total": 33129,
+ "calls": [
+  {
+   "at": "2026-09-24T10:37:02.851Z",
+   "provider_ms": 4185,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 11946,
+    "output": 285,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "look",
+     "arguments": {
+      "focus": "scene"
+     },
+     "id": "call-3b6724c8-64e3-4fd4-bd89-f623b81dbc67-0|fc_271df821-54f8-9b44-b49d-1faac88e761f_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:37:07.065Z",
+   "provider_ms": 5762,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 1030,
+    "output": 504,
+    "cache_read": 45056
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "investigate",
+       "goal": "Notice the flying bed before it hits while tapping the window and floor for a hidden compartment",
+       "method": "Spot Hidden while crouched at the rattling window and tapping floorboards",
+       "rule": "The bed attack",
+       "step": 0,
+       "stakes": "If he misses the bed's lunge he is caught at the window"
+      }
+     },
+     "id": "call-08ff903e-ea5f-425d-93d1-3099af6cde7b-1|fc_ae3c462d-078b-9b9a-88cf-0f516277b5f1_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:37:23.019Z",
+   "provider_ms": 4378,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 49219,
+    "output": 155,
+    "cache_read": 0
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "move",
+       "goal": "Get clear of the bed before it throws him through the window",
+       "method": "Dodge aside from the window as the bed lunges",
+       "rule": "The bed attack",
+       "step": 1,
+       "stakes": "A hit throws him through the window for 1D6+2 damage"
+      }
+     },
+     "id": "call-9dfc2866-b193-4811-bacc-db03cb104b9f-2|fc_56fa5ff5-eb53-902d-a53c-849e85805da5_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:37:32.358Z",
+   "provider_ms": 6625,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 16899,
+    "output": 629,
+    "cache_read": 32768
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "investigate",
+       "goal": "Keep his mind when the bed moves by itself and throws him",
+       "method": "Witness the bed fly of its own accord",
+       "decision": "sanity:check",
+       "san_loss": "1/1D4",
+       "involuntary": "scream"
+      }
+     },
+     "id": "call-ad31429b-4755-4a85-85d9-99129197b687-3|fc_bd1a2863-61c8-9a1f-be0e-86c0da2f1ea0_0"
+    },
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "damage",
+        "stated": "The bed attack",
+        "why": "The flying bed throws him through the spare-bedroom window."
+       },
+       {
+        "kind": "clue",
+        "clue": "poltergeist-bed",
+        "how": "The bed flew by itself and hurled him through the window.",
+        "label": "自己飞起来的床"
+       },
+       {
+        "kind": "clue",
+        "clue": "mythos-reek",
+        "how": "The sweet rotten smell surged with the bed's lunge.",
+        "label": "甜臭的气味"
+       },
+       {
+        "kind": "threat",
+        "name": "corbitt-haunting",
+        "clock": "corbitt-awareness",
+        "why": "The bed attack landed after he lingered and knocked at the window.",
+        "segments": 1
+       }
+      ]
+     },
+     "id": "call-ad31429b-4755-4a85-85d9-99129197b687-4|fc_bd1a2863-61c8-9a1f-be0e-86c0da2f1ea0_1"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:37:39.131Z",
+   "provider_ms": 3059,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 3304,
+    "output": 298,
+    "cache_read": 47232
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "investigate",
+       "goal": "Keep his mind when the bed moves by itself and throws him",
+       "method": "Witness the bed fly of its own accord",
+       "decision": "sanity:check",
+       "san_loss": "1/1D4",
+       "involuntary": "cry_out"
+      }
+     },
+     "id": "call-5a04fd45-3278-472f-b6eb-e9878da4833a-5|fc_35a39bb7-f104-9a40-b75b-cf5823b49ad2_0"
+    },
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "damage",
+        "stated": "The bed attack",
+        "why": "The flying bed throws him through the spare-bedroom window."
+       },
+       {
+        "kind": "clue",
+        "clue": "poltergeist-bed",
+        "how": "The bed flew by itself and hurled him through the window.",
+        "label": "自己飞起来的床"
+       },
+       {
+        "kind": "clue",
+        "clue": "mythos-reek",
+        "how": "The sweet rotten smell surged with the bed's lunge.",
+        "label": "甜臭的气味"
+       },
+       {
+        "kind": "threat",
+        "name": "corbitt-haunting",
+        "clock": "corbitt-awareness",
+        "why": "The bed attack landed after he lingered and knocked at the window.",
+        "segments": 1
+       }
+      ]
+     },
+     "id": "call-5a04fd45-3278-472f-b6eb-e9878da4833a-6|fc_35a39bb7-f104-9a40-b75b-cf5823b49ad2_1"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:37:48.704Z",
+   "provider_ms": 9120,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 7784,
+    "output": 761,
+    "cache_read": 47616
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "look",
+   "call_id": "call-3b6724c8-64e3-4fd4-bd89-f623b81dbc67-0|fc_271df821-54f8-9b44-b49d-1faac88e761f_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-08ff903e-ea5f-425d-93d1-3099af6cde7b-1|fc_ae3c462d-078b-9b9a-88cf-0f516277b5f1_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-9dfc2866-b193-4811-bacc-db03cb104b9f-2|fc_56fa5ff5-eb53-902d-a53c-849e85805da5_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-ad31429b-4755-4a85-85d9-99129197b687-3|fc_bd1a2863-61c8-9a1f-be0e-86c0da2f1ea0_0",
+   "ok": false
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-ad31429b-4755-4a85-85d9-99129197b687-4|fc_bd1a2863-61c8-9a1f-be0e-86c0da2f1ea0_1",
+   "ok": false
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-5a04fd45-3278-472f-b6eb-e9878da4833a-5|fc_35a39bb7-f104-9a40-b75b-cf5823b49ad2_0",
+   "ok": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-5a04fd45-3278-472f-b6eb-e9878da4833a-6|fc_35a39bb7-f104-9a40-b75b-cf5823b49ad2_1",
+   "ok": true
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "resolve",
+   "verdict": "entailed",
+   "ms": 4053,
+   "origin": "model"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "authorized",
+   "ms": 3264,
+   "origin": "policy"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "not_player_action",
+   "ms": 3978,
+   "origin": "model"
+  },
+  {
+   "verb": "apply",
+   "verdict": "not_player_action",
+   "ms": 6103,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "look"
+  },
+  {
+   "verb": "resolve",
+   "target": null,
+   "intent": "investigate",
+   "modifiers": null
+  },
+  {
+   "verb": "resolve",
+   "target": null,
+   "intent": "move",
+   "modifiers": null
+  },
+  {
+   "verb": "resolve",
+   "decision": "sanity:check",
+   "target": null,
+   "intent": "investigate",
+   "modifiers": null
+  },
+  {
+   "verb": "apply",
+   "kind": "damage",
+   "target": null
+  },
+  {
+   "verb": "apply",
+   "kind": "clue",
+   "target": "poltergeist-bed"
+  },
+  {
+   "verb": "apply",
+   "kind": "clue",
+   "target": "mythos-reek"
+  },
+  {
+   "verb": "apply",
+   "kind": "threat",
+   "target": "corbitt-haunting"
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "roll:spot-hidden-t13-c1",
+   "kind": "roll",
+   "decision": null,
+   "skill": "Spot Hidden",
+   "npc": null,
+   "level": "failure"
+  },
+  {
+   "id": "roll:spot-hidden-t13-c2",
+   "kind": "roll",
+   "decision": null,
+   "skill": "Spot Hidden",
+   "npc": null,
+   "level": "failure"
+  },
+  {
+   "id": "roll:dodge-t13-c3",
+   "kind": "roll",
+   "decision": null,
+   "skill": "Dodge",
+   "npc": null,
+   "level": "failure"
+  },
+  {
+   "id": "roll:san-t13-c5",
+   "kind": "roll",
+   "decision": null,
+   "skill": "SAN",
+   "npc": null,
+   "level": "regular"
+  },
+  {
+   "id": "delta:san-t13-c5",
+   "kind": "delta"
+  },
+  {
+   "id": "roll:damage-t13-c6",
+   "kind": "roll",
+   "decision": null,
+   "skill": "damage",
+   "npc": null,
+   "level": null
+  },
+  {
+   "id": "delta:hp-t13-c6",
+   "kind": "delta"
+  },
+  {
+   "id": "roll:con-t13-c6",
+   "kind": "roll",
+   "decision": null,
+   "skill": "CON",
+   "npc": null,
+   "level": "hard"
+  },
+  {
+   "id": "condition:thomas-hayes-t13-c6",
+   "kind": "condition"
+  },
+  {
+   "id": "clue:poltergeist-bed-t13",
+   "kind": "clue",
+   "clue": "poltergeist-bed"
+  },
+  {
+   "id": "clue:mythos-reek-t13",
+   "kind": "clue",
+   "clue": "mythos-reek"
+  },
+  {
+   "id": "threat:corbitt-haunting-corbitt-t13-c6",
+   "kind": "threat"
+  }
+ ]
+}
