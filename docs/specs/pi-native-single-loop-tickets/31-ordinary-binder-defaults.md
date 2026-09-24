@@ -1,4 +1,4 @@
-Status: in-progress (claude/sl31-20260924)
+Status: ready-for-human (implemented 2026-09-24 on `claude/sl31-20260924`, merged with `claude/integ-single-loop-20260923`@b8aced229; the t14 replay did not reach the binder, see Comments)
 Stage: SL-31 (P2; extends SL-12/SL-26)
 Spec: docs/specs/pi-native-single-loop.md (Ruling: "The ordinary check's difficulty and dice have rules defaults")
 
@@ -96,3 +96,83 @@ on the basis whenever Jev's difficulty answer does not clear.
 - What falsifies the change rather than the model: an `ordinary_unknown` whose unresolved names difficulty, bonus or
   penalty; a clerk check whose difficulty is not `regular` while its difficulty record is not `jev`; a default taken
   without `rule_default` on the basis or the record; two STR rolls in one run.
+
+### 2026-09-24 — replays, mutations, suites (branch `claude/sl31-20260924`, base `762d639e1`)
+
+**Commits.** `33f21d89f` contract; `bacbb0ff0` implementation and tests; `6c73d5fdf` fixtures and the pre-registration
+above; `a709ac67a` merge of the integration branch at `b8aced229` (SL-32; no overlap: nothing in `runtime/jev`); the
+commit carrying this comment has the results and the manifest.
+
+**Replays** (live Jev, the recorded Keeper, lane admission replayed, prescreen on, one process at a time on the Mac at
+load 5–7 beside the two PDF imports; `experiments/single-loop-routing/results/sl31-*`).
+
+| fixture / arm | run | compile act (second compile for t14) | selected | binder route; skill | difficulty record | clerk's roll | its admission | Keeper's rolls |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `longgate2-t18` (seed 1) | 1 | investigate 0.89 | ordinary check | no_roll 0.81 (compile_act); **Spot Hidden** 0.57 (STR 0.23), cleared by margin | **rule-default** `regular_difficulty` (Jev `unknown`, 0.40) | **yes**, regular | **compile**, `rule_default.difficulty`, `roll: compile_act` | STR (replayed) |
+| | 2 | investigate 0.91 | ordinary check | no_roll 0.78; Spot Hidden 0.52 (STR 0.27) | rule-default (0.45) | **yes** | **compile** | STR |
+| | 3 | investigate 0.91 | ordinary check | no_roll 0.83; Spot Hidden 0.55 (STR 0.24) | rule-default (0.38) | **yes** | **compile** | STR |
+| `longgate2-t18` control: M1 (no defaults) for this arm (not registered) | 1–3 | investigate 0.90–0.91 | ordinary check | — | — | **no**: `ordinary_unknown`, "An actor, difficulty or modifier is not bound.", Jev's difficulty `unknown` 3/3 | — | STR |
+| `longgate2-t14` (seed 1) | 1–3 | first: move ✓ / move 0.51–0.58; second (kitchen): **move 0.52–0.58** | the move only | not asked | — | no | — | STR (replayed) |
+| `longgate2-t14` control: M1 (registered) | 1–3 | second: investigate 0.44–0.51, **not cleared** | the move only | not asked | — | no | — | STR |
+| `longgate2-t14` extra (seed 2, not registered) | 1–3 | second: investigate 0.41–0.45, not cleared | the move only | not asked | — | no | — | STR |
+
+**Against the registration.**
+- `longgate2-t18`: **met 3/3** as the ticket words it: the compile selected the check, the binder bound it with the
+  difficulty `regular` by `regular_difficulty` (Jev's difficulty `unknown` every time, as live), the dice by Jev (`none`
+  0.92–0.97), the single investigator stated, and the clerk executed it, admitted `path: compile` with `basis.binding:
+  rule-default`, `rule_default: {difficulty: {value: regular, rule: regular_difficulty}}` and SL-26's `basis.roll`. The
+  control reproduces the live defect 3/3. **My prediction "clerk STR" failed**: for "我把柜子挪开，看后面的墙和地面。" the
+  binder's profile question chose **Spot Hidden** (0.52–0.58 against STR 0.23–0.27, cleared by the margin rule), the
+  look behind the cupboard rather than the shift; so the replayed Keeper's STR (a different skill, not deduplicated) also
+  ran: two checks on the turn, one each for the two clauses. That is the binder's reading of a two-action sentence, not
+  the defaults; the live Keeper would see `clerk_did` Spot Hidden before deciding its STR.
+- `longgate2-t14`: **not met, 0/3 selected**, and the defaults were never reached: after the clerk's move the second
+  compile read `act` as move 0.52–0.58 (or investigate 0.41–0.51), under the gates, in all nine runs of three arms;
+  live it read investigate 0.68 (0.71 / move 0.22) and selected the check. The route's `need` question then left the
+  check to the Keeper, who rolled STR as at the table. The binder's side of turn 14 (its recorded answers, difficulty
+  `unknown` 0.49) is covered at the extension seam with the emitted kernel (`admission-within-turn.test.mjs`, SL-31
+  test, "difficulty unknown" subtest) and in `single-loop-binding.test.mjs`. What would make the fixture reach the
+  binder is the compile's act on "撬开那个锁着的储物柜" after a move in the same declaration (SL-26's open point (2) is the
+  same family: a declaration that moves and then acts) -- outside this ticket; for the owner.
+- No falsifier seen: no `ordinary_unknown` naming difficulty, bonus or penalty on this branch; every executed check's
+  difficulty is `regular` with its record `rule-default` and the basis stamped; no two rolls of one skill in a run.
+
+**Mutations** (each applied alone in this worktree, then `single-loop-binding`, `check-preflight-request`,
+`check-preflight`, `jev-ordinary-resolve-domain`, `single-loop-compile`, `scene-obligation-candidates` and the SL-26/SL-31
+tests of `admission-within-turn`, restored after; all 15 killed; counts are failing tests, fast files + seam subtests).
+
+| mutation | file | failing |
+| --- | --- | --- |
+| M1 the engine passes no `defaults` | `hybrid-engine.ts` | 1 + 5 |
+| M2 an uncleared answer is taken (no gate) | `ordinary-resolve-domain.ts` | 2 + 3 |
+| M3 a cleared answer does not override | `ordinary-resolve-domain.ts` | 2 + 5 |
+| M4 the difficulty default is `hard` | `ordinary-resolve-domain.ts` | 2 + 4 |
+| M5 the single investigator only for a compiled check | `ordinary-resolve-domain.ts` | 2 + 0 |
+| M6 the binder drops `paths` from its evidence | `check-preflight.ts` | 1 + 5 |
+| M7 the basis is not stamped | `step-policy.ts` | 2 + 4 |
+| M8 no per-parameter records | `step-policy.ts` | 2 + 5 |
+| M9 the `modifiers` record always `jev` | `step-policy.ts` | 1 + 4 |
+| M10 the policy's question omits the gate | `step-policy.ts` | 1 + 0 |
+| M11 the engine ignores the question's gate | `hybrid-engine.ts` | 1 + 0 |
+| M12 the Keeper's line has no gloss for the rule | `hybrid-engine.ts` | 1 + 0 |
+| M13 the margin rule not applied | `ordinary-resolve-domain.ts` | 2 + 0 |
+| M14 the rule not recorded on the path | `ordinary-resolve-domain.ts` | 2 + 4 |
+| M15 the dice default is one die | `ordinary-resolve-domain.ts` | 1 + 2 |
+
+**Suites** (leehow-pc at `a709ac67a`, the merged tree; the box at load 22–25 on 16 threads).
+- `loop` 152/152, exit 0 (61 s).
+- `ext` 2949/2950 (exit 1, 267 s): `post-delivery-continuity` "a review that could not answer is recorded as an
+  unreviewed delivery" (`reading 'mode'` of an undefined row); rerun 2948/2950 (exit 1, 293 s) with a different pair:
+  `single-loop-looks-first-visit` §135.31.1 seam ("both reads ran the prescreen: prepared, fallback") and
+  `jev-source-domain` "root consultation" ("source task deadlocked", a timeout). Each failed once and passed in the other
+  run; each file passes on the Mac at the same HEAD (`post-delivery-continuity` 10/10 three times; the other two 11/11);
+  none touches the ordinary binder. Timing under the box's load, as SL-26 recorded for `jev-source-domain`.
+- pytest not run: no kernel input changed (`kernel-ts/`, `content/`, `prompts/`, `tests/kernel`, `tests/play` untouched).
+
+**Watch items.** (1) With a default difficulty, the binder now also binds the social ordinary checks of turns 7 and 8
+(talking to Gabriela and Knott), where its route question answered `no_roll` 0.51–0.79 and the compile's act settles
+roll-or-not (SL-26's ruling): a live table may see a clerk's Persuade/Charm on a quiet conversation where the Keeper
+rolled none. (2) The two-clause declaration of turn 18 gets the clerk's Spot Hidden and, if the Keeper still wants it,
+its own STR.
+
+**Not done.** No live table, no packaging, no push.
