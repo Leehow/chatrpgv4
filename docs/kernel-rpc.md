@@ -17996,7 +17996,7 @@ prose. Three kinds of view, each exactly what `look` returns for it:
 
 | view | when | shape (the kernel read) |
 | --- | --- | --- |
-| scene | the active scene of the latest fresh read differs from the scene of the run's first read; once per scene per run | `table.look {focus: "scene"}`: `{where, present}` |
+| scene | the active scene of the latest fresh read differs from the scene of the run's first read; once per scene per run | `table.look {focus: "scene"}`: `{where, present}`, with each `present` entry reduced to its `name`, `called` and `role` (the dossiers are what the person cards carry) |
 | person | a candidate of this run names them (below) and they are not an investigator; once per person per run | `table.look {focus: "npc", name}` without `kind` (the §135.20 person body's shape) |
 | session | a session is active at the latest fresh read; carried again whenever it differs from the last one carried in this run | `{session, pending_choice}`: the fresh read's `table.resolve.options` `context.session` and `context.pending_choice`, which are byte-identical to `table.look {focus: "session"}` (tested); when that read failed, a `table.look {focus: "session"}` |
 
@@ -18022,11 +18022,26 @@ One view is at most `CARRIED_VIEW_BYTES` (4 KiB) and all views of one message sh
 `runtime/jev/carried-views.ts`), served session, then people in the order they were named, then scene. §135.20's 1 KiB
 per body and 8 KiB per read stay for the issued section (the run packet's `issued`); the carried section does not share
 them. The first version bounded a carried view like a candidate body, and the cut dropped what the view is for (a card's
-`mechanics`, which says whether a person has a stat block; a scene's exits and people). A view is cut the way `fitBody`
-cuts a body: its trailing fields first, then long strings. A view
-whose fields sit under one wrapper (`where`, `session`) is cut over those inner fields in order, so the scene keeps
-`where.scene` … and drops `present` and `where`'s tail first; a cut says `truncated: true` and names the fields as
-`omitted_fields` (`"where.affordances"`, `"present"`). A view that does not fit the message's budget, could not be
+`mechanics`, which says whether a person has a stat block; a scene's exits and people).
+
+**The clerk orders the fields before it cuts** (owner decision 2026-09-24: neither bigger ceilings nor a kernel card
+reorder; the carried view is the clerk's projection). What the Keeper needs to act travels first and prose last; nothing
+is renamed or invented, and every field a list does not name follows in `look`'s own order (`CARD_FIELD_ORDER`,
+`SCENE_FIELD_ORDER`):
+
+- a person card: identity (`name`, `called`, `id`, `role`, `scene`, `visibility`); then `mechanics` and the fight's fields
+  (`combat_tactic`, the standing defence of §11.5.2; `combat_disposition` and `combat_standing` of §11.5.3;
+  `deflect_options`); then what drives them (`wants`, `fears`, `hides`, and `relationships`, where a Mod's first
+  impression sits); then what they know and what was said (`knows`, `knowledge`, `believes`, `hides_claims`,
+  `would_lie_about`, `ledger`, `keeper_note`); then the rest (voice, personality, `properties`, recent speech, reunion…);
+- a scene view: `where.scene`, `display_name`, `summary`, the exits, the affordances, the assets and `obligations` when
+  the view has them; then `present` (reduced as above); then the rest of `where` (the dramatic question, the pressure
+  moves, the way back, the Keeper's notes…).
+
+A view is then cut the way `fitBody` cuts a body: its trailing fields first, then long strings (the first three fields,
+the identity, are kept). A wrapper's inner fields (`where.*`, `session.*`) are the view's fields for both steps; a cut
+says `truncated: true` and names the fields as `omitted_fields` (`"where.keeper_notes"`). The session view is not
+reordered. A view that does not fit the message's budget, could not be
 read, or does not resolve is listed in `omitted` with `budget`, `read_failed` or `not_found`. Nothing is dropped
 silently.
 
@@ -18034,15 +18049,14 @@ Measured on the gate state (`gate3-haunting-2329` before turn 3, the clerk's mov
 first version's "4.5 KB and 4.0 KB" came from a fresh campaign and from the driver's result text, which is truncated at
 4 KB):
 
-| view | whole | after the 4 KiB cut | after a 1 KiB cut |
-| --- | --- | --- | --- |
-| scene, Knott's Office | 7,817 B (`present` alone is 4,877 B: the dossiers of the people there) | 2,929 B, `present` omitted | 354 B |
-| card, Steven Knott (after the move, and again with the fight open) | 8,299 / 8,302 B | 3,981 B; omitted from `deflect_options` on, `mechanics` among them | 794 B |
-| session, the fight open | 886 B | whole | whole |
+| view | whole (`look`) | carried: ordered, then the 4 KiB cut | 4 KiB cut in `look`'s order (superseded) | 1 KiB cut (first version) |
+| --- | --- | --- | --- | --- |
+| scene, Knott's Office | 7,817 B (`present` alone is 4,877 B: the dossiers of the people there) | 3,021 B, whole: `present` reduced to Knott's name, called and role | 2,929 B, `present` omitted | 354 B |
+| card, Steven Knott | 8,299 B | 3,736 B: identity, `mechanics`, `combat_tactic`, `combat_disposition`, `combat_standing`, `deflect_options`, wants/fears/hides, `knows`, `would_lie_about`, `ledger`, `keeper_note`, `node_id`, `summary`, `voice`, `mask` kept; `in exchange`, `personality`, `social_role`, `lie_options`, `availability`, `properties`, `recent_speech`, `reunion` omitted | 3,981 B, `mechanics` and the fight's fields omitted | 794 B |
+| session, the fight open | 886 B | whole | whole | whole |
 
-So on a campaign two turns in, the scene loses only `present` but a card still loses `mechanics`: it sits after about
-5.5 KB of personality, knowledge, ledger and voice fields. On a fresh campaign (the seam tests') a card (about 3.9 KB)
-and the Globe's scene view travel whole.
+The message carrying the office and the card is 7,002 B of the 12 KiB. On a fresh campaign (the seam tests') a card
+(about 3.9 KB) and the Globe's scene view travel whole.
 
 **What the Keeper reads.** `carried: {head, views: [{focus, name?, view, truncated?, omitted_fields?}], omitted?:
 [{focus, name?, reason}]}`. `focus` is `look`'s own (`scene`, `npc`, `session`) and `name` is the scene handle or the
