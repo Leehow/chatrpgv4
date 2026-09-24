@@ -5,7 +5,7 @@ import {presentMemoryEvidence} from '../../runtime/jev/memory-read-owner.ts';
 
 export type PrescreenCandidate={key:string;kind:string;label:string;summary:string;authority:string;
     coverage:Row;body?:string;data?:unknown;method?:string;params?:Row;read?:Row;refs?:unknown[];locator?:string};
-export type PrescreenGap={alias:string;kind:string;label:string;reason:string;read?:Row;coverage?:Row;provenance?:Row};
+export type PrescreenGap={alias:string;kind:string;label:string;reason:string;key?:string;read?:Row;coverage?:Row;provenance?:Row};
 export type SuppliedContext={digest:string;bytes:number;keys:Set<string>;locators:Set<string>;contentDigests:Map<string,string>;materialDigests:Set<string>};
 
 export const digest=(value:unknown):string=>createHash('sha256').update(JSON.stringify(value)).digest('hex');

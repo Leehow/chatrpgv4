@@ -109,6 +109,10 @@ function bindingChanges(expected: Row | null, actual: Binding, keys: readonly un
     const dependencies = materialDependencies(keys);
     return MATERIAL_BINDING_KEYS.filter(key => dependencies.has(key) && expected[key] !== undefined && expected[key] !== actual[key]);
 }
+/** §124.11: the requested keys a change reaches, so the caller drops those materials and keeps the rest. */
+function staleKeys(keys: readonly unknown[], changes: readonly string[]): string[] {
+    return keys.map(string).filter(key => {const dependencies = materialDependencies([key]); return changes.some(change => dependencies.has(change));});
+}
 
 function unavailable(reason: string): KernelResult {
     return { version: 1, status: "unverifiable", binding: null,
@@ -284,7 +288,8 @@ export async function workspaceRead(context: KernelContext, params: Row): Promis
         coverage: { static: { status: "unavailable" }, records: { status: "unavailable" } },
         manifest: { version: 1, static: [], records: [], truncated: false },
         ...(materialRequest ? {materials: {version: MATERIAL_VIEW_VERSION, candidates: [], coverage: {},
-            check: {status: 'stale', changed: changes, keys: array(materialRequest.keys)}}} : {}) };
+            check: {status: 'stale', changed: changes, keys: array(materialRequest.keys),
+                stale_keys: staleKeys(array(materialRequest.keys), changes)}}} : {}) };
     const scope = { campaign: campaign.id, worldline, loop };
     if (materialRequest?.mode === 'check') {
         if (recordsUnavailable) return {version: 1, status: 'unverifiable', binding: actual,

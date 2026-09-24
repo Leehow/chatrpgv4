@@ -321,8 +321,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
               binding: table.binding, capsule, signal: invocation.signal, decision: jev, env: options.env as NodeJS.ProcessEnv,
               record: event => { events.push(event); record({...event, run: run.runId, step: invocation.stepId}); },
               byteBudget: PRESCREEN_BYTES, deadlineAt: run.allowanceDeadline, providerBudget: run.providerBudget});
-            const prepared = events.find(event => event.event === 'prepared');
-            calls = Number(prepared?.jev_calls ?? 0);
+            const prepared = events.find(event => event.event === 'prepared'), fallback = events.find(event => event.event === 'fallback');
+            // A prescreen that fell back still spent its calls (§124.11): gate #5's read said 0 while 12 had run.
+            calls = Number((prepared ?? fallback)?.jev_calls ?? 0);
             const found = packetMaterials(message ? object(message) : undefined);
             materials = found.materials;
             if (found.located.length) run.located = found.located;
@@ -331,7 +332,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             prescreen = {status: message ? 'prepared' : text(events.find(event => event.event === 'fallback' || event.event === 'skipped')?.event) || 'none',
               jev_calls: calls, ms: Date.now() - began, materials: materials.length, supplied: prepared?.supplied ?? null,
               stop_reason: prepared?.stop_reason ?? null, locate: prepared?.locate ?? null, located: found.located.length,
-              fallback: events.find(event => event.event === 'fallback')?.reason ?? null};
+              fallback: fallback?.reason ?? null, ...(fallback?.key ? {key: fallback.key} : {}),
+              ...(prepared?.binding_refresh ? {binding_refresh: prepared.binding_refresh} : {})};
             packet = message ? object(message) : undefined;
           }
           // Candidates are built after the locate, so a located clue or handout is among them.

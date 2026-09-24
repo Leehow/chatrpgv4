@@ -377,7 +377,7 @@ test('one unread memory alias does not discard other owner-verified evidence',as
     assert.equal(finish.assessments[0].applicability,'unknown');}
 });
 
-test('memory owner changing after dependent checks prevents publication',async()=>{
+test('memory owner changing after dependent checks drops the memory material and never publishes it (§124.11)',async()=>{
   const route={key:'read-memory',kind:'memory',label:'Memory evidence',summary:'Purpose-aware retained evidence',authority:'conversation_report',
     coverage:{status:'partial'},method:'memory.evidence',params:{action:'snapshot',query:capsule.turn.player_text,filters:{}}};
   const v2={...snapshot,materials:{version:2,candidates:[route],coverage:{memory:{inspected:1,emitted:1,omitted:0,unavailable:0,status:'complete'}}}};
@@ -388,7 +388,10 @@ test('memory owner changing after dependent checks prevents publication',async()
       if(params.action==='original')return {alias:'m1',verified:true,context:[{role:'keeper',text:'Current memory.'}],refs:[{version:1}]};
       if(params.action==='finish')return ++finishes===1?{status:'ready',hits:[{alias:'m1',context:[{role:'keeper',text:'Current memory.'}]}],refs:[],coverage:{used:['m1'],omitted:[],unknown:[]}}
         :{status:'refresh',snapshot:'memory-s2'};throw Error(`unexpected ${method}`);}});
-  assert.equal(result,undefined);assert.equal(finishes,2);
+  assert.equal(finishes,2);assert(result,'a volatile memory change drops what it reaches, not the packet');
+  const content=JSON.parse(result.content);assert(!content.materials.some(row=>row.kind==='memory'),'the refreshed memory is not published');
+  assert(content.gaps.some(row=>row.kind==='memory'&&row.reason==='binding_changed'&&row.read));
+  assert.equal(result.details.prescreen.gap_details.find(row=>row.reason==='binding_changed').key,'memory_revision');
 });
 
 test('outer deadline still blocks publication when final owner validation cannot finish',async()=>{

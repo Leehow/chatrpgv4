@@ -21,6 +21,15 @@ const FAMILY='keeper-support-agent', LIMIT=64, READ_LIMIT=12, MESSAGE_BYTES=16*1
 const FINALIZATION_RESERVE_MAX_MS=2000,FINALIZATION_RESERVE_MIN_MS=100;
 const PREVIEW_CHARS=320,PREVIEW_OPERATIONS=16,SEED_SHARE=.6,LOCATE_SHARE=.35,LOCATE_MIN_MS=1000,LOOP_TRACE_LIMIT=48,FOLLOW_UNITS=3;
 const METHODS=new Set(['table.look','table.lookup','table.recall']);
+/**
+ * §124.11: a change of a run key voids the prepared result; a volatile key is written by the lanes that run after a
+ * turn closes (npc-voice, NPC journal, memory, continuity review) and is re-checked per material by the owner.
+ */
+const RUN_BINDING_KEYS=['campaign','worldline','loop','turn','source_revision','rules_revision','scene','adapter'] as const;
+const PAGE_BINDING_KEYS=[...RUN_BINDING_KEYS,'catalog_revision'] as const;
+const VOLATILE_BINDING_KEYS=['stateStamp','memory_revision','npc_revision','records_revision'] as const;
+/** The preparation's binding moved on a key its result depends on; the fallback row names the key. */
+class BindingChanged extends Error {readonly key:string;constructor(key:string){super('binding_changed');this.key=key;}}
 const KINDS=new Set(['investigator','npc','object','catalog','rule','memory','session']);
 export const prescreenEnabled=(env:NodeJS.ProcessEnv=process.env):boolean=>readJevPreselectEnabled(env)&&Boolean(readJevApiKey(env));
 const clip=(value:unknown,limit:number):string=>typeof value==='string'?Array.from(value).slice(0,limit).join(''):'';
@@ -397,7 +406,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             budget:{deadlineAt:semanticDeadlineAt,...leaseBudget}});
         const sourceKeys=new Set(sourceCandidates.map(candidate=>candidate.key)),materialized:PrescreenCandidate[]=[],
             gaps:PrescreenGap[]=[...expandedMemory.gaps],memoryKeys=new Set(expandedMemory.sessions.flatMap(session=>session.candidateKeys)),
-            memoryFinalizers:Row[]=[],selectionTrace:Row[]=[];
+            memoryFinalizers:Array<{finalizer:Row;key:string}>=[],selectionTrace:Row[]=[];
         let reads=0,failed=0,qualificationCalls=0,materialOrdinal=0;
         const trace=(candidate:PrescreenCandidate,phase:string,reason:string)=>{if(selectionTrace.length<64)
             selectionTrace.push({key:candidate.key,kind:candidate.kind,phase,reason});};
@@ -418,13 +427,20 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         const loopTrace:Row[]=[],attempted=new Set<string>(),followed=new Set<string>(),qualifiedAttempts=new Set<string>(),
             directCandidates=new Set<string>();
         const originalCatalog={query,names:input.names??[],rules:catalogRules},catalogContexts=new Map(pool.map(candidate=>[candidate.key,originalCatalog]));
+        // §124.11: pages are bound to the run keys only, so the owner serves current state while a post-turn lane writes;
+        // a volatile drift is noted here and re-checked per material by the final owner check.
+        const pageBinding=Object.fromEntries(PAGE_BINDING_KEYS.filter(key=>bound[key]!==undefined).map(key=>[key,bound[key]]));
+        const volatileDrift=new Set<string>();
         const assertSnapshot=(value:Row):void=>{
-            if(value.status!=='valid'||object(value.authority).checked!==true||object(object(value.materials).check).status==='stale'
-                ||['campaign','worldline','loop','turn','source_revision','stateStamp','rules_revision','scene','adapter','memory_revision','npc_revision','records_revision','catalog_revision']
-                    .some(key=>object(value.binding)[key]!==bound[key]))throw new Error('binding_changed');
+            const actual=object(value.binding),stale=object(object(value.materials).check);
+            if(value.status!=='valid'||object(value.authority).checked!==true||stale.status==='stale')
+                throw new BindingChanged((Array.isArray(stale.changed)?stale.changed.map(String):[]).find(key=>!VOLATILE_BINDING_KEYS.includes(key as any))
+                    ??(Array.isArray(stale.changed)&&stale.changed.length?String(stale.changed[0]):'binding'));
+            const changed=PAGE_BINDING_KEYS.find(key=>actual[key]!==bound[key]);if(changed)throw new BindingChanged(changed);
+            for(const key of VOLATILE_BINDING_KEYS)if(actual[key]!==bound[key])volatileDrift.add(key);
         };
-        const loopGap=(candidate:PrescreenCandidate,reason:string):void=>{
-            trace(candidate,'loop',reason);gaps.push({alias:`loop_${gaps.length+1}`,kind:candidate.kind,label:candidate.label,reason,
+        const loopGap=(candidate:PrescreenCandidate,reason:string,key?:string):void=>{
+            trace(candidate,'loop',reason);gaps.push({alias:`loop_${gaps.length+1}`,kind:candidate.kind,label:candidate.label,reason,...(key?{key}:{}),
                 coverage:candidate.coverage,...(candidate.locator?{provenance:{locator:candidate.locator}}:{}),
                 ...(publicRead(candidate)?{read:publicRead(candidate)}:{})});
         };
@@ -436,7 +452,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             // Targeted enumeration uses the same owner and issued keys. It does not invent graph addresses.
             for(let pageNumber=0;cursor!==null&&pageNumber<1&&reads<READ_LIMIT;pageNumber++){
                 reads++;
-                const page=await discoveryRpc('table.workspace.read',{binding:bound,...context,candidate_limit:48,
+                const page=await discoveryRpc('table.workspace.read',{binding:pageBinding,...context,candidate_limit:48,
                     preselect:{version:2,mode:'catalog',cursor,limit:target?128:48,...priorityParam,...(target?{entity:target}:{})}});
                 assertSnapshot(page);
                 const pageBase=poolOf(page,input.binding,supplied),wanted=target?pageBase.pool.filter(candidate=>
@@ -462,7 +478,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             const issuedRead=candidate.kind!=='rule'&&validRead(candidate);
             if(version===2&&!sourceKeys.has(candidate.key)&&!memoryKeys.has(candidate.key)&&!completeCatalogMaterial(candidate)&&!issuedRead){
                 if(reads>=READ_LIMIT)return ()=>loopGap(candidate,'read_budget');
-                reads++;const owner=await discoveryRpc('table.workspace.read',{binding:bound,...(catalogContexts.get(candidate.key)??originalCatalog),
+                reads++;const owner=await discoveryRpc('table.workspace.read',{binding:pageBinding,...(catalogContexts.get(candidate.key)??originalCatalog),
                     preselect:{version:2,mode:'read',keys:[candidate.key],limit:1,...priorityParam}});assertSnapshot(owner);
                 const rows:unknown[]=Array.isArray(object(owner.materials).candidates)?owner.materials.candidates:[];
                 const actual=rows.map(candidateOf).find(value=>value?.key===candidate.key);
@@ -482,10 +498,11 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                     const finalizer={action:'finish',snapshot:session.snapshot,selected:[alias],considered:[alias],unknown:[],
                         assessments:[{alias,relevance:'direct',support:'unknown',applicability:['superseded','withdrawn','corrected'].includes(state)?'superseded'
                             :state==='current'?'current':state==='historical'?'historical':'unknown',contradiction:'unknown'}]};
-                    const finish=await discoveryRpc('memory.evidence',finalizer);if(finish.status==='refresh')throw new Error('memory_binding_changed');
+                    const finish=await discoveryRpc('memory.evidence',finalizer);
+                    if(finish.status==='refresh'){volatileDrift.add('memory_revision');return ()=>loopGap(candidate,'binding_changed','memory_revision');}
                     const hit=(Array.isArray(finish.hits)?finish.hits:[]).map(object).find(value=>value.alias===alias);
                     if(!hit)return ()=>loopGap(candidate,'memory_finish_omitted');
-                    memoryFinalizers.push(finalizer);hydrated={...hydrated,body:undefined,data:hit,refs:Array.isArray(data.refs)?data.refs:[],coverage:object(finish.coverage)};
+                    memoryFinalizers.push({finalizer,key:hydrated.key});hydrated={...hydrated,body:undefined,data:hit,refs:Array.isArray(data.refs)?data.refs:[],coverage:object(finish.coverage)};
                 }else hydrated={...hydrated,body:undefined,data,coverage:materializedReadCoverage(hydrated,data)};
             }
             if(hydrated.body===undefined&&hydrated.data===undefined)return ()=>loopGap(candidate,'material_not_materialized');
@@ -618,24 +635,49 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         // All owner checks happen after every dependent decision/read, immediately before publish.
         const validationBegan=Date.now();signal.throwIfAborted();
         const checkResult=await checkWork;
-        const finalWorkspaceKeys=materialized.map(candidate=>candidate.key).filter(key=>!sourceKeys.has(key)&&!memoryKeys.has(key));
+        const finalWorkspaceKeys=materialized.map(candidate=>candidate.key).filter(key=>!sourceKeys.has(key)&&!memoryKeys.has(key)),
+            memoryRefresh:string[]=[];
         const [checkValidity,check]=await Promise.all([
             checkResult.checkpoint?checkResult.check(signal,deadlineAt-25):Promise.resolve({status:'unavailable' as const,reason:'check_unavailable'}),
             rpc('table.workspace.read',{binding:bound,candidate_limit:1,
-                ...(version===2?{preselect:{version:2,mode:'check',keys:finalWorkspaceKeys}}:{})}),
-            (async()=>{for(const finalizer of memoryFinalizers){const final=await rpc('memory.evidence',finalizer);
-                if(final.status==='refresh')throw new Error('memory_binding_changed');}})(),
+                ...(version===2?{query,preselect:{version:2,mode:'check',keys:finalWorkspaceKeys}}:{})}),
+            (async()=>{for(const {finalizer,key} of memoryFinalizers){const final=await rpc('memory.evidence',finalizer);
+                if(final.status==='refresh')memoryRefresh.push(key);}})(),
             (async()=>{if(sourceResult&&input.source){const sourceCheck=await checkPrescreenSourceCheckpoint({
                 call:async(method,params)=>object(await input.call(method,{...params,campaign:input.campaign})),source:input.source.runtime,scope,signal,deadlineAt,
                 checkpoint:sourceResult.checkpoint});if(sourceCheck.status!=='current')throw new Error(`source_${sourceCheck.status}`);}})(),
         ]);
         content.check=checkValidity.status==='current'?checkResult.advice:unknownCheck(checkValidity.reason);
-        if(check.status!=='valid'||['campaign','worldline','loop','turn','source_revision','stateStamp','rules_revision','scene','adapter']
-            .some(k=>object(check.binding)[k]!==bound[k]))throw new Error('binding_changed');
+        // §124.11: a run key voids the result. A volatile key's change drops exactly the materials the owner names as
+        // reached by it (`stale_keys`), each a gap naming the key; the rest publish. This check is the one re-check.
+        const actual=object(check.binding),owner=object(object(check.materials).check),
+            changedKeys:string[]=Array.isArray(owner.changed)?owner.changed.map(String):[];
+        const runChange=check.binding?RUN_BINDING_KEYS.find(key=>actual[key]!==bound[key]):undefined;
+        if(runChange)throw new BindingChanged(runChange);
+        const drops=new Map<string,string>();
+        if(check.status!=='valid'){
+            const volatileOnly=version===2&&owner.status==='stale'&&changedKeys.length>0&&Array.isArray(owner.stale_keys)
+                &&changedKeys.every(key=>(VOLATILE_BINDING_KEYS as readonly string[]).includes(key));
+            if(!volatileOnly)throw new BindingChanged(changedKeys.find(key=>!(VOLATILE_BINDING_KEYS as readonly string[]).includes(key))??changedKeys[0]??'binding');
+            for(const key of changedKeys)volatileDrift.add(key);
+            for(const key of owner.stale_keys)drops.set(String(key),changedKeys.join('+'));
+        }else for(const key of VOLATILE_BINDING_KEYS)if(check.binding&&actual[key]!==bound[key]){
+            // The legacy v1 catalog has no per-key dependency view: any change still voids it.
+            if(version!==2)throw new BindingChanged(key);
+            volatileDrift.add(key);
+        }
+        for(const key of memoryRefresh){drops.set(key,'memory_revision');volatileDrift.add('memory_revision');}
+        let dropped=0;
+        for(let index=materialized.length-1;index>=0;index--){
+            const key=drops.get(materialized[index].key);if(key===undefined)continue;
+            const [removed]=materialized.splice(index,1);content.materials.splice(index,1);dropped++;loopGap(removed,'binding_changed',key);
+        }
+        const bindingRefresh=volatileDrift.size?{changed:VOLATILE_BINDING_KEYS.filter(key=>volatileDrift.has(key)),dropped}:undefined;
         signal.throwIfAborted();validationMs=Date.now()-validationBegan;
         if(assessment)content.assessment=assessment;
         const publicGaps=gaps.length>12?[...gaps.slice(0,8),...gaps.slice(-4)]:gaps;
-        content.gaps=publicGaps.map(gap=>({...gap,...(gap.coverage?{coverage:publicCoverage({coverage:gap.coverage,read:gap.read})}:{})}));
+        // A dropped material's binding key stays private (details and telemetry); the Keeper gets the reason and the read.
+        content.gaps=publicGaps.map(({key:_key,...gap})=>({...gap,...(gap.coverage?{coverage:publicCoverage({coverage:gap.coverage,read:gap.read})}:{})}));
         const retrievalSummary=content.retrieval;
         content.coverage.inspected=pool.length;content.coverage.selected=attempted.size;
         const gapsOmittedByReason:Row={};content.coverage.gaps_omitted_by_reason=gapsOmittedByReason;
@@ -690,13 +732,14 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             uncertain:assessment?.coverage==='uncertain'?materialized.length:0,
             reads,failed,supplied:materialized.length,follow_up:gaps.length,omitted,bytes:requestSize([message]),ms:Date.now()-began,
             supplied_sources:materialized.map(({kind,label,authority})=>({kind,label,authority})),
-            pending_reads:gaps.map(({kind,label,reason})=>({kind,label,reason})),prepared_digest:preparedDigest,supplied_context_digest:supplied.digest,
+            pending_reads:gaps.map(({kind,label,reason,key})=>({kind,label,reason,...(key?{key}:{})})),prepared_digest:preparedDigest,supplied_context_digest:supplied.digest,
             decision_batches:batches,jev_calls:calls,qualification_calls:qualificationCalls,jev_input_tokens:inputTokens,jev_output_tokens:outputTokens,
-            jev_input_upper_bound:inputUpperBound,...outcome,loop_trace:loopTrace,
+            jev_input_upper_bound:inputUpperBound,...outcome,...(bindingRefresh?{binding_refresh:bindingRefresh}:{}),loop_trace:loopTrace,
             selection_trace:selectionTrace,usage_complete:decisionGroupsTimedOut===0&&decisionGroupsUnavailable===0&&optionalDecisionTimeouts===0&&optionalDecisionUnavailable===0
                 &&qualificationStatus!=='unavailable',...timing()});
         charge();return message;
     }catch(error){charge();note({event:'fallback',reason:signal.aborted?'cancelled_or_timeout':error instanceof Error?error.message:'unavailable',
+        ...(!signal.aborted&&error instanceof BindingChanged?{key:error.key}:{}),
         ms:Date.now()-began,decision_batches:batches,jev_calls:calls,jev_input_tokens:inputTokens,jev_output_tokens:outputTokens,
         jev_input_upper_bound:inputUpperBound,stop_reason:retrievalOutcome?.stop_reason??'not_run',retrieval:retrievalOutcome??null,locate:locateSummary,
         usage_complete:false,...timing()});return undefined;}
