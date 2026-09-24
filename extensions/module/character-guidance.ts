@@ -58,12 +58,21 @@ export async function guidanceFingerprint(options:Options):Promise<string> {
   const folder=resolve(options.home,'.coc/modules',options.module_id);
   const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
   const prompts=await Promise.all([join(content,'setup/character-guidance.md'),join(content,'setup/character-guidance-review.md'),...(meta.file_sha256?[join(content,'setup/visual-guidance.md')]:[])].map(path=>readFile(path,'utf8')));
+  // A PDF module's guidance is the book's own first reading (§22.9; §20 addendum 2026-09-24, SL-32):
+  // the host computes this key *before* that reading, when no graph exists yet, and the kernel
+  // publishes the first graph and the accepted guidance under it together. So the key binds only
+  // what exists before the reading -- the source file, the selector protocol and the opening as
+  // requested -- and never the graph: reading it here failed every unread import with ENOENT, and
+  // binding it once it exists would re-key (and re-read) the same book after its first reading.
+  if(meta.file_sha256)return digest(JSON.stringify([meta.file_sha256,{protocol:SETUP_GUIDANCE_REFERENCE_PROTOCOL,opening:options.opening||''},
+    options.play_language,options.occupations,prompts]));
+  // A starter ships its graph, so its key binds the graph and the resolved opening and guides the
+  // author selects from (the v2 reference protocol); its bundles are stamped with this key.
   const bytes=await readFile(join(folder,meta.graph_file||'module-graph.json'),'utf8');
   const graph=JSON.parse(bytes),scene=openingNode(graph,meta,options.opening);
-  const source=meta.file_sha256 || digest(bytes);
   const binding={protocol:SETUP_GUIDANCE_REFERENCE_PROTOCOL,scene:scene?{node:scene.node_id,name:scene.name}:null,
     guides:openingGuideNodes(graph,scene).map(node=>({node:node.node_id,name:node.name}))};
-  return digest(JSON.stringify([source,binding,options.play_language,options.occupations,prompts]));
+  return digest(JSON.stringify([digest(bytes),binding,options.play_language,options.occupations,prompts]));
 }
 export async function acceptedGuidance(home:string,moduleId:string,key:string):Promise<Guidance> {
   if(!/^[a-f0-9]{64}$/.test(key))throw coded('invalid_params','Invalid guidance reference');

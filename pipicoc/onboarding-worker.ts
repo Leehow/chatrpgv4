@@ -200,6 +200,8 @@ async function main() {
     const guidanceOptions = {home:input.home,contentRoot:context.contentRoot,module_id:input.module_id,
       play_language:await playLanguageTag(context.contentRoot, input.play_language),
       opening:input.start_scene,occupations:occupations.occupations};
+    // On an unread book this guidance reading *is* the first reading and publishes the first graph;
+    // the key is computed before it from the source file alone (§20 addendum 2026-09-24, SL-32).
     const guidance_key = action==='guidance' ? await guidanceFingerprint(guidanceOptions) : undefined;
     while (!stopping) {
       try {
