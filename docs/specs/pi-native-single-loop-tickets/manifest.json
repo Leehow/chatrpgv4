@@ -209,6 +209,11 @@
       "id": "SL-41",
       "file": "41-in-play-reads-share-the-stage-lease.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-42",
+      "file": "42-bookkeeping-of-the-scene-just-left.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
