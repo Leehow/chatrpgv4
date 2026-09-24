@@ -15,18 +15,81 @@
     "piSource": "vendored snapshot or controlled fork at a fixed commit, one authority (ADR in SL-00)"
   },
   "tickets": [
-    {"id": "SL-00", "file": "00-inventory.md", "status": "ready-for-agent"},
-    {"id": "SL-01", "file": "01-run-driver.md", "status": "ready-for-human"},
-    {"id": "SL-02", "file": "02-domain-policy.md", "status": "ready-for-human"},
-    {"id": "SL-03", "file": "03-operations-and-delivery.md", "status": "needs-triage"},
-    {"id": "SL-04", "file": "04-session-events-recovery.md", "status": "needs-triage"},
-    {"id": "SL-05", "file": "05-performance-and-product.md", "status": "needs-triage"},
-    {"id": "SL-06", "file": "06-retire.md", "status": "needs-triage"},
-    {"id": "SL-07", "file": "07-npc-standing-defense.md", "status": "ready-for-human"},
-    {"id": "SL-08", "file": "08-npc-standing-action.md", "status": "ready-for-human"},
-    {"id": "SL-10", "file": "10-turn-budget-and-admission.md", "status": "ready-for-human"},
-    {"id": "SL-11", "file": "11-model-call-diet.md", "status": "ready-for-human"},
-    {"id": "SL-12", "file": "12-binding-without-the-llm.md", "status": "ready-for-human"}
+    {
+      "id": "SL-00",
+      "file": "00-inventory.md",
+      "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-01",
+      "file": "01-run-driver.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-02",
+      "file": "02-domain-policy.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-03",
+      "file": "03-operations-and-delivery.md",
+      "status": "needs-triage"
+    },
+    {
+      "id": "SL-04",
+      "file": "04-session-events-recovery.md",
+      "status": "needs-triage"
+    },
+    {
+      "id": "SL-05",
+      "file": "05-performance-and-product.md",
+      "status": "needs-triage"
+    },
+    {
+      "id": "SL-06",
+      "file": "06-retire.md",
+      "status": "needs-triage"
+    },
+    {
+      "id": "SL-07",
+      "file": "07-npc-standing-defense.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-08",
+      "file": "08-npc-standing-action.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-10",
+      "file": "10-turn-budget-and-admission.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-11",
+      "file": "11-model-call-diet.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-12",
+      "file": "12-binding-without-the-llm.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-13",
+      "file": "13-typed-feature-routing.md",
+      "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-14",
+      "file": "14-obligation-attempt-folding.md",
+      "status": "ready-for-agent"
+    },
+    {
+      "id": "SL-15",
+      "file": "15-projection-carries-the-read.md",
+      "status": "ready-for-agent"
+    }
   ],
   "relatedSpecs": [
     {
