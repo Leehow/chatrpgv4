@@ -48,6 +48,7 @@ import {
 	speechAttributionBindings,
 } from "../../runtime/jev/speech-attribution-domain.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
+import { PendingAnswers, memoAnswer, pendingAnswer, sourceAnswerAllowanceMs } from "./source-answers.ts";
 import { speechPass } from "../../kernel-ts/write/speech-pass.ts";
 import {
 	type AdmissionContext,
@@ -1030,6 +1031,13 @@ function refusalDetail(error: unknown): string | undefined {
  */
 const HOST_SAYS_THE_WAIT = " Do not put this preparation into the fiction at all, and do not ask the player to say their action again:"
 	+ " the host itself tells them, out of fiction and beside the delivery, with the state re-read at the moment it is sent.";
+/**
+ * §22.4.4 (SL-37): a pending or failed source read is the clerk's business. The Keeper narrates what the investigator
+ * does while the material is not there; the host tells the player only when the turn has no draft at all.
+ */
+const SOURCE_READ_IS_THE_CLERKS = " The unread material is the clerk's business, not the player's: do not put the reading, its wait or its"
+	+ " failure into the fiction or the prose, and do not ask the player to say their action again. Narrate what the investigator does"
+	+ " while the answer is not there.";
 
 /**
  * Contract §22. The reading service's own refusal is addressed to the host ("request the same reading
@@ -1052,7 +1060,7 @@ function sourceMaterialRefusal(failure: unknown, read: Record<string, unknown>):
 		message: failure.message,
 		fix: `Only the source material${named} is unavailable: whatever this turn already settled with a receipt did happen and is narrated as usual, and nothing else at this table is blocked.`
 			+ " What the investigators already carry, whoever is already on stage, the scenes and people the graph already knows, and ordinary narration all settle as usual, with their own receipts."
-			+ ` Settle whatever the player's own action can reach without it and return control so they can act on something else.${HOST_SAYS_THE_WAIT}`
+			+ ` Settle whatever the player's own action can reach without it and return control so they can act on something else.${SOURCE_READ_IS_THE_CLERKS}`
 			+ ` Do not send this read again this turn and do not narrate what${named ? ` ${focus}` : " the unread material"} would have said;`
 			+ ` on a later player turn, ${read.purpose === 'answer' ? 'repeat lookup kind=source source_mode=answer' : 'retry the original action or lookup kind=source'} with the exact focus and question in details.read; do not invent another question`,
 		details: { ...failure.details, reason,
@@ -1173,7 +1181,7 @@ export default function (pi: ExtensionAPI) {
 	// A background projection has written this tag's captions (contract §23): drop the authored
 	// words this extension was standing on, so the next line it notifies with is the player's.
 	pi.events.on("coc:ui-words", (data) => { surface.refresh((data as { tag?: unknown } | undefined)?.tag); });
-	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal, options?: {providerBudget?: TaskProviderBudget}): Promise<any>;
+	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal, options?: {providerBudget?: TaskProviderBudget; allowanceMs?: number}): Promise<any>;
 		reading?(moduleId: string, params: Record<string, unknown>): boolean } | undefined;
 	let readingModule: string | undefined;
 	let nativeSource: ((request: {moduleId: string; campaign: string; toolCallId: string; question: string}, signal?: AbortSignal) => Promise<Record<string, any>>) | undefined;
@@ -1193,6 +1201,11 @@ export default function (pi: ExtensionAPI) {
 	pi.events.on("coc:reading-bridge", (value) => {
 		reading = value && typeof (value as any).ensure === "function" ? value as any : undefined;
 	});
+	/**
+	 * §22.4.3 (SL-36): the consultations that outlived their allowance, per campaign, until each is carried once (§135.31.2).
+	 * Written through the unwrapped telemetry sink: a background reading lands after its turn, and its row names that turn.
+	 */
+	const pendingAnswers = new PendingAnswers((row) => { void record(row); });
 	/** §135.31: the run step each model tool call came from, announced by the single-loop engine just before it runs. */
 	const modelSteps = new Map<string, { run: string; step: string }>();
 	pi.events.on("coc:model-step", (value) => {
@@ -2717,12 +2730,13 @@ export default function (pi: ExtensionAPI) {
 	 * Nothing here reads prose, and nothing here decides a language: the line is one authored English
 	 * caption projected for this table's play language by the words lane, like every other notice.
 	 */
-	async function emitPreparationWaitNotice(state: TableState, wait: { kind: string; name?: string }, turn: number): Promise<void> {
+	async function emitPreparationWaitNotice(state: TableState, wait: { kind: string; name?: string }, turn: number,
+		fallback?: "no_draft"): Promise<boolean> {
 		const standing = await preparationStanding(state, wait);
 		if (!standing) {
 			void record({ lane: "delivery", turn, ok: true, reason: "preparation_wait_notice_withheld",
-				kind: wait.kind, ...(wait.name ? { name: wait.name } : {}) });
-			return;
+				kind: wait.kind, ...(wait.name ? { name: wait.name } : {}), ...(fallback ? { fallback } : {}) });
+			return false;
 		}
 		const landed = standing === "landed";
 		let line = landed
@@ -2755,7 +2769,8 @@ export default function (pi: ExtensionAPI) {
 			details: { coc_delivery: true, turn, preparation_wait: { kind: wait.kind, ...(wait.name ? { name: wait.name } : {}), ...(landed ? { landed: true } : {}) } } },
 			{ triggerTurn: false });
 		void record({ lane: "delivery", turn, ok: true, reason: landed ? "preparation_ready_notice" : "preparation_wait_notice",
-			kind: wait.kind, ...(wait.name ? { name: wait.name } : {}) });
+			kind: wait.kind, ...(wait.name ? { name: wait.name } : {}), ...(fallback ? { fallback } : {}) });
+		return true;
 	}
 
 	/**
@@ -2807,6 +2822,13 @@ export default function (pi: ExtensionAPI) {
 				: undefined;
 		if (!wait || state.waitNoticeTurn === turn) return;
 		state.waitNoticeTurn = turn;
+		// §22.4.4 (SL-37): a delivered draft is the turn's answer to a source wait; the host notice is only the fallback for a
+		// turn with no draft (`agent_settled`). The decision is recorded, never silent.
+		if (wait.kind === "source") {
+			void record({ lane: "delivery", turn, ok: true, reason: "preparation_wait_notice_withheld", kind: wait.kind,
+				...(wait.name ? { name: wait.name } : {}), cause: "draft_delivered" });
+			return;
+		}
 		setTimeout(() => void emitPreparationWaitNotice(state, wait, turn).catch(() => {
 			/* the notice must never break a turn */
 		}), 0);
@@ -3095,7 +3117,7 @@ export default function (pi: ExtensionAPI) {
 		return `The source material${named} is still being read, so only what that reading would supply is unavailable.${landed}`
 			+ " Nothing else at this table is blocked: what the investigators already carry, whoever is already on stage, the scenes and people the graph already knows, and ordinary narration all settle as usual, with their own receipts."
 			+ " Do not request that same material again this turn, do not narrate what it would have said, and do not imply that the unsettled part happened or that game time passed for it."
-			+ ` Settle whatever the player's own action can reach without it and return control without a story menu.${HOST_SAYS_THE_WAIT}`;
+			+ ` Settle whatever the player's own action can reach without it and return control without a story menu.${SOURCE_READ_IS_THE_CLERKS}`;
 	}
 
 	const defenseRecoveryTurns = new WeakMap<TableState, number>();
@@ -3297,10 +3319,23 @@ export default function (pi: ExtensionAPI) {
 				const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: params.question ?? "" };
 				dispatcher.requireCapability(toolCallId, answerOnly ? 'lookup.source.answer' : 'source.prepare');
 				try {
+					// §22.4.3 (SL-36): a consultation waits at most its allowance. It is not the turn's provider work past that
+					// allowance, so it carries no turn budget: the reading goes on in the background like a read-ahead.
+					const consult = answerOnly && !nativeSource;
 					const response = answerOnly && nativeSource
 						? await nativeSource({moduleId: readingModule, campaign: state.campaign, toolCallId, question: String(params.question)}, signal)
-						: await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal, {providerBudget});
-					if (answerOnly) {
+						: consult
+							? await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, ...(params.retry === true ? { memo: false } : {}), foreground: true },
+								signal, {allowanceMs: sourceAnswerAllowanceMs()})
+							: await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal, {providerBudget});
+					if (consult && response.state === 'pending') {
+						const read = { focus: String(params.query), question: String(params.question) };
+						pendingAnswers.register(state.campaign, read, state.turn, asString(response.job_id), response.settled);
+						sourceAnswer = pendingAnswer(response, read);
+					} else if (consult && Array.isArray(response.memo) && response.memo.length) {
+						sourceAnswer = memoAnswer(response.memo);
+						void record({ lane: 'reading', event: 'answer_memo', turn: state.turn, focus: String(params.query), answers: response.memo.length });
+					} else if (answerOnly) {
 						if (!response.source_answer || typeof response.source_answer !== 'object') throw new KernelError({code:'internal', message:'The source consultation returned no checked answer'});
 						sourceAnswer = response.source_answer;
 					}
@@ -3724,6 +3759,7 @@ export default function (pi: ExtensionAPI) {
 		taskDeliveryGuard = undefined;
 		pi.events.emit('coc:operation-dispatcher', undefined);
 		pi.events.emit('coc:turn-close', undefined);
+		pi.events.emit('coc:source-answers', undefined);
 		const current = table;
 		table = undefined;
 		if (current) {
@@ -3906,6 +3942,15 @@ export default function (pi: ExtensionAPI) {
 				campaign,
 				verdict: () => operationGate.open ? turnCloseVerdict() : { status: 'none', reason: 'no_table' },
 			}));
+			// §135.31.2 (SL-36): a consultation that went pending is carried to the Keeper once, when it lands, through this port.
+			// §22.4.4 (SL-37): a text read this turn is still waiting on rides as pending too, while the reading service says it is in flight.
+			pi.events.emit('coc:source-answers', Object.freeze({ campaign, take: () => {
+				const taken = pendingAnswers.take(campaign), wait = table?.campaign === campaign ? table.sourceWait : undefined;
+				let inFlight = false;
+				try { inFlight = !!(wait?.focus && readingModule && reading?.reading?.(readingModule, { focus: wait.focus, question: wait.question ?? "" })); }
+				catch { inFlight = false; }
+				return inFlight && wait?.focus ? { ...taken, pending: [...taken.pending, { focus: wait.focus, question: wait.question ?? "", since_turn: table!.turn, purpose: "detail" }] } : taken;
+			} }));
 			// Contract §39.2: the module's own map labels, projected into this campaign's play
 			// language before the first arrival can need them.
 			warmMapWords(table, open);
@@ -4088,6 +4133,14 @@ export default function (pi: ExtensionAPI) {
 			if (undelivered && table.terminalProviderFailure) {
 				const failure = table.terminalProviderFailure;
 				scheduleProviderNotice(table, { ms: failure.ms ?? 0, streak: failure.streak }, true, table.turn);
+			} else if (undelivered && table.sourceWait && !table.preparationWait && !table.turnNoticeSent) {
+				// §22.4.4 (SL-37): no draft at all while a source read is pending: the host's source-wait notice is the
+				// fallback, re-read first (§47); a reading that is no longer in flight falls back to the generic notice.
+				const state = table, turn = table.turn, wait = { kind: "source", ...(table.sourceWait.focus ? { name: table.sourceWait.focus } : {}) };
+				state.turnNoticeSent = true;
+				setTimeout(() => void emitPreparationWaitNotice(state, wait, turn, "no_draft").then((sent) => {
+					if (!sent) { state.turnNoticeSent = false; scheduleTurnUnfinishedNotice(state, turn); }
+				}).catch(() => { /* the notice must never break a turn */ }), 0);
 			} else if (undelivered) {
 				scheduleTurnUnfinishedNotice(table, table.turn);
 			} else if (longFailure) {
@@ -4829,15 +4882,13 @@ export default function (pi: ExtensionAPI) {
 				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state, state.preparationWait) };
 				return dropText("preparation_wait");
 			}
-			// A source wait asks the Keeper to say so through narrate itself. That steer is spent once, like
-			// the two below it: prose on the second leg closes the turn implicitly, which is still a narrate
-			// and still records its receipt. Without the guard the drop repeated for every leg, agent_end
-			// stopped steering once the first steer was spent, and the turn stayed open with nothing
-			// delivered -- so every later player input failed turn_state and the campaign could not continue.
-			if (sourceWait && !state.steeredThisTurn) {
-				state.deliveryFix = { kind: "reading-wait", text: sourceWaitInstruction(state, state.sourceWait ?? {}) };
-				return dropText("reading_wait");
-			}
+			// §22.4.4 (SL-37): a turn whose pending action is a read still delivers fiction. The draft the Keeper wrote while
+			// the material is unread is the turn's delivery: it is kept and closed below like any other prose, and the pending
+			// read is the clerk's business (the note, §135.31.2), not the player's. This used to drop the draft once and steer
+			// the Keeper to narrate the wait: on 血色公路 a player who declared a drive read only the host notice, four times,
+			// and long gate #3's t10 lost its first draft at 149 s. The host notice is the fallback when there is no draft.
+			if (sourceWait) void record({ lane: "delivery", turn: state.turn, ok: true, reason: "reading_wait_draft_kept",
+				...(state.sourceWait?.focus ? { name: state.sourceWait.focus } : {}) });
 			// The kernel left a pending choice for the player (a defence in combat) and the Keeper only wrote
 			// narration: the turn owes an ask, and the question belongs to the Keeper. The kernel's own prompt
 			// is English keeper-facing text (contract §16.1), so the host must not put it in front of the

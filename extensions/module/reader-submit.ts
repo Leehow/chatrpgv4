@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { resourceRootFrom } from "../../runtime/deployment.mjs";
 import { Type } from "typebox";
 import { validateGuidance } from "./character-guidance.ts";
-import { checkReviewEvidence } from "./reader-review.ts";
+import { checkAnswerReviewShape, checkReviewEvidence } from "./reader-review.ts";
 
 export default async function readerSubmit(pi: any) {
 	const cwd = process.cwd();
@@ -46,6 +46,9 @@ export default async function readerSubmit(pi: any) {
 					if (!(await readFile(join(cwd, name))).equals(originals[i])) throw new Error("reviewer modified its candidate pair");
 				const review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8"));
 				checkReviewEvidence(review, task.required_review, seen, task.review_scope_pages ?? [], JSON.parse(originals[0].toString()));
+				// §22.4.3: the answer review's protocol shape, checked where the reviewer can still repair it in place.
+				if (answerTask) checkAnswerReviewShape(review, Number(task.source?.page_count) || Number.MAX_SAFE_INTEGER, seen,
+					(JSON.parse(originals[0].toString()).source_refs ?? []).map((ref: any) => ref?.page));
 				if (guidanceTask && (typeof review.guidance?.approved !== "boolean" || !Array.isArray(review.guidance?.issues))) throw new Error("review needs guidance approved and issues");
 			} else {
 				if (guidanceTask) {

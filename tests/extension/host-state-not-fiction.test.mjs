@@ -266,9 +266,12 @@ test("a delivery made under an adaptation wait carries the host's own notice, be
 	assert.equal(rows[0].kind, "adaptation");
 });
 
-test("a delivery made under a source-reading wait carries the same notice, named for that material", async (t) => {
+test("a delivery made under a source-reading wait is the turn's answer: the notice is the fallback for a turn with no draft (§22.4.4)", async (t) => {
+	// SL-37 amends this layer for the source wait: the Keeper's draft narrates the approach and the pending read is the
+	// clerk's business, so the host says nothing beside a delivered draft. The decision is still recorded, never silent;
+	// the no-draft fallback is pinned in turn.test.mjs.
 	const delivered = "缆绳还勒在舷桩上，六包烟压着艇头。";
-	const { bridge, asked } = readingBridge(() => true);
+	const { bridge } = readingBridge(() => true);
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "adventure-begins", question: "who holds the lamp" })], { stopReason: "toolUse" }),
@@ -279,13 +282,12 @@ test("a delivery made under a source-reading wait carries the same notice, named
 	t.after(() => table.dispose());
 	table.emit("coc:reading-bridge", bridge);
 	await table.session.prompt("我把橹插下去，往滩头去。");
-	await waitFor(() => waitNotices(table).length > 0, { label: "the host's source-wait notice" });
+	await waitFor(() => table.telemetry().some((row) => NOTICE_DECISIONS.has(String(row.reason ?? ""))), { label: "the host's decision about the notice" });
 
-	const notice = waitNotices(table).at(-1);
-	assert.deepEqual(notice.details.preparation_wait, { kind: "source", name: "adventure-begins" });
+	assert.deepEqual(waitNotices(table), [], "no source-wait notice beside a delivered draft");
+	const decided = table.telemetry().filter((row) => row.reason === "preparation_wait_notice_withheld");
+	assert.deepEqual(decided.map((row) => [row.kind, row.name, row.cause]), [["source", "adventure-begins", "draft_delivered"]]);
 	assert.ok(assistantTexts(table.session).filter(Boolean).includes(delivered));
-	assert.ok(asked.length >= 1, "the host asked the reading service where that material stands");
-	assert.equal(asked.at(-1).focus, "adventure-begins");
 });
 
 // ---- Layer 3: re-read before saying it -------------------------------------------------------

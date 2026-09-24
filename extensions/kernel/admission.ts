@@ -452,9 +452,14 @@ export function admissionRefusal(proposal: AdmissionProposal, verdict: Admission
  */
 export function admissionUnavailable(proposal: AdmissionProposal, reason: string, detail: string, streak = 1): KernelError {
 	const landed = "Only this batch is unsettled: whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is narrated as usual. For this batch, do not roll or land anything, do not narrate its effects as having happened, and do not retry it";
-	const fix = streak >= 2
-		? `${landed}. The review service has failed ${streak} times in a row now, so a resend will not fix it: tell the player plainly in narrate, as a service notice and not as fiction, that the table cannot settle actions until the person running it restores the review service — they have been notified outside the game — and do not promise that the next input will work.`
-		: `${landed} this turn; tell the player plainly in narrate, as a service notice and not as fiction, that the table could not settle that part for the moment. The player's next input can try again.`;
+	// §47 as amended by §22.4.4 (SL-37): a lane that did not answer is the clerk's business, never the prose. The Keeper is told what
+	// is unsettled and what to do, never a sentence for the player; on 血色公路 t7 "the service did not connect, go on next time" reached
+	// the fiction from the line this used to hand over. The operator is told out of the game (`coc-admission-status`, streak 2).
+	const fix = `${landed} this turn. The action review did not answer, and that is the clerk's business, not the player's:`
+		+ " do not put the review, the service or its failure into the fiction or the prose, and do not ask the player to say their action again."
+		+ " Close the turn with narrate: take up what the player actually said, without that batch's effects."
+		+ (streak >= 2 ? ` The action review has failed ${streak} times in a row, so a resend will not fix it; the operator has been notified outside the game. Do not promise that the next input will work.`
+			: " The player's next input can try again.");
 	return new KernelError({
 		code: "needs",
 		message: "The action review is unavailable, so this action cannot be settled now",

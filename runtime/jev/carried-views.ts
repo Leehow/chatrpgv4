@@ -10,7 +10,9 @@
  *   candidate of this run names, read off the candidate's closed structure (`namedPeople`), never its words;
  * - the session: `{session, pending_choice}`, which the fresh read already holds from `table.resolve.options`;
  * - a scene's source passages (§135.31.1, SL-27): what this run's prescreen located about the scene -- the book's own
- *   passages and the module's authored material on the place and what is there -- grouped by entity (`scenePassages`).
+ *   passages and the module's authored material on the place and what is there -- grouped by entity (`scenePassages`);
+ * - a source consultation that went pending (§135.31.2, SL-36): once it lands, its checked answer (`source_answer`), and
+ *   while it is still being read, a `pending` row, both from the kernel extension's `coc:source-answers` port.
  *
  * When each is due (once per scene, once per person, the session whenever it changed) is the engine's; this module reads
  * the views it is asked for, orders each view's fields so what the Keeper acts on comes first (`FIELD_ORDER`), and bounds
@@ -76,8 +78,11 @@ export const SCENE_FIELD_ORDER: readonly string[] = Object.freeze(['where.scene'
   'where.exits', 'where.affordances', 'where.assets', 'where.obligations', 'present']);
 /** A person in a carried scene view's `present`: who is there; their dossier is what the person cards carry. */
 export const PRESENT_FIELDS: readonly string[] = Object.freeze(['name', 'called', 'role']);
+/** §135.31.2: a landed consultation's view: what it concluded and its limits before the references and the question. */
+export const ANSWER_FIELD_ORDER: readonly string[] = Object.freeze(['status', 'answer', 'answers', 'limitations', 'source_refs', 'question']);
 /** The field order a carried view of `focus` is cut in (§135.31); none for the session, which `look` orders already. */
-export const FIELD_ORDER: Readonly<Record<string, readonly string[]>> = Object.freeze({npc: CARD_FIELD_ORDER, scene: SCENE_FIELD_ORDER});
+export const FIELD_ORDER: Readonly<Record<string, readonly string[]>> = Object.freeze({npc: CARD_FIELD_ORDER, scene: SCENE_FIELD_ORDER,
+  source_answer: ANSWER_FIELD_ORDER});
 
 /**
  * Fit a view into `max` bytes the way `fitBody` fits a body. A wrapper's own fields count as the view's fields
@@ -114,7 +119,7 @@ export function fitView(view: Row, max = CARRIED_VIEW_BYTES, first: readonly str
 
 /** One carried view as the host keeps it: `look`'s focus, the name `look` gives, the view, the cut marks and its read. */
 export interface CarriedView {
-  focus: 'scene' | 'npc' | 'session' | 'source';
+  focus: 'scene' | 'npc' | 'session' | 'source' | 'source_answer';
   name?: string;
   /** The npc's own id from its card (the host's dedupe key); host-side only. */
   id?: string;
@@ -131,6 +136,8 @@ export interface CarriedViews {
   bytes: number;
   reads: number;
   ms: number;
+  /** §135.31.2: the consultations still being read (Keeper-facing rows), when any are due. */
+  pending?: Row[];
 }
 
 /**
@@ -140,7 +147,7 @@ export interface CarriedViews {
  * active (then `look focus=session` is read). Read-only.
  */
 export async function readCarriedViews(input: {call: Call; scene?: string; people: readonly string[]; skip?: ReadonlySet<string>;
-  session?: Row | 'read'; passages?: {scene: string; view: Row}}): Promise<CarriedViews> {
+  session?: Row | 'read'; passages?: {scene: string; view: Row}; answers?: Array<{name: string; view: Row}>; pending?: Row[]}): Promise<CarriedViews> {
   const began = Date.now();
   let reads = 0;
   const read = async (method: string, params: Row): Promise<{ok: true; value: Row} | {ok: false; code: string}> => {
@@ -155,6 +162,8 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
     if (answer.ok) due.push({focus: 'session', view: {session: answer.value.session ?? null, pending_choice: answer.value.pending_choice ?? null}, read: {method: 'table.look', params}});
     else due.push({focus: 'session', read: {method: 'table.look', params}, reason: 'read_failed'});
   } else if (input.session) due.push({focus: 'session', view: input.session, read: null});
+  // §135.31.2: a consultation the Keeper asked for that has since landed, next after the session; nothing is read for it.
+  for (const answer of input.answers ?? []) due.push({focus: 'source_answer', name: answer.name, view: answer.view, read: null});
   const skip = new Set(input.skip ?? []);
   const cards = await Promise.all(input.people.filter(name => !skip.has(name)).map(async name => {
     const params = {focus: 'npc', name};
@@ -192,7 +201,7 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
     total += size;
     views.push(entry);
   }
-  return {views, omitted, resolved, bytes: total, reads, ms: Date.now() - began};
+  return {views, omitted, resolved, bytes: total, reads, ms: Date.now() - began, ...(input.pending?.length ? {pending: input.pending} : {})};
 }
 
 /** What the Keeper is told about the carried views (Keeper-only, system language). */
@@ -210,6 +219,14 @@ export const CARRIED_PASSAGES_HEAD = 'A view with focus source is the source pas
 export const CARRIED_NO_DOCUMENT = 'This module has no original document: its authored graph is its whole source, these passages are what it '
   + 'says about the scene, and lookup kind=source answers no_source_document here.';
 export const CARRIED_DOCUMENT = 'lookup kind=source reads the original document for what they do not cover.';
+/** §135.31.2: what the Keeper is told about a landed consultation (`focus: "source_answer"`). */
+export const CARRIED_ANSWERS_HEAD = 'A view with focus source_answer is a source consultation you asked for earlier that has come back since: the '
+  + 'checked answer with its question, carried once and kept in the campaign memo (the same lookup returns it at once). It is a source '
+  + 'consultation, not prepared material. One marked unavailable could not be read: that is the clerk\'s business, never the fiction or the '
+  + 'player\'s; play on without it.';
+/** §135.31.2: what the Keeper is told about the consultations still being read (`pending`). */
+export const CARRIED_PENDING_HEAD = 'pending lists source consultations still being read: their answers are not here yet and will be carried once '
+  + 'they land. Use the passages and what you already know, narrate what the investigator does meanwhile, and do not ask for them again this turn.';
 
 /** One view as the Keeper reads it: `look`'s focus, the name, the view and the cut marks; the id and the read stay host-side. */
 function keeperView(entry: CarriedView): Row {
@@ -221,11 +238,13 @@ function keeperView(entry: CarriedView): Row {
  * document (the capsule's `reading` section), when the read knows it; it only chooses the passages' last sentence.
  */
 export function carriedSection(carried: CarriedViews, options: {document?: boolean} = {}): Json | undefined {
-  if (!carried.views.length && !carried.omitted.length) return undefined;
+  if (!carried.views.length && !carried.omitted.length && !carried.pending?.length) return undefined;
   const source = options.document === false ? ` ${CARRIED_NO_DOCUMENT}` : options.document === true ? ` ${CARRIED_DOCUMENT}` : '';
-  const head = carried.views.some(entry => entry.focus === 'source') ? `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD}${source}` : CARRIED_VIEWS_HEAD;
+  const head = [carried.views.some(entry => entry.focus === 'source') ? `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD}${source}` : CARRIED_VIEWS_HEAD,
+    ...(carried.views.some(entry => entry.focus === 'source_answer') ? [CARRIED_ANSWERS_HEAD] : []),
+    ...(carried.pending?.length ? [CARRIED_PENDING_HEAD] : [])].join(' ');
   return {head, views: carried.views.map(keeperView),
-    ...(carried.omitted.length ? {omitted: carried.omitted} : {})} as Json;
+    ...(carried.omitted.length ? {omitted: carried.omitted} : {}), ...(carried.pending?.length ? {pending: carried.pending} : {})} as Json;
 }
 
 /** One prescreen material of this run, with the scene of the read that prepared (or reused) it. */

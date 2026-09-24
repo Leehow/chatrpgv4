@@ -209,7 +209,8 @@ test("an unavailable review refuses with a service status; the Keeper is not tol
 	assert.equal(kernelCalls(table, "table.resolve").length, 0, "no authority, no roll");
 	const [text] = toolResultTexts(table.session, "resolve");
 	assert.match(text, /^needs: The action review is unavailable, so this action cannot be settled now$/m);
-	assert.match(text, /as a service notice and not as fiction/);
+	// §22.4.4 (SL-37): the Keeper is handed no line for the player; the lane's failure is the clerk's business.
+	assert.doesNotMatch(text, /tell the player/i);
 	// What already landed this turn is not un-narrated by the refusal of this batch.
 	assert.match(text, /already settled with a receipt .* did happen/);
 	const [row] = admissionRows(table);

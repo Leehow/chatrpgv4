@@ -12,7 +12,7 @@ import {sourceRevision} from '../read/context.js';
 import {activeMods} from '../read/mods.js';
 import {assertSourcePreparationRequest,type SourcePreparationRequest} from '../../runtime/jev/source-preparation.ts';
 import type {SourcePublicationAdvance} from '../../runtime/jev/read-set.ts';
-import { ModuleGraph } from '../read/module-graph.js';
+import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { mapsDepictingScene } from '../read/maps.js';
 import { array, clone, equal, integer, normalize, number, repr, row, sorted, string, truth, type Row } from '../read/values.js';
 import { nowIso } from '../write/store.js';
@@ -40,6 +40,8 @@ function refusalOf(value: any): Row | null {
 }
 /** §22.2.1: the purposes that read graph material of a named focus, one reading of a focus at a time. */
 const FOCUSED = ['opening', 'detail'];
+/** §22.4.3 (SL-36): at most this many memoised answers (and index rows) travel with one consultation reply. */
+const ANSWER_MEMO_LIMIT = 4;
 const uuid = (): string => randomUUID().replaceAll('-', '');
 type PublicationLease = {
     handles: LockLease[];
@@ -490,17 +492,51 @@ export class Reading {
             checked_answers_invalid: invalid, next, ...(source.window ? {window: source.window} : {})};
     }
     /**
+     * §22.4.3 (SL-36): the campaign's checked answers on a focus, by the focus's structural identity (§22.2.1: the graph
+     * nodes it names by id, handle, name or alias, else the normalized focus), newest first, at most `ANSWER_MEMO_LIMIT`.
+     * Only answers of this source and this context generation count; their retained evidence is checked like an exact hit.
+     */
+    private async answerMemo(mid: string, meta: Row, sourceSha: string, focus: string): Promise<Row[]> {
+        const identity = await this.focusIdentity(mid), wanted = identity(focus), out: Row[] = [];
+        for (const record of Object.values(row(row(meta.reading).answers)).map(row).reverse()) {
+            if (record.source_sha256 !== sourceSha || !equal(record.context_generation, meta.generation ?? 0) || typeof record.focus !== 'string'
+                || typeof record.question !== 'string' || !Reading.meet(identity(record.focus), wanted)) continue;
+            const draftPath = await this.contained(this.store.moduleDir(mid), join(this.store.moduleDir(mid), string(record.draft)));
+            const reviewPath = await this.contained(this.store.moduleDir(mid), join(this.store.moduleDir(mid), string(record.review)));
+            if (await sha256File(draftPath) !== record.draft_sha256 || await sha256File(reviewPath) !== record.review_sha256)
+                throw new RpcError('needs', 'retained source answer evidence changed', { details: { reason: 'source_answer_integrity' } });
+            out.push({ focus: record.focus, question: record.question, source_answer: record.result });
+            if (out.length >= ANSWER_MEMO_LIMIT) break;
+        }
+        return out;
+    }
+    /** §22.4.3 (SL-36): what the book's index already holds on a consultation's focus, beside a reply that is still reading. */
+    private async answerKnown(mid: string, purpose: string, focus: string): Promise<Row> {
+        if (purpose !== 'answer') return {};
+        const identity = await this.focusIdentity(mid), wanted = identity(focus);
+        const index = (await this.store.sections(mid)).filter(section => typeof section.name === 'string' && Reading.meet(identity(section.name), wanted))
+            .slice(0, ANSWER_MEMO_LIMIT).map(section => Object.fromEntries(['name', 'pages', 'topics', 'entities'].filter(key => Object.hasOwn(section, key)).map(key => [key, section[key]])));
+        return { index };
+    }
+    /**
      * §22.2.1: which focus a reading reads, by structure: the graph nodes a focus names by id, handle, name
      * or alias (the match `materialReady` uses), else the normalized focus itself. Two foci are one focus
      * when those sets meet; an empty focus is its own identity, as the spelled comparison had it.
      */
     private async focusIdentity(mid: string): Promise<(focus: any) => Set<string>> {
         const nodes = array(row(await this.store.readGraph(mid)).nodes);
+        // §22.4.3 (SL-36): a place is also named by its display name and the names the book gives the destination
+        // (`destination_identity`), which is how a Keeper spells "The Corbitt House" for `corbitt-house-ground`.
+        const names = (node: Row): unknown[] => {
+            const record = recordOf(node), place = row(record.destination_identity);
+            return [node.node_id, node.node_id.startsWith(node.node_kind + '-') ? node.node_id.slice(node.node_kind.length + 1) : node.node_id,
+                node.name ?? '', ...array(node.aliases), ...['display_name', 'name', 'scene_id', 'title'].map(key => record[key]),
+                place.canonical_name, ...array(place.aliases)];
+        };
         return (focus: any) => {
             const key = normalize(string(focus ?? ''));
-            const ids = key ? nodes.filter(node => typeof node.node_id === 'string' && [node.node_id,
-                node.node_id.startsWith(node.node_kind + '-') ? node.node_id.slice(node.node_kind.length + 1) : node.node_id,
-                node.name ?? '', ...array(node.aliases)].some(value => typeof value === 'string' && normalize(value) === key)).map(node => `node:${node.node_id}`) : [];
+            const ids = key ? nodes.filter(node => typeof node.node_id === 'string'
+                && names(node).some(value => typeof value === 'string' && normalize(value) === key)).map(node => `node:${node.node_id}`) : [];
             return new Set(ids.length ? ids : [`name:${key}`]);
         };
     }
@@ -551,6 +587,8 @@ export class Reading {
                 throw new RpcError('invalid_params', 'a detail reading needs a named focus', { fix: 'pass the entity or place as focus, and the unresolved question when known' });
             if (purpose === 'answer' && (!focus.trim() || !question.trim()))
                 throw new RpcError('invalid_params', 'a source consultation needs a named focus and a nonempty question');
+            if (params.memo !== undefined && (purpose !== 'answer' || typeof params.memo !== 'boolean'))
+                throw new RpcError('invalid_params', 'memo is a boolean, and only on a source consultation');
             const result = { generation: meta.generation ?? 0, missing: [] }, guidanceKey = params.guidance_key;
             if (purpose === 'guidance') {
                 // Any tag-shaped play_language is accepted (contract section 23); membership is never checked.
@@ -584,6 +622,11 @@ export class Reading {
                         throw new RpcError('needs', 'retained source answer evidence changed', { details: { reason: 'source_answer_integrity' } });
                     return { ...result, state: 'ready', source_answer: accepted.result };
                 }
+                // §22.4.3 (SL-36): the campaign's checked answers on this focus answer a new question before any read.
+                if (params.memo !== false && !preparation) {
+                    const memo = await this.answerMemo(mid, meta, source.file_sha256, focus);
+                    if (memo.length) return { ...result, state: 'ready', memo };
+                }
             }
             if (purpose === 'detail' && array(reading.materials).some(material => material.key === key))
                 return { ...result, state: 'ready' };
@@ -592,16 +635,18 @@ export class Reading {
             // attaches to it and is judged afresh once it has settled. An owned source preparation keeps the job
             // identity it binds (§22.4 answer/prepare ownership).
             let settling: Row | undefined;
-            if (!preparation && !(existing && ['queued', 'running'].includes(existing.state)) && FOCUSED.includes(purpose) && focus.trim()) {
+            if (!preparation && !(existing && ['queued', 'running'].includes(existing.state)) && (FOCUSED.includes(purpose) || purpose === 'answer') && focus.trim()) {
                 const identity = await this.focusIdentity(mid), wanted = identity(focus);
-                settling = queue.find(job => job.state === 'running' && FOCUSED.includes(job.purpose) && Reading.meet(identity(job.focus), wanted));
+                // §22.4.3 (SL-36): one live consultation per focus; a second question on a running focus attaches to it.
+                const kinds = purpose === 'answer' ? ['answer'] : FOCUSED;
+                settling = queue.find(job => job.state === 'running' && kinds.includes(job.purpose) && Reading.meet(identity(job.focus), wanted));
             }
             if (settling) {
                 if (truth(params.foreground) && !truth(settling.foreground)) {
                     settling.foreground = true;
                     await this.store.writeQueue(mid, queue);
                 }
-                return { ...result, state: 'reading', job_id: settling.job_id, attached: true };
+                return { ...result, state: 'reading', job_id: settling.job_id, attached: true, ...await this.answerKnown(mid, purpose, focus) };
             }
             if (existing) {
                 if (['queued', 'running'].includes(existing.state)) {
@@ -619,7 +664,7 @@ export class Reading {
                         existing.foreground = true;
                     }
                     if(boundPreparation||truth(params.foreground))await this.store.writeQueue(mid,queue);
-                    return { ...result, state: existing.state === 'running' ? 'reading' : 'queued', job_id: existing.job_id };
+                    return { ...result, state: existing.state === 'running' ? 'reading' : 'queued', job_id: existing.job_id, ...await this.answerKnown(mid, purpose, focus) };
                 }
                 if (existing.state === 'completed') {
                     if (purpose === 'answer') throw new RpcError('needs', 'the completed source answer has no accepted evidence', { details: { reason: 'source_answer_integrity' } });
@@ -658,7 +703,7 @@ export class Reading {
                 job.resume_from = existing!.work_dir;
             queue.push(job);
             await this.store.writeQueue(mid, queue);
-            return { ...result, state: 'queued', job_id: job.job_id };
+            return { ...result, state: 'queued', job_id: job.job_id, ...await this.answerKnown(mid, purpose, focus) };
         });
     }
     /**
