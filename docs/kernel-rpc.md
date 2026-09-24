@@ -6421,7 +6421,7 @@ asks that the player knew or approved a hidden danger.
 
 The review is the §12.5 pattern with a different remit: one zero-tool completion through `runLane`
 (`extensions/lanes/subsession.ts`), model `PI_COC_ADMISSION_MODEL` (`provider/model`, default the
-table's own model), cap `PI_COC_ADMISSION_TIMEOUT_MS` (default 120 s, the verifier's; it was 60 s until the first real table lost two turns to it, §32.9). It answers one
+table's own model), cap `PI_COC_ADMISSION_TIMEOUT_MS` (default 120 s, the verifier's; it was 60 s until the first real table lost two turns to it, §32.9; **12 s since 2026-09-24, and past it the review ends `review_timeout`, §32.12**). It answers one
 JSON object:
 
 ```
@@ -6607,6 +6607,14 @@ operator, not the run analysis — the consecutive `ok: false` rows already say 
 `kpi.py`. `tests/play/kpi.py`'s `admission` section reports reviews, reuse, skips,
 verdict counts, unavailability by cause, and the review time apart from delivery time. Whether a
 refusal was right is a human reading of the turn record.
+
+**Addendum (2026-09-24, SL-18, §32.12).** Every `lane: "admission"` row carries `origin` (`policy` for the clerk's
+call, `model` for the Keeper's own, `host` for another host-dispatched operation), `path` (`compile`, `typed`, `lane`,
+or `none` when no review ran: a skip, a session gone before the review) and `ms` (0 where nothing ran); a row whose
+verdict came from the lane adds `first_byte_ms` (from the lane request to the response headers; `null` when none
+arrived). A reused row carries the path of the verdict it reuses. A `review_timeout` row adds `timed_out: true` and
+`cap_ms`; a compile row adds `predicate`, `features` and `binding_paths`; a review of a compile-selected clerk write whose
+exemption was refused adds `compile_refused`.
 
 ### 32.8 The base prompt
 
@@ -6967,6 +6975,105 @@ is not ground truth; the bank is 92% persona-bench driver runs and its move line
 no false admission occurs at *T* ≥ 0.5 (46 admitted). Whether to accept false admissions for speed, calibrate a
 new typed family, or move the latency elsewhere (SL-11) is the owner's decision; this section records only what
 the measurement allows.
+
+### 32.12 Admission within the turn: a bounded lane review, and a clerk write the compile selected is admitted on the compile's evidence (2026-09-24, SL-18; amends §32.2, §32.4, §32.7, §32.10, §32.11 and §135.30's `basis.compile`)
+
+**Why.** Live gate #6 (`gate6-haunting-0335`, turn 2, run `run-01a0d259-a833-7688-887c-ae3eddd58747`, hybrid-v1). The
+clerk's obligation check was selected by the compile (§135.30: `ask` 0.91 on the gate's demand, `addressee` 0.55 on Arty
+Wilmot, cleared by the margin rule, `act` social 0.96; bound by SL-12: `Persuade` Jev 0.68, every other parameter
+`stated` or `composed`), and still went to the lane: authorized in 2.8 s. Later the Keeper proposed a `resolve` against
+Ruth Blake; the lane answered `not_authorized` after 57 239 ms (response headers at 1.7 s, then the model streamed for
+55 s). The turn took 112 s against the owner's 60 s ruling. Across gates #3–#6 every clerk write went through the lane
+(2.5–7.7 s each), never `typed`: the typed reviewer is opt-in (§32.10) and the fast path needs Jev at 0.87 (§32.11),
+where the clerk's moves were answered 0.72–0.80. Owner rulings, 2026-09-24: the lane review is bounded inside the turn;
+a clerk write the compile selected is admitted on the compile's evidence ("parameters-only steps never go to the LLM",
+applied to admission); every admission row says who proposed it, which path decided and how long it took.
+
+**The lane review is bounded inside the turn.** `PI_COC_ADMISSION_TIMEOUT_MS` defaults to **12 000** (it was 120 000;
+the variable still overrides, read per review). The cap is measured from the lane request: `runLane` starts its clock
+before it resolves the model and sends the completion, and the deadline races the whole completion, so it cuts a round
+whatever the stream is doing -- no headers yet, headers and silence, or headers and a steady trickle of reasoning or
+text that has not produced a verdict. A streamed response that has produced no verdict by the cap is cut exactly like a
+stalled one. The typed attempt keeps its own 4 s cap (§32.10) in front of it; a Jev-first escalation is therefore
+bounded by 4 s plus the lane's 12 s.
+
+Past the cap the review ends with the host's verdict **`review_timeout`**. It is not one of the lane's five (a lane
+answer naming it is `bad_output`, as any unknown verdict), and it is never an admit. It refuses the batch as an ordinary
+tool refusal (§8): `code: "needs"`, `message` naming the cap, `details: {reason: "review_timeout", cap_ms, ms, proposed,
+tool}`; the `fix` says nothing of this batch happened, the review judged nothing about the player's choice, the same
+action is not to be resent this turn, and the Keeper closes with `narrate` taking up what the player said, the player's
+next input being free to try again. The run continues: a Keeper step reads it as any refusal; a clerk step is dropped
+for the run and the turn is the Keeper's (§135.26). It is not an outage and not a live verdict: it neither counts toward
+§32.2's unavailability streak nor resets it, and leaves no `coc-admission-status`. It is kept for the turn like any
+verdict (§32.4), so the identical proposal is refused again at once (`reused: true`); it is not added to the reviewer's
+"already refused this turn" list, because it judged nothing a rewording could repeat.
+
+**A clerk write the compile selected is admitted on the compile's evidence.** The compile (§135.30) already judged that
+the player does this -- a predicate fired on the player's words read into kernel rows -- and SL-12 made every parameter
+a kernel row, a composed quotation, a rules default or a Jev decision (§135.28). Nothing is left for a reviewer to
+judge that the compile did not. So `admitAction` (`extensions/kernel/index.ts`) admits the call with **no lane call and
+no typed call** when all of these hold (`compileAdmission` in `extensions/kernel/admission.ts`, pure):
+
+1. the call is policy-origin: the dispatcher frame's host origin (§135.4) says `origin: "policy"`; nothing in the tool
+   arguments can say so;
+2. its `basis.compile` names a predicate of `COMPILE_PREDICATES` (`runtime/jev/route-compile.ts`);
+3. every feature the predicate **fired on** cleared at the gate -- §135.2's gates: reported confidence at 0.6 or above, or
+   the margin rule. The families a predicate can read are declared on it (`features`): `move` reads `destination`;
+   `obligation_check` reads `ask`, `addressee` and `act`; `stated_meeting` reads `addressee` and `ask`; `attack` and
+   `first_blow` (SL-19, §135.30.2) read `act` and `target`. The features it fired on are those of its families among the cleared rows `basis.compile.features` names;
+   each must have its `read_features` record, and that record must say `cleared: true`. A guard family that did not clear
+   (an `unclear` addressee or act) is not a feature the predicate fired on and is **not evidence against**: the predicate
+   already refuses to fire when the addressee clears on someone else or on `none`, or the act clears on another intent
+   (§135.30), so the check selected on the demand alone is admitted by the compile (owner ruling, 2026-09-24, deciding the
+   SL-18 fork; the first implementation counted such a guard and sent gate3-t2's check to the lane in 2 of 3 runs);
+4. every bound parameter of the call has a recorded binding path among `stated`, `composed`, `rule-default` and `jev`
+   (§135.28's four ways, the list the `lane: "run"`, `event: "bind"` row records). The hybrid engine computes that list
+   before the dispatch and hands it to the dispatcher as the host origin's `bindings` (host-only: it is not spread onto
+   telemetry rows beside `origin`, and never shown to a model); a parameter the call carries with no record is listed with
+   `path: null`. A missing or empty list, or any other path, refuses the exemption.
+
+For (3) `basis.compile` gains **`read_features`**: `{<family>: {row, confidence, cleared}}` for each family the firing
+predicate can read that the compile asked, cleared or not (`interpretCompile`), beside the existing `predicate`, `features`
+(the cleared rows) and `bound`; admission reads the records of the families the predicate fired on. It travels wherever `basis` does (every row of the call, the Keeper's `clerk_did`).
+
+The compile path's row: `ok: true, verdict: "authorized", admitted: true, reused: false, path: "compile", reviewer:
+"compile", ms` (the check's own time), `predicate`, `features` (`{family: {row, confidence}}` for the read features),
+`binding_paths` (`{name: path}`). The admission is not kept in the turn's verdict map: it is the clerk's call's evidence
+and no one else's, so a Keeper's identical proposal is reviewed. Ordering: after the combat-scene and no-player-text skips
+and after verdict reuse (a refusal already given this turn to the identical proposal stands), before any review.
+
+When `basis.compile` is present and the exemption is refused, the review runs exactly as before this section and the row
+adds `compile_refused`: `features_unrecorded`, `feature_unrecorded:<family>`, `feature_not_cleared:<family>`,
+`bindings_unrecorded`, `parameter_path_unrecorded:<name>`, `parameter_path_not_exempt:<name>` or `unknown_predicate`. In
+one line: the exemption is **refused when any feature the predicate fired on was below the gate, or a bound parameter has
+no recorded path**. **Keeper-origin writes and
+clerk writes the compile did not select keep the current review**: the route's `need` selections, §135.26's carried
+meeting on its own (a `person`, never reviewed anyway, §32.1), forced session steps (a pending NPC defence; NPC actors are
+not reviewed either, §32.1), disposition writes, Mod contact checks, and the ordinary check a route selected.
+
+**What this is not.** It does not change what §32.1 puts to review, what the lane judges, the typed reviewer or the fast
+path for everything else (a Keeper's bookkeeping batch still takes §32.11), the refusal a review gives, or §32.4's reuse of
+reviewed verdicts. It does not admit on a failure: a missing record is a lane review, never an admit. It is not a
+threshold on Jev's confidence in the lane's place: the compile's own gate is the only gate, and the compile is the
+question the player's words were put to.
+
+**Three ends (§31).** *Writer:* the compile's predicates (`read_features`) and the engine's bind records (`bindings` on
+the host origin), both before the dispatch; the lane round's deadline (`review_timeout`). *Reader:* `admitAction`, which
+is still the one place a call is admitted or refused, ahead of Mod hooks and the kernel. *Actor:* the Keeper, through the
+unchanged admit and the new `review_timeout` refusal; the operator, through the rows' `origin`, `path`, `ms`,
+`first_byte_ms`, `timed_out` and `compile_refused`.
+
+*Tests.* `tests/extension/admission-within-turn.test.mjs`: a lane review on a real socket that answers 200 and then
+trickles reasoning deltas ends `review_timeout` within the default cap plus 1 s, the kernel never called, the row
+`timed_out: true` with `ms`, `cap_ms` and `first_byte_ms`; the cap's default and override; timeouts leave no service
+notice and neither count toward nor end an unavailability streak (unavailable, timeout, unavailable still escalates); at the extension seam with the
+emitted kernel and the hybrid engine, a compile-selected obligation check (every read feature cleared, every parameter
+recorded) admitted `path: "compile"` with no lane and no typed request; the same check with an `unclear` addressee and a
+cleared ask admitted by the compile too; the check whose fired-on ask record is under the gate, or whose bind records carry
+a parameter with no path, reviewed by the lane with `compile_refused`; a compile-selected clerk move admitted without the
+fast path's typed call; a Keeper-origin write of the same turn reviewed by the lane; and `compileAdmission` pure (no
+`basis.compile`, an unrecorded parameter, a path outside the four). Mutations and the gate3-t2 replays are in the SL-18
+ticket's Comments.
 
 ## 33. Creation difficulty: an extension setting scaled into chargen (2026-09-11)
 
@@ -18181,7 +18288,9 @@ falls through, and its own bind settles the target). A decided candidate a predi
 question (§135.2, and §135.26's fact question for an obligation whose `ask` did not clear): a feature below the gate,
 `unclear`, not asked, or a candidate no predicate reads (a clue, a handout, a roster person, a Mod contact check, the
 ordinary check, a session step other than the investigator's attack). The exit question stays with the route. A
-selected candidate's `basis` gains `compile: {predicate, features}` (the cleared rows it fired on), which every row of the
+selected candidate's `basis` gains `compile: {predicate, features}` (the cleared rows it fired on; since 2026-09-24 also
+`read_features`, each family the predicate can read with its row, confidence and whether it cleared; admission reads the
+records of the features the predicate fired on, §32.12), which every row of the
 call and the Keeper's `clerk_did` carry (§135.7, §135.8).
 
 **It replaces the first fan-out.** When the compile selects, its candidates are the run's pending steps in the route's

@@ -38,7 +38,9 @@ export interface HostOperationContext {
    * A policy-origin operation of the single-loop run (contract §135.4): who proposed it and the kernel row it was
    * built from. Tracing only -- it grants nothing; admission, Mod hooks and the kernel run exactly as for the model.
    */
-  origin?: { origin: 'policy'; run: string; step: string; clerk?: string; basis?: Json };
+  origin?: { origin: 'policy'; run: string; step: string; clerk?: string; basis?: Json;
+    /** §32.12: the clerk's bind records (name and path, `null` when unrecorded), for admission only; never on a telemetry row. */
+    bindings?: Json };
 }
 interface Stages {
   prepare(event: ToolCallEvent, context: ExtensionContext): Promise<ToolCallEventResult | undefined>;

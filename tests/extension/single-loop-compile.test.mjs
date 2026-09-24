@@ -128,7 +128,8 @@ test("§135.30: a compile that selects is the first fan-out: the move runs next,
 	const { view, row } = compileWith(compileView(office()), { destination: ["morgue", 0.9] });
 	const head = next(view);
 	assert.deepEqual([head.kind, head.item?.purpose, head.item?.candidate?.key], ["direct", "execute", "apply:move:morgue"], "no route question before the selected move");
-	assert.deepEqual(head.item.candidate.basis.compile, { predicate: "move", features: { destination: "morgue" } });
+	assert.deepEqual(head.item.candidate.basis.compile, { predicate: "move", features: { destination: "morgue" },
+		read_features: { destination: { row: "morgue", confidence: 0.9, cleared: true } } });
 	assert.ok(view.consumed.includes("apply:move:library") && !view.candidates.some((value) => value.key === "apply:move:library"), "the other exit was decided: not asked again");
 	assert.ok(view.candidates.some((value) => value.key === "apply:clue:keys"), "a clue no predicate reads falls through");
 	assert.deepEqual([row.detail.selected, row.detail.decided, row.jev_calls], [["apply:move:morgue"], ["apply:move:library"], 1]);
@@ -488,6 +489,9 @@ test("§135.30 at the engine: the compile row carries each feature's distributio
 	assert.equal(rows.filter((entry) => entry.lane === "route" && entry.purpose === "compile").length, 1, "once per run");
 	const clerk = dispatched.find((entry) => entry.origin?.origin === "policy");
 	assert.deepEqual(clerk.operation.args.effects, [{ kind: "move", to: "morgue" }]);
-	assert.deepEqual(clerk.origin.basis.compile, { predicate: "move", features: { destination: "morgue" } }, "the tool and admission rows carry what the compile read");
+	assert.deepEqual(clerk.origin.basis.compile, { predicate: "move", features: { destination: "morgue" },
+		read_features: { destination: { row: "morgue", confidence: 0.91, cleared: true } } }, "the tool and admission rows carry what the compile read");
+	// §32.12: the bind records travel to admission on the host origin, computed before the dispatch.
+	assert.deepEqual(clerk.origin.bindings, [{ name: "to", path: "stated" }]);
 	assert.ok(!families.slice(0, 2).includes(ROUTE_FAMILY) || families.indexOf(ROUTE_FAMILY) > 0, "no route before the compile");
 });
