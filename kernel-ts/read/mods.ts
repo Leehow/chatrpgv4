@@ -808,7 +808,38 @@ export function findNamedObject(objects: Row,name: any): Row|undefined {
     if(matches.length>1)throw new RpcError('unknown_entity','Object name is ambiguous',{details:{candidates:matches.map(value=>value.name)}});
     return matches[0];
 }
-export function objectLook(world: Row, name?: any): Row {
+/**
+ * §135.31.1 B (SL-27): the clue or handout the kernel knows by `name`, for a `look focus=object` that no registered
+ * object or definition answers. A clue by the play-language label `apply clue` filed (`world.clue_labels`), then by the
+ * graph's own names; a handout by the graph's own names (the world keeps no play-language label for one). Name
+ * normalization only. A name both a clue and a handout answer is ambiguous; nothing answers: undefined.
+ */
+function knownLabel(world: Row, graph: ModuleGraph, name: any): Row | undefined {
+    if (typeof name !== "string" || !name.trim())
+        return undefined;
+    const key = normalize(name),
+        labelled = entries(row(world.clue_labels)).filter(([, label]) => typeof label === "string" && normalize(label) === key).map(([handle]) => handle),
+        clue = (labelled.length === 1 ? graph.find(labelled[0], ["clue"]) : null) ?? graph.find(name, ["clue"]),
+        handout = graph.find(name, ["handout"]);
+    if (clue && handout)
+        throw new RpcError("unknown_entity", "No registered object or definition has that name; a clue and a handout both do", {
+            details: { query: name, candidates: [graph.describe(clue), graph.describe(handout)] }
+        });
+    const node = clue ?? handout;
+    if (!node)
+        return undefined;
+    const handle = graph.handle(node), label = node === clue ? row(world.clue_labels)[handle] : undefined;
+    return {
+        kind: node === clue ? "clue" : "handout",
+        entity: graph.entityView(node),
+        ...(typeof label === "string" && label.trim() ? { label } : {}),
+        ...(node === clue ? { discovered: array(world.discovered_clues).includes(handle) } : { shown: array(world.handouts_shown).includes(handle) }),
+        note: node === clue
+            ? `No object is registered by that name; it is this module's clue ${repr(handle)}. A clue reaches the investigators with apply clue; nothing is defined or placed for it.`
+            : `No object is registered by that name; it is this module's handout ${repr(handle)}. A handout reaches the investigators with apply handout; nothing is defined or placed for it.`
+    };
+}
+export function objectLook(world: Row, name?: any, graph?: ModuleGraph): Row {
     const data = row(world.objects),
         instances = row(data.instances),
         definitions = row(data.definitions);
@@ -834,6 +865,9 @@ export function objectLook(world: Row, name?: any): Row {
         if (waiting)
             throw new RpcError("needs", `${repr(string(waiting.name))} is registered; its parameters are still being prepared`,
                 {fix: "it completes at the start of the next turn, so do not define or place it again; look at it then"});
+        const known = graph ? knownLabel(world, graph, name) : undefined;
+        if (known)
+            return known;
         throw new RpcError("unknown_entity", "No registered object or definition has that name");
     }
     return {

@@ -1,0 +1,508 @@
+{
+ "run": 1,
+ "fixture": "longgate-t19",
+ "admission": "lane",
+ "keeper": "live grok-build/grok-4.7-build-fast",
+ "thinking": "low",
+ "arm": "after",
+ "latency": false,
+ "seed": null,
+ "wall_ms": 73482,
+ "budget": {
+  "turn": 19,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d32c-7234-77b2-bf25-ca20e83f0e03",
+  "budget_ms": 45000,
+  "elapsed_ms": 72259,
+  "elapsed_at_compose": 62331,
+  "over_budget": true,
+  "deferred_by_budget": [],
+  "decision_budget": {
+   "jev_calls": 2,
+   "jev_ms": 1305,
+   "max_jev_calls": 24,
+   "max_jev_ms": 12000,
+   "spent": false
+  },
+  "prescreen": {
+   "reads": 1,
+   "jev_calls": 7,
+   "ms": 7793
+  },
+  "run_id": "8c9ab261-1ad0-47a1-8cea-ed88b8917c52"
+ },
+ "compile": "on",
+ "compile_row": {
+  "turn": 19,
+  "lane": "route",
+  "purpose": "compile",
+  "run": "run-01a0d32c-7234-77b2-bf25-ca20e83f0e03",
+  "step": "run-01a0d32c-7234-77b2-bf25-ca20e83f0e03:s2",
+  "status": "complete",
+  "ms": 736,
+  "features": {
+   "destination": {
+    "rows": {
+     "destination_1": "upper-floor-bedroom",
+     "destination_2": "basement-rites",
+     "destination_3": "newspaper-morgue",
+     "destination_4": "central-library",
+     "destination_5": "hall-of-records",
+     "destination_6": "neighborhood-gossip",
+     "destination_7": "previous-tenants",
+     "destination_8": "commission-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.78,
+    "probabilities": {
+     "unclear": 0.19,
+     "destination_3": 0,
+     "destination_2": 0,
+     "destination_1": 0,
+     "destination_5": 0,
+     "destination_8": 0,
+     "destination_7": 0,
+     "none": 0.81,
+     "destination_6": 0,
+     "destination_4": 0
+    },
+    "cleared": true
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:corbitt-diaries"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.93,
+    "probabilities": {
+     "unclear": 0.04,
+     "ask_1": 0.01,
+     "none": 0.95
+    },
+    "cleared": true
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.55,
+    "probabilities": {
+     "act_1": 0.01,
+     "act_11": 0,
+     "act_6": 0,
+     "unclear": 0,
+     "act_10": 0.05,
+     "act_5": 0.13,
+     "act_4": 0,
+     "act_7": 0,
+     "act_8": 0,
+     "act_3": 0.59,
+     "act_9": 0,
+     "none": 0.22,
+     "act_2": 0
+    },
+    "cleared": true
+   },
+   "item": {
+    "rows": {
+     "item_1": "笔记本",
+     "item_2": "撬锁工具",
+     "item_3": "手电筒",
+     "item_4": "徽章"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.48,
+    "probabilities": {
+     "item_1": 0,
+     "item_2": 0,
+     "unclear": 0.43,
+     "item_3": 0,
+     "item_4": 0,
+     "none": 0.5700000000000001
+    },
+    "cleared": false
+   }
+  },
+  "fired": [],
+  "selected": [],
+  "decided": [
+   "apply:move:upper-floor-bedroom",
+   "apply:move:newspaper-morgue",
+   "apply:move:central-library",
+   "apply:move:hall-of-records",
+   "apply:move:neighborhood-gossip",
+   "apply:move:previous-tenants",
+   "apply:move:commission-briefing"
+  ],
+  "fell_through": [
+   "apply:clue:corbitt-diaries",
+   "resolve:core-check:ordinary-check"
+  ],
+  "reason": "decided_none",
+  "run_id": "8c9ab261-1ad0-47a1-8cea-ed88b8917c52"
+ },
+ "selections": [],
+ "compile_rows": [
+  {
+   "turn": 19,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d32c-7234-77b2-bf25-ca20e83f0e03",
+   "step": "run-01a0d32c-7234-77b2-bf25-ca20e83f0e03:s2",
+   "status": "complete",
+   "ms": 736,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "upper-floor-bedroom",
+      "destination_2": "basement-rites",
+      "destination_3": "newspaper-morgue",
+      "destination_4": "central-library",
+      "destination_5": "hall-of-records",
+      "destination_6": "neighborhood-gossip",
+      "destination_7": "previous-tenants",
+      "destination_8": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.78,
+     "probabilities": {
+      "unclear": 0.19,
+      "destination_3": 0,
+      "destination_2": 0,
+      "destination_1": 0,
+      "destination_5": 0,
+      "destination_8": 0,
+      "destination_7": 0,
+      "none": 0.81,
+      "destination_6": 0,
+      "destination_4": 0
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:corbitt-diaries"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.93,
+     "probabilities": {
+      "unclear": 0.04,
+      "ask_1": 0.01,
+      "none": 0.95
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_3",
+     "row": "move",
+     "confidence": 0.55,
+     "probabilities": {
+      "act_1": 0.01,
+      "act_11": 0,
+      "act_6": 0,
+      "unclear": 0,
+      "act_10": 0.05,
+      "act_5": 0.13,
+      "act_4": 0,
+      "act_7": 0,
+      "act_8": 0,
+      "act_3": 0.59,
+      "act_9": 0,
+      "none": 0.22,
+      "act_2": 0
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "撬锁工具",
+      "item_3": "手电筒",
+      "item_4": "徽章"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.48,
+     "probabilities": {
+      "item_1": 0,
+      "item_2": 0,
+      "unclear": 0.43,
+      "item_3": 0,
+      "item_4": 0,
+      "none": 0.5700000000000001
+     },
+     "cleared": false
+    }
+   },
+   "fired": [],
+   "selected": [],
+   "decided": [
+    "apply:move:upper-floor-bedroom",
+    "apply:move:newspaper-morgue",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "apply:clue:corbitt-diaries",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "decided_none",
+   "run_id": "8c9ab261-1ad0-47a1-8cea-ed88b8917c52"
+  }
+ ],
+ "prescreen": "on",
+ "reads": [
+  {
+   "scene": "corbitt-house-ground",
+   "prescreen": "prepared",
+   "materials": 3,
+   "jev_calls": 7,
+   "ms": 7793
+  }
+ ],
+ "status": "delivered",
+ "reason": "implicit_narrate",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 12236,
+   "ttfb_ms": 1236,
+   "input": 42086,
+   "cache_read": 1152,
+   "cache_write": 0,
+   "output": 1031,
+   "reasoning": 990,
+   "tools": [
+    "look",
+    "lookup"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": 40600,
+   "ttfb_ms": 1081,
+   "input": 1614,
+   "cache_read": 43136,
+   "cache_write": 0,
+   "output": 3716,
+   "reasoning": 3197,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": "low"
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "compose",
+   "ms": 9827,
+   "ttfb_ms": 973,
+   "input": 5144,
+   "cache_read": 43136,
+   "cache_write": 0,
+   "output": 898,
+   "reasoning": 719,
+   "tools": [],
+   "stop": "stop",
+   "effort": "low"
+  }
+ ],
+ "steps": {
+  "operate": 4,
+  "decide": 2,
+  "infer": 3,
+  "finish": 1
+ },
+ "llm_steps": 3,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate",
+  "compose"
+ ],
+ "jev_calls": 9,
+ "route_rows": 2,
+ "calls": [
+  {
+   "tool": "look",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "focus": "object",
+    "name": "Corbitt Diaries"
+   }
+  },
+  {
+   "tool": "lookup",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "kind": "module",
+    "expected_kind": "scene",
+    "query": "outside Corbitt House street Boston"
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": false,
+   "error": "needs",
+   "input": {
+    "effects": [
+     {
+      "kind": "define",
+      "name": "科比特的旧日记",
+      "description": "三本合在一起的旧日记，硬封，书脊印着 W. Corbitt，纸页发黄。内页是密集的英文手写，尚未被翻开阅读。",
+      "category": "item"
+     },
+     {
+      "kind": "object",
+      "name": "科比特的三本旧日记",
+      "to": "托马斯·海斯",
+      "definition": "科比特的旧日记",
+      "document": {
+       "text": "",
+       "presentation": "book"
+      },
+      "why": "海斯把储物间柜里那三本合着的旧日记拿走，并没有翻开。"
+     }
+    ]
+   }
+  }
+ ],
+ "match": [
+  {
+   "baseline": "lookup",
+   "matched": null
+  },
+  {
+   "baseline": "lookup",
+   "matched": null
+  },
+  {
+   "baseline": "narrate",
+   "matched": true,
+   "origin": "implicit"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 2,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null,
+   "path": "lane",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null,
+   "predicate": null,
+   "features": null,
+   "binding_paths": null,
+   "compile_refused": null,
+   "first_byte_ms": 1,
+   "timed_out": null
+  }
+ ],
+ "clerk": [],
+ "misses": [
+  {
+   "turn": 19,
+   "lane": "route",
+   "purpose": "route",
+   "run": "run-01a0d32c-7234-77b2-bf25-ca20e83f0e03",
+   "step": "run-01a0d32c-7234-77b2-bf25-ca20e83f0e03:s3",
+   "status": "complete",
+   "ms": 568,
+   "offered": [
+    "apply:clue:corbitt-diaries",
+    "resolve:core-check:ordinary-check"
+   ],
+   "selected": [],
+   "exit": "ask_llm",
+   "reason": "low_confidence",
+   "answers": {
+    "need_1": {
+     "choice": "later",
+     "confidence": 0.98,
+     "probabilities": {
+      "later": 0.99,
+      "now": 0.01,
+      "unknown": 0
+     }
+    },
+    "need_2": {
+     "choice": "later",
+     "confidence": 0.99,
+     "probabilities": {
+      "later": 1,
+      "now": 0,
+      "unknown": 0
+     }
+    },
+    "exit": {
+     "choice": "ask_llm",
+     "confidence": 0.22,
+     "probabilities": {
+      "finish": 0.4,
+      "continue": 0.17,
+      "read_more": 0.01,
+      "ask_llm": 0.42
+     }
+    }
+   },
+   "run_id": "8c9ab261-1ad0-47a1-8cea-ed88b8917c52"
+  }
+ ]
+}
