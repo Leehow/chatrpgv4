@@ -662,7 +662,12 @@ export function settleLocate(view: RunView, step: number, located: {calls: numbe
 export interface OrdinaryBinding {disposition: string; action?: Record<string, Json>; unresolved: string[]; calls: number; ms: number;
   skill?: {choice: string; confidence?: number | null; probabilities?: Record<string, number> | null};
   /** The binder's own roll-or-not answer (§135.30.3): recorded; for a compile-selected check it does not decide. */
-  route?: {choice: string; confidence?: number | null; probabilities?: Record<string, number> | null}}
+  route?: {choice: string; confidence?: number | null; probabilities?: Record<string, number> | null};
+  /**
+   * SL-31 (§135.28): how the binder took the difficulty and the two dice -- Jev's answer that cleared (`jev`) or the rules
+   * default (`rule-default`, with its rule and the answer it replaced). Absent: a binder that reports none (all `jev`).
+   */
+  paths?: Record<string, {path: 'jev' | 'rule-default'; value: string; rule?: string; confidence?: number | null; distribution?: Record<string, number> | null}>}
 /** The ordinary check's key as the builder mints it (§135.2). */
 export const ORDINARY_CHECK_KEY = `resolve:${ORDINARY_CHECK}`;
 /**
@@ -671,9 +676,15 @@ export const ORDINARY_CHECK_KEY = `resolve:${ORDINARY_CHECK}`;
  * answer; the skill is Jev's with the profile answer and whether it cleared the gates (no evidence: not cleared); the
  * rest is the binder's (`jev`).
  */
-export function ordinaryBindings(candidate: Candidate, action: Record<string, Json>, skill: OrdinaryBinding['skill'], gate: number): BindRecord[] {
+export function ordinaryBindings(candidate: Candidate, action: Record<string, Json>, skill: OrdinaryBinding['skill'], gate: number,
+  paths: OrdinaryBinding['paths'] = undefined): BindRecord[] {
   const compiled = object(object(object(candidate.basis).compile).bound);
-  return Object.entries(action).map(([name, value]): BindRecord => {
+  // SL-31 (§135.28): the difficulty and the dice each get their own record, as the binder took them; the action's
+  // `modifiers` (assembled from the three) is a rules default when any of them was.
+  const parts: BindRecord[] = Object.entries(paths ?? {}).map(([name, entry]) => ({name, path: entry.path, value: entry.value,
+    confidence: entry.confidence ?? null, distribution: entry.distribution ?? null, ...(entry.rule ? {rule: entry.rule} : {})}));
+  return [...Object.entries(action).map(([name, value]): BindRecord => {
+    if (name === 'modifiers' && parts.length) return {name, value, path: parts.some(entry => entry.path === 'rule-default') ? 'rule-default' : 'jev'};
     if (name === 'goal' || name === 'method') return {name, value, path: 'composed'};
     if (Object.hasOwn(candidate.bound, name) && candidate.bound[name] === value && !Object.hasOwn(compiled, name)) return {name, value, path: 'stated'};
     if (Object.hasOwn(compiled, name)) return {name, value, path: 'jev', confidence: object(compiled[name]).confidence ?? null, distribution: object(compiled[name]).distribution ?? null};
@@ -685,27 +696,36 @@ export function ordinaryBindings(candidate: Candidate, action: Record<string, Js
         cleared: confidence !== undefined && clears(result, 'skill', skill.choice, confidence, gate)};
     }
     return {name, value, path: 'jev'};
-  });
+  }), ...parts];
+}
+/** SL-31 (§135.28): the binder's defaults as the basis stamps them (`rule_default: {<parameter>: {value, rule}}`), or none. */
+export function ordinaryDefaults(paths: OrdinaryBinding['paths']): Record<string, Json> {
+  return Object.fromEntries(Object.entries(paths ?? {}).filter(([, entry]) => entry.path === 'rule-default')
+    .map(([name, entry]) => [name, {value: entry.value, rule: entry.rule ?? null}]));
 }
 export function settleOrdinaryBind(view: RunView, step: number, candidate: Candidate, bound: OrdinaryBinding, ms: number, gate = DEFAULT_CONFIDENCE_GATE): TelemetryRow {
   view.budget.jevCalls += bound.calls;view.budget.jevMs += bound.ms;
   // An ordinary check the binder could not settle is the Keeper's (Ruling c: an ambiguous one goes to the boss); for a
-  // clerk candidate that is the Keeper's turn, never an LLM bind (§135.28). It has no rules default: its skill is the
-  // player's method, which no arithmetic picks.
+  // clerk candidate that is the Keeper's turn, never an LLM bind (§135.28). Its skill has no rules default: it is the
+  // player's method, which no arithmetic picks. Its difficulty and dice do (SL-31), taken inside the binder.
   const unsettled: PendingItem[] = candidate.clerk
     ? keeperOwns(candidate, `ordinary_${bound.disposition}`, bound.unresolved)
     : [{kind: 'infer', purpose: 'bind', candidate, reason: `ordinary_${bound.disposition}`}, {kind: 'direct', purpose: 'llm_proposal', candidate}];
   // §135.30.3: the intent the compile read is the check's intent; the binder's own reading of it is not a second answer.
   const compiled = object(object(object(candidate.basis).compile).bound);
   const action = bound.action && typeof object(compiled.intent).value === 'string' ? {...bound.action, intent: object(compiled.intent).value as Json} : bound.action;
-  const records = action ? ordinaryBindings(candidate, action, bound.skill, gate) : [];
+  const records = action ? ordinaryBindings(candidate, action, bound.skill, gate, bound.paths) : [];
   // §135.30.3 (owner ruling 2026-09-24): the compile's cleared act settles roll-or-not. The binder's `no_roll` does not decide:
   // with a skill that cleared the check is rolled, and the basis says so; with one that did not, the binder's `no_roll` stands.
   const binderNoRoll = object(object(candidate.basis).compile).predicate === 'ordinary_check' && bound.route?.choice === 'no_roll' && bound.disposition === 'ordinary';
   const skillCleared = records.find(entry => entry.name === 'skill')?.cleared === true;
   const disposition = binderNoRoll && !skillCleared ? 'no_roll' : bound.disposition;
+  // SL-31 (§135.28): a default the binder took is stamped on the basis every row of the call and the Keeper's note carry.
+  const defaults = ordinaryDefaults(bound.paths);
+  const stamped = Object.keys(defaults).length
+    ? {...candidate, basis: {...object(candidate.basis), binding: 'rule-default', rule_default: defaults} as Json} : candidate;
   const executed = binderNoRoll && skillCleared
-    ? {...candidate, basis: {...object(candidate.basis), roll: {rule: 'compile_act', binder: 'no_roll', confidence: bound.route?.confidence ?? null}} as Json} : candidate;
+    ? {...stamped, basis: {...object(stamped.basis), roll: {rule: 'compile_act', binder: 'no_roll', confidence: bound.route?.confidence ?? null}} as Json} : stamped;
   const pending: PendingItem[] = disposition === 'ordinary' && action
     ? [{kind: 'direct', purpose: 'execute', candidate: executed, extra: action, bindings: records}]
     : disposition === 'no_roll' ? []
@@ -1034,7 +1054,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         if (request.offline) return {kind: 'decide', purpose: candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve') ? 'bind-ordinary' : 'bind',
           question: {batch: undefined, candidate, offline: request.offline, reason: request.offline}};
         return candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve')
-          ? {kind: 'decide', purpose: 'bind-ordinary', question: {candidate}}
+          ? {kind: 'decide', purpose: 'bind-ordinary', question: {candidate, gate: driver.policyState.gate}}
           : {kind: 'decide', purpose: 'bind', question: binding ? {batch: bindBatch(state, candidate, binding.scope, binding.readSet), candidate: candidate.key} : unbound};
       }
       const item = request.item;
