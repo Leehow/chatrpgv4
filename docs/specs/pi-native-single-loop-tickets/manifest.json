@@ -26,7 +26,7 @@
     {"id": "SL-08", "file": "08-npc-standing-action.md", "status": "ready-for-human"},
     {"id": "SL-10", "file": "10-turn-budget-and-admission.md", "status": "ready-for-human"},
     {"id": "SL-11", "file": "11-model-call-diet.md", "status": "ready-for-human"},
-    {"id": "SL-12", "file": "12-binding-without-the-llm.md", "status": "ready-for-agent"}
+    {"id": "SL-12", "file": "12-binding-without-the-llm.md", "status": "ready-for-human"}
   ],
   "relatedSpecs": [
     {
