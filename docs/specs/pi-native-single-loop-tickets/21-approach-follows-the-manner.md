@@ -153,3 +153,33 @@ gate7-t2,gate7-t2-extra,gate7-t2-control-no-carry}`.
   untouched).
 
 **Not done.** No live table and no packaging.
+
+### 2026-09-24 — merged with the integration branch (SL-22) and re-verified
+
+**Merge.** `966a28ba1` merges `claude/integ-single-loop-20260923` at `9a4609b4d` (SL-22). `step-policy.ts` and
+`hybrid-engine.ts` auto-merged with no overlap: SL-22 changed the read step's accounting, the `exhausted`/`jev_budget`
+compose and the binder lease, and this branch changed the bind default and the hand-on. Both stand.
+
+The one conflict was `fixtures/gate7/workspace.tar.gz`, which both branches built from the same read-only campaign.
+SL-22's copy is taken. It is positioned at turn 3, and it holds turn 2's `commit_before` `964e4cd`, which the replay
+resets to. The pre-registration above applies unchanged to the replays below.
+
+**Replays on the merged tree** (seed 1, live Jev, `results/sl21-merged-{gate3-t2,gate7-t2}`):
+
+| fixture | run | compile ask / addressee / act | meeting | approach | check's admission | LLM steps / wall |
+| --- | --- | --- | --- | --- | --- | --- |
+| `gate3-t2` | 1 | 0.77 / 0.49 ✗ / 0.95 | — | Persuade `jev` 0.73 | **compile**, no lane | 1 / 8.2 s |
+| | 2 | 0.76 / 0.55 ✓ / 0.96 | — | Persuade `jev` 0.71 | **compile**, no lane | 1 / 6.6 s |
+| | 3 | 0.82 / 0.59 ✓ / 0.96 | — | Persuade `jev` 0.77 | **compile**, no lane | 1 / 6.5 s |
+| `gate7-t2` | 1 | 0.86 / 0.62 ✓ / 0.96 | Arty staged | Persuade `jev` 0.65 | **compile**, no lane | 1 / 9.1 s |
+| | 2 | 0.87 / 0.59 ✓ / 0.97 | Arty staged | Persuade `jev` 0.63 | **compile**, no lane | 1 / 7.6 s |
+| | 3 | 0.90 / 0.45 ✗ / 0.97 | Arty staged | Persuade `jev` 0.67 | **compile**, no lane | 1 / 6.5 s |
+
+Acceptance holds on the merged tree, 3/3 per fixture. As before, no merged run fell under the gate. The `jev_lead` case
+end to end is the pre-merge extra run and the seam test.
+
+**Suites** (leehow-pc, at `966a28ba1`):
+
+- `test:ext` 2898/2898, exit 0.
+- Loop suites 133/133, exit 0.
+- pytest not run: no kernel input changed.
