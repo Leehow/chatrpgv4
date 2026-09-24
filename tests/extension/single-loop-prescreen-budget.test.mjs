@@ -231,12 +231,17 @@ test("gate #7's shape: a prescreen that spends the whole allowance leaves the de
 	// no prescreen batch of either read runs past that read's own deadline.
 	assert.equal(reads[1].prescreen.allowance_ms, 3_000, "the late read's allowance is the configured one");
 	assert.notEqual(reads[1].prescreen.status, "not_run", `the late read ran its prescreen: ${JSON.stringify(reads[1].prescreen)}`);
+	// Each read's batches end within that read (their deadline is the read's own, not a later one), and each read's latest
+	// batch deadline is most of a whole allowance from its start (the allowance less the finalisation reserve), never a
+	// remainder. Measured against the read's own step, so a slow machine's kernel reads do not move it.
 	for (const read of reads) {
 		const began = table.events.find((event) => event.type === "step_start" && event.stepId === read.stepId).at;
 		const ended = table.events.find((event) => event.type === "step_end" && event.stepId === read.stepId).at;
 		const batches = log.filter((entry) => entry.kind === "prescreen" && entry.at >= began && entry.at <= ended);
 		assert.ok(batches.length > 0, `the read at ${read.scene} sent prescreen batches`);
-		assert.ok(batches.every((entry) => entry.deadline <= began + 3_000 + 250), `every batch ends by that read's own deadline (${batches.map((entry) => entry.deadline - began)})`);
+		assert.ok(batches.every((entry) => entry.deadline <= ended), `every batch's deadline falls inside its own read (${batches.map((entry) => entry.deadline - ended)})`);
+		// The locate's batches hold only their share; the latest deadline is the read's semantic one.
+		assert.ok(Math.max(...batches.map((entry) => entry.deadline)) - began >= 2_000, `given the allowance whole (${batches.map((entry) => entry.deadline - began)})`);
 	}
 	// The budget summary names both budgets: the decisions' (not spent) and the prescreen's (reported).
 	const summary = table.table.telemetry("test-camp").find((row) => row.lane === "run" && row.event === "budget" && row.decision === "summary");

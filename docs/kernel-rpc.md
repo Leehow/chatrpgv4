@@ -16675,7 +16675,13 @@ material and, separately, the landed answer on the note.
 *Tests.* `tests/extension/prescreen-binding-drift.test.mjs`, on the real kernel over the Haunting: a write of the reader's
 bookkeeping (the module's `meta.reading`, the field an answer's landing writes) moves the capsule's `source_revision` and keeps
 `task_source_revision`; landing before the finish decision, and before a later catalog page, the prescreen still prepares, with
-the graph material and no fallback. The mutation record is in the SL-44 ticket's Comments.
+the graph material and no fallback; landing between the run's binding and the first catalog page, the catalog and the locate's
+index are still taken. `tests/extension/prescreen-source-request.test.mjs` (a packet that carries the reading store's own
+answers): an answer landing before the source materials are read is among them and the packet reaches the provider; one landing
+after they were read voids them through their own checkpoint (`source_stale`), so the stale packet never reaches provider
+conversion. That file's earlier case, "a public source-owner answer change during selection prevents the stale packet", asserted
+the voiding by `source_revision` this addendum retires; it is replaced by the two cases above. The mutation record is in the
+SL-44 ticket's Comments.
 
 ## 125. Shared foreground evidence and NPC preparation (#109)
 
