@@ -202,18 +202,28 @@ export const CARRIED_VIEWS_HEAD = 'What look would return right now, read by the
   + 'field it omits. Keeper-only material, never player text.';
 /** §135.31.1: what the Keeper is told about a scene's passages (`focus: "source"`), after the head above. */
 export const CARRIED_PASSAGES_HEAD = 'A view with focus source is the source passages this run\'s prescreen located about that scene: the book\'s '
-  + 'own passages, and what the module authored about the place and what is there. A module without an original document (a built-in '
-  + 'starter) has no source beyond its authored graph, and lookup kind=source answers it no_source_document.';
+  + 'own passages, and what the module authored about the place and what is there.';
+/**
+ * §135.31.1: the module's source, when the read knows it: the capsule carries `reading` (the book's table of contents, §22)
+ * only for a module that came from an original document. Without one, the authored graph is the whole source.
+ */
+export const CARRIED_NO_DOCUMENT = 'This module has no original document: its authored graph is its whole source, these passages are what it '
+  + 'says about the scene, and lookup kind=source answers no_source_document here.';
+export const CARRIED_DOCUMENT = 'lookup kind=source reads the original document for what they do not cover.';
 
 /** One view as the Keeper reads it: `look`'s focus, the name, the view and the cut marks; the id and the read stay host-side. */
 function keeperView(entry: CarriedView): Row {
   return {focus: entry.focus, ...(entry.name ? {name: entry.name} : {}), view: entry.view,
     ...(entry.truncated ? {truncated: true} : {}), ...(entry.omitted_fields ? {omitted_fields: entry.omitted_fields} : {})};
 }
-/** The Keeper-facing `carried` section of the `coc-clerk` message, or none. */
-export function carriedSection(carried: CarriedViews): Json | undefined {
+/**
+ * The Keeper-facing `carried` section of the `coc-clerk` message, or none. `document`: whether the module has an original
+ * document (the capsule's `reading` section), when the read knows it; it only chooses the passages' last sentence.
+ */
+export function carriedSection(carried: CarriedViews, options: {document?: boolean} = {}): Json | undefined {
   if (!carried.views.length && !carried.omitted.length) return undefined;
-  const head = carried.views.some(entry => entry.focus === 'source') ? `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD}` : CARRIED_VIEWS_HEAD;
+  const source = options.document === false ? ` ${CARRIED_NO_DOCUMENT}` : options.document === true ? ` ${CARRIED_DOCUMENT}` : '';
+  const head = carried.views.some(entry => entry.focus === 'source') ? `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD}${source}` : CARRIED_VIEWS_HEAD;
   return {head, views: carried.views.map(keeperView),
     ...(carried.omitted.length ? {omitted: carried.omitted} : {})} as Json;
 }

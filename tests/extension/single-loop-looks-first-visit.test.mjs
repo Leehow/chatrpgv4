@@ -25,7 +25,7 @@ import { supportChoices } from "./support-agent-helpers.mjs";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
-import { CARRIED_PASSAGES_HEAD, CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, CARRIED_VIEWS_HEAD, carriedSection, readCarriedViews, scenePassages } from "../../runtime/jev/carried-views.ts";
+import { CARRIED_DOCUMENT, CARRIED_NO_DOCUMENT, CARRIED_PASSAGES_HEAD, CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, CARRIED_VIEWS_HEAD, carriedSection, readCarriedViews, scenePassages } from "../../runtime/jev/carried-views.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CAMPAIGN = "test-camp";
@@ -92,10 +92,11 @@ test("§135.31.1 the passages ride last in carried, under the carried view's own
 	assert.equal(source.truncated, true);
 	assert.deepEqual(source.omitted_fields, ["handout:map"], "the trailing entry goes first");
 	assert.ok(Object.hasOwn(source.view, "Original PDF page 40") && Object.hasOwn(source.view, "scene:house"));
-	const section = carriedSection(carried);
-	assert.equal(section.head, `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD}`);
-	assert.match(section.head, /no_source_document/);
-	assert.equal(carriedSection(await readCarriedViews({ call, scene: "house", people: [] })).head, CARRIED_VIEWS_HEAD, "no passages: the head as before");
+	assert.equal(carriedSection(carried).head, `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD}`, "the module's source unknown: no sentence about it");
+	assert.equal(carriedSection(carried, { document: false }).head, `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD} ${CARRIED_NO_DOCUMENT}`);
+	assert.match(CARRIED_NO_DOCUMENT, /no_source_document/);
+	assert.equal(carriedSection(carried, { document: true }).head, `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD} ${CARRIED_DOCUMENT}`);
+	assert.equal(carriedSection(await readCarriedViews({ call, scene: "house", people: [] }), { document: false }).head, CARRIED_VIEWS_HEAD, "no passages: the head as before");
 	// Past the message's budget: a session and three cards take 12 KiB, the passages are listed as budget.
 	const card = (name) => ({ kind: "npc", name, id: name, role: "r", wants: big(3500) });
 	const full = await readCarriedViews({ call: async (method, params) => card(params.name), people: ["A", "B", "C"],
@@ -218,6 +219,8 @@ test("§135.31.1 at the extension seam: a run that stays carries its scene's pas
 	await table.table.session.prompt("I look over Knott's desk for anything about the house.");
 	const carried = passagesCarried(table.requests);
 	assert.deepEqual(carried.map((entry) => entry.scene), ["commission-briefing"], "once, on the first model step");
+	// The Haunting is a built-in starter: its capsule has no `reading` (§22), so the head says its graph is its whole source.
+	assert.equal(clerkNotes(table.requests[0]).at(-1).carried.head, `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD} ${CARRIED_NO_DOCUMENT}`);
 	assert.equal(Object.keys(carried[0].view)[0], "scene:commission-briefing");
 	assert.equal(table.requests.length, 2, "two model steps");
 	assert.ok((clerkNotes(table.requests[0]).at(-1)?.carried?.views ?? []).some((view) => view.focus === "source"), "the first step's note carries them");

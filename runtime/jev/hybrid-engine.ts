@@ -271,6 +271,8 @@ interface RunState {
   shown: {scenes: Set<string>; people: Set<string>; session?: string; passages: Set<string>};
   /** §135.31.1 (SL-27): every material this run's prescreens prepared or reused, with the scene of the read. */
   passages: PassageSource[];
+  /** §135.31.1: whether the module has an original document -- the capsule carries `reading` (§22) only then. */
+  document?: boolean;
 }
 
 /**
@@ -304,6 +306,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // (the resolve options' context holds the same two values), and who the investigators are.
     const context = object(resolveOptions.context), active = (value: unknown) => Object.keys(object(value)).length > 0;
     run.firstScene ??= table.context.scene;
+    run.document = Object.hasOwn(capsule, 'reading');
     run.scene = table.context.scene;
     run.sessionView = Object.hasOwn(context, 'session') ? (active(context.session) ? {session: context.session, pending_choice: context.pending_choice ?? null} : undefined)
       : active(object(capsule.where).session) ? 'read' : undefined;
@@ -649,7 +652,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       views: carried.views.map(entry => ({focus: entry.focus, ...(entry.name ? {name: entry.name} : {}), bytes: bytes(entry.view),
         ...(entry.truncated ? {truncated: true, omitted_fields: entry.omitted_fields ?? []} : {})})),
       omitted: carried.omitted, bytes: carried.bytes, reads: carried.reads, ms: carried.ms});
-    return carriedSection(carried);
+    return carriedSection(carried, run.document === undefined ? {} : {document: run.document});
   }
 
   /** The run's note to the Keeper before a model step. Nothing new to say: no message. */
