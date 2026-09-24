@@ -39,21 +39,36 @@ export const ADMITTING_VERDICTS: ReadonlySet<string> = new Set(["authorized", "e
 export const REFUSING_VERDICTS: ReadonlySet<string> = new Set(["not_authorized", "uncertain"]);
 
 /**
- * Cap on one lane review, `PI_COC_ADMISSION_TIMEOUT_MS`, measured from the lane request (contract §32.12). It sat at the
- * verifier's two minutes after the first real table lost two turns to 60 s; live gate #6 (2026-09-24) then paid 57 s for
- * one review -- headers at 1.7 s, then 55 s of streaming -- inside a turn the owner holds to 60 s. The review is bounded
- * inside the turn: past 12 s it ends `review_timeout`, a refusal, never an admit.
+ * Cap on how long one call waits for its review, `PI_COC_ADMISSION_TIMEOUT_MS`, measured from the review's start (contract
+ * §32.12, §32.12.2). It sat at the verifier's two minutes after the first real table lost two turns to 60 s; live gate #6
+ * (2026-09-24) then paid 57 s for one review inside a turn the owner holds to 60 s, and SL-18 set 12 s -- which then
+ * refused four legitimate Keeper writes on the long gate. SL-24 measured the lane the tables run
+ * (`opencode-go/deepseek-v4.1-flash`: the long gate's 24 Keeper batches rerun uncapped three times, plus the retained
+ * bank's 51 verdicts; 123 rounds): p50 3.6 s, p90 12.3 s, p97.5 21.4 s, max 85 s. The cap is the p90 rounded up to a
+ * whole second, 13 s: about one review in eleven passes it. A cap bounds waiting and decides nothing: past it the lane
+ * keeps running to the hard cap (`admissionHardCapMs`, 26 s, which 3 of the 123 rounds passed) for the Keeper's one resend.
  */
-export const DEFAULT_ADMISSION_TIMEOUT_MS = 12_000;
+export const DEFAULT_ADMISSION_TIMEOUT_MS = 13_000;
 /** The host's verdict for a lane review cut at its cap (§32.12): not one of the lane's five, never an admit. */
 export const REVIEW_TIMEOUT = "review_timeout";
 
-export function admissionTimeoutMs(): number {
-	const raw = process.env.PI_COC_ADMISSION_TIMEOUT_MS?.trim();
+export function admissionTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+	const raw = env.PI_COC_ADMISSION_TIMEOUT_MS?.trim();
 	if (!raw) return DEFAULT_ADMISSION_TIMEOUT_MS;
 	const value = Number(raw);
 	return Number.isFinite(value) && value > 0 ? value : DEFAULT_ADMISSION_TIMEOUT_MS;
 }
+/**
+ * The lane round's own deadline (§32.12.2): twice the cap. The cap bounds how long one call waits; past it the review keeps
+ * running so the Keeper's one resend can collect it, and the hard cap bounds that too.
+ */
+export function admissionHardCapMs(capMs: number): number {
+	return capMs * 2;
+}
+/** The host's answer to a call whose review has not answered by the cap and cannot be admitted late (§32.12.2). */
+export const REVIEW_PENDING = "review_pending";
+/** A lane answer whose grounds are empty: no verdict, not an outage (§32.12.2). */
+export const NO_GROUNDS = "no_grounds";
 
 export interface AdmissionVerdict {
 	verdict: string;
@@ -66,8 +81,8 @@ export interface AdmissionVerdict {
 	/** `review_timeout` only: the cap the review ran into (§32.12). */
 	capMs?: number;
 }
-/** Which path decided an admission row (§32.12): the compile's evidence, the typed reviewer, the lane, or no review at all. */
-export type AdmissionPath = "compile" | "typed" | "lane" | "none";
+/** Which path decided an admission row (§32.12, §32.12.2): the compile's evidence, the typed reviewer (at once, or late at the cap), the lane, or no review at all. */
+export type AdmissionPath = "compile" | "typed" | "typed_late" | "lane" | "none";
 
 /**
  * The primary reviewer (§32.10), `PI_COC_ADMISSION_REVIEWER`. `lane` is the §32.2 completion and
@@ -448,9 +463,46 @@ export function admissionTimedOut(proposal: AdmissionProposal, capMs: number, ms
 	});
 }
 
+/**
+ * §32.12.2: the review did not answer within the cap, and nothing that did answer can stand. The Keeper is told the
+ * review is still running and may resend the identical call once to collect it; nothing of the batch has happened. The
+ * typed reviewer's early reading travels as information, never as a verdict.
+ */
+export function admissionPending(proposal: AdmissionProposal, capMs: number, ms: number, waitMs: number, typed?: TypedReading): KernelError {
+	const seconds = (value: number) => Math.round(value / 100) / 10;
+	return new KernelError({
+		code: "needs",
+		message: `The action review has not answered within its ${seconds(capMs)} s cap; it is still running, so this action is not settled yet`,
+		fix: `Nothing of this batch has happened yet: do not narrate its effects. Resend this identical call once, unchanged, as your next tool call: the host keeps this review and answers the resend with its verdict, waiting at most ${seconds(waitMs)} s more. A reworded call is a new review, not the resend. details.typed is the typed reviewer's early reading, not a verdict. If the resend is refused, close the turn with narrate taking up what the player actually said; whatever this turn already settled with a receipt did happen and is narrated as usual.`,
+		details: { reason: REVIEW_PENDING, cap_ms: capMs, ms, resend: "once", wait_ms: waitMs, typed: typed ? typedDetails(typed) : null, proposed: proposal.lines, tool: proposal.tool },
+	});
+}
+
+/** The typed reviewer's answer as the concurrent review keeps it (§32.12.2): what Jev said, never whether it stood. */
+export interface TypedReading {
+	status: "decided" | "fallback";
+	reason?: string;
+	verdict?: string;
+	confidence?: number;
+	lineVerdicts?: string[];
+	grounds?: string;
+	missing?: string;
+}
+export function typedDetails(typed: TypedReading): Record<string, unknown> {
+	return typed.status === "decided"
+		? { verdict: typed.verdict, confidence: typed.confidence, line_verdicts: typed.lineVerdicts ?? [], grounds: typed.grounds ?? "", ...(typed.missing ? { missing: typed.missing } : {}) }
+		: { verdict: null, reason: typed.reason ?? "no_answer", ...(typed.confidence === undefined ? {} : { confidence: typed.confidence }) };
+}
+
 export type AdmissionOutcome =
 	| { ok: true; verdict: AdmissionVerdict; ms: number; model: string; reviewer?: AdmissionReviewer; meta?: Record<string, unknown> }
-	| { ok: false; reason: string; detail: string; ms: number; model?: string; reviewer?: AdmissionReviewer; meta?: Record<string, unknown> };
+	| { ok: false; reason: string; detail: string; ms: number; model?: string; reviewer?: AdmissionReviewer; meta?: Record<string, unknown> }
+	/**
+	 * §32.12.2: no sufficient verdict -- the cap passed (`cause: "cap"`, and `lane` is the review still running, until the
+	 * hard cap) or the lane answered without grounds (`cause: "no_grounds"`, nothing running). The caller decides between
+	 * the late admission and `review_pending`. Never an admit by itself.
+	 */
+	| { ok: "late"; cause: "cap" | "no_grounds"; ms: number; capMs: number; hardCapMs: number; typed?: TypedReading; lane?: Promise<AdmissionOutcome>; meta: Record<string, unknown> };
 
 export interface AdmissionReviewOptions {
 	providerBudget?: import('../../runtime/jev/provider-budget.ts').TaskProviderBudget;
@@ -462,7 +514,11 @@ export interface AdmissionReviewOptions {
 	timeoutMs?: number;
 }
 
-/** One review round through the shared lane runner (contract §12.5's pattern, §32's remit). Never throws. */
+/**
+ * One review round through the shared lane runner (contract §12.5's pattern, §32's remit). Never throws. A round cut at
+ * `timeoutMs` is the host's `review_timeout` verdict; an answer whose grounds are empty is no verdict (`no_grounds`,
+ * §32.12.2): it neither admits nor refuses, and it is not an outage.
+ */
 export async function reviewAdmission(options: AdmissionReviewOptions): Promise<AdmissionOutcome> {
 	const capMs = options.timeoutMs ?? admissionTimeoutMs();
 	const lane = await runLane<AdmissionVerdict>({
@@ -484,13 +540,17 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 		verdict: { verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${capMs} ms cap`, reviewer: "lane", path: "lane", capMs },
 		ms: lane.ms, model: lane.model ?? "", reviewer: "lane", meta: { ...meta, timed_out: true, cap_ms: capMs } };
 	if (!lane.ok) return { ok: false, reason: lane.reason, detail: lane.detail, ms: lane.ms, ...(lane.model ? { model: lane.model } : {}), reviewer: "lane", meta };
+	// §32.12.2: only a verdict with grounds is a verdict. The prompt asks for the words relied on; an answer without them
+	// cannot be read back by the Keeper or audited, so it is treated as no answer.
+	if (!lane.value.grounds.trim()) return { ok: false, reason: NO_GROUNDS, detail: `the lane answered ${lane.value.verdict} with no grounds`, ms: lane.ms,
+		model: lane.model, reviewer: "lane", meta: { ...meta, lane_verdict: lane.value.verdict } };
 	return { ok: true, verdict: { ...lane.value, reviewer: "lane", path: "lane" }, ms: lane.ms, model: lane.model, reviewer: "lane", meta };
 }
 
 /**
  * `apply` kinds whose line carries a number the player may have limited (§32.2's explicit limits
  * and undisclosed prices). Jev reads numbers as text (docs.typesafe.ai model-jaggedness, jev-1.13),
- * so such a batch goes straight to the lane. A closed contract enum, never a reading of prose.
+ * so a typed answer on such a batch never stands as the primary verdict. A closed contract enum, never a reading of prose.
  */
 const LANE_ONLY_KINDS: ReadonlySet<string> = new Set(["cash"]);
 
@@ -501,8 +561,10 @@ export interface PrimaryAdmissionReviewOptions extends AdmissionReviewOptions {
 	decision?: DecisionPort;
 }
 
+type TypedAttempt = { typed: Awaited<ReturnType<typeof runAdmissionJev>> | undefined; meta: Record<string, unknown> };
+
 /** One typed attempt (§32.10's family) under the review's own signal, budget and deadline. Never throws. */
-async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.ProcessEnv, began: number, minConfidence: number) {
+async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.ProcessEnv, began: number, minConfidence: number): Promise<TypedAttempt> {
 	const context = options.context;
 	const input: AdmissionJevInput = {
 		campaign: options.campaign,
@@ -551,47 +613,162 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 	return { typed, meta };
 }
 
+function readingOf(typed: TypedAttempt["typed"]): TypedReading | undefined {
+	if (!typed) return undefined;
+	if (typed.status === "decided") return { status: "decided", verdict: typed.verdict, confidence: typed.confidence,
+		lineVerdicts: typed.lines.map((line) => line.verdict), grounds: typed.grounds, ...(typed.missing ? { missing: typed.missing } : {}) };
+	return { status: "fallback", reason: typed.reason, ...(typed.confidence === undefined ? {} : { confidence: typed.confidence }),
+		...(typed.lines ? { lineVerdicts: typed.lines.map((line) => line.verdict) } : {}) };
+}
+
 /**
- * The primary review (§32.10, §32.11). A bookkeeping batch (§32.11) is put to the typed family first whatever the
- * setting says, and a typed admission at or above the fast-path confidence stands alone; a typed refusal, a lower
- * confidence or any non-verdict escalates to the configured reviewer. Otherwise: with the lane as reviewer this is
- * `reviewAdmission` unchanged; with Jev first, one typed batch either returns a verdict at or above the family
- * confidence, or the lane runs exactly as it does alone -- same prompt, same cap, same budget, same refusal on
- * failure. Never throws; every outcome names its `path` (whose verdict stood).
+ * The primary review (§32.10, §32.11, §32.12.2). The lane (§32.2) and the typed family (§32.10) start at the same moment
+ * and the first **sufficient** verdict wins; the other is abandoned (the lane's round is aborted).
+ *
+ * - The lane's verdict is sufficient when it carries grounds. A lane answer without grounds is no answer.
+ * - A typed verdict is sufficient only where §32.10/§32.11 let it stand alone: on a bookkeeping batch, every line
+ *   admitting at the fast-path confidence (§32.11); with Jev as the configured reviewer, any verdict at the family
+ *   confidence, except on a batch carrying `cash` (§32.10's numeric commitment). A typed refusal never stands on the fast path.
+ * - The lane's own failure is an outage (§32.2) unless a typed verdict stands.
+ * - At the cap (`timeoutMs`, `PI_COC_ADMISSION_TIMEOUT_MS`) with nothing sufficient, or when the lane answered without
+ *   grounds, the review returns `ok: "late"` with the typed reading and the lane still running (until the hard cap, twice
+ *   the cap): the caller admits it late or returns it pending. This function never admits on a failure.
+ *
+ * Never throws; every outcome names its `path` (whose verdict stood).
  */
 export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOptions): Promise<AdmissionOutcome> {
 	const env = options.env ?? process.env;
 	const reviewer = admissionReviewer(env), familyMin = admissionJevMinConfidence(env);
 	const fastMin = bookkeepingBatch(options.proposal) ? admissionFastMinConfidence(env) : undefined;
-	if (fastMin === undefined && reviewer !== "jev") return reviewAdmission(options);
+	const numeric = options.proposal.kinds?.some((kind) => LANE_ONLY_KINDS.has(kind)) ?? false;
+	const capMs = options.timeoutMs ?? admissionTimeoutMs(env), hardCapMs = admissionHardCapMs(capMs);
 	const began = Date.now();
 	const fast = fastMin === undefined ? {} : { fast_path: true, fast_min_confidence: fastMin };
-	const lane = async (fallback: string, jev: Record<string, unknown>): Promise<AdmissionOutcome> => {
-		const outcome = await reviewAdmission(options);
-		return { ...outcome, ms: Date.now() - began, meta: { ...outcome.meta, ...fast, jev_fallback: fallback, lane_ms: outcome.ms, ...jev } };
+	// Whether a typed answer could stand at all on this batch; when it could not, the row names no typed fallback.
+	const primary = fastMin !== undefined || reviewer === "jev";
+	const stop = new AbortController();
+	const lane = reviewAdmission({ ...options, signal: options.signal ? AbortSignal.any([options.signal, stop.signal]) : stop.signal, timeoutMs: hardCapMs });
+	// The typed attempt reads every answer (minimum 0) and this function applies each threshold itself: one call serves all.
+	const typed = typedAttempt(options, env, began, 0);
+	const stands = (attempt: TypedAttempt): string | undefined => {
+		const answer = attempt.typed;
+		if (answer?.status !== "decided") return undefined;
+		if (fastMin !== undefined && ADMITTING_VERDICTS.has(answer.verdict) && answer.confidence >= fastMin) return "fast_path";
+		if (reviewer === "jev" && !numeric && answer.confidence >= familyMin) return "family";
+		return undefined;
 	};
-	if (fastMin === undefined && options.proposal.kinds?.some((kind) => LANE_ONLY_KINDS.has(kind))) return lane("numeric_commitment", { jev_calls: 0, jev_ms: 0 });
-	// The fast path reads every typed answer (minimum 0) and applies both thresholds itself: one typed call serves both rules.
-	const { typed, meta: jev } = await typedAttempt(options, env, began, fastMin === undefined ? familyMin : 0);
-	if (!typed || typed.status !== "decided") return lane(typed?.reason ?? "admission_owner_error", jev);
-	const verdict = typed;
-	const decided = (via?: string): AdmissionOutcome => ({
-		ok: true,
-		verdict: { verdict: verdict.verdict, grounds: verdict.grounds, ...(verdict.missing ? { missing: verdict.missing } : {}), reviewer: "jev", path: "typed" },
-		ms: Date.now() - began,
-		model: ADMISSION_JEV_MODEL,
-		reviewer: "jev",
-		meta: { path: "typed", ...fast, ...(via ? { typed_rule: via } : {}), confidence: verdict.confidence, ...jev },
-	});
-	if (fastMin !== undefined) {
-		// §32.11: every line admits (the batch verdict admits) at the fast-path confidence: the typed admission stands alone.
-		if (ADMITTING_VERDICTS.has(verdict.verdict) && verdict.confidence >= fastMin) return decided("fast_path");
-		// §32.10 still governs an escalation when Jev is the configured reviewer: a typed answer at the family minimum
-		// stands (a confident refusal refuses), with no second typed call.
-		if (reviewer === "jev" && verdict.confidence >= familyMin) return decided("family");
-		return lane(ADMITTING_VERDICTS.has(verdict.verdict) ? "low_confidence" : "typed_refusal", jev);
+	const fallbackOf = (attempt?: TypedAttempt): string | undefined => {
+		if (!primary) return undefined;
+		if (!attempt) return "lane_first";
+		const answer = attempt.typed;
+		if (!answer) return "admission_owner_error";
+		if (answer.status !== "decided") return answer.reason;
+		if (fastMin === undefined && numeric) return "numeric_commitment";
+		if (fastMin !== undefined) return ADMITTING_VERDICTS.has(answer.verdict) ? "low_confidence" : "typed_refusal";
+		return "low_confidence";
+	};
+	const jevMeta = (attempt?: TypedAttempt) => {
+		const fallback = fallbackOf(attempt);
+		return { ...fast, ...(fallback ? { jev_fallback: fallback } : {}), ...(attempt?.meta ?? {}) };
+	};
+	const typedVerdict = (attempt: TypedAttempt, rule: string): AdmissionOutcome => {
+		stop.abort();
+		const answer = attempt.typed as Extract<NonNullable<TypedAttempt["typed"]>, { status: "decided" }>;
+		return {
+			ok: true,
+			verdict: { verdict: answer.verdict, grounds: answer.grounds, ...(answer.missing ? { missing: answer.missing } : {}), reviewer: "jev", path: "typed" },
+			ms: Date.now() - began,
+			model: ADMISSION_JEV_MODEL,
+			reviewer: "jev",
+			meta: { path: "typed", ...fast, ...(fastMin !== undefined ? { typed_rule: rule } : {}), confidence: answer.confidence, ...attempt.meta },
+		};
+	};
+	const late = (cause: "cap" | "no_grounds", attempt: TypedAttempt | undefined, laneDone?: AdmissionOutcome): AdmissionOutcome => {
+		const reading = readingOf(attempt?.typed);
+		return { ok: "late", cause, ms: Date.now() - began, capMs, hardCapMs, ...(reading ? { typed: reading } : {}), ...(cause === "cap" ? { lane } : {}),
+			meta: { ...jevMeta(attempt), cap_ms: capMs, hard_cap_ms: hardCapMs,
+				...(laneDone ? { lane_ms: laneDone.ms, ...(laneDone.meta ?? {}), path: "lane" } : { path: "lane" }),
+				...(cause === "no_grounds" ? { lane_no_grounds: true } : {}) } };
+	};
+	// The lane finished with nothing sufficient and the typed answer is in and does not stand.
+	const afterLane = (laneDone: AdmissionOutcome, attempt: TypedAttempt): AdmissionOutcome => {
+		if (laneDone.ok === false && laneDone.reason === NO_GROUNDS) return late("no_grounds", attempt, laneDone);
+		if (laneDone.ok === false) return { ...laneDone, ms: Date.now() - began, meta: { ...laneDone.meta, ...jevMeta(attempt), lane_ms: laneDone.ms } };
+		return late("cap", attempt, laneDone);
+	};
+	type Event = { kind: "lane"; value: AdmissionOutcome } | { kind: "typed"; value: TypedAttempt } | { kind: "cap" };
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const waiting = new Map<string, Promise<Event>>([
+		["lane", lane.then((value): Event => ({ kind: "lane", value }))],
+		["typed", typed.then((value): Event => ({ kind: "typed", value }))],
+		["cap", new Promise<Event>((settle) => { timer = setTimeout(() => settle({ kind: "cap" }), capMs); timer.unref?.(); })],
+	]);
+	let laneDone: AdmissionOutcome | undefined, typedDone: TypedAttempt | undefined;
+	try {
+		for (;;) {
+			const event = await Promise.race(waiting.values());
+			waiting.delete(event.kind);
+			if (event.kind === "typed") {
+				typedDone = event.value;
+				const rule = stands(typedDone);
+				if (rule) return typedVerdict(typedDone, rule);
+				if (laneDone) return afterLane(laneDone, typedDone);
+				continue;
+			}
+			if (event.kind === "lane") {
+				laneDone = event.value;
+				if (laneDone.ok === true && laneDone.verdict.verdict !== REVIEW_TIMEOUT)
+					return { ...laneDone, ms: Date.now() - began, meta: { ...laneDone.meta, ...jevMeta(typedDone), lane_ms: laneDone.ms } };
+				if (typedDone) return afterLane(laneDone, typedDone);
+				continue;
+			}
+			// The cap. The typed attempt has its own, shorter cap: its answer is awaited, never raced away.
+			typedDone ??= await typed;
+			const rule = stands(typedDone);
+			if (rule) return typedVerdict(typedDone, rule);
+			return laneDone ? afterLane(laneDone, typedDone) : late("cap", typedDone);
+		}
+	} finally {
+		if (timer) clearTimeout(timer);
 	}
-	return decided();
+}
+
+/**
+ * §32.12.2's late admission: the kinds a bookkeeping-only batch may carry among §32.1's triggering kinds (the owner's
+ * list; `threat`, `define`, `person` and the other non-triggering kinds ride along, as in §32.11). A closed contract
+ * enum, never a reading of the prose.
+ */
+export const LATE_KINDS: ReadonlySet<string> = new Set(["move", "clue", "handout", "time", "cash"]);
+export function lateEligibleBatch(proposal: AdmissionProposal): boolean {
+	if (proposal.tool !== "apply" || !proposal.kinds?.length) return false;
+	const triggering = proposal.kinds.filter((kind) => TRIGGER_KINDS.has(kind));
+	return triggering.length > 0 && triggering.every((kind) => LATE_KINDS.has(kind));
+}
+/**
+ * `PI_COC_ADMISSION_LATE_MIN_CONFIDENCE`: the typed review confidence at which a late admission stands. Default 0.70,
+ * measured (§32.12.2): the lowest threshold at which lane refusals are at most 2% of the typed admissions over the
+ * retained bank's late-eligible batches. `off` turns the late admission off (every cap expiry is then pending).
+ */
+export const ADMISSION_LATE_DEFAULT_MIN_CONFIDENCE = 0.7;
+export function admissionLateMinConfidence(env: NodeJS.ProcessEnv = process.env): number | undefined {
+	const raw = env.PI_COC_ADMISSION_LATE_MIN_CONFIDENCE?.trim();
+	if (raw === "off") return undefined;
+	const value = Number(raw || NaN);
+	return Number.isFinite(value) && value > 0 && value <= 1 ? value : ADMISSION_LATE_DEFAULT_MIN_CONFIDENCE;
+}
+export type LateAdmission = { ok: true; verdict: AdmissionVerdict; minConfidence: number } | { ok: false; reason: string };
+/**
+ * Pure (§32.12.2). At the cap, a bookkeeping-only batch whose typed verdict admits every line at the late threshold is
+ * admitted on it (`path: "typed_late"`); anything else is not, and goes back to the Keeper pending.
+ */
+export function lateAdmission(proposal: AdmissionProposal, typed: TypedReading | undefined, env: NodeJS.ProcessEnv = process.env): LateAdmission {
+	const minConfidence = admissionLateMinConfidence(env);
+	if (minConfidence === undefined) return { ok: false, reason: "late_off" };
+	if (!lateEligibleBatch(proposal)) return { ok: false, reason: "not_bookkeeping" };
+	if (typed?.status !== "decided" || !typed.verdict) return { ok: false, reason: "no_typed_verdict" };
+	if (!ADMITTING_VERDICTS.has(typed.verdict)) return { ok: false, reason: "typed_refusal" };
+	if (!(typeof typed.confidence === "number" && typed.confidence >= minConfidence)) return { ok: false, reason: "low_confidence" };
+	return { ok: true, minConfidence, verdict: { verdict: typed.verdict, grounds: typed.grounds ?? "", reviewer: "jev", path: "typed_late" } };
 }
 
 /** The four ways a clerk parameter gets its value (§135.28); the compile's evidence admits only a write bound these ways. */

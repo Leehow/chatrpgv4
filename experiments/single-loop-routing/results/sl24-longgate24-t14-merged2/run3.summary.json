@@ -1,0 +1,862 @@
+{
+ "run": 3,
+ "fixture": "longgate24-t14",
+ "admission": "lane",
+ "lane": "live opencode-go/deepseek-v4.1-flash",
+ "keeper": "replay",
+ "thinking": "off",
+ "arm": "after",
+ "latency": false,
+ "seed": "1",
+ "wall_ms": 20070,
+ "budget": {
+  "turn": 14,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d355-ce14-7259-a233-1e65c0e7df9e",
+  "budget_ms": 45000,
+  "elapsed_ms": 19065,
+  "elapsed_at_compose": 18791,
+  "over_budget": false,
+  "deferred_by_budget": [],
+  "decision_budget": {
+   "jev_calls": 5,
+   "jev_ms": 2225,
+   "max_jev_calls": 24,
+   "max_jev_ms": 12000,
+   "spent": false
+  },
+  "prescreen": {
+   "reads": 2,
+   "jev_calls": 11,
+   "ms": 6123
+  },
+  "run_id": "3fab3f8f-acc1-42d0-86aa-06dba33d7bed"
+ },
+ "compile": "on",
+ "compile_row": {
+  "turn": 14,
+  "lane": "route",
+  "purpose": "compile",
+  "run": "run-01a0d355-ce14-7259-a233-1e65c0e7df9e",
+  "step": "run-01a0d355-ce14-7259-a233-1e65c0e7df9e:s2",
+  "status": "complete",
+  "ms": 392,
+  "features": {
+   "destination": {
+    "rows": {
+     "destination_1": "corbitt-house-ground",
+     "destination_2": "basement-rites",
+     "destination_3": "commission-briefing"
+    },
+    "choice": "destination_1",
+    "row": "corbitt-house-ground",
+    "confidence": 0.75,
+    "probabilities": {
+     "destination_1": 0.79,
+     "unclear": 0.01,
+     "none": 0.18,
+     "destination_3": 0,
+     "destination_2": 0.02
+    },
+    "cleared": true
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:blood-pool-manifest"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.55,
+    "probabilities": {
+     "ask_1": 0.03,
+     "unclear": 0.27,
+     "none": 0.7
+    },
+    "cleared": true
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.58,
+    "probabilities": {
+     "act_2": 0,
+     "act_4": 0,
+     "act_8": 0,
+     "act_5": 0,
+     "act_6": 0,
+     "act_7": 0,
+     "act_10": 0.01,
+     "act_3": 0.62,
+     "unclear": 0,
+     "none": 0.03,
+     "act_1": 0.34,
+     "act_11": 0,
+     "act_9": 0
+    },
+    "cleared": true
+   },
+   "item": {
+    "rows": {
+     "item_1": "笔记本",
+     "item_2": "撬锁工具",
+     "item_3": "手电筒",
+     "item_4": "徽章"
+    },
+    "choice": "item_2",
+    "row": "撬锁工具",
+    "confidence": 0.38,
+    "probabilities": {
+     "item_1": 0,
+     "none": 0.14,
+     "item_4": 0,
+     "item_3": 0,
+     "unclear": 0.38,
+     "item_2": 0.48
+    },
+    "cleared": false
+   }
+  },
+  "fired": [
+   {
+    "predicate": "move",
+    "candidate": "apply:move:corbitt-house-ground",
+    "features": {
+     "destination": "corbitt-house-ground",
+     "ask": null,
+     "act": "move"
+    }
+   }
+  ],
+  "selected": [
+   "apply:move:corbitt-house-ground"
+  ],
+  "decided": [
+   "apply:move:basement-rites",
+   "apply:move:commission-briefing"
+  ],
+  "fell_through": [
+   "apply:clue:blood-pool-manifest",
+   "resolve:core-check:ordinary-check"
+  ],
+  "reason": "selected_1",
+  "run_id": "3fab3f8f-acc1-42d0-86aa-06dba33d7bed"
+ },
+ "selections": [
+  {
+   "by": "compile",
+   "keys": [
+    "apply:move:corbitt-house-ground"
+   ]
+  }
+ ],
+ "compile_rows": [
+  {
+   "turn": 14,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d355-ce14-7259-a233-1e65c0e7df9e",
+   "step": "run-01a0d355-ce14-7259-a233-1e65c0e7df9e:s2",
+   "status": "complete",
+   "ms": 392,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "corbitt-house-ground",
+      "destination_2": "basement-rites",
+      "destination_3": "commission-briefing"
+     },
+     "choice": "destination_1",
+     "row": "corbitt-house-ground",
+     "confidence": 0.75,
+     "probabilities": {
+      "destination_1": 0.79,
+      "unclear": 0.01,
+      "none": 0.18,
+      "destination_3": 0,
+      "destination_2": 0.02
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:blood-pool-manifest"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.55,
+     "probabilities": {
+      "ask_1": 0.03,
+      "unclear": 0.27,
+      "none": 0.7
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_3",
+     "row": "move",
+     "confidence": 0.58,
+     "probabilities": {
+      "act_2": 0,
+      "act_4": 0,
+      "act_8": 0,
+      "act_5": 0,
+      "act_6": 0,
+      "act_7": 0,
+      "act_10": 0.01,
+      "act_3": 0.62,
+      "unclear": 0,
+      "none": 0.03,
+      "act_1": 0.34,
+      "act_11": 0,
+      "act_9": 0
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "撬锁工具",
+      "item_3": "手电筒",
+      "item_4": "徽章"
+     },
+     "choice": "item_2",
+     "row": "撬锁工具",
+     "confidence": 0.38,
+     "probabilities": {
+      "item_1": 0,
+      "none": 0.14,
+      "item_4": 0,
+      "item_3": 0,
+      "unclear": 0.38,
+      "item_2": 0.48
+     },
+     "cleared": false
+    }
+   },
+   "fired": [
+    {
+     "predicate": "move",
+     "candidate": "apply:move:corbitt-house-ground",
+     "features": {
+      "destination": "corbitt-house-ground",
+      "ask": null,
+      "act": "move"
+     }
+    }
+   ],
+   "selected": [
+    "apply:move:corbitt-house-ground"
+   ],
+   "decided": [
+    "apply:move:basement-rites",
+    "apply:move:commission-briefing"
+   ],
+   "fell_through": [
+    "apply:clue:blood-pool-manifest",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "selected_1",
+   "run_id": "3fab3f8f-acc1-42d0-86aa-06dba33d7bed"
+  },
+  {
+   "turn": 14,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d355-ce14-7259-a233-1e65c0e7df9e",
+   "step": "run-01a0d355-ce14-7259-a233-1e65c0e7df9e:s5",
+   "status": "complete",
+   "ms": 403,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "upper-floor-bedroom",
+      "destination_2": "basement-rites",
+      "destination_3": "newspaper-morgue",
+      "destination_4": "central-library",
+      "destination_5": "hall-of-records",
+      "destination_6": "neighborhood-gossip",
+      "destination_7": "previous-tenants",
+      "destination_8": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.64,
+     "probabilities": {
+      "destination_1": 0.01,
+      "destination_6": 0,
+      "destination_2": 0.3,
+      "destination_8": 0,
+      "none": 0.68,
+      "unclear": 0.01,
+      "destination_3": 0,
+      "destination_4": 0,
+      "destination_7": 0,
+      "destination_5": 0
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:corbitt-diaries"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.16,
+     "probabilities": {
+      "none": 0.44,
+      "unclear": 0.43,
+      "ask_1": 0.13
+     },
+     "cleared": false
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_3",
+     "row": "move",
+     "confidence": 0.53,
+     "probabilities": {
+      "act_10": 0.04,
+      "act_7": 0,
+      "act_9": 0,
+      "act_5": 0,
+      "act_1": 0.36,
+      "act_8": 0,
+      "act_6": 0,
+      "unclear": 0,
+      "none": 0.03,
+      "act_4": 0,
+      "act_2": 0,
+      "act_11": 0,
+      "act_3": 0.5700000000000001
+     },
+     "cleared": false
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "撬锁工具",
+      "item_3": "手电筒",
+      "item_4": "徽章"
+     },
+     "choice": "unclear",
+     "row": null,
+     "confidence": 0.4,
+     "probabilities": {
+      "none": 0.18,
+      "unclear": 0.5,
+      "item_1": 0,
+      "item_4": 0,
+      "item_3": 0,
+      "item_2": 0.32
+     },
+     "cleared": false
+    }
+   },
+   "fired": [],
+   "selected": [],
+   "decided": [
+    "apply:move:upper-floor-bedroom",
+    "apply:move:newspaper-morgue",
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants"
+   ],
+   "fell_through": [
+    "apply:clue:corbitt-diaries",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "decided_none",
+   "run_id": "3fab3f8f-acc1-42d0-86aa-06dba33d7bed"
+  }
+ ],
+ "prescreen": "on",
+ "reads": [
+  {
+   "scene": "upper-floor-bedroom",
+   "prescreen": "prepared",
+   "materials": 15,
+   "jev_calls": 6,
+   "ms": 3442
+  },
+  {
+   "scene": "corbitt-house-ground",
+   "prescreen": "prepared",
+   "materials": 12,
+   "jev_calls": 5,
+   "ms": 2681
+  }
+ ],
+ "status": "delivered",
+ "reason": "implicit_narrate",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 47748,
+   "cache_read": 0,
+   "cache_write": 47748,
+   "output": 53,
+   "reasoning": null,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 330,
+   "cache_read": 47748,
+   "cache_write": 330,
+   "output": 70,
+   "reasoning": null,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 3591,
+   "cache_read": 48078,
+   "cache_write": 3592,
+   "output": 49,
+   "reasoning": null,
+   "tools": [],
+   "stop": "stop",
+   "effort": null
+  }
+ ],
+ "steps": {
+  "operate": 6,
+  "decide": 5,
+  "infer": 3,
+  "finish": 1
+ },
+ "llm_steps": 3,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 16,
+ "route_rows": 5,
+ "calls": [
+  {
+   "tool": "apply",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "move",
+      "to": "corbitt-house-ground"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "investigate",
+     "goal": "撬开厨房里钉死的储物柜，看清里面的旧书",
+     "method": "伤者用手和身体的力量把外面钉住的木板撬开",
+     "skill": "STR",
+     "stakes": "木板撬不开，伤势让他把背上的劲再用完",
+     "modifiers": {
+      "penalty_dice": 1,
+      "reason": "主伤未缛，人刚从楼上摔下来，背和肩使不上劲"
+     }
+    }
+   },
+   "passed": false,
+   "level": "failure"
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "clue",
+      "clue": "corbitt-diaries",
+      "how": "撬开钉死的橱柜，翻开署名 W. Corbitt 的三本旧日记",
+      "label": "科比特的日记"
+     },
+     {
+      "kind": "time",
+      "minutes": 10,
+      "why": "从宅前回到厨房，撬开钉死的橱柜"
+     },
+     {
+      "kind": "threat",
+      "name": "corbitt-haunting",
+      "clock": "corbitt-awareness",
+      "segments": 1,
+      "why": "撬木板的响声惊动了宅子里的东西"
+     }
+    ]
+   }
+  }
+ ],
+ "match": [
+  {
+   "baseline": "move corbitt-house-ground",
+   "matched": true,
+   "origin": "policy"
+  },
+  {
+   "baseline": "resolve STR vs null",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "clue corbitt-diaries",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "time undefined",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "threat corbitt-haunting",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "narrate",
+   "matched": true,
+   "origin": "implicit"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "origin": "policy",
+   "clerk": "declared_bookkeeping",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "compile",
+   "ms": 0,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[1]",
+    "row": {
+     "alias": "effect:1",
+     "effect": {
+      "kind": "move",
+      "to": "corbitt-house-ground"
+     },
+     "description": {
+      "kind": "move",
+      "to": "corbitt-house-ground",
+      "display_name": "科比特宅",
+      "material": "ready",
+      "destination": {
+       "where": [
+        "corbitt house",
+        "old house",
+        "boarding house",
+        "Corbitt residence",
+        "house",
+        "domestic",
+        "investigation-site",
+        "indoor",
+        "entrance",
+        "threshold"
+       ],
+       "things": [
+        "Corbitt Diaries",
+        "Corbitt House Investigator Map"
+       ]
+      },
+      "authority": "available_route_not_player_choice"
+     }
+    },
+    "compile": {
+     "predicate": "move",
+     "features": {
+      "destination": "corbitt-house-ground",
+      "ask": null,
+      "act": "move"
+     },
+     "read_features": {
+      "destination": {
+       "row": "corbitt-house-ground",
+       "confidence": 0.75,
+       "cleared": true
+      }
+     }
+    }
+   },
+   "path": "compile",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null,
+   "predicate": "move",
+   "features": {
+    "destination": {
+     "row": "corbitt-house-ground",
+     "confidence": 0.75
+    }
+   },
+   "binding_paths": {
+    "to": "stated"
+   },
+   "compile_refused": null,
+   "first_byte_ms": null,
+   "timed_out": null,
+   "cause": null,
+   "late_rule": null,
+   "resend": null,
+   "resend_wait_ms": null,
+   "typed": null,
+   "grounds": "compile: move fired on destination=corbitt-house-ground",
+   "proposed": [
+    "apply move: to=\"corbitt-house-ground\"; registered_destination={\"handle\":\"corbitt-house-ground\",\"label\":\"corbitt-house-ground\",\"summary\":\"scene corbitt house ground\"}"
+   ]
+  },
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 3684,
+   "jev_ms": 361,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null,
+   "path": "lane",
+   "fast_path": null,
+   "jev_confidence": 0.29,
+   "line_verdicts": [
+    "not_authorized"
+   ],
+   "lane_ms": 3684,
+   "predicate": null,
+   "features": null,
+   "binding_paths": null,
+   "compile_refused": null,
+   "first_byte_ms": 2446,
+   "timed_out": null,
+   "cause": null,
+   "late_rule": null,
+   "resend": null,
+   "resend_wait_ms": null,
+   "typed": null,
+   "grounds": "\"我下楼回厨房，撬开那个锁着的储物柜\" — player chose the cabinet and the prying-open method; contents are the Keeper's reveal, not a player choice.",
+   "proposed": [
+    "resolve (roll the dice for an action): intent=\"investigate\"; goal=\"撬开厨房里钉死的储物柜，看清里面的旧书\"; method=\"伤者用手和身体的力量把外面钉住的木板撬开\"; skill=\"STR\"; stakes=\"木板撬不开，伤势让他把背上的劲再用完\""
+   ]
+  },
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 5794,
+   "jev_ms": 722,
+   "confidence": null,
+   "jev_fallback": "typed_refusal",
+   "basis": null,
+   "path": "lane",
+   "fast_path": true,
+   "jev_confidence": 0.37,
+   "line_verdicts": [
+    "not_authorized",
+    "entailed",
+    "not_player_action"
+   ],
+   "lane_ms": 5794,
+   "predicate": null,
+   "features": null,
+   "binding_paths": null,
+   "compile_refused": null,
+   "first_byte_ms": 873,
+   "timed_out": null,
+   "cause": null,
+   "late_rule": null,
+   "resend": null,
+   "resend_wait_ms": null,
+   "typed": null,
+   "grounds": "Player: \"我下楼回厨房，撬开那个锁着的储物柜\" — chooses the kitchen cabinet and prying it open; diaries are its contents, ~10 min routine. The awareness clock is a consequence, not a player choice.",
+   "proposed": [
+    "apply clue: clue=\"corbitt-diaries\"; how=\"撬开钉死的橱柜，翻开署名 W. Corbitt 的三本旧日记\"; label=\"科比特的日记\"",
+    "apply time: minutes=10; why=\"从宅前回到厨房，撬开钉死的橱柜\"",
+    "apply threat: name=\"corbitt-haunting\"; clock=\"corbitt-awareness\"; segments=1; why=\"撬木板的响声惊动了宅子里的东西\""
+   ]
+  }
+ ],
+ "clerk": [
+  {
+   "tool": "apply",
+   "call_id": "t14-c1",
+   "ok": true,
+   "ms": 64,
+   "clerk": "declared_bookkeeping",
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[1]",
+    "row": {
+     "alias": "effect:1",
+     "effect": {
+      "kind": "move",
+      "to": "corbitt-house-ground"
+     },
+     "description": {
+      "kind": "move",
+      "to": "corbitt-house-ground",
+      "display_name": "科比特宅",
+      "material": "ready",
+      "destination": {
+       "where": [
+        "corbitt house",
+        "old house",
+        "boarding house",
+        "Corbitt residence",
+        "house",
+        "domestic",
+        "investigation-site",
+        "indoor",
+        "entrance",
+        "threshold"
+       ],
+       "things": [
+        "Corbitt Diaries",
+        "Corbitt House Investigator Map"
+       ]
+      },
+      "authority": "available_route_not_player_choice"
+     }
+    },
+    "compile": {
+     "predicate": "move",
+     "features": {
+      "destination": "corbitt-house-ground",
+      "ask": null,
+      "act": "move"
+     },
+     "read_features": {
+      "destination": {
+       "row": "corbitt-house-ground",
+       "confidence": 0.75,
+       "cleared": true
+      }
+     }
+    }
+   }
+  }
+ ],
+ "misses": [
+  {
+   "turn": 14,
+   "lane": "route",
+   "purpose": "route",
+   "run": "run-01a0d355-ce14-7259-a233-1e65c0e7df9e",
+   "step": "run-01a0d355-ce14-7259-a233-1e65c0e7df9e:s12",
+   "status": "complete",
+   "ms": 665,
+   "offered": [
+    "resolve:core-check:ordinary-check"
+   ],
+   "selected": [],
+   "exit": "finish",
+   "reason": "low_confidence",
+   "answers": {
+    "need_1": {
+     "choice": "later",
+     "confidence": 0.25,
+     "probabilities": {
+      "later": 0.49,
+      "unknown": 0.02,
+      "now": 0.49
+     }
+    },
+    "exit": {
+     "choice": "finish",
+     "confidence": 0.17,
+     "probabilities": {
+      "continue": 0.24,
+      "ask_llm": 0.36,
+      "read_more": 0.02,
+      "finish": 0.38
+     }
+    }
+   },
+   "run_id": "3fab3f8f-acc1-42d0-86aa-06dba33d7bed"
+  }
+ ]
+}

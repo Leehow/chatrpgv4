@@ -102,18 +102,29 @@ for (const turn of turns) {
   // The model-origin tool rows, in message order, with whether each was taken (a clerk write is marked, and was).
   // SL-23: a call the live host refused for a preparation wait (a `blocked` row with `reason: preparation_wait`, paired by
   // tool in order) is marked, so a replay can put it to the gate again: the gate, not the kernel, is what refused it.
+  // SL-24: a refused call also records why the live host refused it, from the refusal's closed `details.reason` (a review
+  // that ran out of time is the host's failure, not the Keeper's choice, and a replay can put the same call to today's
+  // admission).
   const waitBlocks = telemetry.filter(row => row.turn === turn && row.code === 'blocked' && row.reason === 'preparation_wait' && !row.origin);
   const tools = calls.flatMap(call => call.tool_calls.map(toolCall => {
     if (toolCall.clerk_live) return {tool: toolCall.name, call_id: toolCall.id, ok: true, clerk_live: true};
     const ok = results.get(toolCall.id)?.isError !== true;
     const block = ok ? -1 : waitBlocks.findIndex(row => row.tool === toolCall.name);
-    return {tool: toolCall.name, call_id: toolCall.id, ok, ...(block >= 0 ? {blocked: waitBlocks.splice(block, 1)[0].reason} : {})};
+    const reason = ok ? undefined : results.get(toolCall.id)?.result?.details?.coc_error?.details?.reason;
+    return {tool: toolCall.name, call_id: toolCall.id, ok, ...(block >= 0 ? {blocked: waitBlocks.splice(block, 1)[0].reason} : {}),
+      ...(reason ? {host_refusal: reason} : {})};
   }));
   const admissions = telemetry.filter(row => row.lane === 'admission' && row.turn === turn).map(row => ({verb: row.verb, verdict: row.verdict ?? null, ms: row.ms ?? null, origin: row.origin ?? 'model'}));
   // The live rows: what the live kernel took (a refused call is no row), in the shape `matchBaseline` compares.
   const actions = [];
   for (const call of calls) for (const tool of call.tool_calls) {
-    if (!tool.clerk_live && results.get(tool.id)?.isError === true) continue;
+    const refused = results.get(tool.id)?.isError === true;
+    const timedOut = refused && results.get(tool.id)?.result?.details?.coc_error?.details?.reason === 'review_timeout';
+    if (!tool.clerk_live && refused && !timedOut) continue;
+    // SL-24: a call the live host refused only because its review ran out of time is an expected row, marked, so a replay
+    // shows whether today's admission lands it.
+    if (timedOut && tool.name === 'apply') { for (const effect of tool.arguments.effects ?? []) actions.push({verb: 'apply', kind: effect.kind,
+      target: effect.to ?? effect.who ?? effect.clue ?? effect.name ?? null, live_refused: 'review_timeout'}); continue; }
     if (tool.name === 'apply') for (const effect of tool.arguments.effects ?? []) actions.push({verb: 'apply', kind: effect.kind, target: effect.to ?? effect.who ?? effect.clue ?? effect.name ?? null,
       ...(tool.clerk_live ? {clerk_live: true} : {}), ...(effect.minutes ?? effect.travel_minutes ? {minutes: effect.minutes ?? effect.travel_minutes} : {})});
     else if (tool.name === 'resolve') { const action = tool.arguments.action ?? {}; actions.push({verb: 'resolve', ...(action.decision ? {decision: action.decision} : {}),

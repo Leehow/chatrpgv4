@@ -1,0 +1,201 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate-haunting-0624-20260924T102454Z/events.jsonl",
+  "record": ".coc/repos/longgate-haunting-0624.git b62d3d0:turns/0014.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我下楼回厨房，撬开那个锁着的储物柜。",
+ "llm_calls": 3,
+ "llm_ms_total": 38608,
+ "calls": [
+  {
+   "at": "2026-09-24T10:38:10.325Z",
+   "provider_ms": 12386,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 14850,
+    "output": 1252,
+    "cache_read": 32768
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "move",
+        "to": "corbitt-house-ground"
+       }
+      ]
+     },
+     "id": "clerk-live:t14-c1",
+     "clerk_live": true
+    },
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "investigate",
+       "goal": "撬开厨房里钉死的储物柜，看清里面的旧书",
+       "method": "伤者用手和身体的力量把外面钉住的木板撬开",
+       "skill": "STR",
+       "stakes": "木板撬不开，伤势让他把背上的劲再用完",
+       "modifiers": {
+        "penalty_dice": 1,
+        "reason": "主伤未缛，人刚从楼上摔下来，背和肩使不上劲"
+       }
+      }
+     },
+     "id": "call-d252861b-ee2c-446a-8682-7d59aceb4452-0|fc_549f1572-3e97-90a1-905a-c642485e5821_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:38:29.228Z",
+   "provider_ms": 14603,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 16031,
+    "output": 1232,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "clue",
+        "clue": "corbitt-diaries",
+        "how": "撬开钉死的橱柜，翻开署名 W. Corbitt 的三本旧日记",
+        "label": "科比特的日记"
+       },
+       {
+        "kind": "time",
+        "minutes": 10,
+        "why": "从宅前回到厨房，撬开钉死的橱柜"
+       },
+       {
+        "kind": "threat",
+        "name": "corbitt-haunting",
+        "clock": "corbitt-awareness",
+        "segments": 1,
+        "why": "撬木板的响声惊动了宅子里的东西"
+       }
+      ]
+     },
+     "id": "call-5466c430-3514-4a14-9dfd-aba1308d8d7a-1|fc_182b5b61-7c86-9870-a3c4-eec7ac851aad_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T10:38:56.684Z",
+   "provider_ms": 11619,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 17559,
+    "output": 936,
+    "cache_read": 33152
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "apply",
+   "call_id": "clerk-live:t14-c1",
+   "ok": true,
+   "clerk_live": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-d252861b-ee2c-446a-8682-7d59aceb4452-0|fc_549f1572-3e97-90a1-905a-c642485e5821_0",
+   "ok": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-5466c430-3514-4a14-9dfd-aba1308d8d7a-1|fc_182b5b61-7c86-9870-a3c4-eec7ac851aad_0",
+   "ok": false,
+   "host_refusal": "review_timeout"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 0,
+   "origin": "policy"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "entailed",
+   "ms": 4536,
+   "origin": "model"
+  },
+  {
+   "verb": "apply",
+   "verdict": "review_timeout",
+   "ms": 12734,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "apply",
+   "kind": "move",
+   "target": "corbitt-house-ground",
+   "clerk_live": true
+  },
+  {
+   "verb": "resolve",
+   "skill": "STR",
+   "target": null,
+   "intent": "investigate",
+   "modifiers": {
+    "penalty_dice": 1,
+    "reason": "主伤未缛，人刚从楼上摔下来，背和肩使不上劲"
+   }
+  },
+  {
+   "verb": "apply",
+   "kind": "clue",
+   "target": "corbitt-diaries",
+   "live_refused": "review_timeout"
+  },
+  {
+   "verb": "apply",
+   "kind": "time",
+   "target": null,
+   "live_refused": "review_timeout"
+  },
+  {
+   "verb": "apply",
+   "kind": "threat",
+   "target": "corbitt-haunting",
+   "live_refused": "review_timeout"
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "move:corbitt-house-ground-t14-c1",
+   "kind": "move",
+   "to": "corbitt-house-ground"
+  },
+  {
+   "id": "roll:str-t14-c2",
+   "kind": "roll",
+   "decision": null,
+   "skill": "STR",
+   "npc": null,
+   "level": "regular"
+  }
+ ]
+}

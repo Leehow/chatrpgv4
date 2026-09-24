@@ -54,6 +54,8 @@ import {
 	type AdmissionDestination,
 	type AdmissionVerdict,
 	ADMITTING_VERDICTS,
+	type AdmissionOutcome,
+	admissionPending,
 	admissionRefusal,
 	admissionRequest,
 	admissionTimedOut,
@@ -61,10 +63,18 @@ import {
 	compileAdmission,
 	type ClerkEvidence,
 	keyDigest,
+	lateAdmission,
+	NO_GROUNDS,
+	REVIEW_PENDING,
 	REVIEW_TIMEOUT,
+	type TypedReading,
+	typedDetails,
 	registeredDestination,
 	reviewAdmissionPrimary,
 } from "./admission.ts";
+
+/** One review returned pending (§32.12.2): the lane still running, if it is, and the typed reading the Keeper was shown. */
+interface AdmissionPendingEntry { lane?: Promise<AdmissionOutcome>; typed?: TypedReading; capMs: number; hardCapMs: number; collected: boolean }
 
 type TurnState = "awaiting_player" | "open" | "acting" | "asked" | "committed";
 
@@ -483,6 +493,11 @@ interface TableState {
 	recent: Array<{ turn: number | string; player?: string | null; keeper: string }>;
 	/** Verdicts by proposal key (contract §32.4): valid for this turn only, cleared with the next player input. */
 	admission: Map<string, AdmissionVerdict>;
+	/**
+	 * §32.12.2: reviews that passed the cap and were returned to the Keeper `review_pending`, by proposal key; the lane
+	 * round keeps running (to the hard cap) so the Keeper's one resend collects it. Cleared with the next player input.
+	 */
+	admissionPending: Map<string, AdmissionPendingEntry>;
 	admissionRefused: string[];
 	/** §102: exact authored encounter destinations raised by a combat-start refusal in this turn. */
 	combatSceneMoves: Set<string>;
@@ -1387,6 +1402,7 @@ export default function (pi: ExtensionAPI) {
 		table.playerText = asString(open.pending_turn?.player_text);
 		table.interruptedPlayerText = undefined;
 		table.admission = new Map();
+		table.admissionPending = new Map();
 		table.admissionRefused = [];
 		table.combatSceneMoves.clear();
 		// A cold recovered turn still owes the consequences already written by
@@ -2027,11 +2043,13 @@ export default function (pi: ExtensionAPI) {
 			// where a player asked in plain words for the keys and the address he had just been
 			// promised and the batch was refused whole. The grounds and the proposed effects are
 			// what decide between those two readings, so a refusal now carries them.
+			// §32.12.2 (SL-24): an admitting row carries them too. Until then an admitted `not_player_action` row had no
+			// `grounds` column at all, and the long gate's triage read four admissions as refusals "with no grounds".
 			// §32.10: which reviewer decided, and the typed route's own cost, so tables can be compared.
 			await record({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}),
 				...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}), path: verdict.path ?? "lane",
 				...(timedOut ? { timed_out: true, cap_ms: verdict.capMs ?? null } : {}), ...meta, ...origin, ...who,
-				...(admitted ? {} : { grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), proposed: proposal.lines }) });
+				grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), proposed: proposal.lines });
 			if (admitted) return;
 			// §32.12: a review cut at its cap judged nothing a rewording could repeat, so the reviewer is not told it refused.
 			if (timedOut) throw admissionTimedOut(proposal, verdict.capMs ?? 0, ms);
@@ -2069,11 +2087,59 @@ export default function (pi: ExtensionAPI) {
 			landed: state.landed,
 			refused: state.admissionRefused,
 		};
-		const outcome = await reviewAdmissionPrimary({ campaign: state.campaign, ctx, proposal, context, providerBudget,
+		const review = () => reviewAdmissionPrimary({ campaign: state.campaign, ctx, proposal, context, providerBudget,
 			record: (row) => record({ verb: tool, ...row, ...origin }), ...(signal ? { signal } : {}) });
+		// §32.12.2: what the lane of a review this call no longer waits for answered in the end, for the record only. A late
+		// lane refusal after a late admission changes nothing that landed; it is what the late admission is measured by.
+		const watchLate = (lane: Promise<AdmissionOutcome> | undefined, answered: string, entry?: AdmissionPendingEntry) => {
+			void lane?.then(async (value) => {
+				if (entry?.collected) return;
+				await record({ lane: "admission-late", verb: tool, key: digest, answered, ms: value.ms, ...(value.model ? { model: value.model } : {}),
+					...(value.ok === true ? { verdict: value.verdict.verdict, grounds: value.verdict.grounds.slice(0, 200) } : value.ok === false ? { reason: value.reason } : {}),
+					...origin, ...who });
+			}, () => {});
+		};
+		// §32.12.2: the Keeper's one resend of a call returned pending collects the review it left running (or, when the lane
+		// had answered without grounds, runs it once more). Whatever it does not produce by the hard cap is `review_timeout`.
+		const pending = state.admissionPending.get(proposal.key);
+		if (pending) {
+			state.admissionPending.delete(proposal.key);
+			pending.collected = true;
+		}
+		const began = Date.now();
+		const outcome = pending?.lane ? await pending.lane : await review();
+		const resent = pending ? { resend: true, resend_wait_ms: Date.now() - began, lane_ms: outcome.ms } : {};
+		const noVerdict = outcome.ok === "late" || outcome.ok === false && outcome.reason === NO_GROUNDS
+			|| outcome.ok === true && outcome.verdict.verdict === REVIEW_TIMEOUT;
+		if (pending && noVerdict) {
+			if (outcome.ok === "late") watchLate(outcome.lane, REVIEW_TIMEOUT);
+			return settle({ verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${pending.hardCapMs} ms hard cap`, reviewer: "lane", path: "lane", capMs: pending.hardCapMs },
+				false, Date.now() - began, outcome.ok === "late" ? undefined : outcome.model,
+				{ ...(outcome.ok === "late" ? {} : outcome.meta ?? {}), ...resent, ...(outcome.ok === false ? { lane_no_grounds: true } : {}), ...refusedCompile });
+		}
+		if (outcome.ok === "late") {
+			// §32.12.2: the cap passed with nothing sufficient. A bookkeeping-only batch the typed reviewer admitted at the late
+			// threshold lands on it; anything else goes back to the Keeper pending, the lane still running for its one resend.
+			const late = lateAdmission(proposal, outcome.typed);
+			const meta = { ...outcome.meta, ...refusedCompile, late_rule: late.ok ? "typed_late" : late.reason,
+				...(late.ok ? { late_min_confidence: late.minConfidence, confidence: outcome.typed?.confidence ?? null } : {}) };
+			if (late.ok) {
+				watchLate(outcome.lane, "typed_late");
+				return settle(late.verdict, false, outcome.ms, undefined, { ...meta, path: "typed_late" });
+			}
+			const entry: AdmissionPendingEntry = { ...(outcome.lane ? { lane: outcome.lane } : {}), ...(outcome.typed ? { typed: outcome.typed } : {}),
+				capMs: outcome.capMs, hardCapMs: outcome.hardCapMs, collected: false };
+			state.admissionPending.set(proposal.key, entry);
+			watchLate(outcome.lane, REVIEW_PENDING, entry);
+			const waitMs = outcome.lane ? Math.max(0, outcome.hardCapMs - outcome.ms) : outcome.hardCapMs;
+			await record({ lane: "admission", verb: tool, ok: true, verdict: REVIEW_PENDING, admitted: false, reused: false, ms: outcome.ms, key: digest,
+				reviewer: "lane", ...meta, path: "lane", cause: outcome.cause, wait_ms: waitMs, typed: outcome.typed ? typedDetails(outcome.typed) : null,
+				proposed: proposal.lines, ...origin, ...who });
+			throw admissionPending(proposal, outcome.capMs, outcome.ms, waitMs, outcome.typed);
+		}
 		if (!outcome.ok) {
 			await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}),
-				...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), path: "lane", ...outcome.meta, ...refusedCompile, ...origin, ...who });
+				...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), path: "lane", ...outcome.meta, ...resent, ...refusedCompile, ...origin, ...who });
 			state.admissionOutage += 1;
 			const streak = state.admissionOutage;
 			if (streak >= 2 && !state.admissionOutageNotified) {
@@ -2099,12 +2165,12 @@ export default function (pi: ExtensionAPI) {
 			throw admissionUnavailable(proposal, outcome.reason, outcome.detail, streak);
 		}
 		// A live verdict, admitting or refusing, proves the review is back: the outage streak ends. A review cut at its cap
-		// (§32.12) is neither: it does not count toward the streak and does not end it.
+		// (§32.12), a late admission and a pending return (§32.12.2) are none of these: they neither count nor reset it.
 		if (outcome.verdict.verdict !== REVIEW_TIMEOUT) {
 			state.admissionOutage = 0;
 			state.admissionOutageNotified = false;
 		}
-		await settle(outcome.verdict, false, outcome.ms, outcome.model, { ...outcome.meta, ...refusedCompile });
+		await settle(outcome.verdict, false, pending ? Date.now() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile });
 	}
 
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
@@ -3627,6 +3693,7 @@ export default function (pi: ExtensionAPI) {
 				delivered: [],
 				recent: [],
 				admission: new Map(),
+				admissionPending: new Map(),
 				admissionRefused: [],
 				combatSceneMoves: new Set(),
 				admissionOutage: 0,
@@ -4044,6 +4111,7 @@ export default function (pi: ExtensionAPI) {
 			// §71: a hold belongs to the turn that was running when it arrived and never outlives it.
 			state.resend = undefined;
 			state.admission = new Map();
+			state.admissionPending = new Map();
 			state.admissionRefused = [];
 			state.combatSceneMoves.clear();
 			state.landed = [];
