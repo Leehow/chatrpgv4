@@ -55,3 +55,29 @@ Contract: docs/kernel-rpc.md §32.12 (amends §32.2, §32.4, §32.7, §32.10, §
 - Suites (leehow-pc): `test:ext`, the loop suites; pytest only if something the kernel reads changed.
 
 ## Comments
+
+### 2026-09-24 — replay pre-registration (before any scored run)
+
+**Reading of ruling 2 that the code implements (§32.12 (3)).** "Every feature the predicate read" is the families the
+predicate turns on or guards with -- `obligation_check`: `ask`, `addressee`, `act` -- whenever the compile asked them,
+cleared or not. The ruling's own refusal clause ("refused if any feature the predicate read was below the gate") only has
+content under this reading: `interpretCompile` puts only cleared rows in `basis.compile.features`, and the obligation
+check's addressee and act guards let it fire when they do not clear, so a guard under the gate is the one case where a
+selection exists with a read feature below the gate. It is also the declaration live gate #4's admission refused ("said
+nothing about Arty Wilmot"). "Cleared at the gate" is §135.2's gate, the margin rule included, so gate #6's addressee at
+0.55 (0.66 against 0.32) clears and that check is admitted by the compile.
+
+**Instrument.** `node experiments/single-loop-routing/run.mjs --fixture gate3-t2 --runs 3 --llm replay --seed 1 --out
+experiments/single-loop-routing/results/sl18-gate3-t2` on this branch: product driver, replayed gate #3 Keeper, live Jev,
+prescreen on (default), `--admission lane` (default), the recorded live verdicts for any lane review. The summary rows now
+carry `predicate`, `features`, `binding_paths`, `compile_refused`, `first_byte_ms`, `timed_out`.
+
+**Registered acceptance (the lead's):** in 3/3 runs the clerk's `resolve:obligation:globe-clippings-access` admission row
+is `path: "compile"`, with no lane request for it.
+
+**Registered prediction (mine), from SL-13's replays of the same fixture** (`results/sl13b-gate3-t2-prescreen-on`: the
+compile's addressee on Arty cleared 3/5, at 0.54 / 0.59 / 0.54 by the margin rule, and did not clear 2/5, at 0.48 / 0.47;
+`ask` 0.77–0.83 and `act` social 0.95–0.97 cleared 5/5): a run whose addressee clears is `path: "compile"`; a run whose
+addressee does not clear is `path: "lane"` with `compile_refused: "feature_not_cleared:addressee"`. At SL-13's rate the
+lead's 3/3 holds with probability about 0.2. If a run misses, it is the §32.12 (3) rule doing what it says, not a defect;
+whether a guard that did not clear should be read at all is the owner's call.
