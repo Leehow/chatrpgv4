@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 Stage: SL-18 (after live gate #6; amends SL-10's admission work)
 Spec: docs/specs/pi-native-single-loop.md (Rulings: "A turn is under 60 seconds", "Parameters-only steps never go to the LLM", "Routing asks what the player does, never whether a candidate is due")
 Contract: docs/kernel-rpc.md §32.12 (amends §32.2, §32.4, §32.7, §32.10, §32.11 and §135.30's `basis.compile`)
@@ -81,3 +81,109 @@ compile's addressee on Arty cleared 3/5, at 0.54 / 0.59 / 0.54 by the margin rul
 addressee does not clear is `path: "lane"` with `compile_refused: "feature_not_cleared:addressee"`. At SL-13's rate the
 lead's 3/3 holds with probability about 0.2. If a run misses, it is the §32.12 (3) rule doing what it says, not a defect;
 whether a guard that did not clear should be read at all is the owner's call.
+
+### 2026-09-24 — implemented (branch `claude/sl18-20260924`, base `3d10e7cdf`)
+
+**Commits.** `3a101222d` contract (§32.12, the §32.2/§32.7 addenda, §135.30's `basis.compile` line), this ticket, the SL-10
+addendum, the manifest; `6a74ab21a` implementation and tests; `ee76854f4` replay instrument fields and the
+pre-registration above; `210969243` the streak test and bounded timeout tests; the commit carrying this comment.
+
+**Where each piece lives.**
+
+- The cap: `DEFAULT_ADMISSION_TIMEOUT_MS = 12_000` in `extensions/kernel/admission.ts`. `runLane`'s deadline already raced
+  the whole completion, so a trickling stream is cut the same way as a stalled one. The lane result now carries
+  `firstByteMs` (`extensions/lanes/subsession.ts`, stamped in `onResponse`). `reviewAdmission` maps a lane `timeout` to the
+  host verdict `review_timeout`, with `timed_out`, `cap_ms` and `first_byte_ms` in its meta. `admissionTimedOut` builds the
+  Keeper's refusal (`details.reason: "review_timeout"`).
+- `admitAction` (`extensions/kernel/index.ts`):
+  - a timeout is kept for the turn, so the identical proposal is refused at once;
+  - it is left off the reviewer's "already refused" list;
+  - it neither counts toward nor resets the outage streak;
+  - every row carries `origin` (`policy` | `model` | `host`), `path` (`compile` | `typed` | `lane` | `none`) and `ms`;
+  - a reused row carries the path it reuses.
+- The compile's evidence: `compileAdmission` (pure) in `admission.ts`, called in `admitAction` after reuse and before any
+  review. It reads the dispatcher frame's host origin (`evidence` built beside `origin` in the tool's execute), never
+  the tool arguments. A compile admission is not kept in the verdict map. A refused exemption leaves
+  `compile_refused` on the review's row.
+- `COMPILE_PREDICATES[*].features` and `basis.compile.read_features` live in `runtime/jev/route-compile.ts`.
+- The bind records are computed before the dispatch. `admissionBindings` in `runtime/jev/hybrid-engine.ts` puts them on
+  the host origin as `bindings`. The origin type is in `extensions/kernel/canonical-operation-dispatcher.ts`. The
+  `event: "bind"` row records the same list, computed once.
+
+**Tests** (`tests/extension/admission-within-turn.test.mjs`, 13 tests).
+
+- The cap's default and override.
+- (a) A real socket answers 200, then trickles one character every 150 ms. The review ends `review_timeout` at
+  12.47 s on the Mac, within 12–13 s. The row shows `first_byte_ms` < 2 s. The kernel is never called, the Keeper
+  reads `review_timeout`, and the run delivers.
+- Two timeouts and a resend: no notice, and the resend is reused with no new request.
+- Unavailable, then timeout, then unavailable: still escalates, with streak 2.
+- `compileAdmission` pure, covering every refusal reason and the gate #6 evidence. `admissionBindings` pure.
+  `read_features` from `interpretCompile` with a guard under the gate.
+- Emitted kernel plus hybrid engine:
+  - (b) The obligation check is admitted with `path: "compile"`. Zero lane requests and zero typed requests, with
+    `PI_COC_ADMISSION_REVIEWER=jev`.
+  - (c) The addressee at 0.47 against `unclear` at 0.45 does not clear, so the check goes to the lane with
+    `compile_refused: feature_not_cleared:addressee`.
+  - (d) The Keeper's resolve in the same turn goes to the lane, with `origin: model`.
+  - A clerk move selected by the compile makes no fast-path typed call. The same move selected by the route
+    (`compile: false`) goes to the lane.
+
+`single-loop-compile.test.mjs` pins `read_features` and the origin's `bindings`.
+
+**Mutations** (scratch worktree at HEAD; each applied, then `admission-within-turn` and `single-loop-compile` run, then the
+file restored from a saved copy). All 13 were killed.
+
+| mutation | file | failing tests |
+| --- | --- | --- |
+| M1 cap removed (the lane round gets no deadline) | `admission.ts` | 2 |
+| M2 default cap back to 120 s | `admission.ts` | 2 |
+| M3 exemption applied without `basis.compile` | `admission.ts` | 3 |
+| M4 exemption applied with an unrecorded parameter path | `admission.ts` | 1 |
+| M5 a read feature under the gate ignored | `admission.ts` | 2 |
+| M6 a path outside the four accepted | `admission.ts` | 1 |
+| M7 origin not checked | `admission.ts` | 1 |
+| M8 `read_features` not recorded | `route-compile.ts` | 8 |
+| M9 `read_features` only for cleared families | `route-compile.ts` | 2 |
+| M10 unrecorded bind-step parameters not listed | `hybrid-engine.ts` | 1 |
+| M11 a timeout is an outage again | `admission.ts` | 3 |
+| M12 a timeout resets the outage streak | `index.ts` | 1 (after the streak test; it survived the first loop) |
+| M13 bindings not handed to admission | `hybrid-engine.ts` | 5 |
+
+**Replay** (`results/sl18-gate3-t2`, as registered: seed 1, live Jev, prescreen on, lane admission replayed).
+
+| run | compile addressee (Arty) | ask | act | clerk check admission row |
+| --- | --- | --- | --- | --- |
+| 1 | 0.56, cleared (margin) | 0.81 | social 0.96 | **`path: compile`**, `reviewer: compile`, 1 ms, `obligation_check` |
+| 2 | 0.33, **not cleared** | 0.73 | social 0.95 | `path: lane`, `compile_refused: feature_not_cleared:addressee` |
+| 3 | 0.47, **not cleared** | 0.84 | social 0.97 | `path: lane`, `compile_refused: feature_not_cleared:addressee` |
+
+All 3 runs selected the check by the compile and delivered, with 1 LLM step (as SL-13).
+
+**The lead's acceptance (3/3 compile) is missed: 1/3.** The prediction (compile exactly when the addressee clears) holds
+3/3. Across SL-13's five runs and these three, the addressee on this fixture cleared 4 of 8 times.
+
+**The owner's decision.** Should a guard that did not clear count as "a feature the predicate read"?
+
+- **Yes** (this branch). The refusal clause of ruling 2 has content, and a check selected on the demand alone, with the
+  addressee unread, keeps its lane review. That is live gate #4's refused case. The cost is the review on about half of
+  these turns.
+- **No.** "Read" means only the cleared rows the predicate fired on (`basis.compile.features`). Then gate3-t2 is
+  `compile` in 3/3 (the ask and the act clear in every run), but the refusal clause never fires for a real selection.
+  The change is one line in `compileAdmission`: check only the families present in `basis.compile.features`.
+
+**Suites** (leehow-pc):
+
+- `test:ext` 2867/2867 at `210969243`. It was 2866/2866 at `6a74ab21a`; the one new test is the streak test.
+- Loop suites 110/110 at `210969243`.
+- pytest not run: nothing the kernel reads changed (`kernel-ts/`, `content/`, `prompts/`, `tests/kernel`, `tests/play`
+  untouched).
+
+**Not verified or not done.**
+
+- No live table.
+- `kpi.py` does not yet group admission rows by `path` or `origin`, or count `review_timeout`.
+- The Keeper prompt is unchanged: the refusal's `fix` carries the instruction.
+- Whether 12 s is enough for the table's reviewer: gate #6's lane (deepseek-v4.1-flash) answered 2.5–7.7 s on the clerk's
+  writes and 57 s on one Keeper resolve. A slower reviewer (grok-4.6, 32 s p50 in SL-10's bank) would time out on most
+  reviews, and every timeout refuses.
