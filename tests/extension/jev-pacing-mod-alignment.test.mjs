@@ -11,7 +11,7 @@ const ROOT=resolve(import.meta.dirname,"../..");
 const PACKAGES={
 	"keeper-pacing":{version:"1.3.0",state_version:1,requires:["context.pacing.v1","mods.package-files.v1"],settings:{stall_turns:2},
 		settings_schema:{stall_turns:{minimum:1,maximum:6}}},
-	"narration-craft":{version:"1.5.0",state_version:1,requires:["mods.package-files.v1","context.craft-reference.v1"],settings:{density_guide:"off",reference_mode:"off"},
+	"narration-craft":{version:"1.6.0",state_version:1,requires:["mods.package-files.v1","context.craft-reference.v2"],settings:{density_guide:"off",reference_mode:"jev"},
 		settings_schema:{reference_mode:{enum:["off","jev"]},density_guide:{enum:["off","on"]}}},
 };
 

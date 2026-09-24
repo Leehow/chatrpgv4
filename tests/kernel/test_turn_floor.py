@@ -26,8 +26,11 @@ def test_style_carries_the_four_floor_lines_on_every_turn(kernel):
     assert all(line.split(":")[0] in {"uptake", "answer", "voice", "handoff"} for line in FLOOR_LINES)
     narrate(kernel, "t1-c1", "诺特抬起头。")
     second = kernel.table("player_input", text="我坐下。")["capsule"]
-    assert second["style"]["floor"] == FLOOR_LINES, "the brief turns keep the floor; only the directive list shrinks"
-    assert len(second["style"]["directives"]) <= 4 < len(first["style"]["directives"])
+    assert second["style"]["floor"] == FLOOR_LINES, "the brief turns keep the floor and the same directive identities"
+    lines = read_json(CONTENT_DIR / "craft" / "beat-directives.json")
+    assert len(second["style"]["directives"]) == len(first["style"]["directives"]) == 4
+    assert {row["id"]: row["line"] for row in first["style"]["directives"]} == lines["directive_lines"]
+    assert {row["id"]: row["line"] for row in second["style"]["directives"]} == lines["brief_directive_lines"]
     assert "director.offer" in second["head"] and "Director signals and offers remain advice" in second["head"]
 
 

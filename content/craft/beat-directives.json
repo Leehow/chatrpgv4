@@ -1,99 +1,99 @@
 {
   "contract_id": "coc.beat-directives.v1",
   "schema_version": 1,
-  "note": "Closed table maintained by the content team (contract §13.6, §16.1): which craft-directive nodes of content/craft/text-graph.json the capsule's `style.directives` carries for each Director beat (at most 4 per beat), plus one English line for each of the six style axes and the eleven directives (the keeper carries them into the player's language; `language_applicability` on the text-graph nodes stays data). Every id must exist in the text graph; the kernel validates this at load and never judges prose to pick a line. Three axes and six directives were retired on 2026-09-10 (contract §30.12); the first-turn full form sends every directive node in the graph, so retirement means removing the node, not just the pick. `floor_lines` (2026-09-11, docs/specs/turn-floor.md) are the four content kinds every turn owes, carried as `style.floor` on every turn regardless of beat; they are lines, not counts, and the kernel never judges prose against them.",
+  "note": "Closed table maintained by the content team (contract §13.6, §16.1, §30.7d): which craft-directive nodes of content/craft/text-graph.json the capsule's `style.directives` carries for each Director beat, plus one English line for each of the six style axes and the four directives (the keeper carries them into the player's language; `language_applicability` on the text-graph nodes stays data). Every id must exist in the text graph; the kernel validates this at load and never judges prose to pick a line. On 2026-09-24 (contract §30.7d) the eleven per-rewrite-lane directives were retired for four exchange-coherence directives, so every beat now carries the same four in one order: the unit of work is this exchange, and gesture, voice or detail are choices inside it, not per-beat obligations. `floor_lines` (2026-09-11, docs/specs/turn-floor.md) are the four content kinds every turn owes, carried as `style.floor` on every turn regardless of beat; they are lines, not counts, and the kernel never judges prose against them.",
   "beats": {
     "REVEAL": [
-      "observable-before-interpretation",
-      "skill-interpretation-after-visible-evidence",
-      "rewrite-ai-summary-voice",
-      "player-action-uptake"
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
     ],
     "PRESSURE": [
-      "player-action-uptake",
-      "observable-before-interpretation",
-      "rewrite-camera-direction-staging",
-      "final-prose-guard-before-output"
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
     ],
     "CHOICE": [
-      "rewrite-ai-summary-voice",
-      "observable-before-interpretation",
-      "player-action-uptake"
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
     ],
     "SUBSYSTEM": [
-      "player-action-uptake",
-      "rewrite-camera-direction-staging",
-      "final-prose-guard-before-output",
-      "observable-before-interpretation"
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
     ],
     "CHARACTER": [
-      "observable-before-interpretation",
-      "rewrite-abstract-psychological-explanation",
-      "rewrite-abstract-explanation-to-action",
-      "skill-interpretation-after-visible-evidence"
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
     ],
     "RECOVER": [
-      "repetition-policy",
-      "rewrite-ai-summary-voice",
-      "player-action-uptake",
-      "action-uptake-review"
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
     ],
     "CUT": [
-      "repetition-policy",
-      "rewrite-camera-direction-staging",
-      "rewrite-passive-translation-ese",
-      "player-action-uptake"
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
     ],
     "ADVANCE": [
-      "player-action-uptake",
-      "action-uptake-review",
-      "repetition-policy",
-      "observable-before-interpretation"
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
     ],
     "MONTAGE": [
-      "repetition-policy",
-      "rewrite-ai-summary-voice",
-      "rewrite-passive-translation-ese",
-      "player-action-uptake"
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
     ],
     "DEEPEN": [
-      "rewrite-abstract-psychological-explanation",
-      "skill-interpretation-after-visible-evidence",
-      "observable-before-interpretation",
-      "rewrite-abstract-explanation-to-action"
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
     ],
     "PAYOFF": [
-      "repetition-policy",
-      "skill-interpretation-after-visible-evidence",
-      "rewrite-ai-summary-voice",
-      "observable-before-interpretation"
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
     ]
   },
   "axis_lines": {
-    "style-axis:avoid-translationese": "write natural, complete sentences",
-    "style-axis:avoid-ai-summary-voice": "avoid summary voice",
-    "style-axis:avoid-log-style-summary": "avoid log-style summary",
-    "style-axis:avoid-semantic-repetition": "no stale repetition; an echo placed on purpose is not repetition",
-    "style-axis:avoid-abstract-psychological-explanation": "avoid abstract psychology",
-    "style-axis:prefer-observable-behavior": "observable behaviour over asserted inner states"
+    "style-axis:avoid-translationese": "write natural, complete sentences with clear speakers and relationships",
+    "style-axis:avoid-ai-summary-voice": "give the exchange its next meaningful response or settled consequence",
+    "style-axis:avoid-log-style-summary": "choose scene detail for what the player is doing and can perceive",
+    "style-axis:avoid-semantic-repetition": "let established NPC intentions and relationships shape their wording and register",
+    "style-axis:avoid-abstract-psychological-explanation": "vary focus and rhythm with the scene; plain answers, narration, dialogue and purposeful silence are all available",
+    "style-axis:prefer-observable-behavior": "preserve source truth, player agency and the actual settled outcome"
   },
   "directive_lines": {
-    "observable-before-interpretation": "visible behaviour first, interpretation after",
-    "player-action-uptake": "enact the declared action from the world's view",
-    "rewrite-abstract-explanation-to-action": "inner states become action, voice, posture, gaze, evidence",
-    "skill-interpretation-after-visible-evidence": "skill judgement after the visible evidence",
-    "final-prose-guard-before-output": "reread: complete natural sentences; context is facts, not phrasing",
-    "repetition-policy": "settled facts briefly, but as complete sentences; never fragments; enact this action",
-    "action-uptake-review": "check the draft enacts the action, not the player's phrasing",
-    "rewrite-ai-summary-voice": "information via scene detail or NPC speech, not report voice",
-    "rewrite-camera-direction-staging": "one natural sentence names the person and the focus",
-    "rewrite-passive-translation-ese": "active voice, clear subject, concrete action",
-    "rewrite-abstract-psychological-explanation": "visible behaviour first; explain after evidence or a skill result"
+    "exchange-response": "start from the world's uptake of the declaration; a necessary bridge is not a replay of the player's whole input",
+    "voice-with-purpose": "let each relevant speaker answer, ask, offer, evade or refuse from their established position; their words can carry the beat without a compulsory gesture",
+    "selective-detail": "make the relevant person, object or space intelligible; choose details that change perception or meaning rather than filling a sensory or atmosphere quota",
+    "clarity-and-completion": "carry the settled result to its actual endpoint; reread for clear agency, speaker transitions and natural play_language"
+  },
+  "brief_directive_lines": {
+    "exchange-response": "Answer the declaration through the world, not a replay.",
+    "voice-with-purpose": "Let established voices answer; gestures are optional.",
+    "selective-detail": "Choose relevant detail, not a sensory or atmosphere quota.",
+    "clarity-and-completion": "Complete the settled result; keep agency and speakers clear."
   },
   "floor_lines": [
-    "uptake: enact the player's declared action or words from the world's view; one word is still a declaration",
-    "answer: show settled outcomes; answer the chosen exchange or clarification; quiet play needs no new event; offers are advice",
-    "voice: anyone present the exchange touches speaks a line in their own voice",
-    "handoff: enough public context; return at a new unselected decision or completed goal; never repeat a chosen step or force a question; never a menu"
+    "uptake: make clear how the world receives the player's chosen action or words without requiring the whole declaration to be spoken or performed twice",
+    "answer: show the actual settled result and answer the selected exchange; quiet play needs no new event and an offer is not a debt",
+    "voice: use the touched person's own speech or meaningful silence; preserve who said what and who knows what",
+    "handoff: complete the selected goal or stop at a genuinely new unselected consequential decision, with enough public context to judge"
   ]
 }

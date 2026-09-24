@@ -159,7 +159,10 @@ function stateOf(capsule: Record<string, unknown>): Json {
   const where = capsule.where === undefined || capsule.where === null ? 'unknown' : capsule.where;
   const present = capsule.present === undefined || capsule.present === null ? [] : capsule.present;
   const recent = capsule.recent === undefined || capsule.recent === null ? [] : capsule.recent;
-  const state = {player_text: typeof player === 'string' ? player : 'unknown', where, present, recent};
+  const settled = capsule.craft_settled;
+  if (settled !== undefined && !Array.isArray(settled)) throw new CraftSelectorError('craft_selector_state');
+  const state = {player_text: typeof player === 'string' ? player : 'unknown', where, present, recent,
+    ...(settled === undefined ? {} : {settled_results: settled})};
   if (!isJson(state)) throw new CraftSelectorError('craft_selector_state');
   return state;
 }

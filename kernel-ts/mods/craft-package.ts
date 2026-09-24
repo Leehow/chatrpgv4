@@ -4,6 +4,7 @@ import {row, array, string, type Row} from '../read/values.js';
 import {CraftCatalog} from '../../runtime/craft/catalog.js';
 
 export const CRAFT_REFERENCE_CAPABILITY = 'context.craft-reference.v1';
+export const CRAFT_REFERENCE_V2_CAPABILITY = 'context.craft-reference.v2';
 const invalid = (message: string): never => {throw new RpcError('invalid_params', message);};
 const jsonFile = (files: ReadonlyMap<string, Uint8Array>, path: string): unknown => {
     const bytes = files.get(path);
@@ -30,9 +31,12 @@ export function craftDescriptor(manifest: Row, files: ReadonlyMap<string, Uint8A
 export function validateCraftContribution(manifest: Row, files: ReadonlyMap<string, Uint8Array>): void {
     const present = Object.hasOwn(row(manifest.contributes), 'craft_reference');
     if (!present) return;
-    if (!array(manifest.requires).includes(CRAFT_REFERENCE_CAPABILITY)) invalid('Craft references require context.craft-reference.v1');
-    if (row(manifest.settings).reference_mode !== 'off' || JSON.stringify(row(row(manifest.settings_schema).reference_mode).enum) !== '["off","jev"]')
-        invalid('Craft reference mode must default to off and declare off/jev');
+    const v2 = array(manifest.requires).includes(CRAFT_REFERENCE_V2_CAPABILITY);
+    if (!v2 && !array(manifest.requires).includes(CRAFT_REFERENCE_CAPABILITY)) invalid('Craft references require context.craft-reference.v1 or v2');
+    const mode = row(manifest.settings).reference_mode;
+    if (!['off', 'jev'].includes(mode) || JSON.stringify(row(row(manifest.settings_schema).reference_mode).enum) !== '["off","jev"]')
+        invalid('Craft reference mode must declare off/jev and use one of those defaults');
+    if (mode === 'jev' && !v2) invalid('Default-on craft references require context.craft-reference.v2');
     craftDescriptor(manifest, files);
 }
 export function craftReferenceProvider(active: Row[]): Row | undefined {

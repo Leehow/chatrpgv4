@@ -6028,6 +6028,18 @@ The single-loop run prepares craft at its first compose/adjudicate projection, a
 
 Selection is limited to one attempt per accepted input, at most 1500 ms and no later than the parent/run deadline. Shared remaining action/token/cost allowance is reserved before dispatch and settled against actual usage (or the conservative dispatched bound when unknown); zero-attempt refusals refund the reservation. Cancellation, epoch changes, stale reads and final request budgets remain governed by §30.7b. `reference_mode=off` does not read card material or call Jev. Missing/masked credentials or an unavailable port skip the optional layer, never the ordinary Keeper or required authorization checks.
 
+### 30.7d Host decision: useful default-on craft and an exchange-scoped editorial lifetime (2026-09-24)
+
+The product target is useful expression guidance enabled by default, not closing the work by leaving an unhelpful selector off. Narration Craft 1.6.0 defaults `reference_mode` to `jev`; explicit off and existing frozen campaign settings remain respected. It declares `context.craft-reference.v2`, which permits either declared off/jev default; the v1 package contract continues to require default off, so this is not silently advertised as an old-host-compatible default change. Missing credentials and optional failures still fall back without blocking play. Default-on never requires a card when NONE is the appropriate choice.
+
+Selection and retained advice have different lifetimes. Until a reference is first issued, the complete source/world/NPC/memory/Mod binding is checked exactly as in §30.7b. Once issued, it is an editorial method, not evidence that the original world snapshot is still true. Ordinary settlement, time, NPC-account or memory changes within the same input, scene and set of present people do not withdraw it just before composition. Its original selection binding remains provenance. Reuse still checks the same campaign, worldline, loop, turn, semantic source revision, provider and catalog, plus scene and present-person identities from the current capsule. The existing `task_source_revision` already binds source graph/generation, effective active Mod locks/order, craft data, register and language while excluding reader bookkeeping. It therefore protects configuration without treating mutable `world.mods.state` as a configuration change; `mod_revision` remains part of the strict first-adoption binding. Older packets without that semantic revision conservatively retain the full source and Mod revision checks. An input, scene, participant, source or package change, disabled contribution, failed read or cancellation still withdraws it; no second selection is granted. The Keeper applies a method only when useful to the current facts, never imports its example as a fact, and remains free to ignore it.
+
+A hybrid `adjudicate` step can itself deliver prose, so delaying all advice until a named `compose` step would omit that path. Both retain their existing single-owner preparation; current receipts already returned by the run's `table.status` read are included in the selection state when available, without new model calls. Present-person dossiers already include motives and knowledge and are preserved, not regenerated. Legacy selection may precede settlement; it does not claim to know an unsettled outcome, and ordinary same-exchange settlement no longer destroys issued advice.
+
+The six general axes apply to every play language. The full four-directive projection preserves the tested wording; subsequent brief projections use the same IDs with compact `brief_directive_lines`, leaving the existing 1536-byte brief style budget intact rather than silently trimming a directive. Old tables without that optional map retain their prior full-line fallback. If present, the map must contain one non-empty line for each current directive and no foreign IDs.
+
+Base craft instructions must agree with the positive Mod guidance: receive the player's contribution through a response, consequence or necessary bridge rather than requiring their entire spoken input to be performed again. Intended actions still require normal adjudication and receipts. Speaker transitions remain clear in prose as well as in speech metadata. Concrete action, narration, dialogue, a plain answer or meaningful silence serve the exchange; posture, gaze, active voice and atmosphere are choices, not per-turn obligations. No authority, disclosure, second-person, mechanics-JSON or player-choice guard is relaxed. Prompt changes are tested with fixed inputs and separate grounding/voice/flow judgements, not a length or literary refusal gate.
+
 ### 30.8 What is verified and what is not (2026-09-10, merged tree)
 
 §30.6 was measured before the merge with 0.9.2a's own Mod work. `merged-1` (The Haunting, zh-Hans, grok-4.6 low
@@ -16062,12 +16074,38 @@ is queued, the placement's `item` receipt is real (the instance exists), and the
 context lists says it is a placeholder. No review is widened or weakened.
 
 Tests: `tests/extension/apply-defer-any-batch.test.mjs` (a clue + cash + define + placement batch returns from
-`prepare` with its creator held, the placement resolves on a placeholder, the card is pending, the next resume
-replaces it in place and fills charges; a failed generation leaves the placement standing and a dropped
+`prepare` without a creator child, the placement resolves on a placeholder, the card is pending, the next resume
+replaces it in place with empty item parameters; a failed weapon generation leaves the placement standing and a dropped
 registration's card reads `none`; a usage batch in the same turn completes the placeholder first; an already
 accepted definition attaches in the call with no child and no placeholder),
 `tests/kernel/test_mods.py::test_a_placement_beside_a_queued_definition_stands_on_a_placeholder_until_the_resume_replaces_it`
 and `::test_a_usage_batch_can_take_the_registration_behind_a_placeholder_in_the_same_turn`.
+
+### 129.5 Item parameters land without a creator child (2026-09-24)
+
+An ordinary `item` definition is accepted beside the turn with no Mod child. `parameters` are
+`{charges: null, effects: []}`, `description` and `player_view.description` are the Keeper's
+request text, and `basis` is one English sentence. Traits stay empty. The placeholder rules in
+§129.4 are unchanged: the placement still stands immediately, and the next resume replaces the
+placeholder under the same id. What changed is that the resume no longer waits on a creator, so
+a player input that arrives while other work is in flight is not blocked on item parameters.
+
+A weapon whose name matches a rulebook profile, and whose row already satisfies the definition
+gate, is copied from that row. Every other weapon, every spell, and every attack usage is one
+tool-free JSON reply (`--no-tools`); the deterministic gate is unchanged, including one repair
+round. Spells and usage batches still wait, because their numbers are read in that same turn.
+
+Charges, effects, and a document are not part of that landing. After the empty definition is on
+the world, and only when the host runtime is present (`PI_COC_ITEM_ENRICH=off` disables it), a
+Jev `noul` pair asks whether the object has an automatic effect and whether it is a readable or
+writable carrier. A model runs only for a yes, and only for that payload. The result waits off
+the outstanding batch and is applied at the next resume: `define` with host-only `_supplement`
+(refused unless the item is still the empty stub; name, description, and basis do not change;
+instance `charges` fill only where they are still null; receipt `supplemented: true`) or an
+`object` document seed on the existing owner. A Jev miss does not block the item. A supplement
+that fails to land is dropped; the empty item remains.
+
+Tests: `tests/extension/item-fast.test.mjs`, `tests/extension/apply-defer-any-batch.test.mjs`.
 
 ## 130. The player reads first; the continuity review reads after (2026-09-22, amends §12.8, §36.14 and §91)
 

@@ -1,6 +1,6 @@
 {
   "id": "narration-craft",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
@@ -15,7 +15,7 @@
   "default_enabled": true,
   "requires": [
     "mods.package-files.v1",
-    "context.craft-reference.v1"
+    "context.craft-reference.v2"
   ],
   "package_files": [
     "agent.md",
@@ -28,7 +28,7 @@
   "conflicts": [],
   "settings": {
     "density_guide": "off",
-    "reference_mode": "off"
+    "reference_mode": "jev"
   },
   "settings_schema": {
     "reference_mode": {

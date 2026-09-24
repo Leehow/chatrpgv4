@@ -18,7 +18,8 @@ const provider = {mod: "narration-craft", version: "1.5.0", digest: "digest-1"};
 const identity = {provider, catalog_revision: "catalog-1", binding: {...binding, mod_revision: "mods-1"}};
 const candidate = {id: "CRAFT-EXC-01", title: "Title", purpose: "Purpose", useWhen: "Use", avoidWhen: "Avoid"};
 const indexBody = {status: "ready", ...identity, candidates: [candidate]};
-const capsuleFor = (mode = "jev") => ({mods: {craft_reference: {mode, provider: {mod: provider.mod, version: provider.version}}}});
+const capsuleFor = (mode = "jev") => ({where: {scene: "office"}, present: [{name: "Knott"}],
+	mods: {craft_reference: {mode, provider: {mod: provider.mod, version: provider.version}}}});
 const quoted = {role: "user", content: "I quote coc-craft-reference in ordinary speech."};
 const capsuleMessage = {role: "custom", customType: "coc-capsule", content: "ordinary capsule", display: false};
 const assistant = {role: "assistant", content: "ordinary keeper line"};
@@ -37,7 +38,7 @@ function harness(options = {}) {
 		if (options.failRpc) throw new Error("fixture rpc failed");
 		if (params.mode === "card") return {status: "ready", ...identity, card: options.card ?? card()};
 		if (params.expected && (stale || options.staleExpected)) return {status: "unavailable", reason: "stale_reference"};
-		return indexBody;
+		return stale ? {...indexBody, binding: {...identity.binding, source_revision: "published-source"}} : indexBody;
 	};
 	const selector = options.selector === null ? undefined : async input => {
 		selections.push(input);
@@ -185,6 +186,66 @@ test("an issued prefix stays put when the binding expires, and a result that was
 	const again = await unsent.project();
 	assert.equal(unsent.selections.length, 1);
 	assert.deepEqual(again.messages, [quoted, capsuleMessage, assistant]);
+});
+
+test("issued editorial advice survives ordinary settlement but not a changed exchange or provider", async () => {
+	const scenarios = [
+		["world settlement", index => {index.binding.world_revision = "settled";}, true],
+		["NPC account", index => {index.binding.npc_revision = "settled";}, true],
+		["memory update", index => {index.binding.memory_revision = "settled";}, true],
+		["source", index => {index.binding.source_revision = "published";}, false],
+		["Mod configuration", index => {index.binding.mod_revision = "changed";}, false],
+		["provider", index => {index.provider.digest = "changed";}, false],
+		["catalog", index => {index.catalog_revision = "changed";}, false],
+		["worldline", index => {index.binding.worldline = "other";}, false],
+		["scene", (_index, capsule) => {capsule.where.scene = "street";}, false],
+		["people", (_index, capsule) => {capsule.present.push({name: "Visitor"});}, false],
+		["disabled", (_index, capsule) => {capsule.mods.craft_reference.mode = "off";}, false],
+	];
+	for (const [label, change, active] of scenarios) {
+		const index = structuredClone(indexBody), capsule = capsuleFor();
+		let selections = 0;
+		const rpc = async (_method, params) => {
+			if (params.expected && JSON.stringify(params.expected) !== JSON.stringify({provider: index.provider, catalog_revision: index.catalog_revision, binding: index.binding}))
+				return {status: "unavailable", reason: "stale_reference"};
+			return params.mode === "card" ? {...index, card: card()} : structuredClone(index);
+		};
+		const runtime = new CraftReferenceRuntime(async () => {selections++; return candidate.id;}, () => {});
+		const project = messages => runtime.project({epoch: "same-input", campaign: "camp", capsule, binding: index.binding,
+			messages, budget: 200_000, rpc, signal: new AbortController().signal});
+		const first = await project(baseline);
+		assert.equal(first.active, true, label);
+		change(index, capsule);
+		const next = await project([...first.messages, {role: "toolResult", content: "Current settled facts"}]);
+		assert.equal(next.active, active, label);
+		assert.equal(withdrawals(next.messages).length, active ? 0 : 1, label);
+		assert.equal(selections, 1, label);
+		assert.equal(craftMessages(next.messages)[0].content, craftMessages(first.messages)[0].content, label);
+		assert.ok(next.messages.some(message => message.content === "Current settled facts"), label);
+	}
+});
+
+test("cancelling issued advice never reactivates it under a fresh signal in the same epoch", async () => {
+	for (const phase of ["entry", "revalidation"]) {
+		let controller = new AbortController(), abortRead = false, selections = 0;
+		const rpc = async (_method, params) => {
+			if (abortRead) controller.abort();
+			return params.mode === "card" ? {...indexBody, card: card()} : indexBody;
+		};
+		const runtime = new CraftReferenceRuntime(async () => {selections++; return candidate.id;}, () => {});
+		const project = messages => runtime.project({epoch: "cancelled-input", campaign: "camp", capsule: capsuleFor(), binding,
+			messages, budget: 200_000, rpc, signal: controller.signal});
+		const first = await project(baseline);
+		assert.equal(first.active, true);
+		if (phase === "entry") controller.abort();
+		else abortRead = true;
+		assert.notEqual((await project(first.messages)).active, true);
+		controller = new AbortController(); abortRead = false;
+		const later = await project(first.messages);
+		assert.equal(later.active, false, phase);
+		assert.equal(withdrawals(later.messages).length, 1, phase);
+		assert.equal(selections, 1, phase);
+	}
 });
 
 test("the actual request slack keeps a method when its example cannot fit", async () => {

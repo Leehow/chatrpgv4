@@ -6,12 +6,25 @@ export const CRAFT_REFERENCE_TYPE = 'coc-craft-reference';
 export const CRAFT_INVALIDATION_TYPE = 'coc-craft-reference-invalidated';
 export type CraftRpc = (method: string, params: Row) => Promise<unknown>;
 export type CraftSelector = (input: {index: Row; capsule: Row; signal: AbortSignal; epoch: string; deadlineAt: number}) => Promise<string | null>;
-export interface CraftPacket {identity: Row; cardId: string; message: Row; bytes: number;
+export interface CraftPacket {identity: Row; exchange?: string; cardId: string; message: Row; bytes: number;
     withoutExample?: {message: Row; bytes: number}}
 export type CraftPreparation = {status: 'ready'; packet: CraftPacket} | {status: 'omitted'; reason: string};
 export const craftMode = (capsule: Row): boolean => object(object(capsule.mods).craft_reference).mode === 'jev';
 const identityOf = (value: Row): Row => ({provider: value.provider, catalog_revision: value.catalog_revision, binding: value.binding});
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const exchangeOf = (capsule: Row): string | undefined => {
+    const scene = object(capsule.where).scene, people = capsule.present;
+    if (typeof scene !== 'string' || !scene || !Array.isArray(people)
+        || people.some(value => typeof object(value).name !== 'string' || !object(value).name)) return undefined;
+    return digest({scene, people: [...new Set(people.map(value => object(value).name))].sort()});
+};
+const retainedIdentity = (value: Row): Row => {
+    const binding = object(value.binding), semantic = typeof binding.task_source_revision === 'string' && binding.task_source_revision;
+    return {provider: value.provider, catalog_revision: value.catalog_revision,
+        binding: {...Object.fromEntries(['campaign', 'worldline', 'loop', 'turn'].map(key => [key, binding[key]])),
+            source_revision: semantic || binding.source_revision,
+            ...(semantic ? {} : {mod_revision: binding.mod_revision})}};
+};
 
 export async function prepareCraftReference(input: {rpc: CraftRpc; capsule: Row; binding: Row; campaign: string; epoch: string;
     signal: AbortSignal; selector?: CraftSelector; maxBytes?: number; deadlineAt: number}): Promise<CraftPreparation> {
@@ -47,7 +60,7 @@ export async function prepareCraftReference(input: {rpc: CraftRpc; capsule: Row;
         });
         const core = reference.exampleVariant ? renderCraftReference(result.card, String(result.catalog_revision),
             {maxBytes: 1800, includeExample: false}) : null;
-        return {status: 'ready', packet: {identity, cardId, bytes: reference.bytes, message: message(reference.text),
+        return {status: 'ready', packet: {identity, exchange: exchangeOf(input.capsule), cardId, bytes: reference.bytes, message: message(reference.text),
             ...(core ? {withoutExample: {message: message(core.text), bytes: core.bytes}} : {})}};
     } catch {
         return {status: 'omitted', reason: input.signal.aborted ? 'cancelled' : Date.now() >= input.deadlineAt ? 'deadline' : 'reference_unavailable'};
@@ -69,10 +82,17 @@ export async function prepareCraftWithinDeadline(input: Parameters<typeof prepar
     finally {signal.removeEventListener('abort', abort);}
 }
 
-/** Revalidation reads only; failure never re-enters selection or grants a new request budget. */
-export async function craftStillCurrent(packet: CraftPacket, rpc: CraftRpc, campaign: string, signal: AbortSignal): Promise<boolean> {
+/** First issue checks all evidence. Retained editorial advice is not an assertion of old world facts. */
+export async function craftStillCurrent(packet: CraftPacket, rpc: CraftRpc, campaign: string, signal: AbortSignal,
+    issuedCapsule?: Row): Promise<boolean> {
     if (signal.aborted) return false;
     try {
+        if (issuedCapsule && packet.exchange) {
+            if (exchangeOf(issuedCapsule) !== packet.exchange) return false;
+            const current = object(await rpc('mods.craft.read', {campaign, mode: 'index'}));
+            return !signal.aborted && current.status === 'ready'
+                && digest(retainedIdentity(current)) === digest(retainedIdentity(packet.identity));
+        }
         const current = object(await rpc('mods.craft.read', {campaign, mode: 'index', expected: packet.identity}));
         return !signal.aborted && current.status === 'ready' && digest(identityOf(current)) === digest(packet.identity);
     } catch {return false;}

@@ -86,6 +86,24 @@ test('no decision port means no selector', () => {
   assert.equal(createCraftSelector({allowance: allowance(), deadlineAt: Date.now() + 1000, signal: new AbortController().signal}), undefined);
 });
 
+test('existing settled receipts and NPC motives reach selection without inventing new facts', async () => {
+  const seen = [];
+  const port = observing(async (_url, init) => Response.json(envelope('NONE', JSON.parse(String(init.body)).questions.method.criteria)), seen);
+  const {parent, selector: select} = selector(port);
+  const receipts = [{kind: 'roll', passed: false, skill: 'Persuade'}];
+  const person = {name: 'Ada', wants: ['protect the archive'], knows: ['opening hours']};
+  const invoke = value => select({index: indexFor(), capsule: value, signal: new AbortController().signal,
+    epoch: 'settled-exchange', deadlineAt: Date.now() + 60_000});
+  try {
+    assert.equal(await invoke(capsule({present: [person], craft_settled: receipts})), null);
+    assert.deepEqual(seen[0].batch.state.settled_results, receipts);
+    assert.deepEqual(seen[0].batch.state.present, [person]);
+    assert.equal(JSON.stringify(seen[0].batch.state).includes(BOOK), false);
+    await assert.rejects(invoke(capsule({craft_settled: {invented: true}})), /craft_selector_state/);
+    assert.equal(seen.length, 1);
+  } finally { parent.lease.close(); }
+});
+
 test('one choice carries the issued descriptions, NONE, and only the current turn state', async () => {
   const seen = [];
   let body = '';

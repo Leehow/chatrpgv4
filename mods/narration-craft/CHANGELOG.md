@@ -1,5 +1,10 @@
 # Narration Craft
 
+## 1.6.0
+- Enables reference_mode=jev by default for new locks; explicit off and existing immutable campaign settings stay respected. Missing credentials still fall back normally.
+- Ships with coherent base craft guidance: answer the player's contribution instead of replaying it, with clear speaker transitions and scene-appropriate detail rather than compulsory gestures.
+- Issued editorial guidance survives ordinary settlement within the same exchange, while scene, participant, source, package and input changes still invalidate it. First adoption retains the full freshness check and each input still permits only one selection.
+
 ## 1.5.0
 - Declares a frozen English craft catalog and a bounded twelve-card candidate pool through context.craft-reference.v1.
 - Adds reference_mode off/jev, default off. Host reference preparation is optional and adds no writing tool or audit gate.

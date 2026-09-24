@@ -244,7 +244,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   async function tableReads(run: RunState): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]}> {
     const [capsule, status, applyOptions, resolveOptions] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options')]);
     const table = readTable(capsule, status);
-    if (table.binding) run.craftInput = {capsule, binding: table.binding};
+    if (table.binding) run.craftInput = {capsule: {...capsule,
+      ...(status.turn === table.binding.turn && Array.isArray(status.receipts) ? {craft_settled: status.receipts} : {})}, binding: table.binding};
     run.fight = object(object(resolveOptions.context).session ?? object(capsule.where).session);
     // §11.5.3: an NPC's turn without a standing action reads that NPC's card, which says whether a disposition is
     // still to be inferred and carries what it is inferred from. Nothing else reads a card here.

@@ -111,6 +111,7 @@ export class TextGraph {
     readonly beats: Row;
     readonly axisLines: Row;
     readonly directiveLines: Row;
+    readonly briefDirectiveLines: Row;
     /** The four content kinds every turn owes (docs/specs/turn-floor.md), sent as `style.floor` on every turn. */
     readonly floorLines: string[];
     readonly digest: string;
@@ -155,6 +156,11 @@ export class TextGraph {
             throw contentError("craft", "beat-directives.json disagrees with the text graph", { problems });
         this.axisLines = row(table.axis_lines);
         this.directiveLines = row(table.directive_lines);
+        this.briefDirectiveLines = row(table.brief_directive_lines);
+        if (Object.hasOwn(table, 'brief_directive_lines') && (Object.keys(this.briefDirectiveLines).length !== this.directives.size
+            || [...this.directives.keys()].some(id => typeof this.briefDirectiveLines[id] !== 'string' || !this.briefDirectiveLines[id].trim())
+            || Object.keys(this.briefDirectiveLines).some(id => !this.directives.has(id))))
+            throw contentError('craft', 'brief_directive_lines must cover the current directive IDs with non-empty lines');
         const floor = table.floor_lines;
         if (!Array.isArray(floor) || floor.length !== 4 || floor.some(line => typeof line !== "string" || !line.trim()))
             throw contentError("craft", "beat-directives.json must carry four non-empty floor_lines (turn floor)");
@@ -168,7 +174,7 @@ export class TextGraph {
             axes: this.axes.filter(n => ["all", language].includes(string(row(n.properties).language_applicability || "all"))).map(n => string(this.axisLines[n.node_id] || n.name || n.node_id)),
             directives: ids.map(id => ({
                 id,
-                line: string(this.directiveLines[id] || this.directives.get(id)?.rationale || id)
+                line: string((full ? undefined : this.briefDirectiveLines[id]) || this.directiveLines[id] || this.directives.get(id)?.rationale || id)
             })),
             floor: [...this.floorLines]
         };

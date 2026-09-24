@@ -17,7 +17,7 @@ test('every shipped Mod declares the exact runtime package boundary', async () =
     assert.ok(manifest.requires.includes('mods.package-files.v1'), `${id} must require the scoped-package capability`);
     const referenced = FILE_CONTRIBUTIONS.map(field => manifest.contributes?.[field]).filter(value => typeof value === 'string');
     if (manifest.contributes?.craft_reference) {
-      assert.ok(manifest.requires.includes('context.craft-reference.v1'));
+      assert.ok(manifest.requires.includes('context.craft-reference.v2'));
       const descriptor = JSON.parse(await readFile(join(root, manifest.contributes.craft_reference), 'utf8'));
       assert.deepEqual(Object.keys(descriptor).sort(), ['candidates', 'catalog', 'schema_version']);
       assert.equal(descriptor.schema_version, 1);

@@ -12,9 +12,16 @@ test('compressed context supplies facts but never the player-facing sentence pat
   assert.ok(prompt.includes('Address every player-controlled investigator in the second person'));
 
   const craft = JSON.parse(await readFile(new URL('../../content/craft/beat-directives.json', import.meta.url), 'utf8'));
-  assert.equal(craft.axis_lines['style-axis:avoid-translationese'], 'write natural, complete sentences');
-  assert.match(craft.directive_lines['final-prose-guard-before-output'], /context is facts, not phrasing/);
-  assert.match(craft.directive_lines['repetition-policy'], /complete sentences; never fragments/);
+  assert.equal(craft.axis_lines['style-axis:avoid-translationese'], 'write natural, complete sentences with clear speakers and relationships');
+  assert.match(craft.directive_lines['clarity-and-completion'], /reread for clear agency, speaker transitions and natural play_language/);
+  assert.match(craft.directive_lines['exchange-response'], /not a replay of the player's whole input/);
+  assert.equal('rewrite-passive-translation-ese' in craft.directive_lines, false);
+  assert.ok(prompt.includes('Words the player directly spoke are already their part of the conversation'));
+  assert.ok(prompt.includes('intended actions still need ordinary adjudication and settlement'));
+  assert.ok(prompt.includes('Do not add an unchosen action, promise or payment'));
+  assert.ok(prompt.includes('Detail used to answer an investigative question is evidence, not atmospheric filler'));
+  assert.ok(prompt.includes('your memory of another telling of this scenario is not this campaign\'s source'));
+  assert.equal(prompt.includes('a speakable line is rendered as the investigator\'s line with its meaning kept'), false);
 });
 
 test('the existing pre-delivery audit revises unintelligible prose without grading literary taste', async () => {

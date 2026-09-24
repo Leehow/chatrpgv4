@@ -47,7 +47,10 @@ export class CraftReferenceRuntime {
         // Never trust a packet retained by a session, caller or previous request as a newly issued reference.
         const messages = input.messages.filter(message => message.role !== 'custom'
             || ![CRAFT_REFERENCE_TYPE, CRAFT_INVALIDATION_TYPE].includes(message.customType));
-        if (input.signal.aborted) return {messages};
+        if (input.signal.aborted) {
+            if (this.attempt?.epoch === input.epoch) this.attempt.stale = true;
+            return {messages};
+        }
         const enabled = craftMode(input.capsule);
         if (!this.attempt || this.attempt.epoch !== input.epoch) {
             this.reset();
@@ -75,6 +78,7 @@ export class CraftReferenceRuntime {
         const result = attempt.result ?? await attempt.pending!;
         if (scopeSignal.aborted || this.attempt !== attempt) {
             if (this.attempt === attempt) {
+                attempt.stale = true;
                 record('omitted', {reason: 'cancelled'});
                 if (!attempt.issued) {attempt.result = omitted('cancelled'); attempt.pending = undefined;}
             }
@@ -94,11 +98,13 @@ export class CraftReferenceRuntime {
         }
         let current = false;
         if (enabled && !attempt.stale) try {
-            current = await bounded(craftStillCurrent(result.packet, input.rpc, input.campaign, scopeSignal), scopeSignal,
+            current = await bounded(craftStillCurrent(result.packet, input.rpc, input.campaign, scopeSignal,
+                attempt.issued ? input.capsule : undefined), scopeSignal,
                 attempt.issued ? Date.now() + 1500 : attempt.deadlineAt ?? Date.now() + 1500);
         } catch {current = false;}
         if (scopeSignal.aborted || this.attempt !== attempt) {
             if (this.attempt === attempt) {
+                attempt.stale = true;
                 record('omitted', {reason: 'cancelled'});
                 if (!attempt.issued) {attempt.result = omitted('cancelled'); attempt.pending = undefined;}
             }

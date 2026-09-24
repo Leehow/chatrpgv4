@@ -170,7 +170,7 @@ def test_style_gives_every_directive_on_the_first_turn_and_the_beats_pick_afterw
     first = open_turn(kernel, "我仔细观察诺特。")["capsule"]
     style = first["style"]
     assert style["language"] == "zh-Hans" and style["register"] == "purist"
-    assert len(style["axes"]) == 6 and "write natural, complete sentences" in style["axes"]  # English lines (§16.1); zh-Hans keeps the axis
+    assert len(style["axes"]) == 6 and "write natural, complete sentences with clear speakers and relationships" in style["axes"]  # English guidance for every play language.
     assert {d["id"] for d in style["directives"]} == ALL_DIRECTIVES and all(d["line"] for d in style["directives"])
     assert kernel.table("capsule")["style"] == style  # same turn, same process: still the full list
     narrate(kernel, "t1-c1", "……")
@@ -189,11 +189,11 @@ def test_style_treats_compact_context_as_facts_not_player_facing_prose(kernel):
     """
     style = open_turn(kernel, "我们继续进镇。")['capsule']['style']
     directives = {row['id']: row['line'] for row in style['directives']}
-    assert directives['final-prose-guard-before-output'] == (
-        'reread: complete natural sentences; context is facts, not phrasing')
-    assert directives['repetition-policy'] == (
-        'settled facts briefly, but as complete sentences; never fragments; enact this action')
-    assert 'write natural, complete sentences' in style['axes']
+    assert directives['clarity-and-completion'] == (
+        'carry the settled result to its actual endpoint; reread for clear agency, speaker transitions and natural play_language')
+    assert directives['exchange-response'] == (
+        "start from the world's uptake of the declaration; a necessary bridge is not a replay of the player's whole input")
+    assert 'write natural, complete sentences with clear speakers and relationships' in style['axes']
 
 
 def test_a_new_process_starts_over_with_the_full_directives(tmp_path):
@@ -222,16 +222,17 @@ def test_register_is_a_campaign_setting_from_the_text_graph(kernel):
     assert error["code"] == "invalid_params" and "purist" in error["fix"]
 
 
-def test_axes_follow_the_language_applicability_and_the_style_budget_trims(tmp_path):
+def test_general_axes_apply_across_play_languages_and_fit_the_style_budget(tmp_path):
     client = RpcClient(tmp_path / "ws")
     try:
         client.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "pregen": "thomas-hayes", "play_language": "en"})
         narrate_opening(client)
         capsule = client.table("player_input", text="I look around.")["capsule"]
         style = capsule["style"]
-        assert style["language"] == "en" and "avoid translationese" not in style["axes"] and len(style["axes"]) == 5
-        # §16.1: the lines are English one-liners sized like the zh originals, so the full first-turn
-        # set fits the §13.6 budget in every play language and nothing is trimmed
+        assert style["language"] == "en" and len(style["axes"]) == 6
+        assert "write natural, complete sentences with clear speakers and relationships" in style["axes"]
+        # §30.7d: the general English guidance applies to every play language. The four full
+        # directives fit the first-turn budget; later turns use the same IDs with brief lines.
         assert size(style) <= 2048 and "style" not in capsule.get("truncated", [])
         assert {d["id"] for d in style["directives"]} == ALL_DIRECTIVES
         assert capsule["head"].startswith("Everything at the start of this turn")

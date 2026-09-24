@@ -26,8 +26,10 @@ function prepare(workspace, enabled) {
     assert.ok(frame.ok, JSON.stringify(frame));
 }
 
-for (const engine of ['legacy', 'hybrid-v1']) for (const mode of ['selected', 'none', 'unavailable', 'off', 'no-port']) {
+for (const engine of ['legacy', 'hybrid-v1']) for (const mode of ['selected', 'settled', 'moved', 'none', 'unavailable', 'off', 'no-port']) {
   test(`${engine} production craft owner: ${mode}, one bounded decision and ordinary Keeper delivery`, async t => {
+    const selects = ['selected', 'settled', 'moved'].includes(mode);
+    const playerText = mode === 'moved' ? 'I go to the ground floor of the Corbitt house.' : 'I ask for a plain answer, staying with this conversation.';
     const requests = [], batches = [], telemetry = [], transports = [];
     let contextCalls = 0;
     const parent = new TaskLease({owner: 'fixture-root', goal: 'Bound foreground provider work',
@@ -70,31 +72,44 @@ for (const engine of ['legacy', 'hybrid-v1']) for (const mode of ['selected', 'n
         {name: 'craft-parent-budget', factory: pi => pi.events.emit('coc:task-provider-budget', () => parentBudget)},
       ],
       responses: [
-        ...(mode === 'selected' ? [reply(fauxToolCall('look', {focus: 'scene'}))] : []),
+        ...(selects ? [reply(mode === 'settled'
+          ? fauxToolCall('apply', {effects: [{kind: 'flag', name: 'fixture-notice', value: true}]})
+          : mode === 'moved' ? fauxToolCall('apply', {effects: [{kind: 'move', to: 'corbitt-house-ground'}]})
+          : fauxToolCall('look', {focus: 'scene'}))] : []),
         reply(fauxToolCall('narrate', {text: 'The office remains quiet.'})),
       ],
     });
     t.after(() => table.dispose());
-    await table.session.prompt('I ask for a plain answer, staying with this conversation.');
-    assert.equal(requests.length, mode === 'selected' ? 2 : 1, JSON.stringify(table.extensionErrors));
+    await table.session.prompt(playerText);
+    assert.equal(requests.length, selects ? 2 : 1, JSON.stringify(table.extensionErrors));
     assert.deepEqual(table.extensionErrors, []);
+    if (mode === 'settled' || mode === 'moved') {
+      const applied = requests[1].messages.findLast(message => message.role === 'toolResult' && message.toolName === 'apply');
+      assert.ok(applied, 'the state-changing tool result reaches the next real request');
+      assert.equal(applied.isError, false, textOf(applied));
+    }
     assert.equal(contextCalls, 0, 'the single-loop context never starts a second selector');
     const craftBatches = batches.filter(batch => batch.family === 'craft-reference');
     const called = !['off', 'no-port'].includes(mode);
     assert.equal(craftBatches.length, called ? 1 : 0);
+    if (hybrid && called) assert.deepEqual(craftBatches[0].state.settled_results, [],
+      'the actual same-turn table.status receipt array reaches the production selection, even before any settlement');
     assert.equal(transports.length, called ? 1 : 0, 'tool continuations and failures never retry selection');
     for (const request of requests) {
       const texts = request.messages.map(textOf);
       const references = texts.filter(text => text.includes('Optional craft reference;'));
-      assert.equal(references.length, mode === 'selected' ? 1 : 0, JSON.stringify(telemetry.filter(row => row.lane === 'craft')));
-      assert.ok(texts.join('\n').includes('I ask for a plain answer'), 'the original current input remains');
+      assert.equal(references.length, selects ? 1 : 0, JSON.stringify(telemetry.filter(row => row.lane === 'craft')));
+      assert.ok(texts.join('\n').includes(playerText), 'the original current input remains');
+      if (mode === 'settled') assert.equal(texts.some(text => text.includes('The optional craft reference earlier in this input is no longer current.')), false);
     }
-    if (mode === 'selected' || mode === 'none') {
+    // A player-selected move also spends the existing admission allowance; the other cases isolate craft.
+    if (selects && mode !== 'moved' || mode === 'none') {
       assert.equal(parent.context.budget.remainingActions, 7);
       assert.equal(parent.context.budget.remainingInputTokens, 1_000_000 - 20, 'one actual charge reaches the parent');
     } else if (!called) assert.equal(parent.context.budget.remainingActions, 8);
-    if (mode === 'selected') {
-      assert.equal(telemetry.filter(row => row.lane === 'craft' && row.event === 'injected').length, 2);
+    if (selects) {
+      assert.equal(telemetry.filter(row => row.lane === 'craft' && row.event === 'injected').length, mode === 'moved' ? 1 : 2);
+      assert.equal(telemetry.filter(row => row.lane === 'craft' && row.event === 'inactive_reference').length, mode === 'moved' ? 1 : 0);
       if (hybrid) assert.equal(telemetry.filter(row => row.lane === 'craft' && row.event === 'run_prepared').length, 1);
     }
   });

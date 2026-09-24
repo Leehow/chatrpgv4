@@ -65,7 +65,8 @@ def test_a_new_process_briefs_again_under_the_same_condition_as_style_and_resume
         narrate(second, "t2-c1", "……")
         capsule = second.table("player_input", text="再来。")["capsule"]
         assert capsule["module"]["title"] == "The Haunting" and capsule["resume"]["turn"] == 1  # the checkpoint open found
-        assert len(capsule["style"]["directives"]) > 4  # the full style, the resume and the briefing: one condition
+        full_lines = read_json(CONTENT_DIR / "craft" / "beat-directives.json")["directive_lines"]
+        assert {row["id"]: row["line"] for row in capsule["style"]["directives"]} == full_lines  # full wording, not the brief reminder
     finally:
         second.close()
 

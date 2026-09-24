@@ -17,7 +17,7 @@ import {rankWorkspaceCandidates} from './workspace/reranker.ts';
 import {preparePrescreen,prescreenEnabled,reusePrescreen} from './prescreen.ts';
 import type {PrescreenSourceRuntime} from '../../runtime/jev/prescreen-source-provider.ts';
 import {CraftReferenceRuntime} from './craft-runtime.ts';
-import {CRAFT_REFERENCE_TYPE, CRAFT_INVALIDATION_TYPE, type CraftSelector, type CraftPacket, type CraftPreparation} from './craft-reference.ts';
+import {CRAFT_REFERENCE_TYPE, CRAFT_INVALIDATION_TYPE, craftMode, type CraftSelector, type CraftPacket, type CraftPreparation} from './craft-reference.ts';
 import {createCraftSelector} from '../../runtime/jev/craft-reference-domain.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
@@ -99,6 +99,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let optionalWork = new AbortController();
     // Invalidating a snapshot must not disable its event subscriptions while rehydration waits.
     let observedWorkspaceMode: WorkspaceMode = 'off';
+    let observedCraftEnabled = false;
     const sourceCalls = new Set<string>();
     const stateCalls = new Set<string>();
     const reads = new Map<string, {kind: string; name?: string; query?: string}>();
@@ -121,7 +122,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const runtime=object(value.runtime);
         sourceRuntime=typeof runtime.home==='string'&&typeof runtime.sourceInfo==='function'&&typeof runtime.sourceText==='function'
             ?runtime as unknown as PrescreenSourceRuntime:undefined;
-        if (changed) {observedWorkspaceMode = 'off'; invalidate();}
+        if (changed) {observedWorkspaceMode = 'off'; observedCraftEnabled = false; invalidate();}
     });
     pi.events.on('coc:table-open', data => {
         const opened=object(object(data).open),turn=object(opened.turn).number,campaignView=object(opened.campaign);
@@ -134,6 +135,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         inputPending = false;
         capsule = value.capsule ? structuredClone(value.capsule) : undefined;
         observedWorkspaceMode = workspaceModeOf(capsule);
+        observedCraftEnabled = craftMode(capsule ?? {});
         if (Number.isSafeInteger(object(capsule?.turn).number)) observedTurn = object(capsule?.turn).number;
         rawBinding = value.context;
         inputEpoch = nextEpoch;
@@ -148,7 +150,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // every request until the next accepted input runs degraded on `player_input_not_accepted`.
     pi.events.on('coc:input-refused', () => {inputPending = false; invalidate();});
     pi.events.on('coc:source-published', data => {
-        if (observedWorkspaceMode === 'off' && !prescreenEnabled() || object(data).campaign && object(data).campaign !== campaign) return;
+        if (observedWorkspaceMode === 'off' && !prescreenEnabled() && !observedCraftEnabled || object(data).campaign && object(data).campaign !== campaign) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; prescreenMemo=undefined;reusablePrescreen=undefined; invalidate();
     });
     pi.on('tool_call', async event => {
@@ -180,13 +182,14 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const sourceChanged = sourceCalls.delete(event.toolCallId);
         // A failed transport can hide a committed mutation. Re-read the actual kernel state;
         // never infer arrival or settlement from the requested effect or an error flag.
-        if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled()))) return;
+        const craftSettlement = observedCraftEnabled && (event.toolName === 'apply' || event.toolName === 'resolve');
+        if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled() || craftSettlement))) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
     });
-    pi.on('session_start', async () => {resetPreparation();turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
+    pi.on('session_start', async () => {resetPreparation();turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; observedCraftEnabled = false; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
         lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();prescreenDeadlineAt=0;prescreenMemo=undefined;reusablePrescreen=undefined;
         prescreenProviderBudget=preparationProviderBudget();});
-    pi.on('session_shutdown', async () => {resetPreparation();sharedAdapter=undefined;pi.events.emit?.('coc:npc-preparation-owner',undefined);call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
+    pi.on('session_shutdown', async () => {resetPreparation();sharedAdapter=undefined;pi.events.emit?.('coc:npc-preparation-owner',undefined);call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';observedCraftEnabled=false;
         prescreenMemo=undefined;reusablePrescreen=undefined;pendingProvider=undefined;prescreenDeadlineAt=0;
         prescreenProviderBudget={actions:0,inputTokens:0,outputTokens:0,costUsd:0};invalidate();});
 
@@ -289,6 +292,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 // on injects. Any failure here is a miss on the optional layer, never a degraded turn.
                 const workspaceMode = workspaceModeOf(current), workspaceBudget = workspaceBudgetOf(current);
                 observedWorkspaceMode = workspaceMode;
+                observedCraftEnabled = craftMode(current ?? {});
                 let workspace: Row | undefined;
                 if (workspaceMode !== 'off' && !prescreenEnabled()) {
                     const began = Date.now();

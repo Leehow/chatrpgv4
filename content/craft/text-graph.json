@@ -351,168 +351,63 @@
       }
     },
     {
-      "node_id": "craft-directive:action-uptake-review",
+      "node_id": "craft-directive:exchange-response",
       "node_kind": "craft-directive",
       "plane": "craft",
-      "name": "craft directive action-uptake-review",
+      "name": "craft directive exchange-response",
       "evidence_class": "authored-house-doctrine",
-      "rationale": "check semantically that the draft enacts the player action without cloning the player's sentence structure",
-      "origin": "unknown-legacy-tuning",
+      "rationale": "start from the world's uptake of the declaration; a necessary bridge is not a replay of the player's whole input",
+      "origin": "exchange-coherence-20260924",
       "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
       "properties": {
-        "directive_id": "action-uptake-review",
-        "ordinal": 7,
-        "declares": "policy"
-      }
-    },
-    {
-      "node_id": "craft-directive:final-prose-guard-before-output",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive final-prose-guard-before-output",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "review a genuinely difficult draft semantically before release",
-      "origin": "unknown-legacy-tuning",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "final-prose-guard-before-output",
-        "ordinal": 5,
-        "declares": "required_rule"
-      }
-    },
-    {
-      "node_id": "craft-directive:observable-before-interpretation",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive observable-before-interpretation",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "show observable behaviour before interpreting it",
-      "origin": "unknown-legacy-tuning",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "observable-before-interpretation",
+        "directive_id": "exchange-response",
         "ordinal": 0,
-        "declares": "required_rule"
-      }
-    },
-    {
-      "node_id": "craft-directive:player-action-uptake",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive player-action-uptake",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "enact a committed player action as world-perspective prose before or alongside its settled outcome",
-      "origin": "unknown-legacy-tuning",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "player-action-uptake",
-        "ordinal": 1,
-        "declares": "required_rule"
-      }
-    },
-    {
-      "node_id": "craft-directive:repetition-policy",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive repetition-policy",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "compress an established fact; the current player action is not repetition and must still be enacted in the Keeper's own words",
-      "origin": "unknown-legacy-tuning",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "repetition-policy",
-        "ordinal": 6,
         "declares": "policy"
       }
     },
     {
-      "node_id": "craft-directive:rewrite-abstract-explanation-to-action",
+      "node_id": "craft-directive:voice-with-purpose",
       "node_kind": "craft-directive",
       "plane": "craft",
-      "name": "craft directive rewrite-abstract-explanation-to-action",
+      "name": "craft directive voice-with-purpose",
       "evidence_class": "authored-house-doctrine",
-      "rationale": "replace abstract inner-state explanation with action, voice, posture, gaze, hesitation or physical evidence",
-      "origin": "unknown-legacy-tuning",
+      "rationale": "let each relevant speaker answer, ask, offer, evade or refuse from their established position; their words can carry the beat without a compulsory gesture",
+      "origin": "exchange-coherence-20260924",
       "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
       "properties": {
-        "directive_id": "rewrite-abstract-explanation-to-action",
+        "directive_id": "voice-with-purpose",
+        "ordinal": 1,
+        "declares": "policy"
+      }
+    },
+    {
+      "node_id": "craft-directive:selective-detail",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive selective-detail",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "make the relevant person, object or space intelligible; choose details that change perception or meaning rather than filling a sensory or atmosphere quota",
+      "origin": "exchange-coherence-20260924",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "selective-detail",
         "ordinal": 2,
-        "declares": "required_rule"
+        "declares": "policy"
       }
     },
     {
-      "node_id": "craft-directive:rewrite-abstract-psychological-explanation",
+      "node_id": "craft-directive:clarity-and-completion",
       "node_kind": "craft-directive",
       "plane": "craft",
-      "name": "craft directive rewrite-abstract-psychological-explanation",
+      "name": "craft directive clarity-and-completion",
       "evidence_class": "authored-house-doctrine",
-      "rationale": "lead with observable behaviour and add interpretation only after visible evidence or a relevant skill result",
-      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
+      "rationale": "carry the settled result to its actual endpoint; reread for clear agency, speaker transitions and natural play_language",
+      "origin": "exchange-coherence-20260924",
       "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
       "properties": {
-        "directive_id": "rewrite-abstract-psychological-explanation",
-        "ordinal": 13,
-        "declares": "rewrite_guidance"
-      }
-    },
-    {
-      "node_id": "craft-directive:rewrite-ai-summary-voice",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive rewrite-ai-summary-voice",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "express the same information through scene detail or NPC speech instead of report phrasing",
-      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "rewrite-ai-summary-voice",
-        "ordinal": 9,
-        "declares": "rewrite_guidance"
-      }
-    },
-    {
-      "node_id": "craft-directive:rewrite-camera-direction-staging",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive rewrite-camera-direction-staging",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "name the person and the visible focus in one natural sentence",
-      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "rewrite-camera-direction-staging",
-        "ordinal": 11,
-        "declares": "rewrite_guidance"
-      }
-    },
-    {
-      "node_id": "craft-directive:rewrite-passive-translation-ese",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive rewrite-passive-translation-ese",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "rewrite into active voice with a clear subject and concrete action",
-      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "rewrite-passive-translation-ese",
-        "ordinal": 12,
-        "declares": "rewrite_guidance"
-      }
-    },
-    {
-      "node_id": "craft-directive:skill-interpretation-after-visible-evidence",
-      "node_kind": "craft-directive",
-      "plane": "craft",
-      "name": "craft directive skill-interpretation-after-visible-evidence",
-      "evidence_class": "authored-house-doctrine",
-      "rationale": "place a skill-justified interpretation after the visible evidence, not before it",
-      "origin": "unknown-legacy-tuning",
-      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
-      "properties": {
-        "directive_id": "skill-interpretation-after-visible-evidence",
+        "directive_id": "clarity-and-completion",
         "ordinal": 3,
-        "declares": "required_rule"
+        "declares": "policy"
       }
     },
     {
@@ -1371,15 +1266,15 @@
       "node_id": "style-axis:avoid-abstract-psychological-explanation",
       "node_kind": "style-axis",
       "plane": "craft",
-      "name": "avoid abstract_psychological_explanation",
+      "name": "prefer varied scene focus",
       "evidence_class": "authored-house-doctrine",
-      "rationale": "register guidance: avoid abstract_psychological_explanation",
+      "rationale": "register guidance: vary focus and rhythm with the scene; plain answers, narration, dialogue and purposeful silence are all available",
       "origin": "unknown-legacy-tuning",
       "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
       "properties": {
         "legacy_key": "abstract_psychological_explanation",
         "ordinal": 4,
-        "axis": "avoid",
+        "axis": "prefer",
         "language_applicability": "all"
       }
     },
@@ -1387,15 +1282,15 @@
       "node_id": "style-axis:avoid-ai-summary-voice",
       "node_kind": "style-axis",
       "plane": "craft",
-      "name": "avoid ai_summary_voice",
+      "name": "prefer responsive exchange",
       "evidence_class": "authored-house-doctrine",
-      "rationale": "register guidance: avoid ai_summary_voice",
+      "rationale": "register guidance: give the exchange its next meaningful response or settled consequence",
       "origin": "unknown-legacy-tuning",
       "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
       "properties": {
         "legacy_key": "ai_summary_voice",
         "ordinal": 1,
-        "axis": "avoid",
+        "axis": "prefer",
         "language_applicability": "all"
       }
     },
@@ -1403,15 +1298,15 @@
       "node_id": "style-axis:avoid-log-style-summary",
       "node_kind": "style-axis",
       "plane": "craft",
-      "name": "avoid log_style_summary",
+      "name": "prefer perceptive scene detail",
       "evidence_class": "authored-house-doctrine",
-      "rationale": "register guidance: avoid log_style_summary",
+      "rationale": "register guidance: choose scene detail for what the player is doing and can perceive",
       "origin": "unknown-legacy-tuning",
       "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
       "properties": {
         "legacy_key": "log_style_summary",
         "ordinal": 2,
-        "axis": "avoid",
+        "axis": "prefer",
         "language_applicability": "all"
       }
     },
@@ -1419,15 +1314,15 @@
       "node_id": "style-axis:avoid-semantic-repetition",
       "node_kind": "style-axis",
       "plane": "craft",
-      "name": "avoid semantic_repetition",
+      "name": "prefer established voices",
       "evidence_class": "authored-house-doctrine",
-      "rationale": "register guidance: avoid semantic_repetition",
+      "rationale": "register guidance: let established NPC intentions and relationships shape their wording and register",
       "origin": "unknown-legacy-tuning",
       "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
       "properties": {
         "legacy_key": "semantic_repetition",
         "ordinal": 3,
-        "axis": "avoid",
+        "axis": "prefer",
         "language_applicability": "all"
       }
     },
@@ -1435,25 +1330,25 @@
       "node_id": "style-axis:avoid-translationese",
       "node_kind": "style-axis",
       "plane": "craft",
-      "name": "avoid translationese",
+      "name": "prefer natural sentences",
       "evidence_class": "authored-house-doctrine",
-      "rationale": "register guidance: avoid translationese",
+      "rationale": "register guidance: write natural, complete sentences with clear speakers and relationships",
       "origin": "unknown-legacy-tuning",
       "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
       "properties": {
         "legacy_key": "translationese",
         "ordinal": 0,
-        "axis": "avoid",
-        "language_applicability": "zh-Hans"
+        "axis": "prefer",
+        "language_applicability": "all"
       }
     },
     {
       "node_id": "style-axis:prefer-observable-behavior",
       "node_kind": "style-axis",
       "plane": "craft",
-      "name": "prefer observable_behavior",
+      "name": "prefer source truth and agency",
       "evidence_class": "authored-house-doctrine",
-      "rationale": "register guidance: prefer observable_behavior",
+      "rationale": "register guidance: preserve source truth, player agency and the actual settled outcome",
       "origin": "unknown-legacy-tuning",
       "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
       "properties": {
@@ -1645,30 +1540,6 @@
       "relation_kind": "part-of",
       "from_node_id": "narration-budget-trigger:session-ending",
       "to_node_id": "narration-budget-mode:climax-or-madness"
-    },
-    {
-      "relation_id": "relation:text:rewrite-abstract-psychological-explanation:advises",
-      "relation_kind": "advises",
-      "from_node_id": "craft-directive:rewrite-abstract-psychological-explanation",
-      "to_node_id": "review-rule:abstract-psychological-explanation"
-    },
-    {
-      "relation_id": "relation:text:rewrite-ai-summary-voice:advises",
-      "relation_kind": "advises",
-      "from_node_id": "craft-directive:rewrite-ai-summary-voice",
-      "to_node_id": "review-rule:ai-summary-voice"
-    },
-    {
-      "relation_id": "relation:text:rewrite-camera-direction-staging:advises",
-      "relation_kind": "advises",
-      "from_node_id": "craft-directive:rewrite-camera-direction-staging",
-      "to_node_id": "review-rule:camera-direction-staging"
-    },
-    {
-      "relation_id": "relation:text:rewrite-passive-translation-ese:advises",
-      "relation_kind": "advises",
-      "from_node_id": "craft-directive:rewrite-passive-translation-ese",
-      "to_node_id": "review-rule:passive-translation-ese"
     },
     {
       "relation_id": "relation:text:segment-type-state-delta:renders-effect-coc7-healing-first-aid-stabilization",

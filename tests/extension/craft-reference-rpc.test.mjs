@@ -1,10 +1,10 @@
 /** Real TS kernel reads for mods.craft.read. Fixture packages only; no model and no play. */
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {readdir, readFile} from "node:fs/promises";
+import {readdir, readFile, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import test from "node:test";
-import {CRAFT_DESCRIPTOR, ROOT, craftManifest, oneCard, openKernel, writePackage} from "./craft-reference-test-kit.mjs";
+import {CRAFT_DESCRIPTOR, ROOT, craftManifest, oneCard, openKernel, writePackage, craftRuntime} from "./craft-reference-test-kit.mjs";
 
 const GENERATION = ["id", "title", "purpose", "useWhen", "avoidWhen", "context", "acceptable", "stronger", "alternative", "elaboration"];
 const CANDIDATE = ["id", "title", "purpose", "useWhen", "avoidWhen"];
@@ -28,13 +28,14 @@ async function tree(directory) {
 const craftOf = capsule => capsule.mods.craft_reference;
 const instructionIds = capsule => capsule.mods.instructions.map(row => row.mod);
 
-test("default off reports no card body and capsule metadata names only the provider", async t => {
+test("explicit off reports no card body and capsule metadata names only the provider", async t => {
 	const game = await openKernel(t, "craft-off");
+	await game.call("mods.configure", {id: "narration-craft", settings: {reference_mode: "off"}});
 	await game.call("table.open");
 	const opened = await game.call("table.player_input", {text: "I stay by the desk."});
 	assert.deepEqual(Object.keys(craftOf(opened.capsule).provider).sort(), ["mod", "version"]);
 	assert.equal(craftOf(opened.capsule).provider.mod, "narration-craft");
-	assert.equal(craftOf(opened.capsule).provider.version, "1.5.0");
+	assert.equal(craftOf(opened.capsule).provider.version, "1.6.0");
 	assert.equal(craftOf(opened.capsule).mode, "off");
 	assert.equal("digest" in craftOf(opened.capsule).provider, false);
 	const read = await game.call("mods.craft.read", {mode: "index"});
@@ -43,10 +44,9 @@ test("default off reports no card body and capsule metadata names only the provi
 	assert.equal(JSON.stringify(read).includes("NEARMISS") , false);
 });
 
-test("jev index returns at most twelve summaries and card returns the generation allowlist", async t => {
+test("new campaigns default to jev and expose at most twelve summaries plus the generation allowlist", async t => {
 	const game = await openKernel(t, "craft-on");
 	await game.call("table.open");
-	await game.call("mods.configure", {id: "narration-craft", settings: {reference_mode: "jev"}});
 	const turn = await game.call("table.player_input", {text: "I look at the desk."});
 	assert.equal(craftOf(turn.capsule).mode, "jev");
 	assert.deepEqual(Object.keys(craftOf(turn.capsule)).sort(), ["mode", "provider"]);
@@ -96,8 +96,38 @@ test("a ready read does not change the campaign world, turn, or logs", async t =
 	assert.deepEqual(await tree(game.campaign), before);
 });
 
+test("issued guidance ignores mutable Mod state but still rejects effective configuration changes", async t => {
+	const game = await openKernel(t, "craft-mod-state");
+	await game.call("table.open");
+	await game.call("table.player_input", {text: "I ask a question in this room."});
+	const before = await game.call("mods.craft.read", {mode: "index"});
+	let selections = 0;
+	const runtime = new craftRuntime.CraftReferenceRuntime(async input => {selections++; return input.index.candidates[0].id;}, () => {});
+	const project = async () => {
+		const capsule = await game.call("table.capsule");
+		return runtime.project({epoch: "same-exchange", campaign: game.id, capsule, binding: capsule._context,
+			messages: [{role: "custom", customType: "coc-capsule", content: "Current facts"}], budget: 200_000,
+			rpc: (method, params) => game.call(method, params), signal: new AbortController().signal});
+	};
+	assert.equal((await project()).active, true);
+	const worldPath = join(game.campaign, "world.json"), world = JSON.parse(await readFile(worldPath, "utf8"));
+	world.mods.state["narration-craft"] = {fixture_runtime_state: "changed"};
+	await writeFile(worldPath, JSON.stringify(world));
+	const stateOnly = await game.call("mods.craft.read", {mode: "index"});
+	assert.notEqual(stateOnly.binding.mod_revision, before.binding.mod_revision);
+	assert.equal(stateOnly.binding.task_source_revision, before.binding.task_source_revision);
+	assert.equal((await project()).active, true, "runtime Mod state is not an editorial configuration change");
+	world.mods.active["narration-craft"].settings.density_guide = "on";
+	await writeFile(worldPath, JSON.stringify(world));
+	const configured = await game.call("mods.craft.read", {mode: "index"});
+	assert.notEqual(configured.binding.task_source_revision, stateOnly.binding.task_source_revision);
+	assert.equal((await project()).active, false);
+	assert.equal(selections, 1);
+});
+
 test("pending reference_mode does not become active before the next accepted input", async t => {
 	const game = await openKernel(t, "craft-pending");
+	await game.call("mods.configure", {id: "narration-craft", settings: {reference_mode: "off"}});
 	await game.call("table.open");
 	await game.call("table.player_input", {text: "I open the turn."});
 	const configured = await game.call("mods.configure", {id: "narration-craft", settings: {reference_mode: "jev"}});
@@ -111,6 +141,27 @@ test("pending reference_mode does not become active before the next accepted inp
 	const next = await game.call("table.player_input", {text: "I ask one plain question."});
 	assert.equal(craftOf(next.capsule).mode, "jev");
 	assert.equal((await game.call("mods.craft.read", {mode: "index"})).status, "ready");
+});
+
+test("an explicitly off old lock stays off through an explicit upgrade", async t => {
+	const game = await openKernel(t, "craft-upgrade-off");
+	const directory = join(game.home, "old-craft");
+	await writePackage(directory, {...craftManifest("narration-craft"), version: "1.5.0"}, {
+		"agent.md": "Old fixture guidance.", "brief.md": "Old reminder.",
+		"craft-reference.json": CRAFT_DESCRIPTOR, "cards.en.json": oneCard("Old card"), "starter-ids.json": ["CRAFT-EXC-01"],
+	});
+	await game.call("mods.install", {path: directory});
+	await game.call("mods.configure", {id: "narration-craft", version: "1.5.0", enabled: true, settings: {reference_mode: "off"}});
+	const frozen = await tree(directory);
+	await game.call("table.open");
+	await game.call("table.player_input", {text: "I wait."});
+	assert.equal(craftOf(await game.call("table.capsule")).mode, "off");
+	await game.call("table.narrate", {call_id: "t1-c1", text: "The office stays quiet."});
+	await game.call("mods.configure", {id: "narration-craft", version: "1.6.0"});
+	const next = await game.call("table.player_input", {text: "I wait again."});
+	assert.equal(craftOf(next.capsule).provider.version, "1.6.0");
+	assert.equal(craftOf(next.capsule).mode, "off");
+	assert.deepEqual(await tree(directory), frozen);
 });
 
 test("the later craft provider replaces the earlier one without dropping additive instructions", async t => {
