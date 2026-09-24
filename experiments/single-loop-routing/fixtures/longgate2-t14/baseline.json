@@ -1,0 +1,228 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate2-haunting-0830-20260924T123001Z/events.jsonl",
+  "record": ".coc/repos/longgate2-haunting-0830.git f3b07c4:turns/0014.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我下楼回厨房，撬开那个锁着的储物柜。",
+ "llm_calls": 4,
+ "llm_ms_total": 22216,
+ "calls": [
+  {
+   "text": "你已经回到一楼。撬开钉死的柜子有成败，我按蛮力来判。",
+   "at": "2026-09-24T12:42:13.840Z",
+   "provider_ms": 10096,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 15623,
+    "output": 821,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "move",
+        "to": "corbitt-house-ground"
+       }
+      ]
+     },
+     "id": "clerk-live:t14-c1",
+     "clerk_live": true
+    },
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "investigate",
+       "goal": "撬开厨房里钉死的储物柜，看清柜内的东西",
+       "method": "用双手和扁平的手电筒尾端别进钉缝，把柜门撬开",
+       "skill": "STR",
+       "stakes": "钉不松，柜门仍合上，并且撬动的声音会惊动楼上",
+       "target": "nailed cupboard"
+      }
+     },
+     "id": "call-5761b88d-ec08-4716-8914-50c97324aa65-0|fc_d7c27185-6505-9ef1-a80c-aba10f6887a8_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T12:42:28.614Z",
+   "provider_ms": 5617,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 880,
+    "output": 418,
+    "cache_read": 48768
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "threat",
+        "name": "corbitt-haunting",
+        "clock": "corbitt-awareness",
+        "why": "撬柜的木头响声传到楼上。"
+       },
+       {
+        "kind": "time",
+        "minutes": 10,
+        "why": "下楼找到储物柜并试图撬开。"
+       }
+      ]
+     },
+     "id": "call-9b80ec59-d289-4df7-8095-ee1f9babc9d3-1|fc_229bc42d-ecdb-9d05-8e46-c9f86e3d63a7_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T12:42:47.329Z",
+   "provider_ms": 2429,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 890,
+    "output": 96,
+    "cache_read": 49536
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "threat",
+        "name": "corbitt-haunting",
+        "clock": "corbitt-awareness",
+        "why": "撬柜的木头响声传到楼上。"
+       },
+       {
+        "kind": "time",
+        "minutes": 10,
+        "why": "下楼找到储物柜并试图撬开。"
+       }
+      ]
+     },
+     "id": "call-1417e881-9b52-4618-8f75-0b939538b3e3-2|fc_14196ef0-e7cf-9360-89cb-c9a497423295_0"
+    }
+   ]
+  },
+  {
+   "text": "你下了楼梯，回到厨房。储物柜还钉在墙边，柜门缝里露出一排钉头，不是锁芯。你把手电筒尾端塞进缝里，双手扳下去。木头响了一声，钉头只歪了一点，柜门仍合得死死的。{{check:str}}手电筒尾端从缝里滑出来，柜门没有开。",
+   "at": "2026-09-24T12:43:00.341Z",
+   "provider_ms": 4074,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 514,
+    "output": 261,
+    "cache_read": 50304
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "apply",
+   "call_id": "clerk-live:t14-c1",
+   "ok": true,
+   "clerk_live": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-5761b88d-ec08-4716-8914-50c97324aa65-0|fc_d7c27185-6505-9ef1-a80c-aba10f6887a8_0",
+   "ok": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-9b80ec59-d289-4df7-8095-ee1f9babc9d3-1|fc_229bc42d-ecdb-9d05-8e46-c9f86e3d63a7_0",
+   "ok": false,
+   "host_refusal": "review_pending"
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-1417e881-9b52-4618-8f75-0b939538b3e3-2|fc_14196ef0-e7cf-9360-89cb-c9a497423295_0",
+   "ok": false,
+   "host_refusal": "review_timeout"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 0,
+   "origin": "policy"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "authorized",
+   "ms": 4053,
+   "origin": "model"
+  },
+  {
+   "verb": "apply",
+   "verdict": "review_pending",
+   "ms": 13003,
+   "origin": "model"
+  },
+  {
+   "verb": "apply",
+   "verdict": "review_timeout",
+   "ms": 10479,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "apply",
+   "kind": "move",
+   "target": "corbitt-house-ground",
+   "clerk_live": true
+  },
+  {
+   "verb": "resolve",
+   "skill": "STR",
+   "target": "nailed cupboard",
+   "intent": "investigate",
+   "modifiers": null
+  },
+  {
+   "verb": "apply",
+   "kind": "threat",
+   "target": "corbitt-haunting",
+   "live_refused": "review_timeout"
+  },
+  {
+   "verb": "apply",
+   "kind": "time",
+   "target": null,
+   "live_refused": "review_timeout"
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "move:corbitt-house-ground-t14-c1",
+   "kind": "move",
+   "to": "corbitt-house-ground"
+  },
+  {
+   "id": "roll:str-t14-c2",
+   "kind": "roll",
+   "decision": null,
+   "skill": "STR",
+   "npc": null,
+   "level": "failure"
+  }
+ ]
+}

@@ -1,0 +1,13 @@
+{
+ "campaign": "longgate2-haunting-0830",
+ "module": "the-haunting",
+ "turn": 18,
+ "commit_before": "bd27419",
+ "commit_after": "f6b8a00",
+ "player_input": "我把柜子挪开，看后面的墙和地面。",
+ "tarball": "../longgate2/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/longgate2-haunting-0830",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate2-haunting-0830-20260924T123001Z"
+ }
+}
