@@ -513,6 +513,7 @@ test("SL-26 (§135.30.3): the declared ordinary check is selected by the compile
 		assert.equal(compileRow.fired[0].predicate, "ordinary_check");
 		const binder = telemetry.find((row) => row.lane === "route" && row.purpose === "bind-ordinary");
 		assert.equal(binder.skill.value, "Spot Hidden", "the binder's row names the skill it read, by name");
+		assert.deepEqual([binder.route?.choice, binder.consent?.choice], ["ordinary", "authorized"], "and the route and consent answers that decided the disposition");
 		const roll = telemetry.find((row) => row.tool === "resolve" && row.origin === "policy");
 		assert.ok(roll?.ok, "the clerk rolled the check in both cases: the binder executes its answer");
 		const bind = telemetry.find((row) => row.lane === "run" && row.event === "bind" && row.candidate === "resolve:core-check:ordinary-check");

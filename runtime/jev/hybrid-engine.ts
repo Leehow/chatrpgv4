@@ -557,7 +557,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           unresolved: result.advice.unresolved, calls: result.decisionCalls, ms: Date.now() - began, ...(skill ? {skill} : {})};
         record({lane: 'route', purpose: 'bind-ordinary', run: run.runId, step: request.stepId, candidate: candidate.key, disposition: bound.disposition,
           unresolved: bound.unresolved, ms: bound.ms, jev_calls: bound.calls,
-          ...(skill ? {skill: {value: skill.choice, confidence: skill.confidence, distribution: skill.probabilities}} : {})});
+          ...(skill ? {skill: {value: skill.choice, confidence: skill.confidence, distribution: skill.probabilities}} : {}),
+          ...(result.evidence?.route ? {route: result.evidence.route} : {}), ...(result.evidence?.consent ? {consent: result.evidence.consent} : {})});
         return {status: 'ok' as const, artifact: {kind: 'bind-ordinary', bound} as StepArtifact};
       } finally { lease.close(); }
     }
