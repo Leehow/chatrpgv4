@@ -478,7 +478,7 @@ test("a clerk step that crossed an open obligation is one obligation_open line b
 		basis: { read: "table.apply.options", path: "obligations[0]", row, obligation: ACCESS, step: "check" } };
 	await plan.ports.operations.execute({ origin: "policy", operation: "execute", params: { candidate: clue } }, invocation("s2"));
 	await plan.ports.operations.execute({ origin: "policy", operation: "execute", params: { candidate: gate } }, invocation("s3"));
-	const [message] = plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s4", step: { kind: "infer", purpose: "compose", reason: "finish" } });
+	const [message] = await plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s4", step: { kind: "infer", purpose: "compose", reason: "finish" } });
 	const note = JSON.parse(message.content);
 	assert.equal(note.clerk_did.length, 2);
 	assert.equal(note.obligation_open.length, 1, "one line for the crossing");

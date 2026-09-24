@@ -397,7 +397,7 @@ test("the clerk writes nothing before a read binds the run's IntentBinding, nor 
 	assert.ok(!kernelCalls.some((method) => ["table.apply", "table.resolve"].includes(method)), "the kernel received no write");
 	// An operation Jev chose and the LLM completes: the Keeper is asked for its parameters without the host's kernel row,
 	// and the row stays on record beside the step.
-	const [note] = plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s6",
+	const [note] = await plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s6",
 		step: { kind: "infer", purpose: "bind", reason: "open_parameters", request: { candidate: "apply:person:A",
 			operation: { verb: "apply", label: "Stage A", bound: { kind: "person", who: "A" }, needs: [{ name: "name" }] }, basis: { read: "table.capsule", path: "present[0]" } } } });
 	assert.equal(JSON.parse(note.content).complete.label, "Stage A");

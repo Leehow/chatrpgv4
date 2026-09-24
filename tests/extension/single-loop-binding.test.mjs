@@ -315,7 +315,7 @@ test("§135.28 at the engine: the bind row names every parameter's path; the Kee
 	assert.deepEqual(bind.bindings.map((entry) => [entry.name, entry.path]), [["obligation", "stated"], ["target", "stated"], ["actor", "stated"], ["goal", "composed"], ["method", "composed"],
 		["skill", "rule-default"], ["bonus", "jev"], ["penalty", "jev"], ["intent", "jev"]]);
 	assert.deepEqual(bind.bindings.find((entry) => entry.name === "intent").distribution, { social: 0.84, unknown: 0.16 }, "Jev's answer keeps its distribution");
-	const [message] = plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s3", step: { kind: "infer", purpose: "compose", reason: "finish" } });
+	const [message] = await plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s3", step: { kind: "infer", purpose: "compose", reason: "finish" } });
 	const note = JSON.parse(message.content);
 	assert.match(note.clerk_did[0].binding, /^rules default: skill Persuade \(the investigator's highest of the offered skills\); the player's words did not settle it/);
 	// What the clerk could not bind reaches the Keeper as its own turn: left_to_you, and a bind row with outcome keeper.
@@ -325,7 +325,7 @@ test("§135.28 at the engine: the bind row names every parameter's path; the Kee
 	const policy = createStepPolicy({ context, scope, candidates: [] });
 	const request = policy.next({ pendingProposals: [], policyState: { view, gate: 0.6 }, observations: [], steps: 0, pendingRequirements: [] });
 	assert.deepEqual([request.kind, request.purpose, request.reason], ["infer", "adjudicate", "clerk_unbound"]);
-	const [left] = plan.ports.projection.project({ view: { policyState: { view } }, stepId: "s4", step: { purpose: request.purpose, reason: request.reason, request: request.request } });
+	const [left] = await plan.ports.projection.project({ view: { policyState: { view } }, stepId: "s4", step: { purpose: request.purpose, reason: request.reason, request: request.request } });
 	const leftNote = JSON.parse(left.content);
 	assert.deepEqual([leftNote.left_to_you.unresolved, leftNote.left_to_you.operation.verb], [["intent"], "resolve"]);
 	assert.equal(leftNote.complete, undefined, "never the parameter-filling request of an infer(bind)");
