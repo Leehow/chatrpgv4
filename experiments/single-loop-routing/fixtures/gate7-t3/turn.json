@@ -1,0 +1,13 @@
+{
+ "campaign": "gate7-haunting-0534",
+ "module": "the-haunting",
+ "turn": 3,
+ "commit_before": "ae972a0",
+ "commit_after": "12277be",
+ "player_input": "我回诺特办公室，揪住他的领子一拳打过去，逼他说清这房子到底死过什么人。",
+ "tarball": "../gate7/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/gate7-haunting-0534",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/gate7-haunting-0534-20260924T093426Z"
+ }
+}
