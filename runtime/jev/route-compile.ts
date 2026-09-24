@@ -86,7 +86,7 @@ export interface CompilePredicate {
   /** The compile can reach this candidate: the families it turns on have rows. */
   askable(rows: FeatureRows): boolean;
   /** The compile settled this candidate one way or the other: the features it turns on cleared (a row or `none`). */
-  decided(cleared: Cleared): boolean;
+  decided(cleared: Cleared, candidate: Candidate): boolean;
   /** The predicate over cleared rows and the candidate's own values: selects the candidate, or not. */
   fires(candidate: Candidate, cleared: Cleared): Fired | undefined;
   /**
@@ -133,12 +133,22 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
       return cleared.ask?.row === obligationRow(candidate) && addresseeAllows(cleared, people) ? {} : undefined;
     }},
   {name: 'attack', askable: rows => has(rows, 'act') && has(rows, 'target'),
-    reads: candidate => candidate.family === 'combat' && candidate.bound.decision === 'combat:attack' && !candidate.forced && candidate.bound.actor === undefined,
+    reads: candidate => candidate.clerk === 'session_step' && candidate.family === 'combat' && candidate.bound.decision === 'combat:attack' && !candidate.forced && candidate.bound.actor === undefined,
     // An act other than the attack settles it; the attack with no cleared target is left to the route and the attack's own bind.
     decided: cleared => !!cleared.act && (cleared.act.row !== 'combat:attack' || !!cleared.target),
     fires: (candidate, cleared) => {
       const target = cleared.target?.row;
       if (cleared.act?.row !== 'combat:attack' || !target || !attackTargets(candidate).includes(target)) return undefined;
+      return typeof candidate.bound.target === 'string' ? {} : {bound: {target}};
+    }},
+  // §135.30.2 (SL-19): the first blow outside a fight. Outside a session the `act` rows are the resolve intents, so the act
+  // is the row's own intent (`combat`); the target rows are the people present, and only one the kernel can fight fires it.
+  {name: 'first_blow', askable: rows => has(rows, 'act') && has(rows, 'target'), sole: true,
+    reads: candidate => candidate.clerk === 'first_blow',
+    decided: (cleared, candidate) => !!cleared.act && (cleared.act.row !== candidate.bound.intent || !!cleared.target),
+    fires: (candidate, cleared) => {
+      const target = cleared.target?.row;
+      if (!cleared.act?.row || cleared.act.row !== candidate.bound.intent || !target || !attackTargets(candidate).includes(target)) return undefined;
       return typeof candidate.bound.target === 'string' ? {} : {bound: {target}};
     }},
 ]);
@@ -252,7 +262,7 @@ export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows'>,
       const chosen: Candidate = {...candidate, bound: {...candidate.bound, ...bound}, unbound: candidate.unbound.filter(value => !Object.hasOwn(bound, value.name)),
         basis: {...basisOf(candidate), compile: {predicate: predicate.name, features: read, ...(Object.keys(settled).length ? {bound: settled} : {})}} as Json};
       selected.push({candidate: chosen, predicate: predicate.name, features: read});
-    } else if (predicate?.decided(cleared)) decided.push(candidate.key);
+    } else if (predicate?.decided(cleared, candidate)) decided.push(candidate.key);
     else fellThrough.push(candidate.key);
   }
   return {selected, decided, fellThrough, features, reason: selected.length ? `selected_${selected.length}` : decided.length ? 'decided_none' : 'fell_through'};

@@ -2937,8 +2937,10 @@ export default function (pi: ExtensionAPI) {
 		// §11.5.3: `_inferred` marks the combat disposition Jev inferred for the clerk (authority disposition_inference),
 		// with the parameters read from the candidate's own basis. Host-only: no other call ever carries it.
 		if (spec.name === "apply" && Array.isArray(params.effects)) {
-			const basisRow = host?.clerk === "disposition_inference" ? (host.basis as { row?: { read?: unknown } } | undefined)?.row : undefined;
-			const read = Array.isArray(basisRow?.read) ? basisRow.read.filter((value): value is string => typeof value === "string") : [];
+			const basis = host?.clerk === "disposition_inference" ? host.basis as { row?: { read?: unknown }; rule_default?: { disposition?: { read?: unknown } } } | undefined : undefined;
+			// §11.5.3 amendment (SL-19): a disposition the card's word gave (the bind's rules default) names what that default read.
+			const defaulted = basis?.rule_default?.disposition?.read, basisRow = basis?.row;
+			const read = (Array.isArray(defaulted) ? defaulted : Array.isArray(basisRow?.read) ? basisRow.read : []).filter((value): value is string => typeof value === "string");
 			for (const effect of params.effects as Array<Record<string, unknown>>) {
 				if (!effect || typeof effect !== "object") continue;
 				delete effect._inferred;

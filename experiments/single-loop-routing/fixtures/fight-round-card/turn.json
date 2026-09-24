@@ -1,0 +1,17 @@
+{
+ "campaign": "game-26d5a671-85a2-4732-876b-1521aa04d869",
+ "module": "the-haunting",
+ "turn": 6,
+ "commit_before": "1338f4b",
+ "commit_after": "8966331",
+ "player_input": "继续揍他",
+ "session": {
+  "directory": "%2FUsers%2Fhaoli%2Fleehow%2Fplaytests%2Fjev-gui-20260922",
+  "file": "2026-09-23T07-01-05-916Z_00731410-31f1-44de-a2f3-4afb83dc69a1.jsonl",
+  "user_message_at": "2026-09-23T07:24:10.311Z"
+ },
+ "variant_of": {
+  "fixture": "fight-round",
+  "commit_before": "1df8561"
+ }
+}

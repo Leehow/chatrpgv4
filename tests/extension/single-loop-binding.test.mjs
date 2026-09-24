@@ -225,6 +225,61 @@ test("§135.28 structure: no transition of the policy turns a clerk candidate in
 	assert.deepEqual(summary(itemsFor({ ...shapes("x")[1], clerk: undefined })), [["infer", "bind", "open_parameters"], ["direct", "llm_proposal", null]]);
 });
 
+/**
+ * SL-19 (§11.5.3 amendment): Knott's own turn with no standing action, and his card as `look focus=npc` issues it: no
+ * disposition, the inference's input, and -- when the card states a tactic the table maps -- its `default`.
+ */
+const DISPOSITION_WORDS = ["fights_to_the_end", "fights_then_flees", "avoids_fighting", "surrenders"];
+function knottsTurn({ fallback } = {}) {
+	const session = { kind: "combat", status: "active", round: 1, turn_of: "steven-knott", pending_defense: null,
+		participants: [{ name: "hayes", side: "investigator", hp: 12, hp_max: 12 }, { name: "steven-knott", label: "Steven Knott", side: "npc", hp: 10, hp_max: 10 }],
+		actions: [{ decision: "combat:attack", actor: "steven-knott", targets: ["hayes"], weapons: ["unarmed"] }, { decision: "combat:end", actor: "steven-knott" }] };
+	const fighter = { id: "steven-knott", name: "Steven Knott", combat_standing: { action: null, basis: "rule-default" },
+		combat_disposition: { disposition: null, basis: null, options: Object.fromEntries(DISPOSITION_WORDS.map((word) => [word, `${word} described`])),
+			material: { agenda: "Rent the house.", fear: "Losing money." }, ...(fallback ? { default: fallback } : {}) } };
+	return { capsule: { where: { scene: "office" }, present: [] }, applyOptions: { candidates: [], context: {} },
+		resolveOptions: { profiles: [], decisions: [], context: { session } }, fighter };
+}
+const KEEPER_DODGE = { disposition: "avoids_fighting", rule: "card_disposition", from: { combat_tactic: { defense: "dodge", basis: "keeper" } } };
+const inferenceOf = (reads) => buildCandidates(reads, INPUT).find((candidate) => candidate.clerk === "disposition_inference");
+
+test("SL-19: the card's stated tactic is the disposition's rules default -- taken when Jev is unknown or below the gate, never over a clearing answer", () => {
+	const candidate = inferenceOf(knottsTurn({ fallback: KEEPER_DODGE }));
+	const parameter = candidate.unbound.find((value) => value.name === "disposition");
+	assert.equal(parameter.ruleDefault.rule, "card_disposition");
+	assert.equal(parameter.ruleDefault.value, "avoids_fighting");
+	assert.deepEqual(parameter.ruleDefault.read, ["combat_tactic"]);
+	for (const result of [answer({ disposition: ["unknown", 0.8] }), answer({ disposition: ["surrenders", 0.4] }), unavailable]) {
+		const bound = interpretBind(candidate, { questions: [] }, result, 0.6);
+		assert.deepEqual(summary(bound.pending), [["direct", "execute", null]], "the clerk writes it: no Keeper step");
+		const { args } = keeperCall(bound.pending[0].candidate, bound.extra);
+		assert.equal(args.effects[0].disposition, "avoids_fighting");
+		assert.match(args.effects[0].why, /card states their combat tactic \(dodge, keeper\).*avoids_fighting/, "the default's own why, not the inference's");
+		assert.ok(points(args.effects[0].why) <= SENTENCE_MAX);
+		const basis = bound.pending[0].candidate.basis;
+		assert.equal(basis.binding, "rule-default");
+		assert.deepEqual(basis.rule_default, { disposition: { value: "avoids_fighting", rule: "card_disposition", read: ["combat_tactic"] } });
+		const record = bound.bindings.find((entry) => entry.name === "disposition");
+		assert.deepEqual([record.path, record.value, record.rule], ["rule-default", "avoids_fighting", "card_disposition"]);
+		assert.deepEqual(bound.bindings.find((entry) => entry.name === "why")?.path, "composed");
+	}
+	// Jev's word clears the gate: it is the write, with the inference's own why and no default stamped.
+	const cleared = interpretBind(candidate, { questions: [] }, answer({ disposition: ["surrenders", 0.9] }), 0.6);
+	const { args } = keeperCall(cleared.pending[0].candidate, cleared.extra);
+	assert.equal(args.effects[0].disposition, "surrenders");
+	assert.match(args.effects[0].why, /^Inferred once for this campaign/);
+	assert.equal(cleared.pending[0].candidate.basis.binding, undefined);
+});
+
+test("SL-19: a card that says nothing has no default -- the Keeper is asked, as before; a default outside the offered words is none", () => {
+	for (const fallback of [undefined, { ...KEEPER_DODGE, disposition: "runs_away" }, { ...KEEPER_DODGE, rule: "highest_offered_skill" }]) {
+		const candidate = inferenceOf(knottsTurn({ fallback }));
+		assert.equal(candidate.unbound.find((value) => value.name === "disposition").ruleDefault, undefined);
+		const bound = interpretBind(candidate, { questions: [] }, answer({ disposition: ["avoids_fighting", 0.4] }), 0.6);
+		assert.deepEqual(summary(bound.pending), [["infer", "adjudicate", "clerk_unbound"]]);
+	}
+});
+
 /** One run of the product policy on the vendored driver with stub ports; `infer` is the fake model engine. */
 async function drive({ candidates, decide, infer, budget = {}, rows }) {
 	const log = [], events = [], inferred = [];

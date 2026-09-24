@@ -47,6 +47,8 @@ def test_options_is_read_only_and_uses_canonical_sheet_and_rule_vocabulary(kerne
         "scene": "Knott's Office",
         "pending_choice": None,
         "session": None,
+        # §135.30.2: Knott is present but the book prints no numbers for him, so there is no one to fight.
+        "first_blow": None,
         "conditions": [{"actor": "托马斯·海斯", "conditions": []}],
         "current_receipts": [],
         "declared_action": "我仔细观察诺特。",
@@ -107,6 +109,26 @@ def test_options_preserves_actual_pending_choice_and_active_session_without_writ
     assert snapshot["context"]["session"] == attack["session"]
     assert snapshot["context"]["current_receipts"]
     assert fingerprint(kernel) == before
+
+
+def test_the_first_blow_row_names_who_can_be_fought_and_is_gone_once_the_fight_opens(kernel):
+    """§135.30.2 (SL-19): outside a fight, `context.first_blow` is the investigator's attack as the engine would take it --
+    the people present with a stat block, under the name the capsule gives them, and the investigator's own weapons."""
+    open_turn(kernel, "我一拳打过去。")
+    assert options(kernel)["context"]["first_blow"] is None, "Knott has no stat block: nobody the engine can fight"
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Steven Knott", "archetype": "ordinary_adult", "why": "test"}])
+    before = fingerprint(kernel)
+    row = options(kernel)["context"]["first_blow"]
+    assert fingerprint(kernel) == before, "a read"
+    present = [person["name"] for person in kernel.table("capsule")["present"]]
+    assert row == {"decision": "combat:attack", "intent": "combat", "actor": "托马斯·海斯", "targets": ["Steven Knott"],
+                   "weapons": [".38 Revolver", "unarmed"]}
+    assert row["targets"] == present, "the capsule's identities, so the compile's target rows are the addressee rows"
+    # The row is what the engine takes: the clerk's resolve of it opens the fight, and inside a fight there is none.
+    opened = kernel.table("resolve", call_id="t1-c2", action={"intent": row["intent"], "decision": row["decision"], "target": row["targets"][0],
+                                                            "weapon": "unarmed", "goal": "一拳", "method": "一拳"})
+    assert opened["session"]["kind"] == "combat" and opened["session"]["status"] == "active"
+    assert options(kernel)["context"]["first_blow"] is None
 
 
 def test_options_rejects_foreign_closed_and_extra_requests(kernel):

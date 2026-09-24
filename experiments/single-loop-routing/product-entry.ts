@@ -45,7 +45,9 @@ const effectKey = (effect: Row): string | undefined => effect.kind === 'move' ? 
  */
 const who = (value: unknown): string => String(value ?? '').toLowerCase().replace(/\s+/g, '-');
 const resolveKey = (action: Row): string => action.decision === 'combat:defend' ? `resolve:combat:defend:${who(action.actor)}`
-  : `resolve:${action.decision ?? `skill:${action.skill ?? ''}`}:${who(action.target)}`;
+  // SL-19: a live Keeper's attack names no decision (`intent: combat` with a target, which the kernel settles as
+  // `combat:attack`); the clerk's first blow names it. Both are the same attack, so the replay does not throw it twice.
+  : `resolve:${action.decision ?? (action.intent === 'combat' && action.target && !action.skill ? 'combat:attack' : `skill:${action.skill ?? ''}`)}:${who(action.target)}`;
 
 /** The live calls in order, each with whether the live kernel took it (paired with the live tool rows by order). */
 function liveCalls(baseline: Row): Array<{message: number; name: string; arguments: Row; ok: boolean}> {

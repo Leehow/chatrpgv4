@@ -1,0 +1,399 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/gate6-haunting-0335-20260924T073558Z/events.jsonl",
+  "record": ".coc/repos/gate6-haunting-0335.git 8cd89ca:turns/0003.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我回诺特办公室，揪住他的领子一拳打过去，逼他说清这房子到底死过什么人。",
+ "llm_calls": 7,
+ "llm_ms_total": 34605,
+ "calls": [
+  {
+   "at": "2026-09-24T07:40:13.578Z",
+   "provider_ms": 8575,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 14977,
+    "output": 723,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "move",
+        "to": "commission-briefing"
+       }
+      ]
+     },
+     "id": "clerk-live:t3-c1",
+     "clerk_live": true
+    },
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "combat",
+       "goal": "投住诺特的领子打一拳，逼他说清科比特宅里死过谁",
+       "method": "用双手擘住领口后直接用拳头打过去",
+       "target": "Steven Knott",
+       "weapon": "unarmed",
+       "stakes": "打不中会把雇主彻底得罪，这份差事当场吹了"
+      }
+     },
+     "id": "call-b42da61e-7fda-4404-912a-d15a00ef31a5-0|fc_069fdd70-4242-966e-b95a-88be08fb818d_0"
+    },
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "npc",
+        "name": "Steven Knott",
+        "reunion": {
+         "background": [
+          "He stayed in the rented office after Hayes left, waiting on the day's first report and watching the clock."
+         ],
+         "reports": [
+          "Nothing new has come in about the house or the Macarios since the morning briefing."
+         ],
+         "open_threads": [
+          "He still expects a report before the day is wasted."
+         ]
+        }
+       }
+      ]
+     },
+     "id": "call-b42da61e-7fda-4404-912a-d15a00ef31a5-1|fc_069fdd70-4242-966e-b95a-88be08fb818d_1"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T07:40:25.464Z",
+   "provider_ms": 5130,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 49062,
+    "output": 258,
+    "cache_read": 0
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "npc",
+        "name": "Steven Knott",
+        "archetype": "ordinary_adult",
+        "why": "诺特是按日雇人的房东，不是打手，按普通成年人记他的体格。"
+       },
+       {
+        "kind": "npc",
+        "name": "Steven Knott",
+        "reunion": {
+         "background": [
+          "He stayed in the rented office after Hayes left, waiting on the day's first report and watching the clock."
+         ],
+         "reports": [
+          "Nothing new has come in about the house or the Macarios since the morning briefing."
+         ],
+         "open_threads": [
+          "He still expects a report before the day is wasted."
+         ]
+        }
+       }
+      ]
+     },
+     "id": "call-96085063-4d17-422d-9ba6-2adfc9989a83-2|fc_f7eb38ce-13ed-915f-a04a-a189c4230f4e_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T07:40:31.440Z",
+   "provider_ms": 2487,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 17312,
+    "output": 110,
+    "cache_read": 32768
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "combat",
+       "goal": "投住诺特的领子打一拳，逼他说清科比特宅里死过谁",
+       "method": "用双手擘住领口后直接用拳头打过去",
+       "target": "Steven Knott",
+       "weapon": "unarmed",
+       "stakes": "打不中会把雇主彻底得罪，这份差事当场吹了"
+      }
+     },
+     "id": "call-ed52db19-678f-454f-91a1-4faefac35244-3|fc_fe979c61-d4bb-97b1-9812-3ea7d139e543_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T07:40:34.792Z",
+   "provider_ms": 7033,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 6238,
+    "output": 599,
+    "cache_read": 48768
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "npc",
+        "name": "Steven Knott",
+        "disposition": "avoids_fighting",
+        "why": "他是房东不是打手，被人揪领子后只想脱身，不想还手。"
+       },
+       {
+        "kind": "npc",
+        "name": "Steven Knott",
+        "stance": "wary",
+        "why": "海斯刚动手打他，差事还在，信任没了。"
+       }
+      ]
+     },
+     "id": "call-a4bbc2be-89ed-4114-b9d1-85f43f1d983c-4|fc_4d66235c-9a3b-9dc1-85ea-a5435acb1d84_0"
+    },
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "combat",
+       "goal": "不还手，挣开领子把人挡开",
+       "method": "侧身躲开拳头，退到桌后，不挥拳",
+       "actor": "Steven Knott",
+       "decision": "combat:end",
+       "target": "托马斯·海斯"
+      }
+     },
+     "id": "call-a4bbc2be-89ed-4114-b9d1-85f43f1d983c-5|fc_4d66235c-9a3b-9dc1-85ea-a5435acb1d84_1"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T07:40:42.099Z",
+   "provider_ms": 2595,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 7375,
+    "output": 172,
+    "cache_read": 49024
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "combat",
+       "goal": "他不还手，这一架停在桌边",
+       "method": "退到桌后，把拳头挡开，不再打",
+       "actor": "Steven Knott",
+       "decision": "combat:end",
+       "outcome": "stalemate",
+       "target": "托马斯·海斯"
+      }
+     },
+     "id": "call-f26d0145-afff-4485-8eb4-c8cdcf5839c0-6|fc_61614deb-8b3d-9062-9a02-689c77c5f07e_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T07:40:45.704Z",
+   "provider_ms": 5049,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 5938,
+    "output": 376,
+    "cache_read": 49024
+   },
+   "tool_calls": []
+  },
+  {
+   "at": "2026-09-24T07:40:51.155Z",
+   "provider_ms": 3736,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 1899,
+    "output": 285,
+    "cache_read": 53376
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "apply",
+   "call_id": "clerk-live:t3-c1",
+   "ok": true,
+   "clerk_live": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-b42da61e-7fda-4404-912a-d15a00ef31a5-0|fc_069fdd70-4242-966e-b95a-88be08fb818d_0",
+   "ok": false
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-b42da61e-7fda-4404-912a-d15a00ef31a5-1|fc_069fdd70-4242-966e-b95a-88be08fb818d_1",
+   "ok": false
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-96085063-4d17-422d-9ba6-2adfc9989a83-2|fc_f7eb38ce-13ed-915f-a04a-a189c4230f4e_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-ed52db19-678f-454f-91a1-4faefac35244-3|fc_fe979c61-d4bb-97b1-9812-3ea7d139e543_0",
+   "ok": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-a4bbc2be-89ed-4114-b9d1-85f43f1d983c-4|fc_4d66235c-9a3b-9dc1-85ea-a5435acb1d84_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-a4bbc2be-89ed-4114-b9d1-85f43f1d983c-5|fc_4d66235c-9a3b-9dc1-85ea-a5435acb1d84_1",
+   "ok": false
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-f26d0145-afff-4485-8eb4-c8cdcf5839c0-6|fc_61614deb-8b3d-9062-9a02-689c77c5f07e_0",
+   "ok": true
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 4928,
+   "origin": "policy"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "authorized",
+   "ms": 3093,
+   "origin": "model"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "authorized",
+   "ms": 0,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "apply",
+   "kind": "move",
+   "target": "commission-briefing",
+   "clerk_live": true
+  },
+  {
+   "verb": "apply",
+   "kind": "npc",
+   "target": "Steven Knott"
+  },
+  {
+   "verb": "apply",
+   "kind": "npc",
+   "target": "Steven Knott"
+  },
+  {
+   "verb": "resolve",
+   "target": "Steven Knott",
+   "intent": "combat",
+   "modifiers": null
+  },
+  {
+   "verb": "apply",
+   "kind": "npc",
+   "target": "Steven Knott"
+  },
+  {
+   "verb": "apply",
+   "kind": "npc",
+   "target": "Steven Knott"
+  },
+  {
+   "verb": "resolve",
+   "decision": "combat:end",
+   "target": "托马斯·海斯",
+   "intent": "combat",
+   "modifiers": null
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "move:commission-briefing-t3-c1",
+   "kind": "move",
+   "to": "commission-briefing"
+  },
+  {
+   "id": "npc:steven-knott-t3-c3",
+   "kind": "npc"
+  },
+  {
+   "id": "npc:steven-knott-t3-c3-2",
+   "kind": "npc"
+  },
+  {
+   "id": "session:combat-start-t3-c4",
+   "kind": "session"
+  },
+  {
+   "id": "roll:fighting-brawl-t3-c5",
+   "kind": "roll",
+   "decision": null,
+   "skill": "Fighting (Brawl)",
+   "npc": "steven-knott",
+   "level": "failure"
+  },
+  {
+   "id": "roll:dodge-steven-knott-t3-c5",
+   "kind": "roll",
+   "decision": null,
+   "skill": "Dodge",
+   "npc": null,
+   "level": "hard"
+  },
+  {
+   "id": "npc:steven-knott-t3-c6",
+   "kind": "npc"
+  },
+  {
+   "id": "npc:steven-knott-t3-c6-2",
+   "kind": "npc"
+  },
+  {
+   "id": "session:combat-end-t3-c8",
+   "kind": "session"
+  }
+ ]
+}

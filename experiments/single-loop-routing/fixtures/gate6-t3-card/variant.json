@@ -1,0 +1,48 @@
+{
+ "derived_from": "gate6-t3",
+ "source_tarball_sha256": "f10ec9595096cc061080f2d7f2fcb84dc631b305140bc02054f0ebf03af500ea",
+ "change": "world.json patched before the turn and committed on top of commit_before",
+ "note": "Knott has the live turn's ordinary_adult pin and a Keeper-written tactic (dodge) before turn 3",
+ "patch": {
+  "npc_profiles": {
+   "steven-knott": {
+    "profile_kind": "actor",
+    "characteristic_scale": "percentile",
+    "authority": "table_pinned",
+    "archetype": "ordinary_adult",
+    "characteristics": {
+     "STR": 45,
+     "CON": 55,
+     "SIZ": 65,
+     "DEX": 38,
+     "POW": 55
+    },
+    "derived": {
+     "HP": 12,
+     "MP": 11,
+     "SAN": 55,
+     "MOV": 7,
+     "DB": "none",
+     "Build": 0
+    },
+    "skills": {
+     "Persuade": 34,
+     "Psychology": 20,
+     "Spot Hidden": 28,
+     "Dodge": 40
+    },
+    "weapons": [],
+    "why": "fixture variant (SL-19): the ordinary_adult pin the live Keeper made on turn 3, set before it",
+    "pinned_turn": 2
+   }
+  },
+  "npc_defense": {
+   "steven-knott": {
+    "defense": "dodge",
+    "why": "He ducks behind the desk rather than hit back.",
+    "turn": 2
+   }
+  }
+ },
+ "commit_before": "26a78a4"
+}

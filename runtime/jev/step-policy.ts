@@ -37,7 +37,11 @@ const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value
  * approaches (ties: the first in the stated order), `no_modifier` is the dice word `none`. `by` holds one value per value
  * of another parameter of the same candidate (the approach per actor when the actor is itself still to bind).
  */
-export interface RuleDefault {rule: 'highest_offered_skill' | 'no_modifier'; value?: string; by?: {name: string; values: Record<string, string>}}
+export interface RuleDefault {rule: 'highest_offered_skill' | 'no_modifier' | 'card_disposition'; value?: string; by?: {name: string; values: Record<string, string>};
+  /** What the default read (§11.5.3 amendment: `combat_tactic` for the card's word), stamped on the basis beside the value. */
+  read?: string[];
+  /** Composed parameters that belong to the default and replace the candidate's own when it is taken (its `why`). */
+  composed?: Record<string, Json>}
 /** closed: the host can issue the complete vocabulary; open: only a language model can produce the value. */
 export interface Unbound {name: string; required: boolean; vocabulary: 'closed' | 'open'; options?: string[]; binder?: 'ordinary-resolve';
   /** What each closed option means, from the contract or the kernel row that issued it (the bind's criteria). */
@@ -65,9 +69,11 @@ export interface CandidateVariant {label: string; bound: Record<string, Json>; u
  *   has come and who has none (the ruling "An NPC's fight behaviour follows the NPC's own parameters"; §11.5.3);
  * - `stated_obligation` (e): the next step of a scene obligation the module states, as the kernel issues it
  *   (`table.apply.options.obligations`; contract §135.26): its meeting, or its check with a closed approach binder.
+ * - `first_blow`: the investigator's first attack outside a fight, as the kernel's first-blow row issues it
+ *   (`table.resolve.options.context.first_blow`; contract §135.30.2), selected only by the compile's `first_blow` predicate.
  * Fetching data (d) is the read step itself, not a candidate. Everything else is the Keeper's.
  */
-export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step', 'disposition_inference', 'stated_obligation'] as const;
+export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step', 'disposition_inference', 'stated_obligation', 'first_blow'] as const;
 export type ClerkAuthority = typeof CLERK_AUTHORITY[number];
 /** A host-issued step candidate (design §5.1): what the host can perform now, and what it still needs. */
 export interface Candidate {
@@ -458,11 +464,18 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
   for (const parameter of later) {
     const value = ruleDefaultOf(parameter, candidate, extra);
     if (value === undefined) { unresolved.push(parameter.name); continue; }
-    extra[parameter.name] = value; defaults[parameter.name] = {value, rule: parameter.ruleDefault!.rule};
+    const {rule, read, composed} = parameter.ruleDefault!;
+    extra[parameter.name] = value; defaults[parameter.name] = {value, rule, ...(read?.length ? {read: [...read]} : {})};
     const index = bindings.findIndex(entry => entry.name === parameter.name);
-    const record: BindRecord = {name: parameter.name, path: 'rule-default', value, rule: parameter.ruleDefault!.rule,
+    const record: BindRecord = {name: parameter.name, path: 'rule-default', value, rule,
       ...(index >= 0 ? {confidence: bindings[index].confidence, distribution: bindings[index].distribution} : {})};
     if (index >= 0) bindings[index] = record; else bindings.push(record);
+    // A default that carries its own explanation (the card's word, §11.5.3 amendment) replaces the candidate's composed one.
+    for (const [name, text] of Object.entries(composed ?? {})) {
+      extra[name] = text;
+      const at = bindings.findIndex(entry => entry.name === name), entry: BindRecord = {name, path: 'composed', value: text};
+      if (at >= 0) bindings[at] = entry; else bindings.push(entry);
+    }
   }
   if (unresolved.length) return {pending: keeperOwns(candidate, cause || 'unknown_binding', unresolved, bindings), reason: 'clerk_unbound', bindings};
   const bound: Candidate = Object.keys(defaults).length
