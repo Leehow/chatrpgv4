@@ -1,0 +1,1818 @@
+[
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4108,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4303,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 8419,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 14297,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 5106,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4665,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 1,
+    "verb": "apply",
+    "kinds": [
+      "clue",
+      "clue",
+      "cash",
+      "item",
+      "handout",
+      "move"
+    ],
+    "recorded": {
+      "verdict": "authorized",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 4432,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:1:0"
+  },
+  {
+    "runs": {
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 7534,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 8841,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 13064,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 13897,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "not_authorized",
+          "reason": null,
+          "ms": 8227,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "not_authorized",
+          "reason": null,
+          "ms": 10448,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 1,
+    "verb": "resolve",
+    "kinds": [],
+    "recorded": {
+      "verdict": "review_pending",
+      "reason": null,
+      "model": null,
+      "ms": 13004,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:1:2"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 3146,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4240,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 2329,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 3745,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 2105,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 1903,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 2,
+    "verb": "resolve",
+    "kinds": [],
+    "recorded": {
+      "verdict": "authorized",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 1976,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:2:0"
+  },
+  {
+    "runs": {
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 20384,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 12059,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "not_authorized",
+          "reason": null,
+          "ms": 6861,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 50582,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": false,
+          "verdict": null,
+          "reason": "model_error",
+          "ms": 60003,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 6343,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 2,
+    "verb": "resolve",
+    "kinds": [],
+    "recorded": {
+      "verdict": "not_authorized",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 4807,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:2:1"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "not_player_action",
+          "reason": null,
+          "ms": 13905,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "not_player_action",
+          "reason": null,
+          "ms": 13004,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 14747,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "not_player_action",
+          "reason": null,
+          "ms": 16952,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "uncertain",
+          "reason": null,
+          "ms": 5400,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "not_authorized",
+          "reason": null,
+          "ms": 22824,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 2,
+    "verb": "apply",
+    "kinds": [
+      "clue",
+      "clue",
+      "handout",
+      "time"
+    ],
+    "recorded": {
+      "verdict": "authorized",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 8866,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:2:2"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 1893,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 2011,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 3218,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 3216,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 5026,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 1801,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 3,
+    "verb": "resolve",
+    "kinds": [],
+    "recorded": {
+      "verdict": "authorized",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 1931,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:3:0"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 3882,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 3932,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 5873,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "not_player_action",
+          "reason": null,
+          "ms": 6822,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 4316,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 1919,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 3,
+    "verb": "apply",
+    "kinds": [
+      "clue",
+      "time"
+    ],
+    "recorded": {
+      "verdict": "not_player_action",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 3351,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:3:1"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 12892,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 7104,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 6608,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 10509,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 7766,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 6552,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 4,
+    "verb": "resolve",
+    "kinds": [],
+    "recorded": {
+      "verdict": "entailed",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 3598,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:4:0"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 6472,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 5046,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4095,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 6072,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 6368,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 5184,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 4,
+    "verb": "resolve",
+    "kinds": [],
+    "recorded": {
+      "verdict": "entailed",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 5080,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:4:2"
+  },
+  {
+    "runs": {
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 6760,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 7252,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 5912,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 10847,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 6997,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 5378,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 4,
+    "verb": "resolve",
+    "kinds": [],
+    "recorded": {
+      "verdict": "authorized",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 2788,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:4:3"
+  },
+  {
+    "runs": {
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 8659,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 3576,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 5901,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 12152,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 4691,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 2696,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 4,
+    "verb": "apply",
+    "kinds": [
+      "time"
+    ],
+    "recorded": {
+      "verdict": "not_player_action",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 9895,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:4:4"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 5244,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4215,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 5041,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 6642,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 16917,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 5269,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 5,
+    "verb": "resolve",
+    "kinds": [],
+    "recorded": {
+      "verdict": "authorized",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 5220,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:5:0"
+  },
+  {
+    "runs": {
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 4329,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 17822,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 5480,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 8179,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 5644,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4579,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 5,
+    "verb": "apply",
+    "kinds": [
+      "clue",
+      "time"
+    ],
+    "recorded": {
+      "verdict": "not_player_action",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 4129,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:5:1"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 5785,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 2271,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 3562,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 5437,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4421,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 3852,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 6,
+    "verb": "resolve",
+    "kinds": [],
+    "recorded": {
+      "verdict": "authorized",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 5064,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:6:0"
+  },
+  {
+    "runs": {
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "not_authorized",
+          "reason": null,
+          "ms": 3799,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "not_authorized",
+          "reason": null,
+          "ms": 10704,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "not_authorized",
+          "reason": null,
+          "ms": 4265,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "not_authorized",
+          "reason": null,
+          "ms": 7546,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "not_authorized",
+          "reason": null,
+          "ms": 10291,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "not_authorized",
+          "reason": null,
+          "ms": 3154,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 6,
+    "verb": "resolve",
+    "kinds": [],
+    "recorded": {
+      "verdict": "not_authorized",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 5689,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:6:2"
+  },
+  {
+    "runs": {
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "not_player_action",
+          "reason": null,
+          "ms": 15737,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "not_player_action",
+          "reason": null,
+          "ms": 7797,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 10748,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 23647,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 10806,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 18868,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 6,
+    "verb": "apply",
+    "kinds": [
+      "time",
+      "clue"
+    ],
+    "recorded": {
+      "verdict": "not_player_action",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 7763,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:6:3"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 3545,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 3282,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 2601,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4083,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 3275,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 2690,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 7,
+    "verb": "resolve",
+    "kinds": [],
+    "recorded": {
+      "verdict": "authorized",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 2735,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:7:0"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 4004,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 4243,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 2920,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 8078,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 3051,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 3558,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 8,
+    "verb": "apply",
+    "kinds": [
+      "time"
+    ],
+    "recorded": {
+      "verdict": "entailed",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 5465,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:8:0"
+  },
+  {
+    "runs": {
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 7472,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 3958,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 3256,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 10704,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4278,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4334,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 9,
+    "verb": "apply",
+    "kinds": [
+      "clue",
+      "time"
+    ],
+    "recorded": {
+      "verdict": "not_player_action",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 7824,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:9:0"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 5893,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 6097,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "not_player_action",
+          "reason": null,
+          "ms": 3814,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 14331,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 4196,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 7822,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 10,
+    "verb": "apply",
+    "kinds": [
+      "time",
+      "clue",
+      "handout"
+    ],
+    "recorded": {
+      "verdict": "entailed",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 10240,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:10:1"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "not_player_action",
+          "reason": null,
+          "ms": 2248,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "not_player_action",
+          "reason": null,
+          "ms": 3616,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "not_player_action",
+          "reason": null,
+          "ms": 3405,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "not_player_action",
+          "reason": null,
+          "ms": 6792,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "not_player_action",
+          "reason": null,
+          "ms": 3416,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "not_player_action",
+          "reason": null,
+          "ms": 2590,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 12,
+    "verb": "apply",
+    "kinds": [
+      "clue"
+    ],
+    "recorded": {
+      "verdict": "not_player_action",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 3116,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:12:0"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 5560,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 2843,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4965,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 5627,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 5400,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4065,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "longgate3-haunting-1058",
+    "turn": 19,
+    "verb": "apply",
+    "kinds": [
+      "move"
+    ],
+    "recorded": {
+      "verdict": "authorized",
+      "reason": null,
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 4718,
+      "cause": null
+    },
+    "id": "longgate3-haunting-1058:19:0"
+  },
+  {
+    "runs": {
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 5375,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 3182,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 3981,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 3633,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 5473,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 4149,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "sl29a-xuese-1436",
+    "turn": 7,
+    "verb": "apply",
+    "kinds": [
+      "move"
+    ],
+    "recorded": {
+      "verdict": null,
+      "reason": "model_error",
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "ms": 10040,
+      "cause": null
+    },
+    "id": "sl29a-xuese-1436:7:0"
+  },
+  {
+    "runs": {
+      "b_fast_setting": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 8462,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 18544,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 7553,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ],
+      "a_current": [
+        {
+          "run": 1,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 12275,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "verdict": "entailed",
+          "reason": null,
+          "ms": 8936,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "verdict": "authorized",
+          "reason": null,
+          "ms": 15209,
+          "model": "opencode-go/deepseek-v4.1-flash",
+          "timed_out": false
+        }
+      ]
+    },
+    "campaign": "sl29a-xuese-1436",
+    "turn": 14,
+    "verb": "apply",
+    "kinds": [
+      "move"
+    ],
+    "recorded": {
+      "verdict": "review_pending",
+      "reason": null,
+      "model": null,
+      "ms": 13003,
+      "cause": "cap"
+    },
+    "id": "sl29a-xuese-1436:14:0"
+  }
+]
