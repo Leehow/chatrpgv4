@@ -623,13 +623,17 @@ export function compileAdmission(evidence: ClerkEvidence | undefined): CompileAd
 	if (!compile) return undefined;
 	const predicate = COMPILE_PREDICATES.find((value) => value.name === compile.predicate);
 	if (!predicate) return { ok: false, reason: "unknown_predicate" };
-	const read = record(compile.read_features);
-	if (!read || !Object.keys(read).length) return { ok: false, reason: "features_unrecorded" };
+	const read = record(compile.read_features), fired = record(compile.features);
+	if (!read || !fired) return { ok: false, reason: "features_unrecorded" };
+	// Owner ruling (2026-09-24): the evidence is the features the predicate fired on -- those of its families among the
+	// cleared rows `basis.compile.features` names -- and each must have cleared the gate. A guard that did not clear (an
+	// `unclear` addressee) is not evidence against: the predicate already refuses to fire when it clears on someone else.
 	const features: Record<string, { row: unknown; confidence: unknown }> = {};
 	for (const family of predicate.features) {
-		if (!Object.hasOwn(read, family)) continue;
+		if (!Object.hasOwn(fired, family)) continue;
 		const entry = record(read[family]);
-		if (entry?.cleared !== true) return { ok: false, reason: `feature_not_cleared:${family}` };
+		if (!entry) return { ok: false, reason: `feature_unrecorded:${family}` };
+		if (entry.cleared !== true) return { ok: false, reason: `feature_not_cleared:${family}` };
 		features[family] = { row: entry.row ?? null, confidence: entry.confidence ?? null };
 	}
 	if (!Object.keys(features).length) return { ok: false, reason: "features_unrecorded" };

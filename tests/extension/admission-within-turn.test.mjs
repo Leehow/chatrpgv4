@@ -20,6 +20,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
+import { withOriginTamper } from "./origin-tamper.mjs";
 import { DEFAULT_ADMISSION_TIMEOUT_MS, REVIEW_TIMEOUT, admissionTimeoutMs, compileAdmission } from "../../extensions/kernel/admission.ts";
 import { admissionBindings, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { BIND_FAMILY } from "../../runtime/jev/step-policy.ts";
@@ -194,9 +195,18 @@ test("§32.12 compileAdmission: the gate #6 check (addressee 0.55 cleared by the
 	assert.equal(compileAdmission(evidence({ basis: { obligation: ACCESS } })), undefined, "a clerk write the route selected");
 	// A compile selection whose evidence does not hold: refused, so reviewed.
 	const refused = (value) => compileAdmission(value)?.ok === false ? compileAdmission(value).reason : "admitted";
+	// Owner ruling (2026-09-24): a guard that did not clear is not a feature the predicate fired on, and not evidence against.
+	const unclear = evidence();
+	unclear.basis.compile.read_features.addressee = { row: null, confidence: 0.9, cleared: false };
+	delete unclear.basis.compile.features.addressee;
+	assert.deepEqual(compileAdmission(unclear)?.ok && Object.keys(compileAdmission(unclear).features), ["ask", "act"], "an unclear addressee: admitted on the ask and the act");
+	// A feature it fired on whose record is under the gate, or missing: refused.
 	const under = evidence();
-	under.basis.compile.read_features.addressee = { row: "Arty Wilmot", confidence: 0.47, cleared: false };
-	assert.equal(refused(under), "feature_not_cleared:addressee", "a feature the predicate reads under the gate");
+	under.basis.compile.read_features.ask = { row: `obligation:${ACCESS}`, confidence: 0.41, cleared: false };
+	assert.equal(refused(under), "feature_not_cleared:ask", "a fired-on feature under the gate");
+	const missing = evidence();
+	delete missing.basis.compile.read_features.act;
+	assert.equal(refused(missing), "feature_unrecorded:act");
 	const noFeatures = evidence();
 	delete noFeatures.basis.compile.read_features;
 	assert.equal(refused(noFeatures), "features_unrecorded");
@@ -295,11 +305,11 @@ function countTyped(t) {
 	return requests;
 }
 
-async function hybrid(t, { prepare, compile, responses, env = {}, engine: engineOptions = {} }) {
+async function hybrid(t, { prepare, compile, responses, env = {}, engine: engineOptions = {}, tamper }) {
 	const engine = createHybridEngine({ env: process.env, decision: stubJev(compile), ...engineOptions });
 	const table = await openTable({
 		realKernel: true, prepareWorkspace: prepare, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: PASS, ...env },
-		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }], responses,
+		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: tamper ? withOriginTamper(engine, tamper) : engine.extension }], responses,
 	});
 	t.after(() => table.dispose());
 	return table;
@@ -323,15 +333,33 @@ test("§32.12 (b): the clerk's obligation check the compile selected is admitted
 	assert.equal(typed.length, 0, "the typed reviewer was never asked");
 });
 
-test("§32.12 (c): the same check with the addressee under the gate is reviewed by the lane, and the row says why the evidence was refused", async (t) => {
+test("§32.12: an unclear addressee with a cleared ask is admitted by the compile -- the guard that did not clear is not evidence against", async (t) => {
 	const table = await hybrid(t, { prepare: metArty, compile: askArty(arty047), responses: narrateOnly("编辑松了口，放你下楼。") });
 	await table.session.prompt("我说明来意，请他帮忙调出科比特宅这些年的旧剪报。");
 	const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "resolve");
-	assert.ok(row, "the compile still selected the check: the addressee guards only when it clears");
-	assert.equal(row.basis.compile.read_features.addressee.cleared, false);
-	assert.deepEqual([row.path, row.reviewer, row.compile_refused], ["lane", "lane", "feature_not_cleared:addressee"]);
-	assert.equal(typeof row.first_byte_ms, "number", "a lane row names when the headers came");
-	assert.equal(table.lanes.admission.requests().length, 1);
+	assert.ok(row, "the compile selected the check on the demand");
+	assert.equal(row.basis.compile.read_features.addressee.cleared, false, "the addressee (0.47 against unclear 0.45) did not clear");
+	assert.deepEqual([row.path, row.reviewer, row.compile_refused], ["compile", "compile", undefined]);
+	assert.deepEqual(Object.keys(row.features), ["ask", "act"], "the evidence is the features it fired on");
+	assert.equal(table.lanes.admission.requests().length, 0);
+});
+
+test("§32.12 (c): the check whose fired-on ask record is under the gate, or whose bind records carry a parameter with no path, is reviewed by the lane", async (t) => {
+	for (const [label, tamper, reason] of [
+		["the ask under the gate", (origin) => { origin.basis.compile.read_features.ask = { ...origin.basis.compile.read_features.ask, confidence: 0.41, cleared: false }; return origin; },
+			"feature_not_cleared:ask"],
+		["a parameter with no recorded path", (origin) => { origin.bindings = [...origin.bindings, { name: "difficulty", path: null }]; return origin; },
+			"parameter_path_unrecorded:difficulty"],
+	]) await t.test(label, async (tt) => {
+		const table = await hybrid(tt, { prepare: metArty, compile: askArty(clearedArty), responses: narrateOnly("编辑松了口，放你下楼。"),
+			tamper: (origin) => origin.origin === "policy" && origin.basis?.compile ? tamper(origin) : origin });
+		await table.session.prompt("我说明来意，请他帮忙调出科比特宅这些年的旧剪报。");
+		const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "resolve");
+		assert.ok(row, "the clerk's check reached admission");
+		assert.deepEqual([row.path, row.reviewer, row.compile_refused], ["lane", "lane", reason]);
+		assert.equal(typeof row.first_byte_ms, "number", "a lane row names when the headers came");
+		assert.equal(table.lanes.admission.requests().length, 1);
+	});
 });
 
 test("§32.12 (d): a Keeper-origin write in the same turn is still reviewed by the lane, beside the clerk's compile admission", async (t) => {

@@ -6971,14 +6971,15 @@ no typed call** when all of these hold (`compileAdmission` in `extensions/kernel
 1. the call is policy-origin: the dispatcher frame's host origin (§135.4) says `origin: "policy"`; nothing in the tool
    arguments can say so;
 2. its `basis.compile` names a predicate of `COMPILE_PREDICATES` (`runtime/jev/route-compile.ts`);
-3. every feature that predicate reads **cleared at the gate** -- §135.2's gates: reported confidence at 0.6 or above, or
-   the margin rule. What a predicate reads is declared on the predicate (`features`): `move` reads `destination`;
+3. every feature the predicate **fired on** cleared at the gate -- §135.2's gates: reported confidence at 0.6 or above, or
+   the margin rule. The families a predicate can read are declared on it (`features`): `move` reads `destination`;
    `obligation_check` reads `ask`, `addressee` and `act`; `stated_meeting` reads `addressee` and `ask`; `attack` reads `act`
-   and `target`. A family the compile did not ask (it had no rows) is not read. A read feature that did not clear -- below
-   the gates, `unclear`, `unknown`, not answered -- refuses the exemption **even when the predicate fired without it**
-   (the obligation check's addressee and act guard only when they clear, §135.30, so the check can be selected with the
-   addressee unread; that is exactly the declaration live gate #4's admission refused, "said nothing about Arty Wilmot",
-   and the lane keeps it);
+   and `target`. The features it fired on are those of its families among the cleared rows `basis.compile.features` names;
+   each must have its `read_features` record, and that record must say `cleared: true`. A guard family that did not clear
+   (an `unclear` addressee or act) is not a feature the predicate fired on and is **not evidence against**: the predicate
+   already refuses to fire when the addressee clears on someone else or on `none`, or the act clears on another intent
+   (§135.30), so the check selected on the demand alone is admitted by the compile (owner ruling, 2026-09-24, deciding the
+   SL-18 fork; the first implementation counted such a guard and sent gate3-t2's check to the lane in 2 of 3 runs);
 4. every bound parameter of the call has a recorded binding path among `stated`, `composed`, `rule-default` and `jev`
    (§135.28's four ways, the list the `lane: "run"`, `event: "bind"` row records). The hybrid engine computes that list
    before the dispatch and hands it to the dispatcher as the host origin's `bindings` (host-only: it is not spread onto
@@ -6986,8 +6987,8 @@ no typed call** when all of these hold (`compileAdmission` in `extensions/kernel
    `path: null`. A missing or empty list, or any other path, refuses the exemption.
 
 For (3) `basis.compile` gains **`read_features`**: `{<family>: {row, confidence, cleared}}` for each family the firing
-predicate reads that the compile asked (`interpretCompile`), beside the existing `predicate`, `features` (the cleared rows
-it fired on) and `bound`. It travels wherever `basis` does (every row of the call, the Keeper's `clerk_did`).
+predicate can read that the compile asked, cleared or not (`interpretCompile`), beside the existing `predicate`, `features`
+(the cleared rows) and `bound`; admission reads the records of the families the predicate fired on. It travels wherever `basis` does (every row of the call, the Keeper's `clerk_did`).
 
 The compile path's row: `ok: true, verdict: "authorized", admitted: true, reused: false, path: "compile", reviewer:
 "compile", ms` (the check's own time), `predicate`, `features` (`{family: {row, confidence}}` for the read features),
@@ -6996,8 +6997,10 @@ and no one else's, so a Keeper's identical proposal is reviewed. Ordering: after
 and after verdict reuse (a refusal already given this turn to the identical proposal stands), before any review.
 
 When `basis.compile` is present and the exemption is refused, the review runs exactly as before this section and the row
-adds `compile_refused`: `features_unrecorded`, `feature_not_cleared:<family>`, `bindings_unrecorded`,
-`parameter_path_unrecorded:<name>`, `parameter_path_not_exempt:<name>` or `unknown_predicate`. **Keeper-origin writes and
+adds `compile_refused`: `features_unrecorded`, `feature_unrecorded:<family>`, `feature_not_cleared:<family>`,
+`bindings_unrecorded`, `parameter_path_unrecorded:<name>`, `parameter_path_not_exempt:<name>` or `unknown_predicate`. In
+one line: the exemption is **refused when any feature the predicate fired on was below the gate, or a bound parameter has
+no recorded path**. **Keeper-origin writes and
 clerk writes the compile did not select keep the current review**: the route's `need` selections, §135.26's carried
 meeting on its own (a `person`, never reviewed anyway, §32.1), forced session steps (a pending NPC defence; NPC actors are
 not reviewed either, §32.1), disposition writes, Mod contact checks, and the ordinary check a route selected.
@@ -7019,8 +7022,9 @@ trickles reasoning deltas ends `review_timeout` within the default cap plus 1 s,
 `timed_out: true` with `ms`, `cap_ms` and `first_byte_ms`; the cap's default and override; timeouts leave no service
 notice and neither count toward nor end an unavailability streak (unavailable, timeout, unavailable still escalates); at the extension seam with the
 emitted kernel and the hybrid engine, a compile-selected obligation check (every read feature cleared, every parameter
-recorded) admitted `path: "compile"` with no lane and no typed request; the same check with the addressee under the gate
-reviewed by the lane (`compile_refused: feature_not_cleared:addressee`); a compile-selected clerk move admitted without the
+recorded) admitted `path: "compile"` with no lane and no typed request; the same check with an `unclear` addressee and a
+cleared ask admitted by the compile too; the check whose fired-on ask record is under the gate, or whose bind records carry
+a parameter with no path, reviewed by the lane with `compile_refused`; a compile-selected clerk move admitted without the
 fast path's typed call; a Keeper-origin write of the same turn reviewed by the lane; and `compileAdmission` pure (no
 `basis.compile`, an unrecorded parameter, a path outside the four). Mutations and the gate3-t2 replays are in the SL-18
 ticket's Comments.
@@ -18175,7 +18179,8 @@ question (§135.2, and §135.26's fact question for an obligation whose `ask` di
 `unclear`, not asked, or a candidate no predicate reads (a clue, a handout, a roster person, a Mod contact check, the
 ordinary check, a session step other than the investigator's attack). The exit question stays with the route. A
 selected candidate's `basis` gains `compile: {predicate, features}` (the cleared rows it fired on; since 2026-09-24 also
-`read_features`, each family the predicate reads with its row, confidence and whether it cleared, §32.12), which every row of the
+`read_features`, each family the predicate can read with its row, confidence and whether it cleared; admission reads the
+records of the features the predicate fired on, §32.12), which every row of the
 call and the Keeper's `clerk_did` carry (§135.7, §135.8).
 
 **It replaces the first fan-out.** When the compile selects, its candidates are the run's pending steps in the route's
