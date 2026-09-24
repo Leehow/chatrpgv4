@@ -7299,6 +7299,20 @@ batch 3 runs and on each line alone 2 runs, uncapped):
   `person` line (4 of them also a `move`); batches carrying a `threat` line had p90 6.4 s and none over 13 s. Turn 14's
   whole batch answered in 4.5–10.5 s here: its live 13 s and 26 s were the provider's tail.
 
+**Lines no reviewer reads (owner ruling, 2026-09-24, amending this section the same day).** An `apply` effect §32.1 does not put
+to review on its own -- `person`, `threat`, `npc`, `flag`, `note`, `ruling`, `define`, `damage` and the rest of that class, a
+`move` that only renames the scene underfoot, an `object` adoption or same-owner edit -- is **not sent to the lane or to the
+typed reviewer at all**. `admissionRequest` builds a batch's lines from its reviewed effects only (`proposal.effects` maps each
+line to its effect); the key stays the whole batch's (§32.4). The unreviewed effects land with the batch on the same call:
+with the whole batch when its reviewed lines are admitted; with the cleared lines when a split's remainder does not land; not
+at all when the reviewed lines are refused (the call is refused, as before). *Why:* they are staging of what the book
+states, and the lane's verdict never turned on them (every `threat` line alone `not_player_action`, 18 of 18), while the
+lane's tail lived on the batches that carried them: rounds on batches with a `person` line had p90 34.9 s against 6.6 s
+for batches with neither, and all 6 rounds over 13 s carried one. The lane reviews only `move`, `clue`, `handout`, `time`,
+`cash`, `item`, `object`, `usage` and `map` lines; `resolve` is unchanged. Because both reviewers read the same lines
+(§32.10), the typed answer is also over the reviewed lines only. The line-level machinery below is unchanged; its
+non-triggering half of `lineClearable` no longer has lines to clear and stays for the rule's shape.
+
 **Which lines the typed answer may admit on their own** (`lineClearable`, `clearedLines` in `extensions/kernel/admission.ts`;
 closed contract enums, never the prose). A line of an `apply` batch is **cleared** when all of these hold:
 - its kind is one of §32.11's (`move`, `clue`, `handout`, `time`) or one §32.1 does not put to review (`threat`, `person`,
@@ -7379,7 +7393,9 @@ Keeper, through the result's `admission` block and `note`, the remainder's own r
 `line_level` rows.
 
 *Tests* (`tests/extension/admission-line-level.test.mjs`; `admission-fast-path.test.mjs`'s typed-refusal and item tests now
-assert the split): the pure rules (the kinds, the threshold at 0.87 and under it, refusing lines, fast path off, a resolve,
+assert the split): the owner's amendment (turn 14's `threat` + `time`: the lane and the typed reviewer read only the `time` line and
+both land, on the fake and the emitted kernel; a `person` + `move` batch: the lane sees only the move; a refusal of the reviewed
+lines lands nothing; a split whose rest is refused lands the cleared and the unreviewed lines); the pure rules (the kinds, the threshold at 0.87 and under it, refusing lines, fast path off, a resolve,
 mismatched lines, the remainder's typed reading); turn 14's shape (the threat left unreviewed, the batch whole, no lane
 call), on the fake kernel and on the emitted kernel with its receipts; nothing cleared at 0.86 (the whole batch reviewed);
 the remainder reviewed alone with the cleared line shown as admitted in this call and no second typed call; a remainder the

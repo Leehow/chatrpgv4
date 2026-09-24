@@ -2095,7 +2095,10 @@ export default function (pi: ExtensionAPI) {
 		const splitBefore = tool === "apply" ? state.admissionSplit.get(proposal.key) : undefined;
 		if (splitBefore) {
 			const all = effectsOf(), keep = all.filter((effect) => !splitBefore.includes(effectSignature(effect)));
-			alreadyLanded = all.flatMap((effect, index) => keep.includes(effect) ? [] : [proposal!.lines[index]!]);
+			// The dropped lines as the reviewer would have read them, or by kind for an effect no reviewer reads (§32.12.3).
+			const shownAt = (index: number) => proposal!.effects?.indexOf(index) ?? index;
+			alreadyLanded = all.flatMap((effect, index) => keep.includes(effect) ? []
+				: [shownAt(index) >= 0 ? proposal!.lines[shownAt(index)]! : `apply ${String(effect.kind)} (not reviewed)`]);
 			payload.effects = keep;
 			await record({ lane: "admission", verb: tool, ok: true, skipped: "already_landed", key: keyDigest(proposal.key), path: "none", ms: 0,
 				line_level: "resend", already_landed: alreadyLanded, ...origin, ...who });
@@ -2269,10 +2272,14 @@ export default function (pi: ExtensionAPI) {
 		if (!split) return alreadyLanded ? { landed: [], alreadyLanded } : undefined;
 		// §32.12.3: the typed answer admitted these lines on their own at the fast-path confidence. They land in this call
 		// whatever becomes of the rest; the rest is reviewed on its own.
-		const effects = effectsOf();
-		const cleared = split.cleared, rest = effects.map((_, index) => index).filter((index) => !cleared.includes(index));
-		const clearedEffects = cleared.map((index) => effects[index]!), restEffects = rest.map((index) => effects[index]!);
-		const clearedLinesText = cleared.map((index) => proposal!.lines[index]!), restLines = rest.map((index) => proposal!.lines[index]!);
+		// Line indices are the reviewed effects' (§32.12.3); an effect no reviewer reads lands with the batch, so it goes with
+		// the cleared lines when the rest does not land.
+		const effects = effectsOf(), shown = proposal.effects ?? effects.map((_, index) => index);
+		const cleared = split.cleared, rest = shown.map((_, line) => line).filter((line) => !cleared.includes(line));
+		const clearedEffects = cleared.map((line) => effects[shown[line]!]!), restEffects = rest.map((line) => effects[shown[line]!]!);
+		const clearedLinesText = cleared.map((line) => proposal!.lines[line]!), restLines = rest.map((line) => proposal!.lines[line]!);
+		const withheld = new Set(rest.map((line) => shown[line]!));
+		const landing = effects.filter((_, index) => !withheld.has(index));
 		const answer = split.attempt.typed!;
 		const lineVerdicts = cleared.map((index) => answer.lines![index]!);
 		const clearedVerdict: AdmissionVerdict = { verdict: batchVerdict(lineVerdicts.map((line) => line.verdict)),
@@ -2283,13 +2290,14 @@ export default function (pi: ExtensionAPI) {
 		if (clearedProposal) state.admission.set(clearedProposal.key, clearedVerdict);
 		const lineNumbers = (indices: number[]) => indices.map((index) => index + 1);
 		await record({ lane: "admission", verb: tool, ok: true, verdict: clearedVerdict.verdict, admitted: true, reused: false, ms: split.ms, key: digest,
-			model: ADMISSION_JEV_MODEL, reviewer: "jev", path: "typed", line_level: "admitted", lines: lineNumbers(cleared), of_lines: effects.length,
+			model: ADMISSION_JEV_MODEL, reviewer: "jev", path: "typed", line_level: "admitted", lines: lineNumbers(cleared), of_lines: shown.length,
 			confidence: Math.min(...lineVerdicts.map((line) => line.confidence)), ...split.meta, ...refusedCompile, ...origin, ...who,
 			grounds: clearedVerdict.grounds, proposed: clearedLinesText });
-		const partRows = { line_level: "remainder", lines: lineNumbers(rest), of_lines: effects.length, batch_key: digest };
+		const partRows = { line_level: "remainder", lines: lineNumbers(rest), of_lines: shown.length, batch_key: digest };
 		const remainder = admissionRequest(tool, { effects: restEffects }, scopeFor(restEffects));
 		if (!remainder) {
-			// §32.1: what is left carries no triggering kind, and a call of only those lines would not be reviewed at all.
+			// §32.1: what is left carries no triggering kind, and a call of only those lines would not be reviewed at all. Since the
+			// owner's amendment to §32.12.3 the rest holds only reviewed lines, so this guards a shape that cannot arise today.
 			await record({ lane: "admission", verb: tool, ok: true, skipped: "not_triggering", path: "none", ms: 0, proposed: restLines, ...partRows, ...origin, ...who });
 			return alreadyLanded ? { landed: [], alreadyLanded } : undefined;
 		}
@@ -2298,10 +2306,10 @@ export default function (pi: ExtensionAPI) {
 				startedAt: split.startedAt, capMs: split.capMs, hardCapMs: split.hardCapMs });
 		} catch (error) {
 			if (!isKernelError(error)) throw error;
-			// The remainder did not land: this call carries the admitted lines alone, in the batch's order.
-			payload.effects = clearedEffects;
+			// The remainder did not land: this call carries the admitted lines and the unreviewed ones, in the batch's order.
+			payload.effects = landing;
 			return { landed: clearedLinesText, notLanded: { lines: restLines, error }, ...(alreadyLanded ? { alreadyLanded } : {}),
-				wholeKey: proposal.key, landedSignatures: clearedEffects.map(effectSignature) };
+				wholeKey: proposal.key, landedSignatures: landing.map(effectSignature) };
 		}
 		// The remainder was admitted: the whole batch lands, in its own order, and its verdict is kept for the turn like any.
 		const admittedRest = state.admission.get(remainder.key);

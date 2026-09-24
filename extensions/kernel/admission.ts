@@ -141,6 +141,11 @@ export interface AdmissionProposal {
 	lines: string[];
 	/** An `apply` batch's effect kinds, in order: closed contract enums the typed route reads (§32.10). */
 	kinds?: string[];
+	/**
+	 * §32.12.3: `lines[i]` is the batch's effect `effects[i]`. An `apply` proposal's lines are only the effects §32.1 puts to
+	 * review; the others (a `person`, a `threat`, a scene rename, ...) are not shown to either reviewer and land with the batch.
+	 */
+	effects?: number[];
 }
 
 /**
@@ -285,7 +290,9 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const effects = Array.isArray(payload.effects) ? (payload.effects as Array<Record<string, unknown>>) : [];
 		const here = [scope.scene?.handle, scope.scene?.label].filter(Boolean).map(norm);
 		const destination = (effect: Record<string, unknown>) => scope.destinations?.find(value => norm(value.requested) === norm(effect.to));
-		const triggers = effects.some((effect) => {
+		// §32.1: whether one effect is put to review on its own. Since §32.12.3's amendment (the owner's ruling after SL-30's
+		// measurement) this also decides which lines the reviewers read: the others land with the batch unreviewed.
+		const reviewed = (effect: Record<string, unknown>): boolean => {
 			const kind = text(effect?.kind);
 			if (!kind || !TRIGGER_KINDS.has(kind)) return false;
 			if (kind === "move" && here.includes(norm(effect.to)) && !text(effect.label)) return false;
@@ -294,8 +301,9 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 				if (!text(effect.to) || text(effect.adopt) || text(effect.from) && norm(effect.from) === norm(effect.to)) return false;
 			}
 			return true;
-		});
-		if (!triggers) return null;
+		};
+		const shown = effects.flatMap((effect, index) => reviewed(effect) ? [index] : []);
+		if (!shown.length) return null;
 		const describe = (effect: Record<string, unknown>): string => {
 			const kind = text(effect.kind) ?? "?";
 			const fields = Object.entries(effect)
@@ -309,7 +317,8 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const signatures = effects.map(effectSignature);
 		const ordered = effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
 		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [] });
-		return { tool: "apply", key, lines: effects.map(describe), kinds: effects.map((effect) => text(effect.kind) ?? "?") };
+		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
+		return { tool: "apply", key, lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown };
 	}
 	return null;
 }

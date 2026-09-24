@@ -123,45 +123,81 @@ test("§32.12.3 remainderAttempt: the batch's own answer on the lines left, mapp
 
 // ---- the seam -----------------------------------------------------------------------------------------------------------
 
-test("§32.12.3: long gate #2's turn 14 -- the time line clears, the threat line left has no triggering kind, so the batch lands whole with no lane round", async (t) => {
-	installJev(t, [{ verdict: "not_player_action", confidence: 0.55 }, { verdict: "entailed", confidence: 0.93 }]);
+test("§32.12.3 (owner's amendment): long gate #2's turn 14 -- the lane sees only the time line; the threat line lands with the batch unreviewed", async (t) => {
+	const typed = installJev(t, [{ verdict: "entailed", confidence: 0.6 }]);
 	const table = await openTable({ env: KEY, responses: [call("apply", { effects: [THREAT, TIME] }), ...close],
-		laneResponses: { admission: restLane({ verdict: "not_authorized", grounds: "the rest must not be reviewed" }) } });
+		laneResponses: { admission: [slowVerdict({ verdict: "entailed", grounds: "prying it open takes the time" }, 300)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
-	assert.deepEqual(effectsOf(table), [["threat", "time"]], "one call, the batch's own order");
-	assert.equal(restRequests(table).length, 0, "the threat line left was not put to the lane");
-	const rows = admissionRows(table);
-	assert.deepEqual(rows.map((row) => [row.path, row.line_level, row.lines, row.skipped ?? row.verdict]),
-		[["typed", "admitted", [2], "entailed"], ["none", "remainder", [1], "not_triggering"]]);
-	assert.ok(rows[0].ms < 2000, `the review did not wait for the lane (${rows[0].ms} ms)`);
-	assert.equal(rows[0].confidence, 0.93);
-	assert.deepEqual(rows[0].line_confidences, [0.55, 0.93], "every line's own confidence is on the row");
+	const [request, ...more] = table.lanes.admission.requests();
+	assert.equal(more.length, 0);
+	assert.match(proposes(request), /apply time/);
+	assert.doesNotMatch(proposes(request), /apply threat/, "the threat line is not sent to the lane");
+	assert.equal(Object.keys(typed[0].questions).filter((key) => key.startsWith("verdict_")).length, 1, "nor to the typed reviewer");
+	assert.deepEqual(effectsOf(table), [["threat", "time"]], "it lands with the batch, one call, the batch's own order");
+	const [row] = admissionRows(table);
+	assert.deepEqual([row.path, row.verdict, row.line_level ?? null], ["lane", "entailed", null]);
+	assert.deepEqual(row.proposed.map((line) => line.split(":")[0]), ["apply time"]);
+	assert.deepEqual(row.line_confidences, [0.6], "a line that did not clear can be read back");
 	const [result] = toolResults(table.session, "apply");
 	assert.equal(result.isError, false);
 	assert.equal(result.details.admission, undefined, "everything landed: nothing to say");
 });
 
+test("§32.12.3 (owner's amendment): a person + move batch -- the lane sees only the move, and the person lands with it", async (t) => {
+	installJev(t, [{ verdict: "authorized", confidence: 0.6 }]);
+	const PERSON = { kind: "person", who: "Vittorio Macario", why: "探视名单上写着这个名字。" };
+	const table = await openTable({ env: KEY, responses: [call("apply", { effects: [PERSON, MOVE] }), ...close],
+		laneResponses: { admission: [slowVerdict({ verdict: "authorized", grounds: "the player went down to the kitchen" }, 300)] } });
+	t.after(() => table.dispose());
+	await table.session.prompt(WORDS);
+	const [request] = table.lanes.admission.requests();
+	assert.match(proposes(request), /apply move/);
+	assert.doesNotMatch(proposes(request), /apply person|Vittorio/, "the person line is not sent to the lane");
+	assert.deepEqual(effectsOf(table), [["person", "move"]]);
+});
+
+test("§32.12.3 (owner's amendment): a lane refusal of the reviewed lines still refuses the call; nothing lands", async (t) => {
+	installJev(t, [{ verdict: "authorized", confidence: 0.6 }]);
+	const PERSON = { kind: "person", who: "Vittorio Macario" };
+	const table = await openTable({ env: KEY, responses: [call("apply", { effects: [PERSON, MOVE] }), ...close],
+		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "only asked about the house", missing: "whether to go" }, 300)] } });
+	t.after(() => table.dispose());
+	await table.session.prompt(WORDS);
+	assert.deepEqual(effectsOf(table), []);
+});
+
 test("§32.12.3: the typed answer clears no line (0.86) -- the batch is reviewed whole, as before", async (t) => {
-	installJev(t, [{ verdict: "not_player_action", confidence: 0.55 }, { verdict: "entailed", confidence: 0.86 }]);
-	const table = await openTable({ env: KEY, responses: [call("apply", { effects: [THREAT, TIME] }), ...close],
+	installJev(t, [{ verdict: "entailed", confidence: 0.86 }, { verdict: "authorized", confidence: 0.4 }]);
+	const table = await openTable({ env: KEY, responses: [call("apply", { effects: [TIME, CLUE] }), ...close],
 		laneResponses: { admission: [slowVerdict({ verdict: "entailed", grounds: "prying it open takes the time" }, 300)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 	const rows = admissionRows(table);
 	assert.deepEqual(rows.map((row) => [row.path, row.line_level ?? null, row.verdict]), [["lane", null, "entailed"]]);
-	assert.deepEqual(rows[0].line_confidences, [0.55, 0.86], "a line that did not clear can be read back");
+	assert.deepEqual(rows[0].line_confidences, [0.86, 0.4], "a line that did not clear can be read back");
 	assert.equal(table.lanes.admission.requests().length, 1);
-	assert.deepEqual(effectsOf(table), [["threat", "time"]]);
+	assert.deepEqual(effectsOf(table), [["time", "clue"]]);
 });
 
 test("§32.12.3: with the fast path off no line clears", async (t) => {
-	installJev(t, [{ verdict: "not_player_action", confidence: 0.99 }, { verdict: "entailed", confidence: 0.99 }]);
-	const table = await openTable({ env: { ...KEY, PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: "off" }, responses: [call("apply", { effects: [THREAT, TIME] }), ...close],
+	installJev(t, [{ verdict: "entailed", confidence: 0.99 }, { verdict: "authorized", confidence: 0.4 }]);
+	const table = await openTable({ env: { ...KEY, PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: "off" }, responses: [call("apply", { effects: [TIME, CLUE] }), ...close],
 		laneResponses: { admission: [slowVerdict({ verdict: "entailed", grounds: "prying it open takes the time" }, 300)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 	assert.deepEqual(admissionRows(table).map((row) => [row.path, row.line_level ?? null]), [["lane", null]]);
+});
+
+test("§32.12.3: a split whose rest is refused lands the cleared line and the unreviewed lines, in the batch's order", async (t) => {
+	installJev(t, [{ verdict: "entailed", confidence: 0.93 }, { verdict: "authorized", confidence: 0.4 }]);
+	const table = await openTable({ env: KEY, responses: [call("apply", { effects: [THREAT, TIME, CLUE] }), ...close],
+		laneResponses: { admission: restLane({ verdict: "not_authorized", grounds: "the player only pried the door", missing: "whether to read the diaries" }) } });
+	t.after(() => table.dispose());
+	await table.session.prompt(WORDS);
+	assert.deepEqual(effectsOf(table), [["threat", "time"]]);
+	const rows = admissionRows(table);
+	assert.deepEqual(rows.map((row) => [row.line_level, row.lines, row.of_lines]), [["admitted", [1], 2], ["remainder", [2], 2]]);
 });
 
 test("§32.12.3: the rest is reviewed by the lane on its own, with the cleared line shown as admitted in this call; admitted, the batch lands whole in its order", async (t) => {
@@ -272,12 +308,12 @@ test("§32.12.3 with §78: a delivery written behind a batch that only partly la
 	assert.ok(table.telemetry().some((row) => row.tool === "narrate" && row.ok === true), "and written again");
 });
 
-test("§32.12.3 on the emitted kernel: long gate #2's turn-14 batch lands whole on the time line's clearance, with its receipts", async (t) => {
-	installJev(t, [{ verdict: "not_player_action", confidence: 0.55 }, { verdict: "entailed", confidence: 0.93 }]);
+test("§32.12.3 on the emitted kernel: long gate #2's turn-14 batch -- the lane reviews the time line alone, and both receipts land", async (t) => {
+	installJev(t, [{ verdict: "entailed", confidence: 0.6 }]);
 	const table = await openTable({ realKernel: true, campaign: "line-level-seam", env: KEY, responses: [
 		call("look", {}), call("narrate", { text: "诺特把钥匙推过桌面，等你开口。" }), fauxAssistantMessage("opening"),
 		call("apply", { effects: [THREAT, TIME] }), ...close],
-		laneResponses: { admission: restLane({ verdict: "not_authorized", grounds: "the rest must not be reviewed" }) } });
+		laneResponses: { admission: [slowVerdict({ verdict: "entailed", grounds: "prying it open takes the time" }, 300)] } });
 	t.after(() => table.dispose());
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
 	await table.session.prompt(WORDS);
@@ -286,5 +322,6 @@ test("§32.12.3 on the emitted kernel: long gate #2's turn-14 batch lands whole 
 	const receipts = result.details.receipts ?? [];
 	assert.ok(receipts.some((id) => String(id).startsWith("time:")), `a time receipt (${JSON.stringify(receipts)})`);
 	assert.ok(receipts.some((id) => String(id).startsWith("threat:")), `a threat receipt (${JSON.stringify(receipts)})`);
-	assert.equal(restRequests(table).length, 0);
+	const requests = table.lanes.admission.requests();
+	assert.ok(requests.length >= 1 && requests.every((text) => !/apply threat/.test(proposes(text))), "no lane round read the threat line");
 });
