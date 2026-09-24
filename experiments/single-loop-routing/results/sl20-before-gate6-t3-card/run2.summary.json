@@ -1,0 +1,1121 @@
+{
+ "run": 2,
+ "fixture": "gate6-t3-card",
+ "admission": "lane",
+ "keeper": "replay",
+ "thinking": "off",
+ "arm": "after",
+ "latency": false,
+ "seed": "1",
+ "wall_ms": 13937,
+ "budget": {
+  "turn": 3,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d29f-91e2-76c7-8307-1a9268cdb652",
+  "budget_ms": 45000,
+  "elapsed_ms": 13065,
+  "elapsed_at_compose": 12811,
+  "over_budget": false,
+  "deferred_by_budget": [],
+  "run_id": "5365d70f-189d-4ed3-9380-010b0de9c53e"
+ },
+ "compile": "on",
+ "compile_row": {
+  "turn": 3,
+  "lane": "route",
+  "purpose": "compile",
+  "run": "run-01a0d29f-91e2-76c7-8307-1a9268cdb652",
+  "step": "run-01a0d29f-91e2-76c7-8307-1a9268cdb652:s2",
+  "status": "complete",
+  "ms": 330,
+  "features": {
+   "destination": {
+    "rows": {
+     "destination_1": "central-library",
+     "destination_2": "hall-of-records",
+     "destination_3": "neighborhood-gossip",
+     "destination_4": "previous-tenants",
+     "destination_5": "corbitt-house-ground",
+     "destination_6": "commission-briefing"
+    },
+    "choice": "destination_6",
+    "row": "commission-briefing",
+    "confidence": 1,
+    "probabilities": {
+     "none": 0,
+     "destination_2": 0,
+     "destination_5": 0,
+     "destination_6": 1,
+     "unclear": 0,
+     "destination_1": 0,
+     "destination_4": 0,
+     "destination_3": 0
+    },
+    "cleared": true
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "Arty Wilmot",
+     "addressee_2": "Ruth Blake"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.94,
+    "probabilities": {
+     "none": 0.96,
+     "addressee_1": 0.02,
+     "unclear": 0.02,
+     "addressee_2": 0
+    },
+    "cleared": true
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "obligation:globe-archivist",
+     "ask_2": "clue:globe-unpublished-story",
+     "ask_3": "clue:macario-tragedy",
+     "ask_4": "clue:globe-fire-cutoff",
+     "ask_5": "handout:Boston Globe City Desk Copy — Held from Print (1918)"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.73,
+    "probabilities": {
+     "none": 0.77,
+     "ask_1": 0.03,
+     "ask_3": 0.01,
+     "unclear": 0.11,
+     "ask_4": 0.02,
+     "ask_5": 0,
+     "ask_2": 0.06
+    },
+    "cleared": true
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_4",
+    "row": "combat",
+    "confidence": 0.86,
+    "probabilities": {
+     "none": 0.01,
+     "act_2": 0.1,
+     "act_3": 0,
+     "act_1": 0,
+     "unclear": 0,
+     "act_7": 0,
+     "act_5": 0,
+     "act_4": 0.88,
+     "act_8": 0,
+     "act_11": 0,
+     "act_9": 0,
+     "act_6": 0,
+     "act_10": 0.01
+    },
+    "cleared": true
+   },
+   "item": {
+    "rows": {
+     "item_1": "笔记本",
+     "item_2": "开锁工具",
+     "item_3": "手电筒",
+     "item_4": "私人徽章"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.95,
+    "probabilities": {
+     "item_3": 0,
+     "none": 0.96,
+     "item_2": 0,
+     "item_4": 0,
+     "unclear": 0.04,
+     "item_1": 0
+    },
+    "cleared": true
+   }
+  },
+  "fired": [
+   {
+    "predicate": "move",
+    "candidate": "apply:move:commission-briefing",
+    "features": {
+     "destination": "commission-briefing",
+     "addressee": null,
+     "ask": null,
+     "act": "combat",
+     "item": null
+    }
+   }
+  ],
+  "selected": [
+   "apply:move:commission-briefing"
+  ],
+  "decided": [
+   "apply:move:central-library",
+   "apply:move:hall-of-records",
+   "apply:move:neighborhood-gossip",
+   "apply:move:previous-tenants",
+   "apply:move:corbitt-house-ground",
+   "apply:person:Ruth Blake"
+  ],
+  "fell_through": [
+   "apply:clue:globe-unpublished-story",
+   "apply:clue:macario-tragedy",
+   "apply:clue:globe-fire-cutoff",
+   "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+   "resolve:natural-npc:first-impression:托马斯·海斯:Ruth Blake",
+   "resolve:core-check:ordinary-check"
+  ],
+  "reason": "selected_1",
+  "run_id": "5365d70f-189d-4ed3-9380-010b0de9c53e"
+ },
+ "selections": [
+  {
+   "by": "compile",
+   "keys": [
+    "apply:move:commission-briefing"
+   ]
+  },
+  {
+   "by": "compile",
+   "keys": [
+    "resolve:combat:first-blow"
+   ]
+  }
+ ],
+ "compile_rows": [
+  {
+   "turn": 3,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d29f-91e2-76c7-8307-1a9268cdb652",
+   "step": "run-01a0d29f-91e2-76c7-8307-1a9268cdb652:s2",
+   "status": "complete",
+   "ms": 330,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "central-library",
+      "destination_2": "hall-of-records",
+      "destination_3": "neighborhood-gossip",
+      "destination_4": "previous-tenants",
+      "destination_5": "corbitt-house-ground",
+      "destination_6": "commission-briefing"
+     },
+     "choice": "destination_6",
+     "row": "commission-briefing",
+     "confidence": 1,
+     "probabilities": {
+      "none": 0,
+      "destination_2": 0,
+      "destination_5": 0,
+      "destination_6": 1,
+      "unclear": 0,
+      "destination_1": 0,
+      "destination_4": 0,
+      "destination_3": 0
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Arty Wilmot",
+      "addressee_2": "Ruth Blake"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.94,
+     "probabilities": {
+      "none": 0.96,
+      "addressee_1": 0.02,
+      "unclear": 0.02,
+      "addressee_2": 0
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "obligation:globe-archivist",
+      "ask_2": "clue:globe-unpublished-story",
+      "ask_3": "clue:macario-tragedy",
+      "ask_4": "clue:globe-fire-cutoff",
+      "ask_5": "handout:Boston Globe City Desk Copy — Held from Print (1918)"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.73,
+     "probabilities": {
+      "none": 0.77,
+      "ask_1": 0.03,
+      "ask_3": 0.01,
+      "unclear": 0.11,
+      "ask_4": 0.02,
+      "ask_5": 0,
+      "ask_2": 0.06
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_4",
+     "row": "combat",
+     "confidence": 0.86,
+     "probabilities": {
+      "none": 0.01,
+      "act_2": 0.1,
+      "act_3": 0,
+      "act_1": 0,
+      "unclear": 0,
+      "act_7": 0,
+      "act_5": 0,
+      "act_4": 0.88,
+      "act_8": 0,
+      "act_11": 0,
+      "act_9": 0,
+      "act_6": 0,
+      "act_10": 0.01
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "私人徽章"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.95,
+     "probabilities": {
+      "item_3": 0,
+      "none": 0.96,
+      "item_2": 0,
+      "item_4": 0,
+      "unclear": 0.04,
+      "item_1": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "move",
+     "candidate": "apply:move:commission-briefing",
+     "features": {
+      "destination": "commission-briefing",
+      "addressee": null,
+      "ask": null,
+      "act": "combat",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "apply:move:commission-briefing"
+   ],
+   "decided": [
+    "apply:move:central-library",
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:corbitt-house-ground",
+    "apply:person:Ruth Blake"
+   ],
+   "fell_through": [
+    "apply:clue:globe-unpublished-story",
+    "apply:clue:macario-tragedy",
+    "apply:clue:globe-fire-cutoff",
+    "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+    "resolve:natural-npc:first-impression:托马斯·海斯:Ruth Blake",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "selected_1",
+   "run_id": "5365d70f-189d-4ed3-9380-010b0de9c53e"
+  },
+  {
+   "turn": 3,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d29f-91e2-76c7-8307-1a9268cdb652",
+   "step": "run-01a0d29f-91e2-76c7-8307-1a9268cdb652:s5",
+   "status": "complete",
+   "ms": 352,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "chapel-of-contemplation-ruins",
+      "destination_2": "newspaper-morgue",
+      "destination_3": "central-library",
+      "destination_4": "hall-of-records",
+      "destination_5": "neighborhood-gossip",
+      "destination_6": "previous-tenants",
+      "destination_7": "corbitt-house-ground"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.98,
+     "probabilities": {
+      "unclear": 0.01,
+      "destination_5": 0,
+      "destination_2": 0,
+      "destination_3": 0,
+      "none": 0.99,
+      "destination_7": 0,
+      "destination_1": 0,
+      "destination_6": 0,
+      "destination_4": 0
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Steven Knott"
+     },
+     "choice": "addressee_1",
+     "row": "Steven Knott",
+     "confidence": 1,
+     "probabilities": {
+      "none": 0,
+      "unclear": 0,
+      "addressee_1": 1
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_4",
+     "row": "combat",
+     "confidence": 0.98,
+     "probabilities": {
+      "unclear": 0,
+      "act_5": 0,
+      "act_6": 0,
+      "act_2": 0.01,
+      "act_3": 0,
+      "act_10": 0,
+      "act_8": 0,
+      "act_4": 0.99,
+      "act_9": 0,
+      "none": 0,
+      "act_1": 0,
+      "act_7": 0,
+      "act_11": 0
+     },
+     "cleared": true
+    },
+    "target": {
+     "rows": {
+      "target_1": "Steven Knott"
+     },
+     "choice": "target_1",
+     "row": "Steven Knott",
+     "confidence": 0.99,
+     "probabilities": {
+      "none": 0,
+      "unclear": 0,
+      "target_1": 1
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "私人徽章"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.98,
+     "probabilities": {
+      "none": 0.99,
+      "unclear": 0.01,
+      "item_4": 0,
+      "item_3": 0,
+      "item_2": 0,
+      "item_1": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "first_blow",
+     "candidate": "resolve:combat:first-blow",
+     "features": {
+      "destination": null,
+      "addressee": "Steven Knott",
+      "act": "combat",
+      "target": "Steven Knott",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "resolve:combat:first-blow"
+   ],
+   "decided": [
+    "apply:move:newspaper-morgue"
+   ],
+   "fell_through": [
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "selected_1",
+   "run_id": "5365d70f-189d-4ed3-9380-010b0de9c53e"
+  }
+ ],
+ "prescreen": "on",
+ "reads": [
+  {
+   "scene": "newspaper-morgue",
+   "prescreen": "prepared",
+   "materials": 7,
+   "jev_calls": 8,
+   "ms": 6871
+  },
+  {
+   "scene": "commission-briefing",
+   "prescreen": "prepared",
+   "materials": 5,
+   "jev_calls": 7,
+   "ms": 2036
+  }
+ ],
+ "status": "delivered",
+ "reason": "implicit_narrate",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 49512,
+   "cache_read": 0,
+   "cache_write": 49512,
+   "output": 116,
+   "reasoning": null,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 255,
+   "cache_read": 49512,
+   "cache_write": 255,
+   "output": 51,
+   "reasoning": null,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 1422,
+   "cache_read": 49767,
+   "cache_write": 1423,
+   "output": 44,
+   "reasoning": null,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 4,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 1505,
+   "cache_read": 50197,
+   "cache_write": 1505,
+   "output": 48,
+   "reasoning": null,
+   "tools": [],
+   "stop": "stop",
+   "effort": null
+  }
+ ],
+ "steps": {
+  "operate": 10,
+  "decide": 7,
+  "infer": 4,
+  "finish": 1
+ },
+ "llm_steps": 4,
+ "llm_purposes": [
+  "adjudicate",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 22,
+ "route_rows": 7,
+ "calls": [
+  {
+   "tool": "apply",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "move",
+      "to": "commission-briefing"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "weapon": "unarmed",
+     "decision": "combat:attack",
+     "target": "Steven Knott",
+     "goal": "我回诺特办公室，揪住他的领子一拳打过去，逼他说清这房子到底死过什么人。",
+     "method": "我回诺特办公室，揪住他的领子一拳打过去，逼他说清这房子到底死过什么人。"
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "defense": "dodge",
+     "decision": "combat:defend",
+     "actor": "steven-knott",
+     "goal": "combat:defend",
+     "method": "combat:defend"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "npc",
+      "name": "steven-knott",
+      "why": "Steven Knott's card states their combat tactic (dodge, keeper), which the combat disposition table reads as avoids_fighting; their own parameters did not settle it.",
+      "disposition": "avoids_fighting"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": false,
+   "error": "invalid_params",
+   "input": {
+    "effects": [
+     {
+      "kind": "npc",
+      "name": "Steven Knott",
+      "archetype": "ordinary_adult",
+      "why": "诺特是按日雇人的房东，不是打手，按普通成年人记他的体格。"
+     },
+     {
+      "kind": "npc",
+      "name": "Steven Knott",
+      "reunion": {
+       "background": [
+        "He stayed in the rented office after Hayes left, waiting on the day's first report and watching the clock."
+       ],
+       "reports": [
+        "Nothing new has come in about the house or the Macarios since the morning briefing."
+       ],
+       "open_threads": [
+        "He still expects a report before the day is wasted."
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "npc",
+      "name": "Steven Knott",
+      "disposition": "avoids_fighting",
+      "why": "他是房东不是打手，被人揪领子后只想脱身，不想还手。"
+     },
+     {
+      "kind": "npc",
+      "name": "Steven Knott",
+      "stance": "wary",
+      "why": "海斯刚动手打他，差事还在，信任没了。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "combat",
+     "goal": "他不还手，这一架停在桌边",
+     "method": "退到桌后，把拳头挡开，不再打",
+     "actor": "Steven Knott",
+     "decision": "combat:end",
+     "outcome": "stalemate",
+     "target": "托马斯·海斯"
+    }
+   }
+  }
+ ],
+ "match": [
+  {
+   "baseline": "move commission-briefing",
+   "matched": true,
+   "origin": "policy"
+  },
+  {
+   "baseline": "npc Steven Knott",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "npc Steven Knott",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "resolve undefined vs Steven Knott",
+   "matched": true,
+   "origin": "policy"
+  },
+  {
+   "baseline": "npc Steven Knott",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "npc Steven Knott",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "resolve combat:end vs 托马斯·海斯",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "narrate",
+   "matched": true,
+   "origin": "implicit"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "origin": "policy",
+   "clerk": "declared_bookkeeping",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "compile",
+   "ms": 0,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[8]",
+    "row": {
+     "alias": "effect:8",
+     "effect": {
+      "kind": "move",
+      "to": "commission-briefing"
+     },
+     "description": {
+      "kind": "move",
+      "to": "commission-briefing",
+      "display_name": "Knott's Office",
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    },
+    "compile": {
+     "predicate": "move",
+     "features": {
+      "destination": "commission-briefing",
+      "addressee": null,
+      "ask": null,
+      "act": "combat",
+      "item": null
+     },
+     "read_features": {
+      "destination": {
+       "row": "commission-briefing",
+       "confidence": 1,
+       "cleared": true
+      }
+     }
+    }
+   },
+   "path": "compile",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null,
+   "predicate": "move",
+   "features": {
+    "destination": {
+     "row": "commission-briefing",
+     "confidence": 1
+    }
+   },
+   "binding_paths": {
+    "to": "stated"
+   },
+   "compile_refused": null,
+   "first_byte_ms": null,
+   "timed_out": null
+  },
+  {
+   "verb": "resolve",
+   "origin": "policy",
+   "clerk": "first_blow",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "compile",
+   "ms": 0,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": {
+    "read": "table.resolve.options",
+    "path": "context.first_blow",
+    "row": {
+     "decision": "combat:attack",
+     "intent": "combat",
+     "actor": "托马斯·海斯",
+     "targets": [
+      "Steven Knott"
+     ],
+     "weapons": [
+      ".38 Revolver",
+      "unarmed"
+     ]
+    },
+    "compile": {
+     "predicate": "first_blow",
+     "features": {
+      "destination": null,
+      "addressee": "Steven Knott",
+      "act": "combat",
+      "target": "Steven Knott",
+      "item": null
+     },
+     "read_features": {
+      "act": {
+       "row": "combat",
+       "confidence": 0.98,
+       "cleared": true
+      },
+      "target": {
+       "row": "Steven Knott",
+       "confidence": 0.99,
+       "cleared": true
+      }
+     }
+    }
+   },
+   "path": "compile",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null,
+   "predicate": "first_blow",
+   "features": {
+    "act": {
+     "row": "combat",
+     "confidence": 0.98
+    },
+    "target": {
+     "row": "Steven Knott",
+     "confidence": 0.99
+    }
+   },
+   "binding_paths": {
+    "intent": "stated",
+    "decision": "stated",
+    "goal": "composed",
+    "method": "composed",
+    "target": "stated",
+    "weapon": "jev"
+   },
+   "compile_refused": null,
+   "first_byte_ms": null,
+   "timed_out": null
+  }
+ ],
+ "clerk": [
+  {
+   "tool": "apply",
+   "call_id": "t3-c1",
+   "ok": true,
+   "ms": 69,
+   "clerk": "declared_bookkeeping",
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[8]",
+    "row": {
+     "alias": "effect:8",
+     "effect": {
+      "kind": "move",
+      "to": "commission-briefing"
+     },
+     "description": {
+      "kind": "move",
+      "to": "commission-briefing",
+      "display_name": "Knott's Office",
+      "material": "ready",
+      "authority": "available_route_not_player_choice"
+     }
+    },
+    "compile": {
+     "predicate": "move",
+     "features": {
+      "destination": "commission-briefing",
+      "addressee": null,
+      "ask": null,
+      "act": "combat",
+      "item": null
+     },
+     "read_features": {
+      "destination": {
+       "row": "commission-briefing",
+       "confidence": 1,
+       "cleared": true
+      }
+     }
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "call_id": "t3-c2",
+   "ok": true,
+   "ms": 137,
+   "clerk": "first_blow",
+   "basis": {
+    "read": "table.resolve.options",
+    "path": "context.first_blow",
+    "row": {
+     "decision": "combat:attack",
+     "intent": "combat",
+     "actor": "托马斯·海斯",
+     "targets": [
+      "Steven Knott"
+     ],
+     "weapons": [
+      ".38 Revolver",
+      "unarmed"
+     ]
+    },
+    "compile": {
+     "predicate": "first_blow",
+     "features": {
+      "destination": null,
+      "addressee": "Steven Knott",
+      "act": "combat",
+      "target": "Steven Knott",
+      "item": null
+     },
+     "read_features": {
+      "act": {
+       "row": "combat",
+       "confidence": 0.98,
+       "cleared": true
+      },
+      "target": {
+       "row": "Steven Knott",
+       "confidence": 0.99,
+       "cleared": true
+      }
+     }
+    }
+   }
+  },
+  {
+   "tool": "resolve",
+   "call_id": "t3-c3",
+   "ok": true,
+   "ms": 119,
+   "clerk": "session_step",
+   "basis": {
+    "read": "table.resolve.options",
+    "path": "context.session.pending_defense",
+    "row": {
+     "for": "npc",
+     "actor": "steven-knott",
+     "attack_command_id": "t3-c2",
+     "revision": 2,
+     "attacker": "thomas-hayes",
+     "options": [
+      "dodge",
+      "fight_back",
+      "none"
+     ],
+     "standing": {
+      "defense": "dodge",
+      "basis": "keeper"
+     }
+    },
+    "standing": {
+     "defense": "dodge",
+     "basis": "keeper"
+    }
+   }
+  },
+  {
+   "tool": "apply",
+   "call_id": "t3-c4",
+   "ok": true,
+   "ms": 52,
+   "clerk": "disposition_inference",
+   "basis": {
+    "read": "table.look",
+    "path": "combat_disposition",
+    "row": {
+     "npc": "steven-knott",
+     "read": [
+      "agenda",
+      "fear",
+      "secret",
+      "voice",
+      "relationship_to_investigators",
+      "first_impression"
+     ]
+    },
+    "binding": "rule-default",
+    "rule_default": {
+     "disposition": {
+      "value": "avoids_fighting",
+      "rule": "card_disposition",
+      "read": [
+       "combat_tactic"
+      ]
+     }
+    }
+   }
+  }
+ ],
+ "misses": [
+  {
+   "turn": 3,
+   "lane": "route",
+   "purpose": "route",
+   "run": "run-01a0d29f-91e2-76c7-8307-1a9268cdb652",
+   "step": "run-01a0d29f-91e2-76c7-8307-1a9268cdb652:s19",
+   "status": "complete",
+   "ms": 397,
+   "offered": [
+    "resolve:core-check:ordinary-check"
+   ],
+   "selected": [],
+   "exit": "ask_llm",
+   "reason": "low_confidence",
+   "answers": {
+    "need_1": {
+     "choice": "later",
+     "confidence": 0.95,
+     "probabilities": {
+      "later": 0.97,
+      "unknown": 0.01,
+      "now": 0.02
+     }
+    },
+    "exit": {
+     "choice": "ask_llm",
+     "confidence": 0.3,
+     "probabilities": {
+      "finish": 0.44,
+      "ask_llm": 0.47,
+      "read_more": 0.01,
+      "continue": 0.08
+     }
+    }
+   },
+   "run_id": "5365d70f-189d-4ed3-9380-010b0de9c53e"
+  }
+ ]
+}
