@@ -57,7 +57,7 @@ Branched from `0.9.5a` at `ef8efdf97`. Not merged; no push, no package, no live 
 1. **Where it rides.** In the `coc-clerk` message (one per model step), not in the run's packet: the packet is written only by a read step (first read, and after a scene change), so the session after a write and the people an executed step names would never reach it.
 2. **"Pending candidate" = the latest fresh read's issued candidates**, not the policy's filtered list. At the Globe the obligation check that carries Arty's meeting is consumed by the route (`unknown`, a Keeper-only row for the rest of the run), and the policy's list no longer has it; the fresh read still issued it, and it is the Keeper's to do, so Arty's card is carried.
 3. **The ruling does not cover the gate's Knott look.** At the step where the Keeper looked at Knott, no candidate named him (the fresh read after the move issued exits and the ordinary check; with no fight open there is no attack candidate; he was already introduced, so no person candidate). His card is carried from the fight's first fresh read on. Whether a person present in a scene the run moved into (or the addressee SL-13's typed features will read) should be carried is not in §135.31.
-4. **The 1 KiB cut is lossy for these views.** Measured on the gate state: scene view 4.5 KB, Knott's card 4.0 KB, session view 0.6-0.9 KB. Cut to 1 KiB (trailing fields first):
+4. **The 1 KiB cut is lossy for these views.** *(Superseded by the follow-ups below: the owner raised the ceilings, and these sizes were wrong, from a fresh campaign and a 4 KB-truncated driver text; on the gate state the scene view is 7.8 KB and the card 8.3 KB.)* Measured on the gate state: scene view 4.5 KB, Knott's card 4.0 KB, session view 0.6-0.9 KB. Cut to 1 KiB (trailing fields first):
    - Knott's office kept 354 bytes (`scene`, `display_name`, `summary`, `dramatic_question`, `pressure_moves`) and dropped `exits` onward and `present`, because `exits` alone is about 1 KB. That is roughly what the capsule's `where` already says. At the Globe (the seam test) `exits` and `back` fit and `affordances` onward went.
    - A card keeps identity and dossier (role, wants, fears, hides, voice) and drops `mechanics` and the combat fields; on the live campaign also `knows`, `keeper_note` and the reunion.
    - In every replay run of both arms the Keeper's first `resolve` on Knott was refused `needs: Steven Knott has no stat block` (one model call per run). The card's `mechanics: null` is the field that says so, and it is cut (and at that step his card is not due anyway, item 3).
@@ -91,7 +91,7 @@ Branched from `0.9.5a` at `ef8efdf97`. Not merged; no push, no package, no live 
 | M11 kernel writes no `reads` on narrate | `kernel-ts/write/index.ts` | kernel alone; legacy engine; with a session active |
 | M12 `keeper_reads` inside the idempotency digest | `kernel-ts/write/index.ts` | kernel alone |
 
-**Measurement** (not a pass line). Live Keeper `grok-build/grok-4.7-build-fast`, `low`, product driver (`run.mjs --llm replay --keeper live`), 3 runs per arm, one replay process at a time. Before = the parent `ef8efdf97` in a detached worktree with its own build; after = this branch. Pre-registered before the first run (below). Results under `experiments/single-loop-routing/results/sl15-{before,after}-{fight-round,gate3-turn3}-live/`. `gate3-turn3` is a new fixture: `gate3-haunting-2329` before turn 3, a read-only copy of the integ-sl workspace slice (campaign, sidecar Git, module, the campaign's scoped module, Mod packages).
+**Measurement** (not a pass line). Live Keeper `grok-build/grok-4.7-build-fast`, `low`, product driver (`run.mjs --llm replay --keeper live`), 3 runs per arm, one replay process at a time. Before = the parent `ef8efdf97` in a detached worktree with its own build; after = this branch. Pre-registered before the first run (below). Results under `experiments/single-loop-routing/results/sl15-{before,after}-{fight-round,gate3-turn3}-live/`. The gate3 runs used a fixture `gate3-turn3` (`gate3-haunting-2329` before turn 3), since dropped in favour of SL-13's `fixtures/gate3-t3` (the same campaign and commit; `gate3-t3` has a baseline and lacks the campaign's scoped module copy under `module-campaigns/`, which differs from `modules/the-haunting` only by `deepen-queue.json` and `module.json` metadata). A re-run uses `--fixture gate3-t3`; the result directories keep the name they were run under.
 
 | fixture | arm | look/lookup calls per run | model calls per run | LLM steps per run | carried per run (focus) |
 | --- | --- | --- | --- | --- | --- |
@@ -133,3 +133,51 @@ Pre-registration (written before the first run): gate3 before 2-3 looks per run,
 
 - The three pytest failures are the play driver's process lifecycle, not this ticket: `test_driver.py::test_status_reports_alive_then_dead` and `::test_stop_terminates_both_processes_and_writes_final` fail on the box with the file alone too, and pass on the Mac at the same HEAD (`test_driver.py` 63/63); `test_persona_bench.py::test_the_bench_never_steals_the_default_run_pointer` reads the shared current-run pointer another parallel test moved (`-n 12`), and passes alone on the box (32/32). Nothing in this branch touches `tests/play/driver.py` or process handling. The Mac's full serial pytest before the merge was 1699 passed, 1 skipped.
 - The 12 mutations re-run on the merged tree: all killed, by the same tests.
+
+### 2026-09-24: follow-ups (owner decision on the ceilings; integration branch `a79655ced`; fixture)
+
+**Commits:** `ef05a5f24` (merge of `claude/integ-single-loop-20260923` at `a79655ced`, clean), `74e7ad088` (contract), `03c73eb8b` (ceilings + tests), `95e4126c4` (fixture dropped), `2fa9ed194` (the pointer test's isolation).
+
+**Carried views have their own ceilings** (owner decision): `CARRIED_VIEW_BYTES` 4 KiB per view, `CARRIED_VIEWS_BYTES` 12 KiB per message (`runtime/jev/carried-views.ts`); §135.20's 1 KiB / 8 KiB stay for the issued section. Cuts are unchanged and still marked. §135.31 says so.
+
+**On the gate state they do not all travel whole.** Measured on `fixtures/gate3` reset to before turn 3, the clerk's move applied, emitted kernel (`fitView` as the engine runs it):
+
+| view | whole | after the 4 KiB cut | after 1 KiB (before) |
+| --- | --- | --- | --- |
+| scene, Knott's Office | 7,817 B | 2,929 B, `present` omitted (4,877 B: the dossiers of the people there) | 354 B |
+| card, Steven Knott (after the move; the same with the fight open) | 8,299 B | 3,981 B, omitted from `deflect_options` on: `mechanics`, `combat_*`, `properties`, `recent_speech`, `reunion` | 794 B |
+| session, fight open | 886 B | whole | whole |
+
+- The office view now keeps exits, affordances and keeper notes, and loses only `present`.
+- Knott's card still loses `mechanics`. On a campaign two turns in, `mechanics` sits after about 5.5 KB of `in exchange`, `personality`, `knows`, `ledger` and `keeper_note` fields. The card is 8.3 KB whole.
+- Carrying both whole needs about 8.5 KiB per view and about 17 KiB per message (scene, card and session together).
+- On the seam tests' fresh campaign, cards (about 3.9 KB) and the Globe's scene view now travel whole, and the tests assert that.
+- Owner to decide: raise the per-view ceiling again, or put `mechanics` (and the combat fields) ahead of the dossier in the card's field order. The second option is a kernel read order change; §135.20's cut drops trailing fields first.
+
+**Mutations for the limits** (on the file, each killed):
+
+| mutation | tests failed |
+| --- | --- |
+| M4 per-view ceiling ignored | ceilings |
+| M5 message budget ignored | ceilings |
+| M13 carried view back to 1 KiB | after a clerk move; at a pending defence; ceilings |
+| M14 carried section back to 8 KiB | after a clerk move; ceilings |
+
+M1-M3 and M6-M12 were re-run on the same tree: all killed, the same tests as before.
+
+**The third box failure: `tests/play/test_persona_bench.py::test_the_bench_never_steals_the_default_run_pointer`.**
+
+- **Verdict: parallel-unsafe, shared path; not timing.** It asserts that the checkout's `.coc/playtests/.current-run` is unchanged across `bench.start_table`. Under xdist, `test_driver.py`'s `start` (no `--no-default-run`) writes that same file from another worker.
+- **Reproduced 3/3** on leehow-pc with `tests/play` at the default `-n auto --maxprocesses=12`: `{'run_id': 'fixture-9ea5cf65f8'} != {'run_id': 'fixture-eb8f54d521'}`, the other test's run id.
+- **Fix: one line.** The test points `driver.CURRENT_RUN_FILE` at its own `tmp_path`. `driver.main` runs in process and reads the module global, so the property is still tested.
+  - Mutation check: with `--no-default-run` removed from `bench.start_table` the test fails, and it passes with the flag restored.
+  - After the fix: 3/3 green on the box.
+- The two `test_driver.py` failures were the daemon's Linux `accept()` bug, fixed on the integration branch; they pass now.
+
+**Suites on leehow-pc at `2fa9ed194`** (the script printed no parse error):
+
+```
+== loop on leehow-pc @ 2fa9ed194bd4e4cdcf7ab9f219bd4c65a2aea6d7: exit=0 wall=24s   (101/101)
+== ext on leehow-pc @ 2fa9ed194bd4e4cdcf7ab9f219bd4c65a2aea6d7: exit=0 wall=111s   (2838/2838)
+== py on leehow-pc @ 2fa9ed194bd4e4cdcf7ab9f219bd4c65a2aea6d7: exit=0 wall=170s    (1709 passed, 2 skipped)
+```
