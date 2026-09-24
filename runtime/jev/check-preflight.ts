@@ -5,7 +5,7 @@ import type {DecisionPort} from './decision-port.ts';
 import type {TaskLease} from './task-context.ts';
 import {packDecisionBatch} from './question-packing.ts';
 import {interpretOrdinaryRoute,ordinaryActionTemplate,ordinaryProfileBatch,ordinaryRouteBatch,selectOrdinaryProfile,
-  validateOrdinaryResolveOptions,type OrdinaryActionTemplate,type OrdinaryDisposition,type OrdinaryResolveOptions} from './ordinary-resolve-domain.ts';
+  validateOrdinaryResolveOptions,type OrdinaryActionTemplate,type OrdinaryDisposition,type OrdinaryParameterPath,type OrdinaryResolveOptions} from './ordinary-resolve-domain.ts';
 
 const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export interface CheckPreflightAdvice {kind:'check_preflight';disposition:OrdinaryDisposition;action?:OrdinaryActionTemplate;
@@ -20,7 +20,9 @@ export type CheckPreflightAnswer={choice:string;confidence:number|null;probabili
 /** `route` and `consent`: the binder's own route and consent answers, reported for the record (they decide the disposition). */
 export interface CheckPreflightEvidence {profile?:CheckPreflightAnswer;route?:CheckPreflightAnswer;consent?:CheckPreflightAnswer;
   /** The route batch's other answers (actor, intent, difficulty, bonus, penalty), reported for the record. */
-  parameters?:Record<string,CheckPreflightAnswer>}
+  parameters?:Record<string,CheckPreflightAnswer>;
+  /** SL-31 (§135.28): with `defaults`, how the difficulty and the dice were taken: Jev's cleared answer or the rules default. */
+  paths?:Record<string,OrdinaryParameterPath>}
 export interface CheckPreflightResult {advice:CheckPreflightAdvice;checkpoint?:CheckPreflightCheckpoint;decisionCalls:number;evidence?:CheckPreflightEvidence;
   check(signal?:AbortSignal,deadlineAt?:number):Promise<{status:'current'}|{status:'stale'|'unavailable';reason:string}>}
 export interface CheckPreflightInput {campaign:string;turn:number;rawInput:string;goal?:string;scope:ScopeBinding;readSet:ReadSet;
@@ -30,7 +32,12 @@ export interface CheckPreflightInput {campaign:string;turn:number;rawInput:strin
    * §135.30.3: the check the compile selected, with the act it read: roll-or-not and the intent are settled, so a `no_roll`
    * route answer still asks the profile (reported in `evidence.route`); a single issued actor is stated.
    */
-  compiled?:{intent:'investigate'|'social'}}
+  compiled?:{intent:'investigate'|'social'};
+  /**
+   * SL-31 (§135.28): the single-loop clerk's binder. The difficulty and the dice take Jev's answer only when it clears the
+   * policy's `gate`, else their rules default; a single issued investigator is the actor. Absent: the advisory binder as before.
+   */
+  defaults?:{gate:number}}
 
 function unknown(reason:string,calls=0):CheckPreflightResult {
   return{advice:{kind:'check_preflight',disposition:'unknown',unresolved:[reason],authorization:'advisory_only',settled:false},decisionCalls:calls,
@@ -110,7 +117,8 @@ export async function prepareCheckPreflight(input:CheckPreflightInput):Promise<C
     const routeRequest=batch(ordinaryRouteBatch({rawInput:input.rawInput,goal,options:decisionOptions}),input.scope,input.readSet,0);calls++;
     const routeResult=await bounded(()=>input.decision.decide(routeRequest,lease),signal,lease.context.budget.deadlineAt);signal.throwIfAborted();lease.assertActive();
     if(routeResult.status!=='complete')return make({kind:'check_preflight',disposition:'unknown',unresolved:[failure(routeResult)],authorization:'advisory_only',settled:false});
-    const route=interpretOrdinaryRoute(options,routeResult,input.compiled),routed=routeEvidence(routeResult);
+    const route=interpretOrdinaryRoute(options,routeResult,input.compiled,input.defaults),
+      routed={...routeEvidence(routeResult),...(route.paths?{paths:route.paths}:{})};
     if(route.disposition!=='ordinary')return{...make({kind:'check_preflight',disposition:route.disposition,unresolved:route.needs,authorization:'advisory_only',settled:false}),evidence:routed};
     const profileSpec=ordinaryProfileBatch({rawInput:input.rawInput,goal,options:decisionOptions,route});if(!profileSpec)
       return make({kind:'check_preflight',disposition:'unknown',unresolved:['ordinary_profile_unavailable'],authorization:'advisory_only',settled:false});

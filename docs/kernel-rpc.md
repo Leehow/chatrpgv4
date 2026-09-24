@@ -18403,7 +18403,7 @@ required open parameter, and every closed one Jev did not settle, to `infer(bind
 | path | what | where |
 | --- | --- | --- |
 | `jev` | a closed parameter Jev answers above the gate (`decide(bind)`; the ordinary check's binder) | `interpretBind` / `settleOrdinaryBind` (`runtime/jev/step-policy.ts`) |
-| `rule-default` | a closed parameter Jev answers `unknown`, below the gate, or is not asked (unavailable, or the run's Jev budget is spent); for the approach, Jev's leading skill under the gate (`jev_lead`, SL-21) | the default rides on the parameter (`Unbound.ruleDefault`), computed by the builder; `clerkBind` applies it |
+| `rule-default` | a closed parameter Jev answers `unknown`, below the gate, or is not asked (unavailable, or the run's Jev budget is spent); for the approach, Jev's leading skill under the gate (`jev_lead`, SL-21); the ordinary check's difficulty and dice (SL-31) | the default rides on the parameter (`Unbound.ruleDefault`), computed by the builder; `clerkBind` applies it; the ordinary binder's own (`ORDINARY_RULE_DEFAULTS`) inside `interpretOrdinaryRoute`, recorded by `settleOrdinaryBind` |
 | `stated` | a value the kernel row issues: a single target, weapon, actor or approach, a standing's word, a difficulty, an obligation handle | the candidate builder (`candidates.ts`, `obligation-candidates.ts`) |
 | `composed` | an explanatory argument composed by code from the candidate's source and the player's words, quoted | `runtime/jev/composed-arguments.ts` (`composeSentence`) |
 
@@ -18434,6 +18434,46 @@ words:
   The ordinary check has no approach default: its skill is the player's method, which the binder never picks by value
   (§135.3 (c): an ambiguous one is the Keeper's).
 - **Dice modifiers** (`bonus`, `penalty`): `no_modifier`, the dice word `none`.
+- **The ordinary check's difficulty, dice and actor** (amended 2026-09-24 by SL-31, the spec's ruling "The ordinary
+  check's difficulty and dice have rules defaults"). The ordinary binder (`bind-ordinary`) asks its route batch's
+  `difficulty`, `bonus` and `penalty` as before and takes each answer only when it **clears** §135.2's gates (`clears`:
+  the confidence gate or the margin rule, against the policy's gate, which the policy puts on the `bind-ordinary`
+  question as `gate`). Otherwise -- an answer under the gates, `unknown`, an answer outside the vocabulary, or none -- the
+  parameter takes its default: `difficulty` → `regular` (rule **`regular_difficulty`**), `bonus` and `penalty` → `none`
+  (rule `no_modifier`). The actor: when the kernel issues a single investigator (`table.resolve.options` profiles name one
+  actor) that investigator is the actor, whatever the actor question answered, recorded `stated` as §135.28's table
+  already has it (SL-26 did this only for a compile-selected check; it now holds for every clerk binding of the check);
+  with several, the actor stays Jev's with no default, and an unsettled one leaves the check to the Keeper. The skill
+  keeps no default (above), and the intent is the compile's act (§135.30.3) or the binder's answer, as before. Until
+  this amendment an `unknown` on any one of these ended the binding with "An actor, difficulty or modifier is not
+  bound." (`ordinary_unknown`, the Keeper's turn), and an answer under the gates was executed as given; the clerk's
+  binder now names what it could not bind ("The ordinary check's actor is not bound.").
+  - **"Unless the book states one."** The ordinary-check row issues no difficulty (`table.resolve.options` has none,
+    and the candidate binds only `decision` and a single actor), so there is no stated value to prefer today. The book
+    states a difficulty for an ordinary check only as an open obligation's: the obligation's own check is the stated
+    obligation candidate (`stated`, §135.26), and an ordinary check on its person and approach is folded by the kernel
+    into the obligation's attempt with the obligation's difficulty over the binder's (§134.17). A kernel that issues a
+    difficulty on the ordinary row makes it the stated value without a change to the binder's rule.
+  - **Recorded.** Each of the three is its own bind record on the `event: "bind"` row (`difficulty`, `bonus`,
+    `penalty`): `path: "jev"` with the answer's confidence and distribution when it cleared, else `path: "rule-default"`
+    with the `rule` and the confidence and distribution of the answer it replaced. The action's `modifiers` record
+    (assembled from the three) is `rule-default` when any of them is, else `jev`. The executed candidate's basis carries
+    `binding: "rule-default"` and `rule_default: {<parameter>: {value, rule}}` for the defaulted ones (beside
+    `basis.compile` and `basis.roll`), so every row of the call, admission (the path is exempt, §32.12) and the Keeper's
+    `clerk_did[].binding` line ("difficulty regular (a regular difficulty; nothing stated makes it harder)") show it.
+    The `lane: "route"`, `purpose: "bind-ordinary"` row gains `paths` (the three as the binder took them).
+  - **Scope.** The single-loop clerk's binder only: `prepareCheckPreflight` with `defaults: {gate}`, which the hybrid
+    engine passes for `bind-ordinary`; `interpretOrdinaryRoute(options, result, compiled?, defaults?)`,
+    `ORDINARY_RULE_DEFAULTS` (`runtime/jev/ordinary-resolve-domain.ts`); the records and the stamp in
+    `ordinaryBindings` / `settleOrdinaryBind` (`runtime/jev/step-policy.ts`). The legacy prescreen's advisory preflight
+    and the ordinary-resolve task domain pass no `defaults` and are unchanged.
+  - **Evidence.** Long live gate #2 (`longgate2-haunting-0830` in the integration worktree's `.coc`): five
+    compile-selected ordinary checks (turns 7, 8, 10, 14, 18) ended `ordinary_unknown` with empty bindings. On every one
+    the binder's `difficulty` answered `unknown` (0.61–0.75 on `unknown`, 0.25–0.39 on `regular`); `bonus` and `penalty`
+    answered `none` at 0.88–0.96; the actor question answered `unknown` on turns 8, 10 and 14, which the compile's
+    single stated actor already covered; the intent was the compile's. The difficulty alone left the five unbound. On
+    turns 14 and 18 the Keeper then rolled STR `regular` itself; on turns 9, 12 and 15 the binder's `regular` led
+    (0.52–0.68) and the clerk rolled.
 - **The intent:** the one the obligation, the Mod or the session declares. A session step binds its intent from the
   session view (never asked). **Neither an obligation row (§134.9) nor a Mod contact row (§28) declares an intent
   today**, so an obligation check's or a Mod check's intent is Jev's alone and has no default; a kernel that issues a
@@ -18520,7 +18560,11 @@ and every Jev outcome that no clerk candidate becomes an `infer(bind)`; the vend
 throws on an `infer(bind)`; the engine's bind row and note), `tests/extension/scene-obligation-candidates.test.mjs` (the
 default on the emitted kernel's own profiles at the morgue, and at the extension seam with Jev answering `unknown`),
 `tests/extension/single-loop-candidates.test.mjs`. The mutation record and the pre-registered replays are in the SL-12
-ticket's Comments and `experiments/single-loop-routing/RESULTS-20260923.md`.
+ticket's Comments and `experiments/single-loop-routing/RESULTS-20260923.md`. SL-31: `single-loop-binding.test.mjs` (the
+binder's defaults on long gate #2's turn-14 and turn-18 answers, cleared answers overriding, the records and the stamp,
+the gate on the question and in the engine's binder, the Keeper's line) and `admission-within-turn.test.mjs` (the
+turn-14 shape at the extension seam with the emitted kernel: rolled by the clerk, admitted `path: "compile"`); its
+mutations and replays are in the SL-31 ticket's Comments.
 
 ### 135.29 A provider attempt ends when its stream stops producing events (2026-09-24, SL-02 live-gate finding; amends the SL-01 attempts of `docs/specs/pi-native-single-loop-tickets/01-run-driver.md` and the premise of `runtime/launch.ts`'s idle timeout)
 
@@ -18841,7 +18885,8 @@ rolled). For a check the compile selected, the binder's `no_roll` does not end t
 already give: the intent is the compile's act (the binder's intent answer does not decide, as the policy's override already
 said), and a single actor the kernel issues is stated (§135.28), whatever the actor question answered (the turn-12 replays
 answered it at 0.10–0.19, and one run's `unknown` left the check unbound). Consent, difficulty and the dice are the binder's
-as before. Then `settleOrdinaryBind` decides: when
+as before (SL-31: the difficulty and the dice with their rules defaults when the binder's answer does not clear, §135.28).
+Then `settleOrdinaryBind` decides: when
 the binder answered `no_roll` and the skill **cleared** the gates, the check is rolled, reason `ordinary_compile_act`, and the
 executed candidate's basis carries `roll: {rule: "compile_act", binder: "no_roll", confidence}` (every row of the call and the
 Keeper's `clerk_did` show whose word decided the roll); when the skill did not clear, the binder's `no_roll` stands
@@ -18852,7 +18897,8 @@ check the route selected is bound exactly as before (no `rollSettled`).
 kernel's decision row), `actor` `stated` when the kernel issued one actor, else `jev`; `intent` `jev` with the compile's
 confidence and distribution; `skill` `jev` with the profile answer's **confidence**, **distribution** (by skill name)
 and **`cleared`** (the profile answer against §135.2's gates, the policy's own gate); `modifiers` `jev` (the binder's
-difficulty and dice); `goal` and `method` `composed`. The engine carries the profile answer from the binder
+difficulty and dice; since SL-31 `rule-default` when one of them took its default, with `difficulty`, `bonus` and
+`penalty` records of their own, §135.28); `goal` and `method` `composed`. The engine carries the profile answer from the binder
 (`CheckPreflightResult.evidence.profile`, a report beside the advisory action, which it does not change) onto
 `OrdinaryBinding.skill`; a binder result without it records `cleared: false`. The `lane: "route"`,
 `purpose: "bind-ordinary"` row gains `skill: {value, confidence, distribution}` and the binder's own `route` and `consent`
