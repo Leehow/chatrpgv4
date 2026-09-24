@@ -1,0 +1,13 @@
+{
+ "campaign": "gate6-haunting-0335",
+ "module": "the-haunting",
+ "turn": 2,
+ "commit_before": "b3b84b6",
+ "commit_after": "c0ae9fd",
+ "player_input": "我说明来意，请他帮忙调出科比特宅这些年的旧剪报。",
+ "tarball": "../gate6/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/gate6-haunting-0335",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/gate6-haunting-0335-20260924T073558Z"
+ }
+}
