@@ -179,7 +179,24 @@ Pre-registration (written before the first replay; the live arm's paragraph afte
 
 **Suites** (leehow-pc):
 
-SUITES_PLACEHOLDER
+Before the merge, at `aac10affb`: `loop` 139/139 (twice); `py` 1716 passed, 2 skipped; `ext` 2903/2904 at `c1a3cb5e4` and 2901/2904 at `aac10affb`. Each time the failures were timing tests on a box at load 17-46: `admission-within-turn` "a timeout between two unavailable reviews…" (a missing `review_timeout`), `jev-source-domain` ×2 and `npc-preparation-integration` ×1. All of them pass on the Mac at the same HEAD (21/21, 13/13), and none of them reads the carried section or `look focus=object`.
+
+After merging `claude/integ-single-loop-20260923` at `f0d90d626` (SL-25), merge `15ae618bb`. The one conflict was `RunState` and its initialiser in `runtime/jev/hybrid-engine.ts`. Both sides are kept: SL-25's `guarded` note and SL-27's `carried` passages are separate fields of the `coc-clerk` message.
+
+```
+== ext on leehow-pc @ 15ae618bb8703deaa8b95a3ebfae21bd2c480e60: exit=0 wall=164s   (2908/2908)
+== loop on leehow-pc @ 15ae618bb8703deaa8b95a3ebfae21bd2c480e60: exit=0 wall=70s    (143/143)
+== py on leehow-pc @ 15ae618bb8703deaa8b95a3ebfae21bd2c480e60: exit=0 wall=383s    (1719 passed, 2 skipped)
+```
+
+Live Keeper on the merged tree (`results/sl27-merged-longgate-t{10,19}-live`, 3 runs each):
+
+| fixture | reads per run | source lookups | model calls per run | the reads |
+| --- | --- | --- | --- | --- |
+| t10 | 1 / 0 / 0 | 0 | 2 / 3 / 2 | module lookup (kitchen); none; none |
+| t19 | 2 / 1 / 2 | 0 | 2 / 3 / 4 | scene, object `Corbitt Diaries` (answered); module; module (`corbitt-diaries Corbitt Diaries`), scene |
+
+The t10 source lookup stays gone on the merged tree. t19 made 5 reads against 8 before, which is inside the noise, and SL-25's destination rows are new on this tree.
 
 **Left open.**
 
