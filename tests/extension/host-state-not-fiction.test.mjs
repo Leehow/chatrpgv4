@@ -131,8 +131,9 @@ test("neither wait instruction asks the Keeper to put the wait in front of the p
 		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1", PI_COC_ADAPTATION_WAIT_MS: "0" },
 		responses: [
 			fauxAssistantMessage([PREPARE], { stopReason: "toolUse" }),
-			// The live Keeper's next move: an ordinary write, which the wait blocks with the instruction.
-			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "wait" }] })], { stopReason: "toolUse" }),
+			// The live Keeper's next move: the write that needs the destination, which the wait blocks with the instruction
+			// (SL-23: the only kind of write it blocks).
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "roxbury-sanitarium" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "你在门口把外套抻平，把名片捏在手里。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("你在门口把外套抻平，把名片捏在手里。"),
 		],

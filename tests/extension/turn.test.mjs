@@ -69,12 +69,16 @@ test("a source timeout yields the turn instead of allowing another source query"
 	assert.equal(table.kernelRequests().filter(r => r.method === "table.ask").length, 0);
 });
 
-test("a pending adaptation owns the rest of the turn and cannot fall through into ordinary work", async t => {
+// SL-23 (§135.11 addendum 2026-09-24): a pending adaptation owns only the writes that need it -- the move to the
+// destination it is building. This case used to assert that it owned the rest of the turn, which is what refused the
+// long gate's diaries (turn 19) and the clerk's move to an existing scene (turn 20).
+test("a pending adaptation blocks the move to its destination, and an unrelated write still lands", async t => {
 	const table = await openTable({
 		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1", PI_COC_ADAPTATION_WAIT_MS: "0" },
 		responses: [
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "athens-study", purpose: "new_destination", request: "A second persistent base", anchors: ["scene: commission-briefing"] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "wait for the room" }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the player's own errand" }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "athens-study" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "书房还在准备中；这期间你没有移动，也没有花钱。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("书房还在准备中；这期间你没有移动，也没有花钱。"),
 		],
@@ -85,8 +89,9 @@ test("a pending adaptation owns the rest of the turn and cannot fall through int
 	await table.session.prompt("先准备那间书房，没准备好之前我不移动也不花钱。");
 	const requests = table.kernelRequests();
 	assert.equal(requests.filter(row => row.method === "adaptation.prepare").length, 1);
-	assert.equal(requests.filter(row => row.method === "table.apply").length, 0, "background preparation blocks unrelated writes");
-	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1, "the Keeper can only yield honestly");
+	assert.deepEqual(requests.filter(row => row.method === "table.apply").map(row => row.params.effects[0].kind), ["time"],
+		"the unrelated write landed; the move to the destination being built did not");
+	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1);
 	assert.equal(table.entries("coc-adaptation-status").at(-1)?.status, "pending");
 	assert.deepEqual(reviewed.find(value => value.method === "narrate")?.payload.preparation_wait, {kind: "adaptation", name: "athens-study"});
 	assert.ok(deliveryTexts(table).includes("书房还在准备中；这期间你没有移动，也没有花钱。"));
@@ -99,7 +104,8 @@ test("a preparation that becomes pending after a landed move preserves and deliv
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "harbor-ticket-office" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "harbor-chapel-eye-rebinding", purpose: "source_rebinding", request: "Reconnect the chapel evidence at the harbor", anchors: ["scene: harbor-ticket-office"] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "wait for the source" }] })], { stopReason: "toolUse" }),
+			// A second preparation while this one holds the table: one of the two writes a wait owns (SL-23).
+			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "harbor-chapel-second", purpose: "source_rebinding", request: "Reconnect it again", anchors: ["scene: harbor-ticket-office"] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
@@ -110,7 +116,8 @@ test("a preparation that becomes pending after a landed move preserves and deliv
 
 	const requests = table.kernelRequests();
 	assert.equal(requests.filter(row => row.method === "table.apply").length, 1,
-		"the preparation blocks later writes but cannot erase the move that already landed");
+		"the preparation cannot erase the move that already landed");
+	assert.equal(requests.filter(row => row.method === "adaptation.prepare").length, 1, "the second preparation waited for the first");
 	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1);
 	assert.ok(deliveryTexts(table).includes(delivered));
 	const wait = customMessages(table.session, "coc-host").find(message => message.details?.kind === "adaptation-wait");
@@ -132,7 +139,7 @@ test("cold recovery carries retained receipts into a later preparation wait", as
 		},
 		responses: [
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "cold-rebinding", purpose: "source_rebinding", request: "Reconnect retained evidence", anchors: ["scene: commission-briefing"] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5, why: "wait" }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "cold-rebinding-2", purpose: "source_rebinding", request: "Again", anchors: ["scene: commission-briefing"] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
@@ -201,27 +208,28 @@ test("a real preparation wait survives a later player input until status clears 
 // §60 narrowed what the scan may hand back: live work, never a corpse. A proposal that is *ready*
 // is the case this was always for — reviewed changes are sitting there waiting for `apply`, and a
 // process that restarted has no idea. A terminal one is covered in dead-proposal-retires.test.mjs,
-// where the table is owed nothing and spends nothing.
-test("cold recovery exposes one retained adaptation by semantic name before other work", async t => {
+// where the table is owed nothing and spends nothing. SL-23 (§135.11 addendum 2026-09-24): the
+// recovered proposal is held by its semantic name, but it no longer holds ordinary tools until the
+// Keeper asks for its status -- the next turn's move and reads are not its to refuse. The one write
+// that needs it (a move there) is refused naming it (preparation-wait-never-strands.test.mjs).
+test("cold recovery holds one retained adaptation by semantic name without holding other work", async t => {
 	const table = await openTable({
 		env: {FAKE_KERNEL_RETAINED_ADAPTATION_STATUS: "ready"},
 		responses: [
 			fauxAssistantMessage([fauxToolCall("narrate", {text: "I continue without checking."})], {stopReason: "toolUse"}),
-			fauxAssistantMessage([fauxToolCall("lookup", {kind: "adaptation", action: "status", name: "athens-study"})], {stopReason: "toolUse"}),
-			fauxAssistantMessage([fauxToolCall("narrate", {text: "The retained preparation is reviewed and waiting."})], {stopReason: "toolUse"}),
-			fauxAssistantMessage("The retained preparation is reviewed and waiting."),
+			fauxAssistantMessage("I continue without checking."),
 		],
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("Continue after reopening.");
 	await waitForIdle(table.session);
 	const statuses = table.kernelRequests().filter(row => row.method === "adaptation.status");
-	assert.equal(statuses.length, 2);
-	assert.equal(statuses[0].params.name, undefined);
-	assert.equal(statuses[1].params.name, "athens-study");
-	const requests = table.kernelRequests();
-	assert.ok(requests.findIndex(row => row.method === "adaptation.status" && row.params.name === "athens-study")
-		< requests.findIndex(row => row.method === "table.narrate"));
+	assert.equal(statuses[0].params.name, undefined, "the boundary asked the no-name status once");
+	const held = table.telemetry().find(row => row.lane === "adaptation" && row.held === true);
+	assert.equal(held?.proposal, "athens-study");
+	assert.equal(held?.status, "ready");
+	assert.equal(table.kernelRequests().filter(row => row.method === "table.narrate").length, 1, "the narrate was taken first time");
+	assert.equal(table.telemetry().filter(row => row.code === "blocked").length, 0);
 });
 
 test("a player input rejected after a source timeout gets a fresh bounded close-turn correction", async t => {

@@ -7364,7 +7364,7 @@ This section records the implemented wire contract. Production is kernel-ts only
 
 **`status` reuses the one adaptation surface and takes an optional `name`.** With a name it keeps its current behavior exactly. Without a name it returns the most recent retained current proposal for the bound campaign whose status is `pending`, `reviewing`, `ready`, `failed` or `stale`, reported under its semantic name; `accepted` and `cancelled` proposals are settled, not recovery work, and are never returned this way. When no such proposal is retained it returns status `none`. The no-name form exposes only the semantic name and status already visible to the Keeper: it never returns hashes, digests, task keys, attempt generations, or retained task/work paths. It opens no foreground wait and starts nothing.
 
-**Cold-resume recovery routing (host-owned, no model call).** On each explicit player input, if the host has no in-memory `preparation_wait`, it asks this no-name `status` once. A retained `pending`/`reviewing` proposal restores `preparation_wait` exactly as before (the host keeps the same retention rules across later inputs). A retained `ready`/`failed`/`stale` proposal instead restores a short host-owned adaptation control state that blocks ordinary Keeper tools until the Keeper calls `lookup kind adaptation status` with the supplied semantic name; that explicit result clears the control and allows accept/continue or a same-name retry. The host never calls a model to discover this, and never infers it from prose.
+**Cold-resume recovery routing (host-owned, no model call).** *Since §135.11's SL-23 addendum the restored `ready` proposal no longer blocks ordinary Keeper tools; it is held by name and refuses only a move there and a second `prepare`.* On each explicit player input, if the host has no in-memory `preparation_wait`, it asks this no-name `status` once. A retained `pending`/`reviewing` proposal restores `preparation_wait` exactly as before (the host keeps the same retention rules across later inputs). A retained `ready`/`failed`/`stale` proposal instead restores a short host-owned adaptation control state that blocks ordinary Keeper tools until the Keeper calls `lookup kind adaptation status` with the supplied semantic name; that explicit result clears the control and allows accept/continue or a same-name retry. The host never calls a model to discover this, and never infers it from prose.
 
 **Several retained proposals are unexpected but possible after failures.** When more than one is retained, the host chooses the newest deterministically by creation time and then by semantic name. This is recovery routing only: it neither accepts nor retries a proposal on its own, and it adds no new Keeper verb, no second registry, no opaque identifier, and no inference from narration.
 
@@ -7501,15 +7501,15 @@ The failure class is ordinary fiction being misrouted into persistent graph auth
 
 Each task starts with a bounded `focus.json`, and the same focus is inlined into the child prompt when small. It contains the current request/input, purpose, original anchor neighborhood, current source/effective scene, compact world/party/current receipts, recent deliveries, continuity/corrections, prior accepted changes, and explicit full-file fallbacks. A child reads a full retained file only for a named evidence gap and must not enumerate schemas or files. Original/effective/full history remain immutable and available. This is still a tool-enabled Pi creator followed by an independent tool-enabled reviewer; no zero-tool lane or auto-accept is introduced.
 
-Each creator or reviewer run has at most six provider requests and 30 seconds. The single deterministic creator repair uses the same per-run limits. The foreground `prepare` wait defaults to 12 seconds. `status` is read-only and nonblocking; it never opens another wait. Pending returns an honest service status and retry guidance, authorizes no arrival/change, and the retained task continues in the background. Completion, failure, cancellation, freshness, acceptance and evidence retention semantics are unchanged. Existing accepted adaptations remain valid; incomplete jobs whose prompt/contract digest changed become stale rather than being relabeled.
+Each creator or reviewer run has at most six provider requests and 30 seconds. The single deterministic creator repair uses the same per-run limits. The foreground `prepare` wait defaults to 12 seconds (2 seconds since §135.11's SL-23 addendum). `status` is read-only and nonblocking; it never opens another wait. Pending returns an honest service status and retry guidance, authorizes no arrival/change, and the retained task continues in the background. Completion, failure, cancellation, freshness, acceptance and evidence retention semantics are unchanged. Existing accepted adaptations remain valid; incomplete jobs whose prompt/contract digest changed become stale rather than being relabeled.
 
 Acceptance covers: a missing ordinary key gets no adaptation preparation; a first-appearance passerby can be narrated without graph mutation; explicit recurring NPC promotion and a player-chosen absent destination still enter the reviewed path; purpose/change mismatches fail before acceptance; focused children do not need raw-schema exploration in the fixed cases; `prepare` returns pending within its foreground bound; repeated `status` does not add another foreground wait; timeout/request exhaustion fails retained work without mutation. Measure creator/reviewer model requests and elapsed time separately from the Keeper and continuity audit.
 
 **Scene commitment (narration-audit 1.2.8; carried from 1.2.7).** `active_scene` is a persistent gameplay locus, not physical coordinates. Spatial wording, distance, scale, entering/exiting, or crossing a named boundary never decides promotion. The only promotion test is whether a distinct place becomes the ongoing locus for subsequent player action or durable location-bound state: its own affordances, discoverable clues, NPC/object presence, or intended return. If yes it needs a registered scene and move; otherwise it is same-locus detail or transition and needs no scene. A new-locus choice routes through `expected_kind` scene, reviewed adaptation, acceptance, then move. Existing target handle/display/summary are projected into admission so a label cannot substitute a different persistent locus. Continuity emits `locus_review` using the same promotion test, with no physical-location exception list. This is one semantic test, not an enumeration of physical places: a door, balcony, cabinet, vehicle or other named object is promoted only when it becomes the ongoing context for subsequent player action or durable location-bound state, and the noun or its size never decides. The 1.2.7 heading was the first adoption of this rule; 1.2.8 is the current version and keeps the earlier descriptions as historical meaning.
 
-**Pending-preparation turn ownership (narration-audit 1.2.8; settled-consequence seam 1.2.18).** When `prepare` returns pending with a retained background preparation still running, that retained work owns the rest of the turn. Every later Keeper tool except status/cancel and the closing `narrate` is blocked while the preparation is retained. If nothing has settled in the turn, that narration honestly says preparation is pending and must not imply that the refused action, destination, cost or elapsed game time happened. If `resolve`/`apply` receipts had already landed before the later preparation became pending, the opposite boundary applies: the narration **must deliver those settled consequences**, may say the additional source-dependent material remains pending, and must neither erase those receipts with “nothing happened” nor add facts the pending preparation has not supplied. The host instruction names the already-landed receipt lines so the Keeper does not infer which branch applies; on cold recovery those lines are rebuilt from each structured `table.open.pending_turn.receipts[].id` (with a JSON fallback only for malformed legacy rows), not lost with the prior extension process or collapsed to `[object Object]`. The ordinary `agent_end` floor must not restart or replace retained work, and the retained task's completion, failure, cancellation, freshness and acceptance semantics are unchanged from the accounting described above. The foreground `prepare` wait's pending status authorizes no arrival or change on its own; it also cannot erase a change that an earlier receipt already authorized. Retained campaign `game-e0877a4e-fde9-430b-b0d0-d22c8868ce5c`, turn 7, is the failed evidence: `move:Boston harbor steamship ticket office-t7-c2` landed, then `harbor-chapel-eye-rebinding` became pending, but the old wait instruction still said not to move or introduce the destination; the Keeper therefore delivered no fiction and the run ended only with `turn_unfinished`.
+**Pending-preparation turn ownership (narration-audit 1.2.8; settled-consequence seam 1.2.18).** *Narrowed by §135.11's SL-23 addendum (2026-09-24): a held preparation now owns only a move to its destination and a second `prepare`; the rest of this paragraph's blocking no longer holds.* When `prepare` returns pending with a retained background preparation still running, that retained work owns the rest of the turn. Every later Keeper tool except status/cancel and the closing `narrate` is blocked while the preparation is retained. If nothing has settled in the turn, that narration honestly says preparation is pending and must not imply that the refused action, destination, cost or elapsed game time happened. If `resolve`/`apply` receipts had already landed before the later preparation became pending, the opposite boundary applies: the narration **must deliver those settled consequences**, may say the additional source-dependent material remains pending, and must neither erase those receipts with “nothing happened” nor add facts the pending preparation has not supplied. The host instruction names the already-landed receipt lines so the Keeper does not infer which branch applies; on cold recovery those lines are rebuilt from each structured `table.open.pending_turn.receipts[].id` (with a JSON fallback only for malformed legacy rows), not lost with the prior extension process or collapsed to `[object Object]`. The ordinary `agent_end` floor must not restart or replace retained work, and the retained task's completion, failure, cancellation, freshness and acceptance semantics are unchanged from the accounting described above. The foreground `prepare` wait's pending status authorizes no arrival or change on its own; it also cannot erase a change that an earlier receipt already authorized. Retained campaign `game-e0877a4e-fde9-430b-b0d0-d22c8868ce5c`, turn 7, is the failed evidence: `move:Boston harbor steamship ticket office-t7-c2` landed, then `harbor-chapel-eye-rebinding` became pending, but the old wait instruction still said not to move or introduce the destination; the Keeper therefore delivered no fiction and the run ended only with `turn_unfinished`.
 
-**Host-owned `preparation_wait` is retained across later explicit player inputs (retained live evidence; P5 in progress).** The retained state is host-owned, not a turn-local verdict: while the same background source/adaptation job remains pending or reviewing in the same live process, `preparation_wait` survives subsequent explicit player inputs. A new player input clears only review/admission attempt state (it is a new context, `current_input`, and any prior audit/admission attempt no longer outlives it); it must not clear a real preparation wait whose job is still pending/reviewing. Only an explicit status result — `ready`/`failed`/`cancelled`, or an explicit `cancel`/nonpending adaptation result — clears it. Until one of those arrives, only adaptation `status`/`cancel` controls and an honest wait-only `narrate` are allowed, and the continuity audit receives the same `preparation_wait`, so the `preparation_wait` defer remains available on every such turn. This does not add a second task registry and never infers waiting from prose; it preserves the existing host-owned state until the job reports a terminal/nonpending status.
+**Host-owned `preparation_wait` is retained across later explicit player inputs (retained live evidence; P5 in progress).** The retained state is host-owned, not a turn-local verdict: while the same background source/adaptation job remains pending or reviewing in the same live process, `preparation_wait` survives subsequent explicit player inputs. A new player input clears only review/admission attempt state (it is a new context, `current_input`, and any prior audit/admission attempt no longer outlives it); it must not clear a real preparation wait whose job is still pending/reviewing. Only an explicit status result — `ready`/`failed`/`cancelled`, or an explicit `cancel`/nonpending adaptation result — clears it. Until one of those arrives, only adaptation `status`/`cancel` controls and an honest wait-only `narrate` are allowed (narrowed by §135.11's SL-23 addendum: the wait now refuses only a move to its destination and a second `prepare`), and the continuity audit receives the same `preparation_wait`, so the `preparation_wait` defer remains available on every such turn. This does not add a second task registry and never infers waiting from prose; it preserves the existing host-owned state until the job reports a terminal/nonpending status.
 
 **Adaptation job freshness (retained fix).** A pending job binds the material world, party, active worldline, source generation and existing adaptation (`pin = digest({world, party, line})`, plus `source_digest`/`source_generation`); it does not bind narration-only HEAD, the turn number, or player text. An honest wait-only narrate therefore does not stale a job, and a later `status` or `cancel` remains callable while it waits. `status` stays read-only and nonblocking, and a terminal status (`accepted`/`cancelled`/`failed`) clears the wait. Any material world, party, worldline, or source change still invalidates the job, and final apply admission still protects withdrawal: acceptance is subject to the current player's action-admission review, so a wait turn cannot smuggle a change the player did not choose. This matches the retained implementation and the earlier live pending-preparation evidence.
 
@@ -10433,6 +10433,8 @@ Guarded by `tests/extension/authored-handout-reaches-the-player.test.mjs` (both 
 was handed) and `tests/extension/map-session-viewer.test.mjs` (what the card draws).
 
 ## 60. A proposal that is over retires from the table (2026-09-16, narrows §36.15)
+
+*§135.11's SL-23 addendum (2026-09-24): the once-said notice below is the Keeper's; a clerk (policy-origin) call never spends it and is never refused by it.*
 
 Three retained playtests of the same day, two branches of one shape, and the same price every
 time: a tool call the player paid for, spent on a proposal that could never finish.
@@ -14982,6 +14984,8 @@ never reached the bar. "Send anything to continue" had not continued the action.
 
 ### 111.1 Registration bookkeeping passes through an in-flight adaptation wait
 
+*Superseded by §135.11's SL-23 addendum (2026-09-24): a held wait blocks only a move to its destination and a second `prepare`, so this batch passes like every other write; the exemption is gone with the rule it excepted.*
+
 An adaptation wait still owns every effect whose truth may depend on the prepared destination: movement,
 time, clues, payments, transfers, usages and other world changes remain blocked. One closed batch is exempt:
 at least one `define`, at least one same-owner `object adopt`, and no other effect kind. Before the Mod has
@@ -17728,6 +17732,74 @@ issued after the settlement runs before the route and the compose; on the emitte
 settles, the kernel opens the fight, the NPC's forced defence runs, and gate #6's unclear exit then composes; at the engine, the clerk's execute carries `check` and the
 compose's note carries the receipts, the obligation's line and `settled_note`. The replays after the change are in the
 SL-20 ticket's Comments.
+
+**Addendum 2026-09-24 (SL-23, after the long live gate): a preparation wait never strands a turn, and never blocks the
+next one.** The spec's ruling of that name (owner, 2026-09-24) binds it. It applies to both engines: the drop, the steer
+and the gate below are the kernel extension's, which legacy and `hybrid-v1` share.
+
+*Evidence.* Long gate, campaign `longgate-haunting-0624` (the ticket's "1010" is the playtest's clock), turn 19, run
+`run-01a0d301-c8da-7552-937e-4f223e5bd6a9`, "我把找到的东西收好，离开宅子。": after a failed `look object "Corbitt Diaries"`
+(`unknown_entity`) and a module lookup, the Keeper called `lookup kind=adaptation action=prepare purpose=new_destination
+name=corbitt-house-front`, which held the turn 12 243 ms and answered `pending`. Its next call, an `apply` that defined
+the three diaries and handed them to the investigator (a `define` and an `object`, nothing to do with the street), was
+refused `blocked: preparation_wait`, with the process talk beside it dropped (`text_beside_tool_calls`). The compose's
+prose was dropped for the wait (`preparation_wait`), the turn close steered once (`adaptation-wait`), and the steered
+second leg was dropped for the wait again, because the wait's drop in `message_end` never asked whether the turn's steer
+was spent. The run ended `turn_close_steer_spent:no_delivered_evidence` with `unsent_fix: "adaptation-wait"` (the steer
+had not consumed the wait's own fix), the record closed `stranded`, and the player read the unfinished notice over prose
+the Keeper had written twice. Turn 20: the boundary re-read the proposal as `ready` (held, §47), and the clerk's
+compile-selected `apply:move:commission-briefing` -- a move to a scene that exists -- was refused `blocked:
+preparation_wait`, and so was the Keeper's `look`. The job itself (`.coc/adaptation-jobs/longgate-haunting-0624/2561…`):
+creator 12 s, reviewer 22 s, `ready` 35 s after it started.
+
+- **The wait steers once, and holds the draft it drops.** In `message_end`, prose under a held adaptation wait is dropped
+  only while the turn's steer is unspent, and the dropped draft is held exactly as the floor and speech steers hold theirs
+  (`floorDraft`). The steer (`takeTurnCloseSteer`, `adaptation-wait`) consumes the wait's own delivery fix, so a spent
+  steer never reports it as `unsent_fix`. The steered second leg is delivered by the implicit narrate, which carries
+  `preparation_wait: {kind, name}` to the Mod hooks and the kernel as before, and the §47 notice beside the delivery says
+  the wait out of fiction. A second leg that brings nothing delivers the held draft; a second leg the kernel refuses
+  falls back to the held draft (this section's gate #4 addendum, `steered_leg_refused`), and if that is refused too the
+  turn is undelivered with every drop on its row and `unsent_fix` naming the kernel's repair.
+- **A held preparation owns only the writes that need it** (amends §36.15's "pending-preparation turn ownership", its
+  retention paragraph's "only adaptation `status`/`cancel` controls and an honest wait-only `narrate` are allowed", its
+  cold-resume "control state that blocks ordinary Keeper tools", and §111.1). For every held status (`pending`,
+  `reviewing`, `ready`) the `tool_call` gate refuses exactly two shapes, with the wait's instruction and its
+  `ok: false, code: "blocked", reason: "preparation_wait"` row: an `apply` carrying a `move` whose `to` is the held
+  proposal's own name (compared as an id: case, a `scene:` qualifier and separators folded), and another `lookup
+  kind=adaptation action=prepare`. Reads, `resolve`, `ask`, `narrate`, the adaptation `status`/`cancel` controls, an
+  `adaptation` acceptance, every other effect and a move to a scene that exists pass, the clerk's writes on the next turn
+  among them. A move whose destination the Keeper names differently is refused by the kernel (`unknown_entity`,
+  `reason: "destination_missing"`), whose fix leads back to `prepare`, which the gate then refuses with the wait's
+  instruction. The pending instruction now says so ("Only a move to that destination waits for it; everything else the
+  player chose settles as usual"); the ready one says "before moving there" instead of "before any other tool".
+- **What a passing write costs the job.** A write that moves the pinned world (`active_scene`, `clock`, clues, flags,
+  presence, handouts; §36.15's pin) stales a pending or ready job, and that is the table's choice to make, not the job's
+  to prevent: the player went elsewhere. The next boundary reads it `stale` and §60 tells the Keeper once. That notice is
+  the Keeper's: a clerk (policy-origin) call never spends it and is never refused by it, so the next turn's clerk move is
+  not the turn-20 shape again one turn later; it stays armed for the Keeper's first own call.
+- **The prepare's budget inside the turn.** `PI_COC_ADAPTATION_WAIT_MS` (the foreground wait of a `prepare` that starts
+  or rejoins a job) defaults to **2 000** (it was 12 000, amending §36.15's "The foreground `prepare` wait defaults to 12
+  seconds"). Measured before the change: every retained `prepare` that started a job (7, across the gate and playtest
+  tables to 2026-09-24) answered `pending` or `reviewing` after 12 090–12 601 ms; none answered `ready`. A creator and an
+  independent reviewer, each a tool-using child, do not finish inside any wait a turn can afford (the long gate's job
+  needed 35 s); the short wait still reads a job that ends at once. Each `prepare` writes `lane: "adaptation", event:
+  "prepare"` with `proposal`, `status`, `ms` (the whole call) and `wait_budget_ms`.
+
+*Three ends (§31).* Writer: the adaptation result (`preparationWait`, unchanged) and `message_end` (`floorDraft`). Reader:
+the `tool_call` gate (`needsPreparation`), `message_end`'s fallback, `takeTurnCloseSteer`. Actor: the Keeper (the steered
+second leg; the instruction on a refused dependent write) and the clerk (whose writes pass).
+
+*Tests.* `tests/extension/preparation-wait-never-strands.test.mjs` (hybrid, fake kernel; the emitted kernel for the next
+turn): turn 19's shape (prepare, the diaries' apply, prose twice) lands the apply, delivers the second leg with
+`preparation_wait`, one `preparation_wait` drop, no `unsent_fix`, and the prepare's cost row; a second leg that brings
+nothing delivers the held draft; the second leg refused falls back to the held draft; both refused are undelivered with
+`preparation_wait`, `steered_leg_refused`, `implicit_narrate_refused` and `unsent_fix: "audit-repair"`; a move to the
+proposal is refused with the instruction; on the emitted kernel, the next turn's clerk move to an existing scene lands
+under a held pending proposal, and when that move staled the proposal the notice is spent on the Keeper's own call, never
+on the clerk's next move; a retained `ready` proposal holds neither a read nor an unrelated write and refuses a move there
+naming it. `tests/extension/adaptation-host.test.mjs`: the 2 s default and the override. `tests/extension/turn.test.mjs`,
+`host-state-not-fiction.test.mjs` and `stale-adaptation.test.mjs` now block a dependent write where they blocked an
+ordinary one. The replay of turn 19 is in the SL-23 ticket's Comments.
 
 ### 135.20 The read hands the Keeper the bodies of what it issued (2026-09-23, SL-11 scope 1; the model-call diet)
 

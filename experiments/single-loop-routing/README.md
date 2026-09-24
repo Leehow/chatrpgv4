@@ -29,7 +29,7 @@ One line: `next = determined(view) ? direct : jevRoute(candidates(view) ∪ {ask
 | `run.mjs` | `--llm replay` runs `product-entry.ts` (SL-02); `--llm none` or `--driver prototype` esbuild-bundles `run-entry.ts` (the prototype's own driver) and runs it |
 | `kernel.mjs` | JSON-RPC transport to `build/kernel/rpc.mjs` |
 | `fixture.mjs`, `baseline.mjs` | build `fixtures/<name>/workspace.tar.gz` from the App's data (read-only), position it before the turn with the campaign's own sidecar git; extract the live Keeper's baseline from the session file. Fixtures: `turn3` (the haunting, turn 3) and `fight-round` (the "打斗测试" table, turn 6, "继续揍他", made at SL-02) |
-| `gate-fixture.mjs` | SL-13: fixtures from a live gate's campaign (a `.coc` home the play driver wrote; read only), one per turn with a shared tarball (`turn.json`'s `tarball`), the recorded Keeper read from the play driver's RPC event log. Fixtures: `gate3-t1`, `gate3-t2`, `gate3-t3` (live gate #3, `gate3-haunting-2329`) |
+| `gate-fixture.mjs` | SL-13: fixtures from a live gate's campaign (a `.coc` home the play driver wrote; read only), one per turn with a shared tarball (`turn.json`'s `tarball`), the recorded Keeper read from the play driver's RPC event log. Fixtures: `gate3-t1`, `gate3-t2`, `gate3-t3` (live gate #3, `gate3-haunting-2329`), `longgate-t19` (the long gate's stranded turn 19, `longgate-haunting-0624`; SL-23: each message's streamed prose and the calls the live wait refused are in its baseline, and the replay answers a stranded turn's composes with that prose) |
 | `vault.mjs` | reads `EXT_JEV_APIKEY` from the App's encrypted secret vault into the child env; never prints it |
 | `RESULTS-20260923.md` | the runs, step traces and misses |
 
