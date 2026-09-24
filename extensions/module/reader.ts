@@ -1,5 +1,5 @@
 /** A tool-enabled Pi child for one visual reading or review phase. */
-import {type TaskProviderBudget, type ProviderCharge, providerUsage, providerSpend} from "../../runtime/jev/provider-budget.ts";
+import {type TaskProviderBudget, type ProviderCharge, type ProviderRefusal, providerUsage, providerSpend, providerRefusal, providerRefusalText} from "../../runtime/jev/provider-budget.ts";
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -68,6 +68,10 @@ export interface ReaderRequest {
 
 export interface ReaderOutcome {
 	usage?: {inputTokens:number;outputTokens:number;costUsd:number;actions:number;unknownCalls:number};
+	/** What refused a provider call, typed (contract §20 addendum 2); the first refusal, never the child's echo of it. */
+	refusal?: ProviderRefusal;
+	/** The provider's own error when the round ended on one (stream timeout, connection error), for a `transport` failure. */
+	providerError?: string;
 	ok: boolean;
 	/** The exit code; null when killed by a signal. */
 	code: number | null;
@@ -203,6 +207,12 @@ export async function acquireReaderSlot(signal?: AbortSignal, priority: ReaderPr
 	});
 }
 
+/** The lease was closed or cancelled by its owner: the call was not refused, the reading was stopped. */
+function isCancellation(error: unknown): boolean {
+	const code = (error as {code?: unknown})?.code;
+	return (error as {name?: unknown})?.name === "AbortError" || ["task_cancelled", "task_closed", "parent_cancelled"].includes(String(code));
+}
+
 /** Run one reader round. Failed or cancelled runs retain their evidence. */
 export async function runReader(request: ReaderRequest, context?: RuntimeContext): Promise<ReaderOutcome> {
 	if (!context) throw new Error("Reader execution requires a captured host runtime context");
@@ -239,6 +249,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	const [bin, ...args] = command;
 	const env: NodeJS.ProcessEnv = { ...context.env, PI_CODING_AGENT_DIR: context.agentHome };
 	if(request.providerBudget)env.PI_COC_PROVIDER_BUDGET="ipc-v1";else delete env.PI_COC_PROVIDER_BUDGET;
+	if(request.providerBudget?.callOutputTokens)env.PI_COC_PROVIDER_OUTPUT_LIMIT=String(request.providerBudget.callOutputTokens);else delete env.PI_COC_PROVIDER_OUTPUT_LIMIT;
 	if (request.audit) env.PI_COC_AUDIT_CONTROL = resolvePath(request.cwd, request.audit.control);
 	else delete env.PI_COC_AUDIT_CONTROL;
 	if (request.adaptation) {
@@ -273,6 +284,14 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 		let timedOut = false;
 		let eventError: string | undefined;
 		let providerError: string | undefined;
+		// The provider's own last error (a stream timeout, a connection error): a refusal that follows it is a
+		// refused retry, and a round that ends on it failed on transport (§20 addendum 2).
+		let lastProviderError: string | undefined;
+		let refusal: ProviderRefusal | undefined;
+		const refuse = (error: unknown) => {
+			refusal ??= providerRefusal(error, {afterProviderError: lastProviderError, unknownCalls: usage.unknownCalls});
+			providerError = providerRefusalText(refusal);
+		};
 		let hardKill: ReturnType<typeof setTimeout> | undefined;
 		const log = request.eventLog ? createWriteStream(request.eventLog, { flags: "a" }) : undefined;
 		log?.on("error", error => { eventError = error.message; });
@@ -293,8 +312,10 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 					const charge=await request.providerBudget!.reserve(message.bound,AbortSignal.any([channel.signal,request.signal!]));
 					if(settled||channel.signal.aborted){charge.release();return;}
 					charges.set(message.id,charge);
-					child.send({type:'coc-provider-grant',id:message.id,ok:true},error=>{if(error){providerError=error.message;kill();}});
-				} else if(message?.type==='coc-provider-failure') {throw new Error(message.error??'provider_budget_failed');
+					child.send({type:'coc-provider-grant',id:message.id,ok:true},error=>{if(error){refuse(new Error(`transport: ${error.message}`));kill();}});
+				} else if(message?.type==='coc-provider-failure') {
+					// The child's echo of a refusal this host sent arrives here too; `refuse` keeps the first cause.
+					throw new Error(message.error??'provider_budget_failed');
 				} else if(message?.type==='coc-provider-settle') {
 					const charge=charges.get(message.id);if(!charge)throw new Error('unknown_provider_reservation');
 					charges.delete(message.id);
@@ -303,19 +324,28 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 					else usage.unknownCalls++;
 					charge.settle(message.usage);
 				}
-			}catch(error){providerError=String(error);if(child.connected)child.send({type:'coc-provider-grant',id:message?.id,ok:false,error:'provider_budget_refused'});kill();}
+			}catch(error){
+				// A cancelled reading was not refused: it keeps the plain cancellation (§20 addendum 2). Nor is the
+				// child's echo of a refusal a cause of its own: with a cause recorded `refuse` keeps it, without one
+				// (the host's reservation was cancelled) it is the cancellation's echo.
+				if(isCancellation(error)||!refusal&&/provider_budget_refused$/.test(String(error)))providerError??=String(error);else refuse(error);
+				if(child.connected)child.send({type:'coc-provider-grant',id:message?.id,ok:false,error:'provider_budget_refused'});kill();
+			}
 		});
 		const finish = (outcome: Omit<ReaderOutcome, "ms" | "command" | "stderr">) => {
 			if (settled) return;
 			settled = true;
 			channel.abort();
-			for(const charge of charges.values()){usage.unknownCalls++;try{charge.settle();}catch(error){providerError=String(error);}}charges.clear();
+			for(const charge of charges.values()){usage.unknownCalls++;try{charge.settle();}catch(error){if(!refusal)providerError=String(error);}}charges.clear();
 			clearTimeout(timer);
 			if (hardKill) clearTimeout(hardKill);
 			request.signal?.removeEventListener("abort", onAbort);
 			const done = () => {
-				const error = eventError ?? providerError;
-				resolve({ ...outcome, ...(request.providerBudget ? {usage} : {}), ...(error ? { ok: false, error } : {}), ms: Date.now() - began, stderr: stderr.slice(-STDERR_KEEP), command });
+				const error = eventError ?? (refusal ? providerRefusalText(refusal) : providerError);
+				const failedOnProvider = !refusal && providerError !== undefined && providerError === lastProviderError;
+				resolve({ ...outcome, ...(request.providerBudget ? {usage} : {}), ...(refusal ? {refusal} : {}),
+					...(failedOnProvider ? {providerError: lastProviderError} : {}),
+					...(error ? { ok: false, error } : {}), ms: Date.now() - began, stderr: stderr.slice(-STDERR_KEEP), command });
 			};
 			if (log && !log.destroyed) log.end(done);
 			else done();
@@ -368,13 +398,19 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 							: value) + "\n");
 						if (event.type === "message_end" && event.message?.role === "assistant") {
 							const message = event.message;
-							if (message.errorMessage || message.stopReason === "error" || message.stopReason === "aborted")
-								providerError = message.errorMessage || `Reader model ${message.stopReason}`;
-							else if (message.stopReason === "stop" || message.stopReason === "toolUse")
-								providerError = undefined;
+							if (message.errorMessage || message.stopReason === "error" || message.stopReason === "aborted") {
+								if (!refusal) providerError = message.errorMessage || `Reader model ${message.stopReason}`;
+								lastProviderError = message.errorMessage || `Reader model ${message.stopReason}`;
+							}
+							else if (message.stopReason === "stop" || message.stopReason === "toolUse") {
+								if (!refusal) providerError = undefined;
+								lastProviderError = undefined;
+							}
 						}
-						if (event.type === "auto_retry_end" && event.success === false)
+						if (event.type === "auto_retry_end" && event.success === false && !refusal) {
 							providerError = event.finalError || providerError || "Reader model retry failed";
+							lastProviderError = providerError;
+						}
 						request.onEvent?.(event);
 					} catch (error) { eventError = `unreadable reader event: ${String(error)}`; }
 				}

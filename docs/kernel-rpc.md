@@ -2479,6 +2479,107 @@ guidance reading (a stand-in reader records its task) instead of `ENOENT`, the q
 source-bound one, and a first graph written afterwards does not change it. It dies on the pre-fix
 order (the `ENOENT` of SL-29A) and on a variant that tolerates a missing graph but binds it once present.
 
+### §20 addendum 2 — a book's reading is paid from a lease sized to the book, and a refusal names its cause (2026-09-24, SL-35)
+
+Masks of Nyarlathotep (669 pages) failed its opening reading twice with the one word
+`provider_budget_refused`. The cause, read from the evidence (ticket SL-35, Scope 1): every reader child
+had its own fixed lease of 1,000,000 input tokens (`runtime/tasks.ts`, `independentProviderBudget`); an
+image call reserves the reader model's whole context window (500,000 for `grok-4.7-build-fast`); a call
+that ends in a provider error is settled with no usage and so is charged that whole reservation; pi's
+automatic retry after a stream timeout then asked for another 500,000 that the lease no longer had. The
+one round that did not end that way ended on the output bound: the draft call reported 10,933 output
+tokens against the 8,192 the host had bound, an overrun that cancels the lease. The host answered all
+of these to the child with the same word and then let the child's echo of that word overwrite its own
+error, so no file said which ceiling fired.
+
+**1. The import's reading stages pay from one lease each, sized to the book.** The onboarding worker
+(`pipicoc/onboarding-worker.ts`) opens one provider lease per stage it runs and hands it to
+`ReadingService.prepare` as that reading's `providerBudget` (§22.4 ownership: every author round and
+every review unit of the stage's reading reserves from it; background readings the stage queues keep
+their own). The lease is derived, never a literal at the call site, by
+`readingStageBudget(stage, {pageCount, perPage})` in `runtime/jev/reading-stage-budget.ts` from the
+named default `READING_STAGE_BUDGET`:
+
+- per dimension (input tokens, output tokens, actions, USD):
+  `clamp(floor, pageCount × perPage × share(stage), ceiling)` — a stage may spend at most what reading
+  its share of the whole book once costs, never less than the floor and never more than the ceiling;
+- `share`: `inspect` 0 (it makes no provider call and gets no lease), `guidance` 0.5, `opening` 1,
+  `prepare` (skeleton, opening and guidance in one process) 1.5;
+- `perPage` is `READING_STAGE_BUDGET.perPage` (16,000 input tokens, 1,000 output tokens, 0.5 actions,
+  US$0.03 — Masks' measured opening round was 213,189 input / 11,401 output tokens over 16 page images),
+  raised per dimension to the reader's measured cost per page of *this* book when its earlier readings
+  measured one (the `usage.jsonl` rows below, author phases only, at least four pages). A measurement
+  never lowers it: it counts the author's rounds, while the lease also pays the review of every page;
+- `floor` {4,000,000 input tokens, 262,144 output tokens, 64 actions, US$10}: at least eight
+  whole-context reservations of a reader whose window is 500,000 tokens, so a stalled image call and
+  its retry fit in each of two rounds with the review still to pay;
+- `ceiling` {40,000,000 input tokens, 2,000,000 output tokens, 800 actions, US$100};
+- the lease's deadline is `READING_STAGE_BUDGET.deadlineMs` (2 h) after the stage starts;
+- the lease also bounds each call's output: `callOutputTokens` (32,768), passed to the reader child and
+  applied as `min(model maxTokens, callOutputTokens)`, instead of the default 8,192. A reading's draft
+  is written in one tool call; 8,192 was below what Masks' draft call reported.
+
+Every author round records `{phase, round, ok, pages, usage}` in its attempt directory's `usage.jsonl`
+and in its `lane: reading` telemetry row (`usage` = the reader outcome's `{inputTokens, outputTokens,
+costUsd, actions, unknownCalls}`), so the worker's event log carries each round's calls and tokens and
+the next stage can measure `perPage`.
+
+**2. A provider refusal is typed.** The host side of the child's provider channel
+(`extensions/module/reader.ts`) classifies what refused a reservation or a settle and keeps it:
+
+| `reason` | when |
+| --- | --- |
+| `budget_input_tokens` / `budget_output_tokens` / `budget_actions` / `budget_usd` | the lease (or an ancestor) cannot grant the reservation in that dimension (`task_budget_exhausted`), or a settle reported more than was reserved in it (`task_budget_overrun`, `overrun: true`) |
+| `budget_deadline` | the lease's deadline passed (`task_deadline`) |
+| `unknown_reservation` | a settle named a reservation the host never granted |
+| `provider_protocol` | the child's reservation request was malformed, reused an id, or named another model |
+| `transport` | the private channel to the child failed (a send error, the channel closed) |
+
+The record is `{reason, code, dimension?, ceiling?, used?, requested?, held?, overrun?, after_provider_error?, unknown_usage_calls}`:
+`ceiling` is the lease's starting amount in the refusing dimension, `used` what had been settled or
+charged against it, `requested` what this reservation asked for (or, for an overrun, what the provider
+reported), `held` what other in-flight reservations held, `after_provider_error` the provider error the
+child last reported before the refusal (the retry that was refused), `unknown_usage_calls` how many
+calls were charged their whole reservation because they ended without usage. The reader outcome
+carries it as `refusal`; its `error` is
+`provider_budget_refused: <reason> (…numbers…)`. The first refusal is the one kept: the child's own
+report of the refusal it was sent never replaces it.
+
+**3. A round that failed on the provider is said, and is not retried into a lease that cannot pay.**
+A reading job whose author round fails with a typed refusal from a lease the job shares across its
+rounds (a stage lease, §1) fails at once: the second round would reserve from the same lease. A round
+that fails on the provider without a refusal (stream timeout, connection error; `transport`) gets the
+job's second round as before; a second such failure fails the job. Either way the job's failure carries
+`refusal {message, rule, reason}` to `module.read.finish` (§22.3.1's record): `rule` is
+`provider_budget_refused` or `reader_transport`, `reason` the typed reason, and `message` one English
+sentence with the ceiling and the usage. A telemetry row `{lane: "reading", event: "provider_refused",
+…the record}` is written when it happens. The kernel keeps the refusal on the failed job; the worker's
+waiting `prepare` receives it as §22.3.1's said refusal (`reason: reading_failed`, `details.refusal`),
+its `error` event carries `refusal`, and the App's import panel keeps `reason` and `refusal` on the
+phase and shows the sentence under the phase's caption. A reading whose rounds each have their own
+lease (no stage lease: the table's reads) keeps its second round after a refusal, since the second
+round has a fresh lease.
+
+**4. The campaign's title is the book's name, not the upload's file name.** `converse` passes
+`title` = the upload's name without its file extension (`血色公路.pdf` → `血色公路`), the same
+stripping `inspect` already applied to the module title.
+
+**5. Background readings outlive the worker.** When the worker exits (its result sent, a failure, or a
+pause), a reading nobody is waiting on — the index job, the read-ahead's detail and way-on readings —
+is handed off rather than cancelled: the host stops its reader child and leaves the job `running` with
+no lock holder, which §22.2's claim already re-queues for the next owner with `resume_from` its retained
+attempt. A telemetry row `{lane: "reading", event: "handed_off", job_id, purpose}` records it. A reading
+the worker is waiting on (the stage's own) is still finished `cancelled` on a pause. The table's host
+keeps its present behaviour on shutdown.
+
+Tests: `tests/extension/reading-stage-budget.test.mjs` (the derivation on a page-count fixture: floor,
+share, ceiling, measured per-page cost, inspect), `tests/extension/jev-provider-budget.test.mjs`
+(each typed reason through the real child channel, including the Masks shape: an image call that ends
+in a provider error, then a retry refused on input tokens; the echo does not overwrite; the per-call
+output bound), `tests/extension/reading-service.test.mjs` (a stage-lease refusal fails after one round
+with the typed refusal; a transport failure gets two; background hand-off at close),
+`Electron/packages/pi-backend/test/coc-onboarding.test.ts` (the converse title).
+
 ## 21. 调查员库：建一次，之后哪一局都能用（切片 12，票 #31）
 
 用户 2026-09-06 的四条拍板：**载入整卡快照原样带过**；**库里的卡与新模组时代不符也允许，原样不动**；**在战役里玩过之后每回合自动回流**；建卡与载入都要有入口。
@@ -14770,6 +14871,11 @@ a PDF book nobody has read yet that guidance is the book's first reading (§20 a
 host keys it from the source file, the reading publishes the first graph with it, and the key it was
 accepted under is the one `converse` pins. No setup step computes a key from, or waits on, a graph that
 the first reading has not published. A starter's setup is unchanged: its key binds its shipped graph.
+
+### §98 addendum 6 — the campaign an import creates is titled with the book's name (2026-09-24, SL-35)
+
+`converse` creates the campaign setup runs in; its `title` is the upload's name without the file
+extension (§20 addendum 2, item 4). SL-29A's campaign was titled `血色公路.pdf`.
 
 ## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
 

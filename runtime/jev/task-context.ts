@@ -34,6 +34,20 @@ export interface TaskCheckpoint {
   sourceAdvances?:SourcePublicationAdvance[];
 }
 
+/**
+ * A lease that could not grant (or settle) a spend, with the dimension that refused it (contract §20
+ * addendum 2, SL-35). The code is unchanged (`task_budget_exhausted`, `task_budget_overrun`), so every
+ * existing caller that matches the code still does; the record says which ceiling fired and how much of it
+ * was gone. `ceiling` is the refusing lease's starting amount, `used` what was settled or charged against
+ * it, `held` what other in-flight reservations held, `requested` what this spend asked for (for an overrun,
+ * what was reported) and `reserved` what an overrun had reserved.
+ */
+export interface BudgetRefusalRecord { dimension: keyof BudgetSpend; ceiling: number; used: number; held: number; requested: number; reserved?: number; overrun?: true }
+export class BudgetRefusal extends ContractError {
+  readonly refusal: BudgetRefusalRecord;
+  constructor(code: 'task_budget_exhausted' | 'task_budget_overrun', refusal: BudgetRefusalRecord) { super(code); this.refusal = Object.freeze({ ...refusal }); }
+}
+
 function validSpend(spend: BudgetSpend): void {
   if (!isPlainRecord(spend) || Object.keys(spend).some(key => !SPEND_KEYS.includes(key as keyof BudgetSpend))) throw new ContractError('invalid_budget_spend');
   for (const key of SPEND_KEYS) if (!Number.isFinite(spend[key]) || spend[key] < 0 || key !== 'costUsd' && !Number.isSafeInteger(spend[key]))
@@ -71,6 +85,8 @@ export class TaskLease {
   #receiptAdvances = new Set<string>();
   #sourceAdvances = new Map<string,SourcePublicationAdvance>();
   #held: BudgetSpend = {...ZERO};
+  /** The budget this lease started with, after its ancestors' limits: what a refusal names as the ceiling. */
+  #ceiling: BudgetSpend = {...ZERO};
   readonly #budgetChanges: {waiters: Set<() => void>};
 
   constructor(options: TaskLeaseOptions, parent?: TaskLease) {
@@ -110,12 +126,14 @@ export class TaskLease {
       for (const field of Object.values(BUDGET_FIELDS)) budget[field] = Math.min(budget[field], parent.#context.budget[field]);
     }
     const id = randomUUID();
+    this.#ceiling = Object.fromEntries(SPEND_KEYS.map(key => [key, budget[BUDGET_FIELDS[key]]])) as unknown as BudgetSpend;
     this.#context = { id, rootId: parent ? parent.#context.rootId : id, ...(parent ? { parentId: parent.#context.id } : {}),
       owner: options.owner, goal: options.goal, scope: structuredClone(options.scope), capabilities: [...options.capabilities],
       readSet: structuredClone(options.readSet), budget, kind: parent ? 'child' : options.kind ?? 'foreground', checkpointRefs: [], step: 0, rootStep: this.#rootSequence.value,
       ...(options.origin ? { origin: structuredClone(options.origin) } : {}) };
     for (const signal of [parent?.signal, options.signal]) if (signal) {
-      const cancel = () => this.cancel(signal.reason instanceof ContractError ? signal.reason.code : 'parent_cancelled');
+      // The ancestor's own reason travels whole, so a refusal record (an overrun) is not reduced to its code.
+      const cancel = () => this.cancel(signal.reason instanceof ContractError ? signal.reason : 'parent_cancelled');
       if (signal.aborted) cancel();
       else { signal.addEventListener('abort', cancel, { once: true }); this.#detach.push(() => signal.removeEventListener('abort', cancel)); }
     }
@@ -176,11 +194,11 @@ export class TaskLease {
     if (this.#clock.now() >= this.#context.budget.deadlineAt) this.cancel('task_deadline');
     this.signal.throwIfAborted();
   }
-  cancel(reason = 'task_cancelled'): void {
+  cancel(reason: string | ContractError = 'task_cancelled'): void {
     if (this.signal.aborted) return;
     this.#clearDeadline();
     for (const detach of this.#detach.splice(0)) detach();
-    this.#controller.abort(new ContractError(reason));
+    this.#controller.abort(typeof reason === 'string' ? new ContractError(reason) : reason);
   }
   close(): void { this.cancel('task_closed'); }
   child(options: Pick<TaskLeaseOptions, 'owner' | 'goal' | 'budget' | 'capabilities'>): TaskLease {
@@ -193,7 +211,8 @@ export class TaskLease {
     for (let task: TaskLease | undefined = this; task; task = task.#parent) chain.push(task);
     for (const task of chain) {
       task.assertActive();
-      if (SPEND_KEYS.some(key => reserved[key] > task.#context.budget[BUDGET_FIELDS[key]])) throw new ContractError('task_budget_exhausted');
+      const refused = SPEND_KEYS.find(key => reserved[key] > task.#context.budget[BUDGET_FIELDS[key]]);
+      if (refused) throw task.#refusal('task_budget_exhausted', refused, reserved[refused]);
     }
     for (const task of chain) for (const key of SPEND_KEYS) {
       task.#context.budget[BUDGET_FIELDS[key]] -= reserved[key];
@@ -206,16 +225,25 @@ export class TaskLease {
       const used = { ...reserved, ...actual };
       validSpend(used);
       settled = true;
-      const overrun = SPEND_KEYS.some(key => used[key] > reserved[key]);
+      const overrun = SPEND_KEYS.find(key => used[key] > reserved[key]);
       for (const task of chain) for (const key of SPEND_KEYS) {
         task.#context.budget[BUDGET_FIELDS[key]] += reserved[key] - used[key];
         if (options.waitable !== false) task.#held[key] -= reserved[key];
       }
       for (const wake of [...this.#budgetChanges.waiters]) wake();
       // Negative remaining budget is honest debt after an actual provider overrun, never permission.
-      if (overrun) { chain.at(-1)!.cancel('task_budget_overrun'); throw new ContractError('task_budget_overrun'); }
+      if (overrun) {
+        const refusal = this.#refusal('task_budget_overrun', overrun, used[overrun], reserved[overrun]);
+        chain.at(-1)!.cancel(refusal); throw refusal;
+      }
     };
     return { settle, release: () => settle(ZERO) };
+  }
+
+  #refusal(code: 'task_budget_exhausted' | 'task_budget_overrun', dimension: keyof BudgetSpend, requested: number, reserved?: number): BudgetRefusal {
+    const ceiling = this.#ceiling[dimension], held = this.#held[dimension];
+    return new BudgetRefusal(code, { dimension, ceiling, used: ceiling - this.#context.budget[BUDGET_FIELDS[dimension]] - held, held, requested,
+      ...(reserved !== undefined ? { reserved, overrun: true as const } : {}) });
   }
 
   /** Wait for existing reservations to settle; never borrow beyond any ancestor's ceiling. */
@@ -230,7 +258,8 @@ export class TaskLease {
       catch (error) {
         if (!(error instanceof ContractError) || error.code !== 'task_budget_exhausted') throw error;
         for (let task: TaskLease | undefined = this; task; task = task.#parent) {
-          if (SPEND_KEYS.some(key => requested[key] > task.#context.budget[BUDGET_FIELDS[key]] + task.#held[key])) throw error;
+          const refused = SPEND_KEYS.find(key => requested[key] > task.#context.budget[BUDGET_FIELDS[key]] + task.#held[key]);
+          if (refused) throw task.#refusal('task_budget_exhausted', refused, requested[refused]);
         }
       }
       await new Promise<void>((resolve, reject) => {

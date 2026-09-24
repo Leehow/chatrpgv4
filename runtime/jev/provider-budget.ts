@@ -1,5 +1,5 @@
 /** Host-only accounting for nested provider calls. The main Keeper has its own owner hook. */
-import {TaskLease, type BudgetSpend} from './task-context.ts';
+import {TaskLease, BudgetRefusal, type BudgetSpend} from './task-context.ts';
 import {ContractError} from './contracts.ts';
 
 export interface ProviderModel {
@@ -11,7 +11,38 @@ export interface ProviderCharge {settle(usage?:unknown):void;release():void}
 export interface TaskProviderBudget {
   readonly signal:AbortSignal;
   readonly deadlineAt:number;
+  /** The output bound a child applies to each call (§20 addendum 2); absent means the default 8,192. */
+  readonly callOutputTokens?:number;
   reserve(bound:ProviderBound, signal?:AbortSignal):Promise<ProviderCharge>;
+}
+/** The closed causes of a provider refusal (contract §20 addendum 2, SL-35). */
+export type ProviderRefusalReason='budget_input_tokens'|'budget_output_tokens'|'budget_actions'|'budget_usd'|'budget_deadline'|'unknown_reservation'|'provider_protocol'|'transport';
+export interface ProviderRefusal {
+  reason:ProviderRefusalReason; code:string; dimension?:keyof BudgetSpend; ceiling?:number; used?:number; held?:number; requested?:number;
+  reserved?:number; overrun?:true; after_provider_error?:string; unknown_usage_calls:number;
+}
+const DIMENSION_REASON:Record<keyof BudgetSpend,ProviderRefusalReason>={inputTokens:'budget_input_tokens',outputTokens:'budget_output_tokens',actions:'budget_actions',costUsd:'budget_usd'};
+/** Codes the host's own checks of a child's reservation request raise: the child broke the channel's protocol. */
+const PROTOCOL_CODES=new Set(['invalid_provider_request_identity','provider_model_changed','provider_bound_unavailable','provider_output_bound_unsupported','provider_payload_unavailable']);
+// A child reports its own failure as the string of its error; the code is what follows `ContractError: `.
+const codeOf=(error:unknown):string=>error instanceof ContractError?error.code
+  :String(error instanceof Error?error.message:error).replace(/^(?:Error: )*ContractError: /,'');
+/** What refused a child's provider call, typed by the error the host's accounting raised. Never guessed from prose. */
+export function providerRefusal(error:unknown, context:{afterProviderError?:string;unknownCalls?:number}={}):ProviderRefusal {
+  const code=codeOf(error), common={code,unknown_usage_calls:context.unknownCalls??0,...(context.afterProviderError?{after_provider_error:context.afterProviderError.slice(0,300)}:{})};
+  if(error instanceof BudgetRefusal)return {reason:DIMENSION_REASON[error.refusal.dimension],...common,...error.refusal};
+  if(code==='task_deadline')return {reason:'budget_deadline',...common};
+  if(code==='unknown_provider_reservation')return {reason:'unknown_reservation',...common};
+  if(PROTOCOL_CODES.has(code))return {reason:'provider_protocol',...common};
+  return {reason:'transport',...common};
+}
+/** One English line for logs and the job's refusal: the reason, then the numbers. */
+export function providerRefusalText(refusal:ProviderRefusal):string {
+  const numbers=refusal.dimension?`${refusal.overrun?`a call reported ${refusal.requested} ${refusal.dimension} against ${refusal.reserved} reserved`
+    :`the call asked for ${refusal.requested} ${refusal.dimension}`}; the lease's ceiling is ${refusal.ceiling}, ${refusal.used} used, ${refusal.held} held by other calls`:refusal.code;
+  const extra=[refusal.unknown_usage_calls?`${refusal.unknown_usage_calls} call(s) ended without usage and were charged their whole reservation`:'',
+    refusal.after_provider_error?`after the provider error "${refusal.after_provider_error}"`:''].filter(Boolean).join('; ');
+  return `provider_budget_refused: ${refusal.reason} (${numbers}${extra?`; ${extra}`:''})`;
 }
 export interface ProviderUsage {inputTokens:number;outputTokens:number;costUsd:number;actions:number}
 const finite=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
@@ -56,12 +87,12 @@ export function boundProviderRequest(model:ProviderModel, payload:any, outputLim
   providerSpend(bound);
   return {payload:bounded,bound};
 }
-export function createTaskProviderBudget(lease:TaskLease, options:{record?:(event:Record<string,unknown>)=>void;changed?:()=>void|Promise<void>}={}):TaskProviderBudget {
+export function createTaskProviderBudget(lease:TaskLease, options:{record?:(event:Record<string,unknown>)=>void;changed?:()=>void|Promise<void>;callOutputTokens?:number}={}):TaskProviderBudget {
   const emit=(event:Record<string,unknown>)=>{try{options.record?.({...event,taskId:lease.context.id,rootId:lease.context.rootId});}catch{/* Accounting does not depend on telemetry. */}};
   const changed=async()=>{await options.changed?.();};
   // Refunds may lag on disk; a conservative dispatched reservation must not.
   const changedLater=()=>{void changed().catch(()=>{});};
-  return {signal:lease.signal,deadlineAt:lease.context.budget.deadlineAt,async reserve(bound,signal) {
+  return {signal:lease.signal,deadlineAt:lease.context.budget.deadlineAt,...(options.callOutputTokens?{callOutputTokens:options.callOutputTokens}:{}),async reserve(bound,signal) {
     const spend=providerSpend(bound);
     const reservation=await lease.reserveQueued(spend,signal);
     try {
@@ -84,7 +115,7 @@ export function independentProviderBudget(owner:string, signal?:AbortSignal, tim
 }
 
 /** Child side of Node's private IPC channel, installed only by the host reader extension. */
-export function installChildProviderBudget(pi:any, enabled:boolean):void {
+export function installChildProviderBudget(pi:any, enabled:boolean, outputLimit?:number):void {
   if(!enabled)return;
   if(!process.send)throw new ContractError('provider_budget_channel_missing');
   let sequence=0;const outstanding:number[]=[];
@@ -95,7 +126,7 @@ export function installChildProviderBudget(pi:any, enabled:boolean):void {
   process.on('disconnect',()=>{for(const waiter of waiting.values())waiter.reject(new ContractError('provider_budget_channel_closed'));waiting.clear();});
   pi.on('before_provider_request',async(event:any,ctx:any)=>{
     try {
-      const prepared=boundProviderRequest(ctx.model,event.payload),id=++sequence;
+      const prepared=boundProviderRequest(ctx.model,event.payload,...(outputLimit&&Number.isSafeInteger(outputLimit)&&outputLimit>0?[outputLimit]:[])),id=++sequence;
       await new Promise<void>((resolve,reject)=>{process.channel?.ref();waiting.set(id,{resolve,reject});process.send!({type:'coc-provider-reserve',id,bound:prepared.bound},error=>{if(error){waiting.delete(id);reject(error);}});});
       outstanding.push(id);return prepared.payload;
     }catch(error){
