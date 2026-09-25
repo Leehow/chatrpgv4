@@ -313,12 +313,12 @@
     {
       "id": "SL-62",
       "file": "62-a-persons-name-is-resolved-before-unknown-entity.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-63",
       "file": "63-a-refusal-budget-abort-still-delivers.md",
-      "status": "ready"
+      "status": "ready-for-human"
     }
   ],
   "relatedSpecs": [
