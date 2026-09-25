@@ -8,7 +8,7 @@ import {test} from 'node:test';
 import {mkdtemp, mkdir, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {READING_STAGE_BUDGET, readingStageBudget, measuredPageCost, openStageProviderBudget, playReadStage, withStageLease} from '../../runtime/jev/reading-stage-budget.ts';
+import {READING_STAGE_BUDGET, readingStageBudget, measuredPageCost, openStageProviderBudget, readingJobStage, withStageLease} from '../../runtime/jev/reading-stage-budget.ts';
 import {BudgetRefusal, TaskLease} from '../../runtime/jev/task-context.ts';
 
 const model = {provider: 'test', id: 'vision', api: 'openai-responses', maxTokens: 16384, contextWindow: 500000,
@@ -26,7 +26,7 @@ test('a 669-page book sizes its opening lease from its pages; guidance takes hal
   assert.equal(guidance.actions, Math.ceil(669 * 0.5 * 0.5));
   assert.equal(readingStageBudget('prepare', {pageCount: 669}).inputTokens, 669 * 16_000 * 1.5);
   assert.equal(readingStageBudget('inspect', {pageCount: 669}), null);
-  assert.throws(() => readingStageBudget('index', {pageCount: 669}), /unknown reading stage/);
+  assert.throws(() => readingStageBudget('verify', {pageCount: 669}), /unknown reading stage/);
 });
 
 test('a short book gets the floor; a huge book the ceiling', () => {
@@ -142,7 +142,7 @@ test('the worker\'s stage runs its reading with the sized lease, reports it, and
 // ---------------------------------------------------------------------------------------------------
 
 test('§20 addendum 3 a play read is sized from the book like a stage: detail a quarter, answer and map a tenth, the floor and ceiling hold', () => {
-  assert.deepEqual({...READING_STAGE_BUDGET.share}, {inspect: 0, guidance: 0.5, opening: 1, prepare: 1.5, detail: 0.25, answer: 0.1, map: 0.1});
+  assert.deepEqual({...READING_STAGE_BUDGET.share}, {inspect: 0, guidance: 0.5, opening: 1, prepare: 1.5, detail: 0.25, answer: 0.1, map: 0.1, index: 0.5, skeleton: 0.5});
   const masks = Object.fromEntries(['detail', 'answer', 'map'].map(stage => [stage, readingStageBudget(stage, {pageCount: 5_000})]));
   assert.equal(masks.detail.inputTokens, Math.ceil(5_000 * 16_000 * 0.25));
   assert.equal(masks.answer.inputTokens, 5_000 * 16_000 * 0.1);
@@ -157,11 +157,35 @@ test('§20 addendum 3 a play read is sized from the book like a stage: detail a 
   assert.equal(readingStageBudget('answer', {pageCount: 669, perPage: {inputTokens: 90_000, outputTokens: 1_000, actions: 1, costUsd: 0}}).inputTokens, Math.ceil(669 * 90_000 * 0.1));
 });
 
-test('§20 addendum 3 which reads are play stages: detail, a map\'s pages, a consultation; nothing else', () => {
-  assert.equal(playReadStage({purpose: 'detail'}), 'detail');
-  assert.equal(playReadStage({purpose: 'detail', material: 'map'}), 'map');
-  assert.equal(playReadStage({purpose: 'answer'}), 'answer');
-  for (const purpose of ['index', 'skeleton', 'opening', 'guidance', undefined]) assert.equal(playReadStage({purpose}), undefined, String(purpose));
+test('§20 addendum 3 and 5 which jobs without a stage lease are sized: detail, a map\'s pages, a consultation, the index, a skeleton; nothing else', () => {
+  assert.equal(readingJobStage({purpose: 'detail'}), 'detail');
+  assert.equal(readingJobStage({purpose: 'detail', material: 'map'}), 'map');
+  assert.equal(readingJobStage({purpose: 'answer'}), 'answer');
+  assert.equal(readingJobStage({purpose: 'index'}), 'index');
+  assert.equal(readingJobStage({purpose: 'skeleton'}), 'skeleton');
+  for (const purpose of ['opening', 'guidance', 'verify', undefined]) assert.equal(readingJobStage({purpose}), undefined, String(purpose));
+});
+
+// ---------------------------------------------------------------------------------------------------
+// SL-53 (contract §20 addendum 5): the background index job, and a skeleton outside a stage, are sized from the book too.
+// ---------------------------------------------------------------------------------------------------
+
+test('§20 addendum 5 an index job on a 111-page book gets the floor lease, on 669 pages the scaled one; a skeleton likewise', () => {
+  // 血色公路 (111 pages): the batch-6 index round was refused at the fixed 1,000,000 input tokens; the floor holds eight
+  // whole-context reservations of a 500,000-token reader.
+  for (const stage of ['index', 'skeleton']) {
+    const book = readingStageBudget(stage, {pageCount: 111});
+    assert.deepEqual({input: book.inputTokens, output: book.outputTokens, actions: book.actions, usd: book.costUsd, call: book.callOutputTokens},
+      {input: 4_000_000, output: 262_144, actions: 64, usd: 10, call: 32_768}, stage);
+    assert.ok(book.inputTokens > 721_191 + 500_000, 'the batch-6 refusal (used 721,191, asked 500,000) fits');
+  }
+  // Masks (669 pages): half the book read once, above the floor in every dimension.
+  const masks = readingStageBudget('index', {pageCount: 669});
+  assert.deepEqual({input: masks.inputTokens, output: masks.outputTokens, actions: masks.actions, usd: masks.costUsd},
+    {input: 669 * 16_000 * 0.5, output: 669 * 1_000 * 0.5, actions: Math.ceil(669 * 0.5 * 0.5), usd: 669 * 0.03 * 0.5});
+  assert.deepEqual([masks.inputTokens, masks.outputTokens, masks.actions], [5_352_000, 334_500, 168]);
+  assert.equal(readingStageBudget('skeleton', {pageCount: 669}).inputTokens, 5_352_000);
+  assert.equal(readingStageBudget('index', {pageCount: 100_000}).inputTokens, 40_000_000, 'the ceiling still caps it');
 });
 
 test('§20 addendum 3 a stage lease absorbs an overrun it can pay: the call is refused and typed, the lease goes on; one it cannot pay cancels it', async () => {

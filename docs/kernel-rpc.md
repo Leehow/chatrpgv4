@@ -2691,7 +2691,7 @@ lease from it (`openStageProviderBudget`) instead of the fixed one. It stays per
 unit have their own, so a refusal in one round leaves the next round a fresh lease (addendum 2 item 3 unchanged, no
 `final`). The lease bounds each call's output at `callOutputTokens` (32,768), as the import stages do. The refusal
 reasons of addendum 2 apply unchanged. Index, skeleton, opening and guidance jobs outside a stage lease keep the fixed
-lease; `PI_COC_READER_CMD` (no Pi child, no provider channel) still runs with none.
+lease (*2026-09-25, SL-53:* index and skeleton jobs are sized too, addendum 5); `PI_COC_READER_CMD` (no Pi child, no provider channel) still runs with none.
 
 **2. An overrun fails the call, not the lease.** For a stage lease (every import stage and every play read above): when a
 settle reports more than the call reserved in some dimension and the lease can still pay it — no dimension of the lease
@@ -2716,6 +2716,37 @@ and writes the row). Mutations in the SL-41 ticket's Comments.
 
 See §22.4.8: a finished `detail` reading writes the focus's own §22.1 index row from the pages its draft cites for the
 scene, and a move into the scene lands on those pages before the page that merely named it.
+
+### §20 addendum 5 -- the index job and a skeleton outside a stage pay from a lease sized to the book (2026-09-25, SL-53; amends §20 addendum 3)
+
+**Evidence** (SL-29A on batch 6, 血色公路, 111 pages, campaign `sl29ab6-xuese-6001`, ticket 29's batch-6 entry). Every
+`detail` and `answer` job of the table got its `stage_budget` row; the fork's `index` job (`read-1`, queued by the claim
+when the campaign forked, no stage lease) got none and ran under the fixed per-child lease. Its first round was refused
+`budget_input_tokens` (`ceiling` 1,000,000, `used` 721,191 with one call charged whole after "Request timed out.",
+`requested` 500,000); the second round re-read 32 pages and the map-page audit read them again: about 247 s the table
+paid for nothing.
+
+**1. Two more shares.** `READING_STAGE_BUDGET.share` gains `index` 0.5 and `skeleton` 0.5. The index samples the book: on
+this book its rounds viewed 21 and 32 of 111 pages and the map-page audit viewed the same pages again, about half the
+book's pages' worth of images, so half the book read once. A skeleton is the same kind of structural pass, over the
+index's sections rather than every page. On 血色公路 (111 pages) the floor decides in every dimension (8 whole-context reservations, 64
+actions; input tokens scale only past 500 pages); on Masks (669 pages) the index lease is 5,352,000 input tokens, 334,500 output, 168 actions, US$10.035.
+
+**2. Which jobs are sized.** The job-to-stage rule (`readingJobStage(job)` in `runtime/jev/reading-stage-budget.ts`, which
+replaces addendum 3's `playReadStage`) names `index` and `skeleton` beside `detail`, `map` and `answer`. A reading job
+with no stage lease whose purpose it names is sized once when the host starts it (addendum 3 item 1: `readingStageBudget(stage,
+{pageCount: source.page_count, perPage: measuredPageCost(<module directory>)})`, the `stage_budget` row), and every reader
+child of the job -- the index phase and the map-page audit, each author round, each review unit -- opens its own lease of
+that size in `runtime/tasks.ts` (`openStageProviderBudget`), with the per-call output bound and the overrun rule of
+addendum 3 item 2. The skeleton is distinct: `/coc ingest` (§20.2, `coc:module-ingest`) runs `prepare` with no stage
+lease, so its skeleton job took the fixed lease too. A job that has a stage lease (the import worker's stages) is not
+re-sized. `opening` and `guidance` jobs outside a stage lease (the same `/coc ingest` path) still take the fixed lease; they
+are not in this ticket. `PI_COC_READER_CMD` still runs with none.
+
+*Tests.* `tests/extension/reading-stage-budget.test.mjs` (the two shares on the page-count fixture: 111 pages the floor,
+669 the scaled lease; which jobs are sized); `tests/extension/reading-priority.test.mjs` (the reading service over the
+emitted kernel sizes the fork's index job: its reader child carries the `index` lease and the row is written).
+Mutations in the SL-53 ticket's Comments.
 
 ## 21. 调查员库：建一次，之后哪一局都能用（切片 12，票 #31）
 
@@ -3250,6 +3281,72 @@ and the displaced read resumes from its attempt when a slot is free. On the read
 the displaced consultation is back in the queue (not failed or cancelled), and the rows name the classes and the wait.
 `tests/extension/prefetch-scheduling.test.mjs`'s claim sequence is amended to the last-slot rule. Mutations in the
 SL-45 ticket's Comments.
+
+#### 22.4.6.1 A displaced read resumes under the context current at resume time (2026-09-25, SL-54; amends §22.4.1, §22.4.3 and §22.4.6)
+
+**Evidence** (SL-29A on batch 6, 血色公路, campaign `sl29ab6-xuese-6001`, the fork's `deepen-queue.json` and `telemetry.jsonl`).
+§22.4.6's displacement fired live for the first time: at 02:00:17 the blocking consultation `read-8` displaced the background
+consultation `read-7` (t15's question on the town's sheriff, mayor and missing-person reports; `ran_ms` 54,652). `read-7` went
+back to `queued` with its attempt, as written. At 02:00:40 `mather-general-store`'s detail read published generation 4.
+The waiter behind `read-7` polled with its pinned `context_generation` 3 and was refused `source_context_changed`, so the
+Keeper's pending row turned `unavailable` (`answer_unavailable`, `ms` 70,646), and the next claim failed the job itself
+("source context changed; request a fresh consultation"). The consultation was lost, not because it read anything stale --
+it had not finished reading -- but because it had waited.
+
+**1. A queued job is claimed under the generation current at the claim.** `module.read.claim` no longer fails a queued
+consultation whose `context_generation` is not the current one. When it claims a job it binds it to the present: an
+`answer` job's `context_generation` becomes the current generation (the attempt's `base_generation` already did). The job
+keeps its `job_id`, `key`, question and attempt directory; its next attempt resumes from the retained one (§22.2,
+`resume_from`).
+
+**2. Resumed under a new context: re-read only when the focus's material changed.** A job claimed with an attempt to
+resume whose last attempt ran under another generation -- displaced (§22.4.6), handed off (§20 addendum 2 item 5), or
+re-queued after its lock was lost -- or a consultation re-bound by item 1, carries `resumed: {from_generation, generation,
+reread}` on the job and its packet. `from_generation` is the last attempt's `base_generation` (a consultation never
+claimed: its `context_generation`). `reread` is true when the job's focus's material changed in between: some
+`reading.materials` row published after `from_generation` (its `generation` is greater) whose `node_ids` or `focus` meet
+the job's focus identity (§22.2.1, widened by §22.4.3). Structure only; no words are compared but names. The host then
+does not take the retained read as complete: the read phase runs again from the retained draft (the reader repairs it
+against the pages and the current packet, as a repair round does) and is reviewed. Without `reread` the retained read
+stands and only what was left runs, as §22.2's resume already did. It is never a failure: the old attempt's work is the
+starting point either way.
+
+**3. The accepted answer is kept under the generation it was checked at.** `module.read.finish` still refuses an answer
+whose generation moved after its claim (§22.4.1: a changed context in flight requires a recheck). An accepted answer is
+indexed in `reading.answers` under its identity at the generation it was accepted at (source digest, normalised focus,
+question, protocol, that generation) -- for a job never re-bound, its own key -- so an exact request, the memo (§22.4.3)
+and `module.source.material` find it at the current generation.
+
+**4. The waiter follows its own job (amends §22.4.1's pin).** A request whose pinned `context_generation` is not the
+current one first finds the consultation's own job: the latest `answer` job whose key is the consultation's identity at the
+pinned generation. While that job is `queued` (it will be claimed under the current generation), `running` under the current
+generation, or `completed` (its accepted answer, its retained evidence checked as an exact hit is), the reply follows it:
+`{state: "queued" | "reading" | "ready", job_id, generation, index?}` (`ready` with `source_answer`). Otherwise -- it failed,
+was cancelled, or is running under the old generation -- the refusal `source_context_changed` of §22.4.1 is unchanged. The
+queue is not written either way; no replacement is enqueued.
+
+**5. The attach rule is for new questions (§22.4.3).** A consultation attaches only to a running `answer` job of the current
+generation, as before. A parked job is not attached to, and its generation no longer decides whether it survives.
+
+**6. The pending row survives the displacement (§135.31.2).** The host's pending list follows the consultation's `settled`,
+which follows the waiter's poll; with item 4 the row stays `pending` across the displacement and any publication, and
+lands (or fails) with the job. The host's `concurrency` row of a resumed claim carries `resumed`.
+
+**Unchanged.** A consultation *running* when the generation moves still fails at `module.read.finish` and its waiter is
+refused at once (§22.4.1); this section is about a job that was parked, not one that read through a publication.
+
+**Three ends (§31).** *Writer:* the kernel (`claim`'s binding and `resumed`, `finish`'s key, `request`'s follow). *Reader:*
+the host's resume (`reread`), the waiter's poll and the pending list, the `concurrency` row. *Actor:* the Keeper, whose
+pending consultation is carried when it lands instead of turning `unavailable`.
+
+*Tests.* `tests/extension/displaced-read-resumes.test.mjs`: on the emitted kernel, a displaced consultation whose
+generation advanced while it was parked is claimed again under the current generation from its attempt, its stale-pinned
+waiter follows it, it completes, and its answer is found at the current generation (exact, memo, material snapshot); a
+displaced detail job likewise resumes and publishes; a displaced job whose focus's material was published meanwhile is
+marked `reread`; a consultation running through a publication still fails. The host resumes a `reread` job with a read and
+a review, and one without `reread` with a review only. On the reading service over the emitted kernel, the pending row of a
+consultation displaced by a blocking detail read that then publishes stays pending, and lands when the consultation
+completes. Mutations in the SL-54 ticket's Comments.
 
 ### 22.4.7 A move into a scene not yet read lands on the book's text; the scene's record lands when read (2026-09-24, SL-47; amends §22.4, §22.4.4 and §135.31.2)
 

@@ -13,7 +13,7 @@ import type { HostRuntime } from "../../runtime/host.ts";
 import type {FreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
-import {measuredPageCost, playReadStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
+import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
 /**
  * `allowanceMs` (contract §22.4.3, SL-36): the foreground allowance of an in-turn source consultation. Past it `ensure`
  * resolves `{state: "pending", job_id, read, index, settled}` instead of refusing with `reading_timeout`: the waiter leaves
@@ -696,7 +696,9 @@ export class ReadingService implements ReadingBridge {
 						const since = (value: unknown) => Number.isFinite(Date.parse(String(value))) ? Math.max(0, Date.now() - Date.parse(String(value))) : undefined;
 						this.deps.record({lane: "reading", event: "concurrency", module_id: mid, campaign, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", ...(wake !== undefined ? { wake } : {}),
 							active: active.size, capacity, foreground:job.foreground === true, class: job.foreground === true ? "blocking" : "background",
-							slot_wait_ms: since(job.class_at ?? job.at), queue_wait_ms: since(job.at)});
+							slot_wait_ms: since(job.class_at ?? job.at), queue_wait_ms: since(job.at),
+							// §22.4.6.1 (SL-54): a job claimed under a generation other than its last attempt's says so.
+							...(job.resumed ? { resumed: job.resumed } : {})});
 					}
 					if (!active.size) { if (wakeRequested) continue; return; }
 					await Promise.race([...active, wake]);
@@ -761,7 +763,9 @@ export class ReadingService implements ReadingBridge {
 						// Only this job's own interrupted attempt may skip reading. A retry that inherits a
 						// failed job's draft owes the source-based repair round (§22): re-verifying identical
 						// bytes under identical instructions cannot re-scope them, so it can only fail again.
-						readComplete = !checkpoint.requires_repair && checkpoint.job_id === job.job_id;
+						// §22.4.6.1 (SL-54): nor may a job resumed after its focus's material was published meanwhile;
+						// it reads again from the retained draft.
+						readComplete = !checkpoint.requires_repair && checkpoint.job_id === job.job_id && job.resumed?.reread !== true;
 					}
 				}
 				else if (job.repair && previous.purpose === job.purpose && previous.source.file_sha256 === job.source.file_sha256) {
@@ -779,9 +783,10 @@ export class ReadingService implements ReadingBridge {
 			} catch { /* a fresh index has no retained candidates */ }
 		}
 		await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
-		// §20 addendum 3 (SL-41): a read raised during play has no stage lease; it is sized from the book like the import's
-		// stages, once per job, and every reader child of the job opens a lease of that size (runtime/tasks.ts).
-		const stage = providerBudget ? undefined : playReadStage(job);
+		// §20 addendum 3 (SL-41) and 5 (SL-53): a read raised during play, the background index and a skeleton outside a stage
+		// have no stage lease; each is sized from the book like the import's stages, once per job, and every reader child of
+		// the job opens a lease of that size (runtime/tasks.ts).
+		const stage = providerBudget ? undefined : readingJobStage(job);
 		const readingLease: StageBudget | undefined = stage ? readingStageBudget(stage, { pageCount: Number(job.source?.page_count) || 0,
 			perPage: await measuredPageCost(resolve(cwd, "..", "..", "..")) }) ?? undefined : undefined;
 		if (readingLease) this.deps.record({ lane: "reading", event: "stage_budget", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, ...readingLease });
@@ -878,7 +883,7 @@ export class ReadingService implements ReadingBridge {
 							eventLog: join(cwd, `${phase}-${round}.jsonl`),
 							brief: phase === "index-audit"
 								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json${round > 1 || job.resume_from ? " and findings.json" : ""}. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Every task.required_map_candidates row must remain. Preserve existing sections and candidates; repair missing section source_refs but do not cite any page unless you viewed that full page in this audit or it is in task.index_audit_pages. If another page is needed as a reference, view it first. Do not rewrite for style. Finish only after every assigned page has been checked, then stop.`
-								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening","detail","answer"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
+								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening","detail","answer"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}${job.resumed?.reread === true ? " The published material on this focus changed since the retained draft was written: check it against the current task and the pages, and repair what no longer holds." : ""}`,
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
 								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {

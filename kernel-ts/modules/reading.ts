@@ -52,6 +52,14 @@ export const READING_SLOTS = 3;
  * read lands on. A page of a PDF book is 3.5-4.6 KB of native text; the carried view holds about two of them.
  */
 export const SCENE_INDEX_PAGES = 3;
+/**
+ * §22.4.1: a consultation's identity -- source digest, normalised focus, exact question, protocol and the context
+ * generation it is bound to. A job's `key` is this at the generation it was queued at; an accepted answer is kept under it
+ * at the generation it was checked at (§22.4.6.1, SL-54).
+ */
+function answerKey(sourceSha: string, focus: string, question: string, generation: any): string {
+    return jsonDigest([sourceSha, 'answer', '', normalize(focus), question, [], SOURCE_ANSWER_PROTOCOL, generation ?? 0]);
+}
 /** §22.1 page ranges (`[[first, last], ...]`, or bare pages) as their 0-based pages in book order, no duplicates. */
 function rangePages(ranges: any[]): number[] {
     const out = new Set<number>();
@@ -707,6 +715,53 @@ export class Reading {
         }
         return out;
     }
+    /** §22.4.1: an accepted answer's retained draft and review are the bytes it was accepted with. */
+    private async acceptedEvidence(mid: string, accepted: Row): Promise<void> {
+        const draftPath = await this.contained(this.store.moduleDir(mid), join(this.store.moduleDir(mid), accepted.draft));
+        const reviewPath = await this.contained(this.store.moduleDir(mid), join(this.store.moduleDir(mid), accepted.review));
+        if (await sha256File(draftPath) !== accepted.draft_sha256 || await sha256File(reviewPath) !== accepted.review_sha256)
+            throw new RpcError('needs', 'retained source answer evidence changed', { details: { reason: 'source_answer_integrity' } });
+    }
+    /**
+     * §22.4.6.1 (SL-54): a waiter whose pinned generation is stale follows the consultation's own job -- the latest answer job
+     * whose key is the consultation at the pinned generation -- while it is queued (it is claimed under the current
+     * generation), running under the current generation, or completed. Anything else is §22.4.1's refusal. Writes nothing.
+     */
+    private async followConsultation(mid: string, meta: Row, params: Row): Promise<Row | undefined> {
+        const sha = row(meta.source_document).file_sha256, generation = meta.generation ?? 0;
+        if (typeof sha !== 'string' || typeof params.focus !== 'string' || typeof params.question !== 'string') return undefined;
+        const key = answerKey(sha, params.focus, params.question, params.context_generation);
+        const job = [...await this.store.queue(mid)].reverse().find(job => job.purpose === 'answer' && job.key === key);
+        if (!job) return undefined;
+        const result = { generation, missing: [] };
+        if (job.state === 'queued' || job.state === 'running' && equal(job.context_generation, generation))
+            return { ...result, state: job.state === 'running' ? 'reading' : 'queued', job_id: job.job_id, ...await this.answerKnown(mid, 'answer', params.focus) };
+        if (job.state !== 'completed') return undefined;
+        const accepted = row(row(meta.reading).answers)[answerKey(sha, string(job.focus), string(job.question), job.context_generation)];
+        if (!truth(accepted)) return undefined;
+        await this.acceptedEvidence(mid, accepted);
+        return { ...result, state: 'ready', job_id: job.job_id, source_answer: accepted.result };
+    }
+    /**
+     * §22.4.6.1 (SL-54): a job is claimed under the generation current at the claim. A consultation is re-bound to it; a job
+     * whose last attempt (or, never claimed, whose consultation) ran under another generation carries `resumed`, and
+     * `reread` when its focus's material was published in between -- a `reading.materials` row newer than that generation
+     * whose nodes or focus meet the job's focus identity. Structure only; a job with no focus is never re-read.
+     */
+    private async resumeUnder(mid: string, meta: Row, job: Row): Promise<void> {
+        const generation = meta.generation ?? 0;
+        const from = job.base_generation ?? (job.purpose === 'answer' ? job.context_generation : undefined);
+        delete job.resumed;
+        if (job.purpose === 'answer') job.context_generation = generation;
+        if (from === undefined || from === null || equal(from, generation)) return;
+        let reread = false;
+        if (truth(job.work_dir) && normalize(string(job.focus ?? ''))) {
+            const identity = await this.focusIdentity(mid), wanted = identity(job.focus);
+            reread = array(row(meta.reading).materials).some(material => number(material.generation) > number(from)
+                && Reading.meet(new Set([...array(material.node_ids).map(id => `node:${id}`), ...(normalize(string(material.focus ?? '')) ? identity(material.focus) : [])]), wanted));
+        }
+        job.resumed = { from_generation: from, generation, reread };
+    }
     /** §22.4.3 (SL-36): what the book's index already holds on a consultation's focus, beside a reply that is still reading. */
     private async answerKnown(mid: string, purpose: string, focus: string): Promise<Row> {
         if (purpose !== 'answer') return {};
@@ -761,6 +816,10 @@ export class Reading {
             if (Object.hasOwn(params, 'context_generation')) {
                 if (purpose !== 'answer' || !integer(params.context_generation) || number(params.context_generation) < 0)
                     throw new RpcError('invalid_params', 'context_generation is a nonnegative answer-wait generation');
+                // §22.4.6.1 (SL-54): the waiter follows its own job while that job is parked, resumed under the current
+                // generation, or landed; only a job that failed or reads under the old generation refuses the wait.
+                const followed = equal(params.context_generation, meta.generation ?? 0) ? undefined : await this.followConsultation(mid, meta, params);
+                if (followed) return followed;
                 if (!equal(params.context_generation, meta.generation ?? 0))
                     throw new RpcError('needs', 'source context changed while this consultation was waiting', {
                         fix: 'on a later player turn, repeat lookup kind=source source_mode=answer with the exact focus and question; this wait did not start another reading',
@@ -816,10 +875,7 @@ export class Reading {
             if (purpose === 'answer') {
                 const accepted = row(reading.answers)[key];
                 if (accepted) {
-                    const draftPath = await this.contained(this.store.moduleDir(mid), join(this.store.moduleDir(mid), accepted.draft));
-                    const reviewPath = await this.contained(this.store.moduleDir(mid), join(this.store.moduleDir(mid), accepted.review));
-                    if (await sha256File(draftPath) !== accepted.draft_sha256 || await sha256File(reviewPath) !== accepted.review_sha256)
-                        throw new RpcError('needs', 'retained source answer evidence changed', { details: { reason: 'source_answer_integrity' } });
+                    await this.acceptedEvidence(mid, accepted);
                     return { ...result, state: 'ready', source_answer: accepted.result };
                 }
                 // §22.4.3 (SL-36): the campaign's checked answers on this focus answer a new question before any read.
@@ -1004,10 +1060,8 @@ export class Reading {
             // §22.4.6: a blocking read the one-focus rule lets run, refused only because every slot is held.
             let crowded = false;
             for (const job of pending) {
-                if (job.purpose === 'answer' && !equal(job.context_generation, meta.generation ?? 0)) {
-                    Object.assign(job, { state: 'failed', detail: 'source context changed; request a fresh consultation' });
-                    continue;
-                }
+                // §22.4.6.1 (SL-54): a parked consultation is not failed for having waited; it is claimed under the current
+                // generation (`resumeUnder`, below).
                 const blocking = truth(job.foreground);
                 // §22.2.1: never two readings of one focus at once, by the focus's identity rather than its spelling.
                 if (active.some(other => Reading.meet(identity(other.focus), identity(job.focus))))
@@ -1043,6 +1097,7 @@ export class Reading {
                     }
                     if (truth(job.work_dir))
                         job.resume_from = job.work_dir;
+                    await this.resumeUnder(mid, meta, job);
                     Object.assign(job, { state: 'running', owner: string(truth(params.owner) ? params.owner : 'host'), lease: uuid(), lock_version: 2, attempts: number(job.attempts) + 1, base_generation: meta.generation ?? 0, claimed_at: nowIso(),
                         // §22.4.6: the claim order, so displacement names the youngest even within one second.
                         claim_seq: Math.max(0, ...queue.map(other => number(other.claim_seq ?? 0))) + 1 });
@@ -1178,7 +1233,8 @@ export class Reading {
                 checkSourceAnswerReview(answer, review, packet, new Set(array(observations.review_pages)));
                 const result = { state: 'ready', generation: meta.generation ?? 0, source_answer: sourceAnswerResult(answer, mid) };
                 meta.reading.answers ??= {};
-                meta.reading.answers[job.key] = { protocol: SOURCE_ANSWER_PROTOCOL, source_sha256: source.file_sha256, context_generation: meta.generation ?? 0,
+                // §22.4.6.1 (SL-54): under its identity at the generation it was checked at (its own key unless re-bound).
+                meta.reading.answers[answerKey(source.file_sha256, string(job.focus), string(job.question), meta.generation ?? 0)] = { protocol: SOURCE_ANSWER_PROTOCOL, source_sha256: source.file_sha256, context_generation: meta.generation ?? 0,
                     focus: job.focus, question: job.question,
                     draft: relative(this.store.moduleDir(mid), draftPath), review: relative(this.store.moduleDir(mid), reviewPath),
                     draft_sha256: draftDigest, review_sha256: await sha256File(reviewPath), result: result.source_answer };
