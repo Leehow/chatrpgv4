@@ -154,11 +154,14 @@ function distinctNotes(requests) {
 }
 const views = (requests, focus) => distinctNotes(requests).flatMap(({ request, note }) => (note.carried?.views ?? []).filter((view) => view.focus === focus).map((view) => ({ request, view })));
 
-async function seam(t, { pageTexts, responses }) {
+async function seam(t, { pageTexts, responses, legacy = false }) {
 	const engine = createHybridEngine({ env: process.env, decision: null });
-	const requests = [];
+	const requests = [], carriedText = [];
 	const table = await openTable({ realKernel: true, seedCampaign: false, prepareWorkspace: harbor,
-		env: { PI_COC_LOOP_ENGINE: "hybrid-v1", PI_COC_READ_WAIT_MS: "200" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
+		env: { ...(legacy ? {} : { PI_COC_LOOP_ENGINE: "hybrid-v1" }), PI_COC_READ_WAIT_MS: "200" }, ...(legacy ? {} : { runDriver: engine.runDriver }),
+		extraExtensions: [...(legacy ? [] : [{ name: "coc-hybrid-engine", factory: engine.extension }]),
+			// §11.5.4 (SL-51): what the engine reports its note carried, for a write about a person the book names.
+			{ name: "carried-text-probe", factory: (pi) => { pi.events.on("coc:carried-text", (data) => carriedText.push(data)); } }],
 		responses: responses.map((response) => (context) => { requests.push(context); return response; }) });
 	t.after(() => table.dispose());
 	let land;
@@ -173,13 +176,13 @@ async function seam(t, { pageTexts, responses }) {
 		reading() { return false; },
 		async sourcePages(_mid, pages) { extractions.push(pages); return pages.map((page) => ({ page, text: pageTexts[page - 1] ?? "" })); },
 	});
-	return { table, requests, ensures, extractions, land };
+	return { table, requests, ensures, extractions, land, carriedText };
 }
 const move = (to) => fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to }] })], { stopReason: "toolUse" });
 const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
 
 test("§22.4.7 at the seam: the move lands on the book's text in one call, the note carries the pages once and the pending scene, and the record lands on the next turn once", async (t) => {
-	const { table, requests, ensures, extractions, land } = await seam(t, { pageTexts: PAGES,
+	const { table, requests, ensures, extractions, land, carriedText } = await seam(t, { pageTexts: PAGES,
 		responses: [move("Tower"), narrate("You climb the winding stair."), narrate("The lamp room is cold."), narrate("You wait by the lamp.")] });
 	await table.session.prompt("I climb to the tower.");
 
@@ -203,6 +206,9 @@ test("§22.4.7 at the seam: the move lands on the book's text in one call, the n
 	assert.deepEqual(note.carried.pending.map((row) => [row.focus, row.scene, row.purpose]), [["tower", "tower", "detail"]], "the pending row names the scene");
 	assert.ok(note.carried.head.includes(CARRIED_PENDING_SCENE_HEAD));
 	assert.equal(turnRecord(table.workspace, 1).closed_by, "narrate");
+	// §11.5.4 (SL-51): the pages the note carried are reported to the host once, as the turn's carried text.
+	assert.deepEqual(carriedText.map((event) => [event.campaign, event.turn, event.passages.map((row) => [row.scene, row.page, row.text])]),
+		[[CAMPAIGN, 1, [["tower", 2, PAGES[1]], ["tower", 1, PAGES[0]], ["tower", 3, PAGES[2]]]]]);
 
 	land({ state: "ready", generation: 3 });
 	await new Promise((resolve) => setTimeout(resolve, 20));
@@ -218,6 +224,21 @@ test("§22.4.7 at the seam: the move lands on the book's text in one call, the n
 	assert.equal(requests.length, 4);
 	// A turn's request holds only its own run's notes (§135.23), so the third turn's request is read on its own.
 	assert.ok(!clerkNotes(requests[3]).some((note) => note.carried?.head?.includes(CARRIED_SCENE_RECORD_HEAD)), "and never again");
+});
+
+test("§11.5.4 on the legacy engine: the pages the apply result carried are the turn's carried text, and a person they name is established from them", async (t) => {
+	const pages = [PAGES[0], "The old tower stands beyond the harbor. Its keeper, Silas\nMarsh, trims the lamp.", PAGES[2]];
+	const { table } = await seam(t, { pageTexts: pages, legacy: true, responses: [move("Tower"),
+		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "npc", name: "Silas Marsh", to: "here", why: "the page puts him at the lamp" }] })], { stopReason: "toolUse" }),
+		narrate("The keeper trims the lamp.")] });
+	await table.session.prompt("I climb to the tower.");
+	const rows = table.telemetry(CAMPAIGN);
+	assert.deepEqual(rows.filter((row) => row.lane === "people").map((row) => [row.event, row.name, row.page]), [["passage_named", "Silas Marsh", 2]]);
+	const status = rows.filter((row) => row.tool === "apply" && !row.event).map((row) => row.ok);
+	assert.deepEqual(status, [true, true]);
+	const world = JSON.parse(readFileSync(join(table.workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8"));
+	const entry = (world.table_people ?? []).find((row) => row.name === "Silas Marsh");
+	assert.equal(entry?.from_passage?.page, 2, "established from the page the result carried");
 });
 
 test("§22.4.7 at the seam: pages with no native text keep the foreground wait", async (t) => {

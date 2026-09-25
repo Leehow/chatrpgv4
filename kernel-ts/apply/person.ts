@@ -16,6 +16,8 @@ import { personRecord } from '../read/capsule.js';
 import { entries, normalize, repr, row, string, type Row } from '../read/values.js';
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
+import { passageOf } from '../read/table-people.js';
+import { establishPerson } from './entities.js';
 
 /** §40.1's name text, for the same reason: this word is written into spoken lines and say tokens. */
 export const LABEL_LIMIT = 60;
@@ -28,7 +30,7 @@ export const LABEL_LIMIT = 60;
  * name resolves too: a Keeper who named someone here may hand that name back, exactly as
  * `world.scene_labels` is an alias for a place everywhere a place is named.
  */
-async function personOf(context: ApplyContext, who: any): Promise<Row> {
+async function personOf(context: ApplyContext, who: any, effect: Row = {}): Promise<Row> {
     if (typeof who !== 'string' || !who.trim())
         throw new RpcError('invalid_params', 'who must name an investigator at the table or an NPC', { fix: 'name the person this is about', details: { field: 'person.who' } });
     const key = normalize(who);
@@ -47,6 +49,13 @@ async function personOf(context: ApplyContext, who: any): Promise<Row> {
             if (sheet)
                 return { id: string(sheet.id), name: string(sheet.name || sheet.id), is_investigator: true };
         }
+    // §11.5.4 (SL-51): a person the source text carried this turn names is not invented. Established from that passage
+    // exactly as `apply npc` establishes one (§87's record with `from_passage`), so the label is written on them.
+    const passage = passageOf(effect, who);
+    if (passage) {
+        const node = establishPerson(context, who, typeof effect.why === 'string' && effect.why.trim() ? effect.why.trim() : null, passage);
+        return { id: context.graph.handle(node), name: context.graph.displayName(node), is_investigator: false, established: 'passage', from_passage: passage };
+    }
     throw new RpcError('unknown_entity', `${repr(who)} is nobody at this table`, {
         fix: 'name an investigator of the party or an NPC this table has; someone the book never had is established first by apply npc under that name, and goes through lookup kind adaptation only when they must persist as a source-connected figure',
         details: { field: 'person.who', who },
@@ -70,7 +79,7 @@ function word(effect: Row, field: string): string | null {
 
 export async function stagePerson(context: ApplyContext, effect: Row): Promise<{ receipt: Row; event: DomainEvent }> {
     const { world, callId, turn, ordinal } = context;
-    const person = await personOf(context, required(effect, 'who'));
+    const person = await personOf(context, required(effect, 'who'), effect);
     const name = word(effect, 'name'), address = word(effect, 'address');
     const why = typeof effect.why === 'string' && effect.why.trim() ? effect.why.trim() : null;
     if (name == null && address == null)
@@ -95,6 +104,7 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
             call_id: callId,
             who: person.id,
             is_investigator: person.is_investigator,
+            ...(person.established ? { established: person.established, from_passage: person.from_passage } : {}),
             name: person.name,
             label: string(record.name || person.name),
             address: record.address ?? null,

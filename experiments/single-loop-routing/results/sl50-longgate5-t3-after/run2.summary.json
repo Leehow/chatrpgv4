@@ -1,0 +1,1055 @@
+{
+ "run": 2,
+ "fixture": "longgate5-t3",
+ "admission": "lane",
+ "lane": "replay",
+ "keeper": "replay",
+ "thinking": "off",
+ "arm": "after",
+ "latency": true,
+ "seed": "1",
+ "wall_ms": 47063,
+ "budget": {
+  "turn": 3,
+  "lane": "run",
+  "event": "budget",
+  "decision": "summary",
+  "run": "run-01a0d622-5092-7156-9293-245e2067cb12",
+  "budget_ms": 45000,
+  "elapsed_ms": 46156,
+  "elapsed_at_compose": 36229,
+  "over_budget": true,
+  "deferred_by_budget": [],
+  "decision_budget": {
+   "jev_calls": 6,
+   "jev_ms": 1966,
+   "max_jev_calls": 24,
+   "max_jev_ms": 12000,
+   "spent": false
+  },
+  "prescreen": {
+   "reads": 2,
+   "jev_calls": 4,
+   "ms": 1773
+  },
+  "run_id": "a3f9c7bd-1ba7-4fa2-bd96-1bbfb20c93ed"
+ },
+ "compile": "on",
+ "compile_row": {
+  "turn": 3,
+  "lane": "route",
+  "purpose": "compile",
+  "run": "run-01a0d622-5092-7156-9293-245e2067cb12",
+  "step": "run-01a0d622-5092-7156-9293-245e2067cb12:s2",
+  "status": "complete",
+  "ms": 282,
+  "features": {
+   "destination": {
+    "rows": {
+     "destination_1": "central-library",
+     "destination_2": "hall-of-records",
+     "destination_3": "neighborhood-gossip",
+     "destination_4": "previous-tenants",
+     "destination_5": "corbitt-house-ground",
+     "destination_6": "commission-briefing"
+    },
+    "choice": "destination_1",
+    "row": "central-library",
+    "confidence": 1,
+    "probabilities": {
+     "unclear": 0,
+     "destination_5": 0,
+     "destination_4": 0,
+     "destination_2": 0,
+     "destination_6": 0,
+     "none": 0,
+     "destination_3": 0,
+     "destination_1": 1
+    },
+    "cleared": true
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "Arty Wilmot",
+     "addressee_2": "Ruth Blake"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.86,
+    "probabilities": {
+     "unclear": 0.07,
+     "none": 0.9,
+     "addressee_2": 0.01,
+     "addressee_1": 0.02
+    },
+    "cleared": true
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "obligation:globe-clippings-access",
+     "ask_2": "clue:globe-fire-cutoff",
+     "ask_3": "handout:Boston Globe City Desk Copy — Held from Print (1918)"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.62,
+    "probabilities": {
+     "ask_1": 0.01,
+     "unclear": 0.05,
+     "none": 0.71,
+     "ask_3": 0,
+     "ask_2": 0.23
+    },
+    "cleared": true
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.99,
+    "probabilities": {
+     "act_9": 0,
+     "unclear": 0,
+     "act_2": 0,
+     "act_8": 0,
+     "act_5": 0,
+     "act_3": 0,
+     "act_11": 0,
+     "act_7": 0,
+     "none": 0,
+     "act_4": 0,
+     "act_10": 0,
+     "act_6": 0,
+     "act_1": 1
+    },
+    "cleared": true
+   },
+   "item": {
+    "rows": {
+     "item_1": "笔记本",
+     "item_2": "开锁工具",
+     "item_3": "手电筒",
+     "item_4": "侦探徽章",
+     "item_5": "科比特宅钥匙"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.88,
+    "probabilities": {
+     "item_3": 0,
+     "item_2": 0,
+     "unclear": 0.1,
+     "none": 0.9,
+     "item_1": 0,
+     "item_5": 0,
+     "item_4": 0
+    },
+    "cleared": true
+   }
+  },
+  "fired": [
+   {
+    "predicate": "move",
+    "candidate": "apply:move:central-library",
+    "features": {
+     "destination": "central-library",
+     "addressee": null,
+     "ask": null,
+     "act": "investigate",
+     "item": null
+    }
+   }
+  ],
+  "selected": [
+   "apply:move:central-library"
+  ],
+  "decided": [
+   "apply:move:hall-of-records",
+   "apply:move:neighborhood-gossip",
+   "apply:move:previous-tenants",
+   "apply:move:corbitt-house-ground",
+   "apply:move:commission-briefing",
+   "resolve:obligation:globe-clippings-access"
+  ],
+  "fell_through": [
+   "apply:clue:globe-fire-cutoff",
+   "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+   "resolve:natural-npc:first-impression:托马斯·海斯:Ruth Blake",
+   "resolve:core-check:ordinary-check"
+  ],
+  "reason": "selected_1",
+  "run_id": "a3f9c7bd-1ba7-4fa2-bd96-1bbfb20c93ed"
+ },
+ "selections": [
+  {
+   "by": "compile",
+   "keys": [
+    "apply:move:central-library"
+   ]
+  },
+  {
+   "by": "compile",
+   "keys": [
+    "resolve:core-check:ordinary-check"
+   ]
+  }
+ ],
+ "compile_rows": [
+  {
+   "turn": 3,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d622-5092-7156-9293-245e2067cb12",
+   "step": "run-01a0d622-5092-7156-9293-245e2067cb12:s2",
+   "status": "complete",
+   "ms": 282,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "central-library",
+      "destination_2": "hall-of-records",
+      "destination_3": "neighborhood-gossip",
+      "destination_4": "previous-tenants",
+      "destination_5": "corbitt-house-ground",
+      "destination_6": "commission-briefing"
+     },
+     "choice": "destination_1",
+     "row": "central-library",
+     "confidence": 1,
+     "probabilities": {
+      "unclear": 0,
+      "destination_5": 0,
+      "destination_4": 0,
+      "destination_2": 0,
+      "destination_6": 0,
+      "none": 0,
+      "destination_3": 0,
+      "destination_1": 1
+     },
+     "cleared": true
+    },
+    "addressee": {
+     "rows": {
+      "addressee_1": "Arty Wilmot",
+      "addressee_2": "Ruth Blake"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.86,
+     "probabilities": {
+      "unclear": 0.07,
+      "none": 0.9,
+      "addressee_2": 0.01,
+      "addressee_1": 0.02
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "obligation:globe-clippings-access",
+      "ask_2": "clue:globe-fire-cutoff",
+      "ask_3": "handout:Boston Globe City Desk Copy — Held from Print (1918)"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.62,
+     "probabilities": {
+      "ask_1": 0.01,
+      "unclear": 0.05,
+      "none": 0.71,
+      "ask_3": 0,
+      "ask_2": 0.23
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_1",
+     "row": "investigate",
+     "confidence": 0.99,
+     "probabilities": {
+      "act_9": 0,
+      "unclear": 0,
+      "act_2": 0,
+      "act_8": 0,
+      "act_5": 0,
+      "act_3": 0,
+      "act_11": 0,
+      "act_7": 0,
+      "none": 0,
+      "act_4": 0,
+      "act_10": 0,
+      "act_6": 0,
+      "act_1": 1
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "侦探徽章",
+      "item_5": "科比特宅钥匙"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.88,
+     "probabilities": {
+      "item_3": 0,
+      "item_2": 0,
+      "unclear": 0.1,
+      "none": 0.9,
+      "item_1": 0,
+      "item_5": 0,
+      "item_4": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "move",
+     "candidate": "apply:move:central-library",
+     "features": {
+      "destination": "central-library",
+      "addressee": null,
+      "ask": null,
+      "act": "investigate",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "apply:move:central-library"
+   ],
+   "decided": [
+    "apply:move:hall-of-records",
+    "apply:move:neighborhood-gossip",
+    "apply:move:previous-tenants",
+    "apply:move:corbitt-house-ground",
+    "apply:move:commission-briefing",
+    "resolve:obligation:globe-clippings-access"
+   ],
+   "fell_through": [
+    "apply:clue:globe-fire-cutoff",
+    "apply:handout:Boston Globe City Desk Copy — Held from Print (1918)",
+    "resolve:natural-npc:first-impression:托马斯·海斯:Ruth Blake",
+    "resolve:core-check:ordinary-check"
+   ],
+   "reason": "selected_1",
+   "run_id": "a3f9c7bd-1ba7-4fa2-bd96-1bbfb20c93ed"
+  },
+  {
+   "turn": 3,
+   "lane": "route",
+   "purpose": "compile",
+   "run": "run-01a0d622-5092-7156-9293-245e2067cb12",
+   "step": "run-01a0d622-5092-7156-9293-245e2067cb12:s5",
+   "status": "complete",
+   "ms": 283,
+   "features": {
+    "destination": {
+     "rows": {
+      "destination_1": "newspaper-morgue",
+      "destination_2": "hall-of-records",
+      "destination_3": "neighborhood-gossip",
+      "destination_4": "previous-tenants",
+      "destination_5": "corbitt-house-ground",
+      "destination_6": "commission-briefing"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.98,
+     "probabilities": {
+      "destination_2": 0,
+      "destination_3": 0,
+      "destination_1": 0.01,
+      "destination_4": 0,
+      "destination_6": 0,
+      "destination_5": 0,
+      "unclear": 0.01,
+      "none": 0.98
+     },
+     "cleared": true
+    },
+    "ask": {
+     "rows": {
+      "ask_1": "clue:house-built-1835",
+      "ask_2": "clue:neighbor-lawsuit-1852",
+      "ask_3": "clue:basement-burial-lawsuit",
+      "ask_4": "clue:second-lawsuit-outcome-unrecorded",
+      "ask_5": "handout:Handout 3: The House Is Built (1835)",
+      "ask_6": "handout:Handout 4: Neighbors Sue Corbitt (1852)",
+      "ask_7": "handout:Handout 5: Corbitt's Obituary and Burial Lawsuit",
+      "ask_8": "handout:Handout 6: No Recorded Outcome"
+     },
+     "choice": "ask_5",
+     "row": "handout:Handout 3: The House Is Built (1835)",
+     "confidence": 0.46,
+     "probabilities": {
+      "ask_1": 0.21,
+      "ask_4": 0.01,
+      "ask_6": 0.03,
+      "ask_3": 0.04,
+      "ask_8": 0.05,
+      "ask_5": 0.51,
+      "unclear": 0.07,
+      "none": 0.03,
+      "ask_7": 0.03,
+      "ask_2": 0.02
+     },
+     "cleared": true
+    },
+    "act": {
+     "rows": {
+      "act_1": "investigate",
+      "act_2": "social",
+      "act_3": "move",
+      "act_4": "combat",
+      "act_5": "flee",
+      "act_6": "cast",
+      "act_7": "idle",
+      "act_8": "meta",
+      "act_9": "stuck",
+      "act_10": "ambiguous",
+      "act_11": "montage"
+     },
+     "choice": "act_1",
+     "row": "investigate",
+     "confidence": 0.98,
+     "probabilities": {
+      "act_1": 0.99,
+      "act_6": 0,
+      "act_8": 0,
+      "act_3": 0.01,
+      "act_11": 0,
+      "act_10": 0,
+      "act_5": 0,
+      "unclear": 0,
+      "act_4": 0,
+      "act_9": 0,
+      "none": 0,
+      "act_2": 0,
+      "act_7": 0
+     },
+     "cleared": true
+    },
+    "item": {
+     "rows": {
+      "item_1": "笔记本",
+      "item_2": "开锁工具",
+      "item_3": "手电筒",
+      "item_4": "侦探徽章",
+      "item_5": "科比特宅钥匙"
+     },
+     "choice": "none",
+     "row": null,
+     "confidence": 0.93,
+     "probabilities": {
+      "item_4": 0,
+      "unclear": 0.06,
+      "item_1": 0,
+      "item_2": 0,
+      "none": 0.94,
+      "item_3": 0,
+      "item_5": 0
+     },
+     "cleared": true
+    }
+   },
+   "fired": [
+    {
+     "predicate": "ordinary_check",
+     "candidate": "resolve:core-check:ordinary-check",
+     "features": {
+      "destination": null,
+      "ask": "handout:Handout 3: The House Is Built (1835)",
+      "act": "investigate",
+      "item": null
+     }
+    }
+   ],
+   "selected": [
+    "resolve:core-check:ordinary-check"
+   ],
+   "decided": [
+    "apply:move:newspaper-morgue"
+   ],
+   "fell_through": [
+    "apply:clue:house-built-1835",
+    "apply:clue:neighbor-lawsuit-1852",
+    "apply:clue:basement-burial-lawsuit",
+    "apply:clue:second-lawsuit-outcome-unrecorded",
+    "apply:handout:Handout 3: The House Is Built (1835)",
+    "apply:handout:Handout 4: Neighbors Sue Corbitt (1852)",
+    "apply:handout:Handout 5: Corbitt's Obituary and Burial Lawsuit",
+    "apply:handout:Handout 6: No Recorded Outcome"
+   ],
+   "reason": "selected_1",
+   "run_id": "a3f9c7bd-1ba7-4fa2-bd96-1bbfb20c93ed"
+  }
+ ],
+ "prescreen": "on",
+ "reads": [
+  {
+   "scene": "newspaper-morgue",
+   "prescreen": "prepared",
+   "materials": 5,
+   "jev_calls": 2,
+   "ms": 1076
+  },
+  {
+   "scene": "central-library",
+   "prescreen": "prepared",
+   "materials": 5,
+   "jev_calls": 2,
+   "ms": 697
+  }
+ ],
+ "status": "delivered",
+ "reason": "implicit_narrate",
+ "model_calls": [
+  {
+   "step": 1,
+   "turn": 0,
+   "purpose": "compose",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 48468,
+   "cache_read": 0,
+   "cache_write": 48468,
+   "output": 103,
+   "reasoning": null,
+   "tools": [
+    "resolve"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 2,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 383,
+   "cache_read": 48468,
+   "cache_write": 383,
+   "output": 74,
+   "reasoning": null,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 3,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 3794,
+   "cache_read": 48851,
+   "cache_write": 3794,
+   "output": 77,
+   "reasoning": null,
+   "tools": [
+    "apply"
+   ],
+   "stop": "toolUse",
+   "effort": null
+  },
+  {
+   "step": 4,
+   "turn": 0,
+   "purpose": "adjudicate",
+   "ms": null,
+   "ttfb_ms": null,
+   "input": 3767,
+   "cache_read": 49118,
+   "cache_write": 3767,
+   "output": 127,
+   "reasoning": null,
+   "tools": [],
+   "stop": "stop",
+   "effort": null
+  }
+ ],
+ "steps": {
+  "operate": 7,
+  "decide": 6,
+  "infer": 4,
+  "finish": 1
+ },
+ "llm_steps": 4,
+ "llm_purposes": [
+  "compose",
+  "adjudicate",
+  "adjudicate",
+  "adjudicate"
+ ],
+ "jev_calls": 10,
+ "route_rows": 6,
+ "calls": [
+  {
+   "tool": "apply",
+   "origin": "policy",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "move",
+      "to": "central-library"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "resolve",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "action": {
+     "intent": "investigate",
+     "goal": "Find the earliest surviving construction and transfer records for the Corbitt House, around 1835, by its address.",
+     "method": "Use Library Use in the Central Library reading room, tracing the house address through catalog drawers and bound property notices.",
+     "skill": "Library Use",
+     "stakes": "Half a day passes and the earliest record stays buried in the stacks."
+    }
+   },
+   "passed": false,
+   "level": "failure"
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "clue",
+      "clue": "house-built-1835",
+      "how": "按街址在中央图书馆的旧房产公告里找到1835年的建造与过户记录。",
+      "label": "1835年建屋与过户"
+     },
+     {
+      "kind": "handout",
+      "name": "Handout 3: The House Is Built (1835)",
+      "label": "1835年：房子建成"
+     },
+     {
+      "kind": "time",
+      "stated": "Research in the records",
+      "why": "在中央图书馆按街址追查1835年的建造与过户记录。"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "apply",
+   "origin": "model",
+   "ok": true,
+   "error": null,
+   "input": {
+    "effects": [
+     {
+      "kind": "clue",
+      "clue": "neighbor-lawsuit-1852",
+      "how": "顺着沃尔特·科比特的名字，在1852年的邻居诉讼公告里找到记录。",
+      "label": "1852年邻居诉讼"
+     },
+     {
+      "kind": "handout",
+      "name": "Handout 4: Neighbors Sue Corbitt (1852)",
+      "label": "1852年：邻居起诉科比特"
+     },
+     {
+      "kind": "time",
+      "stated": "Research in the records",
+      "why": "继续在中央图书馆追查1852年邻居起诉科比特的记录。"
+     }
+    ]
+   }
+  }
+ ],
+ "match": [
+  {
+   "baseline": "move central-library",
+   "matched": true,
+   "origin": "policy"
+  },
+  {
+   "baseline": "resolve Library Use vs null",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "clue house-built-1835",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "handout Handout 3: The House Is Built (1835)",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "time undefined",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "resolve Library Use vs null",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "clue neighbor-lawsuit-1852",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "handout Handout 4: Neighbors Sue Corbitt (1852)",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "time undefined",
+   "matched": true,
+   "origin": "model"
+  },
+  {
+   "baseline": "narrate",
+   "matched": true,
+   "origin": "implicit"
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "origin": "policy",
+   "clerk": "declared_bookkeeping",
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "compile",
+   "ms": 0,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[3]",
+    "row": {
+     "alias": "effect:3",
+     "effect": {
+      "kind": "move",
+      "to": "central-library"
+     },
+     "description": {
+      "kind": "move",
+      "to": "central-library",
+      "display_name": "Central Library",
+      "material": "ready",
+      "destination": {
+       "names": [
+        "Boston Central Library",
+        "the Central Library",
+        "Boston's Central Library"
+       ],
+       "where": [
+        "central library",
+        "public library",
+        "municipal library",
+        "library reading rooms",
+        "research library"
+       ],
+       "things": [
+        "Handout 3: The House Is Built (1835)",
+        "Handout 4: Neighbors Sue Corbitt (1852)",
+        "Handout 5: Corbitt's Obituary and Burial Lawsuit",
+        "Handout 6: No Recorded Outcome"
+       ]
+      },
+      "authority": "available_route_not_player_choice"
+     }
+    },
+    "compile": {
+     "predicate": "move",
+     "features": {
+      "destination": "central-library",
+      "addressee": null,
+      "ask": null,
+      "act": "investigate",
+      "item": null
+     },
+     "read_features": {
+      "destination": {
+       "row": "central-library",
+       "confidence": 1,
+       "cleared": true
+      }
+     }
+    }
+   },
+   "path": "compile",
+   "fast_path": null,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": null,
+   "predicate": "move",
+   "features": {
+    "destination": {
+     "row": "central-library",
+     "confidence": 1
+    }
+   },
+   "binding_paths": {
+    "to": "stated"
+   },
+   "compile_refused": null,
+   "first_byte_ms": null,
+   "timed_out": null,
+   "cause": null,
+   "late_rule": null,
+   "resend": null,
+   "resend_wait_ms": null,
+   "typed": null,
+   "grounds": "compile: move fired on destination=central-library",
+   "proposed": [
+    "apply move: to=\"central-library\"; registered_destination={\"handle\":\"central-library\",\"label\":\"central-library\",\"summary\":\"scene central library\",\"canonical_name\":\"Central Library\",\"also_called\":[\"Boston Central Library\",\"the Central Library\",\"Central Library\",\"Boston's Central Library\"],\"access\":{\"discoverability\":\"public\",\"direct_entry\":\"independent\"}}"
+   ],
+   "line_level": null,
+   "lines": null,
+   "of_lines": null,
+   "line_confidences": null
+  },
+  {
+   "verb": "resolve",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "entailed",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 4184,
+   "jev_ms": 496,
+   "confidence": null,
+   "jev_fallback": null,
+   "basis": null,
+   "path": "lane",
+   "fast_path": null,
+   "jev_confidence": 0.46,
+   "line_verdicts": [
+    "entailed"
+   ],
+   "lane_ms": 4184,
+   "predicate": null,
+   "features": null,
+   "binding_paths": null,
+   "compile_refused": null,
+   "first_byte_ms": 3,
+   "timed_out": null,
+   "cause": null,
+   "late_rule": null,
+   "resend": null,
+   "resend_wait_ms": null,
+   "typed": null,
+   "grounds": "replayed live verdict (4175 ms live)",
+   "proposed": [
+    "resolve (roll the dice for an action): intent=\"investigate\"; goal=\"Find the earliest surviving construction and transfer records for the Corbitt House, around 1835, by its address.\"; method=\"Use Library Use in the Central Library reading room, tracing the house address through catalog drawers and bound property notices.\"; skill=\"Library Use\"; stakes=\"Half a day passes and the earliest record stays buried in the stacks.\""
+   ],
+   "line_level": null,
+   "lines": null,
+   "of_lines": null,
+   "line_confidences": [
+    0.46
+   ]
+  },
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "authorized",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 8,
+   "jev_ms": null,
+   "confidence": null,
+   "jev_fallback": "lane_first",
+   "basis": null,
+   "path": "lane",
+   "fast_path": true,
+   "jev_confidence": null,
+   "line_verdicts": null,
+   "lane_ms": 8,
+   "predicate": null,
+   "features": null,
+   "binding_paths": null,
+   "compile_refused": null,
+   "first_byte_ms": 6,
+   "timed_out": null,
+   "cause": null,
+   "late_rule": null,
+   "resend": null,
+   "resend_wait_ms": null,
+   "typed": null,
+   "grounds": "replayed live verdict (0 ms live)",
+   "proposed": [
+    "apply clue: clue=\"house-built-1835\"; how=\"按街址在中央图书馆的旧房产公告里找到1835年的建造与过户记录。\"; label=\"1835年建屋与过户\"",
+    "apply handout: name=\"Handout 3: The House Is Built (1835)\"; label=\"1835年：房子建成\"",
+    "apply time: stated=\"Research in the records\"; why=\"在中央图书馆按街址追查1835年的建造与过户记录。\""
+   ],
+   "line_level": null,
+   "lines": null,
+   "of_lines": null,
+   "line_confidences": null
+  },
+  {
+   "verb": "apply",
+   "origin": "model",
+   "clerk": null,
+   "verdict": "entailed",
+   "ok": true,
+   "skipped": null,
+   "reviewer": "lane",
+   "ms": 2851,
+   "jev_ms": 559,
+   "confidence": null,
+   "jev_fallback": "typed_refusal",
+   "basis": null,
+   "path": "lane",
+   "fast_path": true,
+   "jev_confidence": 0.29,
+   "line_verdicts": [
+    "not_authorized",
+    "not_authorized",
+    "entailed"
+   ],
+   "lane_ms": 2850,
+   "predicate": null,
+   "features": null,
+   "binding_paths": null,
+   "compile_refused": null,
+   "first_byte_ms": 4,
+   "timed_out": null,
+   "cause": null,
+   "late_rule": null,
+   "resend": null,
+   "resend_wait_ms": null,
+   "typed": null,
+   "grounds": "replayed live verdict (2840 ms live)",
+   "proposed": [
+    "apply clue: clue=\"neighbor-lawsuit-1852\"; how=\"顺着沃尔特·科比特的名字，在1852年的邻居诉讼公告里找到记录。\"; label=\"1852年邻居诉讼\"",
+    "apply handout: name=\"Handout 4: Neighbors Sue Corbitt (1852)\"; label=\"1852年：邻居起诉科比特\"",
+    "apply time: stated=\"Research in the records\"; why=\"继续在中央图书馆追查1852年邻居起诉科比特的记录。\""
+   ],
+   "line_level": null,
+   "lines": null,
+   "of_lines": null,
+   "line_confidences": [
+    0.3,
+    0.29,
+    0.43
+   ]
+  }
+ ],
+ "clerk": [
+  {
+   "tool": "apply",
+   "call_id": "t3-c1",
+   "ok": true,
+   "ms": 64,
+   "clerk": "declared_bookkeeping",
+   "basis": {
+    "read": "table.apply.options",
+    "path": "candidates[3]",
+    "row": {
+     "alias": "effect:3",
+     "effect": {
+      "kind": "move",
+      "to": "central-library"
+     },
+     "description": {
+      "kind": "move",
+      "to": "central-library",
+      "display_name": "Central Library",
+      "material": "ready",
+      "destination": {
+       "names": [
+        "Boston Central Library",
+        "the Central Library",
+        "Boston's Central Library"
+       ],
+       "where": [
+        "central library",
+        "public library",
+        "municipal library",
+        "library reading rooms",
+        "research library"
+       ],
+       "things": [
+        "Handout 3: The House Is Built (1835)",
+        "Handout 4: Neighbors Sue Corbitt (1852)",
+        "Handout 5: Corbitt's Obituary and Burial Lawsuit",
+        "Handout 6: No Recorded Outcome"
+       ]
+      },
+      "authority": "available_route_not_player_choice"
+     }
+    },
+    "compile": {
+     "predicate": "move",
+     "features": {
+      "destination": "central-library",
+      "addressee": null,
+      "ask": null,
+      "act": "investigate",
+      "item": null
+     },
+     "read_features": {
+      "destination": {
+       "row": "central-library",
+       "confidence": 1,
+       "cleared": true
+      }
+     }
+    }
+   }
+  }
+ ],
+ "misses": [],
+ "turn_walls_ms": [
+  46389
+ ]
+}

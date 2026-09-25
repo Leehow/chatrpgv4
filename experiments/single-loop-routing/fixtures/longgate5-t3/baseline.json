@@ -1,0 +1,388 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate5-haunting-1447-20260924T184729Z/events.jsonl",
+  "record": ".coc/repos/longgate5-haunting-1447.git 48d21ea:turns/0003.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "那我不为难他。我去中央图书馆，查 1835、1852 和 1866 年关于这栋房子的报道。",
+ "llm_calls": 7,
+ "llm_ms_total": 64592,
+ "calls": [
+  {
+   "text": "你已经离开报社，往中央图书馆去查那三个年份。先按街址翻最早的建造和过户记录。",
+   "at": "2026-09-24T18:49:50.664Z",
+   "provider_ms": 9291,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 15839,
+    "output": 750,
+    "cache_read": 33152
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "move",
+        "to": "central-library"
+       }
+      ]
+     },
+     "id": "clerk-live:t3-c1",
+     "clerk_live": true
+    },
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "investigate",
+       "goal": "Find the earliest surviving construction and transfer records for the Corbitt House, around 1835, by its address.",
+       "method": "Spend the morning in the Central Library reading room, tracing the house address through catalog drawers and bound property notices.",
+       "rule": "Research in the records",
+       "stakes": "Half a day passes and the earliest record stays buried in the stacks."
+      }
+     },
+     "id": "call-452c73f3-7bf0-4445-80b8-7f2eb386b578-0|fc_bb4d16f6-8e44-9325-b07d-6b6c23589b3c_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T18:50:04.253Z",
+   "provider_ms": 3950,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 973,
+    "output": 119,
+    "cache_read": 48896
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "investigate",
+       "goal": "Find the earliest surviving construction and transfer records for the Corbitt House, around 1835, by its address.",
+       "method": "Use Library Use in the Central Library reading room, tracing the house address through catalog drawers and bound property notices.",
+       "skill": "Library Use",
+       "stakes": "Half a day passes and the earliest record stays buried in the stacks."
+      }
+     },
+     "id": "call-0cf5878d-7266-489c-a336-5290d971f267-1|fc_6a8ae5fb-5ba0-9729-99a2-9cd71f020f35_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T18:50:13.653Z",
+   "provider_ms": 7972,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 52825,
+    "output": 509,
+    "cache_read": 0
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "clue",
+        "clue": "house-built-1835",
+        "how": "按街址在中央图书馆的旧房产公告里找到1835年的建造与过户记录。",
+        "label": "1835年建屋与过户"
+       },
+       {
+        "kind": "handout",
+        "name": "Handout 3: The House Is Built (1835)",
+        "label": "1835年：房子建成"
+       },
+       {
+        "kind": "time",
+        "stated": "Research in the records",
+        "why": "在中央图书馆按街址追查1835年的建造与过户记录。"
+       }
+      ]
+     },
+     "id": "call-e04c7290-8a8a-45a8-9e43-e7e9b5da4692-2|fc_9deaa2b6-28a7-9318-adfa-f80b0d97eefe_0"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-24T18:50:24.981Z",
+   "provider_ms": 5841,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 55450,
+    "output": 300,
+    "cache_read": 0
+   },
+   "tool_calls": [
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "investigate",
+       "goal": "Find the 1852 lawsuit in which neighbors tried to force Walter Corbitt out of the house.",
+       "method": "Continue at the same reading table, following Walter Corbitt's name through bound court notices and neighborhood complaints.",
+       "skill": "Library Use",
+       "stakes": "The afternoon is spent and the lawsuit stays unfound."
+      }
+     },
+     "id": "call-99114d4f-05bc-491e-911f-7e1b5a1f0c52-3|fc_18af695d-2733-98fe-957f-ee327f728d2b_0"
+    }
+   ]
+  },
+  {
+   "text": "你没有再跟阿蒂·威尔莫特争。栏杆后面那扇门还关着，你转身出了《环球报》，按诺特原先说的路来到中央图书馆。{{check:library-use}}\n\n阅览室很高，灰尘在午后的光里慢慢转。你按科比特宅的街址一格一格翻目录抽屉，抽出一本发黄的房产公告合订本。1835年那一页还在：{{clue:house-built-1835}}一位殷实的商人盖了这栋房子，刚住进去就病倒，随即把房子卖给了沃尔特·科比特先生。{{handout:the-haunting-handout-3-house-built-1835}}{{time}}\n\n你没有停。同一排抽屉里，科比特这个名字下面还压着一张更晚的卡片，指向1852年邻居对他提起的诉讼。{{check:library-use-2}}馆员已经去书库取那一册，合订本还没放到你桌上。",
+   "at": "2026-09-24T18:50:33.980Z",
+   "provider_ms": 15627,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 6890,
+    "output": 1318,
+    "cache_read": 49152
+   },
+   "tool_calls": []
+  },
+  {
+   "at": "2026-09-24T18:50:49.619Z",
+   "provider_ms": 12238,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 5250,
+    "output": 1145,
+    "cache_read": 50944
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "clue",
+        "clue": "neighbor-lawsuit-1852",
+        "how": "顺着沃尔特·科比特的名字，在1852年的邻居诉讼公告里找到记录。",
+        "label": "1852年邻居诉讼"
+       },
+       {
+        "kind": "handout",
+        "name": "Handout 4: Neighbors Sue Corbitt (1852)",
+        "label": "1852年：邻居起诉科比特"
+       },
+       {
+        "kind": "time",
+        "stated": "Research in the records",
+        "why": "继续在中央图书馆追查1852年邻居起诉科比特的记录。"
+       }
+      ]
+     },
+     "id": "call-ce1a27ab-5074-4dc2-8681-abf2f3aeb19b-4|fc_275bb13b-dc26-9ba9-b613-dd6ecbef0057_0"
+    }
+   ]
+  },
+  {
+   "text": "你离开《环球报》，没有再去推那道栏杆。中央图书馆的阅览室里，长桌、卡片抽屉和装订成册的旧公告排成一排。{{check:library-use}}你按街址翻下去，纸页上的字终于对上了科比特宅。{{clue:house-built-1835}}{{handout:the-haunting-handout-3-house-built-1835}}1835年，一位富裕商人盖起这栋房子，随即病倒，把房子卖给了沃尔特·科比特先生。{{time}}\n\n你接着顺着这个名字往下翻。{{check:library-use-2}}1852年的诉讼公告躺在同一排架子上。{{clue:neighbor-lawsuit-1852}}{{handout:the-haunting-handout-4-neighbor-lawsuit-1852}}那年，邻居们起诉，想把他赶出这一带，理由是他的习性古怪，气色也不祥。{{time-2}}\n\n窗外已经暗下来。阅览台的灯一盏盏亮起。管理员把下一册合上的装订本推到你手边，封面年份是1866。\n\n{{say:阅览台管理员}}「讣告和遗嘱诉讼在这一册。你要是还查，灯还亮着。」{{/say}}",
+   "at": "2026-09-24T18:51:05.295Z",
+   "provider_ms": 9673,
+   "stop_reason": "stop",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 6686,
+    "output": 814,
+    "cache_read": 50944
+   },
+   "tool_calls": []
+  }
+ ],
+ "tools": [
+  {
+   "tool": "apply",
+   "call_id": "clerk-live:t3-c1",
+   "ok": true,
+   "clerk_live": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-452c73f3-7bf0-4445-80b8-7f2eb386b578-0|fc_bb4d16f6-8e44-9325-b07d-6b6c23589b3c_0",
+   "ok": false,
+   "host_refusal": "rule_no_check"
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-0cf5878d-7266-489c-a336-5290d971f267-1|fc_6a8ae5fb-5ba0-9729-99a2-9cd71f020f35_0",
+   "ok": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-e04c7290-8a8a-45a8-9e43-e7e9b5da4692-2|fc_9deaa2b6-28a7-9318-adfa-f80b0d97eefe_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-99114d4f-05bc-491e-911f-7e1b5a1f0c52-3|fc_18af695d-2733-98fe-957f-ee327f728d2b_0",
+   "ok": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-ce1a27ab-5074-4dc2-8681-abf2f3aeb19b-4|fc_275bb13b-dc26-9ba9-b613-dd6ecbef0057_0",
+   "ok": true
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 0,
+   "origin": "policy"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "entailed",
+   "ms": 4175,
+   "origin": "model"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "authorized",
+   "ms": 4601,
+   "origin": "model"
+  },
+  {
+   "verb": "apply",
+   "verdict": "entailed",
+   "ms": 2840,
+   "origin": "model"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "entailed",
+   "ms": 2942,
+   "origin": "model"
+  },
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 3217,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "apply",
+   "kind": "move",
+   "target": "central-library",
+   "clerk_live": true
+  },
+  {
+   "verb": "resolve",
+   "skill": "Library Use",
+   "target": null,
+   "intent": "investigate",
+   "modifiers": null
+  },
+  {
+   "verb": "apply",
+   "kind": "clue",
+   "target": "house-built-1835"
+  },
+  {
+   "verb": "apply",
+   "kind": "handout",
+   "target": "Handout 3: The House Is Built (1835)"
+  },
+  {
+   "verb": "apply",
+   "kind": "time",
+   "target": null
+  },
+  {
+   "verb": "resolve",
+   "skill": "Library Use",
+   "target": null,
+   "intent": "investigate",
+   "modifiers": null
+  },
+  {
+   "verb": "apply",
+   "kind": "clue",
+   "target": "neighbor-lawsuit-1852"
+  },
+  {
+   "verb": "apply",
+   "kind": "handout",
+   "target": "Handout 4: Neighbors Sue Corbitt (1852)"
+  },
+  {
+   "verb": "apply",
+   "kind": "time",
+   "target": null
+  },
+  {
+   "verb": "narrate",
+   "implicit": true
+  }
+ ],
+ "receipts": [
+  {
+   "id": "move:central-library-t3-c1",
+   "kind": "move",
+   "to": "central-library"
+  },
+  {
+   "id": "definition:t3-c4",
+   "kind": "definition"
+  },
+  {
+   "id": "roll:library-use-t3-c3",
+   "kind": "roll",
+   "decision": null,
+   "skill": "Library Use",
+   "npc": null,
+   "level": "regular"
+  },
+  {
+   "id": "clue:house-built-1835-t3",
+   "kind": "clue",
+   "clue": "house-built-1835"
+  },
+  {
+   "id": "handout:the-haunting-handout-3-house-built-1835-t3",
+   "kind": "handout",
+   "handout": "the-haunting-handout-3-house-built-1835"
+  },
+  {
+   "id": "time:t3-c5",
+   "kind": "time"
+  },
+  {
+   "id": "roll:library-use-t3-c6",
+   "kind": "roll",
+   "decision": null,
+   "skill": "Library Use",
+   "npc": null,
+   "level": "regular"
+  },
+  {
+   "id": "clue:neighbor-lawsuit-1852-t3",
+   "kind": "clue",
+   "clue": "neighbor-lawsuit-1852"
+  },
+  {
+   "id": "handout:the-haunting-handout-4-neighbor-lawsuit-1852-t3",
+   "kind": "handout",
+   "handout": "the-haunting-handout-4-neighbor-lawsuit-1852"
+  },
+  {
+   "id": "time:t3-c7",
+   "kind": "time"
+  }
+ ]
+}

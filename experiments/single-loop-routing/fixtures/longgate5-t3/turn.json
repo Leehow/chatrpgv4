@@ -1,0 +1,13 @@
+{
+ "campaign": "longgate5-haunting-1447",
+ "module": "the-haunting",
+ "turn": 3,
+ "commit_before": "28e0eed",
+ "commit_after": "48d21ea",
+ "player_input": "那我不为难他。我去中央图书馆，查 1835、1852 和 1866 年关于这栋房子的报道。",
+ "tarball": "../longgate5/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/longgate5-haunting-1447",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate5-haunting-1447-20260924T184729Z"
+ }
+}

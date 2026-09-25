@@ -49,22 +49,80 @@
 import { jsonDigest } from '../json.js';
 import type { LoadedModule } from './campaign.js';
 import type { ModuleGraph } from './module-graph.js';
-import { array, normalize, row, string, type Row } from './values.js';
+import { isJsonObject } from '../json.js';
+import { array, integer, normalize, row, string, type Row } from './values.js';
 
 /** Minted by the kernel, never copied by the Keeper: the handle is the name they used. */
 export const tablePersonId = (name: string): string => `npc-table-${jsonDigest(normalize(name)).slice(0, 20)}`;
 
+/** The people to install: every entry with a name, except one a book person has replaced (§11.5.4). */
 export function tablePeople(world: Row): Row[] {
-    return array(world.table_people).map(row).filter(person => !!string(person.name).trim());
+    return array(world.table_people).map(row).filter(person => !!string(person.name).trim() && !person.replaced_by);
 }
 
 /** Rehydrate the world's record onto a loaded graph. Idempotent: `addTablePerson` keeps the first. */
 export function installTablePeople(graph: ModuleGraph, world: Row): ModuleGraph {
     for (const person of tablePeople(world)) {
         const name = string(person.name).trim();
-        graph.addTablePerson(tablePersonId(name), name, { reason: string(person.why), turn: person.turn ?? null });
+        graph.addTablePerson(tablePersonId(name), name, { reason: string(person.why), turn: person.turn ?? null,
+            ...(isJsonObject(person.from_passage) ? { from_passage: person.from_passage } : {}) });
     }
     return graph;
+}
+
+/**
+ * §11.5.4 (SL-51): the comparison a carried passage and a person's name meet under. The kernel's own name normalization
+ * (§2), then no whitespace at all: a page's line breaks are layout, and the book breaks a name across two lines. Exact
+ * after that -- no near name, no alias, nothing about a language.
+ */
+export const passageKey = (value: unknown): string => normalize(value).replace(/\s+/gu, '');
+
+/**
+ * §11.5.4: the host's `_passage` on an `npc`/`person` effect, when its sentence holds `name`, as the record keeps it; else
+ * null (absent, malformed, or a sentence that does not hold the name all count as absent). The host strips any `_passage`
+ * a model sent, so only the host's reaches here.
+ */
+export function passageOf(effect: Row, name: string): Row | null {
+    const value = effect._passage;
+    if (!isJsonObject(value) || typeof value.sentence !== 'string') return null;
+    const key = passageKey(name);
+    if ([...key].length < 2 || !passageKey(value.sentence).includes(key)) return null;
+    return { scene: typeof value.scene === 'string' && value.scene ? value.scene : null,
+        page: integer(value.page) ? value.page : null,
+        label: typeof value.label === 'string' && value.label ? value.label : null,
+        sentence: value.sentence.trim() };
+}
+
+/** The per-person world maps, keyed by a person's handle or node id; re-keyed when a book person replaces a provisional one. */
+export const PERSON_WORLD_MAPS: readonly string[] = Object.freeze(['npc_presence', 'npc_resources', 'npc_character', 'npc_profiles',
+    'npc_disposition', 'npc_defense', 'npc_action', 'person_labels']);
+
+/**
+ * §11.5.4: a person established from a carried passage is replaced by the book's person of that name once the graph has
+ * one. Before this entry is installed, the loaded graph is asked for the name: a person that is not a table person (the
+ * scene's reviewed record landed with them) takes the entry's place. The world's per-person maps move from the provisional
+ * handle and id to the book's (the book's entry wins where both exist), and the entry gains `replaced_by`, after which it is
+ * never installed again. A write persists this with its commit, so it happens once; a read computes the same in memory.
+ */
+export function replacePassagePeople(graph: ModuleGraph, world: Row): void {
+    for (const person of array(world.table_people)) {
+        if (!isJsonObject(person) || !isJsonObject(person.from_passage) || person.replaced_by) continue;
+        const name = string(person.name).trim();
+        if (!name) continue;
+        const node = graph.find(name, ['npc']);
+        if (!node || graph.isTablePerson(node)) continue;
+        const handle = graph.handle(node);
+        for (const [from, to] of [[name, handle], [tablePersonId(name), string(node.node_id)]]) {
+            if (from === to) continue;
+            for (const key of PERSON_WORLD_MAPS) {
+                const map = world[key];
+                if (!isJsonObject(map) || !Object.hasOwn(map, from)) continue;
+                if (!Object.hasOwn(map, to)) map[to] = map[from];
+                delete map[from];
+            }
+        }
+        person.replaced_by = handle;
+    }
 }
 
 /**
@@ -74,6 +132,7 @@ export function installTablePeople(graph: ModuleGraph, world: Row): ModuleGraph 
  * established them.
  */
 export function withTablePeople(module: LoadedModule, world: Row): LoadedModule {
+    replacePassagePeople(module.graph, world);
     installTablePeople(module.graph, world);
     const source = module.material;
     const material = (name: string): string => module.graph.isTablePerson(module.graph.find(name)) ? 'ready' : source(name);
