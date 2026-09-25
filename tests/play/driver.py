@@ -379,7 +379,7 @@ class Daemon:
                 f"(pass --launcher, set PI_COC_LAUNCHER, or wait for bin/pi-coc to exist)"
             )
         launch_args = ["--campaign", campaign, "--mode", "rpc", "--no-session",
-                       "--thinking", DEFAULT_THINKING]
+                       "--thinking", self.thinking or DEFAULT_THINKING]
         if model:
             if "/" not in model:
                 raise DriverError(f"--model must be 'provider/modelId', got {model!r}")
@@ -1115,7 +1115,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--campaign", required=True)
     sp.add_argument("--run", default=None)
     sp.add_argument("--model", default=DEFAULT_MODEL,
-                     help="provider/modelId selected before opening and confirmed via set_model (default %(default)s); thinking is low")
+                     help="provider/modelId selected before opening and confirmed via set_model (default %(default)s)")
+    sp.add_argument("--thinking", default=DEFAULT_THINKING, choices=["off", "minimal", "low", "medium", "high"],
+                     help="thinking level passed to the launcher (default %(default)s; a deepseek Keeper via opencode-go wants off)")
     sp.add_argument("--launcher", default=None,
                      help="path to bin/pi-coc-compatible launcher (default: env PI_COC_LAUNCHER, then bin/pi-coc)")
     sp.add_argument("--pregen", default=None, metavar="PREGEN",
