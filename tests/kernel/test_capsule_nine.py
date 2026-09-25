@@ -1,10 +1,11 @@
 """Slice 3, kernel side: the nine-section capsule (contract §13.1), the structural sources
-of `pressures` / `obligations` (§13.2), `style` (§13.6) and the per-section budgets."""
+of `pressures` / `obligations` (§13.2), `style` (§13.6, §137) and the per-section budgets."""
 
 import json
 import re
+import shutil
 
-from conftest import CAMPAIGN, CONTENT_DIR, RpcClient, campaign_dir, narrate, narrate_opening, open_turn, read_json
+from conftest import CAMPAIGN, RpcClient, WORKTREE, campaign_dir, create_campaign, narrate, narrate_opening, open_turn, read_json
 from test_rules_families import first_failure, resolve, seed_wound, walk_to_confrontation
 
 SECTIONS = ("where", "present", "known", "pressures", "obligations", "director", "situations", "memory", "style",
@@ -12,9 +13,11 @@ SECTIONS = ("where", "present", "known", "pressures", "obligations", "director",
 BUDGETS = {"where": 4096, "present": 3072, "known": 3072, "pressures": 1024, "obligations": 1024, "director": 3072,  # 3072 since the recovery (contract §40)
            "situations": 1024, "memory": 1536, "style": 1536, "recent": 2048, "warnings": 1024,  # style 1536 since the turn floor
            "voices": 3072}  # §40.7: the masks and exchanges of everyone present
-BEAT_TABLE = json.loads((CONTENT_DIR / "craft" / "beat-directives.json").read_text(encoding="utf-8"))
-TEXT_GRAPH = json.loads((CONTENT_DIR / "craft" / "text-graph.json").read_text(encoding="utf-8"))
-ALL_DIRECTIVES = {n["properties"]["directive_id"] for n in TEXT_GRAPH["nodes"] if n["node_kind"] == "craft-directive"}
+# Contract §137: the craft lines come from the one enabled `context.style.v1` package; the shipped one is narration-craft.
+PROVIDER = read_json(WORKTREE / "mods" / "narration-craft" / "mod.json")
+STYLE = read_json(WORKTREE / "mods" / "narration-craft" / PROVIDER["contributes"]["style"])
+ALL_DIRECTIVES = list(STYLE["directives"])
+FIXTURES = WORKTREE / "tests" / "fixtures" / "mods"
 
 
 def size(payload):
@@ -164,36 +167,104 @@ def test_quest_obligations_read_the_module_graph_and_the_discovered_clues(kernel
     assert quests["End the Corbitt Threat"]["state"] == "not started"
 
 
-# ---- style (§13.6) ---------------------------------------------------------------------------
+# ---- style (§13.6, §137: context.style.v1) ------------------------------------------------------
 
-def test_style_gives_every_directive_on_the_first_turn_and_the_beats_pick_afterwards(kernel):
+def lines(style):
+    return {row["id"]: row["line"] for row in style["directives"]}
+
+
+def test_the_style_provider_sends_every_directive_on_the_first_turn_and_the_beats_after(kernel):
     first = open_turn(kernel, "我仔细观察诺特。")["capsule"]
     style = first["style"]
+    assert PROVIDER["version"] and "context.style.v1" in PROVIDER["requires"]
+    assert list(style) == ["language", "register", "axes", "directives", "floor"]
     assert style["language"] == "zh-Hans" and style["register"] == "purist"
-    assert len(style["axes"]) == 6 and "write natural, complete sentences with clear speakers and relationships" in style["axes"]  # English guidance for every play language.
-    assert {d["id"] for d in style["directives"]} == ALL_DIRECTIVES and all(d["line"] for d in style["directives"])
+    assert style["axes"] == STYLE["axes"] and style["floor"] == STYLE["floor"]
+    # the first turn of a process: every directive the package defines, in its order, with the full line
+    assert [d["id"] for d in style["directives"]] == ALL_DIRECTIVES
+    assert lines(style) == {id_: entry["full"] for id_, entry in STYLE["directives"].items()}
+    assert "style" not in first.get("truncated", []) and size(style) <= 2048
     assert kernel.table("capsule")["style"] == style  # same turn, same process: still the full list
     narrate(kernel, "t1-c1", "……")
     later = kernel.table("player_input", text="继续。")["capsule"]
     beat = later["director"]["beat"]
-    assert [d["id"] for d in later["style"]["directives"]] == BEAT_TABLE["beats"][beat]
-    assert len(later["style"]["directives"]) <= 4 and size(later["style"]) <= 1536  # the four floor lines ride along (turn floor)
+    # later turns: the beat's own ids, in the package's order for that beat, with the brief line
+    assert [d["id"] for d in later["style"]["directives"]] == STYLE["beats"][beat]
+    assert lines(later["style"]) == {id_: STYLE["directives"][id_]["brief"] for id_ in STYLE["beats"][beat]}
+    assert later["style"]["axes"] == STYLE["axes"] and later["style"]["floor"] == STYLE["floor"]
+    assert "style" not in later.get("truncated", []) and size(later["style"]) <= 1536
 
 
-def test_style_treats_compact_context_as_facts_not_player_facing_prose(kernel):
-    """A long table's compressed memory must not become the Keeper's sentence pattern.
+def test_without_a_provider_style_is_the_language_and_the_register(kernel):
+    create_campaign(kernel)
+    listed = kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "narration-craft", "enabled": False})
+    assert not next(row for row in listed["mods"] if row["id"] == "narration-craft" and row["active"])["active"]["enabled"]
+    narrate_opening(kernel)
+    first = kernel.table("player_input", text="我看看。")["capsule"]
+    assert first["style"] == {"language": "zh-Hans", "register": "purist"}
+    assert "style" not in first.get("truncated", [])
+    narrate(kernel, "t1-c1", "……")
+    later = kernel.table("player_input", text="继续。")["capsule"]
+    assert later["style"] == {"language": "zh-Hans", "register": "purist"}
+    assert "style" not in later.get("truncated", [])
 
-    The live failure was grammatical erosion across the whole delivery (for example, an actor's
-    name joined directly to a body part and compressed status notes copied as dialogue).  This is
-    base readability, not a new semantic classifier or a synchronous literary review.
-    """
-    style = open_turn(kernel, "我们继续进镇。")['capsule']['style']
-    directives = {row['id']: row['line'] for row in style['directives']}
-    assert directives['clarity-and-completion'] == (
-        'carry the settled result to its actual endpoint; reread for clear agency, speaker transitions and natural play_language')
-    assert directives['exchange-response'] == (
-        "start from the world's uptake of the declaration; a necessary bridge is not a replay of the player's whole input")
-    assert 'write natural, complete sentences with clear speakers and relationships' in style['axes']
+
+def test_a_style_package_that_would_not_fit_is_refused_when_the_catalog_loads(kernel, tmp_path):
+    fixture = FIXTURES / "style-overflow"
+    manifest = read_json(fixture / "mod.json")
+    # installing it: refused before it is published, naming the beat and the overflow
+    error = kernel.err("mods.install", {"path": str(fixture)})
+    assert error["code"] == "invalid_params"
+    assert "REVEAL" in error["message"] and "1536" in error["message"] and "over" in error["message"]
+    assert "PRESSURE" not in error["message"]  # only the beat that overflows is named
+    assert error["details"]["over"]["REVEAL"] > 0
+    # the same bytes on disk without an install: the catalog refuses that version as its own problem (§41.2)
+    placed = kernel.workspace / ".coc" / "mods" / "packages" / manifest["id"] / manifest["version"]
+    shutil.copytree(fixture, placed)
+    listed = kernel.ok("mods.list", {})
+    assert manifest["id"] not in {row["id"] for row in listed["mods"]}
+    refused = next(row for row in listed["unavailable"] if row["id"] == manifest["id"])
+    assert refused["version"] == manifest["version"] and "REVEAL" in refused["reason"]
+    # a beat table naming a directive the package does not define fails closed too
+    broken = tmp_path / "style-unknown"
+    shutil.copytree(fixture, broken)
+    style = read_json(broken / "style.json")
+    style["beats"]["REVEAL"] = ["plain", "write-purple-prose"]
+    (broken / "style.json").write_text(json.dumps(style), encoding="utf-8")
+    manifest["id"] = "style-unknown"
+    (broken / "mod.json").write_text(json.dumps(manifest), encoding="utf-8")
+    error = kernel.err("mods.install", {"path": str(broken)})
+    assert error["code"] == "invalid_params" and "write-purple-prose" in error["message"]
+    # the table that locks neither plays on with the shipped provider
+    capsule = open_turn(kernel, "我看看。")["capsule"]
+    assert [d["id"] for d in capsule["style"]["directives"]] == ALL_DIRECTIVES
+
+
+def test_only_one_style_provider_is_enabled_at_a_time(kernel, tmp_path):
+    second = read_json(FIXTURES / "style-second" / "mod.json")
+    second_style = read_json(FIXTURES / "style-second" / "style.json")
+    kernel.ok("mods.install", {"path": str(FIXTURES / "style-second")})
+    create_campaign(kernel)
+    error = kernel.err("mods.configure", {"campaign": CAMPAIGN, "id": second["id"], "enabled": True})
+    assert error["code"] == "invalid_params" and "narration-craft" in error["message"]
+    assert error["details"]["provider"]["mod"] == "narration-craft"
+    # a catalog whose defaults would enable two providers is refused the same way, by default or by install
+    error = kernel.err("mods.defaults", {"id": second["id"], "enabled": True})
+    assert error["code"] == "invalid_params" and "narration-craft" in error["message"]
+    third = tmp_path / "style-third"
+    shutil.copytree(FIXTURES / "style-second", third)
+    (third / "mod.json").write_text(json.dumps({**second, "id": "style-third", "default_enabled": True}), encoding="utf-8")
+    error = kernel.err("mods.install", {"path": str(third)})
+    assert error["code"] == "invalid_params" and error["details"]["provider"]["mod"] == "narration-craft"
+    # one at a time: turn the shipped provider off, and the second one's lines are the section
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "narration-craft", "enabled": False})
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": second["id"], "enabled": True})
+    narrate_opening(kernel)
+    style = kernel.table("player_input", text="我看看。")["capsule"]["style"]
+    assert [d["id"] for d in style["directives"]] == list(second_style["directives"])
+    assert style["axes"] == second_style["axes"] and style["floor"] == second_style["floor"]
+    error = kernel.err("mods.configure", {"campaign": CAMPAIGN, "id": "narration-craft", "enabled": True})
+    assert error["code"] == "invalid_params" and error["details"]["provider"]["mod"] == second["id"]  # the one already enabled
 
 
 def test_a_new_process_starts_over_with_the_full_directives(tmp_path):
@@ -201,14 +272,15 @@ def test_a_new_process_starts_over_with_the_full_directives(tmp_path):
     try:
         open_turn(first, "我看看。")
         narrate(first, "t1-c1", "……")
-        assert len(first.table("player_input", text="继续。")["capsule"]["style"]["directives"]) <= 4
+        later = first.table("player_input", text="继续。")["capsule"]
+        assert [d["id"] for d in later["style"]["directives"]] == STYLE["beats"][later["director"]["beat"]]
     finally:
         first.close()
     second = RpcClient(tmp_path / "ws")
     try:
         assert second.table("open")["turn"]["number"] == 2
         narrate(second, "t2-c1", "……")
-        assert {d["id"] for d in second.table("player_input", text="再来。")["capsule"]["style"]["directives"]} == ALL_DIRECTIVES
+        assert [d["id"] for d in second.table("player_input", text="再来。")["capsule"]["style"]["directives"]] == ALL_DIRECTIVES
     finally:
         second.close()
 
@@ -222,19 +294,17 @@ def test_register_is_a_campaign_setting_from_the_text_graph(kernel):
     assert error["code"] == "invalid_params" and "purist" in error["fix"]
 
 
-def test_general_axes_apply_across_play_languages_and_fit_the_style_budget(tmp_path):
+def test_the_provider_lines_are_the_same_for_every_play_language(tmp_path):
     client = RpcClient(tmp_path / "ws")
     try:
         client.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "pregen": "thomas-hayes", "play_language": "en"})
         narrate_opening(client)
         capsule = client.table("player_input", text="I look around.")["capsule"]
         style = capsule["style"]
-        assert style["language"] == "en" and len(style["axes"]) == 6
-        assert "write natural, complete sentences with clear speakers and relationships" in style["axes"]
-        # §30.7d: the general English guidance applies to every play language. The four full
-        # directives fit the first-turn budget; later turns use the same IDs with brief lines.
+        # the kernel detects no language (§16.1, §137.1): an English table gets the same lines as any other
+        assert style["language"] == "en" and style["axes"] == STYLE["axes"] and style["floor"] == STYLE["floor"]
         assert size(style) <= 2048 and "style" not in capsule.get("truncated", [])
-        assert {d["id"] for d in style["directives"]} == ALL_DIRECTIVES
+        assert [d["id"] for d in style["directives"]] == ALL_DIRECTIVES
         assert capsule["head"].startswith("Everything at the start of this turn")
     finally:
         client.close()

@@ -1,5 +1,9 @@
 # Narration Craft
 
+## 1.9.0
+- Carries the capsule's craft lines through `context.style.v1` (contract §137): `style.json` holds the six axes, the four directives with their full and brief lines, the beat table and the four floor lines, moved verbatim from the retired base table `content/craft/beat-directives.json`. A new table sees the same `style` section as before; with this package off, `style` carries only the play language and register.
+- Instructions, brief, settings, voice vocabulary and the craft reference are unchanged from 1.7.1. Campaigns locked to an earlier version keep their bytes and now receive no craft lines in `style` until they upgrade explicitly.
+
 ## 1.8.0
 - Retires the Jev craft-reference selector (owner ruling 2026-09-25, docs/specs/prose-mod.md §5; contract §30.7f). Drops `cards.en.json`, `starter-ids.json` and `craft-reference.json`, `contributes.craft_reference`, the `reference_mode` setting and its schema, and `context.craft-reference.v2` from `requires`; `package_files` is `agent.md` and `brief.md` only. The paired evaluations and the live table measured no gain from the per-turn reference, while it cost 240-520 ms per input on the compose path.
 - `agent.md` and `brief.md` are byte-for-byte unchanged from 1.7.1; the rewrite is a later release. The 48 cards and the twelve-card candidate list are archived at `docs/archive/craft-reference-cards-v2/`, outside the runtime.

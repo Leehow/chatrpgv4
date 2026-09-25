@@ -17,6 +17,7 @@ import {USAGE_CAPABILITY, usageViews} from '../mods/usages.js';
 import {publicOffer} from '../mods/object-offer.js';
 import { checkDeclarationRefusals } from "../modules/obligation-shape.js";
 import {VOICE_CONSOLIDATION_CAPABILITY, EXPRESSION_MOD, LEGACY_VOICE_MOD, newModDefault} from '../mods/voice-consolidation.js';
+import { STYLE_CAPABILITY, validateStyleDeclaration, validateStyleContribution, providesStyle, secondProvider } from "./style.js";
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1", "context.workspace.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
@@ -26,6 +27,7 @@ MOD_CAPABILITIES.add(VOICE_CONSOLIDATION_CAPABILITY);
 /** Contract §30.7f: frozen Narration Craft 1.5.0-1.7.1 still declare the retired selector. The names stay accepted and
  *  the contribution stays readable so those locks load and can be configured to a current version; nothing acts on either. */
 for (const retired of ["context.craft-reference.v1", "context.craft-reference.v2"]) MOD_CAPABILITIES.add(retired);
+MOD_CAPABILITIES.add(STYLE_CAPABILITY);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
@@ -246,7 +248,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     // Contract §28.9. A name this build does not know is recorded on the manifest and makes the
     // package incompatible -- exactly what an unknown capability in `requires` already does five
@@ -280,6 +282,8 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     if (manifest.contributes.brief != null && manifest.contributes.instructions == null)
         invalid("contributes.brief is the per-turn form of contributes.instructions and needs it");
     validateSetupSlots(manifest, files);
+    // Contract §137.2: the pairing and the path here; the file's lines are checked where the catalog loads.
+    validateStyleDeclaration(manifest, files);
     const checks = array(manifest.contributes.checks);
     for (const check of checks) {
         if (!plain(check) || !/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/.test(string(check.name ?? "")))
@@ -363,6 +367,9 @@ export class ModCatalog extends Map<string, Row> {
         return this.unavailable.find(entry => entry.id === id && (entry.version === version || entry.version === null));
     }
 }
+/** Whether this build reads every name the manifest uses: its game interface, its capabilities, its fields (§28.9). */
+export const compatibleManifest = (manifest: Row): boolean => manifest.game_api === "pipicoc.game.v1" && manifest.kernel_gap == null
+    && array(manifest.requires).every((cap: string) => MOD_CAPABILITIES.has(cap));
 export async function readModCatalog(context: KernelContext): Promise<ModCatalog> {
     const roots: Array<{ root: string; id: string; version: string | null }> = [],
         builtin = join(dirname(context.content), "mods"),
@@ -374,11 +381,16 @@ export async function readModCatalog(context: KernelContext): Promise<ModCatalog
             roots.push({ root: join(installed, id, version), id, version });
     const catalog = new ModCatalog();
     for (const entry of roots.sort((left, right) => compareUnicode(join(left.root, "mod.json"), join(right.root, "mod.json")))) {
-        let files: Map<string, Buffer>, manifest: Row;
+        let files: Map<string, Buffer>, manifest: Row, digest: string;
         try {
             const source = await packageFiles(entry.root);
             manifest = manifestFrom(source);
             files = runtimePackageFiles(source, manifest);
+            digest = packageDigest(files);
+            // Contract §137.2: a style contribution is measured here, when the catalog loads, never during a
+            // turn; a version whose lines would not fit the capsule refuses itself like any other bad bytes.
+            if (compatibleManifest(manifest))
+                await validateStyleContribution(context, manifest, files, digest);
         }
         catch (error) {
             // Contract 41.2: one package's bytes are that package's own problem. This read is on the path of
@@ -391,10 +403,9 @@ export async function readModCatalog(context: KernelContext): Promise<ModCatalog
         }
         const value = {
             ...manifest,
-            digest: packageDigest(files),
+            digest,
             files,
-            compatible: manifest.game_api === "pipicoc.game.v1" && manifest.kernel_gap == null
-                && manifest.requires.every((cap: string) => MOD_CAPABILITIES.has(cap))
+            compatible: compatibleManifest(manifest)
         },
             key = `${manifest.id}\0${manifest.version}`;
         if (catalog.has(key) && catalog.get(key)!.digest !== value.digest)
@@ -471,6 +482,11 @@ export async function activeMods(context: KernelContext, world: Row, known: ModC
         for (const conflict of mod.conflicts)
             if (truth(locks[conflict]?.enabled))
                 invalid(`${id} conflicts with ${conflict}`);
+        // Contract §137.4: one enabled style provider at a time. `mods.configure` refuses the second before it
+        // is written; this is the invariant for every other path that reads the locks.
+        const provider = providesStyle(mod) ? active.find(other => providesStyle(other)) : undefined;
+        if (provider)
+            throw secondProvider(mod, provider);
         active.push(mod);
     }
     const ids = new Set([...catalog.values()].map(mod => mod.id).concat(Object.keys(locks))),

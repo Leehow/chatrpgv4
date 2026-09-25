@@ -1,6 +1,6 @@
 {
   "id": "narration-craft",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "game_api": "pipicoc.game.v1",
   "state_version": 2,
   "migrations": [{"from": 1, "to": 2, "operations": [{"op": "default", "key": "dossier", "value": {}}]}],
@@ -19,11 +19,13 @@
     "graph.vocabulary.v1",
     "graph.vocabulary.table.v1",
     "context.npc.v1",
-    "npc.voice.consolidation.v1"
+    "npc.voice.consolidation.v1",
+    "context.style.v1"
   ],
   "package_files": [
     "agent.md",
-    "brief.md"
+    "brief.md",
+    "style.json"
   ],
   "dependencies": {},
   "conflicts": ["npc-voice"],
@@ -46,6 +48,7 @@
       {"key": "exchanges", "label": "in exchange", "shape": "lines", "ask": "up to three exchanges the book prints, each on one line: what someone says to this person, an arrow, what this person says back"}
     ]},
     "instructions": "agent.md",
-    "brief": "brief.md"
+    "brief": "brief.md",
+    "style": "style.json"
   }
 }

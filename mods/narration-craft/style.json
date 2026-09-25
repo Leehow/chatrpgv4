@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "axes": [
+    "write natural, complete sentences with clear speakers and relationships",
+    "give the exchange its next meaningful response or settled consequence",
+    "choose scene detail for what the player is doing and can perceive",
+    "let established NPC intentions and relationships shape their wording and register",
+    "vary focus and rhythm with the scene; plain answers, narration, dialogue and purposeful silence are all available",
+    "preserve source truth, player agency and the actual settled outcome"
+  ],
+  "directives": {
+    "exchange-response": {
+      "full": "start from the world's uptake of the declaration; a necessary bridge is not a replay of the player's whole input",
+      "brief": "Answer the declaration through the world, not a replay."
+    },
+    "voice-with-purpose": {
+      "full": "let each relevant speaker answer, ask, offer, evade or refuse from their established position; their words can carry the beat without a compulsory gesture",
+      "brief": "Let established voices answer; gestures are optional."
+    },
+    "selective-detail": {
+      "full": "make the relevant person, object or space intelligible; choose details that change perception or meaning rather than filling a sensory or atmosphere quota",
+      "brief": "Choose relevant detail, not a sensory or atmosphere quota."
+    },
+    "clarity-and-completion": {
+      "full": "carry the settled result to its actual endpoint; reread for clear agency, speaker transitions and natural play_language",
+      "brief": "Complete the settled result; keep agency and speakers clear."
+    }
+  },
+  "beats": {
+    "REVEAL": [
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
+    ],
+    "PRESSURE": [
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
+    ],
+    "CHOICE": [
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
+    ],
+    "SUBSYSTEM": [
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
+    ],
+    "CHARACTER": [
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
+    ],
+    "RECOVER": [
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
+    ],
+    "CUT": [
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
+    ],
+    "ADVANCE": [
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
+    ],
+    "MONTAGE": [
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
+    ],
+    "DEEPEN": [
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
+    ],
+    "PAYOFF": [
+      "exchange-response",
+      "voice-with-purpose",
+      "selective-detail",
+      "clarity-and-completion"
+    ]
+  },
+  "floor": [
+    "uptake: make clear how the world receives the player's chosen action or words without requiring the whole declaration to be spoken or performed twice",
+    "answer: show the actual settled result and answer the selected exchange; quiet play needs no new event and an offer is not a debt",
+    "voice: use the touched person's own speech or meaningful silence; preserve who said what and who knows what",
+    "handoff: complete the selected goal or stop at a genuinely new unselected consequential decision, with enough public context to judge"
+  ]
+}
