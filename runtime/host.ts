@@ -1,5 +1,6 @@
 /** Per-owner runtime composition. Game state and request ordering stay in the kernel. */
 import { accessSync, constants, existsSync, statSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { KernelClient, KernelError, type KernelClientOptions } from "../extensions/kernel/client.ts";
@@ -252,4 +253,145 @@ export function createRuntime(binding: RuntimeBinding, host: RuntimeHostOptions 
 		sourceWindow: (request, cancellation) => operation('sourceWindow', capabilities.sourceWindow && (s => capabilities.sourceWindow!(context, request, s)), cancellation),
 		close,
 	} satisfies HostRuntime);
+}
+
+// -- Provider model data corrections (contract §135.27.1, SL-61) --------------------------
+//
+// Provider model data the product knows to be wrong (e.g. a catalog entry that omits a thinking
+// level the endpoint actually supports) is corrected as data: a corrections file shipped with the
+// product (`content/providers/model-corrections.json` by default, Pi's own `models.json`
+// `modelOverrides` field shapes) is merged into the agent home's `models.json` whenever the host
+// prepares the home for a table (`runtime/launch.ts`'s `piLaunch`, right where it already
+// creates the home directory and reconciles `settings.json`). A user's own override for the same
+// provider+model always wins and is never replaced; every other provider and field in the user's
+// file is left exactly as read.
+
+export interface ProviderModelCorrectionEntry {
+  readonly provider: string;
+  readonly model: string;
+}
+
+/**
+ * Strip `//` and `/* *\/` comments outside string literals, matching the tolerance Pi's own
+ * `models.json` loader has (`stripJsonComments`) -- an operator's hand-edited file, or an earlier
+ * run's own corrections note (below), may carry either.
+ */
+function stripJsonComments(text: string): string {
+  let out = "";
+  let inString = false;
+  let quote = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      out += ch;
+      if (ch === "\\") { out += text[i + 1] ?? ""; i++; continue; }
+      if (ch === quote) inString = false;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { inString = true; quote = ch; out += ch; continue; }
+    if (ch === "/" && text[i + 1] === "/") { while (i < text.length && text[i] !== "\n") i++; out += "\n"; continue; }
+    if (ch === "/" && text[i + 1] === "*") {
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
+      i++; continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+/** Drop `$comment`-prefixed documentation keys the corrections source file carries for maintainers. */
+function stripDocumentationKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripDocumentationKeys);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (key.startsWith("$comment")) continue;
+      out[key] = stripDocumentationKeys(entry);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
+ * Pure merge: for every provider+model the corrections data names, add its override under the
+ * user's `providers.<id>.modelOverrides.<model>` only if the user has none there yet. A model the
+ * user already has an override for -- any keys, not just `thinkingLevelMap` -- is never touched;
+ * neither is any other provider or field the existing config carries. Takes and returns plain
+ * JSON values so it needs no filesystem access and is safe to call from a test with fixtures held
+ * only in memory.
+ */
+export function mergeProviderModelCorrections(existingModelsJson: unknown, corrections: unknown):
+  { config: Record<string, unknown>; entries: ProviderModelCorrectionEntry[] } {
+  const config: Record<string, unknown> = structuredClone(jsonObject(existingModelsJson));
+  const providers = jsonObject(config.providers);
+  config.providers = providers;
+  const correctionProviders = jsonObject(jsonObject(corrections).providers);
+  const entries: ProviderModelCorrectionEntry[] = [];
+  for (const [providerId, providerCorrection] of Object.entries(correctionProviders)) {
+    const overrides = jsonObject(jsonObject(providerCorrection).modelOverrides);
+    for (const [modelId, override] of Object.entries(overrides)) {
+      entries.push({ provider: providerId, model: modelId });
+      const providerEntry = jsonObject(providers[providerId]);
+      providers[providerId] = providerEntry;
+      const modelOverrides = jsonObject(providerEntry.modelOverrides);
+      providerEntry.modelOverrides = modelOverrides;
+      if (Object.prototype.hasOwnProperty.call(modelOverrides, modelId)) continue; // the user's own override wins, untouched
+      modelOverrides[modelId] = stripDocumentationKeys(override);
+    }
+  }
+  return { config, entries };
+}
+
+function correctionsNote(entries: readonly ProviderModelCorrectionEntry[]): string {
+  if (!entries.length) return "";
+  const lines = entries.map(({ provider, model }) => `//   - ${provider}/${model}`);
+  return [
+    "// Product corrections merged by chatrpgv4 (contract §135.27.1; source",
+    "// content/providers/model-corrections.json). An entry below is added only where you had none",
+    "// of your own for that exact provider+model; your own overrides are never replaced. The",
+    "// product currently knows a correction for:",
+    ...lines,
+    "",
+  ].join("\n");
+}
+
+/**
+ * Merge the product's provider model corrections into `<agentHome>/models.json`. Called at host
+ * preparation for a table, alongside the `settings.json` reconciliation in `runtime/launch.ts`'s
+ * `piLaunch`; idempotent, so calling it on every launch is correct. A missing corrections file (a
+ * fixture repo, a deployment that predates this file) is one correction fewer, never a failure,
+ * matching `childCatalog`'s tolerance for `models-store.json`/`models.json` in `runtime/tasks.ts`.
+ * A `models.json` that fails to parse even after stripping comments is left untouched rather than
+ * blocking the table: Pi's own loader degrades the same way (`ModelConfig.load` disables custom
+ * models and records `getError()`, but still starts).
+ */
+export async function applyProviderModelCorrections(agentHome: string, correctionsPath: string): Promise<void> {
+  let correctionsText: string;
+  try { correctionsText = await readFile(correctionsPath, "utf8"); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  const corrections: unknown = JSON.parse(correctionsText);
+  const modelsPath = join(agentHome, "models.json");
+  let existingText = "";
+  try { existingText = await readFile(modelsPath, "utf8"); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  let existing: unknown = {};
+  if (existingText.trim()) {
+    try { existing = JSON.parse(stripJsonComments(existingText)); }
+    catch { return; } // a hand-broken models.json is the operator's; Pi's own loader will also flag it
+  }
+  const { config, entries } = mergeProviderModelCorrections(existing, corrections);
+  const body = `${correctionsNote(entries)}${JSON.stringify(config, null, 2)}\n`;
+  if (body === existingText) return;
+  await writeFile(modelsPath, body, "utf8");
 }

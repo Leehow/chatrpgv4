@@ -646,3 +646,77 @@ def test_real_pi_get_state_smoke():
                 proc.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
                 proc.kill()
+
+
+def test_thinking_off_reaches_the_launcher_args():
+    """SL-61: `Daemon._start_pi` used to hardcode `DEFAULT_THINKING` ("low") into the launcher's
+    `--thinking` argument regardless of what `start`/`_daemon` was actually given -- a deepseek
+    Keeper asked for "off" (docs/kernel-rpc.md addendum to Sec:135.27) always got "low" on the
+    wire. `self.thinking` (set from the CLI's `--thinking` in `Daemon.__init__`) must be the value
+    forwarded; DEFAULT_THINKING is only the fallback for an omitted flag (argparse default None).
+
+    No real pi process is spawned: `PiProcess` is replaced with a stand-in that just records the
+    args it was constructed with, and the fake launcher path only needs to exist for `_start_pi`'s
+    own `.exists()` check.
+    """
+    spec = importlib.util.spec_from_file_location("driver_thinking_args", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    captured: dict = {}
+
+    class FakePiProcess:
+        def __init__(self, launcher, args, stderr_log_path, events_path, log, cwd=None, env=None):
+            captured["args"] = args
+            self.proc = SimpleNamespace(pid=999999)
+
+        def call(self, message, timeout=None):
+            return {"success": True}
+
+        def alive(self):
+            return True
+
+    module.PiProcess = FakePiProcess
+
+    run_id = f"fixture-thinking-{uuid.uuid4().hex[:10]}"
+    try:
+        module.Daemon(run_id=run_id, campaign="test-campaign", launcher=str(FAKE_PI),
+                      model=None, thinking="off")
+        args = captured["args"]
+        assert "--thinking" in args
+        assert args[args.index("--thinking") + 1] == "off"
+        assert module.DEFAULT_THINKING == "low"  # the bug's constant is still "low", not "off"
+    finally:
+        shutil.rmtree(run_dir(run_id), ignore_errors=True)
+
+
+def test_thinking_omitted_falls_back_to_default():
+    """Companion to the above: an omitted `--thinking` (argparse default None) must still reach
+    the launcher as DEFAULT_THINKING, so the fix's `self.thinking or DEFAULT_THINKING` does not
+    regress the no-flag case into sending a literal `None`."""
+    spec = importlib.util.spec_from_file_location("driver_thinking_default", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    captured: dict = {}
+
+    class FakePiProcess:
+        def __init__(self, launcher, args, stderr_log_path, events_path, log, cwd=None, env=None):
+            captured["args"] = args
+            self.proc = SimpleNamespace(pid=999999)
+
+        def call(self, message, timeout=None):
+            return {"success": True}
+
+        def alive(self):
+            return True
+
+    module.PiProcess = FakePiProcess
+
+    run_id = f"fixture-thinking-default-{uuid.uuid4().hex[:10]}"
+    try:
+        module.Daemon(run_id=run_id, campaign="test-campaign", launcher=str(FAKE_PI), model=None)
+        args = captured["args"]
+        assert args[args.index("--thinking") + 1] == module.DEFAULT_THINKING
+    finally:
+        shutil.rmtree(run_dir(run_id), ignore_errors=True)

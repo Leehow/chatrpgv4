@@ -19951,6 +19951,79 @@ emitted, both layouts name it in the session mounts and not in the lane mounts, 
 carries it in play and in setup; `tests/extension/pipicoc-rpc.test.mjs` for the App's `keeperArguments` in both
 modes. Mutation: remove it from `COC_EXTENSIONS` and all of them fail.
 
+#### 135.27.1 Addendum (2026-09-25, SL-61): provider data corrections shipped with the product -- a deepseek Keeper via opencode-go can be told thinking off
+
+SL-61 takes §135.27.1 (§-numbers are stable ids). Long gate #9 (`longgate9-haunting-1234`) ran the Keeper on
+`opencode-go/deepseek-v4.1-flash` at the schedule's `low`: every turn was over 60s (median 109s, 59 model calls,
+reasoning p50 2,883 tokens, max 13,131; 90% of all output tokens were reasoning). `low` did nothing because pi-ai's
+deepseek thinking format only sends `reasoning_effort` when the model's `compat.supportsReasoningEffort` is set, and
+the opencode-go catalog entry (pi-ai's `providers/data/opencode-go.json`) has no such flag and declares
+`thinkingLevelMap.off: null` (off unsupported) -- so the product could only ever send `thinking: {type: "enabled"}`
+with no effort, never off. Probed on the real turn-1 and turn-8 requests: `reasoning_effort` low/minimal is accepted
+by the endpoint but does not reduce reasoning (1,500-8,700 tokens); `thinking: {type: "disabled"}` is accepted and
+works -- reasoning 0, turn 8 from 59-92s to 3.1-3.5s, tools still called.
+
+**The ruling** (owner, 2026-09-25). Provider model data the product knows to be wrong is corrected by the product, as
+data, never as a hard-coded list in a code path: a corrections file shipped with the product (provider -> model ->
+override fields, in Pi's own `models.json` `providers.<id>.modelOverrides.<modelId>` shape) is merged into the agent
+home's `models.json` when the host prepares the home for a table. A user's own override for the same provider+model
+always wins and is never replaced; every other provider and field in the user's file is left exactly as read.
+
+**The corrections file.** `content/providers/model-corrections.json`. Its `providers` object is exactly Pi's
+`modelOverrides` schema (`@earendil-works/pi-coding-agent`'s `core/model-config.js` `ModelOverrideSchema`); a
+`$comment` key beside any entry documents it for maintainers and is stripped before the entry ever reaches an agent
+home. First entries: `opencode-go/deepseek-v4.1-flash` and `opencode-go/deepseek-v4-flash`, both
+`thinkingLevelMap: {off: "off"}`.
+
+**The merge** (`runtime/host.ts`'s `mergeProviderModelCorrections` -- pure, JSON in and out -- and
+`applyProviderModelCorrections`, its filesystem wrapper). Called from `runtime/launch.ts`'s `piLaunch`, in the same
+place and the same style as the existing `settings.json` reconciliation: after the agent home directory is created,
+before Pi is spawned. For every provider+model the corrections file names, an override is added under
+`providers.<id>.modelOverrides.<model>` only when the user's own `models.json` has none there yet for that exact
+model (any keys, not only `thinkingLevelMap` -- an existing override of any shape wins whole, never merged
+field-by-field); every other provider and every other field of an existing entry is left untouched. The merge is
+idempotent (the same inputs produce the same bytes, so it is safe to run at every launch) and tolerant the same way
+`runtime/tasks.ts`'s `childCatalog` already is about `models-store.json`/`models.json`: a missing corrections file is
+one correction fewer, never a failure, and a hand-broken `models.json` is left untouched rather than blocking the
+table (Pi's own `ModelConfig.load` degrades the same way -- it disables custom models and records `getError()`, but
+still starts). The written file carries a `//`-comment header (Pi's own `models.json` loader tolerates `//`/`/* */`
+comments, `stripJsonComments`) naming which provider/model pairs are the product's, so an operator who opens the file
+is not left wondering where an override came from.
+
+**The App's canonical `models.json`.** `Electron/apps/electron/src/main/pi-profile.ts` already has almost exactly
+this hook -- `installBundledModelCapabilityOverrides(profile, snapshotPath)`, "Install the bundled capability layer
+before Pi ModelRuntime reads models.json", with its own managed-field provenance tracking
+(`.pipiui-model-capability-overrides-v1.json`) so a user's own decision is never resurrected or clobbered on
+reinstall. It is fully unit-tested (`Electron/apps/electron/src/main/pi-profile.test.ts`) but **is never called from
+anywhere in the App** -- no `snapshotPath` bundle exists on disk, and no startup path (`ensureProjectPiHome`,
+`ensureIsolatedProjectHome`, or the shared canonical `models.json` migration in
+`Electron/packages/pi-backend/src/project-pi-home.ts`) invokes it. Wiring it up for real means deciding where the
+bundled snapshot ships in the Electron build, at what point in startup it should run relative to
+`migrateSharedProjectModels`'s canonical/project symlink machinery, and whether it targets the per-project agent dir
+or the shared profile dir those `ensure*` paths compose from -- decisions with real packaging and startup-sequencing
+consequences outside a TS-kernel-only worktree. Left as a follow-up (this ticket's Comments), not restructured here.
+
+**The play driver's `--thinking`.** `tests/play/driver.py`'s `Daemon._start_pi` took a `thinking` constructor
+argument (from `start`/`_daemon`'s `--thinking`) but never read it: `launch_args` always hard-coded
+`DEFAULT_THINKING` ("low") regardless of what was asked for, so a gate run with `--thinking off` would still have
+sent `low` to the launcher. Fixed to `self.thinking or DEFAULT_THINKING` (the CLI's own default is `None`, so an
+omitted flag still falls back to `low`).
+
+*Tests.* `tests/extension/provider-model-corrections.test.mjs`: `mergeProviderModelCorrections` in memory (merge into
+an empty config; a user's own override for the corrected model, and its provider's other fields, survive untouched
+while a model the user did not override still gets the correction; `$comment` keys never reach the output);
+`applyProviderModelCorrections` on a real temp agent home (empty home, idempotent second call by mtime and bytes, a
+missing corrections file leaves the home untouched, a hand-broken `models.json` is left untouched, an operator's own
+`models.json` keeps its override and its other provider); two tests against the real vendored Pi
+(`build/node_modules/@earendil-works/pi-coding-agent`, ADR-0006) proving `ModelRuntime.create({modelsPath})` resolves
+`thinkingLevelMap.off` as `null` before the merge and `"off"` after it for both corrected models, and still `null`
+for a model the operator explicitly kept unsupported. `tests/play/test_driver.py`
+(`test_thinking_off_reaches_the_launcher_args`, `test_thinking_omitted_falls_back_to_default`): `Daemon._start_pi`'s
+launcher args carry the daemon's own `thinking` value, not the hardcoded default, and an omitted flag still falls
+back to it. Mutation: drop the "user's own override wins" `continue`, drop the idempotency short-circuit, or drop the
+`$comment` strip, and the corrections tests fail; revert the driver's `self.thinking or DEFAULT_THINKING` to the bare
+constant and both driver tests fail (one of them on the omitted-flag case alone).
+
 ### 135.28 Binding never goes to the LLM: rules defaults, stated and composed parameters, and the Keeper's turn (2026-09-23, SL-12; amends §135.2, §135.4, §135.25, §135.26)
 
 SL-12 takes §135.28 (§135.11–§135.27 are taken, §135.27 by the thinking schedule on the same base; §-numbers are stable ids). It applies to `PI_COC_LOOP_ENGINE=hybrid-v1`

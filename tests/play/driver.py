@@ -378,6 +378,9 @@ class Daemon:
                 f"launcher not found: {launcher_path} "
                 f"(pass --launcher, set PI_COC_LAUNCHER, or wait for bin/pi-coc to exist)"
             )
+        # SL-61: `self.thinking` is the level `start`/`_daemon` was actually given (argparse
+        # default None when the CLI flag was omitted); DEFAULT_THINKING is only the fallback for
+        # that omitted case, never a value to send regardless of what the operator asked for.
         launch_args = ["--campaign", campaign, "--mode", "rpc", "--no-session",
                        "--thinking", self.thinking or DEFAULT_THINKING]
         if model:
