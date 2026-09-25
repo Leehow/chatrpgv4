@@ -162,6 +162,20 @@ def test_unmet_unlock_names_the_clue_its_words_and_where_the_book_puts_it(kernel
     assert house["unlock_when"]["clue"]["says"] == nodes["clue-knott-keys"]["summary"]
 
 
+def test_clue_row_carries_the_books_cues_for_it_in_this_scene(kernel):
+    """Contract §135.30.9.2: each clue row of the office carries the cue of every office affordance that grants it, in order,
+    the book's own words; a clue the scene grants by no affordance carries none."""
+    open_turn(kernel)
+    _, _, briefing = _haunting_scene("commission-briefing")
+    rows = {row["effect"]["clue"]: row["description"] for row in options(kernel)["candidates"] if row["effect"]["kind"] == "clue"}
+    assert rows, "the office issues its clues"
+    for handle, description in rows.items():
+        cues = [aff["cue"] for aff in briefing["affordances"]
+                if aff.get("clue_id") == f"clue-{handle}" or f"clue-{handle}" in (aff.get("grants_clue_ids") or [])]
+        assert description.get("cues", []) == cues, handle
+    assert rows["knott-keys"]["cues"] == ["Accept the commission explicitly and take the key, address, and cash advance."]
+
+
 def test_unmet_unlock_says_the_place_and_its_entrance_exist_from_where_the_party_is(kernel):
     """Contract §135.30.6 (SL-40): a held exit is a pacing condition. Its unlock says the place and the way to it exist, from
     the scene the party is in; a met unlock says nothing more. At the ground floor the basement's way is the ground floor's."""

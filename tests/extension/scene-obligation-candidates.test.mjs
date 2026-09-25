@@ -181,6 +181,9 @@ test("the compile's ask on the gate's check carries its meeting directly first, 
 	assert.deepEqual(interpretRoute(view, offered, seeksAt(offered, index, "now"), 0.6).selected, []);
 	// The compile's ask on the demand selects it.
 	compileOn(view, askDemand);
+	// §135.30.9.2 (SL-52 stage 2): the check settles a step of the book, so the scene's clue rows are re-asked first (set aside here).
+	assert.deepEqual([view.pending[0].purpose, view.pending[0].extra.settled.map((entry) => entry.key)], ["reask", [check.key]]);
+	view.pending.shift();
 	// The meeting runs first, directly: no Jev question for it and no LLM step for its name.
 	assert.deepEqual(view.pending.map((item) => [item.kind, item.purpose, item.candidate.key]), [["direct", "execute", "apply:person:Arty Wilmot"]]);
 	const meeting = view.pending[0].candidate;
@@ -245,7 +248,8 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	assert.deepEqual(interpretRoute(view, [check], seeksAt([check], 0), 0.6).pending.map((item) => [item.kind, item.purpose]), [["infer", "adjudicate"]],
 		"the route's seeks selects nothing: the exit's continue with nothing named is the Keeper's (§135.30 addendum)");
 	compileOn(view, askDemand);
-	assert.deepEqual(view.pending.map((item) => [item.kind, item.purpose]), [["decide", "bind"]], "the compile's ask selects it; its approach is a bind");
+	assert.deepEqual(view.pending.map((item) => [item.kind, item.purpose]), [["decide", "reask"], ["decide", "bind"]],
+		"the compile's ask selects it; its approach is a bind (after §135.30.9.2's re-ask)");
 	const batch = bindBatch(view, check, scope, []);
 	assert.deepEqual(batch.questions.map((question) => question.key), ["skill", "bonus", "penalty", "intent"]);
 	assert.match(batch.questions[0].instructions, /never the skill values/);

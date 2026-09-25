@@ -9,6 +9,10 @@
  * after the batch's other reveals. A row that does not clear stays the Keeper's (the route's), and a clue whose kernel row
  * states that finding it is a check is not filed.
  *
+ * Stage 2 (§135.30.9.1, §135.30.9.2): a row clears on confidence only (no margin rule), and a declaration that settles a step
+ * of the book (an obligation's check, the clue that meets a destination's guard) re-asks the scene's other clue rows once,
+ * each against the book's own cues; a `yes` is filed after the settling step lands (the keys of the accept).
+ *
  * - At the policy seam over Knott's office in the kernel's row shapes (pure).
  * - On the emitted kernel over the haunting through the hybrid engine (a stub Jev with turn 1's per-row answers, the faux
  *   Keeper): the clerk files the leads, the keys and then the move, each admitted `path: "compile"`, with receipts.
@@ -27,9 +31,9 @@ import { askWords, isAskRow } from "./compile-ask.mjs";
 import { compileAdmission } from "../../extensions/kernel/admission.ts";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
-import { COMPILE_FAMILY, compileBatch, interpretCompile } from "../../runtime/jev/route-compile.ts";
+import { COMPILE_FAMILY, REASK_FAMILY, compileBatch, interpretCompile, reaskBatch } from "../../runtime/jev/route-compile.ts";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
-import { initialView, missedUnlocks, next, settleCompile, settleExecute, startStep } from "../../runtime/jev/step-policy.ts";
+import { initialView, missedUnlocks, next, settleCompile, settleExecute, settleReask, startStep } from "../../runtime/jev/step-policy.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const INPUT = "我接。先去《环球报》剪报室，翻科比特宅这些年的旧报道。";
@@ -43,16 +47,22 @@ const context = { scene: "office", clock: null, present: [], receipts: [] };
 const exists = { place: true, entrance: true, from: "office", from_place: "Knott's Office" };
 const LEADS = { condition: "clue_discovered: leads", clue: { clue: "leads", says: "Knott points them toward the Globe.", found_at: [{ scene: "office" }] }, exists };
 const KEYS = { condition: "clue_discovered: keys", clue: { clue: "keys", says: "Knott hands over the keys.", found_at: [{ scene: "office" }] }, exists };
-const clueRow = (clue, summary, delivery_kind) => ({ effect: { kind: "clue", clue }, description: { kind: "clue", name: clue, summary, delivery_kind } });
+const clueRow = (clue, summary, delivery_kind, cues) => ({ effect: { kind: "clue", clue }, description: { kind: "clue", name: clue, summary, delivery_kind, ...(cues ? { cues } : {}) } });
+/** The book's cues at Knott's office (the kernel's clue rows carry them, §135.30.9.2). */
+const CUES = { commission: ["Confirm the daily fee, payment terms, scope of the investigation, and the house's address with Knott."],
+	leads: ["Ask which public records or informed witnesses might reveal the house's history."],
+	macario: ["Ask what actually happened to the Macario family, the former tenants."],
+	keys: ["Accept the commission explicitly and take the key, address, and cash advance."] };
 /**
  * Knott's office. `filed`: the clues already filed (no longer issued; their unlocks met). `ledger`: one more clue, found only
  * by a check (`delivery_kind: skill_check`).
  */
 function office({ filed = [], ledger = false } = {}) {
 	const held = (guard, clue) => filed.includes(clue) ? { condition: guard.condition, met: true } : { ...guard, met: false };
-	const clues = [clueRow("commission", "Knott names the fee and the terms.", "npc_dialogue"), clueRow("leads", "Knott points them toward the Globe.", "npc_dialogue"),
-		clueRow("macario", "The Macarios fled the house.", "npc_dialogue"), clueRow("keys", "Knott hands over the keys.", "obvious"),
-		...(ledger ? [clueRow("ledger", "A rent ledger hidden in the desk.", "skill_check")] : [])].filter((row) => !filed.includes(row.effect.clue));
+	const clues = [clueRow("commission", "Knott names the fee and the terms.", "npc_dialogue", CUES.commission),
+		clueRow("leads", "Knott points them toward the Globe.", "npc_dialogue", CUES.leads),
+		clueRow("macario", "The Macarios fled the house.", "npc_dialogue", CUES.macario), clueRow("keys", "Knott hands over the keys.", "obvious", CUES.keys),
+		...(ledger ? [clueRow("ledger", "A rent ledger hidden in the desk.", "skill_check", ["Search Knott's desk drawers."])] : [])].filter((row) => !filed.includes(row.effect.clue));
 	return {
 		capsule: { where: { scene: "office", assets: [{ name: "Handout 1", kind: "handout" }] }, present: [{ name: "Steven Knott", role: "landlord" }],
 			known: { investigator: { name: "Hayes" } } },
@@ -129,6 +139,8 @@ test("§135.30.9 policy: turn 1's accept seeks the leads and the keys -- both fi
 	assert.deepEqual(Object.values(row.detail.features.ask.answers).map((answer) => [answer.choice, answer.cleared]),
 		[["no", true], ["yes", true], ["no", true], ["yes", true], ["no", true]], "each row's own answer");
 
+	// §135.30.9.2: the leads settle the office's guard, so the clues the compile did not select are re-asked (none filed here).
+	assert.deepEqual(reaskWith(view, {}).input.clues, ["apply:clue:commission", "apply:clue:macario"], "a selected clue is not re-asked");
 	// The batch runs: the leads, then the keys (the move waits for the accept), then the move from the fresh read.
 	const leads = runHead(view, true, office({ filed: ["leads"] }));
 	assert.equal(leads.key, "apply:clue:leads");
@@ -181,9 +193,12 @@ test("§135.30.9 policy: a row under the gate or unclear is not filed and stays 
 		assert.ok(row.detail.fell_through.includes("apply:clue:keys") && !row.detail.decided.includes("apply:clue:keys"), `${label}: left to the route, not consumed`);
 		assert.ok(view.candidates.some((candidate) => candidate.key === "apply:clue:keys"), `${label}: still offered`);
 	}
-	// The margin rule over the row's own distribution still clears a low reported confidence, exactly as a family's.
+	// §135.30.9.1: a fan-out row clears on confidence only -- a yes that leads by the margin rule, under the gate, files nothing.
 	const margin = compileOver(office(), T1, { ...T1_ASKS, "clue:keys": ["yes", 0.5, { yes: 0.7, no: 0.25, unclear: 0.05 }] });
-	assert.deepEqual(margin.row.detail.ask_cleared, ["clue:leads", "clue:keys"]);
+	assert.deepEqual(margin.row.detail.ask_cleared, ["clue:leads"], "a margin-only yes is not sought");
+	assert.ok(margin.row.detail.fell_through.includes("apply:clue:keys"));
+	const atGate = compileOver(office(), T1, { ...T1_ASKS, "clue:keys": ["yes", 0.6, { yes: 0.6, no: 0.3, unclear: 0.1 }] });
+	assert.deepEqual(atGate.row.detail.ask_cleared, ["clue:leads", "clue:keys"], "a yes at the gate is");
 });
 
 test("§135.30.9 policy: a sought clue whose kernel row states a check is not filed -- its attempt is the check", () => {
@@ -212,13 +227,13 @@ function morgue() {
 			obligations: [{ handle: "access", name: "Access to the clippings", who: "Arty", state: "open", trigger: { kind: "attempt", guards: { clues: ["story"] } },
 				next: { kind: "check", target: "Arty", selection: "approach", approaches: [{ skill: "Persuade" }], difficulty: "regular" } }],
 			candidates: [{ effect: { kind: "clue", clue: "story" }, description: { summary: "the 1918 story" }, guarded_by: "access" },
-				clueRow("cutoff", "The files stop at 1878.", "npc_dialogue")],
+				clueRow("cutoff", "The files stop at 1878.", "npc_dialogue", ["Ask what the Globe's files hold before 1878."])],
 			context: { present: ["Arty", "Ruth"] } },
 		resolveOptions: { profiles: [{ actor: "Hayes", skill: "Persuade", value: 70, availability: "bound" }],
 			decisions: [{ name: "core-check:ordinary-check", family: "core-check", description: "An ordinary check" }] },
 	};
 }
-const CHECK = "resolve:obligation:access", ORDINARY = "resolve:core-check:ordinary-check";
+const CHECK = "resolve:obligation:access", ORDINARY = "resolve:core-check:ordinary-check", NONE_ID = "none";
 
 test("§135.30.9 policy: an obligation is decided by its own row -- another row sought leaves it to the route when its own did not clear", () => {
 	const { view, row } = compileOver(morgue(), { addressee: ["Arty", 0.9], act: ["social", 0.9] },
@@ -244,6 +259,99 @@ test("§135.30.9 policy: an obligation row sought keeps the ordinary check off t
 	// The same declaration seeking nothing on the obligation's row: the ordinary check is the clerk's.
 	const plain = compileOver(morgue(), { addressee: ["Ruth", 0.9], act: ["investigate", 0.9] }, { "obligation:access": ["no", 0.9] });
 	assert.ok(plain.row.detail.selected.includes(ORDINARY));
+});
+
+test("§135.30.9.1 policy: the morgue's fire-cutoff at gate #6 (yes 0.53 against no 0.29, confidence 0.29) is not filed", () => {
+	const { row } = compileOver(morgue(), { addressee: [NONE_ID, 0.9], act: ["investigate", 0.9] },
+		{ "obligation:access": ["yes", 0.9], "clue:cutoff": ["yes", 0.29, { yes: 0.53, no: 0.29, unclear: 0.18 }] });
+	assert.ok(!row.detail.selected.includes("apply:clue:cutoff"), "margin-only: not filed before Arty has spoken");
+	assert.deepEqual(row.detail.ask_cleared, ["obligation:access"]);
+});
+
+// ---- §135.30.9.2: the re-ask after a settling step ------------------------------------------------------------------
+
+/** Answer the pending re-ask at the head of `view`: `answers` by clue key (`[yes|no|unclear, confidence]`; else `no` 0.9). */
+function reaskWith(view, answers) {
+	const request = next(view);
+	assert.deepEqual([request.kind, request.purpose], ["decide", "reask"], "the re-ask is next");
+	const input = request.item.extra, batch = reaskBatch(view, input, scope, [], []);
+	const out = Object.fromEntries(batch.questions.map((question, index) => [question.key, choice(answers[input.clues[index]] ?? ["no", 0.9])]));
+	const result = { batchId: batch.id, status: "complete", answers: out, issues: [], coverage: { required: Object.keys(out), answered: Object.keys(out), unknown: [] } };
+	return { input, batch, row: settleReask(view, startStep(view, request), input, batch, result, 4, 0.6) };
+}
+/** Live gate #6's first answers: the keys row `no` at 0.88. */
+const T1_LIVE = { "clue:leads": ["yes", 0.61, { yes: 0.74, no: 0.17, unclear: 0.09 }], "clue:keys": ["no", 0.88] };
+
+test("§135.30.9.2 policy: the accept settles the office's exit guard -- the clue rows are re-asked against their cues, and the keys are filed after the leads, before the move", () => {
+	const { view, row } = compileOver(office(), T1, T1_LIVE);
+	assert.deepEqual(row.detail.selected, ["apply:clue:leads"], "the first question files the leads only, as live");
+	assert.deepEqual(row.detail.reask, { settled_by: ["apply:clue:leads"], clues: ["apply:clue:commission", "apply:clue:macario", "apply:clue:keys"] });
+	const { input, batch, row: asked } = reaskWith(view, { "apply:clue:keys": ["yes", 0.8] });
+	assert.equal(batch.family, REASK_FAMILY);
+	assert.deepEqual(batch.questions.map((question) => question.key), ["reask_1", "reask_2", "reask_3"]);
+	assert.deepEqual(batch.questions.map((question) => Object.keys(question.criteria)), [["yes", "no", "unclear"], ["yes", "no", "unclear"], ["yes", "no", "unclear"]]);
+	assert.deepEqual(askWords(batch.questions[2]), { clue: { clue: "Knott hands over the keys." }, cues: CUES.keys }, "the clue's words and the book's own cues");
+	assert.deepEqual(batch.state.settled, [{ settles: { clue: "Knott points them toward the Globe." }, opens: "Boston Globe offices" }], "the settlement as context");
+	assert.deepEqual(input.after, "apply:clue:leads");
+	assert.deepEqual(asked.detail.filed, ["apply:clue:keys"]);
+	assert.equal(asked.jev_calls, 1);
+	assert.ok(view.compileSelected.includes("apply:clue:keys"), "a declaration's own step");
+	assert.deepEqual(view.pending.map((item) => item.candidate?.key), ["apply:clue:leads"], "staged, not yet run");
+
+	runHead(view, true, office({ filed: ["leads"] }));
+	assert.deepEqual(view.pending.map((item) => item.candidate?.key), ["apply:clue:keys", "apply:move:morgue"], "after the leads land: the keys, then the move");
+	const keys = runHead(view, true, office({ filed: ["leads", "keys"] }));
+	assert.deepEqual(keys.basis.compile, { predicate: "settled_clue", features: { ask: "clue:keys" },
+		read_features: { ask: { row: "clue:keys", confidence: 0.8, cleared: true } }, settled_by: ["apply:clue:leads"] });
+	const admitted = compileAdmission({ origin: "policy", basis: keys.basis, bindings: [{ name: "clue", path: "stated" }] });
+	assert.deepEqual([admitted.ok, admitted.predicate, admitted.features], [true, "settled_clue", { ask: { row: "clue:keys", confidence: 0.8 } }]);
+	assert.equal(runHead(view, true, office({ filed: ["leads", "keys"] })).key, "apply:move:morgue");
+	// Once per run: a later compile of the run owes no second re-ask.
+	assert.equal(view.reasked, true);
+});
+
+test("§135.30.9.2 policy: the re-ask asks only the clues it can file -- not one found by a check, not one whose row carries no cue", () => {
+	const reads = office({ ledger: true });
+	delete reads.applyOptions.candidates.find((entry) => entry.effect.clue === "macario").description.cues;
+	const { row } = compileOver(reads, T1, T1_LIVE);
+	assert.deepEqual(row.detail.reask?.clues, ["apply:clue:commission", "apply:clue:keys"], "the ledger (skill_check) and the Macario summary (no cue) are not asked");
+});
+
+test("§135.30.9.2 policy: a re-ask yes under the gate (the margin rule included) files nothing", () => {
+	const { view } = compileOver(office(), T1, T1_LIVE);
+	const { row } = reaskWith(view, { "apply:clue:keys": ["yes", 0.55, { yes: 0.8, no: 0.15, unclear: 0.05 }] });
+	assert.deepEqual(row.detail.filed, []);
+	assert.equal(row.detail.answers.reask_3.cleared, false);
+	runHead(view, true, office({ filed: ["leads"] }));
+	assert.deepEqual(view.pending.map((item) => item.candidate?.key), ["apply:move:morgue"], "only the move follows the leads");
+});
+
+test("§135.30.9.2 policy: a declaration that settles nothing gets no re-ask -- a plain move, a clue ask_clue files, a seek with no settling step", () => {
+	for (const [label, reads, families, asks] of [
+		["a move whose guard is already met", office({ filed: ["leads"] }), T1, {}],
+		["a sought clue with no destination", office(), { act: ["social", 0.9] }, { "clue:keys": ["yes", 0.9] }],
+		["nothing selected", office(), { act: ["social", 0.9] }, {}]]) {
+		const { view, row } = compileOver(reads, families, asks);
+		assert.equal(row.detail.reask, undefined, `${label}: no re-ask`);
+		assert.ok(!view.pending.some((item) => item.purpose === "reask"), `${label}: nothing pending`);
+	}
+});
+
+test("§135.30.9.2 policy: a settling step that is refused, or an obligation check that fails, takes its staged clue with it", () => {
+	const refused = compileOver(office(), T1, T1_LIVE).view;
+	reaskWith(refused, { "apply:clue:keys": ["yes", 0.9] });
+	runHead(refused, false, office());
+	assert.ok(!refused.pending.some((item) => item.candidate?.key === "apply:clue:keys"), "the leads were refused: the keys are not filed");
+	// At the morgue: the obligation's check settles; the cutoff the re-ask files waits for it.
+	for (const [check, filed] of [["failed", false], ["passed", true]]) {
+		const { view, row } = compileOver(morgue(), { addressee: ["Arty", 0.9], act: ["social", 0.9] }, { "obligation:access": ["yes", 0.9] });
+		assert.deepEqual(row.detail.reask?.settled_by, [CHECK]);
+		reaskWith(view, { "apply:clue:cutoff": ["yes", 0.9] });
+		const candidate = view.candidates.find((value) => value.key === CHECK);
+		settleExecute(view, 9, { kind: "direct", purpose: "execute", candidate }, { ok: true, summary: { check } },
+			{ context, candidates: buildCandidates(morgue(), INPUT), rows: compileRows(morgue()) }, 3);
+		assert.equal(view.pending.some((item) => item.candidate?.key === "apply:clue:cutoff"), filed, `check ${check}`);
+	}
 });
 
 // ---------------------------------------------------------------------------------------------------
@@ -304,4 +412,48 @@ test("§135.30.9 on the emitted kernel: turn 1's sentence at the office -- the c
 		assert.ok(receipts.some(([kind, name]) => kind === expected[0] && name === expected[1]), `${expected.join(" ")} has a receipt`);
 	const keys = record.receipts.find((receipt) => receipt.kind === "clue" && receipt.clue === "knott-keys");
 	assert.deepEqual([keys.scene, keys.left_this_turn], ["commission-briefing", undefined], "filed at the office, before the move");
+});
+
+test("§135.30.9.2 on the emitted kernel: turn 1's sentence with the keys row answered no -- the re-ask files the keys against their cue, after the leads and before the move", async (t) => {
+	const graph = JSON.parse(readFileSync(join(REPO, "content/starters/the-haunting/module-graph.json"), "utf8"));
+	const summary = (id) => graph.nodes.find((node) => node.node_id === id).summary;
+	const leads = summary("clue-knott-research-leads"), keysWords = summary("clue-knott-keys");
+	const rows = [], reasks = [];
+	// Live gate #6's first answers (the leads yes, the keys and the rest no); the re-ask: the keys yes, the rest no; routes finish.
+	const decide = async (batch) => {
+		if (batch.family === COMPILE_FAMILY) return complete(Object.fromEntries(batch.questions.map((question) => {
+			if (isAskRow(question)) return [question.key, choice(askWords(question)?.clue === leads ? ["yes", 0.61] : ["no", 0.88])];
+			const pick = question.key === "destination" ? [aliasWhere(question, (value) => value?.handle === "newspaper-morgue"), 1]
+				: question.key === "act" ? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("investigate")), 0.96] : [];
+			return [question.key, choice([pick[0] ?? "unclear", pick[0] ? pick[1] : 0.9])];
+		})));
+		if (batch.family === REASK_FAMILY) {
+			reasks.push(batch);
+			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(askWords(question)?.clue?.clue === keysWords ? ["yes", 0.85] : ["no", 0.9])])));
+		}
+		return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
+			choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9])])));
+	};
+	let workspace;
+	const engine = createHybridEngine({ env: process.env, record: (row) => rows.push(row), decision: { decide } });
+	const table = await openTable({ realKernel: true, prepareWorkspace: (at) => { workspace = at; kernelSteps(at, [
+		["table.open", {}], ["table.player_input", { text: "我听他说完。" }], ["table.narrate", { call_id: "t1-c1", text: "诺特把委托说了一遍。" }]]); },
+		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你接下委托，收好钥匙，去了报馆。" })], { stopReason: "toolUse" })] });
+	t.after(() => table.dispose());
+	await table.session.prompt(INPUT);
+
+	assert.equal(reasks.length, 1, "one re-ask");
+	assert.ok(reasks[0].questions.some((question) => askWords(question)?.cues?.includes("Accept the commission explicitly and take the key, address, and cash advance.")),
+		"the keys are asked against the book's own cue, from the kernel's row");
+	const reask = rows.find((row) => row.lane === "route" && row.purpose === "reask");
+	assert.deepEqual([reask.settled_by, reask.filed], [["apply:clue:knott-research-leads"], ["apply:clue:knott-keys"]]);
+	const binds = rows.filter((row) => row.lane === "run" && row.event === "bind" && row.clerk);
+	assert.deepEqual(binds.slice(0, 3).map((row) => [row.candidate, row.status]),
+		[["apply:clue:knott-research-leads", "succeeded"], ["apply:clue:knott-keys", "succeeded"], ["apply:move:newspaper-morgue", "succeeded"]]);
+	const admissions = table.telemetry("test-camp").filter((row) => row.lane === "admission" && row.origin === "policy" && row.verb === "apply");
+	assert.deepEqual(admissions.slice(0, 3).map((row) => [row.path, row.predicate]), [["compile", "guard_unlock"], ["compile", "settled_clue"], ["compile", "move"]]);
+	const record = JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns/0002.json"), "utf8"));
+	const keys = record.receipts.find((receipt) => receipt.kind === "clue" && receipt.clue === "knott-keys");
+	assert.deepEqual([keys?.scene, keys?.left_this_turn], ["commission-briefing", undefined], "filed at the office, before the move");
 });

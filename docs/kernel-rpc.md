@@ -20524,7 +20524,7 @@ family without rows is not asked; an `ask` without rows asks nothing.
 
 **Reading it.** Each row's answer clears by §135.2's gates exactly as a family's answer does (confidence ≥ 0.6, or the margin
 rule over that question's own distribution), and only on `yes` or `no`; `unclear`, `unknown`, a missing or below-gate answer
-never clear. A row whose `yes` cleared is **sought**; the compile's selection over `ask` is the set of sought rows, in row
+never clear. (Amended by §135.30.9.1: confidence only, no margin rule.) A row whose `yes` cleared is **sought**; the compile's selection over `ask` is the set of sought rows, in row
 order. The compile row's `features.ask` is `{rows, answers: {<alias>: {choice, row, confidence, probabilities, cleared}},
 cleared: [<row id>…]}` (`row`: the row id on `yes`, `null` on `no`), and the compile row gains **`ask_cleared`**: the sought
 rows' ids in row order (`[]` when none).
@@ -20588,6 +20588,86 @@ row under the gate or `unclear` is not filed and falls through; a sought skill-c
 on its own row's record. On the emitted kernel over the haunting through the hybrid engine: turn 1's sentence files the leads,
 the keys and then the move, three clerk writes admitted `path: "compile"`, receipts for both clues and the move, and
 `ask_cleared` on the compile row. The mutations and the replay of gate #6's turn 1 are in the SL-52 ticket's Comments.
+
+##### 135.30.9.1 Addendum (2026-09-25, SL-52 stage 2): a fan-out row clears on confidence only
+
+The owner's ruling of 2026-09-25, after the gate #6 turn-1 replay: "A fan-out row clears on confidence only: the margin rule
+chooses among rows of one question and has no meaning for an independent yes/no." It amends §135.30.9's "Reading it" for the
+`ask` rows only; every choice question with rows (the other families, the route, the binds) keeps §135.2's two gates.
+
+**Evidence.** The replay's second compile at the morgue answered `clue:globe-fire-cutoff` `yes` at a reported confidence of
+0.29–0.46 (distribution `yes` 0.53–0.64 against `no` 0.24–0.30); the margin rule cleared it (run 1: 0.53 against 0.29, 1.83×)
+and `ask_clue` filed the clue on turn 1, before Arty had let the investigator at the files (the live Keeper filed it at turn 2,
+after the Persuade).
+
+**The rule.** An `ask` row's answer clears when it is `yes` or `no` and its reported confidence is a number at or above the
+gate (0.6). The margin rule is not applied, and an answer without a reported confidence does not clear. Nothing else of
+§135.30.9 changes; the compile row's `answers.<alias>.cleared` records the result.
+
+*Tests.* `tests/extension/single-loop-ask-fanout.test.mjs`: a `yes` whose distribution leads by the margin but whose confidence
+is under the gate (the morgue's 0.53 / 0.29 at 0.29) files nothing and stays the route's; a `yes` at the gate files.
+
+##### 135.30.9.2 Addendum (2026-09-25, SL-52 stage 2): a declaration that settles a step of the book re-asks the scene's clue rows once, against each clue's own cues
+
+The owner's ruling of 2026-09-25: "When the compile settles an obligation in the same declaration (the commission), the
+scene's clue rows are re-asked once with the settlement as context, the question being whether settling that obligation
+yields the clue as the clue's own `found_at.cues` state (the book's data, Jev judging; no list)." Handouts stay unfiled by the
+ask feature.
+
+**Evidence** (the replay of gate #6 t1, §135.30.9). Asked whether "我接。先去《环球报》剪报室…" *seeks* the keys, Jev answered `no`
+0.82–0.88: Knott handing the keys over is what accepting the job brings about, not what the sentence asks for. The book says
+so in the office's affordance that grants the keys: "Accept the commission explicitly and take the key, address, and cash
+advance."
+
+**What counts as the settlement.** The haunting states no obligation at Knott's office (its only stated obligations are the
+Globe's two, §134); the office's book condition is its exits' guard, `clue_discovered: knott-research-leads` (§135.30.4), which
+the accept meets. So a compile *settles a step of the book* when it selects either (a) an obligation's check (`obligation_check`
+fired, §135.26), or (b) the clue that meets the guard of the destination the same declaration goes to (`guard_unlock` fired,
+§135.30.5). Nothing else settles: a move alone, a clue `ask_clue` filed, the ordinary check, a stated meeting, the first blow.
+Reading the ruling's "obligation" as (a) alone would never fire on the turn it names; (b) is the book's own gate at that
+scene, recorded for the owner in the SL-52 ticket.
+
+**The kernel row gains the cues** (`table.apply.options`, `kernel-ts/runtime/apply-operation.ts`). A clue row's `description`
+gains `cues`: the `cue` of every affordance of the active scene that grants that clue (`clue_id` / `grants_clue_ids`), in
+order -- the same data §135.30.4's `found_at.cues` names for the scene the party is in; absent when the scene authors none.
+Authored graph data only.
+
+**The re-ask.** When a compile settles a step and the run has not re-asked yet, the policy puts one decision at the head of the
+run's pending steps, before the batch runs: `decide(reask)`, family `single-loop-compile-reask`, version `1`, one Jev call,
+counted in the run's decision budget (it is not put when the budget is spent). It asks about each issued clue of the scene that
+the compile did not select, that is not a check to find (`delivery_kind: skill_check`, §135.30.9) and whose row carries
+`cues`; with no such clue there is no re-ask. The state carries the player's declaration and **`settled`**: each settling
+step's own row words (the obligation's demand, or the clue's words and the place it opens). One question per clue, key
+`reask_<n>` in the clues' order, the target carrying the clue's words and its `cues`, options `yes` / `no` / `unclear`: does
+the declared action, with the settled step done, do what the book's cue for this clue describes, so that the clue is found
+now? Each clears on confidence only (§135.30.9.1).
+
+**What a `yes` does.** The clue is selected with `basis.compile` `{predicate: "settled_clue", features: {ask: "clue:<c>"},
+read_features: {ask: {row, confidence, cleared: true}}, settled_by: [<settling keys>]}` -- a predicate that only the re-ask
+selects (`COMPILE_PREDICATES` names it, family `ask`, so §32.12's `compileAdmission` admits it line by line; it reads no
+candidate itself). It joins the declaration's own steps (`compileSelected`, §135.11 SL-20) and is **staged after the last
+settling step**, like §135.30.5's move: when that step lands -- the kernel took it and, for a check, the check did not fail --
+and the fresh read still issues the clue, the clue runs next among the batch's reveals (before a staged move); a settling step
+that is refused or whose check fails takes its staged clues with it (nothing is filed; the clue stays the route's and the
+Keeper's). A `no`, `unclear` or answer under the gate leaves the clue as it was.
+
+**Telemetry.** One `lane: "route"`, `purpose: "reask"` row: `run`, `step`, `status`, `ms`, `settled_by`, `answers` (per
+`reask_<n>`: `clue`, `choice`, `confidence`, `probabilities`, `cleared`), `filed` (clue keys). The policy's step row is the same.
+
+**Three ends (§31).** *Writer:* the kernel (`cues`), the compile (the settlement), Jev (the answers). *Reader:* the policy
+(`interpretReask`, the staged clues), `compileAdmission`. *Actor:* the clerk, which files the clue after the settling step;
+the Keeper, told through `clerk_did`.
+
+**Not changed.** §135.30.9's first question and its predicates; handouts (never filed by the ask feature); the gates of every
+choice question with rows; the move `guard_unlock` stages (now after the staged clues as well).
+
+*Tests.* `tests/kernel/test_jev_apply.py`: the office's clue rows carry the book's cues on the emitted kernel.
+`tests/extension/single-loop-ask-fanout.test.mjs`: at the policy seam, the accept's compile (the leads by `guard_unlock`) is
+followed by one re-ask over the other clues with cues, whose `yes` on the keys stages them after the leads and before the move,
+admitted on their record; a `yes` under the gate files nothing; a declaration that settles nothing (a plain move, a clue
+`ask_clue` files) gets no re-ask; a refused settling step takes its staged clue with it; a failed obligation check files nothing.
+On the emitted kernel over the haunting through the hybrid engine: turn 1's sentence files the leads, the keys (by the re-ask)
+and then the move, each admitted `path: "compile"`. Mutations and the gate #6 t1 replay in the SL-52 ticket's Comments.
 
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
 

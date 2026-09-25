@@ -52,7 +52,7 @@ export function destinationView(graph: ModuleGraph, world: Row, scene: Row, show
 }
 
 /** The affordance cues of a scene that grant a clue (the authored `clue_id` / `grants_clue_ids`), in order. */
-function grantingCues(scene: Row, clueId: string): string[] {
+export function grantingCues(scene: Row, clueId: string): string[] {
     return array(recordOf(scene).affordances).map(row)
         .filter(aff => aff.clue_id === clueId || array(aff.grants_clue_ids).includes(clueId))
         .map(aff => string(aff.cue || "")).filter(Boolean);
