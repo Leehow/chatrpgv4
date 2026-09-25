@@ -97,6 +97,17 @@ test("t7's shape: a person the carried passage names is established from it, npc
 	assert.equal(view.origin?.kind, "table", "the card says she is not (yet) the book's record");
 });
 
+test("a person write alone establishes the person its passage names, and writes the label on them", async (t) => {
+	const game = await table(t);
+	await game.apply([{ kind: "person", who: NEWCOMER, name: "露丝·布莱克莫尔", why: "what the table calls her", _passage: passage() }]);
+	const [person] = await receipts(game, "person");
+	assert.equal(person.established, "passage");
+	assert.equal(person.from_passage?.page, 17);
+	const world = await game.world();
+	assert.equal((world.table_people ?? []).find((row) => row.name === NEWCOMER)?.from_passage?.page, 17);
+	assert.equal(world.person_labels[NEWCOMER]?.name, "露丝·布莱克莫尔");
+});
+
 test("a person named nowhere is still refused, npc and person alike", async (t) => {
 	const game = await table(t);
 	const npc = await refusal(game.apply([{ kind: "npc", name: NEWCOMER, to: "here", why: "placed" }]));

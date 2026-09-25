@@ -888,7 +888,8 @@ meets the person's record under the book's handle once it lands.
 
 *Tests.* `tests/extension/passage-person.test.mjs`: on the kernel (in process, the module published into the home's store
 so a later generation can name the person), t7's batch (`npc` and `person` for a name page
-17 holds, beside a near-name book NPC) lands with `established: "passage"` and the page and sentence; the same batch for a
+17 holds, beside a near-name book NPC) lands with `established: "passage"` and the page and sentence; a `person` write alone
+establishes the person and writes the label; the same batch for a
 name the carried text does not hold is refused `unknown_entity` as before; a `_passage` whose sentence does not hold the
 name is refused; a pin on a passage name is refused; when a later graph generation names the person, the next write
 replaces the entry once (`replaced_by`, presence re-keyed, the name resolving to the book's handle, no ambiguity), and a
