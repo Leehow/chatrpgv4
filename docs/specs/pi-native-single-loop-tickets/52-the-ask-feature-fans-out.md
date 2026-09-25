@@ -1,4 +1,4 @@
-Status: ready-for-human (filed 2026-09-25 from long gates #4–#6; batch 7; implemented and replayed 2026-09-25 -- the fan-out works, but on gate #6 t1 live Jev answers the keys row `no`, so the keys are still not filed; see Comments)
+Status: ready (stage 2, 2026-09-25) (filed 2026-09-25 from long gates #4–#6; batch 7; implemented and replayed 2026-09-25 -- the fan-out works, but on gate #6 t1 live Jev answers the keys row `no`, so the keys are still not filed; see Comments)
 Stage: SL-52 (P2, compile routing)
 Spec: docs/kernel-rpc.md §135.30.x (compile rows, the `ask` feature), §135.30.5 (SL-38 guard_unlock), §134.17; docs/specs/pi-native-single-loop.md "fan-out not pick-one"
 
@@ -116,3 +116,4 @@ is not on stage (both structural; neither ruled).
 - `loop` -- "# tests 186 / # pass 186 / # fail 0" (`== loop on leehow-pc @ 925176f103aa2617c0ffbb1b9a0e79a04b0ec512: exit=0 wall=42s`);
 - `py` -- "1725 passed, 2 skipped in 265.26s (0:04:25)" (`== py on leehow-pc @ 925176f103aa2617c0ffbb1b9a0e79a04b0ec512: exit=0 wall=268s`).
 
+- **2026-09-25, owner, after the gate #6 t1 replay.** Three decisions. (1) Confirmed: a clue whose kernel row says it is found by a skill check is never filed by the ask feature; it belongs to the check. (2) A fan-out row clears on confidence only: the margin rule chooses among rows of one question and has no meaning for an independent yes/no; the morgue's fire-cutoff clue (yes 0.53 against no 0.29) must not have been filed on turn 1 before Arty spoke. (3) The accept case: when the compile settles an obligation in the same declaration (the commission), the scene's clue rows are re-asked once with the settlement as context, the question being whether settling that obligation yields the clue as the clue's own `found_at.cues` state (the book's data, Jev judging; no list). The keys row's cue says "Accept the commission explicitly and take the key, address, and cash advance": that is the yes the first question could not give. Stage 2 scope: (2) and (3), tests for both, the same t1 replay. Handouts stay unfiled by the ask feature.
