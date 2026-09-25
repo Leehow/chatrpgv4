@@ -23,6 +23,9 @@ MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
 MOD_CAPABILITIES.add(USAGE_CAPABILITY);
 MOD_CAPABILITIES.add("npc.voice.generation.v2");
 MOD_CAPABILITIES.add(VOICE_CONSOLIDATION_CAPABILITY);
+/** Contract §30.7f: frozen Narration Craft 1.5.0-1.7.1 still declare the retired selector. The names stay accepted and
+ *  the contribution stays readable so those locks load and can be configured to a current version; nothing acts on either. */
+for (const retired of ["context.craft-reference.v1", "context.craft-reference.v2"]) MOD_CAPABILITIES.add(retired);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
@@ -243,7 +246,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     // Contract §28.9. A name this build does not know is recorded on the manifest and makes the
     // package incompatible -- exactly what an unknown capability in `requires` already does five

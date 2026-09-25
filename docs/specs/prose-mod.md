@@ -89,6 +89,8 @@ W3 发布 `narration-craft` 1.9.0：只是把今天 `beat-directives.json` 的�
 
 ## 5. Jev 选卡退役（W1）
 
+**保留为惰性名**：两个 capability 名与 `contributes.craft_reference` 键在 `kernel-ts/read/mods.ts` 里继续被接受、不起作用，否则冻结在 1.5.0–1.7.1 的旧战役打不开也升不了（W1 实测；契约 §30.7f）。
+
 **删除**：`runtime/craft/`、`runtime/jev/craft-reference-domain.ts`、`extensions/table/craft-reference.ts`、`extensions/table/craft-runtime.ts`、`kernel-ts/mods/craft-package.ts`、`kernel-ts/mods/craft-reference.ts`；`kernel-ts/read/mods.ts` 的两个 capability、`validateCraftContribution`、`contributes` 白名单里的 `craft_reference`、`keys.push` 里的它；`kernel-ts/read/context.ts` 与 `kernel-ts/handlers.ts` 的 `mods.craft.read`；胶囊 `mods.craft_reference` 字段；`extensions/table/context-runtime.ts` 里全部 craft 钩子（`CraftReferenceRuntime`、`coc:run-craft`、`craftEpoch`、`craft.project`、`pendingProvider.craft`、`observedCraftEnabled`、`craft_settled`；**保留** `briefingKey`，它修的是 provider 变更后 brief 复用的问题）；`runtime/jev/hybrid-engine.ts` 的 `prepareRunCraft`、`craftInput`、`craftAttempted`、announce 里的 `craft: 'run'`；`kernel-ts/mods/index.ts` 的导出。
 
 **包**：发布 `narration-craft` 1.8.0：删 `cards.en.json`、`starter-ids.json`、`craft-reference.json`，`contributes.craft_reference`、`settings.reference_mode` 与其 schema、`requires` 里的 `context.craft-reference.v2`；`agent.md`/`brief.md` 正文不动（W4 重写）；CHANGELOG 记一条。
