@@ -221,3 +221,80 @@ Evidence (git-ignored, kept):
 - triage: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b4/.coc/playtests/sl29a-b4/triage.txt`
 - harness (this branch only, originals under `29-book-a/` untouched): `docs/specs/pi-native-single-loop-tickets/29-book-a-b4/{worker.sh,start.sh,play.py,triage.py,script.md,preregistration.md}`
 - per-turn prose (not committed, carries book-derived text): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b4/.coc/playtests/sl29a-b4/play.py.stdout.log`
+
+### 2026-09-25 — book A (血色公路) SL-29A batch-5 on `de31a09b2` (integration `claude/integ-single-loop-20260923`, SL-41/43/44/45/47 merged on top of batch 4): the wall/routing defect pair is fixed — two sub-locations discovered in play are entered this table (zero in batch 4) — one new reading-pipeline defect and one carried-text/graph race found
+
+New worktree `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b5` (branch `claude/sl29a-b5-20260924`) at `de31a09b2`, node_modules
+symlinked from `chatrpgv4-wt-pi-coc-v2`, `npm run build:runtime` done, `.pi/coc-agent` copied from
+`chatrpgv4-wt-integ-sl/.pi/coc-agent`. The imported home was reused, not re-imported:
+`chatrpgv4-wt-pdf-a/.coc/playtests/sl29-a-run2/home` (module `book-1`, generation 2, the same graph batch-4 tested) was
+copied into this worktree's `.coc/playtests/sl29a-b5/home` (stale `.lock` files from the copy removed under
+`.coc/modules/book-1` before use) and loaded cleanly. A NEW campaign, `sl29ab5-xuese-5001`, was created via the
+onboarding worker's `converse` action; harness adapted from `29-book-a-b4/` as `29-book-a-b5/{worker.sh,start.sh,play.py,
+triage.py,script.md}` (script unmodified), with `29-book-a-b5/preregistration.md` written and committed
+(`5a8ee687f`) before the table opened. Investigator 雷·卡特 (Private Investigator, Drive Auto 55, same identity as
+batch-4's) was made in a live setup session replaying batch-4's own recorded exchange turn-for-turn (5 turns, 101.7s, 9
+tool calls, run `sl29ab5-xuese-5001-setup-20260925T000710Z`). The table was played with `29-book-a-b5/play.py` (one
+sentence a turn, structural branches only) on driver run `sl29ab5-xuese-5001-20260925T000928Z`, hybrid-v1,
+`PI_COC_JEV_PRESELECT=1`, grok-build/grok-4.7-build-fast low; no second live table shared this Mac this run (no
+confound). Per-turn structural table: `.coc/playtests/sl29a-b5/triage.txt` (from `29-book-a-b5/triage.py`). The
+campaign fork and reading workspace were kept (not deleted) specifically to satisfy the two captures below, which
+batch-4's SL-45/47 replays lost by deleting their forks.
+
+**Table (Scope 3).**
+
+| class | pre-registered line | measured | verdict |
+| --- | --- | --- | --- |
+| delivery | 20/20 with prose | 20/20 settled, 0 stranded, every turn delivered Keeper prose | **pass** |
+| wall | median ≤45s, ≥80% ≤60s | median 31.1s, 17/20 ≤60s (85%), max 71.4s (t1). Two more turns just over 60s (t7 61.6s, t19 64.8s) — **none of the three caused by a reading wait**: `reads` column is empty for all three, they are ordinary multi-tool-call latency. 0 turns waited on a reading job anywhere in the table (0 `reading_timeouts`). | **pass — batch-4's 147/240/149s reading-wait turns are gone** |
+| routing | a declared move to a graph destination lands; new destinations either read or narrate honestly | `apply:move:welcome-to-abattoir` landed clean t4 (38.4s). Two **newly discovered sub-locations were both entered**: `apply:move:esso-station` t7 (61.6s) and `apply:move:last-stop` t17 (50.5s) — both landed on the book's own index text on first declaration (`material:"missing"`, `scene_text` carried, no `material_pending`/refused). Two more (`church-steeple-lane`, `mather-general-store`) were compile-selected as candidates from t3 onward and had their detail reads complete in the background, but the Keeper never issued a `move` effect toward them in this script (a routing/creative choice, not a refusal — see finding 4). | **fixed for the two destinations actually declared — batch-4 entered zero of four in 20 turns; this table entered two of four** |
+| admission | no row >12s; clerk on compile | admission max 7.7s, 0 `review_timeout`, verdicts `authorized` 11 / `not_player_action` 3 / `entailed` 3 | pass |
+| binding | `infer(bind)` = 0 | 0 | pass |
+| looks | ≤1/turn after first visit | 12 `look`/`lookup kind=module` calls total, 3 `lookup kind=source` (counted separately) | pass |
+| prescreen | status per read; own allowance | `prepared` every read, 2→9 candidates as the graph grew, `allowance_ms: 12000` on every read (confirmed in `events.jsonl`), no fallback anywhere | **pass — SL-44 confirmed: no `source_revision` fallback, no shrunk allowance** |
+| drops | every drop has a reason | `text_beside_tool_calls`, `floor_steer`, `speech_steer` with rows; no stranded turn | pass |
+| fiction/rules | no off-sheet skill; people from the book | Ordinary checks: t5 Spot Hidden 58, t6 Spot Hidden 68, t10 Psychology 19, t12 Drive Auto 12, t16 Spot Hidden 71 — all on 雷·卡特's own sheet, none off-sheet (SL-40's fix still holds). Speech tally 1 resolved / 6 unresolved (same pattern as batch-4: NPC dialogue attempted where the full scene record has not landed yet). | **SL-40 confirmed still fixed**; speech unresolved rate unchanged |
+| stalls | none; provider errors listed | 0 provider `error` rows anywhere | pass |
+| reading (PDF) | every read has a telemetry row and outcome; no turn holds past a reading | every read/answer job has purpose/focus/ms/outcome rows; **zero `budget_input_tokens` refusals anywhere in the table** (contrast batch-4's `read-6`/`read-12` signature) | **SL-41 confirmed: the fixed-lease bug is gone from in-play reads** |
+| SL-45 (blocking reads go first) | a blocking detail read claims a slot at once or displaces the youngest background read; no blocking read starved for its whole run | `read-5` (esso-station) claimed with `slot_wait_ms: 580`; `read-6` (last-stop) claimed with 2/3 slots active (a free slot existed, so no displacement was needed — this table's queue depth, like batch-4's, never truly contends all 3 slots, so the displacement path itself remains proven only by the unit tests, not by a live turn) | **pass — no blocking read ever starved; the starvation defect (batch-4's P1) does not reproduce** |
+| SL-47 (move into unread scene lands on index text) | a move into an unread sub-location lands on index text with a `pending` row; detail read continues in background; record carried later | Both `esso-station` (t7) and `last-stop` (t17) landed instantly with `scene_text` carried and a `pending` row naming the scene on every subsequent turn (`t18`, `t19`, `t20` all correctly show `pending: {focus: "last-stop", since_turn: 17, purpose: "detail"}`). `esso-station`'s record landed in the background 263.1s after its read claimed a slot and was carried into t16's context (`material` flipped from `"missing"` to `"ready"`, full reviewed summary). `last-stop`'s record never landed (see finding 2 below); the table ended (t20) before a next turn could show its `scene_record: {status: "unavailable"}`. | **fixed for the landing mechanism itself; the pages-cited defect it inherits from the index is not fixed (finding 1)** |
+| SL-43 (one check per act) | at most one `resolve` per declared act | not exercised — this script never poses an obligation-vs-ordinary conflict on the same act (same as batch-4's own note) | not exercised |
+| SL-38 / SL-42 / SL-40's guard-narration path | — | not exercised — this script's only gate is the town's own arrival | not exercised (same as batch-4) |
+
+**Capture A — every detail read raised this table, publication outcome, and the kernel's refusal text verbatim** (from
+the kept fork's `deepen-queue.json` and `work/<job>/attempt-1/findings.json`; nothing deleted after the table):
+
+| job | scene | published? | detail |
+| --- | --- | --- | --- |
+| `read-2` | welcome-to-abattoir | yes, `completed` (generation 3) | — |
+| `read-4` | church-steeple-lane | yes, `completed` (generation 4), background, never entered | — |
+| `read-5` | esso-station | yes, `completed` (generation 5), promoted to blocking at t7's move (slot wait 580ms), record landed 263.1s later, carried at t16 | — |
+| `read-6` | **last-stop** | **no — `failed` after two full rounds** (round 1: 87,873ms, 4 image reads, pages `[26,28,27,29]`; round 2: 89,242ms, 4 image reads, pages `[25,26,27,28,29,30]` — the reader *did* reach the bar's own pages both rounds) | `findings.json`/`deepen-queue.json`, verbatim: `"invalid_params: visual review did not support ['/nodes/4']: 节点把 delivery_kind 定为 skill_check。原文先写守密人可以自行决定端给PC的是否是这种肉，再写"或者"PC可以进行一个幸运检定，并没有把获知固定为必须投骰的技能检定。\nretryable: false\nnext: change_input\nfix: correct the draft using the original pages and submit again"`, structured `refusal: {message: "visual review did not support ['/nodes/4']: ...", path: "/", reason: "reading_failed"}` |
+| `read-7` | mather-general-store | yes, `completed` (generation 6), background, never entered by a declared move | — |
+
+**Capture B — every scene entered via SL-47's index-text landing, the pages the index cited, and whether they are the
+scene's own pages** (verified against `source.pdf` directly with `pdftotext`):
+
+| scene | turn entered | pages cited by the landing | scene's own section in the book | verdict |
+| --- | --- | --- | --- | --- |
+| esso-station | t7 | `[17, 18, 19]` | "1. 埃索加油站" (description + NPC list) begins on page 19, immediately after the town-arrival paragraph that starts on page 17 | **correct** — the cited span reaches the scene's own text |
+| last-stop | t17 | `[17]` only | "3D. 最后一站食宿酒吧" (description + NPC list: 罗伯特·泰勒, 卡洛斯·加尔萨) is on pages **28–30** | **wrong — reproduces the exact defect SL-47's own ticket flagged as unresolved**: the node still cites only the town's arrival page, not its own pages, 250 pages away in citation terms though the same book |
+
+**Findings, one root cause each**
+
+- **P1 wall/routing, confirmed fixed — SL-41 (book-sized lease) and SL-45 (blocking reads go first) together remove batch-4's starvation/refusal pair.** Zero `budget_input_tokens` refusals anywhere; both sub-locations declared in play (esso-station, last-stop) claimed a reading slot within a second and landed their moves within normal turn latency (50–62s) instead of batch-4's 147–240s refuse-and-retry cycles. Evidence: table-wide walls above; `deepen-queue.json` read-5/read-6 `foreground`/`claimed_at` timestamps; `events.jsonl` `concurrency` rows.
+- **P1 routing, confirmed fixed — SL-47 (index-text landing).** Both moves into unread sub-locations landed on first declaration with the book's own passages carried and a correctly-named `pending` row on every later turn; batch-4 entered zero of four discovered sub-locations in 20 turns, this table entered two of two attempted. Evidence: Capture A/B above; `turn-7.json`/`turn-17.json` tool results; `events.jsonl` `scene_text`/`carried`/`pending` rows.
+- **P2 reading, new, not fixed — the index still cites the wrong pages for a sub-location far from the town's arrival text.** `last-stop`'s node cites only page 17 (confirmed against `source.pdf`: its own section is pages 28–30), reproducing exactly the defect SL-47's own ticket recorded as an open item ("the tool should retain the fork's queue next time" — done this table). Not a regression; a persisting root cause the owner may want its own ticket for (index-page attribution for scenes far from the section that names them).
+- **P1 reading, new — a content-review false rejection blocks a scene's detail record from ever publishing, independent of any budget.** `last-stop`'s detail read reached its own pages (25–30) in both attempts but was refused at the *review* step (`reading_failed`, not `budget_input_tokens`): the reviewer decided a "mystery meat" detail's `delivery_kind` was `skill_check`, but the book's own wording gives the Keeper discretion or a Luck roll, not a forced skill check (verbatim refusal text captured in Capture A). This is a different pipeline stage than anything SL-41/43/44/45/47 touch; it is the specific defect SL-47's replay lost evidence for and asked a future run to capture. New root cause, needs its own ticket (the node review's fidelity check itself, not the reading capacity/lease/index work batch 5 shipped).
+- **P2 admission/graph, new — carried index text can name a real person before the module graph registers them, and an action grounded in that text is refused as if invented.** `esso-station`'s carried pages (17–19) name three NPCs verbatim, including 内特·帕特森; the Keeper tried to place him as present at t7 (before `read-5`'s record had landed) and was refused `unknown_entity: no npc named '内特·帕特森' in the module graph` — a refusal on an action that was not invented (he is real, named on the very pages SL-47 handed the Keeper), only early. Once the record actually landed (t16), the Keeper did not retry placing him (a narrative choice, described him as scenery instead — "谁也没起身"), so no second occurrence surfaced this table, but the race (carried prose names someone the graph does not yet know) is inherent to SL-47's landing design and will recur on any book where the index's carried span names a person. New root cause; likely explains part of the persisting speech-unresolved tally (both batch-4's and this table's).
+- **P3 fiction, confirmed fixed — SL-40's ordinary-check skill default (carried from batch-4).** Five ordinary checks this table (Spot Hidden ×3, Psychology, Drive Auto), all on 雷·卡特's own sheet, none off-sheet.
+- **Not exercised this table**: SL-43 (no obligation-vs-ordinary conflict in this script), SL-38/SL-42/SL-40's guard-narration path (same gap as batch-4 — this script's only gate is the town's arrival).
+
+Evidence (git-ignored, kept — the fork and reading workspace were deliberately not deleted this batch):
+- setup: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b5/.coc/playtests/sl29ab5-xuese-5001-setup-20260925T000710Z/`
+- table: playtest `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b5/.coc/playtests/sl29ab5-xuese-5001-20260925T000928Z/` (turn-{1..20}.json, events.jsonl, driver.log)
+- campaign: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b5/.coc/playtests/sl29a-b5/home/.coc/campaigns/sl29ab5-xuese-5001/` (turns/0000–0020.json, telemetry.jsonl, campaign.json)
+- reading fork (kept, not deleted): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b5/.coc/playtests/sl29a-b5/home/.coc/module-campaigns/sl29ab5-xuese-5001/modules/book-1/` (`deepen-queue.json` read-1..7; `work/read-6/attempt-1/findings.json` for the verbatim refusal)
+- triage: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b5/.coc/playtests/sl29a-b5/triage.txt`
+- harness (this branch only, originals under `29-book-a-b4/` untouched): `docs/specs/pi-native-single-loop-tickets/29-book-a-b5/{worker.sh,start.sh,play.py,triage.py,script.md,preregistration.md}`
+- per-turn prose (not committed, carries book-derived text): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b5/.coc/playtests/sl29a-b5/play.py.stdout.log`
