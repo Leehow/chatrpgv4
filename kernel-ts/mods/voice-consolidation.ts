@@ -2,9 +2,9 @@
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
 import {array, row, clone, equal, number, truth, type Row} from '../read/values.js';
-import {KEYS, isVoicePresentationField} from '../voice/fields.js';
+import {KEYS, UNIFIED_MOD, isVoicePresentationField} from '../voice/fields.js';
 
-export const EXPRESSION_MOD = 'narration-craft';
+export const EXPRESSION_MOD = UNIFIED_MOD;
 export const LEGACY_VOICE_MOD = 'npc-voice';
 export const VOICE_CONSOLIDATION_CAPABILITY = 'npc.voice.consolidation.v1';
 export const isUnifiedExpression = (mod: Row | undefined): boolean => mod?.id === EXPRESSION_MOD
