@@ -117,3 +117,25 @@ dispute, which is what the new reviewer instruction asks for.
   supported fact is classified", it is one pattern in the contract JSON, and the `predicate` case needs a claim pattern
   (the matcher is nodes-only today).
 - The ticket manifest's status lines are left to the integrator (as SL-43/44/47's were).
+
+### 2026-09-24 — SL-49 worker, live re-review of the bar (branch `claude/sl48-20260924` at `779388b68`)
+
+The coordinator's decision stands: no contract change (`visibility` and a claim's `discoverable-at` stay refusals). With the
+App's grok-build login refreshed, the product replay of batch 5's t17 then t18 ran with a live reader:
+`run.mjs --fixture <scratchpad>/sl48/fixtures/b5-t17 --runs 1 --llm replay --reader live --then "<t18 input>" --wait-answer
+600000`, plus `--out` and `SINGLE_LOOP_DUMP_REQUESTS=1` to keep the notes. The Keeper was replayed; the reader and
+reviewer were live `grok-build/grok-4.7-build-fast`.
+- **t17 (7.8 s, delivered).** The move landed on `scene_text` page 17. There was no own index row yet: the bar had not been
+  read before this turn, so SL-48 cannot help here. The bar's `detail` reading `read-6` ran as a blocking read.
+- **The bar's record published in round 1.** The read took 107.0 s and viewed pages 28-29. Four review units passed
+  (18.0-65.2 s). There was no repair round and no refusal. `scene_record_landed` came 168.5 s after the move.
+- **Contested fields: none shown.** t18's carried scene view has no `where.contested`, so no mark sits on the bar's node
+  or on any record one relation from it. The replay removes its workspace, so the review files and the graph's
+  `contested` map were not kept. A mark on a record not related to the bar cannot be ruled out from this run.
+- **t18 (4.1 s, delivered, implicit narrate).** The first step's note carried the record head, the bar's `scene` view
+  (3,098 bytes: `material: "ready"`, 2 rules, 0 exits, 0 affordances, `present` empty) and the prescreen's `source`
+  passages for `last-stop` (4,211 bytes, cut to budget). There was no `pending` row and no `scene_record` row, since the
+  party was in the bar and the record was the scene view itself.
+
+One run, so it cannot say how much the new reviewer instruction (name the field, `contested` for classification
+fields) contributed: in batch 5 this reading failed in both rounds; here it passed in its first.
