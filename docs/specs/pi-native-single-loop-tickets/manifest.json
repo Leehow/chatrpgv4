@@ -279,6 +279,16 @@
       "id": "SL-55",
       "file": "55-a-running-answer-survives-a-generation-move.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-56",
+      "file": "56-npc-material-never-holds-a-turn.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-57",
+      "file": "57-a-refused-detail-read-is-retried-once.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
