@@ -344,8 +344,10 @@ test("an in-flight legacy voice result cannot publish after handover", async t =
 	await game.call("mods.configure", {id: "narration-craft", version: "1.8.0", enabled: true, settings: {density_guide: "off"}});
 	const voice = {mask: "flat and brief", exchanges: ["hello → hello", "where → here", "thanks → right"]};
 	await assert.rejects(game.call("voice.submit", {job_id: job.job_id, voice}),
-		error => error.code === "invalid_params" && /current voice generation|not enabled/.test(error.message));
+		error => error.code === "invalid_params" && error.details?.job_id === job.job_id);
 	const saved = await world(game);
 	assert.equal(Object.hasOwn(saved.mods.state["npc-voice"]?.dossier ?? {}, job.npc), false);
 	assert.equal(Object.hasOwn(saved.mods.state["narration-craft"]?.dossier ?? {}, job.npc), false);
+	// §40.7 Owner: a handover target that does not declare the generation lane owns nothing, so there is no job, not an error.
+	assert.deepEqual(await game.call("voice.job", {backfill: true}), {job_id: null});
 });
