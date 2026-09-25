@@ -62,6 +62,24 @@ test('an established person reads back, and says which of the three roads they c
 		'and the capsule that told the Keeper who is here now has them in it');
 });
 
+/**
+ * §11.5.8 (2026-09-25, contract addendum to §11.5.6; SL-67). SL-62's host-side name resolution only ever
+ * consulted the scene's own `present` reduction, so a shortened name of a person this campaign established
+ * elsewhere -- present or not -- had no candidate row to clear. `table.look {focus: "scene"}` now also carries
+ * `roster`: the campaign's own established table/`from_passage` persons, unconditioned by scene or presence
+ * (`ModuleGraph.establishedPeople`). This is the kernel side of that wiring; `tests/extension/name-resolution.test.mjs`
+ * covers the host's fan-out actually resolving a shortened roster name against it.
+ */
+test('the campaign roster (contract §11.5.8, SL-67) lists an established person, independent of scene presence', async t => {
+	const game = await table(t);
+	await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', why: 'he leads her down the cellar stair'}]);
+	const capsule = await game.call('table.look', {focus: 'scene'});
+	assert.ok(Array.isArray(capsule.roster), 'table.look {focus: "scene"} carries a roster field');
+	const entry = capsule.roster.find(row => row.name === DOORMAN);
+	assert.ok(entry, `the established person is in the roster: ${JSON.stringify(capsule.roster)}`);
+	assert.equal(entry.kind, 'npc');
+});
+
 test('the same person established twice is one person', async t => {
 	const game = await table(t);
 	await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', why: 'he is at the stair'}]);

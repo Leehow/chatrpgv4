@@ -2925,6 +2925,53 @@ are not in this ticket. `PI_COC_READER_CMD` still runs with none.
 emitted kernel sizes the fork's index job: its reader child carries the `index` lease and the row is written).
 Mutations in the SL-53 ticket's Comments.
 
+### §20 addendum 6 -- the input-token floor holds eight reservations of the reader that is actually reading, not a fixed one (2026-09-25, SL-65; amends §20 addendum 2 item 1)
+
+**Evidence** (SL-29A batch-10, 血色公路, 111 pages, campaign `sl29ab10-xuese-2036`, ticket 29's batch-10 entry;
+`sl29ab10-xuese-2036/modules/book-1/reading-telemetry.jsonl`). Addendum 5 landed and held: the fork's `read-1`
+(`index`) and `read-2`/`read-4` (`detail`) each got a `stage_budget` row sizing their lease to the book-sized floor,
+4,000,000 input tokens -- not the fixed 1,000,000 addendum 5 fixed. All three still failed with `budget_input_tokens`
+(`ceiling: 4,000,000`, `used: 3,019,859`-`3,174,916`, `requested: 1,000,000`, `unknown_usage_calls: 3`, each `after
+the provider error "Request timed out."`): three consecutive image calls that ended without usage, each charged
+their whole reservation, and a fourth call's own request no longer fit in what was left. Batch 9 on the same book had
+none. The difference is not the fork: `readingStageBudget` sized this job exactly as it would size the same read
+against the library's own copy of the book (addendum 3/5 unchanged) -- so the sizing did not differ, the reader did.
+The floor's own derivation (addendum 2 item 1) is "eight whole-context reservations of a reader whose window is
+500,000 tokens" (`FLOOR_RESERVATIONS × 500,000 = 4,000,000`), a number written for one specific reader. Here every
+one of the three failed calls asked for 1,000,000 input tokens -- an image call reserves the reader's own whole
+context window (`runtime/jev/provider-budget.ts`'s `multimodal` branch) -- so this reader's window is 1,000,000, twice
+what the floor's own arithmetic assumed: eight reservations of 500,000 is only four reservations of 1,000,000, and
+three failed calls plus one more request is already the fifth.
+
+**The fix.** The floor's input-token dimension is no longer the fixed constant alone: `readingStageBudget(stage,
+{pageCount, perPage?, contextWindow?})` gains `contextWindow`, the reader's own context window when the caller knows
+it, and the floor becomes `max(4,000,000, FLOOR_RESERVATIONS(8) × contextWindow)` -- never below the fixed default (a
+reader smaller than 500,000 tokens, or one the caller does not know the window of, keeps exactly the protection every
+stage already had). Every other dimension of the floor, and the ceiling, are unchanged. `extensions/module/reading-service.ts`
+threads it through at the one call site addendum 3/5 already sized from (`readingJobStage`'s jobs: `detail`, `map`,
+`answer`, `index`, `skeleton`), from the same `model()` the reading service already calls to check `vision` --
+`extensions/module/index.ts`'s `model()` now also reports `contextWindow`, read off `ctx.modelRegistry`'s own entry
+for the reader model exactly as `vision` already is. Nothing here is fork-specific: a library read raised through the
+same reading service (`extensions/module/index.ts`'s own comment: "Share one visual reading service between setup,
+commands and live material requests") is sized identically, by the same reader's window -- addendum 3's "a campaign's
+private module fork reads under the same book-sized lease as the library's" now also means *by the same reader*,
+whichever module directory the read is against. The import stages' own lease (`withStageLease`, addendum 2 item 1,
+used by the onboarding worker) is unchanged by this addendum; it is not this ticket's scope.
+
+*Tests.* `tests/extension/reading-stage-budget.test.mjs` (the b10 shape reproduced on the fixture: the old floor
+cannot survive `used + requested`, the reader-sized one can with a reservation to spare; only the input-token
+dimension moves; a smaller or unknown window never lowers the floor; the ceiling still caps a huge book regardless of
+the reader's window); `tests/extension/reading-priority.test.mjs` (the reading service over the emitted kernel sizes
+a background job's lease from a `model()` reporting a 1,000,000-token `contextWindow`: the reader child's lease and
+the `stage_budget` row both carry 8,000,000, not 4,000,000). Mutations in the SL-65 ticket's Comments.
+
+A live replay of the b10 fork's own `read-1` under the resized lease was not run in this ticket: reproducing it
+faithfully needs the same reader model to fail the same way (three consecutive provider timeouts, each charged its
+whole 1,000,000-token reservation) under live network conditions, which is not reproducible on demand and would cost
+several minutes of real provider time without proving anything the fixture tests above do not already prove more
+cheaply and deterministically -- the fixed numbers from the b10 telemetry (`ceiling`, `used`, `requested`) are
+asserted directly against both the old and the new floor.
+
 ## 21. 调查员库：建一次，之后哪一局都能用（切片 12，票 #31）
 
 用户 2026-09-06 的四条拍板：**载入整卡快照原样带过**；**库里的卡与新模组时代不符也允许，原样不动**；**在战役里玩过之后每回合自动回流**；建卡与载入都要有入口。
@@ -15966,6 +16013,42 @@ the first reading has not published. A starter's setup is unchanged: its key bin
 `converse` creates the campaign setup runs in; its `title` is the upload's name without the file
 extension (§20 addendum 2, item 4). SL-29A's campaign was titled `血色公路.pdf`.
 
+### §98 addendum 7 — a selected name range stops at the word, never at the punctuation after it (2026-09-25, SL-66; amends T14)
+
+**Evidence** (SL-29A batch-10, 血色公路, setup turn 4). `create-investigator`'s `profile.name` was selected as
+`input:4:3/u:30`–`u:34` against the player's sentence "…名字叫雷·卡特，现在就做卡吧。"; counting grapheme units from 0, unit 30
+is `雷`, 33 is `特` (the name's own last character), and 34 is `，` — the full-width comma that follows the name in the
+sentence, one grapheme past it. T14's source-selection protocol resolves a range's UTF-16 coordinates from its issued
+endpoints exactly, with no trimming (by design, for every other field and every whole-field selection: a player's exact
+wording, including deliberate leading/trailing whitespace, is the contract). Applied to a name range whose endpoint
+lands on trailing punctuation, that same exactness stamped `"雷·卡特，"` as the confirmed card's own `name`, echoed from
+there into every mechanical reference to the investigator and into player-facing prose at least three times.
+
+**The fix.** A `profile.name` selection carrying a `range` (never a whole-field selection, whose byte-exactness T14
+keeps unamended) is trimmed to its word boundary before the host issues its SourceRef: leading and trailing grapheme
+units that are wholly Unicode general category P (punctuation, ASCII or full-width alike) or Z (separator/space) are
+dropped from each end, by a category test (`/^[\p{P}\p{Z}]$/u` per code point of the unit), never a list of characters.
+The trimmed `[start, end)` — not the sentence's own endpoints — is what `issueSourceRef` records, so the stamped card,
+its stored provenance (`name_source`) and every later re-validation of the same envelope (T14's exact-materialization
+check) all agree on the trimmed name; nothing downstream re-trims a second time. A range that resolves to nothing but
+punctuation/whitespace is left exactly as selected (there is no word content to bound to); the existing
+`empty_setup_input_selection` refusal is unaffected and unchanged by this addendum. `pending_action` and every
+whole-field `profile.name` copy are untouched: T14's "without trimming… byte-exact" rule stands for them exactly as
+before.
+
+**Where.** `runtime/jev/setup-input-references.ts`'s `selected()` (called from `materializeSetupInputs`, the host side
+of `extensions/onboarding/index.ts`'s `create-investigator`/`revise` flow): `isPunctuationOrSpace` and
+`trimToWordBoundary` bound a range's endpoints to the surrounding grapheme units already computed for the selection,
+before `issueSourceRef` is called. No change to `validateSetupInputs`: its own grapheme-boundary check
+(`split_setup_input_grapheme`) already requires the ref's `start`/`end` to be unit boundaries, which a trimmed range
+still is.
+
+*Tests* (`tests/extension/jev-setup-input-references.test.mjs`): a `profile.name` range ending on a trailing comma or
+full stop yields the bare name (both the materialized value and the recorded ref's `start`/`end`); a range ending on a
+letter is unchanged; a range with leading punctuation is trimmed from the front too; the b10 setup turn-4 sentence and
+`u:30`–`u:34` range yields exactly `雷·卡特`; a whole-field selection and a `pending_action` selection keep their exact
+leading/trailing whitespace (T14 unamended for both). Mutations in the SL-66 ticket's Comments.
+
 ## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
 
 §97 was built from M-MAIN turn 109 but its fixture omitted the one property the live object had:
@@ -17281,11 +17364,11 @@ The fulfillment semantic domain first distinguishes a requested reward from mere
 
 ### T14 setup user-input source selection
 
-`setup-input-reference-v1` freezes actual user text fields from the current Pi setup branch at each input epoch. Duplicate messages/text remain separate occurrences. The model selects a whole field or a range between host-issued extended-grapheme aliases; the host derives UTF-16 coordinates and resolves a shared SourceRef without trimming, normalization, substring lookup or first-match re-anchoring. Grapheme segmentation is syntax only. Omitted catalog coverage is explicit, and unavailable old input cannot be reconstructed on restart.
+`setup-input-reference-v1` freezes actual user text fields from the current Pi setup branch at each input epoch. Duplicate messages/text remain separate occurrences. The model selects a whole field or a range between host-issued extended-grapheme aliases; the host derives UTF-16 coordinates and resolves a shared SourceRef without trimming, normalization, substring lookup or first-match re-anchoring (amended 2026-09-25, SL-66: a `profile.name` range selection is the one exception -- see §98 addendum 7). Grapheme segmentation is syntax only. Omitted catalog coverage is explicit, and unavailable old input cannot be reconstructed on restart.
 
 New target-mode `profile.name` uses a source selection or an explicit generated-name object. Unchanged revisions omit name and retain the prior materialized value/provenance. `pending_action` accepts source selection only, with no generated form. The host sends materialized legacy strings plus a private versioned snapshot/epoch/ref envelope. The setup kernel validates scope, epoch, exact source and materialization atomically before writing; the source-bound route never falls back to copied strings. New active selectors expire with the input epoch, while retained source provenance remains historical evidence.
 
-Existing draft/sheet/receipt/prologue/handoff readers keep their string shapes. Legacy drafts and explicitly legacy RPC behavior remain readable; the direct Electron confirm path supplies neither new name nor pending action and remains unchanged. Generated names are not represented as player wording. Whole-field/range source values remain byte-exact; any canonical name policy that needs a changed value must be represented separately instead of silently changing the source-backed field.
+Existing draft/sheet/receipt/prologue/handoff readers keep their string shapes. Legacy drafts and explicitly legacy RPC behavior remain readable; the direct Electron confirm path supplies neither new name nor pending action and remains unchanged. Generated names are not represented as player wording. Whole-field/range source values remain byte-exact, except a `profile.name` range selection (amended 2026-09-25, SL-66: §98 addendum 7); any other canonical name policy that needs a changed value must be represented separately instead of silently changing the source-backed field.
 
 ### T15 owner integration closure
 

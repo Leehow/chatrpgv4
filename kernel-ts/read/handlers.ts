@@ -226,6 +226,10 @@ export async function sceneView(campaign: CampaignSnapshot, module: LoadedModule
     return {
         where,
         present: await present(campaign, module),
+        // §11.5.8 (SL-67): the campaign's own established table/`from_passage` persons, unconditioned by scene or
+        // presence -- SL-62's host-side resolution reads this alongside `present` so a shortened name of someone
+        // established elsewhere still resolves, wherever the party is now.
+        roster: graph.establishedPeople(),
         ...(number(campaign.turn.turn) === 0 ? { module: fittedModuleSection(graph)[0] } : {})
     };
 }

@@ -42,6 +42,33 @@ test('a short book gets the floor; a huge book the ceiling', () => {
     {input: 40_000_000, output: 2_000_000, actions: 800, usd: 100});
 });
 
+// ---------------------------------------------------------------------------------------------------
+// SL-65 (contract §20 addendum 6): the floor scales with the reader's own context window.
+// ---------------------------------------------------------------------------------------------------
+
+test('§20 addendum 6 the input-token floor holds eight reservations of the reader actually reading, not a fixed 500,000-token assumption', () => {
+  // The b10 fork's own numbers (ticket 65's evidence): a 111-page book, floor 4,000,000, a reader whose image
+  // calls each reserved 1,000,000 (its whole context window, twice the 500,000 the fixed floor assumed). Three
+  // consecutive provider-error calls, each charged their whole reservation, used 3,019,859-3,174,916; the fourth
+  // call's own 1,000,000 request could not fit in what was left of the old floor.
+  const old = readingStageBudget('index', {pageCount: 111});
+  assert.equal(old.inputTokens, 4_000_000, 'unchanged when the caller does not know the reader\'s window');
+  const used = 3_174_916, requested = 1_000_000;
+  assert.ok(used + requested > old.inputTokens, 'the b10 shape: the old floor could not survive it');
+  const sized = readingStageBudget('index', {pageCount: 111, contextWindow: 1_000_000});
+  assert.equal(sized.inputTokens, 8_000_000, 'eight reservations of this reader\'s own 1,000,000-token window');
+  assert.ok(used + requested <= sized.inputTokens, 'the same shape now fits, with a full reservation to spare');
+  // Only the input-token dimension is window-dependent; the others are unchanged.
+  assert.deepEqual([sized.outputTokens, sized.actions, sized.costUsd], [old.outputTokens, old.actions, old.costUsd]);
+  // A reader smaller than the 500,000-token default, or an unknown one, never lowers the floor.
+  assert.equal(readingStageBudget('index', {pageCount: 111, contextWindow: 200_000}).inputTokens, 4_000_000);
+  assert.equal(readingStageBudget('index', {pageCount: 111, contextWindow: 0}).inputTokens, 4_000_000);
+  assert.equal(readingStageBudget('index', {pageCount: 111, contextWindow: -1}).inputTokens, 4_000_000);
+  assert.equal(readingStageBudget('index', {pageCount: 111, contextWindow: NaN}).inputTokens, 4_000_000);
+  // A huge book still hits the ceiling regardless of the reader's window.
+  assert.equal(readingStageBudget('opening', {pageCount: 5_000, contextWindow: 1_000_000}).inputTokens, 40_000_000);
+});
+
 async function moduleFixture(t, rows) {
   const dir = await mkdtemp(join(tmpdir(), 'stage-budget-'));
   t.after(() => rm(dir, {recursive: true, force: true}));

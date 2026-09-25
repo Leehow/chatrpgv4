@@ -47,7 +47,9 @@ export default function (pi: ExtensionAPI) {
                 const id = current.runtime.readerModel || (ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : "");
                 const slash = id.indexOf("/");
                 const model = ctx?.modelRegistry.find(id.slice(0, slash), id.slice(slash + 1));
-                return { id, vision: model?.input?.includes("image") === true, thinking: pi.getThinkingLevel() };
+                // §20 addendum 6 (SL-65): the reader's own context window, so a background/play reading's stage
+                // lease can be sized to survive its actual whole-context reservations, not a fixed assumption.
+                return { id, vision: model?.input?.includes("image") === true, thinking: pi.getThinkingLevel(), contextWindow: model?.contextWindow };
             },
             progress: row => pi.events.emit("coc:module-ingest-progress", row),
             record: row => {

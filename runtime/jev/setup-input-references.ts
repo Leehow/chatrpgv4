@@ -74,7 +74,20 @@ export function buildSetupInputCatalog(input:{epoch:string;generation:number;bra
 function sourceSnapshot(snapshot:SetupInputSnapshot,field:SetupInputSnapshot['fields'][number],scope:ScopeBinding):SourceSnapshot {
     return {scope,resource:`setup-input:${snapshot.epoch}:${field.ordinal}`,revision:snapshot.revision,sourceType:'draft',text:field.text};
 }
-function selected(snapshot:SetupInputSnapshot,selection:unknown,scope:ScopeBinding):{value:string;ref:SourceRef} {
+/** §98 addendum (SL-66): a category check, never a character list -- Unicode general category P* (every kind of
+ * punctuation, ASCII or full-width) and Z* (every kind of separator/space) cover it without enumerating glyphs. */
+const isPunctuationOrSpace=(text:string):boolean=>[...text].every(ch=>/^[\p{P}\p{Z}]$/u.test(ch));
+/** Trim a resolved [start,end) grapheme range to its word boundary: drop leading and trailing units that are
+ * wholly punctuation or whitespace. A range that is nothing but punctuation/whitespace is left alone; the
+ * caller's `empty_setup_input_selection` check still catches a selection with no word content at all. */
+function trimToWordBoundary(units:Array<{alias:string;text:string;start:number;end:number}>,start:number,end:number):{start:number;end:number} {
+    const within=units.filter(unit=>unit.start>=start&&unit.end<=end);
+    let lo=0,hi=within.length-1;
+    while(lo<=hi&&isPunctuationOrSpace(within[lo].text)) lo++;
+    while(hi>=lo&&isPunctuationOrSpace(within[hi].text)) hi--;
+    return lo>hi?{start,end}:{start:within[lo].start,end:within[hi].end};
+}
+function selected(snapshot:SetupInputSnapshot,selection:unknown,scope:ScopeBinding,options:{trimToWord?:boolean}={}):{value:string;ref:SourceRef} {
     if(!closed(selection,['source','range'],['source'])||typeof selection.source!=='string') fail('setup_input_requires_source_selection');
     const field=snapshot.fields.find(field=>field.alias===selection.source);if(!field) fail('unknown_or_stale_setup_input_source');
     let start=0,end=field.text.length;
@@ -82,6 +95,12 @@ function selected(snapshot:SetupInputSnapshot,selection:unknown,scope:ScopeBindi
         if(!closed(selection.range,['first','last'])||typeof selection.range.first!=='string'||typeof selection.range.last!=='string')fail('invalid_setup_input_range');
         const issued=units(field.text,field.alias),first=issued.find(unit=>unit.alias===selection.range.first),last=issued.find(unit=>unit.alias===selection.range.last);
         if(!first||!last||first.start>last.start) fail('foreign_or_reversed_setup_input_range');start=first.start;end=last.end;
+        // §98 addendum (SL-66): a range selected out of the player's own sentence stops at the word -- the trimmed
+        // boundary, not the sentence's own, is what the ref records, so the stamped card and every later reference
+        // to it never carry the sentence's punctuation. A whole-field selection (no range: the copied-string path)
+        // is untouched -- it is not cut from a sentence and its exact bytes, including any leading/trailing
+        // whitespace the player typed, are the contract.
+        if(options.trimToWord) ({start,end}=trimToWordBoundary(issued,start,end));
     }
     const source=sourceSnapshot(snapshot,field,scope),ref=issueSourceRef(source,{kind:'utf16',start,end});
     const value=resolveSourceRef(ref,{scope,mode:'active',read:()=>source,currentRevision:()=>source.revision});
@@ -97,7 +116,7 @@ export function materializeSetupInputs(catalog:SetupInputCatalog,input:{campaign
         if(closed(value,['generated'])) {
             if(key!=='profile.name'||!nonempty(value.generated))fail('invalid_generated_setup_name');
             values[key]=value.generated;bindings[key]={authority:'generated'};
-        } else {const resolved=selected(catalog.snapshot,value,scope);values[key]=resolved.value;bindings[key]={authority:'player_input',ref:resolved.ref};}
+        } else {const resolved=selected(catalog.snapshot,value,scope,{trimToWord:key==='profile.name'});values[key]=resolved.value;bindings[key]={authority:'player_input',ref:resolved.ref};}
     }
     return {values,envelope:{version:1,protocol:SETUP_INPUT_PROTOCOL,epoch:input.inputKey,scope,snapshot:structuredClone(catalog.snapshot),bindings}};
 }
