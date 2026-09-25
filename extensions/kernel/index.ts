@@ -688,6 +688,15 @@ const FLOOR_STEER =
 	"Use the ordinary narrate or mechanics ask delivery path for this response. Complete only the player's already selected goal. " +
 	"A quiet exchange, clarification, informed refusal or completed goal may return without a new effect, event or question. " +
 	"Do not choose a new destination, action, cost or risk for the player.";
+/**
+ * §135.11.1 (SL-50 re-ruling): the steer beside a dropped draft. It names the rule and the kinds of the calls the prose sat
+ * beside (host words, English; the kinds are the tool names). Nothing here reads the prose.
+ */
+export function besideSteer(kinds: readonly string[]): string {
+	return `Your prose beside these calls (${kinds.join(", ")}) was dropped and the player never saw it: writes are silent. `
+		+ "Write no prose beside apply, resolve or lookup calls. The turn's prose goes through narrate, or is the text of your final step, "
+		+ "in the same response as the writes whenever none of them needs its result first.";
+}
 /** The rule both §40 speech steers restate: how a line is wrapped and whose name it carries. */
 const SPEECH_RULE =
 	"Every line anyone says aloud goes inside {{say:Name}}\u2026{{/say}}, with the quotation marks it is written in kept " +
@@ -1244,14 +1253,27 @@ export default function (pi: ExtensionAPI) {
 	 * each call's kind and outcome. Written when the last call answers, else before the next message is read, else at the
 	 * run's end (a call a batch skipped or a gate blocked never answers: `not_run`).
 	 */
-	let besideDrop: { turn: number; dropped: number; step: { run: string; step: string } | null;
+	let besideDrop: { turn: number; dropped: number; step: { run: string; step: string } | null; steered?: string;
 		calls: Array<{ id: string; tool: string; outcome?: string; admission?: string; code?: string; reason?: string }> } | undefined;
+	/**
+	 * §135.11.1 (SL-50 re-ruling, 2026-09-25): the drop's steer. The first write or read of the message that answers carries it
+	 * in its result: the rule (writes are silent; the turn's prose goes through narrate or the final text step) and the kinds of
+	 * the calls the prose sat beside, as data. A delivery never carries it (it closes the turn); a call a gate blocked never
+	 * answers, so a message whose every call was blocked is not steered.
+	 */
+	function takeBesideSteer(toolCallId: string, tool: string): { beside: string[]; steer: string } | undefined {
+		const held = besideDrop;
+		if (!held || held.steered || tool === "narrate" || tool === "ask" || !held.calls.some((entry) => entry.id === toolCallId)) return undefined;
+		held.steered = tool;
+		const beside = [...new Set(held.calls.map((entry) => entry.tool))];
+		return { beside, steer: besideSteer(beside) };
+	}
 	async function flushBeside(): Promise<void> {
 		const held = besideDrop;
 		besideDrop = undefined;
 		if (!held) return;
 		await record({ lane: "delivery", turn: held.turn, ok: false, reason: "text_beside_tool_calls", dropped: held.dropped,
-			step: held.step?.step ?? null, run: held.step?.run ?? null,
+			step: held.step?.step ?? null, run: held.step?.run ?? null, steered: held.steered ?? null,
 			calls: held.calls.map(({ id: _id, ...call }) => ({ ...call, outcome: call.outcome ?? "not_run" })) });
 	}
 	async function noteBesideOutcome(toolCallId: string, outcome: { outcome: string; admission?: string; code?: string; reason?: string }): Promise<void> {
@@ -3644,6 +3666,8 @@ export default function (pi: ExtensionAPI) {
 				...(spec.name === "recall" ? {response_bytes: Buffer.byteLength(JSON.stringify(result), "utf8")} : {}),
 			});
 			keepRead(true);
+			const besideNote = takeBesideSteer(toolCallId, spec.name);
+			if (besideNote) result = { ...result, prose_dropped: besideNote };
 			await noteBesideOutcome(toolCallId, { outcome: "landed", ...(admissionVerdict ? { admission: admissionVerdict } : {}) });
 			if (spec.name === "narrate" || spec.name === "ask") {
 				// A turn inside a session must be accountable on its own: round trips in combat are not the same as in investigation.
@@ -3761,12 +3785,14 @@ export default function (pi: ExtensionAPI) {
 				...readRow,
 			});
 			keepRead(false);
+			const besideNote = takeBesideSteer(toolCallId, spec.name);
 			await noteBesideOutcome(toolCallId, { outcome: reason === "review_pending" ? "pending" : "refused", code, ...(reason ? { reason } : {}),
 				...(admissionVerdict ? { admission: admissionVerdict } : {}) });
 			return {
-				content: [{ type: "text", text: errorText(error) }],
+				content: [{ type: "text", text: errorText(error) + (besideNote ? `\nprose_dropped: ${JSON.stringify(besideNote)}` : "") }],
 				...(state.reviewUnavailable || state.commitUnavailable ? {terminate: true} : {}),
 				details: {
+					...(besideNote ? { prose_dropped: besideNote } : {}),
 					coc_error: {
 						code,
 						message: error instanceof Error ? error.message : String(error),
