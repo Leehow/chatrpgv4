@@ -983,9 +983,13 @@ export class ReadingService implements ReadingBridge {
 						}
 					}
 					publishing = true;
-					await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
+					const published = await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
 						outcome: "completed", draft_path: join(cwd, "draft.json"), review_path: join(cwd, "review.json"), assets }, campaign);
 					publishing = false;
+					// §22.4.6.1 addendum (SL-55): the answer's focus was published while it read; the kernel put it back in the queue
+					// to be read again from this draft. The attempt is over; its slot is free and the next claim resumes it.
+					if (published?.requeued) this.note({ lane: "reading", event: "requeued", module_id: job.module_id, campaign, job_id: job.job_id,
+						purpose: job.purpose, focus: job.focus ?? "", reason: published.requeued, from_generation: published.from_generation, generation: published.generation });
 					// The book turns its own pages next (spec thin-book-play B); never on the critical path, never a failure.
 					if (job.purpose === "index" || job.purpose === "opening") await this.call("module.read.ahead", { module_id: job.module_id, ...(job.purpose === "opening" && job.focus ? { focus: job.focus } : {}) }, campaign).catch(() => undefined);
 					return;
