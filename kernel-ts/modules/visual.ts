@@ -10,6 +10,7 @@ import { obligationReviewPaths, statesObligation } from './obligation-review.js'
 import { carriesMechanics, mechanicsRefusals } from './mechanics-shape.js';
 import { shapeReviewPaths, statesMechanics } from './shape-review.js';
 import { anchors, pages, recordSpans, sameSpan, spanOf, type Anchor } from './transcription.js';
+import { REVIEW_VERDICTS, classificationMatcher } from './review-verdicts.js';
 const object = (value: any): boolean => isJsonObject(value);
 export function reject(message: string, path = '/'): never {
     throw new RpcError('invalid_params', message, {
@@ -469,12 +470,23 @@ function checkMechanics(filled: Row, packet: Row, contract: ModuleContract): voi
     refuseMechanics(located, located.some(refusal => refusal.rule === 'shape_unknown_skill')
         ? { ruleset: { skills: [...contract.rules.skills], characteristics: [...contract.rules.characteristics], specialization_groups: Object.keys(contract.rules.groups) } } : {});
 }
-export function checkReview(draft: Row, filled: Row, review: any, count: number, seen: ReadonlySet<number>): void {
+/** Contract §22.3.2: what a review judged, per draft pointer: the paths it supported and the classification fields it contested. */
+export interface ReviewJudgement { supported: Set<string>; contested: Row[] }
+/** Contract §22.3.2: a draft pointer is a classification field when the graph contract's `classification_fields` say so. */
+export function classificationFields(contract: ModuleContract): (path: string) => boolean {
+    return classificationMatcher(row(contract.graph.classification_fields).node);
+}
+/**
+ * The publication gate's review check (§22.3, §22.3.2). A `supported` path is reviewed; any other verdict on a
+ * classification field is a contest (reviewed, never a refusal); any other verdict on anything else -- a record's root,
+ * a fact field, a word outside the verdicts -- refuses, naming that path, the verdict as written and the reviewer's reason.
+ */
+export function checkReview(draft: Row, filled: Row, review: any, count: number, seen: ReadonlySet<number>, classifies: (path: string) => boolean = () => false): ReviewJudgement {
     if (!object(review) || !Array.isArray(review.missing) || !Array.isArray(review.checked))
         reject('review must contain checked facts and an empty missing list');
     if (review.missing.length)
         reject('the independent review found missing or incorrect material: ' + canonicalJson(review.missing), '/review/missing');
-    const supported = new Set<string>();
+    const supported = new Set<string>(), reviewed = new Set<string>(), contested: Row[] = [];
     for (const item of review.checked) {
         if (!object(item))
             reject('review entries must be objects');
@@ -483,15 +495,52 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
             reject('review entries need path or a non-empty paths array');
         for (const path of paths)
             pointer(draft, path);
-        references(item.source_refs, count, seen);
-        if (item.verdict !== 'supported')
-            reject(`visual review did not support ${repr(paths)}: ${string(item.reason ?? '')}`);
-        for (const path of paths)
-            supported.add(path);
+        const refs = references(item.source_refs, count, seen);
+        for (const path of paths) {
+            reviewed.add(path);
+            if (item.verdict === 'supported') {
+                supported.add(path);
+                continue;
+            }
+            if (REVIEW_VERDICTS.includes(item.verdict) && classifies(path)) {
+                contested.push({ path, verdict: item.verdict, reason: string(item.reason ?? ''), source_refs: refs });
+                continue;
+            }
+            throw new RpcError('invalid_params', `visual review found ${path} unsupported (${string(item.verdict ?? null)}): ${string(item.reason ?? '')}`, {
+                fix: 'correct the draft using the original pages and submit again',
+                details: { reason: 'reading_failed', path, rule: 'review_unsupported', verdict: typeof item.verdict === 'string' ? item.verdict : null },
+            });
+        }
     }
-    const missing = array(filled.required_review).filter(path => !supported.has(path));
+    const missing = array(filled.required_review).filter(path => !reviewed.has(path));
     if (missing.length)
         reject(`visual review omitted required fields: ${repr(sorted(missing))}`);
+    return { supported, contested };
+}
+/**
+ * Contract §22.3.2: the graph's `contested` marks after a reviewed publication. A mark on a field this review supported
+ * (the field or an ancestor) is settled and removed; each contest of this review is written (or replaces its mark) under
+ * `/nodes/<node_id><field>` with the reader's published value, the reviewer's word, reason and pages.
+ */
+export function recordContested(graph: Row, filled: Row, judged: ReviewJudgement, moduleId: string, jobId: string, generation: number): void {
+    const marks: Row = clone(row(graph.contested)), nodes = array(filled.nodes);
+    const byId = (path: string): string | null => {
+        const match = /^\/nodes\/(\d+)(\/.*)?$/.exec(path), node = match ? nodes[Number(match[1])] : undefined;
+        return node && typeof node.node_id === 'string' ? `/nodes/${node.node_id}${match![2] ?? ''}` : null;
+    };
+    const settled = [...judged.supported].map(byId).filter((path): path is string => path !== null);
+    for (const key of Object.keys(marks))
+        if (settled.some(path => key === path || key.startsWith(path + '/')))
+            delete marks[key];
+    for (const item of judged.contested) {
+        const key = byId(item.path);
+        if (key === null) continue;
+        marks[key] = { value: clone(pointer(filled, item.path)), verdict: item.verdict, reason: item.reason,
+            source_refs: array(item.source_refs).map((ref: Row) => ({ source_id: `pdf:${moduleId}`, pdf_index: typeof ref.page === 'bigint' ? ref.page - 1n : ref.page - 1, ...(Object.hasOwn(ref, 'box') ? { box: ref.box } : {}) })),
+            job_id: jobId, generation };
+    }
+    if (Object.keys(marks).length) graph.contested = orderedObject(new Map(Object.entries(marks).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
+    else delete graph.contested;
 }
 export function resolveStartScene(graph: Row, wanted: string, contract: ModuleContract): string | null {
     const key = normalize(wanted);

@@ -61,5 +61,7 @@ export function vocabulary(contract: ModuleContract, contributed: Row | null = n
         exit_relation_kinds: [...array(template.entrance_relation_kinds), 'route-to'],
         playable_node_kinds: [...array(template.playable_node_kinds)], actor_kinds: [...array(template.actor_kinds)],
         actor_dossier: dossier,
+        // §22.3.2: which fields a reviewer may only contest, as the graph contract declares them.
+        ...(graph.classification_fields ? { classification_fields: graph.classification_fields } : {}),
     };
 }

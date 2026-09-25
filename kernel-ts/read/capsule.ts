@@ -134,6 +134,32 @@ export function clockSection(graph: ModuleGraph, world: Row): Row {
     result.day_part = ([[5, "dawn"], [8, "morning"], [12, "midday"], [14, "afternoon"], [18, "evening"], [22, "night"]] as const).filter(([hour]) => minuteOfDay >= hour * 60).at(-1)?.[1] ?? "small_hours";
     return result;
 }
+/** Contract §22.3.2: at most this many contested rows in a scene view, each reason cut at this many characters. */
+export const CONTESTED_ROWS = 8;
+export const CONTESTED_REASON_CHARS = 240;
+const CONTESTED_NOTE = "A reviewer disputed how the book's fact is classified in these fields; the value is the reader's. Judge the delivery from the book's text and the reason; a later reading may settle it.";
+/**
+ * Contract §22.3.2: the graph's `contested` marks on the scene's own node and on every node one relation from it (its
+ * clues, people, rules and places), scene first, then in relation order: `{record, field, value, reason}`.
+ */
+function contestedRows(graph: ModuleGraph, scene: Row): Row[] {
+    const marks = row(graph.raw.contested), keys = Object.keys(marks);
+    if (!keys.length || typeof scene?.node_id !== "string")
+        return [];
+    const ids = [scene.node_id, ...(graph.out.get(scene.node_id) ?? []).map(rel => string(rel.to_node_id)),
+        ...(graph.incoming.get(scene.node_id) ?? []).map(rel => string(rel.from_node_id))].filter((id, index, all) => all.indexOf(id) === index);
+    const rows: Row[] = [];
+    for (const id of ids) {
+        const node = graph.nodes.get(id), prefix = `/nodes/${id}/`;
+        if (!node)
+            continue;
+        for (const key of keys.filter(key => key.startsWith(prefix))) {
+            const mark = row(marks[key]);
+            rows.push({ record: graph.handle(node), field: key.slice(prefix.length), value: mark.value ?? null, reason: chars(string(mark.reason), CONTESTED_REASON_CHARS) });
+        }
+    }
+    return rows.slice(0, CONTESTED_ROWS);
+}
 export function whereSection(graph: ModuleGraph, world: Row, scene: Row, material: (name: string) => string = () => "ready", compact = false): Row {
     const record = recordOf(scene),
         exits = graph.sceneExits(scene).map(exit => ({
@@ -205,6 +231,12 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         endings: graph.sceneEndings(scene),
         material: material(scene.node_id)
     };
+    // §22.3.2: a classification a reviewer disputed on this scene or a record one relation from it. `look` only.
+    const contested = compact ? [] : contestedRows(graph, scene);
+    if (contested.length) {
+        where.contested = contested;
+        where.contested_note = CONTESTED_NOTE;
+    }
     if (compact)
         for (const [key, limit, size] of [["places", 8, 90], ["rules", 6, 160]] as const) {
             if (where[key].length > limit) {

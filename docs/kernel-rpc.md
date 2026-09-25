@@ -3258,8 +3258,8 @@ its draft cited 28-29. A later reading of the same focus adds its pages (in book
 **Where it lives.** `module.json` `reading.scene_index` of the workspace that read it (a campaign's fork, or the library),
 because the book's index file is the index job's retained evidence and is never rewritten. `ModuleStore.sections`
 answers the index file's rows followed by these, so every reader of the index sees them: the next reader's packet
-`index`, a consultation's `index` (§22.4.3), the material gate's names. A re-index rewrites only the file's rows
-(`ModuleStore.indexRows`).
+`index`, a consultation's `index` (§22.4.3), the material gate's names. An index publication (the index audit, a
+starter's window) extends only the file's rows (`ModuleStore.indexRows`), so it never copies these into the file.
 
 **The landing (§22.4.7 amended).** `Reading.sceneIndexPages`: the pages of the scene's own rows (`scene` is its node id)
 in book order, at most `SCENE_INDEX_PAGES`. Only a scene with no own row keeps §22.4.7's rule (the node's own
@@ -3273,7 +3273,7 @@ arrival from the scene's own pages.
 before any reading; a detail reading refused at review whose draft cites pages 5-6 (viewed 4-6) writes the row, and a
 later move into the scene refuses naming [5, 6] and lands on them; a completed reading writes the row from the published
 draft; a draft without the scene's node falls back to the viewed pages; a reading that failed before its read phase
-writes nothing; a re-index keeps the row. Mutations in the SL-48 ticket's Comments.
+writes nothing; the next reader's packet `index` carries the rows. Mutations in the SL-48 ticket's Comments.
 
 ### 22.5 开场、失败与旧数据
 

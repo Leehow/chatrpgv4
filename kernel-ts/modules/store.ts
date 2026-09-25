@@ -106,8 +106,15 @@ export class ModuleStore {
         return meta;
     }
     async register(id: string): Promise<Row> { const result = await registerStarter(this.context, id); this.graphs.delete(id); return result; }
+    /** The book's index: the index file's rows, then the scenes' own rows their detail readings wrote (§22.4.8). */
     async sections(id: string): Promise<Row[]> {
-        const meta = await this.module(id), path = truth(meta.index_file) ? childPath(this.moduleDir(id), meta.index_file) : join(this.moduleDir(id), 'sections.json');
+        const meta = await this.module(id);
+        return [...await this.indexRows(id, meta), ...clone(array(row(meta.reading).scene_index))];
+    }
+    /** The index file's rows alone: the index job's evidence, which a re-index extends (§22.4.8). */
+    async indexRows(id: string, meta?: Row): Promise<Row[]> {
+        meta ??= await this.module(id);
+        const path = truth(meta.index_file) ? childPath(this.moduleDir(id), meta.index_file) : join(this.moduleDir(id), 'sections.json');
         return await this.context.snapshots.pathExists(path) ? clone(array(await this.context.snapshots.readJson(path))) : [];
     }
     async writeSections(id: string, sections: Row[]): Promise<void> { await writeJsonAtomic(join(this.moduleDir(id), 'sections.json'), sections); }
