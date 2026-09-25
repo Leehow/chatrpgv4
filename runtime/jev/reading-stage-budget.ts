@@ -23,7 +23,7 @@ export interface PageCost {inputTokens: number; outputTokens: number; actions: n
  * - `share`: how much of the whole book, read once, a stage may spend. `inspect` makes no provider call. The reads raised
  *   during play (SL-41) read a focused part of the book: `detail` a scene, `answer` a consultation, `map` the map pages;
  *   on any book under about a thousand pages the floor decides. The background index and a skeleton outside a stage (SL-53)
- *   sample the book rather than read it once: the 血色公路 index rounds viewed 21 and 32 of 111 pages and the map-page audit
+ *   sample the book rather than read it once: the batch-6 book's index rounds viewed 21 and 32 of its 111 pages and the map-page audit
  *   the same pages again, about half the book's pages' worth of images.
  * - `floor`: eight whole-context reservations of a 500,000-token reader, so a stalled image call and its
  *   retry fit in each of two rounds with the review still to pay; `ceiling`: the absolute cap.
