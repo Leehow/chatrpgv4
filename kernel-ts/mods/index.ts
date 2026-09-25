@@ -18,7 +18,6 @@ import { ModJobs, type ModSources } from './jobs.js';
 import { stageModEffect } from './stage.js';
 import { resolveBeforeMain, type ModResolveInput } from './resolve.js';
 import { magicEffects } from './effects.js';
-import {readCraftReference} from './craft-reference.js';
 export { validateDefinition, validateDocumentSeed, definitionExpression } from './definition.js';
 export { projectInventory, projectSheet, weaponRows } from './projection.js';
 export { magicEffects, effectTarget, applyObjectEffects, saveEffectTarget, useItem, repairItem, castNpc } from './effects.js';
@@ -103,7 +102,6 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
         }
         return listing(params);
       },
-      'mods.craft.read': params => readCraftReference(context, params),
       'mods.context': async params => {
         // A campaign still being set up has no capsule: it gets the setup shape (§26) from the same lock mods.configure writes.
         const settingUp = await writer.campaign(params, {requireWorld: false}), meta = await settingUp.readCampaign();

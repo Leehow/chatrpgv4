@@ -38,9 +38,6 @@ import { ContractError, type DecisionBatch, type IntentBinding, type Json, type 
 import { TaskLease } from './task-context.ts';
 import { JEV_MODEL } from './question-packing.ts';
 import { preparationProviderBudget } from './preparation-budget.ts';
-import type {TaskProviderBudget} from './provider-budget.ts';
-import {createCraftSelector} from './craft-reference-domain.ts';
-import {craftMode, prepareCraftWithinDeadline, type CraftPreparation} from '../../extensions/table/craft-reference.ts';
 import { prepareCheckPreflight } from './check-preflight.ts';
 import { bindingOf, CLERK_TYPE, customMessage, PRESCREEN_TYPE, type ContextBinding } from '../../extensions/table/context-policy.ts';
 import { prepareKeeperSupport, prescreenEnabled } from '../../extensions/table/prescreen.ts';
@@ -192,8 +189,6 @@ interface RunState {
   startedAt: number;
   allowanceDeadline: number;
   providerBudget: ReturnType<typeof preparationProviderBudget>;
-  craftInput?: {capsule: Row; binding: ContextBinding};
-  craftAttempted?: boolean;
   turn?: number;
   scope?: ScopeBinding;
   readSet?: ReadSet;
@@ -223,7 +218,6 @@ interface RunState {
  */
 export function createHybridEngine(options: HybridEngineOptions): {runDriver: SessionRunDriver; extension: (pi: any) => void; bridge: () => KernelBridge | undefined} {
   let bridge: KernelBridge | undefined, gateway: OperationGateway | undefined, closer: TurnClosePort | undefined, api: any;
-  let foregroundBudget: (() => TaskProviderBudget | undefined) | undefined;
   const now = options.now ?? (() => Date.now());
   /** §135.25: the clerk steps the last run's budget deferred, for the next run's first note to the Keeper (session memory). */
   let carried: {campaign?: string; run: string; turn?: number; deferred: DeferredStep[]} | undefined;
@@ -244,8 +238,6 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   async function tableReads(run: RunState): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]}> {
     const [capsule, status, applyOptions, resolveOptions] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options')]);
     const table = readTable(capsule, status);
-    if (table.binding) run.craftInput = {capsule: {...capsule,
-      ...(status.turn === table.binding.turn && Array.isArray(status.receipts) ? {craft_settled: status.receipts} : {})}, binding: table.binding};
     run.fight = object(object(resolveOptions.context).session ?? object(capsule.where).session);
     // §11.5.3: an NPC's turn without a standing action reads that NPC's card, which says whether a disposition is
     // still to be inferred and carries what it is inferred from. Nothing else reads a card here.
@@ -327,40 +319,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           return {status: 'refused', reason: 'unknown_policy_operation', artifact: {kind: 'execute', executed: {ok: false, summary: {refused: 'unknown_policy_operation'}}}};
         },
       },
-      projection: {project: ({view, step, stepId, signal}) => {
-        const craft = step.purpose === 'compose' || step.purpose === 'adjudicate' ? prepareRunCraft(run, signal) : undefined;
-        const project = () => projection(run, view as RunView<StepPolicyState> & {policyState: StepPolicyState}, step, stepId);
-        return craft ? craft.then(project) : project();
-      }},
+      projection: {project: ({view, step, stepId}) => projection(run, view as RunView<StepPolicyState> & {policyState: StepPolicyState}, step, stepId)},
       ...(jev ? {decision: {decide: request => decide(run, request)}} : {}),
     };
-  }
-
-  function prepareRunCraft(run: RunState, signal?: AbortSignal): Promise<void> | void {
-    if (run.craftAttempted) return;
-    run.craftAttempted = true;
-    const prepared = run.craftInput, began = Date.now(), campaign = bridge?.campaign;
-    const publish = (result: CraftPreparation): void => {
-      if (prepared && campaign && !signal?.aborted) api?.events?.emit?.('coc:run-craft', {campaign, turn: prepared.binding.turn,
-        worldline: prepared.binding.worldline, loop: prepared.binding.loop, run: run.runId, preparation: result});
-      record({lane: 'craft', event: 'run_prepared', run: run.runId, turn: prepared?.binding.turn,
-        status: result.status, ...(result.status === 'omitted' ? {reason: result.reason} : {}), ms: Date.now() - began});
-    };
-    // Disabled or unconfigured craft keeps the existing synchronous projection contract.
-    if (!prepared || !campaign) return publish({status: 'omitted', reason: 'binding_unavailable'});
-    if (!craftMode(prepared.capsule)) return publish({status: 'omitted', reason: 'disabled'});
-    if (!jev) return publish({status: 'omitted', reason: 'unconfigured'});
-    if (!signal) return publish({status: 'omitted', reason: 'cancellation_unavailable'});
-    try {
-      const parent = foregroundBudget?.();
-      const deadlineAt = Math.min(Date.now() + 1500, run.allowanceDeadline,
-        Date.now() + Math.max(0, run.budgetMs - (now() - run.startedAt)), parent?.deadlineAt ?? Infinity);
-      const selector = createCraftSelector({decision: jev, parent, allowance: run.providerBudget, deadlineAt, signal,
-        record: event => record({lane: 'craft', event: 'selection', ...event, run: run.runId, turn: prepared.binding.turn})});
-      return prepareCraftWithinDeadline({rpc: call, campaign, capsule: prepared.capsule,
-        binding: prepared.binding, epoch: run.runId, selector, signal, deadlineAt}).then(publish,
-          () => publish({status: 'omitted', reason: 'reference_unavailable'}));
-    } catch {publish({status: 'omitted', reason: 'reference_unavailable'});}
   }
 
   /** One Keeper call of the batch its response made. A step that fails sends the rest of the batch back unrun. */
@@ -626,9 +587,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     pi.events.on('coc:kernel-bridge', (data: KernelBridge) => { bridge = data?.call ? data : undefined; });
     pi.events.on('coc:operation-dispatcher', (data: OperationGateway) => { gateway = data && typeof data.dispatch === 'function' ? data : undefined; });
     pi.events.on('coc:turn-close', (data: TurnClosePort) => { closer = data && typeof data.verdict === 'function' ? data : undefined; });
-    pi.events.on('coc:task-provider-budget', (value: unknown) => {foregroundBudget = typeof value === 'function' ? value as typeof foregroundBudget : undefined;});
     // The run owns the prescreen on this engine (§135.6); the context hook injects what the run prepared.
-    const announce = () => { pi.events.emit('coc:loop-engine', {engine: 'hybrid-v1', prescreen: 'run', craft: 'run'}); };
+    const announce = () => { pi.events.emit('coc:loop-engine', {engine: 'hybrid-v1', prescreen: 'run'}); };
     announce();
     // The plan is an artifact inside the run, never a second executor: no private plan tool on this engine (§135.5).
     const withoutPlanTool = () => {
