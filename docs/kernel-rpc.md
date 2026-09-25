@@ -18976,7 +18976,7 @@ naming it. `tests/extension/adaptation-host.test.mjs`: the 2 s default and the o
 `host-state-not-fiction.test.mjs` and `stale-adaptation.test.mjs` now block a dependent write where they blocked an
 ordinary one. The replay of turn 19 is in the SL-23 ticket's Comments.
 
-#### 135.11.1 Prose beside tool calls: the drop row names its step and its calls; the keep rule waits on its measurement (2026-09-24, SL-50; amends this section's gate #4 addendum)
+#### 135.11.1 Prose beside tool calls: the drop row names its step and its calls; writes are silent (2026-09-24, SL-50; re-ruled 2026-09-25; amends this section's gate #4 addendum)
 
 **The owner's ruling (2026-09-24).** Prose beside tool calls is the turn's draft when every call in that step is an `apply`
 the host admitted; it is dropped, with today's steer, only when the step carries a `resolve` or a call that was refused or
@@ -19017,6 +19017,33 @@ Actor: none in the product; the owner.
 its code and reason), the prose never reaches the transcript, and the turn is delivered by its own later narrate; a batch
 whose first call is blocked names the others `not_run`; on the hybrid engine the row names the model step the message
 answered. Mutations in the SL-50 ticket's Comments.
+
+**Addendum 2026-09-25 (the owner's re-ruling after the measurement): writes are silent.** The keep rule is withdrawn; there is no
+keep path. The cost the measurement found is the preamble itself: a model step spent writing prose that can only be dropped.
+
+- *The guidance, in one place: the capsule's head.* `HEAD` (`kernel-ts/read/assemble.ts`) ends with `SILENT_WRITES`: writes
+  are silent; no prose beside `apply`, `resolve` or `lookup` calls (it is dropped and never shown); the turn's prose goes
+  through `narrate`, or is the text of the final step, in the same response as the writes whenever none of them needs its
+  result first. The head is outside every section budget (§13.6; `test_capsule_budgets` exempts it), so nothing is displaced.
+  The `style` section was the other candidate and was not used: its first-turn full form measures 2 001 of 2 048 bytes (a
+  new line there pops the last directive, as §40's longer voice line once did), and `floor_lines` is the four kinds a turn
+  owes, validated as exactly four (§34.2), not a rule about call shape.
+- *The drop's steer.* The first call of the dropped message that answers (in `runTool`, success or refusal) carries
+  `prose_dropped: {beside, steer}` in its result: `beside` the distinct call kinds of the message, in order; `steer` the rule
+  over them (`besideSteer(beside)` in `extensions/kernel/index.ts`: the prose beside these calls was dropped and never seen;
+  writes are silent; the turn's prose through `narrate` or the final text step). A landed call carries it in its JSON result
+  (content and `details`); a refused call in `details` and as one `prose_dropped: {…}` line after its error text. Once per
+  message; never on `narrate` or `ask` (a delivery closes the turn); a message whose every call a gate blocked answers
+  nothing and is not steered (the gate's own reason is its steer). The drop row gains `steered`: the tool that carried it, or
+  `null`. Nothing reads the prose.
+- *The measurement* is the next long gate: `text_beside_tool_calls` rows per table (#5: 14) and model steps per turn (#5: 60
+  over 20).
+
+*Tests (addendum).* `tests/extension/beside-drop-row.test.mjs`: a message with prose beside an `apply` and a `resolve` steers
+once, on the `apply`'s result, with `beside: [apply, resolve]` and the steer over those kinds; the `resolve` and a later call
+with no prose beside carry nothing; a refused call carries it in `details` and its text; each drop row names its steering
+call; the turn's capsule head carries `SILENT_WRITES`; a message whose only call is a `narrate` is not steered. Mutations in
+the SL-50 ticket's Comments.
 
 ### 135.20 The read hands the Keeper the bodies of what it issued (2026-09-23, SL-11 scope 1; the model-call diet)
 

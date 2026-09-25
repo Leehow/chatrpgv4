@@ -21,6 +21,13 @@ import { RpcError } from "../errors.js";
 import { array, row, number, string, truth, chars, clone, normalize, type Row } from "./values.js";
 import type { ModuleGraph } from "./module-graph.js";
 import {responseBankFor,responseHint} from '../npc/responses.js';
+/**
+ * §135.11.1 (SL-50 re-ruling, 2026-09-25): writes are silent. Prose beside a write or read call is dropped before anyone
+ * sees it (long gates #3-#5: 46 drops, the Keeper announcing its bookkeeping), and the run then asks for the turn again.
+ */
+export const SILENT_WRITES = "Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never " +
+    "shown). The turn's prose goes through narrate, or is the text of your final step, in the same response as the writes " +
+    "whenever none of them needs its result first.";
 export const HEAD = "Everything at the start of this turn: the clock, the undiscovered clues here and their gates, the secrets " +
     "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer " +
     "situations, the Director's suggested beat, related memory and the style contract. Do not look/lookup " +
@@ -59,7 +66,9 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "untold is the other half: a turn that settled receipts and then ended with nothing said to the player " +
     "(the run stopped before it could deliver). Its rows are already on the books and the ledger already " +
     "counts them, so do not write this turn as if none of it happened; say what landed, in your own prose, " +
-    "and it clears itself as soon as a turn is delivered.";
+    "and it clears itself as soon as a turn is delivered. " +
+    // §135.11.1 (SL-50 re-ruling, 2026-09-25): the head is outside every section budget (§13.6), so this displaces nothing.
+    SILENT_WRITES;
 export const HEAD_MODULE = " This turn also carries a module section (the table briefing, this once): what the book is about, its era, " +
     "the factions, places and people (absent ones included, keeper-only), the ending and conclusion names and " +
     "the structure type; do not lookup the book before opening.";

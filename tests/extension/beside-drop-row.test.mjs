@@ -22,6 +22,12 @@ import { join, resolve } from "node:path";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, waitForIdle } from "./harness.mjs";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { besideSteer } from "../../extensions/kernel/index.ts";
+import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
+import { after } from "node:test";
+import { build } from "esbuild";
 
 const root = resolve(import.meta.dirname, "../..");
 
@@ -97,4 +103,66 @@ test("hybrid: the row names the model step the message answered", async (t) => {
 	assert.ok(infers.length >= 2, "the run took its model steps");
 	assert.equal(row.step, infers[0].stepId, "the step whose answer carried the prose");
 	assert.equal(row.run, infers[0].runId);
+});
+
+// ---- The re-ruling (2026-09-25): writes are silent, the capsule says so, and the drop's steer names the call kinds -------------
+
+const scratch = await mkdtemp(join(tmpdir(), "beside-steer-"));
+after(() => rm(scratch, { recursive: true, force: true }));
+await symlink(join(root, "node_modules"), join(scratch, "node_modules"), "dir");
+await build({ stdin: { contents: "export { SILENT_WRITES } from './kernel-ts/read/assemble.ts';", resolveDir: root, sourcefile: "silent.ts" },
+	outfile: join(scratch, "silent.mjs"), bundle: true, packages: "external", format: "esm", platform: "node", target: "node22", logLevel: "silent" });
+const { SILENT_WRITES } = await import(pathToFileURL(join(scratch, "silent.mjs")).href);
+/** Each tool result of the turn, in order: the call's tool and the steer it carries (the result's `prose_dropped`), if any. */
+const steers = (table) => table.session.messages.filter((message) => message.role === "toolResult")
+	.map((message) => ({ tool: message.toolName, prose_dropped: message.details?.prose_dropped ?? null }));
+
+test("the drop's steer rides on the first answering call and carries the kinds the prose sat beside; a call without prose beside carries none", async (t) => {
+	const requests = [];
+	const responses = [
+		beside("我先把这段翻找记进时间，再掷一下图书馆使用。",
+			fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }] }),
+			fauxToolCall("resolve", { action: { intent: "investigate", skill: "Library Use", goal: "find the file", method: "search the clippings" } })),
+		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5, why: "a short wait" }] })], { stopReason: "toolUse" }),
+		beside("再让柜台后的人露面。", fauxToolCall("apply", { effects: [{ kind: "npc", name: "Ruth Blakemore", to: "here", why: "placed" }] })),
+		narrate("你翻了十分钟剪报。"),
+	].map((response) => (context) => { requests.push(context); return response; });
+	const table = await openTable({ realKernel: true, prepareWorkspace: turnOneClosed, responses });
+	t.after(() => table.dispose());
+	await table.session.prompt("我翻一翻剪报。");
+	await waitForIdle(table.session);
+	const results = steers(table);
+	assert.deepEqual(results.map((row) => [row.tool, row.prose_dropped?.beside ?? null]), [
+		["apply", ["apply", "resolve"]],   // the first answering call of the first message carries both kinds
+		["resolve", null],                 // once per message
+		["apply", null],                   // no prose beside it
+		["apply", ["apply"]],              // a refused call carries it too
+		["narrate", null],
+	]);
+	for (const row of results.filter((entry) => entry.prose_dropped))
+		assert.equal(row.prose_dropped.steer, besideSteer(row.prose_dropped.beside), "the steer is the rule over those kinds");
+	// The steer names the kinds it is given (a kind the rule's own sentence never names shows it).
+	assert.ok(besideSteer(["recall"]).includes("recall") && !besideSteer(["apply"]).includes("recall"));
+	const refused = table.session.messages.filter((message) => message.role === "toolResult")[3];
+	assert.ok(refused.isError, "the refused call");
+	assert.ok(refused.content.map((block) => block.text ?? "").join("").includes(JSON.stringify(refused.details.prose_dropped)),
+		"a refused call's text carries the steer to the Keeper as well");
+	assert.deepEqual(drops(table).map((row) => row.steered), ["apply", "apply"], "each drop row says which call carried its steer");
+	// The rule itself is in the assembled capsule the Keeper reads, in its head (outside every section budget).
+	// The provider request converts custom messages to user text; the turn capsule is the one whose head opens the turn.
+	const capsule = requests[0].messages.map((message) => typeof message.content === "string" ? message.content : (message.content ?? []).map((block) => block.text ?? "").join(""))
+		.flatMap((text) => { try { const value = JSON.parse(text); return value?.head?.startsWith("Everything at the start of this turn") ? [value] : []; } catch { return []; } });
+	assert.equal(capsule.length, 1, "one capsule in the turn's request");
+	assert.ok(capsule[0].head.includes(SILENT_WRITES), "the capsule's head carries the rule");
+});
+
+test("a message whose only call is a delivery is not steered", async (t) => {
+	const table = await openTable({ realKernel: true, prepareWorkspace: turnOneClosed, responses: [
+		beside("先说一句。", fauxToolCall("narrate", { text: "你翻了十分钟剪报。" })),
+	] });
+	t.after(() => table.dispose());
+	await table.session.prompt("我翻一翻剪报。");
+	await waitForIdle(table.session);
+	assert.deepEqual(steers(table).map((row) => [row.tool, row.prose_dropped]), [["narrate", null]]);
+	assert.deepEqual(drops(table).map((row) => row.steered), [null]);
 });
