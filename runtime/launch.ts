@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { composeRuntimeContext, type RuntimeHostOptions } from './host.ts';
+import { applyProviderModelCorrections, composeRuntimeContext, type RuntimeHostOptions } from './host.ts';
 import { extensionArgs, resourceRootFrom, sessionExtensionPaths } from './deployment.mjs';
 import { selectLoopEngine } from './loop-engine.ts';
 
@@ -39,7 +39,7 @@ import { selectLoopEngine } from './loop-engine.ts';
 const HTTP_IDLE_TIMEOUT_SETTING = 'httpIdleTimeoutMs';
 const HTTP_IDLE_TIMEOUT_MS = 60_000;
 
-export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
+export async function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
   const env = {...(options.env ?? process.env)};
   const root = options.resourceRoot ?? resourceRootFrom(import.meta.url, env);
   const compiled = options.layout === 'compiled' || env.PI_COC_LAYOUT === 'compiled' || existsSync(join(root, 'deployment.json'));
@@ -94,6 +94,10 @@ export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
     }
     if (changed) writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
   }
+  // SL-61, contract §135.27.1: product corrections for provider model data the product knows
+  // to be wrong (e.g. an omitted thinking level the endpoint actually supports), merged the same
+  // way settings.json is above -- a user's own override for the same provider+model always wins.
+  await applyProviderModelCorrections(context.agentHome, join(context.contentRoot, 'providers', 'model-corrections.json'));
   const hostSession = forwarded.some(arg => arg === '--session' || arg.startsWith('--session='));
   const session = campaign && !hostSession ? ['--session-id', `coc-${mode === 'setup' ? 'setup-' : ''}${campaign}`] : [];
   // Provider extensions come from the shared list every lane child mounts too, so a model this
@@ -111,7 +115,7 @@ export function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
 }
 
 export async function launchMain(args: string[]): Promise<number> {
-  const launch = piLaunch(args);
+  const launch = await piLaunch(args);
   if (launch.env.PI_COC_JEV_S0 === '1' || launch.env.PI_COC_TASK_RUNTIME === '1' && launch.env.PI_COC_MODE === 'play') {
     // Contract §135.5: the S0/TaskRuntime private roles (their `submit_plan_packet`) run on the legacy loop only. On
     // hybrid-v1 the plan is an artifact inside the run, so the combination is refused rather than started as legacy

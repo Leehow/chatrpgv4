@@ -1,0 +1,17 @@
+{
+  "$comment": "Provider model data the product knows to be wrong, corrected as data (contract §135.27.1, SL-61). Shape: Pi's models.json `providers.<id>.modelOverrides.<modelId>` (see @earendil-works/pi-coding-agent's core/model-config.js ModelOverrideSchema). Merged into the agent home's models.json at host preparation (runtime/host.ts mergeProviderModelCorrections, called from runtime/launch.ts's piLaunch) -- a user's own override for the same provider+model always wins and is never touched; other providers and fields in the user's file are untouched.",
+  "providers": {
+    "opencode-go": {
+      "modelOverrides": {
+        "deepseek-v4.1-flash": {
+          "$comment": "pi-ai's opencode-go catalog entry has no compat.supportsReasoningEffort and declares thinkingLevelMap.off: null (off unsupported), so the product could only ever send thinking:{type:\"enabled\"} with no effort. Probed on the real turn-1/turn-8 requests (long gate #9, 2026-09-25): thinking:{type:\"disabled\"} is accepted by the endpoint and cuts a 59-92s turn to 3.1-3.5s with tools still called; reasoning_effort low/minimal is accepted but does not reduce reasoning. See docs/kernel-rpc.md §135.27.1.",
+          "thinkingLevelMap": { "off": "off" }
+        },
+        "deepseek-v4-flash": {
+          "$comment": "Same correction as deepseek-v4.1-flash above; not itself probed live, but it is the same opencode-go deepseek family with the same catalog gap.",
+          "thinkingLevelMap": { "off": "off" }
+        }
+      }
+    }
+  }
+}
