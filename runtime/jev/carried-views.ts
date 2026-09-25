@@ -72,15 +72,16 @@ export function namedPeople(candidate: Pick<Candidate, 'family' | 'bound'> & Par
  * - a person card: identity; the rules numbers and the fight (`mechanics`, the standing defence, disposition and action of
  *   §11.5.2-.3, `deflect_options`); what drives them (wants, fears, hides, and `relationships`, which carries the first
  *   impression a Mod settled); what they know and what was said (knowledge, the ledger, the Keeper's note); the rest.
- * - a scene view: where it is, the exits, the affordances, the assets and obligations, then `present` (reduced to who is
- *   there, `PRESENT_FIELDS`), then the rest of `where` (the dramatic question, the pressure moves, the notes).
+ * - a scene view: where it is, the exits, the affordances, the assets and obligations, the classifications a reviewer
+ *   contested (§22.3.2), then `present` (reduced to who is there, `PRESENT_FIELDS`), then the rest of `where` (the
+ *   dramatic question, the pressure moves, the notes).
  */
 export const CARD_FIELD_ORDER: readonly string[] = Object.freeze(['name', 'called', 'id', 'role', 'scene', 'visibility',
   'mechanics', 'combat_tactic', 'combat_disposition', 'combat_standing', 'deflect_options',
   'wants', 'fears', 'hides', 'relationships',
   'knows', 'knowledge', 'believes', 'hides_claims', 'would_lie_about', 'ledger', 'keeper_note']);
 export const SCENE_FIELD_ORDER: readonly string[] = Object.freeze(['where.scene', 'where.display_name', 'where.summary',
-  'where.exits', 'where.affordances', 'where.assets', 'where.obligations', 'present']);
+  'where.exits', 'where.affordances', 'where.assets', 'where.obligations', 'where.contested', 'where.contested_note', 'present']);
 /** A person in a carried scene view's `present`: who is there; their dossier is what the person cards carry. */
 export const PRESENT_FIELDS: readonly string[] = Object.freeze(['name', 'called', 'role']);
 /** §135.31.2: a landed consultation's view: what it concluded and its limits before the references and the question. */

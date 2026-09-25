@@ -21,7 +21,7 @@ import { validSourceLanguage, vocabulary } from './contract.js';
 import { childPath, inside, resolvedPath } from './paths.js';
 import { ModuleStore, validateModuleId } from './store.js';
 import { playsFromReading, bindStarterSource, boundFileIntact, boundReadingState, declaredWindow, freshReadingState, starterDeclarationsForBook, starterSourceDeclaration, windowMatches, windowOf } from './bound-source.js';
-import { applyOpeningChoice, assembleVisual, attachMapCandidates, checkDraft, checkReview, reject, resolveStartScene } from './visual.js';
+import { applyOpeningChoice, assembleVisual, attachMapCandidates, checkDraft, checkReview, classificationFields, recordContested, reject, resolveStartScene } from './visual.js';
 import { pageSpans } from './transcription.js';
 const object = (value: any): boolean => isJsonObject(value);
 import { SOURCE_ANSWER_PROTOCOL, checkSourceAnswer, checkSourceAnswerReview, sourceAnswerResult } from './source-answer.js';
@@ -52,6 +52,26 @@ export const READING_SLOTS = 3;
  * read lands on. A page of a PDF book is 3.5-4.6 KB of native text; the carried view holds about two of them.
  */
 export const SCENE_INDEX_PAGES = 3;
+/** §22.1 page ranges (`[[first, last], ...]`, or bare pages) as their 0-based pages in book order, no duplicates. */
+function rangePages(ranges: any[]): number[] {
+    const out = new Set<number>();
+    for (const range of ranges) {
+        const [first, last] = Array.isArray(range) ? [number(range[0]), number(range[1] ?? range[0])] : [number(range), number(range)];
+        if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last)) continue;
+        for (let index = first; index <= last && index - first < 10_000; index++) out.add(index);
+    }
+    return [...out].sort((a, b) => a - b);
+}
+/** Sorted 0-based pages as §22.1 ranges, consecutive pages joined. */
+function pageRanges(pages: number[]): number[][] {
+    const out: number[][] = [];
+    for (const page of pages) {
+        const last = out.at(-1);
+        if (last && page === last[1] + 1) last[1] = page;
+        else if (!last || page > last[1]) out.push([page, page]);
+    }
+    return out;
+}
 /** §22.4.7: what `requireMaterial` is told about the batch it gates. */
 export interface MaterialGate {
     /** Move destinations by the name the batch gives `requireMaterial`: the effect's index, and whether the host asked it to land on the index text. */
@@ -413,6 +433,44 @@ export class Reading {
             return recovered;
         });
     }
+    /** §22.4.8: the scene row of a detail reading that failed after its read phase, from its retained attempt. */
+    private async sceneRowAfterFailure(mid: string, meta: Row, job: Row): Promise<boolean> {
+        if (job.purpose !== 'detail' || truth(job.material) || typeof job.work_dir !== 'string') return false;
+        try {
+            const observations = row(await this.store.context.snapshots.readJson(await this.contained(job.work_dir, join(job.work_dir, 'observations.json'))));
+            if (observations.file_sha256 !== row(meta.source_document).file_sha256) return false;
+            let draft: Row | null = null;
+            try { draft = row(await this.store.context.snapshots.readJson(await this.contained(job.work_dir, join(job.work_dir, 'draft.json')))); }
+            catch { /* a read phase without a draft still viewed its pages */ }
+            return Reading.writeSceneRow(meta, job, draft, observations, array(row(await this.store.readGraph(mid)).nodes));
+        }
+        catch { return false; }
+    }
+    /**
+     * §22.4.8: write (or extend) the focus's own index row: the pages the reading's draft cites for the scene node whose
+     * identity meets the focus, kept where the reader viewed them, else the pages it viewed. Structure only.
+     */
+    private static writeSceneRow(meta: Row, job: Row, draft: Row | null, observations: Row, nodes: Row[]): boolean {
+        if (job.purpose !== 'detail' || truth(job.material) || typeof job.focus !== 'string' || !job.focus.trim()) return false;
+        const count = number(meta.page_count);
+        const viewed = [...new Set(array(observations.read_pages).filter(integer).map(number))].filter(page => page >= 1 && (!count || page <= count));
+        if (!viewed.length) return false;
+        const identity = Reading.identityOver(nodes), wanted = identity(job.focus);
+        const scene = nodes.find(node => node.node_kind === 'scene' && wanted.has(`node:${node.node_id}`));
+        const drafted = array(draft?.nodes).find(node => object(node) && node.node_kind === 'scene'
+            && [node.node_id, node.name].some(value => typeof value === 'string' && Reading.meet(identity(value), wanted)));
+        const cited = array(drafted?.source_refs).map(ref => row(ref).page).filter(page => integer(page) && viewed.includes(number(page))).map(number);
+        const id: string | undefined = scene?.node_id ?? (typeof drafted?.node_id === 'string' ? drafted.node_id : undefined);
+        const mine = (section: Row) => id ? section.scene === id : !section.scene && normalize(string(section.name)) === normalize(job.focus);
+        meta.reading ??= {};
+        const rows = array(meta.reading.scene_index), previous = rows.find(mine);
+        const pages = [...new Set([...rangePages(array(previous?.pages)).map(index => index + 1), ...(cited.length ? cited : viewed)])].sort((a, b) => a - b);
+        meta.reading.scene_index = [...rows.filter(section => !mine(section)), {
+            name: string(scene?.name || drafted?.name || job.focus), pages: pageRanges(pages.map(page => page - 1)), topics: [], entities: [id ?? job.focus],
+            references: [], state: 'indexed', ...(id ? { scene: id } : {}), job_id: job.job_id,
+        }];
+        return true;
+    }
     /**
      * §22.4.7 (SL-47): the pages of the bound document that are a scene's index text, structure only: the pages the scene
      * node's own `source_refs` cite (`pdf:<module>`), then the pages of every §22.1 index row whose name or one of whose
@@ -421,10 +479,18 @@ export class Reading {
     async sceneIndexPages(graph: ModuleGraph, node: Row): Promise<number[]> {
         const mid = graph.moduleId, pages: number[] = [];
         const add = (page: number) => { if (Number.isSafeInteger(page) && page >= 1 && !pages.includes(page) && pages.length < SCENE_INDEX_PAGES) pages.push(page); };
+        const sections = await this.store.sections(mid);
+        // §22.4.8: the scene's own rows, written by its detail readings, are its text; the page that merely named it
+        // stands in only when there are none.
+        const own = rangePages(sections.filter(section => section.scene === node.node_id).flatMap(section => array(section.pages)));
+        if (own.length) {
+            for (const index of own) add(index + 1);
+            return pages;
+        }
         for (const ref of array(node.source_refs))
             if (ref?.source_id === `pdf:${mid}` && integer(ref.pdf_index)) add(number(ref.pdf_index) + 1);
         const identity = await this.focusIdentity(mid), wanted = identity(graph.handle(node));
-        for (const section of await this.store.sections(mid)) {
+        for (const section of sections) {
             const named = [section.name, ...array(section.entities)].filter(value => typeof value === 'string');
             if (!named.some(value => Reading.meet(identity(value), wanted))) continue;
             for (const range of array(section.pages)) {
@@ -655,7 +721,10 @@ export class Reading {
      * when those sets meet; an empty focus is its own identity, as the spelled comparison had it.
      */
     private async focusIdentity(mid: string): Promise<(focus: any) => Set<string>> {
-        const nodes = array(row(await this.store.readGraph(mid)).nodes);
+        return Reading.identityOver(array(row(await this.store.readGraph(mid)).nodes));
+    }
+    /** §22.2.1's focus identity over these graph nodes. */
+    private static identityOver(nodes: Row[]): (focus: any) => Set<string> {
         // §22.4.3 (SL-36): a place is also named by its display name and the names the book gives the destination
         // (`destination_identity`), which is how a Keeper spells "The Corbitt House" for `corbitt-house-ground`.
         const names = (node: Row): unknown[] => {
@@ -1070,6 +1139,9 @@ export class Reading {
                 throw new RpcError('invalid_params', 'outcome must be completed, failed or cancelled');
             if (outcome !== 'completed') {
                 const refusal = refusalOf(params.refusal);
+                // §22.4.8: a detail reading refused after its read phase still says where its scene is.
+                if (outcome === 'failed' && await this.sceneRowAfterFailure(mid, meta, job))
+                    await this.store.writeModule(meta);
                 Object.assign(job, { state: outcome, detail: string(truth(params.detail) ? params.detail : outcome), ...(refusal ? { refusal } : {}), finished_at: nowIso() });
                 // §107.1: a refused review or a failed read settles the map's focus as unusable, once; a cancel does not.
                 if (outcome === 'failed' && job.material === 'map' && Reading.settleMap(meta, job, string(refusal?.message || job.detail)))
@@ -1122,9 +1194,11 @@ export class Reading {
             else {
                 const contract = await this.store.contract(), filled = checkDraft(draft, packet, contract, seen);
                 const reviewPath = await this.contained(work, params.review_path), review = clone(await this.store.context.snapshots.readJson(reviewPath));
-                checkReview(row(draft), filled, review, number(meta.page_count), new Set(array(observations.review_pages)));
+                // §22.3.2: a disputed classification is published with its mark; only an unsupported fact refuses.
+                const judged = checkReview(row(draft), filled, review, number(meta.page_count), new Set(array(observations.review_pages)), classificationFields(contract));
                 const retranscribed: Row[] = [];
                 const graph = assembleVisual(await this.store.readGraph(mid), filled, meta, contract, retranscribed);
+                recordContested(graph, filled, judged, mid, job.job_id, number(meta.generation) + 1);
                 if (job.purpose === 'guidance')
                     guidance = await this.checkGuidance(work, graph, row(review));
                 const assets = truth(params.assets) ? params.assets : [];
@@ -1186,6 +1260,8 @@ export class Reading {
                         && (material.key === job.key || normalize(material.focus ?? '') === normalize(job.focus ?? ''))));
                 meta.reading.materials.push({ key: job.key, purpose: job.purpose, ...(job.material ? { material: job.material } : {}), focus: job.focus, question: job.question, node_ids: filled.ready_nodes, generation: number(meta.generation) + 1 });
                 meta.status = meta.opening_ready ? 'installed' : 'assembled';
+                // §22.4.8: the scene's own index row, from the published draft's citation of it.
+                Reading.writeSceneRow(meta, job, filled, observations, array(graph.nodes));
                 this.owned();
                 await this.store.writeGraph(meta, graph);
                 publicationGraph=graph;
@@ -1265,7 +1341,7 @@ export class Reading {
         }
         if (!seen.size)
             reject('index pages were not viewed as full page images: []');
-        const sections = truth(meta.index_file) ? await this.store.sections(mid) : [], unreferenced: string[] = [];
+        const sections = truth(meta.index_file) ? await this.store.indexRows(mid, meta) : [], unreferenced: string[] = [];
         for (const raw of draft.sections) {
             const item = clone(raw);
             if (!object(item) || typeof item.name !== 'string' || !Array.isArray(item.pages) || !item.pages.length)
