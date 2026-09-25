@@ -50,6 +50,8 @@ export interface AdmissionJevInput {
   delivered: Array<{turn: number | string; player?: string | null; keeper: string}>;
   landed: string[];
   refused: string[];
+  /** §11.5.4 (SL-51): the book's text the Keeper was shown this turn (Keeper-only), newest first; absent when none was carried. */
+  bookText?: Array<{where: string; text: string}>;
 }
 
 export interface AdmissionJevLine {verdict: AdmissionJevVerdict; confidence: number; missing: AdmissionMissingKind; basis?: string}
@@ -77,6 +79,11 @@ export const ADMISSION_JEV_RULES: readonly string[] = [
   'An NPC acting on their own, the world or the rules acting on the investigator, a consequence of an already settled choice, and Keeper bookkeeping are not the investigator\'s voluntary action.',
   'Judge the choice, never the result: the player need not know or approve hidden dangers. A short or quiet reply is still a reply. An action already refused this turn (alreadyRefused) proposed again in other words is the same action.',
 ];
+
+/** §11.5.4 (SL-51): what `bookText` is, beside it in the state (policy text, never matched against anything). */
+export const BOOK_TEXT_NOTE = 'bookText is the book\'s own text the host carried to the Keeper this turn: it says whom and what the book puts '
+  + 'here, so a person it names being present or acting is the book\'s, not the Keeper\'s invention. It is never what the player was told '
+  + 'and never the player\'s choice.';
 
 /** §32.2's verdict definitions, one descriptor per issued option. */
 const VERDICT_CRITERIA: Record<AdmissionJevVerdict, string> = {
@@ -129,7 +136,7 @@ export function admissionJevBindings(input: AdmissionJevInput): {scope: ScopeBin
   ]};
 }
 
-interface Catalog {state: Json; passages: Map<string, Passage>; basisCriteria: Record<string, DecisionDescriptor>}
+interface Catalog {state: Json; passages: Map<string, Passage>; basisCriteria: Record<string, DecisionDescriptor>; book: boolean}
 
 function catalog(input: AdmissionJevInput): Catalog {
   const all: Passage[] = [];
@@ -143,6 +150,11 @@ function catalog(input: AdmissionJevInput): Catalog {
     return {turn, playerSaid: player.map(({alias, text}) => ({alias, text})), keeperDelivered: keeper.map(({alias, text}) => ({alias, text}))};
   });
   all.push(...said, ...unfinished);
+  // §11.5.4 (SL-51): the book's own text the host carried to the Keeper this turn. It says whom and what the book puts here
+  // (so an NPC it names acting, or a person it places, is the book's, not the Keeper's invention); it is never what the player
+  // was told or chose.
+  const book = (input.bookText ?? []).flatMap((row, index) => passages(row.text, `book:${index}`, `the book's text (${row.where}) the Keeper was shown`));
+  all.push(...book);
   const visible = (rows: Passage[]) => rows.map(({alias, text}) => ({alias, text}));
   const investigators = input.investigators.map(row => row.occupation ? `${row.name} (${row.occupation})` : row.name);
   const state = {
@@ -152,13 +164,14 @@ function catalog(input: AdmissionJevInput): Catalog {
     told,
     playerWords: visible(said),
     ...(unfinished.length ? {unfinishedDeclaration: visible(unfinished)} : {}),
+    ...(book.length ? {bookText: visible(book), bookTextNote: BOOK_TEXT_NOTE} : {}),
     alreadySettled: [...input.landed],
     alreadyRefused: [...input.refused],
     proposal: input.proposal.map((text, index) => ({line: index, text})),
   } as unknown as Json;
   const basisCriteria: Record<string, DecisionDescriptor> = {none: 'No player-visible passage bears on this line.'};
   for (const passage of all) basisCriteria[passage.alias] = `The passage ${passage.alias}.`;
-  return {state, passages: new Map(all.map(passage => [passage.alias, passage])), basisCriteria};
+  return {state, passages: new Map(all.map(passage => [passage.alias, passage])), basisCriteria, book: book.length > 0};
 }
 
 function choice(key: string, target: string, instructions: string, criteria: Record<string, DecisionDescriptor>): DecisionQuestion {
@@ -179,7 +192,7 @@ export function admissionJevBatches(input: AdmissionJevInput, bindings = admissi
       `If the player has not chosen \`proposal[${index}].text\` (apply \`rules\`), select which choice is missing. Select none when the player chose it, it is a routine step of their chosen goal, or it is not the investigator's voluntary action.`,
       {...MISSING_CRITERIA}),
     choice(`basis_${index}`, `proposal[${index}]`,
-      `Select the one passage alias in \`playerWords\`, \`unfinishedDeclaration\` or \`told\` that most decides whether the player chose \`proposal[${index}].text\`: the words that choose it, or the words that show what the player has not chosen. Select by meaning; select none when no passage bears on it.`,
+      `Select the one passage alias in \`playerWords\`, \`unfinishedDeclaration\` or \`told\`${built.book ? ' (or \`bookText\`, for a line the book itself puts here)' : ''} that most decides whether the player chose \`proposal[${index}].text\`: the words that choose it, or the words that show what the player has not chosen. Select by meaning; select none when no passage bears on it.`,
       built.basisCriteria),
   ];
   const id = `admission:${input.turn}:${digest(input).slice(0, 16)}`, batches: DecisionBatch[] = [];

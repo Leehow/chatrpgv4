@@ -338,6 +338,11 @@ export interface AdmissionContext {
 	landed: string[];
 	/** Proposals already refused this turn, so a rewording is read as the same action. */
 	refused: string[];
+	/**
+	 * §11.5.4 (SL-51): the book's own text the host carried to the Keeper this turn (Keeper-only; never what the player was
+	 * told). Read by the typed reviewer only; the lane's prompt is unchanged.
+	 */
+	bookText?: Array<{ where: string; text: string }>;
 }
 
 const KEEPER_WINDOW_CHARS = 1500;
@@ -657,6 +662,7 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 		delivered: context.delivered.map((row) => ({ turn: row.turn, player: row.player ?? null, keeper: row.keeper })),
 		landed: [...context.landed],
 		refused: [...context.refused],
+		...(context.bookText?.length ? { bookText: context.bookText.map((row) => ({ ...row })) } : {}),
 	};
 	let typed: Awaited<ReturnType<typeof runAdmissionJev>> | undefined;
 	let lease: TaskLease | undefined, accounting: ReturnType<typeof preparationBudget> | undefined;

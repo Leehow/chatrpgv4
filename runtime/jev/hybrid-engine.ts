@@ -85,6 +85,33 @@ export function withEntrance(entry: GuardedDestination, passages: readonly Passa
   return {...entry, entrance: {passages: fitted.view, ...(fitted.truncated ? {truncated: true, omitted_fields: fitted.omitted_fields ?? []} : {})} as Json};
 }
 
+/**
+ * §11.5.4 (SL-51): the source text among carried views, as `{scene, page, label, text}` rows: every page of a `scene_text`
+ * view that went (its key names the page; the text is what went, cut or whole), and every entry of a `source` view with a
+ * string `content` (§135.31.1's book passages; its graph-entity units are the graph's own words). Structure only.
+ */
+export function carriedPassages(views: ReadonlyArray<{focus: string; name?: string; view: Row}>,
+  sceneTexts: ReadonlyArray<{scene: string; pages: Array<{page: number; pdf_label?: string; text: string}>}> = []): Row[] {
+  const out: Row[] = [];
+  for (const entry of views) {
+    if (entry.focus === 'scene_text') {
+      const pages = sceneTexts.find(value => value.scene === entry.name)?.pages ?? [];
+      for (const page of pages) {
+        const key = `page ${page.page}${page.pdf_label ? ` (${page.pdf_label})` : ''}`;
+        if (typeof entry.view[key] === 'string') out.push({scene: entry.name ?? null, page: page.page, label: page.pdf_label ?? null, text: entry.view[key]});
+      }
+    } else if (entry.focus === 'source') {
+      for (const [label, value] of Object.entries(entry.view)) {
+        const content = object(value).content;
+        if (typeof content !== 'string' || !content.trim()) continue;
+        const page = object(object(value).provenance).page;
+        out.push({scene: entry.name ?? null, page: Number.isSafeInteger(page) ? page : null, label, text: content});
+      }
+    }
+  }
+  return out;
+}
+
 /** The kernel extension's bus payload (`coc:kernel-bridge`, contract §12.8). */
 export interface KernelBridge {
   campaign?: string;
@@ -732,6 +759,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       if (entry.focus === 'source' && entry.name) run.shown.passages.add(entry.name);
     }
     for (const entry of carried.pending ?? []) run.shown.pending.add(JSON.stringify([entry.focus, entry.question]));
+    // §11.5.4 (SL-51): the source text this note carried -- a scene_text view's pages as they went, a source view's book
+    // passages -- is the turn's carried text, which a write about a person the book names is checked against.
+    const text = carriedPassages(carried.views, sceneTexts);
+    if (text.length && run.turn !== undefined) api?.events?.emit?.('coc:carried-text', {campaign: bridge.campaign, turn: run.turn, run: run.runId, passages: text});
     // A name is settled once its card went (now or earlier under another name), or once `look` does not resolve it.
     for (const {name, id} of carried.resolved) if (ids.has(id) || run.shown.people.has(id)) run.shown.people.add(name);
     for (const entry of carried.omitted) if (entry.focus === 'npc' && entry.reason === 'not_found' && entry.name) run.shown.people.add(entry.name);
@@ -750,6 +781,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   async function projection(run: RunState, view: {policyState: StepPolicyState}, step: {purpose: string; reason: string; request?: unknown}, stepId: string) {
     const content: Row = {kind: 'single_loop_step', purpose: step.purpose, reason: step.reason};
     run.lastInferAt = now() - run.startedAt;
+    // §135.11.1 (SL-50): the model step the Keeper's next message answers, for the kernel extension's drop row.
+    api?.events?.emit?.('coc:model-infer', {run: run.runId, step: stepId});
     // §135.25: the compose the budget chose lists the clerk steps it left undone; the next run's first note says so once.
     const budget = object(object(step.request).budget);
     if (step.reason === 'run_budget') {

@@ -812,6 +812,94 @@ from a rule-default one, the table's section refused when malformed), `tests/ext
 (the default taken when Jev answers `unknown` and below the gate, Jev's word when it clears, no default → the Keeper),
 `tests/extension/single-loop-domain-policy.test.mjs` (the clerk's write at the seam on the emitted kernel).
 
+#### 11.5.4 A person the carried source text names is known to the run (2026-09-24, SL-51; amends §87.2, §22.4.7 and §32.10)
+
+The owner's ruling (2026-09-24): what the carried source text names is not invented. A `person`/`npc` write whose name
+appears in the passages this turn carried is accepted and registers the person provisionally from that passage (name,
+page, sentence), marked `from_passage`; the detail record, when it lands, replaces the provisional entry by name. The
+typed reviewer's grounds include the carried passages.
+
+**Evidence** (ticket 29's batch-5 entry, campaign `sl29ab5-xuese-5001`, t7). SL-47 landed the move to `esso-station` on
+its index page 17 and carried the page to the Keeper; the page names three men under the canopy verbatim, 内特·帕特森 and
+史蒂夫·布朗 among them. The Keeper's next batch placed them (`npc … to: here`, `person who: …`) before `read-5`'s record
+had landed (t16) and was refused whole: `unknown_entity: no npc named '内特·帕特森' in the module graph` (the npc miss had a
+near-name candidate, so §87's minting did not apply) and `'内特·帕特森' is nobody at this table` (a `person` write never
+mints). The text arrives before the record by design (§22.4.7); the refusal treated the book's own words as an invention.
+
+**The host: the turn's carried text** (`extensions/kernel/carried-text.ts`). Per campaign and turn the kernel extension
+keeps the source text it put in front of the Keeper this turn, as `{scene, page?, label?, text}` rows:
+
+- on the hybrid engine, the engine's note reports what it carried (`coc:carried-text`, `{campaign, turn, run, passages}`),
+  after the views were fitted: every page of a `scene_text` view that went (§22.4.7; a page dropped for the ceiling did not
+  go), and every book passage of a `source` view (§135.31.1: a prescreen material of `kind: "source"` whose `content` is a
+  string; the graph-entity units of that view are the graph's own words and add nothing);
+- on the legacy engine, the pages a landed move put in the apply result's `scene_text` (§22.4.7).
+
+Graph records, session views and person cards are not carried text: they are the graph, which already answers for them.
+
+**The write carries the passage.** Before an `apply` reaches admission, the host strips any `_passage` the model sent and,
+for each `npc` effect (its `name`) and `person` effect (its `who`), looks the name up in the turn's carried text. The
+match is exact after the kernel's name normalization (§2: NFKC, case, `_`/`-` as space) with all whitespace removed from
+both sides, because a page's line breaks are layout (page 17 breaks 拉斯·威廉姆斯 across two lines); a name shorter than two
+characters after that is never looked up. No near name, no alias, no language rule; the known edge of an exact occurrence
+is a name that is the front of a longer one in the text (内特·帕特 inside 内特·帕特森), which counts, and the record keeps the
+sentence so it can be read back. On the first passage that holds it
+(newest first) the effect gains the host-only `_passage: {scene, page, label, sentence}`: `sentence` is the sentence of
+the original text that holds the match (`Intl.Segmenter`, granularity `sentence`, no locale; a sentence over 300
+characters is cut to 300 around the match), whitespace runs collapsed to one space. One `lane: "people", event:
+"passage_named"` row per effect so marked (`turn, name, kind, scene, page`). Nothing else changes for a name the text does
+not hold.
+
+**The kernel.** The graph answers first, exactly as before: a book person, a creature, a reviewed adaptation or a table
+person already established resolves and `_passage` is ignored. Only a name the graph refuses consults it, and only when
+its `sentence` holds the name under the same comparison (the kernel checks; a malformed `_passage` counts as absent):
+
+- `npc` (`personOfEffect`): where §87 threw because the graph offered candidates, the person is now established from
+  the passage. A pin (`skill`, `archetype`), `conditions` and `reunion` keep §87.2's refusal: the passage vouches for a
+  name, not for numbers.
+- `person` (`personOf`): where "nobody at this table" was thrown, the same establishment, and the label is written on it.
+
+Establishment is §87's record plus the passage: `world.table_people[] = {name, turn, why, established_at, from_passage:
+{scene, page, label, sentence}}`, the graph projection's `campaign_origin` gains `from_passage`, and the receipt says
+`established: "passage"` with `from_passage` (a table invention stays `established: "table"`). **`unknown_entity` is
+answered only when neither the graph nor the carried text names the person**, with the refusal's text and candidates
+unchanged.
+
+**The record replaces the entry by name, once** (`kernel-ts/read/table-people.ts`, `withTablePeople`). Every load checks
+each `from_passage` entry that has no `replaced_by`: when the loaded graph now resolves its name to a person that is not a
+table person (the scene's reviewed record has landed with them, or any later generation names them), the entry is not
+installed; the world's per-person maps are re-keyed from the provisional handle (the name) to the book person's handle
+(`npc_presence`, `npc_resources`, `npc_character`, `npc_profiles`, `npc_disposition`, `npc_defense`, `npc_action`,
+`person_labels`, each under both the handle and the node id; where the book's person already has an entry it is kept and
+the provisional one dropped), and the entry gains `replaced_by: <handle>`. A write transaction persists that with its commit, so it happens once;
+a read computes the same in memory until then. A replaced entry is never installed again. A name the new graph finds
+ambiguous or not at all keeps the provisional person. The campaign's other stores (the NPC ledger, the journal, the voice
+masks) keep their history under the provisional name; turn receipts are history and are not rewritten.
+
+**Admission.** The typed reviewer's state (§32.10) gains `bookText`: the turn's carried passages, newest first, each
+clipped to 1 500 characters and 4 000 in all, with the note that they are the book's text the Keeper was shown, never
+what the player was told or chose; its `basis` question may name one (`book:<n>`). The lane's prompt is unchanged. `npc`
+and `person` are not triggering kinds (§32.1), so this reaches them only inside a batch that is reviewed for another line.
+
+*Three ends (§31).* Writer: the engine's note and the legacy apply result (the carried text), the host (`_passage`), the
+kernel (`table_people` with `from_passage`, the replacement). Reader: the kernel's person resolution, every load
+(`withTablePeople`), the typed reviewer. Actor: the Keeper, whose write about a person the book named is taken, and who
+meets the person's record under the book's handle once it lands.
+
+*Tests.* `tests/extension/passage-person.test.mjs`: on the kernel (in process, the module published into the home's store
+so a later generation can name the person), t7's batch (`npc` and `person` for a name page
+17 holds, beside a near-name book NPC) lands with `established: "passage"` and the page and sentence; the same batch for a
+name the carried text does not hold is refused `unknown_entity` as before; a `_passage` whose sentence does not hold the
+name is refused; a pin on a passage name is refused; when a later graph generation names the person, the next write
+replaces the entry once (`replaced_by`, presence re-keyed, the name resolving to the book's handle, no ambiguity), and a
+further write changes nothing; the host's lookup (a name the page breaks across two lines, never a near name nor one
+character); at the extension seam (legacy engine, the emitted kernel), the host marks the effects only for a name in the
+turn's carried text, strips a model-sent `_passage`, and forgets the text at the next turn; the engine's report of what a
+note carried; the typed reviewer's state carries `bookText` at the seam only on a turn that carried text.
+`tests/extension/scene-text-landing.test.mjs`: on the hybrid engine the pages the note carried are reported once as the
+turn's carried text; on the legacy engine the pages the apply result carried are, and a person they name is established
+from them. Mutations in the SL-51 ticket's Comments.
+
 ### 11.6 结果与收据
 
 `outcome.kind` 取 `check`、`opposed`、`combined`、`social`、`psychology`、`healing`、`push`、`luck`、`magic`、`development`、`combat`、`chase`、`sanity`、`none`。每种至少有 `level` 或 `status`、涉及的骰面与目标值、`effects`。`effects` 每条 `{kind: hp|san|mp|luck|condition|ammo|position, subject, before, after}`。
@@ -18754,6 +18842,48 @@ on the clerk's next move; a retained `ready` proposal holds neither a read nor a
 naming it. `tests/extension/adaptation-host.test.mjs`: the 2 s default and the override. `tests/extension/turn.test.mjs`,
 `host-state-not-fiction.test.mjs` and `stale-adaptation.test.mjs` now block a dependent write where they blocked an
 ordinary one. The replay of turn 19 is in the SL-23 ticket's Comments.
+
+#### 135.11.1 Prose beside tool calls: the drop row names its step and its calls; the keep rule waits on its measurement (2026-09-24, SL-50; amends this section's gate #4 addendum)
+
+**The owner's ruling (2026-09-24).** Prose beside tool calls is the turn's draft when every call in that step is an `apply`
+the host admitted; it is dropped, with today's steer, only when the step carries a `resolve` or a call that was refused or
+is pending. Structural: call kinds and verdicts, never wording. Its scope put the measurement first.
+
+**The measurement** (the SL-50 ticket's Comments; the pairing script is reproducible from the three campaigns'
+`telemetry.jsonl` and the play driver's `events.jsonl`). All 46 `text_beside_tool_calls` drops of long gates #3–#5 pair
+with their message (the n-th message whose `provider-call` blocks carry text beside a tool call is the n-th drop row, same
+turn, 46/46), and every one has its text *before* the calls. 26 of 46 sat on steps whose calls were all `apply`, all
+admitted and all landed; 14 carried a `resolve`, 5 were `lookup`s, 1 an `apply` returned pending. Gate #5's t3, the replay
+the ticket names, is one of the 14 (a refused `resolve`, `rule_no_check`). The 26 drafts are 23–55 characters (median 40)
+against the 163–484-character turns the same runs delivered (median 238; the 24 whose turn file exists, t0 has none); their text is the Keeper announcing its
+bookkeeping ("first I record the interval, then …"), not the turn's prose. Kept and delivered where no later step replaces
+it, they would be what the player reads on any turn whose run stops there; and the saving the ticket sought (the
+re-compose) exists only if the run stops there. **The keep rule is therefore not implemented**; the prose beside a tool
+call is dropped exactly as before, and the finding is the owner's to rule on again (the ticket's Comments).
+
+**What is implemented: the drop row names its step and calls.** `message_end` no longer writes the `text_beside_tool_calls`
+row at once. It holds `{turn, dropped, step, calls}` and writes the row when the last of the message's calls has answered
+(`runTool`'s success or refusal), else before the next assistant message is read, else at `agent_end`. The row gains:
+
+- `step` and `run`: the single-loop step the message answered (the engine announces each model step before it,
+  `coc:model-infer {run, step}`), `null` on the legacy engine;
+- `calls`: one row per tool call of the message, in its order, `{tool, outcome, admission?, code?, reason?}`. `outcome` is
+  closed: `landed` (the call returned a result), `refused` (it threw; `code` and the kernel's or the host's `reason`),
+  `pending` (refused with `reason: review_pending`, §32.12.2), `not_run` (never answered: a batch step skipped after an
+  earlier one fell, or a `tool_call` gate that blocked it). `admission` is the review's verdict word when a review ran
+  (`authorized`, `entailed`, `not_player_action`, `not_authorized`, `review_pending`, …; a split batch's last part's).
+
+The existing `dropped` count is unchanged. Nothing reads the prose.
+
+*Three ends (§31).* Writer: `message_end` (the hold), `runTool` (each call's outcome, the admission verdict through the
+review's `onVerdict`), the engine (`coc:model-infer`). Reader: the operator and the measurement that re-reads this ruling.
+Actor: none in the product; the owner.
+
+*Tests.* `tests/extension/beside-drop-row.test.mjs`: on the legacy engine over the emitted kernel, prose beside an admitted
+`apply` and a refused one each leave one row with the calls' kinds and outcomes (`landed` with its verdict, `refused` with
+its code and reason), the prose never reaches the transcript, and the turn is delivered by its own later narrate; a batch
+whose first call is blocked names the others `not_run`; on the hybrid engine the row names the model step the message
+answered. Mutations in the SL-50 ticket's Comments.
 
 ### 135.20 The read hands the Keeper the bodies of what it issued (2026-09-23, SL-11 scope 1; the model-call diet)
 

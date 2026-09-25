@@ -50,6 +50,7 @@ import {
 import { readJevApiKey } from "../jev/agent/config.js";
 import { PendingAnswers, memoAnswer, pendingAnswer, sourceAnswerAllowanceMs } from "./source-answers.ts";
 import { SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
+import { bookText, CarriedText, findPassage } from "./carried-text.ts";
 import { speechPass } from "../../kernel-ts/write/speech-pass.ts";
 import {
 	type AdmissionContext,
@@ -1211,6 +1212,16 @@ export default function (pi: ExtensionAPI) {
 	const pendingAnswers = new PendingAnswers((row) => { void record(row); });
 	/** §22.4.7 (SL-47): the scenes entered on their index text whose record is still being read, per campaign, until carried once. */
 	const sceneReadings = new SceneReadings((row) => { void record(row); });
+	/**
+	 * §11.5.4 (SL-51): the source text the Keeper was shown this turn, per campaign. The hybrid engine's note reports what it
+	 * carried (`coc:carried-text`); the legacy apply result's `scene_text` pages are noted where they are attached.
+	 */
+	const carriedText = new CarriedText();
+	pi.events.on("coc:carried-text", (value) => {
+		const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
+		if (typeof data.campaign !== "string" || typeof data.turn !== "number" || !Array.isArray(data.passages)) return;
+		carriedText.note(data.campaign, data.turn, data.passages as Array<Record<string, unknown>>);
+	});
 	/** §135.31: the run step each model tool call came from, announced by the single-loop engine just before it runs. */
 	const modelSteps = new Map<string, { run: string; step: string }>();
 	pi.events.on("coc:model-step", (value) => {
@@ -1219,6 +1230,36 @@ export default function (pi: ExtensionAPI) {
 		if (modelSteps.size >= 256) modelSteps.clear();
 		modelSteps.set(data.toolCallId, { run: data.run, step: data.step });
 	});
+	/**
+	 * §135.11.1 (SL-50): the model step the Keeper's next message answers, announced by the single-loop engine before each
+	 * model step (`coc:model-infer`). Absent on the legacy engine.
+	 */
+	let inferStep: { run: string; step: string } | undefined;
+	pi.events.on("coc:model-infer", (value) => {
+		const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
+		inferStep = typeof data.run === "string" && typeof data.step === "string" ? { run: data.run, step: data.step } : undefined;
+	});
+	/**
+	 * §135.11.1 (SL-50): prose dropped beside tool calls, held until its calls have answered so its row names the step and
+	 * each call's kind and outcome. Written when the last call answers, else before the next message is read, else at the
+	 * run's end (a call a batch skipped or a gate blocked never answers: `not_run`).
+	 */
+	let besideDrop: { turn: number; dropped: number; step: { run: string; step: string } | null;
+		calls: Array<{ id: string; tool: string; outcome?: string; admission?: string; code?: string; reason?: string }> } | undefined;
+	async function flushBeside(): Promise<void> {
+		const held = besideDrop;
+		besideDrop = undefined;
+		if (!held) return;
+		await record({ lane: "delivery", turn: held.turn, ok: false, reason: "text_beside_tool_calls", dropped: held.dropped,
+			step: held.step?.step ?? null, run: held.step?.run ?? null,
+			calls: held.calls.map(({ id: _id, ...call }) => ({ ...call, outcome: call.outcome ?? "not_run" })) });
+	}
+	async function noteBesideOutcome(toolCallId: string, outcome: { outcome: string; admission?: string; code?: string; reason?: string }): Promise<void> {
+		const call = besideDrop?.calls.find((entry) => entry.id === toolCallId);
+		if (!call || call.outcome) return;
+		Object.assign(call, outcome);
+		if (besideDrop!.calls.every((entry) => entry.outcome)) await flushBeside();
+	}
 	/** §135.31: the Keeper's look/lookup calls of the open turn, carried on the turn's delivery to its record (at most 64). */
 	let turnReads: { campaign: string; turn: number; rows: KeeperRead[] } | undefined;
 	const noteRead = (state: TableState, read: KeeperRead): void => {
@@ -2075,7 +2116,7 @@ export default function (pi: ExtensionAPI) {
 		origin: Record<string, unknown> = {},
 		// §32.12: the dispatcher frame's host origin (never the tool arguments): who proposed this call, and for the clerk
 		// the compile's evidence and the bind records; `host` a host-dispatched call with no origin, `model` the Keeper's.
-		evidence: ClerkEvidence & { label?: string } = {}): Promise<AdmissionPartial | undefined> {
+		evidence: ClerkEvidence & { label?: string; onVerdict?: (verdict: string) => void } = {}): Promise<AdmissionPartial | undefined> {
 		// §32.12: every admission row says who proposed it, which path decided (`none` when no review ran) and how long it took.
 		const who = { origin: typeof origin.origin === "string" ? origin.origin : evidence.label ?? "model" };
 		const internalCombatMove = tool === "apply" ? combatSceneMove(state, payload) : undefined;
@@ -2148,6 +2189,8 @@ export default function (pi: ExtensionAPI) {
 			],
 			landed: state.landed,
 			refused: state.admissionRefused,
+			// §11.5.4 (SL-51): the book's text the Keeper was shown this turn, for the typed reviewer's grounds.
+			...(() => { const book = bookText(carriedText.of(state.campaign, state.turn)); return book.length ? { bookText: book } : {}; })(),
 		});
 
 		/**
@@ -2160,6 +2203,8 @@ export default function (pi: ExtensionAPI) {
 			const digest = keyDigest(proposal.key), partRows = part?.rows ?? {};
 			const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string, meta: Record<string, unknown> = {}, keep = true): Promise<void> => {
 				if (keep) state.admission.set(proposal.key, verdict);
+				// §135.11.1 (SL-50): the verdict of this call's review, for the drop row of the step the call came from.
+				evidence.onVerdict?.(verdict.verdict);
 				const admitted = ADMITTING_VERDICTS.has(verdict.verdict);
 				const timedOut = verdict.verdict === REVIEW_TIMEOUT;
 				// A refusal costs the player the whole batch, and until now the row said only which verdict
@@ -2307,6 +2352,7 @@ export default function (pi: ExtensionAPI) {
 		const clearedProposal = admissionRequest(tool, { effects: clearedEffects }, scopeFor(clearedEffects));
 		if (clearedProposal) state.admission.set(clearedProposal.key, clearedVerdict);
 		const lineNumbers = (indices: number[]) => indices.map((index) => index + 1);
+		evidence.onVerdict?.(clearedVerdict.verdict);
 		await record({ lane: "admission", verb: tool, ok: true, verdict: clearedVerdict.verdict, admitted: true, reused: false, ms: split.ms, key: digest,
 			model: ADMISSION_JEV_MODEL, reviewer: "jev", path: "typed", line_level: "admitted", lines: lineNumbers(cleared), of_lines: shown.length,
 			confidence: Math.min(...lineVerdicts.map((line) => line.confidence)), ...split.meta, ...refusedCompile, ...origin, ...who,
@@ -3151,6 +3197,8 @@ export default function (pi: ExtensionAPI) {
 		} catch (error) { settled = Promise.reject(error); }
 		settled.catch(() => undefined);
 		sceneReadings.register(state.campaign, focus, texts, state.turn, settled);
+		// §11.5.4: on the legacy engine these pages ride this very result, so they are carried now.
+		if (!drivenEngine) carriedText.note(state.campaign, state.turn, texts.map((page) => ({ scene: focus, page: page.page, label: page.pdf_label ?? null, text: page.text })));
 		void record({ lane: "reading", event: "scene_text", turn: state.turn, scene: focus, pages: texts.map((page) => page.page),
 			bytes: Buffer.byteLength(JSON.stringify(texts), "utf8") });
 		const landed = Array.isArray(result.scene_text) ? result.scene_text as Array<Record<string, unknown>> : [{ scene: focus, pages }];
@@ -3242,8 +3290,9 @@ export default function (pi: ExtensionAPI) {
 			...(host.clerk ? { clerk: host.clerk } : {}), ...(host.basis !== undefined ? { basis: host.basis } : {}) }
 			: readArgs && fromStep ? { origin: "model", run: fromStep.run, step: fromStep.step } : {};
 		// §32.12: admission's view of the same frame -- the clerk's compile evidence and bind records, or who else proposed it.
-		const evidence = host ? { origin: host.origin, basis: host.basis, bindings: host.bindings }
-			: { label: dispatcher.tracksMutation(toolCallId) ? "host" : "model" };
+		let admissionVerdict: string | undefined;
+		const evidence = { ...(host ? { origin: host.origin, basis: host.basis, bindings: host.bindings }
+			: { label: dispatcher.tracksMutation(toolCallId) ? "host" : "model" }), onVerdict: (verdict: string) => { admissionVerdict = verdict; } };
 		const readRow: Record<string, unknown> = readArgs ? { args: readArgs.args, ...(readArgs.cut.length ? { args_cut: readArgs.cut } : {}),
 			...(readArgs.withheld.length ? { args_withheld: readArgs.withheld } : {}) } : {};
 		const keepRead = (ok: boolean): void => {
@@ -3261,6 +3310,15 @@ export default function (pi: ExtensionAPI) {
 				if (!effect || typeof effect !== "object") continue;
 				delete effect._inferred;
 				if (read.length && effect.kind === "npc" && effect.disposition != null) effect._inferred = { read };
+				// §11.5.4 (SL-51): only the host says a passage names someone; a model-sent `_passage` never reaches the kernel.
+				delete effect._passage;
+				const named = effect.kind === "npc" ? effect.name : effect.kind === "person" ? effect.who : undefined;
+				const passages = state && typeof named === "string" ? carriedText.of(state.campaign, state.turn) : [];
+				const found = passages.length ? findPassage(passages, named) : undefined;
+				if (found) {
+					effect._passage = { ...found };
+					void record({ lane: "people", event: "passage_named", turn: state!.turn, name: named, kind: effect.kind, scene: found.scene, page: found.page });
+				}
 			}
 		}
 		takeSkillAnnotation(state?.skillRun, params);
@@ -3586,6 +3644,7 @@ export default function (pi: ExtensionAPI) {
 				...(spec.name === "recall" ? {response_bytes: Buffer.byteLength(JSON.stringify(result), "utf8")} : {}),
 			});
 			keepRead(true);
+			await noteBesideOutcome(toolCallId, { outcome: "landed", ...(admissionVerdict ? { admission: admissionVerdict } : {}) });
 			if (spec.name === "narrate" || spec.name === "ask") {
 				// A turn inside a session must be accountable on its own: round trips in combat are not the same as in investigation.
 				await record({
@@ -3702,6 +3761,8 @@ export default function (pi: ExtensionAPI) {
 				...readRow,
 			});
 			keepRead(false);
+			await noteBesideOutcome(toolCallId, { outcome: reason === "review_pending" ? "pending" : "refused", code, ...(reason ? { reason } : {}),
+				...(admissionVerdict ? { admission: admissionVerdict } : {}) });
 			return {
 				content: [{ type: "text", text: errorText(error) }],
 				...(state.reviewUnavailable || state.commitUnavailable ? {terminate: true} : {}),
@@ -4840,6 +4901,8 @@ export default function (pi: ExtensionAPI) {
 		}
 		const state = table;
 		if (!state || event.message.role !== "assistant") return;
+		// §135.11.1: a held drop whose calls did not all answer is written before this message is read.
+		await flushBeside();
 		const blocks = (event.message.content ?? []) as Array<Record<string, unknown>>;
 		const hasToolCalls = blocks.some((b) => b.type === "toolCall");
 		// Contract §34.17. One message, two `narrate` calls: the first closes the turn and every later
@@ -4880,7 +4943,9 @@ export default function (pi: ExtensionAPI) {
 			// narrate and ask.
 			const withoutText = blocks.filter((b) => b.type !== "text");
 			if (withoutText.length !== blocks.length) {
-				void record({ lane: "delivery", turn: state.turn, ok: false, reason: "text_beside_tool_calls", dropped: blocks.length - withoutText.length });
+				// §135.11.1 (SL-50): the row waits for the calls' outcomes (it names the step and each call's kind and outcome).
+				besideDrop = { turn: state.turn, dropped: blocks.length - withoutText.length, step: inferStep ?? null,
+					calls: calls.map((block) => ({ id: String(block.id), tool: String(block.name) })) };
 				return { message: { ...event.message, content: withoutText } };
 			}
 			return;
@@ -5152,6 +5217,8 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_end", async () => {
+		// §135.11.1: the run is over; a held drop whose calls never all answered is written now.
+		await flushBeside();
 		const state = table;
 		if (!state) return;
 		// When the Keeper ends on the message that carried the narrate call there is no second assistant
