@@ -34,9 +34,10 @@ Status: `ready-for-human`（实施完成 2026-09-25，见 Comments）。在集�
 
 ## W5 — 真桌验收（lead）
 
-Status: `ready-for-human`。依赖 W4。范围：规格 §7。
+Status: `ready-for-human`（已跑 2026-09-25，见 Comments）。依赖 W4。范围：规格 §7。
 
 ## Comments
 
 - 2026-09-25 W1 `330529e50`（+ §30.7f `89fd97391`）、W2 `863775319`、W3 `bb4ed9c91` 合入集成分支；W1 发现删 capability 名会锁死 1.5.0–1.7.1 的旧战役，lead 改为名字留作惰性接受（`88610909b`）。
 - 2026-09-25 W4：narration-craft 2.0.0（agent.md / brief.md 968 B / style.json：全量 2015 B、最重 beat 简式 1308 B，按 35 字符语言标签量）；keeper.md 33064 → 30042 B；`repeated_line` 的 fix 文案不再要求人物让步/加码/换话题；定向测试：pytest 九文件 120 过、ext 九文件 201 过。
+- 2026-09-25 W5：A（基底 95df22a6d）/B（3d24508de，2.0.0）各 15 回合，同 deepseek-v4.1-flash/low，同 15 句。两位 sonnet 盲读（一致率 0.928）六类缺陷合计 A 12/13 对 B 9/7：回执复述 5/3→2/1、规则复读 2/3→1/1、抽象套式 1/1→0/0、任务提示腔 4/4→4/4（NPC 台词里的去处清单，是 NPC 材料投影的事）、硬译 0/2→2/1、全称重复 0→0。口吻列队 A 35/42 对 B 25/27；B 桌 `voices` 有人在场即非空、say 全部归属到人、无英文名；style 无截断，brief 合计 4928 B。leehow-pc 全套件：ext 2840/2840，pytest 1703 过 2 败（`tests/play/test_driver.py` Linux 收尾，基底同败）。报告 `.coc/playtests/prose-mod-acceptance/REPORT.md`。不宣称文笔达标。
