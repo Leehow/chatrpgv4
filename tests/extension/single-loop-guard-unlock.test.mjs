@@ -204,7 +204,7 @@ function kernelSteps(workspace, requests) {
 	for (const frame of frames) if (!frame.ok) throw new Error(`kernel step ${frame.id} failed: ${JSON.stringify(frame.error)}`);
 	return frames.map((frame) => frame.result);
 }
-const ACCEPT = "apply:obligation:knott-commission", COMMISSION = "Accept Knott's commission";
+const ACCEPT = "apply:obligation:knott-accept-commission", COMMISSION = "Accept Knott's commission";
 const aliasWhere = (question, match) => Object.entries(question?.criteria ?? {}).find(([, value]) => match(value))?.[0];
 const complete = (answers) => ({ batchId: "b", status: "complete", answers, issues: [], coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] } });
 const choice = (value, confidence) => ({ status: "answered", type: "choice", choice: value, confidence, probabilities: { [value]: confidence } });

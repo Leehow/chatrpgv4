@@ -5077,7 +5077,7 @@
       ]
     },
     {
-      "node_id": "requirement-knott-commission",
+      "node_id": "requirement-knott-accept-commission",
       "node_kind": "requirement",
       "name": "Accept Knott's commission",
       "visibility": "keeper-only",
@@ -18155,11 +18155,11 @@
       "reason": "Authored scene obligation (contract section 133)."
     },
     {
-      "claim_id": "claim-has-requirement-knott-commission",
+      "claim_id": "claim-has-requirement-knott-accept-commission",
       "subject_id": "scene-commission-briefing",
       "predicate": "has-requirement",
       "object": {
-        "node_id": "requirement-knott-commission"
+        "node_id": "requirement-knott-accept-commission"
       },
       "truth_status": "authored-fact",
       "visibility": "keeper-only",
@@ -23088,11 +23088,11 @@
       "properties": {}
     },
     {
-      "relation_id": "relation-has-requirement-knott-commission",
+      "relation_id": "relation-has-requirement-knott-accept-commission",
       "relation_kind": "has-requirement",
       "from_node_id": "scene-commission-briefing",
-      "to_node_id": "requirement-knott-commission",
-      "claim_id": "claim-has-requirement-knott-commission",
+      "to_node_id": "requirement-knott-accept-commission",
+      "claim_id": "claim-has-requirement-knott-accept-commission",
       "properties": {}
     },
     {

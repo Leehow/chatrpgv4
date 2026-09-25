@@ -114,7 +114,8 @@ def test_reveal_on_investigate_intent_with_gates_and_registry_grounding(seeded_k
     gates = {r["clue"]: r["gate"] for r in reveal}
     # The Director and Story Thread share the same honest check projection (§30.12).
     assert gates["knott-commission"] == "npc_dialogue: check unspecified"
-    assert gates["knott-research-leads"] == "npc_dialogue: check unspecified"
+    # §134.18: the commission guards the leads until it is accepted, and the one gate string says so (§134.10).
+    assert gates["knott-research-leads"] == "npc_dialogue: check unspecified; guarded by obligation knott-accept-commission"
     assert director["grounded_by"] == grounded_names("scoring-rule:reveal:investigate-intent")
     assert "core-check:ordinary-check" in director["grounded_by"]
     assert "effect:coc7:magic:learn-spell-spell-learned" in director["grounded_by"]

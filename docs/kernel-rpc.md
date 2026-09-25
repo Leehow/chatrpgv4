@@ -18627,14 +18627,14 @@ order:
 The row also carries `yields: {clues?: [handle], items?: [name], cash?: delta}`. The flag comes first, so the batch's guarded
 clues cross nothing (§134.12 reads the state after the batch). Yields are filed only by this settlement: the kernel applies
 nothing on its own, a Keeper's waiver (`apply flag` with a `why`) yields nothing, and an obligation settled by a check states no
-yields (refused, above). The capsule row's cue for an open accept names the person, the flag and the yields, and says the
-settlement is one `apply`.
+yields (refused, above). The capsule row's cue for an open accept names the person and the flag and says one `apply` with its yields
+settles it (kept short: the section's 1 KB budget trims from the end, and promise rows follow scene rows).
 
 **`resolve`** (amends §134.11). `action.obligation` on an obligation whose next step is an accept is refused
 `obligation_step`, with `details.next: "accept"` and a fix naming the settlement `apply`. §134.17's fold reads only check
 steps, unchanged.
 
-**The haunting** (amends §134.6). `requirement-knott-commission` "Accept Knott's commission", linked from
+**The haunting** (amends §134.6). `requirement-knott-accept-commission` "Accept Knott's commission", linked from
 `scene-commission-briefing` by one `has-requirement` claim, cited as the neighbouring office nodes cite page 446 ("gives you
 the keys", `span-page-446-anchor-9`):
 - `attempt`, guarding `clue-knott-keys` and `clue-knott-research-leads`;

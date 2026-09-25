@@ -419,7 +419,7 @@ function kernelSteps(workspace, requests) {
 const aliasWhere = (question, match) => Object.entries(question?.criteria ?? {}).find(([, value]) => match(value))?.[0];
 const complete = (out) => ({ batchId: "b", status: "complete", answers: out, issues: [], coverage: { required: Object.keys(out), answered: Object.keys(out), unknown: [] } });
 
-const ACCEPT = "apply:obligation:knott-commission", COMMISSION = "Accept Knott's commission";
+const ACCEPT = "apply:obligation:knott-accept-commission", COMMISSION = "Accept Knott's commission";
 const graphNode = (id) => JSON.parse(readFileSync(join(REPO, "content/starters/the-haunting/module-graph.json"), "utf8")).nodes.find((node) => node.node_id === id);
 /** A hybrid table at Knott's office after the opening (turn 1 closed), with `decide` as Jev; returns the rows and the workspace. */
 async function officeTable(t, decide, text) {

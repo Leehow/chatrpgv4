@@ -321,7 +321,7 @@ def test_the_offer_ledger_counts_the_obligation_and_marks_it_taken(tmp_path):
 
 # ---- §134.18 (SL-52 stage 3): the commission is an accept step whose settlement yields ------------------------------
 
-COMMISSION, COMMISSION_FLAG = "knott-commission", "knott-commission-accepted"
+COMMISSION, COMMISSION_FLAG = "knott-accept-commission", "knott-commission-accepted"
 COMMISSION_YIELDS = {"clues": ["knott-research-leads", "knott-keys"], "items": ["Corbitt House key"], "cash": 20}
 
 
@@ -349,7 +349,7 @@ def test_a_fresh_campaign_carries_the_commission_as_an_open_accept_with_its_sett
             {"kind": "cash", "delta": 20, "source": "quote", "with": "Steven Knott"}]}
         clues = clue_candidates(client)
         assert {name for name, row in clues.items() if row.get("guarded_by") == COMMISSION} == {"knott-keys", "knott-research-leads"}
-        assert scene_rows(client)[COMMISSION]["cue"].startswith("next: accept Steven Knott's offer; settled by one apply")
+        assert scene_rows(client)[COMMISSION]["cue"].startswith("next: accept Steven Knott's offer; one apply settles it")
         assert_capsule_agrees(client)
         # Not a roll: action.obligation names the apply that settles it.
         code, reason = refusal(client.call("table.resolve", {"campaign": CAMPAIGN, "call_id": "t1-c1", "action": {

@@ -165,7 +165,7 @@ test('obligation_repeats_clue_gate: a single-skill check equal to a guarded clue
     check(graph).values = [{path: 'skills.Persuade', label: 'Persuade'}];
 }));
 // §134.18 (SL-52 stage 3): an accept step and what its settlement yields.
-const COMMISSION = 'requirement-knott-commission';
+const COMMISSION = 'requirement-knott-accept-commission';
 test('the shipped commission: an accept of Knott with its yields', () => {
     const commission = obligation(SHIPPED, COMMISSION);
     assert.deepEqual(commission.demand, [{kind: 'accept', npc: 'npc-steven-knott'}]);

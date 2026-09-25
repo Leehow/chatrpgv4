@@ -389,9 +389,11 @@ def test_offstage_speaker_and_table_alias_bind_one_entity_and_reach_actual_promi
     assert knowledge["subject"] == DOOLEY and knowledge["knowers"] == [DOOLEY]
     assert knowledge["entities"] == [INVESTIGATOR], "two issued names for Dooley bind and deduplicate to one entity"
 
-    kernel.table("player_input", text="I meet the newsman in the office.")
-    kernel.table("apply", call_id="t2-c1", effects=[{
-        "kind": "npc", "name": DOOLEY, "to": "here", "why": "make the promise consumer visible"}])
+    # §134.18: the office states the commission, whose open scene row shares the capsule's 1 KB obligations section and trims
+    # the rows after it; the promise consumers are read in a scene that states no obligation.
+    kernel.table("player_input", text="I meet the newsman on his corner.")
+    kernel.table("apply", call_id="t2-c1", effects=[{"kind": "move", "to": "neighborhood-gossip"},
+        {"kind": "npc", "name": DOOLEY, "to": "here", "why": "make the promise consumer visible"}])
     capsule = kernel.table("capsule")
     obligations = {row["state"]: row for row in capsule["obligations"] if row["kind"] == "promise"}
     assert obligations[player_source["text"]]["authority"] == "conversation_report"

@@ -286,9 +286,8 @@ export function capsuleRow(issued: Row): Row {
         }
     }
     else if (issued.state === "open" && next.kind === "accept") {
-        const yields = row(issued.yields), what = [...array(yields.clues), ...array(yields.items), ...(typeof yields.cash === "number" ? [`$${yields.cash}`] : [])];
         const flag = String(row(array(next.settle)[0]).name ?? "");
-        cue.push(`next: accept ${next.person}'s offer; settled by one apply: flag ${flag}${what.length ? ` and what it yields (${what.join(", ")})` : ""}`);
+        cue.push(`next: accept ${next.person}'s offer; one apply settles it: flag ${flag} with its yields`);
     }
     else if (issued.state === "blocked")
         cue.push(`after ${row(issued.trigger).after}`);

@@ -21,7 +21,8 @@ def test_thread_is_organised_by_what_the_story_still_needs(kernel):
     frame = next(line for line in lines if line["name"] == "commission-and-research-frame")
     assert frame["here"] and all({"clue", "gate"} <= set(entry) for entry in frame["here"])
     assert {entry["gate"].split(":")[0] for entry in frame["here"]} <= {"npc_dialogue", "obvious"}
-    assert all(entry["gate"].endswith(": check unspecified") for entry in frame["here"]), "missing check metadata must not claim a source-authored waiver (§30.12)"
+    # §134.18: a clue the commission guards carries the guard after its check projection (§134.10's one gate string).
+    assert all(entry["gate"].split("; guarded by obligation ")[0].endswith(": check unspecified") for entry in frame["here"]), "missing check metadata must not claim a source-authored waiver (§30.12)"
     assert any(entry["by"] == "Steven Knott" for entry in frame["handed"])
     assert thread["handed"].startswith("The book means these clues to happen")
     assert frame["missing"] == frame["of"] and "fallback" not in frame
