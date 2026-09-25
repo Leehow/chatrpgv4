@@ -1,5 +1,10 @@
 # NPC Voice
 
+## 1.3.0
+- Compatibility release for existing locks. New campaigns use the unified Narration Craft package instead.
+- Keeps the original reviewed generation lane, current v2 cards, archived v1 state and explicit settings available to legacy campaigns; discovery never rewrites their locks.
+- Declares superseded_by metadata and defaults off. A unified enabled upgrade owns the explicit, non-destructive handover.
+
 ## 1.2.0
 - Masks describe flexible register, not compulsory mannerisms; varied exchanges answer the current words naturally, without mandatory brush-offs or catchphrases.
 - Writing uses the tool-enabled background task runner, with semantic review of every speaking candidate and one reviewed repair.

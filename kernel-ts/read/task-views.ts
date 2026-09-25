@@ -2,8 +2,12 @@
 import {isJsonObject, jsonDigest} from '../json.js';
 import {clone, row, type Row} from './values.js';
 import {MOD, PRESENTATION_KEYS, isVoicePresentationField} from '../voice/fields.js';
+import {EXPRESSION_MOD} from '../mods/voice-consolidation.js';
 
-const owners = [{id: 'npc-voice', mod: MOD, keys: PRESENTATION_KEYS, accepts: isVoicePresentationField}] as const;
+const owners = [
+    {id: 'npc-voice', mod: MOD, keys: PRESENTATION_KEYS, accepts: isVoicePresentationField},
+    {id: 'expression-voice', mod: EXPRESSION_MOD, keys: PRESENTATION_KEYS, accepts: isVoicePresentationField},
+] as const;
 export function taskViews(world: Row): {world: Row; presentation: Record<string, string>} {
     const core = clone(world), presentation: Record<string, string> = {};
     for (const owner of owners) {

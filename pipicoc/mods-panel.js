@@ -85,14 +85,17 @@ export function createComponent(React) {
     useEffect(() => api.subscribeExt?.((event) => { if (event && typeof event.type === "string" && event.type !== "mods-changed") return; void load(true); }), [api]);
     const unsorted = groupMods(answer?.mods);
     const order = answer?.pending_order || answer?.order || unsorted.map(row=>row.id);
-    const groups = unsorted.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id));
+    const groups = unsorted.filter(group=>!group.versions.every(row=>row.superseded_by && row.compatibility_visible===false && !row.pending))
+      .sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id));
     // "core" is the kernel itself, not an installed Mod, so it is the one name this file holds.
     const displayName=id=>id==="core"?t("core"):authored(groups.find(row=>row.id===id)?.versions[0]?.name,ui?.tag)||id;
     const slotName=key=>key.startsWith("audit:")?`${t("slot.audit")}: ${key.slice(6)}`
       :key.startsWith("check:")?`${t("slot.check")}: ${key.slice(6)}`:t(`slot.${key}`);
     function move(id, delta) {
-      const next=[...order],index=next.indexOf(id),other=index+delta;
-      if(index<0||other<0||other>=next.length)return;
+      const next=[...order],visible=groups.map(group=>group.id),at=visible.indexOf(id),target=visible[at+delta];
+      if(at<0||!target)return;
+      const index=next.indexOf(id),other=next.indexOf(target);
+      if(index<0||other<0)return;
       [next[index],next[other]]=[next[other],next[index]];
       void mutate("mods.order",{order:next});
     }
@@ -123,12 +126,15 @@ export function createComponent(React) {
         return h("article", {key:id, style:{border:"1px solid var(--border)", borderRadius:8, padding:14, marginTop:14}},
           h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}},
             h("div",{style:{display:"flex",alignItems:"baseline",gap:8}},
-              h("span",{"aria-label":t("order"),style:{color:"var(--muted)",fontSize:11}},String(order.indexOf(id)+1).padStart(2,"0")),h("strong",null,name)),
+              h("span",{"aria-label":t("order"),style:{color:"var(--muted)",fontSize:11}},String(order.indexOf(id)+1).padStart(2,"0")),h("strong",null,name),
+              row.superseded_by ? h("small",{style:{color:"var(--muted)"}},"→ ",displayName(row.superseded_by)) : null),
             h("div",{style:{display:"flex",gap:4}},
-              h("button",{type:"button","aria-label":`${name} ${t("earlier")}`,disabled:busy||order.indexOf(id)<=0,onClick:()=>move(id,-1)},t("earlier")),
-              h("button",{type:"button","aria-label":`${name} ${t("later")}`,disabled:busy||order.indexOf(id)>=order.length-1,onClick:()=>move(id,1)},t("later")))),
+              h("button",{type:"button","aria-label":`${name} ${t("earlier")}`,disabled:busy||groups.findIndex(group=>group.id===id)<=0,onClick:()=>move(id,-1)},t("earlier")),
+              h("button",{type:"button","aria-label":`${name} ${t("later")}`,disabled:busy||groups.findIndex(group=>group.id===id)>=groups.length-1,onClick:()=>move(id,1)},t("later")))),
           ...displaced.map(([key,providers])=>h("p",{key,style:{fontSize:11,color:"var(--accent)",margin:"6px 0"}},`${slotName(key)} · ${t("overridden")}: ${displayName(providers.at(-1))}`)),
           h("p", {style:{color:"var(--muted)", lineHeight:1.6}}, description),
+          row.voice_handover && h("details", null, h("summary", null, word(ui,"errors","details")),
+            h("pre", {style:{whiteSpace:"pre-wrap",fontSize:11}}, JSON.stringify(row.voice_handover,null,2))),
           h("div", {style:{display:"flex", gap:8, alignItems:"center", marginBottom:10}},
             h("label", null, t("version"), " ", h("select", {"aria-label":`${name} ${t("version")}`, disabled:busy,
               value:row.version, onChange:e=>setSelected(s=>({...s,[id]:e.target.value}))},
@@ -142,7 +148,8 @@ export function createComponent(React) {
             h("input", {type:"checkbox", checked:!!active?.enabled, disabled:busy || !answer.campaign || !row.compatible,
               onChange:e=>void mutate("mods.configure", {id, version:row.version, enabled:e.target.checked})}), " ", t("campaign")),
           h("label", {style:{display:"block", marginBottom:8}},
-            h("input", {type:"checkbox", checked:row.default_enabled, disabled:busy || !row.compatible,
+            h("input", {type:"checkbox", checked:row.default_enabled, disabled:busy || !row.compatible || !!row.default_suppressed_by,
+              ...(row.default_suppressed_by ? {title:`→ ${displayName(row.default_suppressed_by)}`} : {}),
               onChange:e=>void mutate("mods.defaults", {id, enabled:e.target.checked})}), " ", t("defaults")),
           active && active.version !== row.version && h("button", {type:"button", disabled:busy || !row.compatible,
             onClick:()=>void mutate("mods.configure", {id, version:row.version})}, t("update")),

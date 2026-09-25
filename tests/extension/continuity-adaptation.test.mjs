@@ -49,13 +49,14 @@ async function ownedContent() {
     return path;
 }
 
-async function table(input = 'I want to understand how these events connect.', {mods = false, content = join(root, 'content')} = {}) {
+async function table(input = 'I want to understand how these events connect.', {mods = false, content = join(root, 'content'), beforeOpen} = {}) {
     const home = await mkdtemp(join(directory, 'campaign-'));
     const context = await api.createKernelContext({workspace: home, content, seed: 'continuity', locks: api.nativeAdvisoryLocks(),
         env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
     const runtime = api.createKernelRuntime(context); closers.push(() => runtime.close());
     const call = (method, params = {}) => runtime.handlers[method]({campaign: 'c1', ...params});
     await call('campaign.create', {id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+    if (beforeOpen) await beforeOpen(call);
     if (mods) {
         await call('mods.install', {path: materializer.path});
         await call('mods.configure', {id: materializer.id, version: materializer.version, enabled: true});
@@ -411,9 +412,12 @@ const movedKeys = (before, after) => [...new Set([...Object.keys(before), ...Obj
 const voice = {mask: 'Ends every answer with a short question.', exchanges: ['Asks what the money is for.', 'Names the street before the man.', 'Repeats the last word back.']};
 
 test('a reviewed proposal survives the Mod bookkeeping that moves under a waiting table', async () => {
-    const t = await table(), p = await prepare(t); await review(t, p);
+    const t = await table('I want to understand how these events connect.', {beforeOpen: async call => {
+        await call('mods.configure', {id: 'narration-craft', enabled: false});
+        await call('mods.configure', {id: 'npc-voice', enabled: true});
+    }}), p = await prepare(t); await review(t, p);
     const before = await t.world();
-    // The npc-voice lane runs on its own schedule, writes one dossier into the package namespace,
+    // The legacy npc-voice lane is explicitly on, with the unified package off. It writes one dossier
     // and settles no fiction: no receipt, no clue, no time. On campaign game-ef7545c5 this exact
     // write turned a `ready` proposal into a `stale` one within the same turn, so every preparation
     // that outran its foreground wait met one of these and died.

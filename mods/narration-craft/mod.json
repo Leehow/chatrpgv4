@@ -1,8 +1,9 @@
 {
   "id": "narration-craft",
-  "version": "1.6.0",
+  "version": "1.7.1",
   "game_api": "pipicoc.game.v1",
-  "state_version": 1,
+  "state_version": 2,
+  "migrations": [{"from": 1, "to": 2, "operations": [{"op": "default", "key": "dossier", "value": {}}]}],
   "author": "PipiCOC",
   "name": {
     "en": "Narration Craft",
@@ -15,7 +16,11 @@
   "default_enabled": true,
   "requires": [
     "mods.package-files.v1",
-    "context.craft-reference.v2"
+    "context.craft-reference.v2",
+    "graph.vocabulary.v1",
+    "graph.vocabulary.table.v1",
+    "context.npc.v1",
+    "npc.voice.consolidation.v1"
   ],
   "package_files": [
     "agent.md",
@@ -25,12 +30,14 @@
     "starter-ids.json"
   ],
   "dependencies": {},
-  "conflicts": [],
+  "conflicts": ["npc-voice"],
   "settings": {
     "density_guide": "off",
-    "reference_mode": "jev"
+    "reference_mode": "jev",
+    "coarse_language": true
   },
   "settings_schema": {
+    "coarse_language": {"title": {"zh-Hans": "允许粗话", "en": "Coarse language"}},
     "reference_mode": {
       "enum": ["off", "jev"]
     },
@@ -42,6 +49,10 @@
     }
   },
   "contributes": {
+    "vocabulary": {"actor_profile_keys": [
+      {"key": "voice_mask", "label": "mask", "shape": "lines", "ask": "one line, only when the book prints this person's speech: their register and flexible habits of address, wording or sentence endings, without requiring a catchphrase or a marker in every sentence"},
+      {"key": "exchanges", "label": "in exchange", "shape": "lines", "ask": "up to three exchanges the book prints, each on one line: what someone says to this person, an arrow, what this person says back"}
+    ]},
     "craft_reference": "craft-reference.json",
     "instructions": "agent.md",
     "brief": "brief.md"

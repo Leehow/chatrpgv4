@@ -39,15 +39,16 @@ test('the shipped npc-voice manifest is what §40.5 describes', async t => {
   const loaded = api.manifestFrom(await api.packageFiles(PACKAGE));
 
   assert.equal(loaded.id, 'npc-voice');
-  assert.equal(loaded.version, '1.2.0');
+  assert.equal(loaded.version, '1.3.0');
   assert.equal(loaded.state_version, 2);
   assert.deepEqual(loaded.migrations, [{from: 1, to: 2, operations: [
     {op: 'rename', from: 'dossier', to: 'legacy_voice_dossier'},
     {op: 'default', key: 'dossier', value: {}},
   ]}]);
   assert.equal(loaded.game_api, 'pipicoc.game.v1');
-  assert.equal(loaded.default_enabled, true);
-  assert.deepEqual(loaded.requires, ['graph.vocabulary.v1', 'graph.vocabulary.table.v1', 'context.npc.v1', 'mods.package-files.v1', 'npc.voice.generation.v2']);
+  assert.equal(loaded.default_enabled, false);
+  assert.equal(loaded.superseded_by, 'narration-craft');
+  assert.deepEqual(loaded.requires, ['graph.vocabulary.v1', 'graph.vocabulary.table.v1', 'context.npc.v1', 'mods.package-files.v1', 'npc.voice.generation.v2', 'npc.voice.consolidation.v1']);
   assert.deepEqual(loaded.settings, {coarse_language: true});
   assert.equal(loaded.contributes.instructions, 'agent.md');
   assert.equal(loaded.contributes.brief, 'brief.md');

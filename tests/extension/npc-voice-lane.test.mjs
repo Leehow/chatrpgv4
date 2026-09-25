@@ -424,7 +424,7 @@ test("said and listener reach writer and every review; version-2 job IDs stay op
 		reviews: [context => { judged = inputText(context); return verdict(true); }],
 		rpc: (method, _params, queue) => method === "voice.job" && queue.length ? {
 			...packet(queue.shift()), job_id: "voice:camp:dooley@digest", said: ["Please do not repeat this."],
-			generation: { version: "1.2.0", digest: "digest", state_version: 2 },
+			generation: { version: "1.3.0", digest: "digest", state_version: 2 },
 		} : undefined });
 	table.commit(1);
 	await completed(table);

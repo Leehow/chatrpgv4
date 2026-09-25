@@ -35,7 +35,7 @@ test("explicit off reports no card body and capsule metadata names only the prov
 	const opened = await game.call("table.player_input", {text: "I stay by the desk."});
 	assert.deepEqual(Object.keys(craftOf(opened.capsule).provider).sort(), ["mod", "version"]);
 	assert.equal(craftOf(opened.capsule).provider.mod, "narration-craft");
-	assert.equal(craftOf(opened.capsule).provider.version, "1.6.0");
+	assert.equal(craftOf(opened.capsule).provider.version, "1.7.1");
 	assert.equal(craftOf(opened.capsule).mode, "off");
 	assert.equal("digest" in craftOf(opened.capsule).provider, false);
 	const read = await game.call("mods.craft.read", {mode: "index"});
@@ -57,8 +57,30 @@ test("new campaigns default to jev and expose at most twelve summaries plus the 
 	assert.equal(typeof index.catalog_revision, "string");
 	assert.equal(typeof index.binding.npc_revision, "string");
 	assert.equal(typeof index.binding.memory_revision, "string");
-	assert.ok(index.candidates.length > 0 && index.candidates.length <= 12);
+	assert.equal(index.candidates.length, 12);
 	assert.deepEqual(index.candidates.map(row => row.id), starters);
+	assert.ok(starters.includes("CRAFT-VOI-05"));
+	assert.equal(starters.includes("CRAFT-SEN-04"), false);
+	const register = await game.call("mods.craft.read", {mode: "card", card_id: "CRAFT-VOI-05", expected: {
+		provider: index.provider, catalog_revision: index.catalog_revision, binding: index.binding,
+	}});
+	assert.equal(register.status, "ready");
+	assert.equal(register.card.title, "Keep the answer, vary the register");
+	assert.match(register.card.acceptable, /the seat is free/);
+	assert.match(register.card.stronger, /it's free/);
+	assert.match(register.card.alternative, /Please take it/);
+	assert.match(register.card.avoidWhen, /new condition/);
+	for (const field of ["acceptable", "stronger", "alternative"]) assert.equal(register.card[field].includes("who sent you"), false);
+	const runtime = new craftRuntime.CraftReferenceRuntime(async () => "CRAFT-VOI-05", () => {});
+	const live = await game.call("table.capsule");
+	const projected = await runtime.project({epoch: "register", campaign: game.id, capsule: live, binding: live._context,
+		messages: [{role: "custom", customType: "coc-capsule", content: "Current facts"}], budget: 200_000,
+		rpc: (method, params) => game.call(method, params), signal: new AbortController().signal});
+	assert.equal(projected.packet.cardId, "CRAFT-VOI-05");
+	assert.match(projected.packet.message.content, /it's free/);
+	assert.match(projected.packet.message.content, /Have a seat/);
+	assert.match(projected.packet.message.content, /new condition/);
+	assert.equal(projected.packet.message.content.includes("who sent you"), false);
 	for (const row of index.candidates) assert.deepEqual(Object.keys(row).sort(), [...CANDIDATE].sort());
 	assert.equal(hidden.some(text => JSON.stringify(index).includes(text)), false);
 	const card = await game.call("mods.craft.read", {mode: "card", card_id: starters[0], expected: {
@@ -150,16 +172,20 @@ test("an explicitly off old lock stays off through an explicit upgrade", async t
 		"agent.md": "Old fixture guidance.", "brief.md": "Old reminder.",
 		"craft-reference.json": CRAFT_DESCRIPTOR, "cards.en.json": oneCard("Old card"), "starter-ids.json": ["CRAFT-EXC-01"],
 	});
-	await game.call("mods.install", {path: directory});
-	await game.call("mods.configure", {id: "narration-craft", version: "1.5.0", enabled: true, settings: {reference_mode: "off"}});
+	const installed = await game.call("mods.install", {path: directory});
+	const worldPath = join(game.campaign, "world.json");
+	const current = JSON.parse(await readFile(worldPath, "utf8"));
+	current.mods.active["narration-craft"] = {version: "1.5.0", digest: installed.digest, state_version: 1, enabled: true,
+		settings: {reference_mode: "off", density_guide: "off"}};
+	await writeFile(worldPath, JSON.stringify(current));
 	const frozen = await tree(directory);
 	await game.call("table.open");
 	await game.call("table.player_input", {text: "I wait."});
 	assert.equal(craftOf(await game.call("table.capsule")).mode, "off");
 	await game.call("table.narrate", {call_id: "t1-c1", text: "The office stays quiet."});
-	await game.call("mods.configure", {id: "narration-craft", version: "1.6.0"});
+	await game.call("mods.configure", {id: "narration-craft", version: "1.7.1"});
 	const next = await game.call("table.player_input", {text: "I wait again."});
-	assert.equal(craftOf(next.capsule).provider.version, "1.6.0");
+	assert.equal(craftOf(next.capsule).provider.version, "1.7.1");
 	assert.equal(craftOf(next.capsule).mode, "off");
 	assert.deepEqual(await tree(directory), frozen);
 });

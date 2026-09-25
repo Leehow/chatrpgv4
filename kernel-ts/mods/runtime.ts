@@ -11,6 +11,8 @@ import { MOD_CAPABILITIES, buildVocabulary, packageFiles, packageDigest, manifes
   type ModCatalog, type UnavailablePackage } from '../read/mods.js';
 import { array, row, values, entries, string, truth, clone, equal, sorted, type Row } from '../read/values.js';
 import { readZipPackage } from './zip.js';
+import {EXPRESSION_MOD, LEGACY_VOICE_MOD, isUnifiedExpression, newModDefault, inheritedVoiceSettings,
+  stageVoiceOwner, handoverVoiceState, compatibilityView} from './voice-consolidation.js';
 
 export const GAME_API = 'pipicoc.game.v1';
 const invalid = (message: string): never => { throw new RpcError('invalid_params', message); };
@@ -152,7 +154,7 @@ export class ModRuntime {
     }
     const latest = this.latest(await this.catalog()), defaults = await this.defaults();
     world.mods = {game_api: GAME_API, active: {}, state: {}, pending: {}};
-    for (const [id, mod] of latest) { await this.freeze(mod); world.mods.active[id] = this.lock(mod, present(defaults, id, mod.default_enabled)); }
+    for (const [id, mod] of latest) { await this.freeze(mod); world.mods.active[id] = this.lock(mod, newModDefault(mod, defaults, latest)); }
     world.mods.order = topologicalOrder(await this.order(world), [...latest.values()].filter(mod => truth(world.mods.active[mod.id].enabled)));
     await this.active(world); return true;
   }
@@ -162,7 +164,7 @@ export class ModRuntime {
       return invalid('Load order must contain every installed Mod id exactly once');
     if (world === null) {
       const latest = this.latest(await this.catalog()), defaults = await this.defaults();
-      const enabled = [...latest.values()].filter(mod => truth(present(defaults, mod.id, mod.default_enabled)));
+      const enabled = [...latest.values()].filter(mod => truth(newModDefault(mod, defaults, latest)));
       if (!equal(topologicalOrder(order, enabled), order)) return invalid('Dependencies must load before the Mods that require them');
       await writeJsonAtomic(join(this.root, 'load-order.json'), order); return;
     }
@@ -176,8 +178,12 @@ export class ModRuntime {
    *  an unknown key is refused as before. */
   async configure(world: Row, change: Row, busy: boolean): Promise<{retired: string[], from: string | null, to: string}> {
     await this.initializeWorld(world);
-    const id = change.id, old = row(world.mods.active[id]), version = present(change, 'version', old.version);
-    const mod = typeof id === 'string' && typeof version === 'string' ? (await this.catalog()).get(`${id}\0${version}`) : null;
+    const id = change.id, old = row(world.mods.active[id]), version = present(change, 'version', old.version), catalog = await this.catalog();
+    const pendingExpression = row(row(world.mods.pending)[EXPRESSION_MOD]);
+    if (id === LEGACY_VOICE_MOD && truth(pendingExpression.enabled)
+        && isUnifiedExpression(catalog.get(`${EXPRESSION_MOD}\0${pendingExpression.version}`)))
+      return invalid('Voice handover is pending; update or cancel the unified package change first');
+    const mod = typeof id === 'string' && typeof version === 'string' ? catalog.get(`${id}\0${version}`) : null;
     if (!mod || !mod.compatible) return invalid('Choose a compatible installed Mod version');
     await this.freeze(mod);
     const enabled = present(change, 'enabled', present(old, 'enabled', true));
@@ -186,7 +192,9 @@ export class ModRuntime {
     const requested = Object.hasOwn(change, 'settings') ? change.settings : inherited ? orderedObject(entries(carried).filter(([key]) => Object.hasOwn(mod.settings, key))) : carried;
     if (typeof enabled !== 'boolean' || !isJsonObject(requested) || Object.keys(requested).some(key => !Object.hasOwn(mod.settings, key))) return invalid('Invalid Mod enable state or unknown setting');
     const outcome = {retired, from: typeof old.version === 'string' ? old.version : null, to: version as string};
-    const settings = merged(mod.settings, requested);
+    const voiceRequested = isUnifiedExpression(mod) && Object.hasOwn(change, 'settings')
+      ? merged(orderedObject(entries(row(old.settings)).filter(([key]) => Object.hasOwn(mod.settings, key))), requested) : requested;
+    const settings = merged(mod.settings, inheritedVoiceSettings(world, mod, old, voiceRequested, row(change.settings)));
     for (const [key, value] of entries(settings)) {
       const expected = mod.settings[key], schema = present(row(mod.settings_schema), key, {});
       if (!['string', 'boolean', 'int', 'float'].includes(typeOf(expected)) || typeOf(value) !== typeOf(expected)) return invalid(`Setting ${key} has an unsupported type`);
@@ -195,9 +203,12 @@ export class ModRuntime {
         if (!(atMost(schemaGet(schema, 'minimum', -Infinity), value) && atMost(value, schemaGet(schema, 'maximum', Infinity)))) return invalid(`Setting ${key} is outside its declared range`);
       }
     }
-    const staged = clone(world); staged.mods.active[id] = this.lock(mod, enabled, settings); staged.mods.order = await this.order(staged); await this.active(staged);
+    const staged = clone(world); staged.mods.active[id] = this.lock(mod, enabled, settings);
+    stageVoiceOwner(staged, mod);
+    staged.mods.order = await this.order(staged); await this.active(staged);
     if (busy) { world.mods.pending[id] = {id, version, enabled, settings}; return outcome; }
     let state = clone(present(staged.mods.state, id, {}));
+    if (isUnifiedExpression(mod) && !isJsonObject(state)) return invalid('Target expression state is malformed; no handover was applied');
     let before = BigInt(present(old, 'state_version', mod.state_version));
     const after = BigInt(mod.state_version);
     while (before !== after) {
@@ -214,11 +225,16 @@ export class ModRuntime {
       }
       before++;
     }
-    staged.mods.state[id] = state; delete staged.mods.pending[id]; world.mods = staged.mods;
+    staged.mods.state[id] = state;
+    handoverVoiceState(staged, world, mod);
+    delete staged.mods.pending[id]; world.mods = staged.mods;
     return outcome;
   }
   async applyPending(world: Row): Promise<boolean> {
     const changes = values(row(row(world.mods).pending)), order = row(world.mods).pending_order, staged = clone(world);
+    // Replay only the already-admitted queue, in order. A later external configure still sees
+    // pending handover and is rejected; earlier queued legacy settings must not block themselves.
+    staged.mods.pending = {};
     if (order != null) await this.reorder(staged, order);
     for (const change of changes) await this.configure(staged, change, false);
     if (changes.length || order != null) world.mods = staged.mods;
@@ -226,10 +242,12 @@ export class ModRuntime {
   }
   async view(world: Row | null = null): Promise<Row> {
     const locks = row(row(world).mods), defaults = await this.defaults(), mods: Row[] = [];
-    const rows = [...(await this.catalog()).values()].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : compareVersion(a.version, b.version));
+    const catalog = await this.catalog(), latest = this.latest(catalog);
+    const rows = [...catalog.values()].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : compareVersion(a.version, b.version));
     for (const mod of rows) mods.push({
+      ...compatibilityView(mod, latest, locks, catalog, defaults),
       ...Object.fromEntries(['id', 'version', 'name', 'description', 'author', 'compatible', 'requires', 'dependencies', 'conflicts'].map(key => [key, mod[key]])),
-      settings: mod.compatible ? mod.settings : {}, default_enabled: present(defaults, mod.id, mod.default_enabled),
+      settings: mod.compatible ? mod.settings : {}, default_enabled: newModDefault(mod, defaults, latest),
       active: row(locks.active)[mod.id] ?? null, pending: row(locks.pending)[mod.id] ?? null,
       settings_schema: mod.compatible ? mod.settings_schema ?? {} : {},
     });

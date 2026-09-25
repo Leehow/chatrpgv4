@@ -11,9 +11,9 @@ const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const MOD = join(ROOT, "mods/narration-craft");
 const HELPERS = ["types.ts", "catalog.ts", "reference.ts", "index.ts"].map(name => join(ROOT, "runtime/craft", name));
 
-/** SHA-256 of the frozen English inputs. Provenance only; the untracked source package is not read. */
-const CARDS_SHA256 = "6e31047a044e6c290c6d181b4d98c3b70ae942b5ddb0963d566863fcc282217d";
-const STARTER_IDS_SHA256 = "ff2854ac8ba3db37007100a545ab30950e791b4e3e5868169c041236cf40e8ef";
+/** SHA-256 of the reviewed 1.7.1 English assets. The 1.5 import digests are retired; these pins are the reviewed bytes. */
+const CARDS_SHA256 = "d27815d02ee950d0a47ea87e7e94b34133b3054aa31b374b32420e10dad9f7a2";
+const STARTER_IDS_SHA256 = "200e5b17254416ec2524dafe5abf78dbc366140d5c70383a5a295f49ee7a8b41";
 
 const out = mkdtempSync(join(tmpdir(), "craft-reference-assets-"));
 try {
@@ -63,7 +63,7 @@ const card = (n, starter = false, patch = {}) => ({
   ...patch,
 });
 
-test("frozen English assets match the checked input digests and the reference descriptor", () => {
+test("reviewed 1.7.1 English assets match the checked input digests and the reference descriptor", () => {
   assert.equal(sha(join(MOD, "cards.en.json")), CARDS_SHA256);
   assert.equal(sha(join(MOD, "starter-ids.json")), STARTER_IDS_SHA256);
   assert.deepEqual(load("craft-reference.json"), {

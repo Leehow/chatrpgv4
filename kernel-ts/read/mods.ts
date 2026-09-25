@@ -17,6 +17,7 @@ import {USAGE_CAPABILITY, usageViews} from '../mods/usages.js';
 import {publicOffer} from '../mods/object-offer.js';
 import { checkDeclarationRefusals } from "../modules/obligation-shape.js";
 import {CRAFT_REFERENCE_CAPABILITY, CRAFT_REFERENCE_V2_CAPABILITY, validateCraftContribution, craftReferenceMetadata} from '../mods/craft-package.js';
+import {VOICE_CONSOLIDATION_CAPABILITY, EXPRESSION_MOD, LEGACY_VOICE_MOD, newModDefault} from '../mods/voice-consolidation.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1", "context.workspace.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
@@ -24,6 +25,7 @@ MOD_CAPABILITIES.add(USAGE_CAPABILITY);
 MOD_CAPABILITIES.add("npc.voice.generation.v2");
 MOD_CAPABILITIES.add(CRAFT_REFERENCE_CAPABILITY);
 MOD_CAPABILITIES.add(CRAFT_REFERENCE_V2_CAPABILITY);
+MOD_CAPABILITIES.add(VOICE_CONSOLIDATION_CAPABILITY);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
@@ -65,7 +67,7 @@ export async function buildVocabulary(context: KernelContext): Promise<Row> {
     const ids = new Set([...latest.values()].map(mod => string(mod.id)));
     const order = [...preferred.filter(name => ids.has(name)), ...sorted([...ids].filter(name => !preferred.includes(name)))];
     const enabled = [...latest.values()]
-        .filter(mod => truth(Object.hasOwn(defaults, string(mod.id)) ? defaults[string(mod.id)] : mod.default_enabled))
+        .filter(mod => truth(newModDefault(mod, defaults, latest)))
         .sort((a, b) => order.indexOf(string(a.id)) - order.indexOf(string(b.id)));
     const keys: Row[] = [], displaced: Row[] = [], claimed = new Map<string, string>();
     for (const mod of enabled)
@@ -228,6 +230,9 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     }
     if (manifest.game_api !== "pipicoc.game.v1" || manifest.requires.some((cap: string) => !MOD_CAPABILITIES.has(cap)))
         return manifest;
+    if (Object.hasOwn(manifest, 'superseded_by') && (manifest.id !== LEGACY_VOICE_MOD || manifest.superseded_by !== EXPRESSION_MOD
+        || !manifest.requires.includes(VOICE_CONSOLIDATION_CAPABILITY)))
+        invalid('Compatibility metadata is reserved for the built-in voice consolidation');
     const ui = manifest.ui ?? {};
     if (!plain(ui) || Object.keys(ui).some(k => k !== "document_editor"))
         invalid("Unknown Mod UI contribution");

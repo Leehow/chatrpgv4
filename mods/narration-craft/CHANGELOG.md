@@ -1,5 +1,16 @@
 # Narration Craft
 
+## 1.7.1
+- Makes the register-contrast method directly selectable: a grounded answer may sound informal or formal without changing help, facts or terms.
+- Keeps twelve candidates by moving the ordinary-texture method back to the retained catalog; no card is deleted and no extra selection call is added.
+- Re-issues the package because 1.7.0 was already frozen by the live verification campaign; those bytes and records remain intact.
+
+## 1.7.0
+- Unifies source-first NPC voice guidance with expression methods; resident voices never compete for the one optional method slot.
+- Adds coarse_language and source voice vocabulary without starting a new per-person voice-generation lane.
+- Explicit enabled upgrades adopt established legacy v2 voice cards without overwriting target cards, retain original/archived state, and deactivate the legacy owner at one safe boundary. Existing off preferences and inactive target locks remain respected.
+- New campaign defaults suppress the superseded compatibility package, including cached older package defaults.
+
 ## 1.6.0
 - Enables reference_mode=jev by default for new locks; explicit off and existing immutable campaign settings stay respected. Missing credentials still fall back normally.
 - Ships with coherent base craft guidance: answer the player's contribution instead of replaying it, with clear speaker transitions and scene-appropriate detail rather than compulsory gestures.

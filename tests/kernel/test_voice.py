@@ -15,6 +15,7 @@ KNOTT = "Steven Knott"
 KNOTT_HANDLE = "steven-knott"
 KNOTT_ID = "npc-steven-knott"
 MOD = "npc-voice"
+EXPRESSION = "narration-craft"
 VERSION = read_json(WORKTREE / "mods" / "npc-voice" / "mod.json")["version"]
 SHIPPED = read_json(WORKTREE / "mods" / "npc-voice" / "mod.json")["contributes"]["vocabulary"]["actor_profile_keys"]
 MASK = {"key": "voice_mask", "label": "mask", "shape": "lines", "ask": SHIPPED[0]["ask"]}
@@ -41,13 +42,19 @@ def package(tmp_path, *, vocabulary=MASK, name="voice-fixture"):
 
 
 def configure(client, **change):
-    """The shipped package is on by default; configuration lands only between turns (a change during a turn is pending until commit)."""
+    """Legacy lane only: turn the unified package off before an enabled voice lock. A change during a turn stays pending until commit."""
+    enabled = change.get("enabled", True)
+    if enabled:
+        client.ok("mods.configure", {"campaign": CAMPAIGN, "id": EXPRESSION, "enabled": False})
     return client.ok("mods.configure", {"campaign": CAMPAIGN, "id": MOD, "version": VERSION, "enabled": True, **change})
 
 
 def on(client):
-    """The shipped npc-voice package, on by default, with turn 1 open; returns the turn's capsule."""
-    return open_turn(client)["capsule"]
+    """Explicit legacy owner, unified package off, with turn 1 open; returns the turn's capsule."""
+    create_campaign(client)
+    configure(client)
+    narrate_opening(client)
+    return client.table("player_input", text="我仔细观察诺特。")["capsule"]
 
 
 def settle(client, call_id="t1-c1"):
@@ -78,7 +85,8 @@ def test_the_shape_is_checked_at_install(kernel, tmp_path):
 
 def test_the_shipped_package_declares_the_two_words_the_lane_writes(kernel):
     manifest = read_json(WORKTREE / "mods" / "npc-voice" / "mod.json")
-    assert manifest["default_enabled"] is True and manifest["settings"] == {"coarse_language": True}
+    assert manifest["default_enabled"] is False and manifest["superseded_by"] == "narration-craft"
+    assert manifest["settings"] == {"coarse_language": True}
     assert manifest["contributes"]["vocabulary"]["actor_profile_keys"] == [MASK, EXCHANGES]
 
 
@@ -276,6 +284,7 @@ def test_a_record_left_by_the_two_line_word_is_replaced_not_kept_beside(kernel):
 def test_the_packet_carries_the_lines_this_person_already_said(kernel):
     """§113 D: the lane is told what this mouth has already said at this table."""
     create_campaign(kernel)
+    configure(kernel)
     narrate_opening(kernel, "开场。\n\n{{say:Steven Knott}}「钥匙在这儿，拿去就是。」{{/say}}诺特把钥匙拍在桌上。")
     kernel.table("player_input", text="我仔细观察诺特。")
     packet = job(kernel)
@@ -365,6 +374,7 @@ def test_upgrade_stays_pending_and_preserves_explicit_disable(kernel, tmp_path):
 
 def test_current_generation_is_unique_and_stale_submit_and_fail_are_read_only(kernel, tmp_path):
     create_campaign(kernel)
+    configure(kernel)
     narrate_opening(kernel)
     root = campaign_dir(kernel.workspace)
     old = job(kernel)
@@ -426,6 +436,7 @@ def test_source_authored_words_survive_real_package_upgrade(kernel, tmp_path):
     world = read_json(root / "world.json")
     world["mods"]["active"].pop(MOD)
     (root / "world.json").write_text(json.dumps(world), encoding="utf-8")
+    kernel.ok("mods.configure", {"campaign": campaign, "id": EXPRESSION, "enabled": False})
     kernel.ok("mods.configure", {"campaign": campaign, "id": MOD, "version": "1.1.2", "enabled": True})
     before = table_npcs(kernel, campaign)["Tenant"]
     module_root = kernel.workspace / ".coc" / "modules" / mid
