@@ -60,6 +60,11 @@ export const SCENE_INDEX_PAGES = 3;
 function answerKey(sourceSha: string, focus: string, question: string, generation: any): string {
     return jsonDigest([sourceSha, 'answer', '', normalize(focus), question, [], SOURCE_ANSWER_PROTOCOL, generation ?? 0]);
 }
+/**
+ * §22.4.6.1 addendum (SL-55): how many times an answer whose focus's material was published while it read is read again
+ * from its draft before the move refuses it. The ruling: once.
+ */
+const ANSWER_FOCUS_REREADS = 1;
 /** §22.1 page ranges (`[[first, last], ...]`, or bare pages) as their 0-based pages in book order, no duplicates. */
 function rangePages(ranges: any[]): number[] {
     const out = new Set<number>();
@@ -723,24 +728,41 @@ export class Reading {
             throw new RpcError('needs', 'retained source answer evidence changed', { details: { reason: 'source_answer_integrity' } });
     }
     /**
-     * §22.4.6.1 (SL-54): a waiter whose pinned generation is stale follows the consultation's own job -- the latest answer job
-     * whose key is the consultation at the pinned generation -- while it is queued (it is claimed under the current
-     * generation), running under the current generation, or completed. Anything else is §22.4.1's refusal. Writes nothing.
+     * §22.4.6.1 (SL-54, SL-55): the consultation's own job for a question -- the latest answer job asking it (the same
+     * normalised focus and exact question, whatever generation it was queued under).
+     */
+    private static ownJob(queue: Row[], sha: string, focus: string, question: string): Row | undefined {
+        const asked = answerKey(sha, focus, question, 0);
+        return [...queue].reverse().find(job => job.purpose === 'answer' && answerKey(sha, string(job.focus), string(job.question), 0) === asked);
+    }
+    /**
+     * §22.4.6.1 (SL-54; SL-55 addendum): a waiter whose pinned generation is stale follows the consultation's own job while
+     * it is queued (claimed under the current generation), running (it finishes under the generation current then), or
+     * completed at or after the pinned generation. Anything else is §22.4.1's refusal. Writes nothing.
      */
     private async followConsultation(mid: string, meta: Row, params: Row): Promise<Row | undefined> {
         const sha = row(meta.source_document).file_sha256, generation = meta.generation ?? 0;
         if (typeof sha !== 'string' || typeof params.focus !== 'string' || typeof params.question !== 'string') return undefined;
-        const key = answerKey(sha, params.focus, params.question, params.context_generation);
-        const job = [...await this.store.queue(mid)].reverse().find(job => job.purpose === 'answer' && job.key === key);
+        const job = Reading.ownJob(await this.store.queue(mid), sha, params.focus, params.question);
         if (!job) return undefined;
         const result = { generation, missing: [] };
-        if (job.state === 'queued' || job.state === 'running' && equal(job.context_generation, generation))
+        if (job.state === 'queued' || job.state === 'running')
             return { ...result, state: job.state === 'running' ? 'reading' : 'queued', job_id: job.job_id, ...await this.answerKnown(mid, 'answer', params.focus) };
-        if (job.state !== 'completed') return undefined;
+        if (job.state !== 'completed' || number(job.context_generation) < number(params.context_generation)) return undefined;
         const accepted = row(row(meta.reading).answers)[answerKey(sha, string(job.focus), string(job.question), job.context_generation)];
         if (!truth(accepted)) return undefined;
         await this.acceptedEvidence(mid, accepted);
         return { ...result, state: 'ready', job_id: job.job_id, source_answer: accepted.result };
+    }
+    /**
+     * §22.4.6.1 (SL-54, SL-55): whether the focus's material was published after `from` -- a `reading.materials` row newer
+     * than that generation whose nodes or focus meet the focus identity. Structure only; an empty focus is never touched.
+     */
+    private async focusTouched(mid: string, meta: Row, focus: string, from: unknown): Promise<boolean> {
+        if (!normalize(string(focus ?? ''))) return false;
+        const identity = await this.focusIdentity(mid), wanted = identity(focus);
+        return array(row(meta.reading).materials).some(material => number(material.generation) > number(from)
+            && Reading.meet(new Set([...array(material.node_ids).map(id => `node:${id}`), ...(normalize(string(material.focus ?? '')) ? identity(material.focus) : [])]), wanted));
     }
     /**
      * §22.4.6.1 (SL-54): a job is claimed under the generation current at the claim. A consultation is re-bound to it; a job
@@ -754,12 +776,7 @@ export class Reading {
         delete job.resumed;
         if (job.purpose === 'answer') job.context_generation = generation;
         if (from === undefined || from === null || equal(from, generation)) return;
-        let reread = false;
-        if (truth(job.work_dir) && normalize(string(job.focus ?? ''))) {
-            const identity = await this.focusIdentity(mid), wanted = identity(job.focus);
-            reread = array(row(meta.reading).materials).some(material => number(material.generation) > number(from)
-                && Reading.meet(new Set([...array(material.node_ids).map(id => `node:${id}`), ...(normalize(string(material.focus ?? '')) ? identity(material.focus) : [])]), wanted));
-        }
+        const reread = truth(job.work_dir) && await this.focusTouched(mid, meta, string(job.focus), from);
         job.resumed = { from_generation: from, generation, reread };
     }
     /** §22.4.3 (SL-36): what the book's index already holds on a consultation's focus, beside a reply that is still reading. */
@@ -895,6 +912,18 @@ export class Reading {
             else if (prepared)
                 return { ...result, state: 'ready' };
             const queue = await this.store.queue(mid), existing = [...queue].reverse().find(job => job.key === key);
+            // §22.4.6.1 addendum (SL-55): the same question asked again while its job is parked or still reading under an older
+            // generation attaches to that job; it is claimed (or finishes) under the current generation, so no second reading.
+            if (purpose === 'answer' && !preparation && !(existing && ['queued', 'running'].includes(existing.state))) {
+                const own = Reading.ownJob(queue, source.file_sha256, focus, question);
+                if (own && own.key !== key && ['queued', 'running'].includes(own.state)) {
+                    if (truth(params.foreground) && !truth(own.foreground)) {
+                        enterClass(own, true);
+                        await this.store.writeQueue(mid, queue);
+                    }
+                    return { ...result, state: own.state === 'running' ? 'reading' : 'queued', job_id: own.job_id, attached: true, ...await this.answerKnown(mid, purpose, focus) };
+                }
+            }
             // §22.2.1: a focus a running reading reads is not read again until that reading settles; this request
             // attaches to it and is judged afresh once it has settled. An owned source preparation keeps the job
             // identity it binds (§22.4 answer/prepare ownership).
@@ -1221,8 +1250,27 @@ export class Reading {
             if (job.purpose === 'index')
                 await this.finishIndex(mid, meta, job, draft, new Set(array(observations.full_pages)));
             else if (job.purpose === 'answer') {
-                if (!equal(job.context_generation, meta.generation ?? 0) || !equal(packet.base_generation, meta.generation ?? 0))
-                    throw new RpcError('needs', 'source context changed while the answer was being checked', { fix: 'request the same consultation against the current source context', details: { reason: 'source_context_changed' } });
+                // §22.4.6.1 addendum (SL-55): an answer that read through a publication is checked against the generation current
+                // now. Its focus untouched since its attempt began: it lands under the current generation. Touched: it is read
+                // again from its draft, once (the job goes back to the queue and its claim marks it `reread`); a second touch
+                // is the refusal it always was.
+                const began = packet.base_generation ?? job.context_generation;
+                if (!equal(began, meta.generation ?? 0)) {
+                    if (await this.focusTouched(mid, meta, string(job.focus), began)) {
+                        if (number(job.focus_rereads ?? 0) >= ANSWER_FOCUS_REREADS)
+                            throw new RpcError('needs', 'source context changed while the answer was being checked', { fix: 'request the same consultation against the current source context', details: { reason: 'source_context_changed' } });
+                        job.state = 'queued';
+                        job.focus_rereads = number(job.focus_rereads ?? 0) + 1;
+                        job.class_at = classNow();
+                        for (const key of ['owner', 'lease', 'claimed_at', 'claim_seq'])
+                            delete job[key];
+                        await this.store.writeQueue(mid, queue);
+                        await this.release(mid, job.job_id);
+                        return { state: 'queued', job_id: job.job_id, requeued: 'focus_changed', from_generation: began, generation: meta.generation ?? 0 };
+                    }
+                    job.finished_under = { from_generation: began, generation: meta.generation ?? 0 };
+                    job.context_generation = meta.generation ?? 0;
+                }
                 const source = await this.source(meta);
                 if (source.file_sha256 !== packet.source.file_sha256) reject('answer source identity changed');
                 if (array(params.assets).length) reject('source consultations cannot publish assets');

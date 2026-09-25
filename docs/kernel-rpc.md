@@ -3334,6 +3334,7 @@ lands (or fails) with the job. The host's `concurrency` row of a resumed claim c
 
 **Unchanged.** A consultation *running* when the generation moves still fails at `module.read.finish` and its waiter is
 refused at once (§22.4.1); this section is about a job that was parked, not one that read through a publication.
+*(2026-09-25, SL-55: superseded by the addendum below.)*
 
 **Three ends (§31).** *Writer:* the kernel (`claim`'s binding and `resumed`, `finish`'s key, `request`'s follow). *Reader:*
 the host's resume (`reread`), the waiter's poll and the pending list, the `concurrency` row. *Actor:* the Keeper, whose
@@ -3347,6 +3348,46 @@ marked `reread`; a consultation running through a publication still fails. The h
 a review, and one without `reread` with a review only. On the reading service over the emitted kernel, the pending row of a
 consultation displaced by a blocking detail read that then publishes stays pending, and lands when the consultation
 completes. Mutations in the SL-54 ticket's Comments.
+
+**Addendum (2026-09-25, SL-55): an answer that reads through a publication survives it; the same question re-asked attaches.**
+The owner's ruling: a running answer is checked against the generation current at its finish. **Evidence**: on the batch-6
+table t17's own consultation `read-8` went `unavailable` 15.5 s after it went pending, because a publication moved the
+generation while it read; in SL-54's replay, with no publication in flight, the same question landed 108 s later. On a
+table whose detail reads publish every few minutes most background consultations read through one.
+
+*a. At finish.* When the generation current at `module.read.finish` is not the one the attempt began under (its packet's
+`base_generation`), the kernel asks whether the answer's focus was touched in between -- the same structural test as item 2's
+`reread` (a `reading.materials` row newer than the attempt's generation whose `node_ids` or `focus` meet the answer's focus
+identity; an empty focus is never touched).
+- *Untouched:* the answer lands as if no move had happened, under the current generation: its gates run as always, it is kept
+  under its identity at the current generation (item 3), and the job records `finished_under {from_generation, generation}`.
+- *Touched:* it is read again from its draft, once (`ANSWER_FOCUS_REREADS`, a named default of 1 in
+  `kernel-ts/modules/reading.ts`): the finish returns `{state: "queued", job_id, requeued: "focus_changed", from_generation,
+  generation}` instead of publishing; the job goes back to `queued` with its attempt kept and `focus_rereads` counted, its
+  publication lease released, like a yield (§22.4.6). Its next claim is item 2's: `resumed {…, reread: true}`, and the host reads
+  again from the retained draft before the review. The host writes `{lane: "reading", event: "requeued", module_id, campaign,
+  job_id, purpose, focus, reason, from_generation, generation}`.
+- *Touched again* after that re-read: the refusal `source_context_changed` of §22.4.1, as before.
+- A finish whose generation did not move is unchanged.
+
+*b. The waiter (amends item 4).* A stale pin follows the consultation's own job -- now the latest `answer` job asking the same
+question (normalised focus and exact question, whatever generation it was queued under) -- while it is `queued`, `running`
+under any generation (it will land or be read again), or `completed` at or after the pinned generation. Only a failed or
+cancelled job, or one completed before the pin, is refused. So the pending row (§135.31.2) survives a publication in flight
+as it survives a displacement.
+
+*c. The same question asked again (amends §22.4.3's attach).* A consultation whose question is the one a `queued` or
+`running` answer job already asks, under an older generation, attaches to that job (`{state: "queued" | "reading", job_id,
+attached: true}`; a foreground ask promotes it, as for an exact key) instead of queueing a second reading of it. A new
+question keeps the attach rule of §22.4.3.
+
+*Tests.* `tests/extension/running-answer-generation-move.test.mjs`: on the emitted kernel, an answer running across a
+publication of another focus lands under the current generation and its pinned waiter follows it throughout; across a
+publication touching its focus it is sent back once, re-claimed with `reread`, and lands; a second touch refuses; the same
+question re-asked while its job is parked or reading under an older generation attaches; on the reading service over the
+emitted kernel with the pending list, a consultation whose focus is published while it reads stays pending, is read again
+from its draft and lands. `tests/kernel/test_source_answers.py`'s changed-context test is amended to the untouched landing.
+Mutations in the SL-55 ticket's Comments.
 
 ### 22.4.7 A move into a scene not yet read lands on the book's text; the scene's record lands when read (2026-09-24, SL-47; amends §22.4, §22.4.4 and §135.31.2)
 

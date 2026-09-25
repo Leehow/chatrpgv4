@@ -135,9 +135,11 @@ def test_cancelled_answer_retries_only_when_explicitly_requested(kernel, tmp_pat
     assert again['state'] == 'queued' and again['job_id'] != job['job_id']
 
 
-def test_changed_context_requires_a_new_answer_not_stale_acceptance(kernel, tmp_path):
+def test_changed_context_lands_an_untouched_answer_under_the_new_generation(kernel, tmp_path):
+    """Contract §22.4.6.1, SL-55 addendum: an answer whose focus no publication touched while it read lands under the
+    current generation (it used to be refused `source_context_changed`); the stale-pinned waiter follows it."""
     mid, root = prepared(kernel, tmp_path)
-    params, job, _, _ = answer_job(kernel, mid)
+    params, job, draft, _ = answer_job(kernel, mid)
     # Advance context through a real reviewed publication, never by editing generation hashes.
     request(kernel, mid, 'detail', focus='Dock', question='What does the harbor look like?')
     other = claim(kernel, mid)
@@ -145,12 +147,12 @@ def test_changed_context_requires_a_new_answer_not_stale_acceptance(kernel, tmp_
     write(Path(other['work_dir'])/'draft.json', dict(nodes=[dict(node_id='scene-dock', node_kind='scene', name='Dock', source_refs=[dict(page=1)], properties=dict(keeper_notes='A quiet harbor.'))], claims=[], node_refs=[], coverage={}, dependencies=[], critical=[], ready_nodes=['scene-dock']))
     write(Path(other['work_dir'])/'review.json', dict(checked=[dict(paths=['/nodes/0', '/coverage'], verdict='supported', source_refs=[dict(page=1)], reason='Source support.')], missing=[]))
     finish(kernel, other)
-    args = dict(module_id=mid, job_id=job['job_id'], lease=job['lease'], outcome='completed', draft_path=str(Path(job['work_dir'])/'draft.json'), review_path=str(Path(job['work_dir'])/'review.json'))
-    error = kernel.err('module.read.finish', args)
-    assert error['details']['reason'] == 'source_context_changed'
-    queue_before = (root/'deepen-queue.json').read_bytes()
-    changed = kernel.err('module.read.request', {**params, 'context_generation': job['base_generation']})
-    assert changed['details']['reason'] == 'source_context_changed'
-    assert changed['details']['read']['source_mode'] == 'answer'
-    assert (root/'deepen-queue.json').read_bytes() == queue_before
-    assert kernel.ok('module.read.request', params)['job_id'] != job['job_id']
+    generation = json.loads((root/'module.json').read_text())['generation']
+    assert generation == job['base_generation'] + 1
+    following = kernel.ok('module.read.request', {**params, 'context_generation': job['base_generation']})
+    assert following['state'] == 'reading' and following['job_id'] == job['job_id']
+    result = finish(kernel, job)
+    assert result['state'] == 'ready' and result['generation'] == generation
+    assert result['source_answer']['answer'] == draft['answer']
+    assert kernel.ok('module.read.request', params)['source_answer'] == result['source_answer']
+    assert kernel.ok('module.read.request', {**params, 'context_generation': job['base_generation']})['source_answer'] == result['source_answer']
