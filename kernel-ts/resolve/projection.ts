@@ -185,6 +185,11 @@ export function shapeSettlement(context: SettleContext, runtime: RuleGraph, chos
 }
 export function tagNpcReceipts(context: SettleContext, family: string, npc: Row | null, outcome: Row): void {
     let against = npc ? context.graph.handle(npc) : null;
+    // §11.5.6 (SL-62): the host's `_resolved_from` on the action -- the name the Keeper wrote, once a fan-out question
+    // against the scene's known people cleared it to this NPC and the host rewrote `action.target` before the retry.
+    // Host-only: the model never sends it, and it never changes whom the check is against, only what the receipt says.
+    const resolvedFrom = typeof context.action._resolved_from === 'string' && context.action._resolved_from.trim()
+        ? context.action._resolved_from.trim() : null;
     // A combat defence names no `target` on its action: the attack it settles is against the defender, whom the combat
     // outcome names as `target`. Without it the roll against an NPC defender carried no `npc`, and §17.3's "any combat
     // settled against him makes him hostile" never folded for a fight whose defence is its own resolve (§11.5).
@@ -202,6 +207,8 @@ export function tagNpcReceipts(context: SettleContext, family: string, npc: Row 
             receipt.family = family;
         if (against && receipt.actor !== against && !Object.hasOwn(receipt, 'npc'))
             receipt.npc = against;
+        if (resolvedFrom && against && receipt.npc === against && !Object.hasOwn(receipt, 'resolved_from'))
+            receipt.resolved_from = resolvedFrom;
         const named = approach || APPROACH_BY_SKILL[string(receipt.skill || '')];
         if (named && !Object.hasOwn(receipt, 'approach'))
             receipt.approach = named;

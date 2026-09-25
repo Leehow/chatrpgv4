@@ -114,13 +114,19 @@ export function establishPerson(context:Pick<ApplyContext,'graph'|'world'|'turn'
         people.push({name:trimmed,turn:context.turn.turn,why,established_at:nowIso(),...(passage?{from_passage:passage}:{})});
     return node;
 }
-/** What a receipt says about where a person came from: nothing for the book's, `table` for §87's, `passage` for §11.5.4's. */
-const establishedOf=(established:false|'table'|'passage',fromPassage:Row|undefined):Row=>
-    established?{established,...(fromPassage?{from_passage:fromPassage}:{})}:{};
+/** What a receipt says about where a person came from: nothing for the book's, `table` for §87's, `passage` for §11.5.4's.
+ *  §11.5.6 (SL-62): `resolved_from` rides beside it -- the name the Keeper wrote, when the host resolved it to this
+ *  person against the scene's known people rather than an exact match. */
+const establishedOf=(established:false|'table'|'passage',fromPassage:Row|undefined,resolvedFrom?:string):Row=>
+    ({...(established?{established,...(fromPassage?{from_passage:fromPassage}:{})}:{}),...(resolvedFrom?{resolved_from:resolvedFrom}:{})});
 export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEffect>{
     const {graph,world}=context;
     const why=typeof effect.why==='string'&&effect.why.trim()?effect.why:null;
     const {node,established,from_passage:fromPassage}=personOfEffect(context,effect,string(required(effect,'name')),why);
+    // §11.5.6 (SL-62): the host's `_resolved_from` -- the name the Keeper wrote, once a fan-out question against the
+    // scene's known people cleared it to this person's handle and the host rewrote `name` before the retry. Host-only:
+    // the model never sends it, and it never changes who the effect is about, only what the receipt says about it.
+    const resolvedFrom=typeof effect._resolved_from==='string'&&effect._resolved_from.trim()?effect._resolved_from.trim():undefined;
     const handle=graph.handle(node),{to,stance,dead}=effect;
     if(effect.reunion!=null){
         if(['to','stance','dead','skill','archetype','conditions','defense','action','disposition'].some(key=>effect[key]!=null))
@@ -130,7 +136,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const snapshot=new CampaignSnapshot(context.kernel,context.campaign.id);
         const reunion=acceptReunion(graph,world,node,await snapshot.files('turns'),scope,effect.reunion,number(context.turn.turn));
         return {receipt:{id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,
-            name:graph.displayName(node),reunion,why,visibility:'keeper',at:nowIso()},
+            name:graph.displayName(node),reunion,...(resolvedFrom?{resolved_from:resolvedFrom}:{}),why,visibility:'keeper',at:nowIso()},
             event:reunion.reused?null:{type:'npc-changed',data:{npc:handle,reunion}}};
     }
     // §11.5.2: the Keeper's override of this person's standing defence. Its own variant, like conditions: one
@@ -142,7 +148,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         if(!why)throw new RpcError('invalid_params','npc.defense needs a why',{fix:'say in one sentence what in the fiction changed how this person defends',details:{field:'npc.why'}});
         const tactics=world.npc_defense??={},previous=typeof row(tactics[handle]).defense==='string'?row(tactics[handle]).defense:null;
         tactics[handle]={defense:effect.defense,why,turn:number(context.turn.turn)};
-        const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),defense:effect.defense,previous,...establishedOf(established,fromPassage),why,visibility:'keeper',at:nowIso()};
+        const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),defense:effect.defense,previous,...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
         return {receipt,event:{type:'npc-changed',data:{npc:handle,defense:effect.defense,why}}};
     }
     // §11.5.3: the Keeper's override of this person's standing action in a fight, and of their combat disposition.
@@ -176,7 +182,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
             scope={combat_id:string(combat.combat_id),round:number(combat.current_round)};
         }
         written[handle]={[field]:word,why,turn:number(context.turn.turn),...scope};
-        const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),[field]:word,previous,...scope,...establishedOf(established,fromPassage),why,visibility:'keeper',at:nowIso()};
+        const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),[field]:word,previous,...scope,...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
         return {receipt,event:{type:'npc-changed',data:{npc:handle,[field]:word,why}}};
     }
     if(effect.conditions!=null){
@@ -196,7 +202,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const actualGained=after.filter(value=>!before.includes(value)),actualLost=before.filter(value=>!after.includes(value));
         ((world.npc_resources??={})[handle]??={}).conditions=[...after];
         const label=personLabel(world,handle,graph.displayName(node));
-        const receipt={id:effectId(context,'condition',handle),kind:'condition',call_id:context.callId,subject:handle,subject_label:label,subject_is_investigator:false,npc:handle,before,after,gained:actualGained,lost:actualLost,incapacitated:incapacitatedBy(after),visibility:'public',why,at:nowIso()};
+        const receipt={id:effectId(context,'condition',handle),kind:'condition',call_id:context.callId,subject:handle,subject_label:label,subject_is_investigator:false,npc:handle,before,after,gained:actualGained,lost:actualLost,incapacitated:incapacitatedBy(after),...(resolvedFrom?{resolved_from:resolvedFrom}:{}),visibility:'public',why,at:nowIso()};
         return {receipt,event:{type:'npc-changed',data:{npc:handle,conditions:{before,after,gained:actualGained,lost:actualLost},why}}};
     }
     const table=await stanceTable(context.kernel),words=array(table.levels).map(level=>level.value);
@@ -230,8 +236,8 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // `established` rides on the receipt and the event so that a person this table just invented is
     // never indistinguishable from one the book printed -- for the Keeper reading the result, and for
     // anything that folds receipts later (the ledger, a worldline rebuild, the KPI).
-    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage),why,at:nowIso()};
-    return {receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{archetype:profile!.archetype}:{}),...establishedOf(established,fromPassage),why}}};
+    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage,resolvedFrom),why,at:nowIso()};
+    return {receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{archetype:profile!.archetype}:{}),...establishedOf(established,fromPassage,resolvedFrom),why}}};
 }
 export async function stageHandout(context:ApplyContext,effect:Row,asset:(module:string,name:string)=>Promise<Row|null>):Promise<StagedEffect>{
     const {graph,world}=context,name=required(effect,'name')!,node=graph.find(name,['handout'])||graph.resolve(name,['handout','asset'],'handout');

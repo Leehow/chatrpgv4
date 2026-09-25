@@ -956,6 +956,83 @@ the shape `tests/kernel/test_apply.py::test_reserved_and_unknown_effect_kinds` a
 refuses `unknown_entity` still refuses whole, having nothing to isolate it from.
 Mutations in the SL-59 ticket's Comments.
 
+#### 11.5.6 A person named in a write or check that the graph and the carried text both miss is resolved against the scene's known people before `unknown_entity` (2026-09-25, SL-62; amends this section, §22.4.7.1 and §32.10)
+
+**Evidence** (long gate #10 t4, `longgate10-haunting-1345`, `longgate10-triage.txt`). At the Hall of Records the compile's
+move had landed; the Keeper wrote `look npc 档案处的办事员` and then three `resolve` naming the same person. All four
+refused `unknown_entity`: the starter's NPC is registered as "the Hall of Records clerk" (the play-language name the
+lane rendered), and the Keeper's own rendering of the room's clerk did not match it byte for byte. The same turn's
+compile had already listed "the Hall of Records clerk" as an addressee candidate (§135.30's `addressee` family) --
+the person was known to the table, only spelled differently -- and the three refusals of one class tripped the
+class limit and the refusal budget (§34.12; SL-63 covers what that abort does to the turn).
+
+**The owner's ruling (2026-09-25).** A person named in a write or check is resolved before it is refused: exact
+match on handle or any registered name first, exactly as before; then the scene's known people (present, addressee
+rows, the module's people of this scene) as fan-out candidates to Jev -- one question, one row per candidate, each
+judged on its own margin ("is this name the same person as this row"), the SL-52 within-row margin (§135.30.9.1's
+`ROW_MIN`/`ROW_RATIO`, `rowClears`). A clear row rewrites the call's own name to that person's handle and the write
+or check lands; the receipt records `resolved_from`, the name the Keeper wrote. Only a name that clears no row is
+`unknown_entity`. No name list, no regex, no language rule: the candidates are the scene's own rows, whatever they
+are this turn, and the judgement is Jev's, never string similarity in code.
+
+**The host** (`extensions/kernel/index.ts`). The kernel's own exact-match resolution is unchanged and runs first, as
+today; this section only follows an `unknown_entity` failure the kernel already gave, for `resolve`'s
+`action.target`/`action.actor` and `apply`'s `npc.name`/`person.who`. On that failure:
+
+- `unknownPersonTarget` reads where the failed name lives on the retried call, from the failure's own `details`: for
+  `resolve`, `details.query` matched against `action.target` or `action.actor`; for `apply`, `details.index` (the
+  SL-59 isolable batch shape, §11.5.5) naming the refused effect, whose `name` (`npc`) or `who` (`person`) is the
+  failed name. A shape this cannot place (no matching field, no `details.index`, another tool) is left refused,
+  untouched.
+- `scenePersonCandidates` reads the scene's known people as `table.look {focus: "scene"}`'s own `present` reduction
+  (§135.31's table: each entry's `name` and, when the lane gave one, `called`) -- the same view the Keeper's own
+  `look` already answers, not a new read. No candidates, no question, and the refusal stands.
+- `resolveScenePerson` asks one typed fan-out (`runtime/jev/person-resolution-domain.ts`, family
+  `person-name-resolution`), memoised on the table state by the name asked (`personResolved`, a name already asked
+  this player turn is never asked twice, whether it resolved or not) and cleared with the turn exactly as
+  `readingRefused` is (§22.4). A name a prior call already found unresolved stays unresolved for the rest of the
+  turn without spending a second Jev call; a name it resolved is rewritten again from the cache, without asking
+  again either.
+- On a resolved handle, the effect's `name`/`who` (or the action's `target`/`actor`) is rewritten to that handle,
+  the same field gains a host-only `_resolved_from` naming the Keeper's original word, and the original call is
+  retried once through the same path (`invokeOperation`) that `_land_on_text`/`_passage` already retry through
+  (§11.5.4, §22.4.7.1). A retry that itself fails (a different cause) propagates that new failure; the resolution is
+  not re-attempted.
+
+**The typed family** (`runtime/jev/person-resolution-domain.ts`). One `DecisionBatch`, `family:
+"person-name-resolution"`, one `choice` question per candidate (`person_<n>`, options `yes`/`no`/`unclear`,
+criteria worded exactly like §135.30.9's `ASK_ROW`, judging only that one candidate), state `{name, candidates:
+[{alias, names}]}`. `interpretPersonResolution` reads each row through `rowClears` (imported from
+`route-compile.ts`, never re-implemented): a `yes` that clears is the row's candidate; exactly one row clearing is a
+resolution, and zero or more than one leaves the name unresolved (`no_row_cleared` / `ambiguous`). A batch with no
+candidates, more than `PERSON_RESOLUTION_MAX_CANDIDATES` (12) of them, an invalid typed answer, an incomplete
+result, a foreign lease or a throwing port is a named fallback, never a guess -- the same discipline §128.3's speech
+attribution already keeps.
+
+**The kernel** (`kernel-ts/apply/entities.ts`, `kernel-ts/apply/person.ts`, `kernel-ts/resolve/projection.ts`). A
+host-only `_resolved_from` on an `npc`/`person` effect, or on a `resolve` action (read once, by `tagNpcReceipts`,
+off `context.action`), never changes who the write or check is about -- the kernel resolves the (now-exact) name
+exactly as it always has -- and adds exactly one field to the receipt(s) it produces: `resolved_from`, the name the
+host said the Keeper originally wrote. A model-sent `_resolved_from` is trusted for this one field the same way a
+model-sent `_passage` would be if the host had not already stripped it (§11.5.4): the host is the only writer that
+ever sets it, on the retried call alone.
+
+**Three ends (§31).** *Writer:* Jev (one answer per candidate row), the host (`_resolved_from`, the rewritten
+name), the kernel (`resolved_from` on the receipt). *Reader:* `resolveScenePerson`'s memo, `tagNpcReceipts` and
+`stageNpc`/`stagePerson`. *Actor:* the Keeper, whose own variant spelling of a person the table already knows lands
+without a second try; the kernel's admission of who they were resolved to.
+
+*Tests.* `tests/extension/jev-person-resolution-domain.test.mjs`: the fan-out's one row per candidate, its within-row
+margin (`ROW_MIN`/`ROW_RATIO`), exactly-one-clears resolution, and every named fallback (no candidates, too many, an
+invalid answer, an incomplete result, a foreign lease, a throwing port). `tests/extension/name-resolution.test.mjs`
+(the emitted host, a fake kernel and a stubbed Jev endpoint): a variant name of the one present person clears its
+row and the retried write lands, with one Jev call; a name that clears no row stays refused `unknown_entity`,
+memoised so a second write for the same name spends no further Jev call; a scene with no known people spends no
+Jev call at all. `tests/extension/name-resolution-receipt.test.mjs` (the emitted kernel): a host-sent
+`_resolved_from` rides the npc, person and roll receipts without changing which book person the effect or check
+resolves to, and a batch that sends none carries no such field. Mutations for all three are recorded in the SL-62
+ticket's Comments. The gate #10 t4 replay (recorded Keeper, live Jev) is also in the ticket's Comments.
+
 ### 11.6 结果与收据
 
 `outcome.kind` 取 `check`、`opposed`、`combined`、`social`、`psychology`、`healing`、`push`、`luck`、`magic`、`development`、`combat`、`chase`、`sanity`、`none`。每种至少有 `level` 或 `status`、涉及的骰面与目标值、`effects`。`effects` 每条 `{kind: hp|san|mp|luck|condition|ammo|position, subject, before, after}`。
@@ -19544,6 +19621,72 @@ writes go without prose.
 model steps: the first note carries `head` equal to `CLERK_NOTE_HEAD` right after `kind`, no later note of the run carries a
 `head`, and the next turn's first note carries it again; a first model step with nothing else to say still has a note, with
 the head. Structure only, never wording. Mutations in the SL-50 ticket's Comments.
+
+#### 135.11.3 A run the refusal budget's runaway abort ends is a delivery drop like any other: the fallback narrates once, and the stranded record is never written for it (2026-09-25, SL-63)
+
+**Evidence** (long gate #10 t4, the same table as §11.5.6/SL-62). After three `unknown_entity` refusals of one class the
+refusal budget shut `resolve` (§34.12); the Keeper kept calling it, `blockedAfterExhausted` reached `RUNAWAY_ABORT_AT`
+(§34.16's runaway cut, shared with the turn-has-no-door cut), and the host called `ctx.abort()`. On the hybrid engine that
+abort is not a steer: the vendored run driver's `operate` step observes the aborted signal on a later proposal in the same
+batch (or the next one) and ends the run `aborted` with reason `aborted_during_operate` -- no further model step, and no
+`message_end` of its own, because the abort happens inside the tool-call gate, never inside a model-produced message. The
+run settled `aborted_during_operate`, the host sent `turn_unfinished_notice`, the turn recorded `closed_by: "stranded"`, and
+the player read no fiction, although the compile's move had already landed (the party was at the Hall of Records) and the
+Keeper had material to narrate from.
+
+**The owner's ruling (2026-09-25).** The refusal budget ends the Keeper's attempts, not the turn: when its runaway abort
+ends a run, the turn closes through one fallback narrate carrying what already landed (the turn's own receipts, the carried
+scene -- both already on the turn regardless of what this narrate says) and the Keeper's own last draft this turn if any,
+rather than through §38's stranding. The abort itself is recorded as a drop, `reason: "refusal_budget"`, the same shape
+every other delivery drop already carries; the fallback is tried at most once, and its own service notice -- honest,
+naming nothing it does not know -- is its own fallback, never the whole delivery.
+
+**Where this differs from the legacy engine.** On the legacy engine the same `ctx.abort()` reaches `message_end`/`agent_end`
+through the ordinary steer and dropped-draft machinery (§135.11's gate #4 addendum, §36.15's SL-23 addendum): a draft a
+floor or speech steer held is delivered from there before the turn is judged undelivered, with no gap. On the hybrid
+engine's driven run there is no later `message_end` for an aborted operate step to reach -- the run has already ended -- so
+nothing between the abort and `agent_settled`'s stranding decision ever offers the Keeper's held draft, or anything else, a
+way out. This section closes that gap for the hybrid engine only; the legacy engine's existing recovery is unchanged and,
+where it already runs before this section's own check would, takes precedence (this section's own guard -- `!closedThisRun`
+-- is what keeps it from ever double-delivering over that).
+
+**The host** (`extensions/kernel/index.ts`). Two additions, both scoped to the one abort path this section names (the
+turn-has-no-door cut of §34.16 is a different scenario -- a turn already closed or never opened -- and is untouched):
+
+- At the `blockedAfterExhausted >= RUNAWAY_ABORT_AT` cut inside the refusal-budget's own `shut` branch (not the
+  turn-has-no-door branch), a table-state flag `refusalBudgetCut` is set alongside the existing `runCut`, and one
+  `lane: "delivery", ok: false, reason: "refusal_budget"` row is recorded there -- the one place that knows why, since no
+  later `message_end` will run to record it the way every other drop is.
+- At `agent_settled`, before the run is judged undelivered, `refusalBudgetCut` (read once and cleared) gates one call to
+  `deliverRefusalBudgetFallback`: it takes the table's own `floorDraft` (the same draft a floor or speech steer already
+  holds, §135.11's gate #4 addendum) when the turn has one, or an honest, localised service line
+  (`refusal_budget_fallback_notice`, `content/ui/*/extension.json`, read the same way `turn_unfinished_notice` is) when it
+  does not, and delivers it with one host-initiated `table.narrate` call (the same host-owned-operation shape
+  `settleStandingDefense` already uses, outside the ordinary tool dispatcher). A successful call updates the table's turn,
+  state and `closedThisRun` from the kernel's own result, so the ordinary undelivered computation right after it sees a
+  closed turn and the stranding path never runs; a refused or throwing call is swallowed, and the ordinary undelivered path
+  runs exactly as it did before this section -- the notice `agent_settled` already sends is this fallback's own fallback.
+
+**What is unchanged.** The refusal budget's own class and turn-budget counters (§34.12), the runaway cut's two thresholds
+(`RUNAWAY_ABORT_AT`, `RUNAWAY_STOP_AT`) and the turn-has-no-door cut that shares them (§34.16), the legacy engine's
+`message_end`/`agent_end` recovery, and §38's stranding path for every other cause of an undelivered turn.
+
+**Three ends (§31).** *Writer:* the tool-call gate (`refusalBudgetCut`, the drop row), `deliverRefusalBudgetFallback` (the
+narrate call, the table-state update). *Reader:* `agent_settled`'s undelivered computation, which the fallback's own
+success moves past. *Actor:* the Keeper, whose runaway-cut run still ends in a delivered turn with the last thing it wrote,
+or an honest word that nothing more could be tried.
+
+*Tests.* `tests/extension/refusal-budget-fallback.test.mjs` (the emitted host on the legacy engine, a fake kernel; the
+runaway-cut shape is engine-agnostic to trigger even though the gap it closes is hybrid-only): a barrage of `resolve` calls
+past the class and turn budgets trips the runaway abort (`lane: "runaway", after: "refusal_budget"`), records the one
+`reason: "refusal_budget"` drop, and the fallback narrate lands (`ok: true, reason: "refusal_budget_fallback"`) -- one
+`table.narrate` reaches the kernel, no `table.release {release: "stranded"}` call and no stranded telemetry are ever sent; a
+run whose floor steer already delivered a held draft through the legacy engine's own recovery before this section's check
+runs is not double-delivered (`closedThisRun` is already true, `deliverRefusalBudgetFallback` is never called a second
+time). Mutations recorded in the SL-63 ticket's Comments. The gate #10 t4 replay (recorded Keeper, live Jev) is in the same
+ticket's Comments: whether the hybrid engine's own runaway-cut run reaches this section's fallback rather than stranding is
+that replay's own finding, since the legacy-engine test above cannot exercise the `aborted_during_operate` path this
+section exists for.
 
 ### 135.20 The read hands the Keeper the bodies of what it issued (2026-09-23, SL-11 scope 1; the model-call diet)
 

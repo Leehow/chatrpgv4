@@ -57,6 +57,7 @@
   "receipt_worldline": "{operation} -> {line}",
   "receipt_worldline_loop": "{operation} -> {line} loop {loop}",
   "receipt_worldline_plain": "worldline",
+  "refusal_budget_fallback_notice": "This turn's back-and-forth ran too long, so it closes here. Anything already settled is kept exactly as it landed — send anything to continue.",
   "resend_held_notice": "That is the message the table is already working on, word for word, so it was not started a second time. The turn you sent it for is still running.",
   "review_down_notice": "This turn could not be published: its continuity review has failed {streak} times in a row. Everything already settled is kept, and sending again does start a fresh attempt — but if it keeps failing, pick a quicker model under Fast model in settings; the next review uses it without restarting this table. The person running this table has been told.",
   "review_unavailable_notice": "This turn could not be published: its continuity review did not finish. Everything already settled is kept — send anything to try again.",

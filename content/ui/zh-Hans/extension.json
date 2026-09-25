@@ -57,6 +57,7 @@
   "receipt_worldline": "{operation} -> {line}",
   "receipt_worldline_loop": "{operation} -> {line} 循环 {loop}",
   "receipt_worldline_plain": "世界线",
+  "refusal_budget_fallback_notice": "这一回合来回尝试太多，到这里先收尾。已经结算的内容原样保留——说句什么都能继续。",
   "resend_held_notice": "这条和桌上正在处理的那条一字不差，所以没有当成第二个回合再跑一遍。你为它发的那个回合还在进行。",
   "review_down_notice": "本回合无法发布：其连续性审阅已连续失败 {streak} 次。已经确定的内容都会保留，再次发送确实会重新尝试——但如果仍不断失败，请在设置中的“快速模型”下选择一个更快的模型；下一次审阅将使用它，而无需重启本牌桌。主持本牌桌的人已被告知。",
   "review_unavailable_notice": "这一回合没能发布：连续性复核没跑完。已经结算的内容都还在——随便说句话就能再试一次。",
