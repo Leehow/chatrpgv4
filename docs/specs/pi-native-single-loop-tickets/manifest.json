@@ -268,11 +268,16 @@
     {
       "id": "SL-53",
       "file": "53-the-index-job-is-under-the-book-sized-lease.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-54",
       "file": "54-a-displaced-read-resumes.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-55",
+      "file": "55-a-running-answer-survives-a-generation-move.md",
       "status": "ready"
     }
   ],
