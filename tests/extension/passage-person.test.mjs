@@ -153,13 +153,15 @@ test("SL-59: a batch with one unnamed person lands two and refuses one line with
 	const result = await game.apply([
 		{ kind: "npc", name: "Ruth Blakemore", to: "here", why: "book text", _passage: passageFor("Ruth Blakemore") },
 		{ kind: "npc", name: "Tom Carrow", to: "here", why: "book text", _passage: passageFor("Tom Carrow") },
-		// No `_passage`, no near-name book NPC, no index row: the text nowhere names this one.
-		{ kind: "npc", name: "Zeb Okonkwo-Marchetti", to: "here", why: "nobody names him" },
+		// No `_passage`, one word short of the authored Steven Knott: the graph's own ranking, not the
+		// two people this batch already established, is what refuses this line (SL-64, contract
+		// §11.5.7): an existing table person is never counted toward "the graph has something to say".
+		{ kind: "npc", name: "Steven Knot", to: "here", why: "one letter short of the book's own landlord" },
 	]);
 	assert.equal(result.not_landed.length, 1, "one refused line, reported beside the landing, not thrown");
 	assert.equal(result.not_landed[0].index, 2);
 	assert.equal(result.not_landed[0].code, "unknown_entity");
-	assert.match(result.not_landed[0].message, /Zeb Okonkwo-Marchetti/);
+	assert.match(result.not_landed[0].message, /Steven Knot/);
 	const npcs = await receipts(game, "npc");
 	assert.deepEqual(npcs.map((receipt) => receipt.name).sort(), ["Ruth Blakemore", "Tom Carrow"], "the call is a success: the named two land with their own receipts");
 	const world = await game.world();

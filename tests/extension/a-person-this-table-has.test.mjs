@@ -23,6 +23,8 @@
  */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
 import {table} from './object-usages-fixture.mjs';
 
 /** The doorman of turns 96–99, by the name that turn's `apply npc` actually used. */
@@ -66,6 +68,54 @@ test('the same person established twice is one person', async t => {
 	await game.apply([{kind: 'npc', name: DOORMAN, stance: 'wary', why: 'she has pushed him twice now'}]);
 	const world = await game.world();
 	assert.equal((world.table_people ?? []).filter(person => person.name === DOORMAN).length, 1);
+});
+
+/**
+ * SL-64 (2026-09-25, contract §11.5.7; amends §87.4). §87.4's roster of this table's own established
+ * people is appended to `candidates()`'s ranked list last and unconditionally, once the table has
+ * minted anyone at all -- a list for the Keeper (or §11.5.6/SL-62's Jev question) to resolve a name
+ * *against*, never a headcount. `personOfEffect` used to read that appended list's length to decide
+ * whether the graph was "silent" on a name, so once one table person existed, every later distinct
+ * name found the graph not silent and refused instead of minting.
+ *
+ * On the 血色公路 batch-9 table (`sl29ab9-xuese-1922`, ticket 29's batch-9 entry) this reproduced five
+ * times on one table: `apply npc "卡尔"` established the first table person at t11, in the same batch
+ * as `apply npc "霍默"` — a second, unrelated name — which refused `unknown_entity` with
+ * `details.candidates: ["卡尔"]`. The batch's `npc`/`person` writes for 霍默 both stayed unlanded
+ * (SL-59's isolable refusal); the same shape recurred at t14, t15, t17 and t18 for 马瑟, 马瑟先生 and
+ * 霍默 again. `npc-ledger.json` held exactly one table person.
+ */
+test('a batch placing two distinct people this table meets mints them both, the batch-9 shape', async t => {
+	const game = await table(t);
+	const FIRST = '卡尔', SECOND = '霍默';
+	const result = await game.apply([
+		{kind: 'npc', name: FIRST, to: 'here', why: 'the man at the pumps, talking to the investigator'},
+		{kind: 'npc', name: SECOND, to: 'here', why: 'the bar owner across the street, watching from over there'},
+		{kind: 'person', who: FIRST, name: FIRST},
+		{kind: 'person', who: SECOND, name: SECOND}]);
+	assert.equal(result.not_landed, undefined,
+		`nothing in this batch should refuse, an existing table person is a candidate, never a bar: ${JSON.stringify(result.not_landed)}`);
+
+	const world = await game.world();
+	assert.deepEqual((world.table_people ?? []).map(person => person.name).sort(), [FIRST, SECOND].sort(),
+		'both distinct names this table met establish their own table person; the first is not a reason the second refuses');
+});
+
+test('two people this table meets each land their own npc-ledger entry once the turn closes', async t => {
+	const game = await table(t);
+	const FIRST = '卡尔', SECOND = '霍默';
+	await game.apply([{kind: 'npc', name: FIRST, to: 'here', why: 'the man at the pumps'},
+		{kind: 'npc', name: SECOND, to: 'here', why: 'the bar owner across the street'}]);
+	await game.call('table.narrate', {call_id: game.next(),
+		text: `{{say:${FIRST}}}Fill her up?{{/say}} ${SECOND} watches from across the street.`});
+
+	// The fixture's own opening scene seeds an authored NPC (Steven Knott), who already has a ledger
+	// entry from the setup turn; only the table-person entries (§87's handle prefix) are this test's
+	// concern, since a shared count would also pass when the second name never minted at all.
+	const ledger = JSON.parse(await readFile(join(game.directory, 'npc-ledger.json'), 'utf8'));
+	const tablePeople = Object.keys(ledger).filter(id => id.startsWith('npc-table-'));
+	assert.equal(tablePeople.length, 2,
+		`each distinct table person this table met gets their own ledger entry: ${JSON.stringify(ledger)}`);
 });
 
 test('a pin on an unknown name is still refused, with its candidates', async t => {
