@@ -10,6 +10,17 @@ def mech(t):
     p=f'{C}/turns/{t:04d}.json'
     if not os.path.exists(p): return [], None
     rec=json.load(open(p)); return rec.get('mechanics') or [], rec
+def tool_result(t):
+    # Driver tool-call records carry the kernel's reply as a JSON string in `result_text`, not as a
+    # `result` dict (confirmed against real turn data: t.get('result') is always {} or None). Parse
+    # result_text when present; fall back to `result` for any shape that does carry one.
+    r = t.get('result')
+    if isinstance(r, dict) and r: return r
+    rt = t.get('result_text')
+    if isinstance(rt, str) and rt.strip():
+        try: return json.loads(rt)
+        except (json.JSONDecodeError, ValueError): return {}
+    return r or {}
 print('turn | wall(driver) | provider calls (ms) | prescreen | compile sel | routes | binds (path) | admission (origin verb:verdict:path:ms) | looks | drops | budget | run_end | mechanics | closed')
 walls=[]; allcalls=0; adm=[]; looks_total=0; stranded=[]; errors=[]; speech=collections.Counter(); infer_bind=0; san=[]
 reasoning=[]  # SL-61: usage.reasoning per provider call
@@ -72,22 +83,18 @@ for dt in sorted(glob.glob(f'{P}/turn-*.json'), key=lambda p:int(p.split('-')[-1
         if isinstance(effects, dict): effects = [effects]
         person_effects = [e for e in effects if isinstance(e, dict) and e.get('kind') in ('npc', 'person')]
         if len(person_effects) >= 2:
-            result = t.get('result') or {}
+            result = tool_result(t)
             receipts = result.get('receipts') or []
-            refused = result.get('refused') or []
+            refused = result.get('not_landed') or result.get('refused') or []
             batch_person_applies.append((n, len(person_effects), len(receipts) if isinstance(receipts, list) else None,
                                           [r.get('reason') or r.get('code') for r in refused] if isinstance(refused, list) else refused,
                                           (t.get('result_text') or '')[:200]))
 
     # --- SL-62/contrast: resolved_from and unknown_entity anywhere in this turn's tool results ---
-    blob = json.dumps(d, ensure_ascii=False)
-    if '"resolved_from"' in blob:
-        for t in d.get('tools') or []:
-            rt = json.dumps(t.get('result') or {}, ensure_ascii=False)
-            if 'resolved_from' in rt:
-                resolved_from_rows.append((n, t.get('name'), rt[:200]))
     for t in d.get('tools') or []:
-        rt = (t.get('result_text') or '') + json.dumps(t.get('result') or {}, ensure_ascii=False)
+        rt = json.dumps(tool_result(t), ensure_ascii=False)
+        if 'resolved_from' in rt:
+            resolved_from_rows.append((n, t.get('name'), rt[:200]))
         if 'unknown_entity' in rt:
             unknown_entity_rows.append((n, t.get('name'), rt[:200]))
 
@@ -98,7 +105,7 @@ for dt in sorted(glob.glob(f'{P}/turn-*.json'), key=lambda p:int(p.split('-')[-1
         effects = args.get('effects') or (args if isinstance(args, list) else [])
         if isinstance(effects, dict): effects = [effects]
         if not effects and isinstance(args, dict) and args.get('kind') in ('npc', 'person'): effects = [args]
-        result = t.get('result') or {}
+        result = tool_result(t)
         result_text = t.get('result_text') or ''
         receipts = result.get('receipts') or []
         not_landed = result.get('not_landed') or []
