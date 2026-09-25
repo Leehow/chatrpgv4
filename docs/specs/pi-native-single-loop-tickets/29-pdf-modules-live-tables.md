@@ -751,3 +751,191 @@ Evidence (git-ignored, kept — the fork and reading workspace were deliberately
 - harness (this branch only, originals under `29-book-a-b7/` untouched): `docs/specs/pi-native-single-loop-tickets/29-book-a-b8/{worker.sh,start.sh,play.py,triage.py,script.md,preregistration.md}`
 - pre-registration commit: `ed89fe8fd` (before the table opened)
 - per-turn prose (not committed, carries book-derived text): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b8/.coc/playtests/sl29a-b8/turns.log`
+
+### 2026-09-25 — book A (血色公路) SL-29A batch-9 on `1ed666fd0` (integration `claude/integ-single-loop-20260923`, batch 9 merged on top of batch 8: SL-58, SL-59, SL-60, SL-61, SL-62, SL-63): SL-58 confirmed fixed live (no source_mode=prepare call blocked past the ~8s allowance); SL-59 confirmed fixed for a batch where at least one effect resolves (line-level `not_landed`); SL-61 confirmed live end to end (reasoning tokens 0 on every one of 94 calls, p50 3.4s/p90 7.6s, no call over 45s); SL-60/62/63 not exercised to a conclusive result this table; one new, unrelated P1 finding — once one table-established NPC exists in a campaign, the graph's own candidate list makes every subsequent brand-new (book-absent) NPC name refuse `unknown_entity` instead of minting, so a table can never carry more than one Keeper-invented person
+
+**Keeper model change, stated up front.** Grok-build has no quota this session. This table ran
+`opencode-go/deepseek-v4.1-flash` with `--thinking off` (SL-61's own provider-data correction). Wall-time,
+step-count and drop-count numbers below are **not** comparable to batches 4-8's grok tables as
+regressions/improvements — a different model plays differently. Only the structural/telemetry classes
+(delivery, routing mechanism, admission, binding, reading, SL-5x/6x checks) are scored as product findings.
+
+New worktree `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b9` (branch `claude/sl29a-b9-20260925`) at
+`1ed666fd0`, node_modules symlinked from `chatrpgv4-wt-pi-coc-v2` (six paths per the marker), built via
+`leehow-pc-tests`' `remote-test.sh build-fetch` (23s remote build, clean). Confound noted before the table
+opened, not touched: long gate #11 (campaign `longgate11-haunting-1515`, worktree `chatrpgv4-wt-integ-sl`,
+pid 86736) was running concurrently on this Mac, **on the same provider/model** as this table (confirmed by
+`ps aux`); its daemon was not touched. `.pi/coc-agent/{auth.json,pipiui-settings.json,grok-build-models.json,
+models-store.json}` copied from `chatrpgv4-wt-integ-sl`; `models.json` deliberately **not** copied — see the
+pre-table confirmation below. The imported home was reused: `chatrpgv4-wt-pdf-a/.coc/playtests/sl29-a-run2/home`
+(module `book-1`, generation 2, the same graph batches 4-8 reused) copied into `.coc/playtests/sl29a-b9/home`;
+every stale `.lock` file found anywhere under the copied home was removed before use — this batch found
+locks beyond `.coc/modules` too (`.coc/locks`, `.coc/mods/jobs/*/review.lock`, `.coc/campaigns/*/setup.lock`,
+`.coc/module-campaigns/*`), all stale, all removed. A NEW campaign, `sl29ab9-xuese-1922`, was created via the
+onboarding worker's `converse` action (title `血色公路`, no `.pdf` suffix; `guidance_key` and `start_scene`
+read from the copied module's own `module.json`); harness adapted from `29-book-a-b8/` as
+`29-book-a-b9/{worker.sh,start.sh,play.py,triage.py,script.md}` (script unmodified), with
+`29-book-a-b9/preregistration.md` written and committed (`2e1df3e95`) before the table opened.
+
+**Pre-table confirmation (SL-61).** `content/providers/model-corrections.json` present in this worktree
+before the table opened, with `opencode-go/deepseek-v4.1-flash` and `.../deepseek-v4-flash` both
+`thinkingLevelMap: {"off": "off"}`. After the setup daemon started, `daemon.json`'s
+`model_confirmed.thinkingLevelMap.off` read `"off"`, and this worktree's own `.pi/coc-agent/models.json` —
+absent before the table, never copied — was written by the product at host preparation with the `//`-comment
+provenance note naming the two corrected models; both confirmed again on the play daemon's own `daemon.json`
+before turn 1. Reasoning tokens: `events.jsonl` across the whole run (opening + 20 turns) carries 625
+`"reasoning": 0` occurrences and **zero** nonzero ones; `reasoning_effort` is `null` on every one of the 97
+requests (thinking sent as `disabled`, no effort field, exactly SL-61's own shape) — this table's own
+telemetry.jsonl `provider-call` rows carry no `usage` field at all in this build, so the reasoning-token count
+is drawn from the driver's `events.jsonl`, not `telemetry.jsonl`.
+
+**Setup (live, `driver.py --launcher bin/pi-coc-setup`, run `sl29ab9-xuese-1922-setup-20260925T192401Z`,
+replaying batches 4-8's own recorded 5-turn exchange turn-for-turn).** 5 turns, 54.9s total, 8 tool calls —
+each individual turn 6.3-22.5s, none over 23s (contrast batch-8's 98.2s for the same exchange; thinking-off
+deepseek is markedly faster per call, as expected, not scored as a product finding). The card: investigator
+name rendered **雷·卡** (truncated — batches 4-8's setup produced 雷·卡特 from the identical script; a
+Keeper-model difference in how it echoed the name back on confirmation, not a product mechanism this ticket
+covers), Private Investigator, Drive Auto 50 (batches 4-8's card had Drive Auto 55). Recorded, not scored.
+
+**Table (`29-book-a-b9/play.py`, driver run `sl29ab9-xuese-1922-20260925T192559Z`, hybrid-v1,
+`PI_COC_JEV_PRESELECT=1`, `opencode-go/deepseek-v4.1-flash` thinking off).** 20/20 turns settled, 0 stranded,
+99 tool calls (apply 30, lookup 28, look 17, narrate 13, resolve 6, recall 5), 94 Keeper provider calls (0
+errors), admission max 13,004 ms (one row, t13, `review_pending` at its own configured `cap_ms: 13000`, 0
+`review_timeout`), `infer(bind)` = 0, 45 `look`/`lookup` non-source calls, 9 `lookup kind=source` calls (0
+`reading_timeout` on any of them — the first table in this line with zero), speech 11 resolved / 22
+unresolved, 0 sanity rolls (script does not reach one). Walls `[32, 30, 14, 27, 24, 32, 41, 34, 31, 28, 64, 56,
+62, 56, 57, 26, 57, 72, 46, 47]`; median 37.2s, 17/20 ≤ 60s (85%), max 72.1s (t18); model-call ms p50 3435,
+p90 7584, **zero calls over 45s**. The module graph forked and advanced generation 2→3 (the town's own detail
+read, `read-2`, landed); 10 reading jobs raised (`read-1`..`read-10`), all 10 carrying a `stage_budget` row, 0
+`budget_input_tokens` refusals (SL-53 holds, fifth table running), 6 background-read displacements
+(`event: "displaced"`, `read-1/3/4/6/7/8`) but **none of the six had resumed by the time the daemon was
+stopped** — all six were still `state: "queued"` in `deepen-queue.json`, `attempts: 1`, when the table ended
+(a heavier read-slot contention than batch-8's single displace-then-resume, plausibly this Keeper's own much
+higher `lookup`/`recall` volume per turn saturating the reading slots faster than earlier grok tables).
+
+**Table (Scope 3), keyed to what batch 9 changed.**
+
+| class | pre-registered line | measured | verdict |
+| --- | --- | --- | --- |
+| delivery | 20/20 with prose | 20/20 settled, 0 stranded, every turn delivered real Keeper prose | **pass** |
+| wall | median ≤45s, ≥80% ≤60s | median 37.2s, 17/20 ≤60s (85%), max 72.1s — no turn waited on a `reading_timeout` (first table in this line with none) | **pass** (not compared to grok tables — model change) |
+| routing | declared move lands or narrates honestly | one `apply` move raised all table: t4 `welcome-to-abattoir` (the town's own arrival, lands on first declaration). No sub-location (esso-gas-station, 马瑟综合商店, 最后一站) was ever entered as a scene this table, despite being asked about extensively via `lookup`/`recall`/`look`; t20's own move attempt to `last-stop` refused `unknown_entity: The destination 'last-stop' is not an identified scene` | **not a defect on its own — Keeper-choice/pacing noise (this Keeper did far more research, far less committing, than grok's); plausibly downstream of the new NPC-establishment finding below (see findings)** |
+| admission | no row >12s | admission max 13.0s (t13, `review_pending`, `cap_ms: 13000`), 0 `review_timeout` | **marginal miss (1.0s over the line) — same shape as batch-8's own single capped row, not a new pattern** |
+| binding | `infer(bind)` = 0 | 0 | pass |
+| looks | ≤1/turn after first visit | 45 non-source `look`/`lookup` across 20 turns (heavier than batch-8's 6 — this Keeper's own research style); 9 `lookup kind=source` counted separately, 0 `reading_timeout` on any | **fails the per-turn line on several turns (Keeper-style, not a product mechanism)** |
+| prescreen | status per read; own allowance | `prepared` every read, 2-3 candidates as the graph grew, no fallback anywhere | pass |
+| drops | every drop has a reason | `text_beside_tool_calls` and `speech_steer` rows seen, each with a reason; no stranded turn | pass |
+| fiction/rules | no off-sheet skill; no push without declaration | all rolls (Navigate, Spot Hidden, Psychology, Drive Auto, Charm) on 雷·卡's own sheet; t18's `apply move` attempt correctly refused `needs: The player has not chosen this action` | pass |
+| stalls | none; provider errors listed | 0 provider `error` rows anywhere | pass |
+| reading (PDF) | every read has a telemetry row and outcome | all 10 reads (`read-1`..`read-10`) have purpose/focus/ms rows; 1 completed (`read-2`), 3 running at daemon stop (`read-5`,`read-9`,`read-10`), 6 displaced-and-still-queued; zero `budget_input_tokens`/`provider_refused` events anywhere | pass |
+| SL-58 (`prepare`-mode lookups get the answer allowance) | pending near the 8s allowance, not a 120,003ms block | **3 of 3 `source_mode: "prepare"` calls this table (t7 7991.9ms, t15 7998.4ms, t20 8001.4ms) returned `{"source_answer":{"status":"pending",...}}` — none blocked past the allowance, none hit `reading_timeout`. t7's target (`welcome-to-abattoir`'s detail) genuinely was not ready yet (it completed at 19:32:21Z; t7 ended at 19:29:31Z), so this is a live, direct confirmation, not a scheduling artifact** | **confirmed fixed** |
+| SL-59 (batch npc/person effects land line by line) | receipt count = resolvable-effect count, not zero when ≥1 resolves | **t11's 4-effect `apply` (`npc:卡尔, npc:霍默, person:卡尔, person:霍默`) landed 卡尔 (2 receipts: `npc:t11-c1`, `person:卡尔-t11-c1`, `is_error:false`) and isolated 霍默's failure as `not_landed:[{index:1,code:"unknown_entity",...},{index:3,code:"unknown_entity",...}]` — exactly the §32.12.3 line-level shape.** Every *other* multi-effect npc `apply` this table (t14, t15, t17) refused whole (`is_error:true`, no `not_landed`) — but in every one of those, **every** effect in the batch failed the same way (see the new finding below): SL-59's isolation only has something to isolate when at least one effect can land; a batch where nothing resolves has nothing to differentiate and (correctly, per its own design) falls back to the aggregate refusal | **confirmed fixed for its own stated scope** |
+| SL-60 (dedicated `resumed` row) | a resumed job's row is dedicated, not only embedded | 6 displacements occurred; **none resumed before the daemon stopped** (all 6 stayed `state: "queued"`, `attempts: 1`) — no `event: "resumed"` row, dedicated or embedded, appears anywhere, because no job actually resumed | **not exercised to a conclusion — different from batch-8's own gap (a resume happened there with no dedicated row); here no resume happened at all** |
+| SL-61 (deepseek Keeper thinking off) | reasoning 0 on every call | 94 provider calls, reasoning 0 on all (verified via `events.jsonl`, 625×`"reasoning": 0`, zero nonzero); p50 3.4s, p90 7.6s, 0 calls over 45s | **confirmed fixed, live** |
+| SL-62 (a person's name resolved before `unknown_entity`) | `resolved_from` on a variant-name match; genuine unknowns still refuse | **Not exercised**: every `unknown_entity` refusal this table named a genuinely different person from any scene-present one (霍默/马瑟/店里的姑娘/柜台后梳发油的男人 are not variant spellings of 卡尔) — the scene-candidate fan-out correctly found nothing to clear, so `unknown_entity` stood in every case for the *right* reason (SL-62 not at fault; see the new finding below for *why* they all failed) | **not exercised — no variant-name shape appeared this script** |
+| SL-63 (refusal-budget abort still delivers) | a runaway abort still delivers | Two `reason: "refusal_budget"` rows (t14, t17), both `blocked_after_exhausted: 1` — the ordinary three-strikes class block, not SL-63's `aborted_during_operate` runaway (which needs a much higher `blocked_after_exhausted`). Both turns delivered normally (the model heeded "stop trying it: close the turn with narrate" and did) | **not exercised — the softer three-strikes gate fired and worked as designed; the runaway-abort path this ticket targets was never reached** |
+
+**Findings, one root cause each**
+
+- **Finding 1 (new, P1, unrelated to any of SL-58..63) — once one table-established NPC exists in a campaign,
+  every subsequent brand-new (book-absent) NPC name is refused `unknown_entity` instead of being minted as a
+  second table person; a campaign can carry at most one Keeper-invented person for its whole run.**
+  `kernel-ts/apply/entities.ts`'s `personOfEffect` (~line 93-101) refuses to mint a new table person whenever
+  `graph.candidates(name, ['npc']).length` is non-zero for that name: `if(!passage&&graph.candidates(name,
+  ['npc']).length)throw error;` — i.e. "the graph has *something* to say" is read as "refuse, and let the
+  Keeper pick from the candidates" rather than "mint, since nothing here actually matches." But
+  `kernel-ts/read/module-graph.ts`'s `candidates()` (~line 382-405) *unconditionally* appends every
+  already-established table person's handle to the candidate list for any `npc`-kind query, by design and on
+  purpose — its own comment says why: "deciding those are one person is the open semantic judgement this
+  project forbids... nothing compares the query to these names; they are appended" (a roster to pick from, not
+  a match). The two are individually correct in isolation and incompatible together: the moment one table
+  person exists, `candidates()` is never empty again for *any* new npc-kind name, so `personOfEffect`'s
+  emptiness test can never pass again, and no second table person can ever be established, no matter how
+  lexically unrelated the new name is to the one that already exists. Reproduced five separate times this
+  table, every time with the *same* offered "candidate" (卡尔, who was minted first, at t11) regardless of the
+  attempted name's similarity to it: t11 (霍默, isolated per SL-59 above, alongside 卡尔's own successful
+  landing in the same call), t14 (马瑟 / 马瑟先生 / 店里的姑娘, 4 attempts, whole-batch refusal each time,
+  tripping the refusal budget's three-strikes block), t15 (马瑟, 1 attempt, npc+person together, still
+  refused whole), t17 (霍默 / 屋里两个吃饭的男人, 4 attempts, whole-batch refusal each time, tripping the
+  refusal budget a second time), t18 (霍默 alone, then 柜台后梳发油的男人 alone — a lone, single-effect
+  `apply {npc: "柜台后梳发油的男人"}` with no batch and no book claim at all, still refused `unknown_entity`
+  with `candidates: [卡尔]`). `npc-ledger.json` confirms the effect end to end: exactly **one** entry for the
+  whole campaign (`npc-table-8e83a4c03f56c9671651`, first turn 11) — 卡尔 is the only person this table ever
+  managed to establish, although the Keeper tried to introduce at least four more distinct people (a
+  gas-station attendant, a shopkeeper, his shop-girl, a bar owner, two diner patrons) across nine later
+  attempts. Not seen in batches 4-8: batch-8's own `npc-ledger.json` also has exactly one entry
+  (`npc-table-408a5a8f57fda4acee64`) for its whole run — the defect was already there, but no earlier table's
+  Keeper ever tried to name a *second* distinct book-absent person in the same campaign, so it was never
+  exercised until this table's Keeper (which asked about far more named people than any prior batch) did.
+  Plausibly the root cause of this table's own routing softness (no sub-location ever entered as a scene, see
+  the routing row above): the Keeper kept trying and failing to name the shopkeeper/bartender it needed to
+  narrate the scene, tripped the refusal budget twice, and fell back to research (`look`/`lookup`) rather than
+  committing further. Evidence: `kernel-ts/apply/entities.ts` `personOfEffect` (~L93-101);
+  `kernel-ts/read/module-graph.ts` `candidates()` (~L382-405, the table-roster append with its own comment);
+  `.coc/playtests/sl29ab9-xuese-1922-20260925T192559Z/turn-{11,14,15,17,18}.json` (`tools[].name==="apply"`,
+  `result_text`/`not_landed` showing `unknown_entity`/`candidates:["卡尔"]` for every non-卡尔 name);
+  `.coc/playtests/sl29a-b9/home/.coc/campaigns/sl29ab9-xuese-1922/npc-ledger.json` (one entry, whole campaign);
+  cross-reference `.coc/playtests/sl29a-b8/home/.coc/campaigns/sl29ab8-xuese-0512/npc-ledger.json` (also one
+  entry, confirming the defect pre-dates this batch and was simply unexercised before).
+- **SL-58, confirmed fixed live (see table row above) — the clean confirmation the ticket's own worker asked
+  for.** Not a replay: a live table where the foreground `prepare` call's target genuinely was not ready yet.
+  Evidence: `.coc/playtests/sl29ab9-xuese-1922-20260925T192559Z/turn-{7,15,20}.json` (`tools[].name==="lookup"`,
+  `args.source_mode==="prepare"`, `ms` `7991.9`/`7998.4`/`8001.4`, `result_text` carrying
+  `"status":"pending"`); `.coc/playtests/sl29a-b9/home/.coc/reading-telemetry.jsonl` (`read-2`'s `read`/`verify`
+  rows timestamped `2026-09-25T19:3{0:29,1:01,1:20,1:58,2:21}` — all after t7 ended at `19:29:31Z`).
+- **SL-59, confirmed fixed for its own stated scope (see table row above and finding 1).** Evidence:
+  `.coc/playtests/sl29ab9-xuese-1922-20260925T192559Z/turn-11.json` (`tools[].name==="apply"`, `args.effects`
+  length 4, `result_text` carrying `"receipts":["npc:t11-c1","person:卡尔-t11-c1"]` and
+  `"not_landed":[{"index":1,...},{"index":3,...}]`, `is_error:false`).
+- **SL-61, confirmed fixed live (see table row above).** Evidence:
+  `.coc/playtests/sl29ab9-xuese-1922-20260925T192559Z/events.jsonl` (625×`"reasoning": 0`, 0 nonzero, 97×
+  `"reasoning_effort": null`); `.coc/playtests/sl29ab9-xuese-1922-20260925T192559Z/daemon.json` and
+  `.coc/playtests/sl29ab9-xuese-1922-setup-20260925T192401Z/daemon.json` (both
+  `model_confirmed.thinkingLevelMap.off: "off"`); `.pi/coc-agent/models.json` (product-written, present only
+  after the setup daemon started, carrying the `//`-comment provenance note).
+- **SL-60, not exercised to a conclusion (see table row above) — a different gap shape from batch-8's.**
+  Batch-8 saw a resume with no dedicated row; this table saw 6 displacements and zero resumes, so neither the
+  embedded nor the dedicated row could appear. Worth a follow-up table with fewer concurrent named-lookup
+  jobs (or a longer per-turn timeout) so a displaced job actually gets to resume and this ticket's own success
+  line can be checked. Evidence: `.coc/playtests/sl29a-b9/home/.coc/reading-telemetry.jsonl` (6 `event:
+  "displaced"` rows, 0 `event: "resumed"` rows, 0 `concurrency` rows carrying a `resumed` field);
+  `.coc/playtests/sl29a-b9/home/.coc/module-campaigns/sl29ab9-xuese-1922/modules/book-1/deepen-queue.json`
+  (`read-{1,3,4,6,7,8}.state: "queued"`, `attempts: 1` — never reclaimed).
+- **SL-62/SL-63, not exercised (see table rows above) — both correctly not triggered, for different reasons.**
+  SL-62 had no variant-name-of-a-known-person shape to resolve (every failing name really was a different
+  person, per finding 1). SL-63 had no runaway abort (`blocked_after_exhausted` stayed at 1 both times the
+  three-strikes gate fired; the model recovered on its own).
+
+**Comparison with batch-8's own findings.**
+- **Fixed:** SL-58's own P1 (batch-8's three 120,003ms `source_mode: "prepare"` blocks) — confirmed fixed
+  above, live, on a genuinely-not-ready target. SL-59's own P2 (batch-8's whole-batch refusal on a mixed
+  landable/unlandable batch) — confirmed fixed above for the shape it was filed against (t11 mirrors batch-8's
+  t8 exactly: a landable name beside an unlandable one, now isolated instead of refusing whole).
+- **Remains, but reframed:** batch-8's finding 3 was read as "a batch naming several book NPCs fails hard on
+  the first not-yet-read one" (a `requireMaterial`/material-pending shape, per its own worker's caveat that
+  this ticket's `unknown_entity`/§11.5.4 fix does not reach it). This table's own whole-batch refusals
+  (t14/t15/t17) are **not** that shape — every name involved genuinely returned `unknown_entity` (not
+  `material_pending`), and root-causes instead to finding 1 above, a distinct, deeper mechanism gap in
+  `personOfEffect`/`candidates()` that happens to produce the same visible "whole batch refuses" symptom for
+  a different reason (nothing in the batch can land at all, not "the first one blocks the rest"). Whether
+  batch-8's own `requireMaterial` gap (unread book NPCs specifically) is now fixed, worse, or unaffected was
+  not tested this table — the script never repeated batch-8's exact "carried scene_text already names the
+  NPC verbatim" shape.
+- **New:** finding 1 (the one-table-person-per-campaign cap) — not seen in batches 4-8 because none of their
+  Keepers ever tried to name a second book-absent person in one campaign; the defect itself almost certainly
+  pre-dates this batch (batch-8's own ledger shows the same one-entry ceiling), so it is a *newly exercised*
+  finding, not a regression from batch 9's own merged tickets.
+- **Confirmed again:** SL-53 (fifth table running, no exception); SL-48 (index still cites the completed
+  read's own job id — `read-2` for `welcome-to-abattoir`).
+
+Evidence (git-ignored, kept per the marker):
+- setup: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b9/.coc/playtests/sl29ab9-xuese-1922-setup-20260925T192401Z/`
+- table: playtest `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b9/.coc/playtests/sl29ab9-xuese-1922-20260925T192559Z/` (turn-{1..20}.json, driver.log, events.jsonl, daemon.json)
+- campaign: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b9/.coc/playtests/sl29a-b9/home/.coc/campaigns/sl29ab9-xuese-1922/` (turns/0000-0020.json, telemetry.jsonl, campaign.json, npc-ledger.json)
+- campaign fork (kept, not deleted): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b9/.coc/playtests/sl29a-b9/home/.coc/module-campaigns/sl29ab9-xuese-1922/modules/book-1/` (`deepen-queue.json` read-1..10; `module.json` `reading.scene_index`)
+- reading telemetry (stage_budget/displaced rows): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b9/.coc/playtests/sl29a-b9/home/.coc/reading-telemetry.jsonl`
+- agent home model confirmation: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b9/.pi/coc-agent/models.json` (gitignored, product-written; not printed here beyond what's quoted above)
+- triage: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b9/.coc/playtests/sl29a-b9/triage.txt`
+- harness (this branch only, originals under `29-book-a-b8/` untouched): `docs/specs/pi-native-single-loop-tickets/29-book-a-b9/{worker.sh,start.sh,play.py,triage.py,script.md,preregistration.md}`
+- pre-registration commit: `2e1df3e95` (before the table opened)
+- per-turn prose (not committed, carries book-derived text): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b9/.coc/playtests/sl29a-b9/turns.log`
