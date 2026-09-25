@@ -97,6 +97,9 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
     const before = personRecord(world, string(person.id));
     const record = { ...before, ...(name != null ? { name } : {}), ...(address != null ? { address } : {}) };
     (world.person_labels ??= {})[string(person.id)] = record;
+    // §11.5.6 (SL-62): the host's `_resolved_from` -- the name the Keeper wrote, once a fan-out question against the
+    // scene's known people cleared it to this person's handle and the host rewrote `who` before the retry.
+    const resolvedFrom = typeof effect._resolved_from === 'string' && effect._resolved_from.trim() ? effect._resolved_from.trim() : undefined;
     return {
         receipt: {
             id: context.mint(`person:${person.id}-t${turn.turn}-c${ordinal}`),
@@ -105,6 +108,7 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
             who: person.id,
             is_investigator: person.is_investigator,
             ...(person.established ? { established: person.established, from_passage: person.from_passage } : {}),
+            ...(resolvedFrom ? { resolved_from: resolvedFrom } : {}),
             name: person.name,
             label: string(record.name || person.name),
             address: record.address ?? null,

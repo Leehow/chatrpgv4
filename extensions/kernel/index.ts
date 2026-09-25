@@ -47,6 +47,14 @@ import {
 	speakerOptions,
 	speechAttributionBindings,
 } from "../../runtime/jev/speech-attribution-domain.ts";
+import {
+	PERSON_RESOLUTION_FAMILY,
+	PERSON_RESOLUTION_MAX_CANDIDATES,
+	type PersonResolutionCandidate,
+	type PersonResolutionInput,
+	personResolutionBindings,
+	resolvePersonName,
+} from "../../runtime/jev/person-resolution-domain.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
 import { PendingAnswers, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs } from "./source-answers.ts";
 import { PERSON_TEXT_NOTE, SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
@@ -278,6 +286,11 @@ interface TableState {
 	deliveredTurn?: number;
 	/** The host cut this run itself (§34.16): pi never resends a cancellation, so no later leg is coming. */
 	runCut: boolean;
+	/** §135.11.3 (SL-63): the host cut this run specifically because the refusal budget shut every write left to
+	 * try (§70's `blockedAfterExhausted` runaway abort), not because the turn had no door left (§34.16). The two
+	 * cuts wear the same `stopReason` and the same `runCut`; this says which one, so `agent_settled` can route
+	 * only this one through the fallback narrate instead of straight to stranding. Cleared with the next turn. */
+	refusalBudgetCut: boolean;
 	steeredThisTurn: boolean;
 	/**
 	 * COC tool calls the Keeper attempted this turn, refused ones included (turn floor, D4). A turn
@@ -329,6 +342,9 @@ interface TableState {
 	 * asking for the same unread material again buys another full reading wait and can answer nothing
 	 * the first attempt could not, so the same answer comes straight back. Cleared with the turn. */
 	readingRefused: Map<string, unknown>;
+	/** §11.5.6 (SL-62): a person name already asked against the scene's known people this player turn -- the resolved
+	 * handle, or `null` for a name that cleared no row. Memoised so the same name never spends a second Jev call. */
+	personResolved: Map<string, string | null>;
 	/** A host note owed to the Keeper at agent_end rather than delivered as prose. */
 	deliveryFix?: { kind: string; text: string };
 	/** §47: the turn whose delivery already carried the host's preparation-wait notice. The wait
@@ -1490,6 +1506,7 @@ export default function (pi: ExtensionAPI) {
 		table.sourceWait = undefined;
 		table.readingRetries.clear();
 		table.readingRefused.clear();
+		table.personResolved.clear();
 		table.deliveryFix = undefined;
 		table.attachments = [];
 		table.mapAttachments = [];
@@ -3279,6 +3296,131 @@ export default function (pi: ExtensionAPI) {
 			...(!drivenEngine && entry.focus === focus && carried.length ? { text: carried } : {}) })) };
 	}
 
+	/** §11.5.6 (SL-62): timeout for the one-question fan-out, `PI_COC_PERSON_RESOLVE_TIMEOUT_MS`. Past it the name stays unresolved. */
+	const DEFAULT_PERSON_RESOLVE_TIMEOUT_MS = 2_500;
+	function personResolveTimeoutMs(env: NodeJS.ProcessEnv): number {
+		const value = Number(env.PI_COC_PERSON_RESOLVE_TIMEOUT_MS?.trim() || NaN);
+		return Number.isFinite(value) && value > 0 ? value : DEFAULT_PERSON_RESOLVE_TIMEOUT_MS;
+	}
+
+	/**
+	 * Contract §11.5.6 (SL-62). The scene's known people, as fan-out candidates: §135.31's own `present` reduction
+	 * (`table.look {focus: "scene"}`), each person's table name and the name they are called by. No name list, no
+	 * regex: the candidates are this scene's own rows, whatever they are this turn.
+	 */
+	async function scenePersonCandidates(state: TableState): Promise<PersonResolutionCandidate[]> {
+		let view: Record<string, unknown>;
+		try { view = await state.kernel.call<Record<string, unknown>>("table.look", { campaign: state.campaign, focus: "scene", _context_read: true }); }
+		catch { return []; }
+		const present = Array.isArray(view.present) ? view.present as Array<Record<string, unknown>> : [];
+		const candidates: PersonResolutionCandidate[] = [];
+		for (const entry of present) {
+			const handle = asString(entry.name);
+			if (!handle) continue;
+			const names = [handle, asString(entry.called)].filter((value): value is string => !!value);
+			candidates.push({ handle, names: [...new Set(names)] });
+		}
+		return candidates.slice(0, PERSON_RESOLUTION_MAX_CANDIDATES);
+	}
+
+	/**
+	 * Contract §11.5.6 (SL-62). One typed fan-out over the scene's known people for one name, memoised on `state`
+	 * (cleared with the player turn): a name already asked this turn is never asked again. Returns the resolved
+	 * handle, or undefined when the fan-out has nothing to offer or clears no row (unresolved, cached as such).
+	 */
+	async function resolveScenePerson(state: TableState, name: string, signal: AbortSignal | undefined,
+		parent: TaskProviderBudget | undefined): Promise<string | undefined> {
+		const cached = state.personResolved.get(name);
+		if (cached !== undefined) return cached ?? undefined;
+		const resolve = async (): Promise<string | undefined> => {
+			const env = process.env;
+			if (!readJevApiKey(env)) return undefined;
+			const candidates = await scenePersonCandidates(state);
+			if (!candidates.length) return undefined;
+			const input: PersonResolutionInput = { campaign: state.campaign, turn: state.turn, name, candidates };
+			let lease: TaskLease | undefined, accounting: ReturnType<typeof preparationBudget> | undefined;
+			try {
+				const began = Date.now();
+				const deadlineAt = Math.min(began + personResolveTimeoutMs(env), parent?.deadlineAt ?? Infinity);
+				const outer = signal ?? state.lanes.signal;
+				const bound = parent ? AbortSignal.any([outer, parent.signal]) : outer;
+				const bindings = personResolutionBindings(input);
+				accounting = preparationBudget({
+					decision: createDecisionAdapter({ env, maxConcurrency: 4, retryPolicies: {
+						[PERSON_RESOLUTION_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } }),
+					campaign: state.campaign, deadlineAt, signal: bound, ...(parent ? { parent } : {}),
+					owner: PERSON_RESOLUTION_FAMILY, goal: "Resolve a named person against the scene's known people",
+				});
+				lease = new TaskLease({ owner: PERSON_RESOLUTION_FAMILY, goal: "Resolve a named person against the scene's known people",
+					scope: bindings.scope, capabilities: ["decision"], readSet: bindings.readSet, signal: bound,
+					budget: { deadlineAt, remainingInputTokens: 100_000, remainingOutputTokens: 10_000, remainingCostUsd: 0.01, remainingActions: 1 } });
+				const typed = await resolvePersonName(input, accounting.decision, lease);
+				void record({ lane: "people", event: "name_resolution", turn: state.turn, name, status: typed.status,
+					...(typed.status === "resolved" ? { resolved_to: typed.handle, confidence: typed.confidence } : { reason: typed.reason }),
+					jev_calls: typed.calls, candidates: candidates.length });
+				return typed.status === "resolved" ? typed.handle : undefined;
+			} catch { return undefined; }
+			finally { lease?.close(); accounting?.close(); }
+		};
+		const handle = await resolve();
+		state.personResolved.set(name, handle ?? null);
+		return handle;
+	}
+
+	/** Where a name that failed `unknown_entity` lives on the retried call, and how to rewrite it. */
+	function unknownPersonTarget(toolName: string, payload: Record<string, unknown>, details: Record<string, unknown>):
+		{ name: string; apply: (handle: string | undefined) => void } | undefined {
+		if (toolName === "resolve") {
+			const action = payload.action;
+			if (!action || typeof action !== "object") return undefined;
+			const row = action as Record<string, unknown>;
+			const query = asString(details.query);
+			if (!query) return undefined;
+			const field = row.target === query ? "target" : row.actor === query ? "actor" : undefined;
+			if (!field) return undefined;
+			return { name: query, apply: (handle) => {
+				if (handle) { row[field] = handle; row._resolved_from = query; } else { row[field] = query; delete row._resolved_from; }
+			} };
+		}
+		if (toolName === "apply") {
+			const effects = Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : undefined;
+			const index = typeof details.index === "number" ? details.index : undefined;
+			const effect = effects && index !== undefined ? effects[index] : undefined;
+			if (!effect || typeof effect !== "object") return undefined;
+			if (effect.kind === "npc" && typeof effect.name === "string") {
+				const original = effect.name;
+				return { name: original, apply: (handle) => {
+					if (handle) { effect.name = handle; effect._resolved_from = original; } else { effect.name = original; delete effect._resolved_from; }
+				} };
+			}
+			if (effect.kind === "person" && typeof effect.who === "string") {
+				const original = effect.who;
+				return { name: original, apply: (handle) => {
+					if (handle) { effect.who = handle; effect._resolved_from = original; } else { effect.who = original; delete effect._resolved_from; }
+				} };
+			}
+		}
+		return undefined;
+	}
+
+	/**
+	 * Contract §11.5.6 (SL-62). The kernel refused `unknown_entity` on a `resolve` check's target/actor or an `apply`
+	 * npc/person effect's name. Exact match already ran and missed (the kernel's own refusal); this asks the scene's
+	 * known people once and, on a clear row, rewrites the call's own name to that handle and retries once. The
+	 * kernel's own receipt then carries `resolved_from`. Anything short of a clear row leaves the original refusal
+	 * standing untouched.
+	 */
+	async function resolveUnknownPerson(state: TableState, toolName: string, failure: KernelError,
+		payload: Record<string, unknown>, signal: AbortSignal | undefined, providerBudget: TaskProviderBudget | undefined,
+		invoke: () => Promise<Record<string, unknown> | undefined>): Promise<Record<string, unknown> | undefined> {
+		const target = unknownPersonTarget(toolName, payload, failure.details ?? {});
+		if (!target) return undefined;
+		const handle = await resolveScenePerson(state, target.name, signal, providerBudget);
+		if (!handle) return undefined;
+		target.apply(handle);
+		return (await invoke()) ?? {};
+	}
+
 	function sourceWaitInstruction(state: TableState, wait: NonNullable<TableState["sourceWait"]>): string {
 		const named = wait.focus ? ` for ${wait.focus}` : "";
 		const landed = state.landed.length > 0
@@ -3587,7 +3729,14 @@ export default function (pi: ExtensionAPI) {
 					state.skillRun.diverged = true;
 					if (!state.skillRun.refusal_classes.includes("material_pending")) state.skillRun.refusal_classes.push("material_pending");
 				}
-				if (!(isKernelError(failure)) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
+				// §11.5.6 (SL-62): a person named in a write or check that the graph and carried text both miss is
+				// resolved against the scene's known people before this unknown_entity stands.
+				if (isKernelError(failure) && failure.code === "unknown_entity" && (spec.name === "resolve" || spec.name === "apply")) {
+					const resolved = await resolveUnknownPerson(state, spec.name, failure, payload, signal, providerBudget, invokeOperation);
+					if (resolved) result = resolved; else throw failure;
+				}
+				else if (!(isKernelError(failure)) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
+				else {
 				const read = { ...(failure.details.read as Record<string, unknown>), foreground: true };
 				const ownedPreparation=dispatcher.tracksMutation(toolCallId);
 				if(!ownedPreparation)dispatcher.requireCapability(toolCallId, read.purpose === 'answer' ? 'lookup.source.answer' : 'source.prepare');
@@ -3646,6 +3795,7 @@ export default function (pi: ExtensionAPI) {
 					if(spec.name==='narrate'||spec.name==='ask'){prepared=again;notePrepared(state,again);}
 				}
 				result = (await invokeOperation()) ?? {};
+				}
 				}
 			}
 			if (spec.name === "recall") result = state.recallPages.accept(result);
@@ -4077,6 +4227,7 @@ export default function (pi: ExtensionAPI) {
 				pendingChoice: null,
 				closedThisRun: false,
 				runCut: false,
+				refusalBudgetCut: false,
 				steeredThisTurn: false,
 				toolCallsThisTurn: 0,
 				deliveryTriedThisTurn: false,
@@ -4084,6 +4235,7 @@ export default function (pi: ExtensionAPI) {
 				blockedAfterExhausted: 0,
 				readingRetries: new Set(),
 				readingRefused: new Map(),
+				personResolved: new Map(),
 				roundTrips: 0,
 				mintedCallIds: new Map(),
 				rejected: new Map(),
@@ -4318,6 +4470,15 @@ export default function (pi: ExtensionAPI) {
 			await record({ lane: "skills", campaign: table.campaign, ...measurements,
 				fallback: run.selected !== null && (diverged || run.refusal_classes.length > 0 || !run.delivered) });
 		}
+		// §135.11.3 (SL-63): a run the refusal budget's runaway abort cut is a drop like any other, not a
+		// verdict -- before the turn is judged undelivered, one fallback narrate is tried carrying what
+		// already landed and the Keeper's own last draft if any. Only when that itself lands nothing does
+		// the ordinary undelivered path below run, exactly as it did before this section.
+		if (table.refusalBudgetCut && (table.state === "open" || table.state === "acting")
+			&& !table.closedThisRun && table.renderedText === undefined) {
+			table.refusalBudgetCut = false;
+			await deliverRefusalBudgetFallback(table);
+		}
 		// Contract §38: the run itself is the structural boundary. If it settled with the turn still
 		// open/acting and no narrate/ask delivery, there is no actor left who can finish it before the
 		// player's next input — which the state guard would otherwise reject. The cause is irrelevant.
@@ -4401,6 +4562,46 @@ export default function (pi: ExtensionAPI) {
 		// most turns -- still gets the §38 release on the next input.
 		else if (undelivered) void releaseStrandedTurn(table);
 	});
+
+	/**
+	 * Contract §135.11.3 (SL-63). The refusal budget's runaway abort (`ctx.abort()` at `blockedAfterExhausted >=
+	 * RUNAWAY_ABORT_AT`) ends the Keeper's attempts, not the turn: the run then ends `aborted_during_operate` with
+	 * no further model step and no `message_end` of its own, so this is the one place left to close the turn
+	 * before §38's stranding logic runs. One fallback narrate, carrying the Keeper's own last draft this turn
+	 * (`floorDraft`, the same draft a floor or speech steer would otherwise fall back to) when there is one, or an
+	 * honest service line when there is none -- never a fabricated fictional consequence. Tried at most once; a
+	 * refusal here is not retried, and the ordinary undelivered/stranding path stands exactly as before it: the
+	 * notice `agent_settled` already sends is this fallback's own fallback, never the whole delivery.
+	 */
+	async function deliverRefusalBudgetFallback(state: TableState): Promise<boolean> {
+		let text = state.floorDraft;
+		if (!text) {
+			text = "This turn's back-and-forth ran too long, so it closes here. Anything already settled is kept exactly as it landed; send anything to continue.";
+			try { text = (await surface.words()).line("refusal_budget_fallback_notice"); }
+			catch { /* an unreadable content root still owes the player the English line */ }
+		}
+		const callId = mintCallId(state);
+		const payload: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text };
+		if (state.preparationWait) payload.preparation_wait = { kind: state.preparationWait.kind, ...(state.preparationWait.name ? { name: state.preparationWait.name } : {}) };
+		else if (state.sourceWait) payload.preparation_wait = { kind: "source", ...(state.sourceWait.focus ? { name: state.sourceWait.focus } : {}) };
+		if (state.rebindingRefused) payload.rebinding_refused = { ...state.rebindingRefused };
+		try {
+			if (mods) await mods.prepare("narrate", payload, state.lanes.signal);
+			const result = await state.kernel.call<Record<string, unknown>>("table.narrate", payload);
+			if (mods?.after) await mods.after("narrate", payload, state.lanes.signal);
+			state.floorDraft = undefined;
+			state.renderedText = asString(result.rendered_text) ?? text;
+			state.state = (typeof result.state === "string" ? result.state : "awaiting_player") as TurnState;
+			state.turn = typeof result.turn === "number" ? result.turn : state.turn + 1;
+			state.closedThisRun = true;
+			void record({ tool: "narrate", call_id: callId, ok: true, lane: "delivery", reason: "refusal_budget_fallback" });
+			return true;
+		} catch (error) {
+			void record({ tool: "narrate", call_id: callId, ok: false, lane: "delivery", reason: "refusal_budget_fallback_refused",
+				code: isKernelError(error) ? error.code : "internal" });
+			return false;
+		}
+	}
 
 	/**
 	 * Close a turn this run left stranded, without a player utterance attached to it.
@@ -4536,6 +4737,7 @@ export default function (pi: ExtensionAPI) {
 			state.sourceWait = undefined;
 			state.readingRetries.clear();
 			state.readingRefused.clear();
+			state.personResolved.clear();
 			state.deliveryFix = undefined;
 			state.roundTrips = 0;
 			state.attachments = [];
@@ -4657,6 +4859,7 @@ export default function (pi: ExtensionAPI) {
 			table.closedThisRun = false;
 			table.implicitClose = undefined;
 			table.runCut = false;
+			table.refusalBudgetCut = false;
 			// §86: `blockedAfterClose` is NOT reset here any more. pi starts a continuation run for any
 			// message queued from `agent_end` (`runAgentLoopContinue` re-emits `agent_start`), and this
 			// line put the closed-turn cut back to zero on a turn that was every bit as closed -- which
@@ -4866,7 +5069,14 @@ export default function (pi: ExtensionAPI) {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "refusal_budget", blocked_after_exhausted: blocked });
 			if (blocked >= RUNAWAY_ABORT_AT) {
 				await record({ lane: "runaway", turn: state.turn, blocked, aborted: true, after: "refusal_budget" });
+				// §135.11.3 (SL-63): this cut ends the Keeper's attempts, not the turn. The signal abort the vendor
+				// driver takes from here surfaces as a run ending `aborted_during_operate`, with no further model
+				// step and no `message_end` of its own -- so it is recorded as a drop, here, at the one place that
+				// knows why, and `agent_settled` reads `refusalBudgetCut` to route it through the fallback narrate
+				// instead of straight to stranding.
+				void record({ lane: "delivery", turn: state.turn, ok: false, reason: "refusal_budget" });
 				state.runCut = true;
+				state.refusalBudgetCut = true;
 				try { ctx?.abort(); } catch { /* an abort that cannot be delivered leaves the driver's timeout as the last resort */ }
 			}
 			return { block: true, reason: blocked >= RUNAWAY_STOP_AT ? `${shut} Call no further tool and write nothing more.` : shut };

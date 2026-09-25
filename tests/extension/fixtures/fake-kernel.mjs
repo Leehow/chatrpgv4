@@ -40,6 +40,12 @@
  *   FAKE_KERNEL_SAY_PASS   JSON object {"<name>": {"npc"|"investigator": id, "name"}}: narrate runs the
  *                          kernel's own say-token repair (§40.1) over the text and resolves names through
  *                          this map, so `speech`, `marked_text` and `rendered_text` follow the text sent
+ *   FAKE_KERNEL_UNKNOWN_ENTITY  JSON object {"name"}: every `table.apply` npc/person effect or
+ *                          `table.resolve` action.target/actor naming exactly this string is refused
+ *                          `unknown_entity` (contract §11.5.6, SL-62's own shape: `details.query` for
+ *                          resolve, `details.index` for apply) -- not single-shot, like a real name the
+ *                          graph does not know, which stays unknown every time it is spelled the same
+ *                          way; a call whose name was rewritten to a different string passes as usual.
  */
 
 import { appendFileSync } from "node:fs";
@@ -62,6 +68,7 @@ let received = 0;
 let turn = 0;
 let state = "awaiting_player";
 let materialPending = process.env.FAKE_KERNEL_MATERIAL_PENDING === "1";
+let unknownEntity = process.env.FAKE_KERNEL_UNKNOWN_ENTITY ? JSON.parse(process.env.FAKE_KERNEL_UNKNOWN_ENTITY) : null;
 
 /**
  * KIC-04 fixture: when set, the capsule carries a real `_context` binding plus an active
@@ -353,6 +360,11 @@ function capsule(playerText, params = {}) {
  */
 function resolve(params) {
 	const action = params.action ?? {};
+	// §11.5.6 (SL-62): a target/actor named in `FAKE_KERNEL_UNKNOWN_ENTITY` refuses every time, in the kernel's own shape.
+	if (unknownEntity && [action.target, action.actor].includes(unknownEntity.name)) {
+		return { ok: false, error: { code: "unknown_entity", message: `no npc named '${action.target ?? action.actor}' in the module graph`,
+			fix: "pick a name from details.candidates or look first", details: { query: action.target ?? action.actor, candidates: [] } } };
+	}
 	if (typeof action.goal === "string" && action.goal.includes("歧义") && !action.decision) {
 		return {
 			ok: false,
@@ -903,6 +915,18 @@ function handle(method, params) {
 					details: { reason: "material_pending", read: { purpose: "detail", focus: "farm", question: "" } } } };
 			}
 			const effects = params.effects ?? [];
+			// §11.5.6 (SL-62): the effect naming `FAKE_KERNEL_UNKNOWN_ENTITY.name` (npc.name or person.who)
+			// refuses every time, in the kernel's own shape: `details.index` (this section's SL-59 isolable shape).
+			if (unknownEntity) {
+				const index = effects.findIndex((effect) => (effect.kind === "npc" && effect.name === unknownEntity.name)
+					|| (effect.kind === "person" && effect.who === unknownEntity.name));
+				if (index >= 0) {
+					return { ok: false, error: { code: "unknown_entity",
+						message: effects[index].kind === "npc" ? `no npc named '${unknownEntity.name}' in the module graph` : `'${unknownEntity.name}' is nobody at this table`,
+						fix: "pick a name from details.candidates or establish them first",
+						details: effects[index].kind === "npc" ? { index, query: unknownEntity.name, candidates: [] } : { index, field: "person.who", who: unknownEntity.name } } };
+				}
+			}
 			// 整批先校验后写（契约 §5）：任一条不成立整批不写，收据也不发。
 			for (let index = 0; index < effects.length; index += 1) {
 				const effect = effects[index];

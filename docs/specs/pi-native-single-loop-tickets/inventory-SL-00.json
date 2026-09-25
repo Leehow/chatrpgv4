@@ -768,6 +768,21 @@
     },
     {
       "file": "extensions/kernel/index.ts",
+      "symbol": "resolveScenePerson.resolve",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel ext: person-name resolution (11.5.6, SL-62)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "not observed yet (unit + fake-kernel seam tests only; see the SL-62 ticket's Comments for the gate #10 t4 replay)",
+      "note": "Gate: a Jev key and at least one scene-present candidate. One bounded fan-out (maxRetries 0) asked after the kernel's own exact-match resolution already refused unknown_entity, before the call is retried once; never refuses on its own, and never runs for a name with no candidates.",
+      "lines_at_07b306a22": [
+        3349
+      ]
+    },
+    {
+      "file": "extensions/kernel/index.ts",
       "symbol": "emitProviderNotice",
       "kind": "trigger-turn",
       "callee": "pi.sendMessage{steer-when-streaming}",
