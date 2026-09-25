@@ -1,8 +1,9 @@
-"""Per-turn structural triage of a driver table (same columns as batch-9's triage, extended for batch 10's
-primary target SL-64: a campaign mints as many table persons as the Keeper introduces): python3 triage.py <campaign> <run>"""
-import json, sys, os, glob, collections, statistics
+"""Per-turn structural triage of a driver table (same columns as batch-10's triage, extended for batch 11's
+primary targets SL-65/66/67): python3 triage.py <campaign> <run>"""
+import json, sys, os, glob, collections, statistics, re
 W=os.environ.get('WT','/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b11'); CID, RUN = sys.argv[1], sys.argv[2]
 C=os.path.join(os.environ.get('PI_COC_HOME',W),'.coc','campaigns',CID); P=f'{W}/.coc/playtests/{RUN}'
+COC_HOME=os.path.dirname(os.path.dirname(C))
 rows=[json.loads(l) for l in open(f'{C}/telemetry.jsonl') if l.strip()]
 by=collections.defaultdict(list)
 for r in rows: by[r.get('turn')].append(r)
@@ -31,6 +32,8 @@ resolved_from_rows=[]  # SL-62
 unknown_entity_rows=[]  # SL-62 (contrast)
 refusal_budget_rows=[]  # SL-63
 person_name_events=[]  # SL-64: every distinct name attempted via apply/resolve, per turn, with outcome + candidates
+scene_rosters=[]  # SL-67: per-turn table.look{focus:"scene"} present/roster
+prose_name_hits=[]  # SL-66: every narrate rendered_text containing the investigator's stored name, checked for stray punctuation
 for dt in sorted(glob.glob(f'{P}/turn-*.json'), key=lambda p:int(p.split('-')[-1][:-5])):
     d=json.load(open(dt)); n=d['turn']; walls.append(d['wall_seconds'])
     # the driver's turn N is the kernel's turn N (turn 0 is the opening)
@@ -124,6 +127,23 @@ for dt in sorted(glob.glob(f'{P}/turn-*.json'), key=lambda p:int(p.split('-')[-1
                 outcome = 'unclear'; code = None; candidates = None
             person_name_events.append({'turn': n, 'tool': t.get('name'), 'name': name, 'outcome': outcome, 'code': code, 'candidates': candidates})
 
+    # --- SL-67: table.look{focus:"scene"} present/roster this turn (cross-reference for name-resolution events) ---
+    for t in d.get('tools') or []:
+        if t.get('name') not in ('look', 'lookup'): continue
+        args = t.get('args') or {}
+        if args.get('focus') != 'scene': continue
+        result = tool_result(t)
+        if 'roster' in result or 'present' in result:
+            scene_rosters.append({'turn': n, 'present': result.get('present'), 'roster': result.get('roster')})
+
+    # --- SL-66: every narrate rendered_text this turn, scanned for the investigator's stored name plus trailing punctuation ---
+    for t in d.get('tools') or []:
+        if t.get('name') != 'narrate': continue
+        result = tool_result(t)
+        text = result.get('rendered_text') or t.get('result_text') or ''
+        if isinstance(text, str) and text:
+            prose_name_hits.append({'turn': n, 'text_len': len(text), 'text_sample': text[:400]})
+
 for r in rows:
     if r.get('event') == 'resumed' or (r.get('lane') == 'reading' and r.get('event') == 'resumed'):
         resumed_rows.append(r)
@@ -199,3 +219,69 @@ for name, evs in by_name.items():
 print('\n  distinct names that ever minted/resolved:', sorted(set(n for n, evs in by_name.items() if any(e['outcome'] == 'minted_or_resolved' for e in evs))))
 print('  distinct names that only ever refused:', sorted(set(n for n, evs in by_name.items() if all(e['outcome'] == 'refused' for e in evs))))
 print('  SL-64 success check: ledger entries > 1 required to confirm the fix was exercised (a single-person table cannot distinguish fixed-from-broken).')
+
+print('\n=== SL-65 (batch-11 primary target): reading-lease stage_budget rows and budget_input_tokens refusals')
+rt_path = f'{COC_HOME}/reading-telemetry.jsonl'
+if os.path.exists(rt_path):
+    rt_rows = [json.loads(l) for l in open(rt_path) if l.strip()]
+    by_job = collections.defaultdict(list)
+    for r in rt_rows: by_job[r.get('job') or r.get('job_id')].append(r)
+    budget_rows = [r for r in rt_rows if 'stage_budget' in json.dumps(r)]
+    refusals = [r for r in rt_rows if r.get('refusal') == 'budget_input_tokens' or 'budget_input_tokens' in json.dumps(r)]
+    print(f'  reading-telemetry rows: {len(rt_rows)}; jobs: {sorted(j for j in by_job if j)}')
+    for r in budget_rows:
+        sb = r.get('stage_budget') or {k: r.get(k) for k in ('ceiling', 'floor', 'contextWindow') if k in r}
+        print('   stage_budget', {'job': r.get('job') or r.get('job_id'), 'purpose': r.get('purpose'), **({'stage_budget': sb} if sb else {})})
+    print(f'  budget_input_tokens refusals: {len(refusals)}')
+    for r in refusals:
+        print('   REFUSAL', {k: r.get(k) for k in ('job', 'job_id', 'purpose', 'focus', 'ceiling', 'used', 'requested', 'elapsed_ms') if k in r})
+    print('  SL-65 success check: 0 budget_input_tokens refusals required (batch-10 had 5 across read-1/read-2/read-4, floor was the old fixed 4,000,000).')
+else:
+    print(f'  reading-telemetry.jsonl not found at {rt_path}')
+gen_glob = glob.glob(f'{COC_HOME}/module-campaigns/{CID}/modules/*/generations/generation-*')
+print('  generation directories present:', [os.path.basename(g) for g in gen_glob])
+
+print('\n=== SL-66 (batch-11 primary target): investigator card name field, checked for stray leading/trailing punctuation')
+inv_path = f'{C}/party/investigator.json'
+# Plain Unicode punctuation/space set (category P/Z is what SL-66 trims); Python's `re` has no \p{} without
+# the third-party `regex` module, so this checks the common CJK+ASCII punctuation/space set directly.
+STRIP_CHARS = '，。！？、,.!?;；:：""\'\'（）()[]【】《》〈〉…—-　 \t\r\n'
+if os.path.exists(inv_path):
+    inv = json.load(open(inv_path))
+    name = inv.get('name')
+    print(f'  investigator.json name: {name!r}')
+    if isinstance(name, str) and name:
+        leading_bad = name[0] in STRIP_CHARS
+        trailing_bad = name[-1] in STRIP_CHARS
+        print(f'  leading char {name[0]!r} is punctuation/space: {leading_bad}; trailing char {name[-1]!r} is punctuation/space: {trailing_bad}')
+        print(f'  SL-66 success check (punctuation/whitespace only): {"PASS" if not leading_bad and not trailing_bad else "FAIL"}')
+else:
+    print(f'  investigator.json not found at {inv_path}')
+print('  prose occurrences of the stored name (from setup + this table\'s narrate calls), checked for the name riding beside stray text:')
+if isinstance(inv.get('name') if os.path.exists(inv_path) else None, str):
+    nm = inv['name']
+    hits = [h for h in prose_name_hits if nm and nm in h['text_sample']]
+    print(f'   name {nm!r} found in {len(hits)} of {len(prose_name_hits)} narrate samples this table')
+    for h in hits[:5]:
+        idx = h['text_sample'].find(nm)
+        ctx = h['text_sample'][max(0, idx-5):idx+len(nm)+5]
+        print(f'    turn {h["turn"]}: ...{ctx}...')
+
+print('\n=== SL-67 (batch-11 primary target): shortened/variant person names, split by present-vs-roster-only, resolve/refuse outcome')
+roster_by_turn = {r['turn']: r for r in scene_rosters}
+print(f'  table.look scene rows with roster/present captured: {len(scene_rosters)}')
+for r in scene_rosters:
+    print('   ', r)
+print('  per-name events cross-referenced against the nearest prior scene roster:')
+for ev in person_name_events:
+    n = ev['turn']
+    prior = None
+    for t2 in sorted(roster_by_turn, reverse=True):
+        if t2 <= n: prior = roster_by_turn[t2]; break
+    present = (prior or {}).get('present') or []
+    roster = (prior or {}).get('roster') or []
+    name = ev.get('name') or ''
+    in_present = any(str(name) in str(p) for p in present) if name else False
+    in_roster_only = (any(str(name) in str(p) for p in roster) if name else False) and not in_present
+    print(f'   turn {n} name={name!r} outcome={ev["outcome"]} code={ev.get("code")} in_present={in_present} in_roster_only={in_roster_only}')
+print('  SL-67 success check: a shortened/variant name of a person in roster-only (established but not present) should resolve, not refuse unknown_entity (per the ticket\'s own live-Jev caveat, not every ambiguous fragment necessarily clears the row — report the actual outcome).')
