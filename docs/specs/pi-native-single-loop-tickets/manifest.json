@@ -319,6 +319,11 @@
       "id": "SL-63",
       "file": "63-a-refusal-budget-abort-still-delivers.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-64",
+      "file": "64-a-campaign-mints-more-than-one-table-person.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
