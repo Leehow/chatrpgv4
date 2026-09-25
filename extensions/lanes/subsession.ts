@@ -205,7 +205,7 @@ const GOOGLE_THINKING: Readonly<Record<ThinkingLevel, string>> = Object.freeze({
  * on the `start` row says what the lane asked for, so an unmapped API reads as a gap rather than as
  * a level that silently did nothing (contract §12.8.1).
  */
-export function laneReasoningOptions(model: { api?: string }, level: ThinkingLevel): Record<string, unknown> {
+export function laneReasoningOptions(model: { api?: string; thinkingLevelMap?: Record<string, unknown> | null }, level: ThinkingLevel): Record<string, unknown> {
 	switch (model.api) {
 		case "openai-responses":
 		case "azure-openai-responses":
@@ -216,7 +216,16 @@ export function laneReasoningOptions(model: { api?: string }, level: ThinkingLev
 			return { effort: ANTHROPIC_EFFORT[level] };
 		case "google-generative-ai":
 		case "google-vertex":
-			return { thinking: { enabled: true, level: GOOGLE_THINKING[level] } };
+			// Gemini has two thinking controls and a model takes exactly one: the gemini-3 family a
+			// named `thinkingLevel`, the gemini-2.5 family a token `thinkingBudget`. A level sent to a
+			// budget model is an HTTP 400, "Thinking level is not supported for this model" (live
+			// 2026-09-24 on gemini-2.5-flash-lite; the same call on gemini-3.1-flash-lite answers). The
+			// catalogue says which control a model takes: a level model declares `thinkingLevelMap`, a
+			// budget model does not. `streamSimple()` would derive the budget from a table pi-ai keeps
+			// private to its adapter; this road has no such table, so a budget model reads as a gap
+			// (`thinking_carried: false`) rather than as a guessed budget -- the treatment an unmapped
+			// API gets below.
+			return model.thinkingLevelMap ? { thinking: { enabled: true, level: GOOGLE_THINKING[level] } } : {};
 		case "bedrock-converse-stream":
 		case "pi-messages":
 			return { reasoning: level };

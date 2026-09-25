@@ -51,6 +51,12 @@ export function boundProviderRequest(model:ProviderModel, payload:any, outputLim
   const inputTokens=multimodal(payload)?model.contextWindow:Buffer.byteLength(body,'utf8')+1024;
   const bounded=structuredClone(payload);let target=bounded;
   for(const key of path.slice(0,-1))target=target[key]??=( {} );target[path.at(-1)!]=outputTokens;
+  // structuredClone renders an AbortSignal as a bare `{}` (Node 24): truthy, no addEventListener, which
+  // @google/genai's createAttemptSignal then calls -- so every Google lane call died in 1 ms with
+  // `callerSignal.addEventListener is not a function` (SL-39 addendum, 2026-09-24), long before the
+  // network. Only the two Google adapters carry the signal inside the payload they hand to onPayload;
+  // every other adapter passes it beside the body. Hand the adapter back its own signal, by identity.
+  if(payload.config?.abortSignal!==undefined)bounded.config.abortSignal=payload.config.abortSignal;
   // Explicitly copy only public model accounting metadata across the child boundary.
   const bound={model:{provider:model.provider,id:model.id,api:model.api,maxTokens:model.maxTokens,contextWindow:model.contextWindow,cost:structuredClone(model.cost)},inputTokens,outputTokens};
   providerSpend(bound);

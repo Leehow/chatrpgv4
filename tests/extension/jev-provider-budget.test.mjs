@@ -24,6 +24,21 @@ test('closed API output caps and worst price tiers bind the actual request',()=>
  const image=boundProviderRequest(model,{input:[{type:'input_image',image_url:'data:image/png;base64,small'}]});assert.equal(image.bound.inputTokens,model.contextWindow);
 });
 
+test('the Google payload keeps its own abort signal through the clone',()=>{
+ // Only the two Google adapters carry the signal inside the payload; structuredClone turns an
+ // AbortSignal into a bare `{}`, and @google/genai calls addEventListener on whatever it finds there.
+ const signal=new AbortController().signal;
+ for(const api of ['google-generative-ai','google-vertex']){
+  const p=boundProviderRequest({...model,api},{model:'gemini',contents:[],config:{abortSignal:signal,temperature:0}},20);
+  assert.equal(p.payload.config.abortSignal,signal,api);
+  assert.equal(p.payload.config.maxOutputTokens,20);
+  assert.equal(p.payload.config.temperature,0);
+ }
+ // A payload without one gets none invented.
+ assert.equal('abortSignal' in boundProviderRequest({...model,api:'google-generative-ai'},{config:{}}).payload.config,false);
+ assert.equal('abortSignal' in boundProviderRequest({...model,api:'google-generative-ai'},{}).payload.config,false);
+});
+
 test('actual usage, unknown usage and child reservations debit the same ancestors',async()=>{
  const root=lease(), child=root.child({owner:'operation',goal:'One operation',capabilities:[],budget:root.context.budget});
  const events=[],budget=createTaskProviderBudget(child,{record:e=>events.push(e)}), before=root.context.budget;
