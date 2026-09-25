@@ -1,4 +1,4 @@
-Status: ready-for-human (filed 2026-09-24 from long gates #3–#5; batch 6; measured 2026-09-24; re-ruled and implemented 2026-09-25 -- writes are silent; stage 2 implemented 2026-09-25 -- the rule in the clerk note's head, once per run; long gate #7 measures it)
+Status: closed (measured on long gate #7: prompt placement has no effect on the habit; instrumentation kept) (filed 2026-09-24 from long gates #3–#5; batch 6; measured 2026-09-24; re-ruled and implemented 2026-09-25 -- writes are silent; stage 2 implemented 2026-09-25 -- the rule in the clerk note's head, once per run; long gate #7 measures it)
 Stage: SL-50 (P2, delivery; the largest remaining wall on the starter)
 Spec: docs/kernel-rpc.md §34.16, §135.11 (turn close), the `text_beside_tool_calls` drop
 
@@ -202,3 +202,4 @@ Worked with SL-52 on `claude/sl52-20260925` from `95a3970c5`. **Commit** `925176
 - **Not measurable in a replay**: the replayed Keeper replays its recorded calls and never reads the note, so SL-52's gate #6 t1
   replay shows no effect of the head (two model steps in both arms). The measurement is long gate #7 against gate #6's lines.
 
+- **2026-09-25, owner, closed after long gate #7 (`longgate7-haunting-0042`).** With the rule in the first clerk note's head: 16 `text_beside_tool_calls` drops (#6: 15, #5: 14), 10 of them beside a lone admitted `apply`. Model steps did fall to 52 (#6: 64) and the median wall to 34 s, but through the compile doing more (26 clerk writes, the commission settled, seven clues filed by fan-out), not through the Keeper dropping its preamble. Two placements, no effect: the habit is the model's. The structural option (returning the writes' results with "the turn is still owed") would not remove the step either, only rename it. Closed; the drop row keeps `step`, the call outcomes and `steered` for the next Keeper model comparison.
