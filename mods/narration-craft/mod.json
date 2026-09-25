@@ -1,6 +1,6 @@
 {
   "id": "narration-craft",
-  "version": "1.7.1",
+  "version": "1.9.0",
   "game_api": "pipicoc.game.v1",
   "state_version": 2,
   "migrations": [{"from": 1, "to": 2, "operations": [{"op": "default", "key": "dossier", "value": {}}]}],
@@ -20,14 +20,16 @@
     "graph.vocabulary.v1",
     "graph.vocabulary.table.v1",
     "context.npc.v1",
-    "npc.voice.consolidation.v1"
+    "npc.voice.consolidation.v1",
+    "context.style.v1"
   ],
   "package_files": [
     "agent.md",
     "brief.md",
     "craft-reference.json",
     "cards.en.json",
-    "starter-ids.json"
+    "starter-ids.json",
+    "style.json"
   ],
   "dependencies": {},
   "conflicts": ["npc-voice"],
@@ -55,6 +57,7 @@
     ]},
     "craft_reference": "craft-reference.json",
     "instructions": "agent.md",
-    "brief": "brief.md"
+    "brief": "brief.md",
+    "style": "style.json"
   }
 }

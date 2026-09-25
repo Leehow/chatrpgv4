@@ -1201,6 +1201,8 @@ acceptance remain pending until their dedicated checks are recorded.
 
 **2026-09-19 可读性边界。** 胶囊、`memory`、`recent`、账本和 NPC 档案里的短句是压缩事实，不是给守秘人仿写的文风样本。玩家正文必须使用 `play_language` 中自然、完整的句子，明确谁做了什么以及事物之间的关系；“简短”不允许省掉读者理解所需的主语、动作、宾语、介词或连接关系。`repetition-policy` 只允许少写已经成立的事实，不允许把它们压成残句；`final-prose-guard-before-output` 要求在调用 `narrate` 前把最终草稿作为玩家读一遍，发现事实压缩语、日志字段语或上下文残句被照抄时，先改写成自然正文。这一生产端仍是现有基础提示和 `style` 自检，不增加同步文学评分器、不新增语义正则或语言表；§113 另记录同一真实故障暴露出的既有 `narration-audit` 防漏边界修订。
 
+**2026-09-25 pointer (§137, W3 of `docs/specs/prose-mod.md`).** The craft lines this section put in the base content are gone from it: `content/craft/beat-directives.json` is deleted and the text graph no longer carries `style-axis`, `craft-directive` or `review-rule` nodes. `style` keeps `language` and `register` on every table; `axes`, `directives` and `floor` now come only from the one enabled package that contributes `context.style.v1`, validated and measured when the catalog loads. The full/brief switch and both budgets above are unchanged. Shape, validation, projection and the single-provider rule are §137.
+
 ### 13.7 采纳证据（无写侧）
 
 `narrate` 关回合时内核算 `director_adoption` 写进回合记录与遥测：`{beat, adopted: bool, evidence: [收据 id]}`。判定表闭合：REVEAL → 本回合有 `reveal` 列表里的 `clue` 收据；PRESSURE → 有 `time`/`damage`/`delta`（负向）/`session start` 收据；CHOICE → 回合以 `ask` 关闭；SUBSYSTEM → 有 `session` 收据，或有会话内的 roll 收据（带 `session_kind`，或 `roll_kind: combat_check`）；CHARACTER → 有 social 族的 roll 收据或 `present` 非空且无移动；RECOVER → healing/development 族决策结算；CUT/ADVANCE → 有 `move` 收据；MONTAGE → 有 `time` 收据且 ≥ 60 分钟；DEEPEN → 有 core-check 族 roll 收据且无 `move`；PAYOFF → 有 `clue` 收据且该线索 `supports` 某 `conclusion`。这是遥测，不是奖惩：胶囊不据此改变下一回合的建议。
@@ -7196,6 +7198,8 @@ Spec: `docs/specs/turn-floor.md`. Two live tables (medians 167 and 37 characters
 **34.16 A closed turn's run is cut at the sixth blocked call (2026-09-15).** After `narrate` closes a turn the host blocks every further tool call of that run with "the turn is closed, waiting for the player" (§34.12's `blocked`). On the merged 0.9.3a of 2026-09-15 grok-4.6 did not stop at that answer: 178 blocked `look`/`resolve`/`apply` calls in seventeen minutes after one opening, the run never settled, and the driver's next player input timed out waiting for idle. Now the host counts blocked calls (`blocked_after_close` on the telemetry row): from the third the block's reason is the firmer "The turn is closed and the player has the move. Call no tool and write nothing more; the next player input opens a new turn.", and at the sixth the host records `{lane: "runaway", turn, blocked: 6, aborted: true}` and aborts the run through the extension context. ~~The count is per run and resets at `agent_start` and with the next turn.~~ **Struck 2026-09-17, §86: that sentence is false and must not be pasted from. The count is per _turn_ and is cleared only at the turn boundary. Resetting it at `agent_start` let a continuation run — pi starts one for any message queued from `agent_end` — begin it again at zero on a turn that had not changed, so the cut never arrived; on `t10` turn 0 the notice that restarted it was §78's own.** Nothing refused has happened; the turn stays closed as it was. Test: `gates.test.mjs` "回合关了还在连番调工具".
 
 **Successful delivery ends its own tool batch (2026-09-18).** A fresh App opening (`game-d79c075a-fc0e-4903-87f7-e61199754b85`, turn 0) completed `look → resolve → narrate`; Pi then performed the ordinary automatic post-tool provider call, and the Keeper used it for an `apply` that merely tried to define existing sheet objects and a person alias. The closed-turn gate correctly refused it, but §78 consequently put a repair notice under an otherwise valid opening. A successful `narrate` or `ask` now returns Pi's tool-result `terminate: true`: when it is the only finalized result in the batch, Pi skips that automatic follow-up call and proceeds through normal `agent_end`/`agent_settled` delivery. This is a terminal-result hint, not an abort, a synthetic settle or a relaxation of §78. If the same assistant batch also contains another call, Pi's all-results condition is not met; serial execution, the ordering gate and the refused-effect notice keep their existing behaviour. Test: `refused-effect-is-told.test.mjs` "a successful terminal delivery ends the batch before a post-close provider call".
+
+**2026-09-25 pointer (§137, W3 of `docs/specs/prose-mod.md`).** §34.2's `style.floor` is no longer read from `content/craft/beat-directives.json` `floor_lines` (deleted): it is the `floor` of the enabled `context.style.v1` provider, zero to four lines, sent on every turn in full and brief form alike, and absent when no provider is enabled. The shipped provider, `narration-craft` 1.9.0, carries the same four lines verbatim. The host steer of §34.6, `director.offer`, the structural signals and the brief budget are unchanged. See §137.3 and §137.5.
 
 ## 35. Turn illustrations: the message-action illustration lane (2026-09-12)
 
@@ -18681,3 +18685,128 @@ digest, after the playtest keys left `rule-index.json`). Goldens (capsule,
 starters, each in a fresh seeded campaign) against the parent `566dca9da`, and again after 0.9.5a was merged in, against `3a9bf2dc7`, `8e017016a` and `2c4582c4a`: `mystery-house`, `voice-bench` and
 `the-haunting-rulebook` byte-identical; the haunting's differences are listed row by row in the RD-04 record
 (`docs/specs/rules-as-data-tickets.md`, Comments).
+
+## 137. context.style.v1: a package contributes the capsule's craft lines (2026-09-25, W3 of docs/specs/prose-mod.md)
+
+User ruling 2026-09-25 (`docs/specs/prose-mod.md` §2): one prose package owns how the Keeper is told to write, and
+without it the base stays clean and offers only the interfaces a package needs. §13.6 put six axis lines, the
+directives, a beat table and (since §34.2) four floor lines into base content, `content/craft/beat-directives.json`,
+beside craft nodes in the text graph. This section moves all of them behind one package capability. The kernel keeps
+`style.language` and `style.register`; it never judges or picks prose, it checks shape and size.
+
+### 137.1 The contribution
+
+A package requiring `context.style.v1` names one package JSON file in `contributes.style`; the path must be listed in
+`package_files` (so the package is scoped, §101). Contributing without the capability, or requiring it without
+contributing, is refused, the same pairing rule as §28.7's `graph.vocabulary.table.v1`. The pairing and the path are
+checked with the rest of the manifest (`validateStyleDeclaration` in `manifestFrom`); the file's content where the
+catalog loads (§137.2). The file is a closed shape:
+
+```
+{"schema_version": 1,
+ "axes": ["<line>", ...],                          // 0 to 6
+ "directives": {"<id>": {"full": "<line>", "brief": "<line>"}, ...},
+ "beats": {"<BEAT>": ["<id>", ...], ...},          // every Director beat exactly, each at most 4 distinct ids
+ "floor": ["<line>", ...]}                         // 0 to 4
+```
+
+- A line is a non-empty string of at most 240 UTF-8 bytes. A directive id matches `^[a-z][a-z0-9-]{0,63}$` and carries
+  exactly `full` and `brief`. Any other top-level key, and any other `schema_version`, is refused.
+- `beats` must name exactly the beats `DirectorGraph.load(context).beats` declares (the Director's actions plus
+  `ADVANCE`; eleven today): a missing beat, a beat the Director lacks, an unknown or repeated id, or more than four ids
+  is refused and every problem is named.
+- Lines are English like every package instruction (§16.1); the kernel detects no language and applies the same lines
+  to every play language. `tests/kernel/test_system_language.py` now guards `mods/narration-craft/style.json` where it
+  guarded the retired table.
+
+### 137.2 Validated when the catalog loads, never during a turn
+
+`readModCatalog` and `mods.install` run `validateStyleContribution` (`kernel-ts/read/style.ts`) on every compatible
+package that contributes style: parse, check the shape against the Director's beats, then measure the two projections
+the capsule can send with `jsonSize`, the serialization `fitBudget` itself measures:
+
+- the **brief form** of every beat (axes, that beat's directives with their `brief` lines, floor) must be at most
+  1536 bytes, `STYLE_BUDGET.brief`, which is `SLICE3_BUDGETS.style`;
+- the **full form** (axes, every directive with its `full` line, floor) at most 2048 bytes, `STYLE_BUDGET.full`, the
+  first-turn cap of §13.1.
+
+The two campaign values inside the section are reserved at their widest: `register` as the longest register the text
+graph declares (`purist`), `language` as a 35-character tag, the length RFC 5646 §4.4.1 requires every implementation to
+accept (the play language is open, §23, so there is no list to take a maximum from). An overflow refuses that package
+version with `invalid_params`: the message names the package and version, each beat whose brief form overflows with its
+size and the bytes over (or the full form's), and `details.over` carries the same numbers. In the catalog the refusal is
+that version's own `unavailable` row (§41.2): a campaign that locks it is refused `campaign_not_ready` by name, every
+other campaign plays on, and `mods.list` shows the row. `mods.install` refuses before publishing. Consequently
+`truncated` never names `style` for a package that loaded, unless a campaign's language tag is longer than 35
+characters, which overruns by its own excess; no shipped or suggested tag comes near. Verdicts are cached per package
+digest and per parsed snapshot of the Director and text graphs, so the catalog read on the path of every player input
+re-measures only when a package or that content changes.
+
+Measured by the validator for `narration-craft` 1.9.0: full form 1842 bytes; brief form 1529 bytes for each of the
+eleven beats. On a zh-Hans purist table the capsule sends 1814 and 1501 bytes, byte-identical to the section before this
+change.
+
+### 137.3 Projection
+
+`capsule.style` is `{language, register}`, and with an enabled provider also `{axes, directives: [{id, line}], floor}`,
+in that key order. The first turn this process opens for the campaign, and every `table.capsule {rehydrate: true}` (the
+same `styleFull` condition as §13.6 and §30.7), carries every directive id in the file's order with its `full` line;
+every later turn carries the Director beat's ids in the beat table's order with their `brief` lines. `axes` and `floor`
+ride every turn. Without a provider the section is exactly `{language, register}`: no axes, no directives, no floor.
+The budgets and the `truncated` rule of §13.1 are unchanged.
+
+### 137.4 One provider at a time
+
+- `mods.configure` enabling a style provider while another is enabled is refused `invalid_params` before anything is
+  written (a busy table's queued change included); the message and `details.provider` name the one already enabled.
+- `activeMods` refuses any lock set with two enabled providers, the invariant for every other path that reads locks.
+- The catalog: a new world whose default-on packages (the latest compatible version of each id, after `defaults.json`)
+  include two providers is refused at initialization; `mods.defaults` turning a second provider on and `mods.install` of
+  a default-on provider beside another default-on one are refused the same way, naming the existing provider.
+- `mods.list` `providers` gains no slot in this change.
+
+### 137.5 Transition: `narration-craft` 1.9.0
+
+1.9.0 adds `style.json`, `context.style.v1` in `requires`, `contributes.style` and the file in `package_files`. Its
+content is the retired table verbatim: the six `axis_lines` values as `axes` in the text graph's axis order, the four
+directives with `directive_lines` as `full` and `brief_directive_lines` as `brief`, the same `beats`, the four
+`floor_lines` as `floor`. Instructions, brief, settings, voice vocabulary, craft reference and conflicts are 1.7.1's.
+1.7.1's bytes are untouched (§26 freezes bytes per version). A new campaign therefore sees a `style` section
+byte-identical to the one before this change. A campaign locked to 1.7.1 or earlier locks a package with no style
+contribution and receives `{language, register}` only until it upgrades explicitly
+(`mods.configure {id: "narration-craft", version: "1.9.0"}`); that is the consequence of §137.6, not a fallback gap.
+
+### 137.6 The base graph carries no craft line
+
+- `content/craft/beat-directives.json` is deleted. `TextGraph.load(context)` reads only `text-graph.json` and
+  `text-graph-manifest.json`; `TextGraph` has no axes, directives, beat table or floor, `style()` returns
+  `{language, register}`, and `registers` lists the `play-register` keys `campaign.create` validates against.
+- The text graph drops its 4 `craft-directive`, 6 `style-axis` and 9 `review-rule` nodes (84 remain). It carried no
+  `advises` relation, so its 18 relations are unchanged. The manifest's digest and node counts are regenerated.
+  `play-register`, `segment-type` (the ontology's `ref:text:segment-type-state-delta`) and every other node kind stay;
+  the ontology validation in `campaign.create`'s activation and in `buildCapsule` passes on the shipped content.
+- `campaign.create` still loads the Director graph before a campaign exists, so a broken Director graph refuses
+  creation as it did when the beat table needed it.
+
+### 137.7 The three ends (§31)
+
+Writer: the package author, frozen per version (§26); nothing at the table writes it. Reader: `styleSection` in
+`buildCapsule`, from the enabled provider's catalog entry. Actor: the Keeper, who reads `style` as advice; no receipt
+records it, as before.
+
+### 137.8 Tests
+
+`tests/kernel/test_capsule_nine.py`: the default provider sends every directive with its full line on the first turn and
+the beat's ids with brief lines after, `truncated` without `style`; with `narration-craft` configured off `style` is
+exactly `{language, register}` on both turns and `truncated` lacks it; the fixture `tests/fixtures/mods/style-overflow`
+(REVEAL's brief form 2106 bytes) is refused by `mods.install` naming REVEAL and the overflow, and placed directly in the
+package store appears in `mods.list` `unavailable` naming REVEAL; a beat naming an undefined directive is refused;
+`tests/fixtures/mods/style-second` cannot be enabled beside `narration-craft` (either order, the message naming the one
+already enabled), cannot be made default-on beside it, a default-on copy cannot be installed, and once `narration-craft`
+is off its lines are the section. `tests/kernel/test_turn_floor.py` reads the floor from the provider and gains
+"no provider, no floor". `tests/kernel/test_capsule_module.py` reads the provider's full lines.
+`tests/kernel/test_ontology_runtime.py` drops the beat-table case (the refusal lives in §137.2 now).
+`tests/extension/craft-style-coherence.test.mjs` is deleted; `tests/extension/keeper-prose-contract.test.mjs` asserts
+the interface (the table gone, the retired node kinds absent, the manifest counts real, the provider's closed shape),
+`mod-package-boundary.test.mjs` counts `contributes.style` as a referenced runtime file, and `ts-kernel-read.test.mjs`
+builds the two-argument `TextGraph`.

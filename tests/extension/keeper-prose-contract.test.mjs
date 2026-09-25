@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {access, readFile} from 'node:fs/promises';
 import {test} from 'node:test';
 
 test('compressed context supplies facts but never the player-facing sentence pattern', async () => {
@@ -10,18 +10,39 @@ test('compressed context supplies facts but never the player-facing sentence pat
   assert.ok(prompt.includes('make clear who does what'));
   assert.ok(prompt.includes('Before `narrate`, reread the final draft as the player'));
   assert.ok(prompt.includes('Address every player-controlled investigator in the second person'));
-
-  const craft = JSON.parse(await readFile(new URL('../../content/craft/beat-directives.json', import.meta.url), 'utf8'));
-  assert.equal(craft.axis_lines['style-axis:avoid-translationese'], 'write natural, complete sentences with clear speakers and relationships');
-  assert.match(craft.directive_lines['clarity-and-completion'], /reread for clear agency, speaker transitions and natural play_language/);
-  assert.match(craft.directive_lines['exchange-response'], /not a replay of the player's whole input/);
-  assert.equal('rewrite-passive-translation-ese' in craft.directive_lines, false);
   assert.ok(prompt.includes('Words the player directly spoke are already their part of the conversation'));
   assert.ok(prompt.includes('intended actions still need ordinary adjudication and settlement'));
   assert.ok(prompt.includes('Do not add an unchosen action, promise or payment'));
   assert.ok(prompt.includes('Detail used to answer an investigative question is evidence, not atmospheric filler'));
   assert.ok(prompt.includes('your memory of another telling of this scenario is not this campaign\'s source'));
   assert.equal(prompt.includes('a speakable line is rendered as the investigator\'s line with its meaning kept'), false);
+});
+
+test('the capsule\'s craft lines come from a context.style.v1 package, never from the base graph', async () => {
+  // Contract §137: the base keeps language and register; axes, directives, beats and floor are a package's.
+  const json = async path => JSON.parse(await readFile(new URL(`../../${path}`, import.meta.url), 'utf8'));
+  await assert.rejects(access(new URL('../../content/craft/beat-directives.json', import.meta.url)), 'the base beat table is retired');
+  const graph = await json('content/craft/text-graph.json'), manifest = await json('content/craft/text-graph-manifest.json');
+  const counts = {};
+  for (const node of graph.nodes) counts[node.node_kind] = (counts[node.node_kind] || 0) + 1;
+  for (const retired of ['craft-directive', 'style-axis', 'review-rule']) assert.equal(retired in counts, false, `${retired} nodes are retired`);
+  assert.ok(counts['play-register'] >= 1, 'registers stay: campaign.create validates against them');
+  assert.ok(graph.nodes.some(node => node.node_id === 'segment-type:state-delta'), 'the ontology still references segment-type:state-delta');
+  assert.equal(graph.relations.some(relation => relation.relation_kind === 'advises'), false);
+  assert.deepEqual(manifest.node_counts, counts, 'the manifest counts the nodes the graph carries');
+
+  const provider = await json('mods/narration-craft/mod.json');
+  assert.ok(provider.requires.includes('context.style.v1'));
+  assert.ok(provider.package_files.includes(provider.contributes.style));
+  const style = await json(`mods/narration-craft/${provider.contributes.style}`);
+  assert.deepEqual(Object.keys(style).sort(), ['axes', 'beats', 'directives', 'floor', 'schema_version']);
+  assert.equal(style.schema_version, 1);
+  for (const [id, entry] of Object.entries(style.directives)) {
+    assert.match(id, /^[a-z][a-z0-9-]{0,63}$/);
+    assert.deepEqual(Object.keys(entry).sort(), ['brief', 'full'], id);
+  }
+  for (const ids of Object.values(style.beats)) assert.ok(ids.length <= 4 && ids.every(id => id in style.directives));
+  assert.equal('rewrite-passive-translation-ese' in style.directives, false, 'the retired rewrite-lane directives stay retired');
 });
 
 test('the existing pre-delivery audit revises unintelligible prose without grading literary taste', async () => {

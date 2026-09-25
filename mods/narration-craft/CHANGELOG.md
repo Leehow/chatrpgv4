@@ -1,5 +1,9 @@
 # Narration Craft
 
+## 1.9.0
+- Carries the capsule's craft lines through `context.style.v1` (contract §137): `style.json` holds the six axes, the four directives with their full and brief lines, the beat table and the four floor lines, moved verbatim from the retired base table `content/craft/beat-directives.json`. A new table sees the same `style` section as before; with this package off, `style` carries only the play language and register.
+- Instructions, brief, settings, voice vocabulary and the craft reference are unchanged from 1.7.1. Campaigns locked to an earlier version keep their bytes and now receive no craft lines in `style` until they upgrade explicitly.
+
 ## 1.7.1
 - Makes the register-contrast method directly selectable: a grounded answer may sound informal or formal without changing help, facts or terms.
 - Keeps twelve candidates by moving the ordinary-texture method back to the retained catalog; no card is deleted and no extra selection call is added.

@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "axes": [
+    "test axis 1: keep the fixture lines plain, bounded and in English so the measure is about bytes only",
+    "test axis 2: keep the fixture lines plain, bounded and in English so the measure is about bytes only",
+    "test axis 3: keep the fixture lines plain, bounded and in English so the measure is about bytes only",
+    "test axis 4: keep the fixture lines plain, bounded and in English so the measure is about bytes only",
+    "test axis 5: keep the fixture lines plain, bounded and in English so the measure is about bytes only",
+    "test axis 6: keep the fixture lines plain, bounded and in English so the measure is about bytes only"
+  ],
+  "directives": {
+    "plain": {
+      "full": "test directive plain, full form",
+      "brief": "test directive plain, brief form"
+    },
+    "long-a": {
+      "full": "test directive long-a, full form",
+      "brief": "a deliberately long brief line for the overflow fixture: it repeats its point so that four of them together push the brief form of one beat past the budget while every other beat stays well inside it (a)"
+    },
+    "long-b": {
+      "full": "test directive long-b, full form",
+      "brief": "a deliberately long brief line for the overflow fixture: it repeats its point so that four of them together push the brief form of one beat past the budget while every other beat stays well inside it (b)"
+    },
+    "long-c": {
+      "full": "test directive long-c, full form",
+      "brief": "a deliberately long brief line for the overflow fixture: it repeats its point so that four of them together push the brief form of one beat past the budget while every other beat stays well inside it (c)"
+    },
+    "long-d": {
+      "full": "test directive long-d, full form",
+      "brief": "a deliberately long brief line for the overflow fixture: it repeats its point so that four of them together push the brief form of one beat past the budget while every other beat stays well inside it (d)"
+    }
+  },
+  "beats": {
+    "REVEAL": [
+      "long-a",
+      "long-b",
+      "long-c",
+      "long-d"
+    ],
+    "PRESSURE": [
+      "plain"
+    ],
+    "CHOICE": [
+      "plain"
+    ],
+    "SUBSYSTEM": [
+      "plain"
+    ],
+    "CHARACTER": [
+      "plain"
+    ],
+    "RECOVER": [
+      "plain"
+    ],
+    "CUT": [
+      "plain"
+    ],
+    "ADVANCE": [
+      "plain"
+    ],
+    "MONTAGE": [
+      "plain"
+    ],
+    "DEEPEN": [
+      "plain"
+    ],
+    "PAYOFF": [
+      "plain"
+    ]
+  },
+  "floor": [
+    "test floor 1: the fixture carries four floor lines so the brief form measures what the shipped one carries",
+    "test floor 2: the fixture carries four floor lines so the brief form measures what the shipped one carries",
+    "test floor 3: the fixture carries four floor lines so the brief form measures what the shipped one carries",
+    "test floor 4: the fixture carries four floor lines so the brief form measures what the shipped one carries"
+  ]
+}

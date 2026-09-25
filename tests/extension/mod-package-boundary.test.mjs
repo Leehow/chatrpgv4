@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const MODS = join(ROOT, 'mods');
-const FILE_CONTRIBUTIONS = ['instructions', 'brief', 'setup_instructions', 'setup_slots', 'materializer', 'auditor', 'craft_reference'];
+const FILE_CONTRIBUTIONS = ['instructions', 'brief', 'setup_instructions', 'setup_slots', 'materializer', 'auditor', 'craft_reference', 'style'];
 
 test('every shipped Mod declares the exact runtime package boundary', async () => {
   for (const id of await readdir(MODS)) {

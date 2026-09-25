@@ -1,0 +1,27 @@
+{
+  "id": "style-second",
+  "version": "1.0.0",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC tests",
+  "name": {
+    "en": "Second style fixture"
+  },
+  "description": {
+    "en": "A valid context.style.v1 package used to prove that only one style provider is enabled at a time."
+  },
+  "default_enabled": false,
+  "requires": [
+    "mods.package-files.v1",
+    "context.style.v1"
+  ],
+  "package_files": [
+    "style.json"
+  ],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {},
+  "contributes": {
+    "style": "style.json"
+  }
+}
