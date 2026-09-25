@@ -1,0 +1,282 @@
+{
+ "source": {
+  "events": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate6-haunting-2155-20260925T015531Z/events.jsonl",
+  "record": ".coc/repos/longgate6-haunting-2155.git 632ed68:turns/0001.json",
+  "note": "Recorded Keeper of the live gate; a live clerk write heads the first recorded message sent after it, marked clerk_live."
+ },
+ "keeper_model": "grok-4.7-build-fast",
+ "player_text_recorded": "我接。先去《环球报》剪报室，翻科比特宅这些年的旧报道。",
+ "llm_calls": 2,
+ "llm_ms_total": 27130,
+ "calls": [
+  {
+   "text": "你已经接下这单，并直接去报馆翻旧档。我先把动身、诺特交钥匙和预付工钱落到桌上，再看报馆门口谁挡着剪报室。",
+   "at": "2026-09-25T01:56:23.095Z",
+   "provider_ms": 20031,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 16674,
+    "output": 2865,
+    "cache_read": 32768
+   },
+   "tool_calls": [
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "move",
+        "to": "newspaper-morgue"
+       }
+      ]
+     },
+     "id": "clerk-live:t1-c2",
+     "clerk_live": true
+    },
+    {
+     "name": "apply",
+     "arguments": {
+      "effects": [
+       {
+        "kind": "person",
+        "who": "Arty Wilmot",
+        "name": "阿蒂·威尔莫特",
+        "why": "他在《环球报》柜台后报上自己的名字。"
+       },
+       {
+        "kind": "cash",
+        "subject": "托马斯·海斯",
+        "delta": 20,
+        "source": "quote",
+        "with": "Steven Knott",
+        "currency": "USD",
+        "why": "诺特按事先说好的价，预付一天二十元。"
+       },
+       {
+        "kind": "define",
+        "name": "科比特宅钥匙",
+        "description": "一把普通的铁钥匙，系在一小块硬纸片上，纸片上用钢笔写着科比特宅的街道地址。一九二〇年波士顿的房门钥匙，没有别的机械。"
+       },
+       {
+        "kind": "object",
+        "name": "科比特宅钥匙",
+        "to": "托马斯·海斯",
+        "definition": "科比特宅钥匙",
+        "from": "Steven Knott",
+        "handover": "given",
+        "why": "海斯点头接下这单，诺特把钥匙和写好的地址交给他。"
+       },
+       {
+        "kind": "time",
+        "minutes": 25,
+        "why": "从诺特的办公室走到《环球报》。"
+       }
+      ]
+     },
+     "id": "call-47fd356f-ab79-4e4e-b469-013607ea4296-0|fc_36ce408b-9380-96df-803e-fd7426c702cc_0"
+    },
+    {
+     "name": "resolve",
+     "arguments": {
+      "action": {
+       "intent": "social",
+       "goal": "海斯第一次当面见到报馆值班编辑，看对方怎么待他。",
+       "method": "他走进新闻编辑部，报上私家侦探的身份，要查科比特宅的旧报。",
+       "target": "Arty Wilmot",
+       "actor": "托马斯·海斯",
+       "decision": "natural-npc:first-impression"
+      }
+     },
+     "id": "call-47fd356f-ab79-4e4e-b469-013607ea4296-1|fc_36ce408b-9380-96df-803e-fd7426c702cc_1"
+    }
+   ]
+  },
+  {
+   "at": "2026-09-25T01:56:55.695Z",
+   "provider_ms": 7099,
+   "stop_reason": "toolUse",
+   "model": "grok-4.7-build-fast",
+   "usage": {
+    "input": 6758,
+    "output": 709,
+    "cache_read": 49408
+   },
+   "tool_calls": [
+    {
+     "name": "narrate",
+     "arguments": {
+      "text": "诺特点了点头，拉开抽屉。二十块纸币压在一串钥匙上。{{cash}}他把钱推过来，又把钥匙连同那张写好地址的硬纸片一起放到你掌心里。{{item}}\n\n{{say:史蒂文·诺特}}“钥匙在这儿。先翻纸也行，别拖太久。”{{/say}}\n\n你出了那间朝街的办公室。{{time}}街车把你送到《环球报》。编辑部里油墨味混着暖气，打字机一阵一阵地响。柜台后面坐着个衣领浆得发硬的人，袖口上有油墨点。他抬眼看了你一会儿，倒没有立刻把你往外轰。{{check:appearance}}\n\n{{say:阿蒂·威尔莫特}}“阿蒂·威尔莫特。本市新闻。剪报室不对外。你是谁，来干什么？”{{/say}}\n\n你报上私家侦探的身份，说要按地址查科比特宅这些年的旧报道。他用铅笔敲了敲台面，摇头。\n\n{{say:阿蒂·威尔莫特}}“地下室的卷宗不是给一般人翻的。房东雇你，跟本报无关。没有我说的那句话，你下不去。”{{/say}}"
+     },
+     "id": "call-396d999e-2fec-4961-af06-5829dad50c6b-2|fc_bccb1744-b86f-9871-afc4-583f7a563686_0"
+    }
+   ]
+  }
+ ],
+ "tools": [
+  {
+   "tool": "apply",
+   "call_id": "clerk-live:t1-c2",
+   "ok": true,
+   "clerk_live": true
+  },
+  {
+   "tool": "apply",
+   "call_id": "call-47fd356f-ab79-4e4e-b469-013607ea4296-0|fc_36ce408b-9380-96df-803e-fd7426c702cc_0",
+   "ok": true
+  },
+  {
+   "tool": "resolve",
+   "call_id": "call-47fd356f-ab79-4e4e-b469-013607ea4296-1|fc_36ce408b-9380-96df-803e-fd7426c702cc_1",
+   "ok": true
+  },
+  {
+   "tool": "narrate",
+   "call_id": "call-396d999e-2fec-4961-af06-5829dad50c6b-2|fc_bccb1744-b86f-9871-afc4-583f7a563686_0",
+   "ok": true
+  }
+ ],
+ "admissions": [
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 0,
+   "origin": "policy"
+  },
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 0,
+   "origin": "policy"
+  },
+  {
+   "verb": "apply",
+   "verdict": "authorized",
+   "ms": 4089,
+   "origin": "model"
+  },
+  {
+   "verb": "resolve",
+   "verdict": "entailed",
+   "ms": 6092,
+   "origin": "model"
+  }
+ ],
+ "actions": [
+  {
+   "verb": "apply",
+   "kind": "move",
+   "target": "newspaper-morgue",
+   "clerk_live": true
+  },
+  {
+   "verb": "apply",
+   "kind": "person",
+   "target": "Arty Wilmot"
+  },
+  {
+   "verb": "apply",
+   "kind": "cash",
+   "target": null
+  },
+  {
+   "verb": "apply",
+   "kind": "define",
+   "target": "科比特宅钥匙"
+  },
+  {
+   "verb": "apply",
+   "kind": "object",
+   "target": "托马斯·海斯"
+  },
+  {
+   "verb": "apply",
+   "kind": "time",
+   "target": null,
+   "minutes": 25
+  },
+  {
+   "verb": "resolve",
+   "decision": "natural-npc:first-impression",
+   "target": "Arty Wilmot",
+   "intent": "social",
+   "modifiers": null
+  },
+  {
+   "verb": "narrate"
+  }
+ ],
+ "receipts": [
+  {
+   "id": "clue:knott-research-leads-t1",
+   "kind": "clue",
+   "clue": "knott-research-leads"
+  },
+  {
+   "id": "move:newspaper-morgue-t1-c2",
+   "kind": "move",
+   "to": "newspaper-morgue"
+  },
+  {
+   "id": "definition:t1-c4",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:adopt-t1-c4",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:t1-c4-2",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:adopt-t1-c4-2",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:t1-c4-3",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:adopt-t1-c4-3",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:t1-c4-4",
+   "kind": "definition"
+  },
+  {
+   "id": "definition:adopt-t1-c4-4",
+   "kind": "definition"
+  },
+  {
+   "id": "person:arty-wilmot-t1-c3",
+   "kind": "person",
+   "who": "arty-wilmot"
+  },
+  {
+   "id": "cash:t1-c3",
+   "kind": "cash"
+  },
+  {
+   "id": "definition:queued-t1-c3",
+   "kind": "definition"
+  },
+  {
+   "id": "item:t1-c3",
+   "kind": "item"
+  },
+  {
+   "id": "time:t1-c3",
+   "kind": "time"
+  },
+  {
+   "id": "roll:mod-natural-npc-t1-c5",
+   "kind": "roll",
+   "decision": "natural-npc:first-impression",
+   "skill": "Appearance",
+   "npc": "arty-wilmot",
+   "level": "regular"
+  }
+ ]
+}
