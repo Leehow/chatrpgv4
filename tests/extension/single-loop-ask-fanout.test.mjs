@@ -29,7 +29,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
 import { askWords, isAskRow } from "./compile-ask.mjs";
 import { compileAdmission } from "../../extensions/kernel/admission.ts";
-import { buildCandidates } from "../../runtime/jev/candidates.ts";
+import { buildCandidates, keeperCall } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY, REASK_FAMILY, compileBatch, interpretCompile, reaskBatch } from "../../runtime/jev/route-compile.ts";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
@@ -193,12 +193,18 @@ test("§135.30.9 policy: a row under the gate or unclear is not filed and stays 
 		assert.ok(row.detail.fell_through.includes("apply:clue:keys") && !row.detail.decided.includes("apply:clue:keys"), `${label}: left to the route, not consumed`);
 		assert.ok(view.candidates.some((candidate) => candidate.key === "apply:clue:keys"), `${label}: still offered`);
 	}
-	// §135.30.9.1: a fan-out row clears on confidence only -- a yes that leads by the margin rule, under the gate, files nothing.
-	const margin = compileOver(office(), T1, { ...T1_ASKS, "clue:keys": ["yes", 0.5, { yes: 0.7, no: 0.25, unclear: 0.05 }] });
-	assert.deepEqual(margin.row.detail.ask_cleared, ["clue:leads"], "a margin-only yes is not sought");
-	assert.ok(margin.row.detail.fell_through.includes("apply:clue:keys"));
-	const atGate = compileOver(office(), T1, { ...T1_ASKS, "clue:keys": ["yes", 0.6, { yes: 0.6, no: 0.3, unclear: 0.1 }] });
-	assert.deepEqual(atGate.row.detail.ask_cleared, ["clue:leads", "clue:keys"], "a yes at the gate is");
+	// §135.30.9.1 as amended (stage 3): a row clears on its own margin -- its confidence at least ROW_MIN (0.5) and at least
+	// ROW_RATIO (2) times the row's `no`. The recorded leads (0.55 against 0.19) clear; 0.53 against 0.29, or 0.5 against 0.3,
+	// do not; neither does a confident yes whose `no` is close.
+	for (const [label, answer, files] of [["the leads at gate #6 (0.55 against 0.19)", ["yes", 0.55, { yes: 0.7, no: 0.19, unclear: 0.11 }], true],
+		["0.53 against 0.29", ["yes", 0.53, { yes: 0.53, no: 0.29, unclear: 0.18 }], false],
+		["0.5 against 0.3", ["yes", 0.5, { yes: 0.55, no: 0.3, unclear: 0.15 }], false],
+		["0.49 against 0.01", ["yes", 0.49, { yes: 0.9, no: 0.01, unclear: 0.09 }], false],
+		["0.5 against 0.25", ["yes", 0.5, { yes: 0.7, no: 0.25, unclear: 0.05 }], true]]) {
+		const { row } = compileOver(office(), T1, { ...T1_ASKS, "clue:keys": answer });
+		assert.equal(row.detail.ask_cleared.includes("clue:keys"), files, label);
+		assert.equal(row.detail.selected.includes("apply:clue:keys"), files, `${label}: filed or not`);
+	}
 });
 
 test("§135.30.9 policy: a sought clue whose kernel row states a check is not filed -- its attempt is the check", () => {
@@ -317,9 +323,9 @@ test("§135.30.9.2 policy: the re-ask asks only the clues it can file -- not one
 	assert.deepEqual(row.detail.reask?.clues, ["apply:clue:commission", "apply:clue:keys"], "the ledger (skill_check) and the Macario summary (no cue) are not asked");
 });
 
-test("§135.30.9.2 policy: a re-ask yes under the gate (the margin rule included) files nothing", () => {
+test("§135.30.9.2 policy: a re-ask yes inside its own margin (0.55 against 0.3) files nothing", () => {
 	const { view } = compileOver(office(), T1, T1_LIVE);
-	const { row } = reaskWith(view, { "apply:clue:keys": ["yes", 0.55, { yes: 0.8, no: 0.15, unclear: 0.05 }] });
+	const { row } = reaskWith(view, { "apply:clue:keys": ["yes", 0.55, { yes: 0.6, no: 0.3, unclear: 0.1 }] });
 	assert.deepEqual(row.detail.filed, []);
 	assert.equal(row.detail.answers.reask_3.cleared, false);
 	runHead(view, true, office({ filed: ["leads"] }));
@@ -354,6 +360,50 @@ test("§135.30.9.2 policy: a settling step that is refused, or an obligation che
 	}
 });
 
+// ---- §135.30.9.3: the commission is an accept step -------------------------------------------------------------------
+
+const SETTLE = [{ kind: "flag", name: "commission-accepted", value: true }, { kind: "clue", clue: "leads", from: "Steven Knott" },
+	{ kind: "clue", clue: "keys", from: "Steven Knott" }, { kind: "item", name: "House key", from: "Steven Knott" },
+	{ kind: "cash", delta: 20, source: "quote", with: "Steven Knott" }];
+/** Knott's office as the kernel issues it since §134.18: the commission open with its settlement; the leads and keys it guards. */
+function commissionOffice({ settled = false } = {}) {
+	const reads = office({ filed: settled ? ["leads", "keys"] : [] });
+	reads.capsule.present = [{ name: "Steven Knott", role: "landlord", called: { name: "史蒂文·诺特" } }, { name: "Ruth Blake", role: "archivist", called: { name: "Ruth" } }];
+	reads.applyOptions.context = { present: ["Steven Knott", "Ruth Blake"] };
+	reads.applyOptions.obligations = [{ handle: "commission", name: "Accept Knott's commission", who: "Steven Knott", state: settled ? "settled" : "open",
+		trigger: { kind: "attempt", guards: { clues: ["keys", "leads"] } }, yields: { clues: ["leads", "keys"], items: ["House key"], cash: 20 },
+		...(settled ? {} : { next: { kind: "accept", person: "Steven Knott", settle: SETTLE } }) }];
+	for (const row of reads.applyOptions.candidates) if (["leads", "keys"].includes(row.effect.clue)) row.guarded_by = "commission";
+	return reads;
+}
+const COMMISSION_KEY = "apply:obligation:commission";
+
+test("§135.30.9.3 policy: the accept's demand sought selects the kernel's settlement as one apply; a cleared none addressee does not stop it, someone else does", () => {
+	const { candidates } = built(commissionOffice());
+	const accept = candidates.find((candidate) => candidate.key === COMMISSION_KEY);
+	assert.deepEqual([accept?.verb, accept?.family, accept?.bound.effects], ["apply", "obligation_check", SETTLE], "the candidate carries the kernel's effects");
+	assert.deepEqual(keeperCall(accept), { tool: "apply", args: { effects: SETTLE } }, "one apply of the whole settlement");
+	for (const [label, addressee, fires] of [["no addressee", undefined, true], ["a cleared none", ["none", 0.9], true], ["Knott", ["Steven Knott", 0.9], true],
+		["someone else", ["Ruth Blake", 0.9], false]]) {
+		const { row } = compileOver(commissionOffice(), { ...T1, ...(addressee ? { addressee } : {}) }, { "obligation:commission": ["yes", 0.9] });
+		assert.equal(row.detail.selected.includes(COMMISSION_KEY), fires, label);
+	}
+});
+
+test("§135.30.9.3 policy: the settlement's leads unlock the morgue -- the move is staged after the accept; the accept settles no act", () => {
+	const { view, row } = compileOver(commissionOffice(), T1, { "obligation:commission": ["yes", 0.9] });
+	assert.deepEqual(row.detail.selected, [COMMISSION_KEY]);
+	assert.deepEqual(row.detail.unlocked?.map((entry) => [entry.to, entry.after]), [["morgue", COMMISSION_KEY]]);
+	assert.equal(row.detail.acts_settled, undefined, "not a check: investigate is not settled");
+	assert.ok(!row.detail.decided.includes(ORDINARY));
+	if (view.pending[0]?.purpose === "reask") reaskWith(view, {});
+	const settled = runHead(view, true, commissionOffice({ settled: true }));
+	assert.equal(settled.key, COMMISSION_KEY);
+	assert.equal(runHead(view, true, commissionOffice({ settled: true })).key, "apply:move:morgue", "the move runs after the settlement lands");
+	const admitted = compileAdmission({ origin: "policy", basis: settled.basis, bindings: [{ name: "effects", path: "stated" }] });
+	assert.deepEqual([admitted.ok, admitted.predicate], [true, "obligation_check"]);
+});
+
 // ---------------------------------------------------------------------------------------------------
 // On the emitted kernel over the haunting.
 // ---------------------------------------------------------------------------------------------------
@@ -369,91 +419,76 @@ function kernelSteps(workspace, requests) {
 const aliasWhere = (question, match) => Object.entries(question?.criteria ?? {}).find(([, value]) => match(value))?.[0];
 const complete = (out) => ({ batchId: "b", status: "complete", answers: out, issues: [], coverage: { required: Object.keys(out), answered: Object.keys(out), unknown: [] } });
 
-test("§135.30.9 on the emitted kernel: turn 1's sentence at the office -- the clerk files the leads, the keys, then moves to the morgue; each admitted by the compile", async (t) => {
-	const graph = JSON.parse(readFileSync(join(REPO, "content/starters/the-haunting/module-graph.json"), "utf8"));
-	const summary = (id) => graph.nodes.find((node) => node.node_id === id).summary;
-	const sought = new Set([summary("clue-knott-research-leads"), summary("clue-knott-keys")]);
+const ACCEPT = "apply:obligation:knott-accept-commission", COMMISSION = "Accept Knott's commission";
+const graphNode = (id) => JSON.parse(readFileSync(join(REPO, "content/starters/the-haunting/module-graph.json"), "utf8")).nodes.find((node) => node.node_id === id);
+/** A hybrid table at Knott's office after the opening (turn 1 closed), with `decide` as Jev; returns the rows and the workspace. */
+async function officeTable(t, decide, text) {
 	const rows = [];
-	// Turn 1's per-row answers: the morgue at 1.0, investigate at 0.96, the leads and the keys yes, every other row no; every
-	// route question: finish.
-	const decide = async (batch) => {
-		if (batch.family === COMPILE_FAMILY) return complete(Object.fromEntries(batch.questions.map((question) => {
-			if (isAskRow(question)) return [question.key, choice([sought.has(askWords(question)?.clue) ? "yes" : "no", 0.9])];
-			const pick = question.key === "destination" ? [aliasWhere(question, (value) => value?.handle === "newspaper-morgue"), 1]
-				: question.key === "act" ? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("investigate")), 0.96] : [];
-			return [question.key, choice([pick[0] ?? "unclear", pick[0] ? pick[1] : 0.9])];
-		})));
-		return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
-			choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9])])));
-	};
 	let workspace;
 	const engine = createHybridEngine({ env: process.env, record: (row) => rows.push(row), decision: { decide } });
 	const table = await openTable({ realKernel: true, prepareWorkspace: (at) => { workspace = at; kernelSteps(at, [
 		["table.open", {}], ["table.player_input", { text: "我听他说完。" }], ["table.narrate", { call_id: "t1-c1", text: "诺特把委托说了一遍。" }]]); },
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你接下委托，收好钥匙，去了报馆。" })], { stopReason: "toolUse" })] });
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
-	await table.session.prompt(INPUT);
+	return { table, rows, record: () => JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns/0002.json"), "utf8")) };
+}
+const finishRoutes = (batch) => complete(Object.fromEntries(batch.questions.map((question) => [question.key,
+	choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9])])));
+
+test("§135.30.9 on the emitted kernel: a declaration at the office that seeks the commission's terms and the Macario summary -- both filed by the clerk in row order, each admitted on its own row", async (t) => {
+	// §134.18: the leads and the keys are the commission's yields now; the office's other two clues are ask rows of their own.
+	const sought = new Set([graphNode("clue-knott-commission").summary, graphNode("clue-knott-macario-summary").summary]);
+	const decide = async (batch) => batch.family === COMPILE_FAMILY ? complete(Object.fromEntries(batch.questions.map((question) =>
+		[question.key, choice(isAskRow(question) ? [sought.has(askWords(question)?.clue) ? "yes" : "no", 0.9] : [question.key === "destination" ? "none" : "unclear", 0.9])])))
+		: finishRoutes(batch);
+	const { table, rows, record } = await officeTable(t, decide, "诺特讲了条件，也讲了马卡里奥一家。");
+	await table.session.prompt("我先问清报酬和条件，再问马卡里奥一家出了什么事。");
 
 	const compiled = rows.find((row) => row.lane === "route" && row.purpose === "compile");
-	assert.deepEqual(compiled.ask_cleared, ["clue:knott-research-leads", "clue:knott-keys"], "the compile row records the sought rows");
-	assert.deepEqual(compiled.selected, ["apply:clue:knott-research-leads", "apply:clue:knott-keys"]);
-	assert.deepEqual(compiled.unlocked?.map((entry) => [entry.to, entry.after]), [["newspaper-morgue", "apply:clue:knott-research-leads"]]);
+	assert.deepEqual(compiled.ask_cleared, ["clue:knott-commission", "clue:knott-macario-summary"], "the compile row records the sought rows");
+	assert.deepEqual(compiled.selected, ["apply:clue:knott-commission", "apply:clue:knott-macario-summary"]);
+	assert.ok(!rows.some((row) => row.purpose === "reask"), "nothing settled: no re-ask");
 	const binds = rows.filter((row) => row.lane === "run" && row.event === "bind" && row.clerk);
-	assert.deepEqual(binds.slice(0, 3).map((row) => [row.candidate, row.status]),
-		[["apply:clue:knott-research-leads", "succeeded"], ["apply:clue:knott-keys", "succeeded"], ["apply:move:newspaper-morgue", "succeeded"]],
-		"the leads, the keys, then the move, all by the clerk");
+	assert.deepEqual(binds.map((row) => [row.candidate, row.status]),
+		[["apply:clue:knott-commission", "succeeded"], ["apply:clue:knott-macario-summary", "succeeded"]], "both clues, in row order, by the clerk");
 	const admissions = table.telemetry("test-camp").filter((row) => row.lane === "admission" && row.origin === "policy" && row.verb === "apply");
-	assert.deepEqual(admissions.slice(0, 3).map((row) => [row.path, row.predicate]), [["compile", "guard_unlock"], ["compile", "ask_clue"], ["compile", "move"]]);
+	assert.deepEqual(admissions.map((row) => [row.path, row.predicate]), [["compile", "ask_clue"], ["compile", "ask_clue"]]);
 	assert.equal(table.lanes.admission.requests().length, 0, "no lane review for any line");
-	const record = JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns/0002.json"), "utf8"));
-	const receipts = record.receipts.map((receipt) => [receipt.kind, receipt.clue ?? receipt.to ?? null]);
-	for (const expected of [["clue", "knott-research-leads"], ["clue", "knott-keys"], ["move", "newspaper-morgue"]])
-		assert.ok(receipts.some(([kind, name]) => kind === expected[0] && name === expected[1]), `${expected.join(" ")} has a receipt`);
-	const keys = record.receipts.find((receipt) => receipt.kind === "clue" && receipt.clue === "knott-keys");
-	assert.deepEqual([keys.scene, keys.left_this_turn], ["commission-briefing", undefined], "filed at the office, before the move");
+	const clues = record().receipts.filter((receipt) => receipt.kind === "clue").map((receipt) => [receipt.clue, receipt.scene]);
+	assert.deepEqual(clues, [["knott-commission", "commission-briefing"], ["knott-macario-summary", "commission-briefing"]]);
 });
 
-test("§135.30.9.2 on the emitted kernel: turn 1's sentence with the keys row answered no -- the re-ask files the keys against their cue, after the leads and before the move", async (t) => {
-	const graph = JSON.parse(readFileSync(join(REPO, "content/starters/the-haunting/module-graph.json"), "utf8"));
-	const summary = (id) => graph.nodes.find((node) => node.node_id === id).summary;
-	const leads = summary("clue-knott-research-leads"), keysWords = summary("clue-knott-keys");
-	const rows = [], reasks = [];
-	// Live gate #6's first answers (the leads yes, the keys and the rest no); the re-ask: the keys yes, the rest no; routes finish.
+test("§135.30.9.2 on the emitted kernel: the accept settles the commission, and the re-ask files a clue against its cue after the settlement and before the move", async (t) => {
+	const terms = graphNode("clue-knott-commission").summary, reasks = [];
+	// The compile: the commission's demand yes, every other row no, the morgue; the re-ask: the terms yes, the rest no.
 	const decide = async (batch) => {
 		if (batch.family === COMPILE_FAMILY) return complete(Object.fromEntries(batch.questions.map((question) => {
-			if (isAskRow(question)) return [question.key, choice(askWords(question)?.clue === leads ? ["yes", 0.61] : ["no", 0.88])];
-			const pick = question.key === "destination" ? [aliasWhere(question, (value) => value?.handle === "newspaper-morgue"), 1]
-				: question.key === "act" ? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("investigate")), 0.96] : [];
+			if (isAskRow(question)) return [question.key, choice(askWords(question)?.demand === COMMISSION ? ["yes", 0.9] : ["no", 0.88])];
+			const pick = question.key === "destination" ? [aliasWhere(question, (value) => value?.handle === "newspaper-morgue"), 1] : [];
 			return [question.key, choice([pick[0] ?? "unclear", pick[0] ? pick[1] : 0.9])];
 		})));
 		if (batch.family === REASK_FAMILY) {
 			reasks.push(batch);
-			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(askWords(question)?.clue?.clue === keysWords ? ["yes", 0.85] : ["no", 0.9])])));
+			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(askWords(question)?.clue?.clue === terms ? ["yes", 0.85] : ["no", 0.9])])));
 		}
-		return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
-			choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9])])));
+		return finishRoutes(batch);
 	};
-	let workspace;
-	const engine = createHybridEngine({ env: process.env, record: (row) => rows.push(row), decision: { decide } });
-	const table = await openTable({ realKernel: true, prepareWorkspace: (at) => { workspace = at; kernelSteps(at, [
-		["table.open", {}], ["table.player_input", { text: "我听他说完。" }], ["table.narrate", { call_id: "t1-c1", text: "诺特把委托说了一遍。" }]]); },
-		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你接下委托，收好钥匙，去了报馆。" })], { stopReason: "toolUse" })] });
-	t.after(() => table.dispose());
+	const { table, rows, record } = await officeTable(t, decide, "你接下委托，出门去了报馆。");
 	await table.session.prompt(INPUT);
 
 	assert.equal(reasks.length, 1, "one re-ask");
-	assert.ok(reasks[0].questions.some((question) => askWords(question)?.cues?.includes("Accept the commission explicitly and take the key, address, and cash advance.")),
-		"the keys are asked against the book's own cue, from the kernel's row");
+	assert.ok(reasks[0].questions.some((question) => askWords(question)?.cues?.[0]?.startsWith("Confirm the daily fee")),
+		"a clue is asked against the book's own cue, from the kernel's row");
+	assert.ok(!reasks[0].questions.some((question) => [graphNode("clue-knott-keys").summary, graphNode("clue-knott-research-leads").summary].includes(askWords(question)?.clue?.clue)),
+		"the commission's yields are not re-asked: its settlement files them");
 	const reask = rows.find((row) => row.lane === "route" && row.purpose === "reask");
-	assert.deepEqual([reask.settled_by, reask.filed], [["apply:clue:knott-research-leads"], ["apply:clue:knott-keys"]]);
+	assert.deepEqual([reask.settled_by, reask.filed], [[ACCEPT], ["apply:clue:knott-commission"]]);
 	const binds = rows.filter((row) => row.lane === "run" && row.event === "bind" && row.clerk);
 	assert.deepEqual(binds.slice(0, 3).map((row) => [row.candidate, row.status]),
-		[["apply:clue:knott-research-leads", "succeeded"], ["apply:clue:knott-keys", "succeeded"], ["apply:move:newspaper-morgue", "succeeded"]]);
+		[[ACCEPT, "succeeded"], ["apply:clue:knott-commission", "succeeded"], ["apply:move:newspaper-morgue", "succeeded"]]);
 	const admissions = table.telemetry("test-camp").filter((row) => row.lane === "admission" && row.origin === "policy" && row.verb === "apply");
-	assert.deepEqual(admissions.slice(0, 3).map((row) => [row.path, row.predicate]), [["compile", "guard_unlock"], ["compile", "settled_clue"], ["compile", "move"]]);
-	const record = JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns/0002.json"), "utf8"));
-	const keys = record.receipts.find((receipt) => receipt.kind === "clue" && receipt.clue === "knott-keys");
-	assert.deepEqual([keys?.scene, keys?.left_this_turn], ["commission-briefing", undefined], "filed at the office, before the move");
+	assert.deepEqual(admissions.slice(0, 3).map((row) => [row.path, row.predicate]), [["compile", "obligation_check"], ["compile", "settled_clue"], ["compile", "move"]]);
+	const clue = record().receipts.find((receipt) => receipt.kind === "clue" && receipt.clue === "knott-commission");
+	assert.deepEqual([clue?.scene, clue?.left_this_turn], ["commission-briefing", undefined], "filed at the office, before the move");
 });

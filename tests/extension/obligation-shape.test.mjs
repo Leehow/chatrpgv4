@@ -81,7 +81,7 @@ async function refusedUnder(rule, mutate) {
 
 // ----- the shipped starter and the accepted shapes -----
 
-test('the shipped haunting registers with its two stated obligations, and so does its unchanged copy', async () => {
+test('the shipped haunting registers with its stated obligations, and so does its unchanged copy', async () => {
     const shipped = await kernelOver(content);
     try {
         const result = await shipped.call('module.register', {module_id: 'the-haunting'});
@@ -164,6 +164,26 @@ test('obligation_repeats_clue_gate: a single-skill check equal to a guarded clue
     Object.assign(node(graph, 'clue-globe-unpublished-story').properties, {skill: 'Persuade', difficulty: 'regular'});
     check(graph).values = [{path: 'skills.Persuade', label: 'Persuade'}];
 }));
+// §134.18 (SL-52 stage 3): an accept step and what its settlement yields.
+const COMMISSION = 'requirement-knott-accept-commission';
+test('the shipped commission: an accept of Knott with its yields', () => {
+    const commission = obligation(SHIPPED, COMMISSION);
+    assert.deepEqual(commission.demand, [{kind: 'accept', npc: 'npc-steven-knott'}]);
+    assert.deepEqual(commission.yields, {clues: ['clue-knott-research-leads', 'clue-knott-keys'], items: [{name: 'Corbitt House key'}], cash: {delta: 20}});
+});
+test('obligation_yields: yields on an obligation without an accept step', () => refusedUnder('obligation_yields', graph => { obligation(graph).yields = {cash: {delta: 5}}; }));
+test('obligation_yields: empty yields', () => refusedUnder('obligation_yields', graph => { obligation(graph, COMMISSION).yields = {}; }));
+test('obligation_yields: a clue not discoverable at the obligation\'s scene', () => refusedUnder('obligation_yields', graph => {
+    obligation(graph, COMMISSION).yields.clues = ['clue-globe-fire-cutoff']; }));
+test('obligation_yields: a node that is not a clue', () => refusedUnder('obligation_yields', graph => { obligation(graph, COMMISSION).yields.clues = ['npc-steven-knott']; }));
+test('obligation_yields: an item without a name', () => refusedUnder('obligation_yields', graph => { obligation(graph, COMMISSION).yields.items = [{label: 'key'}]; }));
+test('obligation_yields: a cash delta that is not a positive number', () => refusedUnder('obligation_yields', graph => { obligation(graph, COMMISSION).yields.cash = {delta: -20}; }));
+test('obligation_yields: items and cash with no giver', () => refusedUnder('obligation_yields', graph => { delete obligation(graph, COMMISSION).who; }));
+test('obligation_yields: an unknown key', () => refusedUnder('obligation_yields', graph => { obligation(graph, COMMISSION).yields.handouts = ['Handout 1']; }));
+test('obligation_not_seated: an accept of a person the book does not put there', () => refusedUnder('obligation_not_seated', graph => {
+    obligation(graph, COMMISSION).demand[0].npc = 'npc-dooley'; }));
+test('obligation_unknown_key: an accept with a key of its own', () => refusedUnder('obligation_unknown_key', graph => {
+    obligation(graph, COMMISSION).demand[0].terms = '$20 a day'; }));
 test('check_trigger: an obligation trigger outside attempt and after', () => refusedUnder('check_trigger', graph => { obligation(graph).trigger.kind = 'arrival'; }));
 test('check_selection: a selection outside maximum and approach', () => refusedUnder('check_selection', graph => { check(graph).selection = 'best'; }));
 test('check_difficulty: a prose difficulty', () => refusedUnder('check_difficulty', graph => { check(graph).difficulty = 'Regular; Arty is not professionally skilled'; }));

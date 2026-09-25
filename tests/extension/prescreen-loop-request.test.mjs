@@ -45,7 +45,12 @@ test('a relationship read discovers new owner material and delivers it in the ac
     }
     assert(seed,'the real source must contain an authored relationship');
     await assert.rejects(call('table.workspace.read',{preselect:{version:2,mode:'check',entity:seedEntity}}),/catalog mode/);
-    const target=api.prescreenFollowTargets([api.publicMaterial(seed,'seed')]).find(link=>link.relation!=='source_detail').target;
+    // The first authored relationship to another story entity. A scene's has-requirement link (§134.1; the office's
+    // commission since §134.18) leads to the obligation's own small row, which a follow delivers whole, so there is no
+    // further read to discover beyond it.
+    const links=api.prescreenFollowTargets([api.publicMaterial(seed,'seed')]).filter(link=>link.relation!=='source_detail');
+    const target=links.find(link=>link.relation!=='has-requirement')?.target;
+    assert(target,`a relationship of the seed leads to another entity: ${JSON.stringify(links.map(link=>link.relation))}`);
     const hooks=new Map(),bus=new Map(),events=[],calls=[],decisions=[];
     const oldFlag=process.env.PI_COC_JEV_PRESELECT,oldKey=process.env.TYPESAFE_API_KEY,oldFetch=globalThis.fetch;
     process.env.PI_COC_JEV_PRESELECT='1';process.env.TYPESAFE_API_KEY='request-boundary-test-key';

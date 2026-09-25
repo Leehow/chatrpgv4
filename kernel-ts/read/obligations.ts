@@ -90,12 +90,13 @@ export function obligationState(graph: ModuleGraph, world: Row, node: Row, recei
             return "blocked";
     }
     const demand = steps(node);
-    if (demand.length && !demand.some(step => step.kind === "check") && demand.filter(step => step.kind === "meet").every(step => meetingMet(graph, world, node, step.npc)))
+    // §134.18: an accept is settled by its flag alone, never by meeting the person.
+    if (demand.length && !demand.some(step => step.kind === "check" || step.kind === "accept") && demand.filter(step => step.kind === "meet").every(step => meetingMet(graph, world, node, step.npc)))
         return "settled";
     return "open";
 }
 const unsettled = (state: ObligationState): boolean => state === "open" || state === "blocked";
-/** The first step still owed: an unmet meeting, else the check. A cost is never a step (ruling Q4). */
+/** The first step still owed: an unmet meeting, else the check, else (§134.18) the accept. A cost is never a step (ruling Q4). */
 export function nextStep(graph: ModuleGraph, world: Row, node: Row): Row | null {
     for (const step of steps(node)) {
         if (step.kind === "meet" && !meetingMet(graph, world, node, step.npc))
@@ -103,7 +104,28 @@ export function nextStep(graph: ModuleGraph, world: Row, node: Row): Row | null 
         if (step.kind === "check")
             return step;
     }
-    return null;
+    return steps(node).find(step => step.kind === "accept") ?? null;
+}
+/**
+ * §134.18 (SL-52 stage 3): what an accept's settlement yields, as the row names it (clue handles, item names, the cash delta),
+ * and the one `apply` that settles it: the flag first, then the yields, from the graph only.
+ */
+export function acceptYields(graph: ModuleGraph, node: Row): Row | null {
+    const yields = row(obligationOf(node).yields);
+    const clues = array(yields.clues).filter(id => typeof id === "string" && graph.nodes.has(id)).map(id => graph.handle(graph.nodes.get(id)!));
+    const items = array(yields.items).map(value => text(row(value).name) ? row(value).name : "").filter(Boolean);
+    const cash = typeof row(yields.cash).delta === "number" ? row(yields.cash).delta : null;
+    return clues.length || items.length || cash !== null ? { ...(clues.length ? { clues } : {}), ...(items.length ? { items } : {}), ...(cash !== null ? { cash } : {}) } : null;
+}
+export function acceptSettlement(graph: ModuleGraph, node: Row): Row[] {
+    const ob = obligationOf(node), yields = acceptYields(graph, node) ?? {};
+    const who = text(ob.who) && graph.nodes.has(ob.who) ? graph.displayName(graph.nodes.get(ob.who)!) : "";
+    return [
+        { kind: "flag", name: flagOf(node), value: true },
+        ...array(yields.clues).map(clue => ({ kind: "clue", clue, ...(who ? { from: who } : {}) })),
+        ...array(yields.items).map(name => ({ kind: "item", name, ...(who ? { from: who } : {}) })),
+        ...(typeof yields.cash === "number" ? [{ kind: "cash", delta: yields.cash, source: "quote", with: who }] : []),
+    ];
 }
 /** §134.13: an active Mod check with the identical recipe serves an obligation's check step. */
 export function servingModCheck(step: Row, modChecks: readonly ModCheck[] = []): ModCheck | null {
@@ -118,6 +140,8 @@ function stepView(graph: ModuleGraph, step: Row, modChecks: readonly ModCheck[])
     const name = (id: any) => typeof id === "string" && graph.nodes.has(id) ? graph.displayName(graph.nodes.get(id)!) : String(id ?? "");
     if (step.kind === "meet")
         return { kind: "meet", person: name(step.npc) };
+    if (step.kind === "accept")
+        return { kind: "accept", person: name(step.npc) };
     const view: Row = { kind: "check" };
     if (text(step.target))
         view.target = name(step.target);
@@ -183,6 +207,12 @@ export function sceneObligations(graph: ModuleGraph, world: Row, scene: Row | nu
         const next = state === "open" ? nextStep(graph, world, node) : null;
         if (next)
             result.next = stepView(graph, next, modChecks);
+        // §134.18: an open accept carries the one apply that settles it; any accept obligation names what it yields.
+        if (next?.kind === "accept")
+            result.next.settle = acceptSettlement(graph, node);
+        const yields = acceptYields(graph, node);
+        if (yields)
+            result.yields = yields;
         // §135.26 (owner ruling, 2026-09-23): the check a meeting leads to, so the clerk can carry the meeting when the
         // check is judged `now`. Only while the next step is a meeting; its shape is `next`'s for a check.
         if (next?.kind === "meet") {
@@ -254,6 +284,10 @@ export function capsuleRow(issued: Row): Row {
                 : `${next.selection === "maximum" ? "the higher of " : ""}${listed(array(next.approaches).map(value => row(value).skill + (integer(row(value).minimum) ? ` (${row(value).minimum}+)` : "")), next.selection === "maximum" ? "and" : "or")}`;
             cue.push(`next: ${how} (${next.difficulty_unstated === true ? "difficulty unstated: yours" : next.difficulty})${against}; resolve with action.obligation`);
         }
+    }
+    else if (issued.state === "open" && next.kind === "accept") {
+        const flag = String(row(array(next.settle)[0]).name ?? "");
+        cue.push(`next: accept ${next.person}'s offer; one apply settles it: flag ${flag} with its yields`);
     }
     else if (issued.state === "blocked")
         cue.push(`after ${row(issued.trigger).after}`);

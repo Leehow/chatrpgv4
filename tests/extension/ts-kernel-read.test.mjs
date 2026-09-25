@@ -1,4 +1,4 @@
-import {expected as outcome, withoutPostFreezeIdentity, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
+import {expected as outcome, withoutPostFreezeIdentity, withoutPostFreezeNodes, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
@@ -38,7 +38,8 @@ const api=await import(pathToFileURL(join(temporary,'api.mjs')).href);
 const clone=value=>api.parsePythonJson(api.pythonJsonDumps(value));
 const json=async path=>api.parsePythonJson(await readFile(path,'utf8'));
 const graphPath=join(temporary,'module-graph.json');
-const raw=await json(join(CONTENT,'starters/the-haunting/module-graph.json'));
+// The freeze-time graph: nodes authored after the reference was captured are not in its answers (POST_FREEZE_NODES).
+const raw=withoutPostFreezeNodes(await json(join(CONTENT,'starters/the-haunting/module-graph.json')));
 raw.nodes.push(...['east','west'].map(side=>({node_id:`npc-${side}-doctor`,node_kind:'npc',name:`Doctor ${side}`,aliases:['The Doctor'],
   summary:`A ${side} specialist.`,visibility:'keeper',properties:{agenda:'Keep the records private',secret:`${side} confidential evidence`,knowledge:['The archive is open.']}})));
 await writeFile(graphPath,api.pythonJsonDumps(raw));

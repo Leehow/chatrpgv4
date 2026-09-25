@@ -65,6 +65,22 @@ export function withoutPostFreezeIdentity(view) {
   return Object.fromEntries(Object.entries(view).filter(([key]) => !POST_FREEZE_ENTITY_FIELDS.includes(key)));
 }
 
+/**
+ * Graph nodes authored after the freeze (contract §134.18: the haunting's commission, an accept obligation). The retired
+ * reference never saw them, and a ranked, capped read such as `search` shifts its whole answer when one more node competes,
+ * so a live graph that carries one reads a deliberate addition as a difference everywhere. The graph a comparison reads is
+ * the shipped graph less these nodes and the claims and relations that name them (the freeze-time graph); the nodes are
+ * asserted where they belong (`obligation-shape.test.mjs`, `tests/kernel/test_scene_obligations.py`).
+ */
+export const POST_FREEZE_NODES = Object.freeze(["requirement-knott-accept-commission"]);
+export function withoutPostFreezeNodes(graph) {
+  // Claims and relations name a node in their own id fields (graph.v3): never serialised here, since a graph's numbers are
+  // Python floats that only the Python JSON writer keeps.
+  const names = (value) => [value?.object?.node_id, value?.subject_id, value?.from_node_id, value?.to_node_id].some((id) => POST_FREEZE_NODES.includes(id));
+  return {...graph, nodes: graph.nodes.filter((node) => !POST_FREEZE_NODES.includes(node.node_id)),
+    claims: (graph.claims ?? []).filter((claim) => !names(claim)), relations: (graph.relations ?? []).filter((relation) => !names(relation))};
+}
+
 const FIXTURES = resolve(import.meta.dirname, 'fixtures/oracle');
 const digestOf = source => createHash('sha256').update(source).digest('hex').slice(0, 16);
 /**

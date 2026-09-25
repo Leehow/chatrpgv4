@@ -226,13 +226,19 @@ RD04_CHANGES = sorted(
 SL25_CHANGES = sorted(f"/nodes[scene-{scene}]/properties/runtime_projection/record/destination_identity: added" for scene in (
     "basement-rites", "corbitt-confrontation", "corbitt-house-ground", "neighborhood-gossip", "previous-tenants", "upper-floor-bedroom"))
 
+# §134.18 (SL-52 stage 3): the commission as an accept obligation at Knott's office.
+SL52_CHANGES = sorted([
+    "/claims[claim-has-requirement-knott-accept-commission]: added",
+    "/nodes[requirement-knott-accept-commission]: added",
+    "/relations[relation-has-requirement-knott-accept-commission]: added"])
+
 
 def test_the_haunting_differs_from_its_pre_rd04_graph_only_by_the_migration():
     before = pre_rd04_graph()
     if before is None:
         pytest.skip(f"the pre-RD-04 graph ({PRE_RD04}) is not in this checkout's history")
     after = read_json(CONTENT_DIR / "starters" / "the-haunting" / "module-graph.json")
-    assert sorted(_paths(before, after)) == sorted(RD04_CHANGES + SL25_CHANGES)
+    assert sorted(_paths(before, after)) == sorted(RD04_CHANGES + SL25_CHANGES + SL52_CHANGES)
 
 
 @pytest.mark.parametrize("module_id", sorted(STARTERS))

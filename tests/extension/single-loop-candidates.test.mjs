@@ -102,7 +102,9 @@ test("candidates come from the kernel's own reads: each carries its clerk author
 	const { batch } = routeBatch({ ...initialView({ runId: "r", rawInput: "x", context, candidates, readFirst: false }) }, scope, []);
 	const shown = allText(batch.state) + allText(batch.questions);
 	for (const hidden of ["available_route_not_player_choice", '"authority"', '"basis"', '"clerk"', "declared_bookkeeping"]) assert.ok(!shown.includes(hidden), `Jev never sees ${hidden}`);
-	assert.deepEqual(obligationCandidates(state), [], "the opening scene states no obligation, so the SO-04 seam issues nothing there");
+	// §134.18: the opening scene states the commission, an accept whose candidate is the kernel's settlement apply.
+	assert.deepEqual(obligationCandidates(state).map((candidate) => [candidate.key, candidate.verb, candidate.family]),
+		[["apply:obligation:knott-accept-commission", "apply", "obligation_check"]]);
 });
 
 test("boss only: nobody off the roster, no rule family without its session, no effect kind the kernel does not issue as a candidate", () => {

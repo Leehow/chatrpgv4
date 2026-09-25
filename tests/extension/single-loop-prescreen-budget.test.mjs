@@ -283,7 +283,10 @@ test("a read_more on the same scene reuses the first read's prescreen: its mater
 	await table.table.session.prompt("I look over Knott's desk for anything about the house.");
 
 	const reads = runRows(table.table, "read");
-	assert.equal(reads.length, 2);
+	// Since §134.18 the office's commission is a compile-only candidate that the first route consumes, so the second route's
+	// question differs from the first and may ask for one more read of the same scene: every read after the first reuses.
+	assert.ok(reads.length >= 2);
+	for (const later of reads.slice(1)) assert.equal(later.prescreen.status, "reused");
 	assert.equal(reads[0].prescreen.status, "prepared");
 	assert.ok(reads[0].prescreen.materials > 0);
 	assert.equal(reads[1].scene, reads[0].scene);

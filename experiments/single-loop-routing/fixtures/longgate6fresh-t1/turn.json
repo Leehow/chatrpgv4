@@ -1,0 +1,88 @@
+{
+ "campaign": "longgate6fresh",
+ "module": "the-haunting",
+ "turn": 1,
+ "commit_before": "4e5bf81",
+ "player_input": "我接。先去《环球报》剪报室，翻科比特宅这些年的旧报道。",
+ "tarball": "../longgate6fresh/workspace.tar.gz",
+ "source": {
+  "fixture": "longgate6-t1",
+  "campaign": "longgate6-haunting-2155",
+  "commit_before": "fb0f53b"
+ },
+ "fresh": {
+  "module_digest": "650ee295a013b2b2ea61b9468e6b36879e42e61f5eb69f2ce66376660ac4029e",
+  "module_generation": 1,
+  "opening_steps": [
+   [
+    "table.resolve",
+    {
+     "campaign": "longgate6fresh",
+     "call_id": "t0-c1",
+     "action": {
+      "decision": "natural-npc:first-impression",
+      "intent": "social",
+      "goal": "first impression",
+      "method": "meeting",
+      "target": "Steven Knott"
+     }
+    }
+   ],
+   [
+    "table.apply",
+    {
+     "campaign": "longgate6fresh",
+     "call_id": "t0-c3",
+     "effects": [
+      {
+       "kind": "person",
+       "who": "Steven Knott",
+       "name": "史蒂文·诺特",
+       "why": "开场由他自我介绍，桌上名片写着这个名字。"
+      }
+     ]
+    }
+   ],
+   [
+    "table.narrate",
+    {
+     "call_id": "t0-c5"
+    }
+   ]
+  ],
+  "skipped": [
+   {
+    "id": "definition:queued-t0-c2",
+    "kind": "definition"
+   },
+   {
+    "id": "definition:queued-adopt-t0-c2",
+    "kind": "definition"
+   },
+   {
+    "id": "definition:queued-t0-c2-2",
+    "kind": "definition"
+   },
+   {
+    "id": "definition:queued-adopt-t0-c2-2",
+    "kind": "definition"
+   },
+   {
+    "id": "definition:queued-t0-c2-3",
+    "kind": "definition"
+   },
+   {
+    "id": "definition:queued-adopt-t0-c2-3",
+    "kind": "definition"
+   },
+   {
+    "id": "definition:queued-t0-c2-4",
+    "kind": "definition"
+   },
+   {
+    "id": "definition:queued-adopt-t0-c2-4",
+    "kind": "definition"
+   }
+  ]
+ }
+}

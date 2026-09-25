@@ -401,6 +401,8 @@ export function kernelCall(candidate: Candidate, extra: Record<string, Json> = {
  * call (one tool catalog for the LLM and Jev, §135.4). Optional unbound parameters are omitted, never invented.
  */
 export function keeperCall(candidate: Candidate, extra: Record<string, Json> = {}): {tool: 'apply' | 'resolve'; args: Row} {
+  // §135.30.9.3: an accept's candidate carries the kernel's whole settlement, one apply of several effects.
+  if (candidate.verb === 'apply' && Array.isArray(candidate.bound.effects)) return {tool: 'apply', args: {effects: candidate.bound.effects as Row[]}};
   if (candidate.verb === 'apply') return {tool: 'apply', args: {effects: [{...candidate.bound, ...extra}]}};
   const {decision, actor, target, goal, method, choice, bonus, penalty, ...rest} = {...candidate.bound, ...extra} as Row;
   // The closed dice words of a bind (the ordinary binder's, §135.26) become the check's modifiers; a die on a social
