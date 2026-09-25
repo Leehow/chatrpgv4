@@ -304,6 +304,11 @@
       "id": "SL-60",
       "file": "60-the-resumed-telemetry-row.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-61",
+      "file": "61-provider-data-corrections-thinking-off.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
