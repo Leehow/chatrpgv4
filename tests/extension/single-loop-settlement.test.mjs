@@ -26,6 +26,7 @@ import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY, NONE, UNCLEAR, compileBatch } from "../../runtime/jev/route-compile.ts";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { BIND_FAMILY, createStepPolicy, initialView, next, routeBatch, settleCompile, settleExecute, settleInfer, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
+import { fanAsk, isAskRow } from "./compile-ask.mjs";
 
 const scope = { owner: "campaign:test", campaign: "test", worldline: "main", loop: 0, audience: "keeper" };
 const context = { scene: "morgue", clock: null, present: ["the editor"], receipts: [] };
@@ -48,8 +49,8 @@ function morgue() {
 
 /** A complete Jev answer: `choices[key]` = [choice, confidence, probabilities?]. */
 const answer = (choices) => ({ batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
-	answers: Object.fromEntries(Object.entries(choices).map(([key, [choice, confidence, probabilities]]) => [key,
-		{ status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } }])) });
+	answers: fanAsk(Object.fromEntries(Object.entries(choices).map(([key, [choice, confidence, probabilities]]) => [key,
+		{ status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } }]))) });
 /** Live gate #6, turn 2, route s6: the exit right after the clerk's settled Persuade. */
 const GATE6_EXIT = ["ask_llm", 0.23, { ask_llm: 0.42, continue: 0.33, finish: 0.23, read_more: 0.02 }];
 
@@ -65,7 +66,8 @@ function afterClerk({ compiled = true, check = "passed" } = {}) {
 		const request = next(view);
 		assert.equal(request.purpose, "compile");
 		const batch = compileBatch(view, scope, [], []);
-		const alias = (family, id) => Object.keys(batch.questions.find((question) => question.key === family).criteria)[rows[family].findIndex((row) => row.id === id)];
+		const alias = (family, id) => family === "ask" ? `ask_${rows.ask.findIndex((row) => row.id === id) + 1}`
+			: Object.keys(batch.questions.find((question) => question.key === family).criteria)[rows[family].findIndex((row) => row.id === id)];
 		settleCompile(view, startStep(view, request), batch, answer({ ask: [alias("ask", "obligation:access"), 0.9], addressee: [alias("addressee", "Arty"), 0.9],
 			act: [alias("act", "social"), 0.9], destination: [NONE, 0.9] }), 5, 0.6);
 		const bind = next(view);
@@ -156,7 +158,9 @@ test("§135.11 SL-20 on the driver: a forced session step issued after the settl
 			const batch = request.question.batch;
 			const result = batch.family === COMPILE_FAMILY
 				? answer(Object.fromEntries(batch.questions.map((question) => {
-					const pick = { ask: "obligation:access", addressee: "Arty", act: "social" }[question.key];
+					// §135.30.9: each ask row its own yes/no.
+					if (isAskRow(question)) return [question.key, [rows.ask[Number(question.key.slice(4)) - 1].id === "obligation:access" ? "yes" : "no", 0.9]];
+					const pick = { addressee: "Arty", act: "social" }[question.key];
 					const index = pick ? rows[question.key].findIndex((row) => row.id === pick) : -1;
 					return [question.key, [index >= 0 ? Object.keys(question.criteria)[index] : NONE, 0.9]];
 				})))

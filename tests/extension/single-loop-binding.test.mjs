@@ -30,6 +30,7 @@ import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import {
 	BIND_FAMILY, CLERK_AUTHORITY, ORDINARY_CHECK_KEY, consumedByResolve, ordinaryBindings, createStepPolicy, initialView, interpretBind, itemsFor, next, settleBind, settleExecute, settleOrdinaryBind, settleRead, startStep,
 } from "../../runtime/jev/step-policy.ts";
+import { askWords, isAskRow } from "./compile-ask.mjs";
 
 const scope = { owner: "campaign:test", campaign: "test", worldline: "main", loop: 0, audience: "keeper" };
 const context = { scene: "morgue", clock: null, present: ["Arty"], receipts: [] };
@@ -430,9 +431,8 @@ const prose = () => fauxAssistantMessage("The editor waves you through.", { stop
  * nobody's side (`none` is a guard; left unclear here), the rest unclear. Route: `seeks`/`now` for every candidate question,
  * `finish` after -- since the §135.30 addendum the `seeks` answer selects nothing, so the compile is what selects the check.
  */
-const demandAlias = (question) => Object.entries(question.criteria).find(([, value]) => value && typeof value === "object" && "demand" in value)?.[0];
 const routeAll = (batch) => batch.family === COMPILE_FAMILY
-	? answer(Object.fromEntries(batch.questions.map((question) => [question.key, question.key === "ask" ? [demandAlias(question), 0.95] : ["unclear", 0.9]])))
+	? answer(Object.fromEntries(batch.questions.map((question) => [question.key, isAskRow(question) ? [askWords(question)?.demand ? "yes" : "no", 0.95] : ["unclear", 0.9]])))
 	: answer(Object.fromEntries(batch.questions.map((question) => [question.key,
 		[question.key === "exit" ? "finish" : question.criteria.seeks ? "seeks" : "now", 0.95]])));
 const unknownAll = (batch) => answer(Object.fromEntries(batch.questions.map((question) => [question.key, ["unknown", 0.8]])));

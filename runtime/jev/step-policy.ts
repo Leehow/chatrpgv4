@@ -23,7 +23,7 @@ import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts'
 import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
 import {answerOf, clears} from './decision-gate.ts';
-import {carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, ORDINARY_CHECK, reachable, unlockedRow,
+import {askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, ORDINARY_CHECK, reachable, unlockedRow,
   type FeatureRows, type GuardedDestination} from './route-compile.ts';
 
 type Row = Record<string, any>;
@@ -655,7 +655,8 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
   const outcome = interpretCompile(view, result, gate);
   for (const key of outcome.decided) if (!view.consumed.includes(key)) view.consumed.push(key);
   view.candidates = view.candidates.filter(value => !outcome.decided.includes(value.key));
-  const selected = [...outcome.selected].sort((a, b) => rank(a.candidate) - rank(b.candidate));
+  // §135.30.9 (SL-52): within a rank, the batch runs in the `ask` rows' order (the accept's clues as the rows list them).
+  const selected = [...outcome.selected].sort((a, b) => rank(a.candidate) - rank(b.candidate) || askIndex(a, view.rows) - askIndex(b, view.rows));
   for (const {candidate} of selected) view.pending.push(...itemsFor(candidate));
   const keys = selected.map(entry => entry.candidate.key);
   // §135.30.5 (SL-38): a held destination this batch unlocks is staged after the step that unlocks it; the move is the
@@ -670,8 +671,8 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
   observe(view, {kind: 'decide', purpose: 'compile', status: result.status, ...(keys.length ? {choice: keys.join(' + ')} : {}), reason: outcome.reason});
   return {step, kind: 'decide', purpose: 'compile', choice: keys.length ? keys.join(' + ') : null, confidence: null, ms, jev_calls: 1, reason: outcome.reason,
     detail: {features: outcome.features, fired: selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
-      selected: keys, decided: outcome.decided, fell_through: outcome.fellThrough, ...(outcome.guarded ? {guarded: outcome.guarded} : {}),
-      ...(view.actsSettled?.length ? {acts_settled: view.actsSettled} : {}),
+      selected: keys, decided: outcome.decided, fell_through: outcome.fellThrough, ...(outcome.askCleared ? {ask_cleared: outcome.askCleared} : {}),
+      ...(outcome.guarded ? {guarded: outcome.guarded} : {}), ...(view.actsSettled?.length ? {acts_settled: view.actsSettled} : {}),
       ...(unlocked.length ? {unlocked: unlocked.map(unlockedRow)} : {}), family: batch.family} as unknown as Json};
 }
 
@@ -913,8 +914,11 @@ function settleUnlocks(view: RunView, key: string, landed: boolean): void {
   view.unlocks = (view.unlocks ?? []).filter(entry => entry.after !== key);
   for (const entry of [...staged].reverse()) {
     const found = landed ? view.candidates.find(value => value.key === `apply:move:${entry.to}`) : undefined;
-    if (found) view.pending.unshift(...itemsFor(carryCompile(found, entry.compile)));
-    else view.unlockMissed = [...(view.unlockMissed ?? []), entry.guarded];
+    if (!found) { view.unlockMissed = [...(view.unlockMissed ?? []), entry.guarded]; continue; }
+    // §135.30.9 (SL-52): after the batch's pending steps that precede a move (the accept's other reveals), so the party
+    // moves last; before anything else (a model step, a read, a later rank).
+    const at = view.pending.findIndex(item => item.kind === 'infer' || !!item.call || !item.candidate || rank(item.candidate) >= rank(found));
+    view.pending.splice(at < 0 ? view.pending.length : at, 0, ...itemsFor(carryCompile(found, entry.compile)));
   }
 }
 /**

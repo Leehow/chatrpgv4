@@ -1,0 +1,13 @@
+{
+ "campaign": "longgate6-haunting-2155",
+ "module": "the-haunting",
+ "turn": 1,
+ "commit_before": "fb0f53b",
+ "commit_after": "632ed68",
+ "player_input": "我接。先去《环球报》剪报室，翻科比特宅这些年的旧报道。",
+ "tarball": "../longgate6/workspace.tar.gz",
+ "source": {
+  "campaign": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/campaigns/longgate6-haunting-2155",
+  "playtest": "/Users/haoli/leehow/code/chatrpgv4-wt-integ-sl/.coc/playtests/longgate6-haunting-2155-20260925T015531Z"
+ }
+}

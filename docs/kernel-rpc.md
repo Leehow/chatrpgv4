@@ -18810,7 +18810,8 @@ Before each model step the run prepends at most one `coc-clerk` custom message (
 like any message; `CLERK_TYPE`). It says what the clerk did since the last one: operation, label, clerk
 authority, call id, status, receipts, the kernel row it came from and the settled action, with the note that
 these are committed and how to undo one. It also says what this step asks: the operation to complete for an
-`infer(bind)`, or the batch that returned for `batch_fallen`. With nothing new to say, no message is sent. A
+`infer(bind)`, or the batch that returned for `batch_fallen`. With nothing new to say, no message is sent (amended by
+§135.11.2: a run's first model step always has one, carrying the note's `head`). A
 `coc-clerk` message from an earlier turn is closed noise to the context projection (§19.2), like a stale
 capsule. It is never an unclassified retained message.
 
@@ -19141,6 +19142,38 @@ once, on the `apply`'s result, with `beside: [apply, resolve]` and the steer ove
 with no prose beside carry nothing; a refused call carries it in `details` and its text; each drop row names its steering
 call; the turn's capsule head carries `SILENT_WRITES`; a message whose only call is a `narrate` is not steered. Mutations in
 the SL-50 ticket's Comments.
+
+#### 135.11.2 Writes are silent, stated once per run in the clerk note's head (2026-09-25, SL-50 stage 2; amends §135.11.1's addendum and §135.8)
+
+**Evidence** (long gate #6, `longgate6-haunting-2155`, against gate #5). With §135.11.1's capsule-head rule the table had 15
+`text_beside_tool_calls` drops (#5: 14), 64 model steps over 20 turns (#5: 60) and 12 turns of three steps or more (#5: 11);
+the steer landed on every drop (`steered`: `apply` 11, `resolve` 4) and the next step still wrote the turn. The capsule is read
+once, at the turn's start, among everything else the turn opens with; the `coc-clerk` note is what the model reads beside the
+carried views right before its step.
+
+**The owner's ruling (2026-09-25).** The rule moves to the clerk note's head line, stated once per run; the capsule head keeps
+its sentence.
+
+**The rule in the note.** The first `coc-clerk` message of a run (§135.8) carries **`head`**, right after `kind`:
+`CLERK_NOTE_HEAD` (`runtime/jev/hybrid-engine.ts`): writes are silent; write no prose beside `apply`, `resolve` or `lookup`
+calls (it is dropped and never shown); the turn's prose comes through `narrate`, or is the text of the final step, in the same
+response as the writes whenever nothing among them needs a result first. The head is something to say, so the run's first
+model step always has a note (§135.8's "nothing new to say: no message" does not apply to it). Later notes of the run do not
+repeat it: the first note stays in the request for the whole run (§135.23: append-only), and an earlier run's note is closed
+noise to the next turn's projection (§135.8), so every run states it exactly once. `carried.head` (§135.31), the capsule's
+`SILENT_WRITES` and the drop's steer (§135.11.1) are unchanged.
+
+**The measurement** is long gate #7 against gate #6's lines: `text_beside_tool_calls` drops ≤ 7, model steps ≤ 52 over 20
+turns, turns of three steps or more ≤ 8. Only if that fails: the structural option (a step carrying writes and prose gets its
+results back with a one-line "the turn is still owed: narrate now" in place of a full re-prompt), which is not implemented.
+
+**Three ends (§31).** *Writer:* the engine's `projection`, once per run. *Reader:* the Keeper model. *Actor:* the Keeper, whose
+writes go without prose.
+
+*Tests.* `tests/extension/single-loop-note-head.test.mjs`: through the hybrid engine on the emitted kernel, a run of several
+model steps: the first note carries `head` equal to `CLERK_NOTE_HEAD` right after `kind`, no later note of the run carries a
+`head`, and the next turn's first note carries it again; a first model step with nothing else to say still has a note, with
+the head. Structure only, never wording. Mutations in the SL-50 ticket's Comments.
 
 ### 135.20 The read hands the Keeper the bodies of what it issued (2026-09-23, SL-11 scope 1; the model-call diet)
 
@@ -19880,7 +19913,7 @@ every fresh read).
 | --- | --- | --- | --- |
 | `destination` | a place the kernel offers as a move: its `to` and `display_name` (since §135.30.4 also the place's other names, summary, where-words, people and things) | `table.apply.options` rows of kind `move` (all of them, a withheld one included: the answer is about the words; the predicate only reaches issued candidates) | the move predicate |
 | `addressee` | a person present: the table's own label (`called.name`, else `untold.label`), the role and the record name | `table.capsule.present` | the obligation predicates |
-| `ask` | an open obligation's demand (its `name` and what it guards, §135.26), an issued clue (its summary), a scene handout not yet shown (its name) | `table.apply.options.obligations` (state `open`), the `table.apply.options` clue rows without `guarded_by`, `capsule.where.assets` | the obligation predicates (a clue or handout answer is "something else"; since §135.30.5 a clue answer is read by `guard_unlock` when the cleared destination's guard names that clue) |
+| `ask` | an open obligation's demand (its `name` and what it guards, §135.26), an issued clue (its summary), a scene handout not yet shown (its name) | `table.apply.options.obligations` (state `open`), the `table.apply.options` clue rows without `guarded_by`, `capsule.where.assets` | the obligation predicates (a clue or handout answer is "something else"; since §135.30.5 a clue answer is read by `guard_unlock` when the cleared destination's guard names that clue; since §135.30.9 each row is its own yes/no question and every sought clue is read by `guard_unlock` or `ask_clue`) |
 | `act` | in a running combat on the investigator's turn, each action the session issues for the investigator (`context.session.actions[].decision`); otherwise each canonical resolve intent (the Keeper's `resolve` tool enum, `resolveIntents()`) | `table.resolve.options` session view; the tool definition | the attack predicate; the obligation check's act guard |
 | `target` | in a running combat, each target the session issues on the investigator's attack | `context.session.actions[decision = combat:attack].targets` | the attack predicate |
 | `item` | an object instance an investigator carries | `table.capsule.mods.objects.instances` whose `owner` is an investigator | none yet: recorded in the compile row only |
@@ -20078,7 +20111,7 @@ resolve intents, so whenever the builder offers the check). Its families are `ac
 2. `destination` did not clear on a place row: when the declaration takes the investigator somewhere, the check is the
    destination's, so this compile leaves it (a later compile in the new scene, §135.30.1, can select it there);
 3. `ask` did not clear on an open obligation's demand: that declaration's check is the obligation's (§135.26, SL-14's
-   folding), and the `obligation_check` predicate reads it.
+   folding), and the `obligation_check` predicate reads it. (Since §135.30.9: no obligation row is sought.)
 
 When it fires it binds the check's `intent` to the cleared `act` row (`basis.compile.bound.intent`, with the compile
 answer's confidence and distribution), so the executed check's intent is the act the compile read, never a second
@@ -20275,7 +20308,7 @@ compile does not evaluate the kernel's condition itself. The compile outcome car
 after}]`** (`after`: the key of the selected step that unlocks it) in place of that row's `guarded` entry, and the policy
 stages the move after that step (`RunView.unlocks`). When the clerk step `after` lands, its fresh read *is* the guard's
 evaluation after the effect: the kernel issues `apply:move:<to>` when the effect met the guard, and the policy runs that
-move next, carrying the compile's record of it -- `basis.compile` with predicate `move`, the cleared rows as `features`,
+move next (amended by §135.30.9: after the batch's other pending reveals), carrying the compile's record of it -- `basis.compile` with predicate `move`, the cleared rows as `features`,
 `read_features.destination`, and `unlocked_by: <after>` -- as §32.12.1 carries a compile record across a carried step (the
 fresh read's kernel row stays; nothing is re-bound). The move's key joins the run's `compileSelected` at the compile (it is
 the declaration's own step, §135.11 addendum SL-20).
@@ -20464,6 +20497,97 @@ later compile reading `social` decides the check, while one reading `investigate
 check on a settled act executes nothing (`ordinary_act_settled`) and on another act executes. On the emitted kernel over the
 haunting through the hybrid engine, gate #4's turn-2 answers (both compiles) roll one check: the obligation's. The mutations and
 the replay of turn 2 are in the SL-43 ticket's Comments.
+
+#### 135.30.9 Addendum (2026-09-25, SL-52): the ask feature fans out -- each row is its own question, and every clue it clears is the clerk's
+
+SL-52 takes §135.30.9 (§-numbers are stable ids). The owner's ruling of 2026-09-25 binds it: "The ask feature is a fan-out:
+each clue row is its own yes/no at the gate; every row that clears is filed by the clerk in that compile, in row order,
+admitted line by line; a row that does not clear is left to the Keeper as today. `guard_unlock` (SL-38) remains the special
+case that also stages the move." It amends §135.30 (the `ask` family's question, its reading and the predicates over it),
+§135.30.3's third condition and §135.30.5 (`guard_unlock` and when its staged move runs), for `PI_COC_LOOP_ENGINE=hybrid-v1`
+only.
+
+**Evidence** (long gates #4–#6: `longgate4-haunting-1308`, `longgate5-haunting-1447`, `longgate6-haunting-2155` in the
+integration worktree's `.coc`). Turn 1 is gate #3's sentence ("我接。先去《环球报》剪报室，翻科比特宅这些年的旧报道。"). At gate #6 the
+compile's `ask` listed five rows (the commission, the research leads, the Macario summary, the keys, handout 1) and answered
+one choice: `clue:knott-research-leads` at 0.89 (probabilities: the leads 0.91, the keys 0). `guard_unlock` filed the leads
+and staged the move; the keys clue, which the same accept files, was never read, because one choice question clears one row.
+Three tables in a row the keys were then filed by the Keeper at turn 9, when the house's guard named them (54, 60 and 69 s
+turns). The prototype found the same for the route: a fan-out, not a pick-one (RESULTS-20260923, finding 2).
+
+**The question.** The `ask` family is asked as one question per row, in the rows' order, inside the same compile batch (one
+Jev call, as before): key `ask_<n>` (the row's alias, §135.30), `type: choice`, the target naming the row by its alias with the
+row's own words (`describe`), and three options: `yes` (the declared action seeks this thing: to get, find, reach or learn
+it), `no` (it does not) and `unclear` (the input does not tell). Each question judges only its row; other rows may be sought
+too, and no row's answer takes probability from another's. The other families are unchanged (one choice question each). A
+family without rows is not asked; an `ask` without rows asks nothing.
+
+**Reading it.** Each row's answer clears by §135.2's gates exactly as a family's answer does (confidence ≥ 0.6, or the margin
+rule over that question's own distribution), and only on `yes` or `no`; `unclear`, `unknown`, a missing or below-gate answer
+never clear. A row whose `yes` cleared is **sought**; the compile's selection over `ask` is the set of sought rows, in row
+order. The compile row's `features.ask` is `{rows, answers: {<alias>: {choice, row, confidence, probabilities, cleared}},
+cleared: [<row id>…]}` (`row`: the row id on `yes`, `null` on `no`), and the compile row gains **`ask_cleared`**: the sought
+rows' ids in row order (`[]` when none).
+
+**The predicates over the set.** A predicate that reads one ask row reads that row's own answer:
+
+- `obligation_check` fires when the obligation's row is sought (and, as before, the addressee and the act allow it); it
+  decides the check when that row's answer cleared, `yes` or `no`. Two obligations one declaration seeks are two rows, each
+  its own check.
+- `stated_meeting`: its person cleared as before, or its obligation's row sought with the addressee allowing it; decided by the
+  addressee or by that row's cleared answer.
+- `ordinary_check` (§135.30.3, condition 3): no obligation row is sought.
+- `guard_unlock` (§135.30.5): the clue's row sought and `destination` cleared on a row whose guard names that clue. It stays the
+  one clue predicate that stages a move.
+- **`ask_clue`** (new; family `ask`; not `sole`; never decides): reads an issued clue candidate (`apply:clue:<c>`, clerk
+  `declared_bookkeeping`) whose kernel row does not state a check to find it (its `delivery_kind` is not `skill_check`),
+  reachable when the rows carry its `ask` row; it fires when that row is sought. A clue it does not fire on falls through to
+  the route's `need` question exactly as before.
+
+**Which predicate reads a clue.** A candidate is read by every predicate that reads it and can reach it, in `COMPILE_PREDICATES`
+order: the first of them that fires selects it (and names itself in `basis.compile.predicate`); when none fires, the candidate
+is decided if one of them decides it, else it falls through. For a clue that is `guard_unlock` (when a destination row is
+guarded by the clue) and then `ask_clue`. So every sought clue the kernel issued is selected in that compile, and the one whose
+guard the batch unlocks carries `guard_unlock` and its staged move. `predicateOf` (reachability, §135.30.1's `compiledOver`)
+names the first predicate that reads and reaches the candidate.
+
+**A clue whose finding is a check.** A clue row whose kernel description states `delivery_kind: skill_check` is still an `ask`
+row (asked and recorded) but `ask_clue` does not read it: filing it would settle the roll the book puts in front of it. Its
+attempt is the check -- the ordinary check the same compile may select, or the Keeper's -- as §134.17 makes a check an
+obligation's attempt. The ruling names no such gate; this is the implementation's reading of "every row that clears",
+recorded for the owner in the SL-52 ticket, and a comparison of one kernel enum value, never of words.
+
+**Per-candidate evidence (line-by-line admission).** A selected candidate's `basis.compile.features.ask` is its own row's
+reading: the row id when sought, `null` when its `no` cleared, absent otherwise; `read_features.ask` is that row's `{row,
+confidence, cleared}`. A candidate with no ask row of its own (a move, the ordinary check, an attack, the first blow) records
+`features.ask` as the sought rows (an array, present only when there is one) and `read_features.ask` as `{row: null, rows:
+[<sought>], confidence: null, cleared: <whether any is sought>}`. §32.12's `compileAdmission` then admits each clue on its own
+row's record: one clue's evidence never stands for another's, and a refusal of one takes none of the others back (§32.12.3).
+
+**Order in the batch.** The selected steps run in the route's precedence (§135.26) and, within one rank, in the `ask` rows'
+order for the candidates that have a row (the others after them, in candidate order). A move `guard_unlock` staged
+(§135.30.5) no longer runs immediately after the unlocking step: when that step lands and the fresh read issues the move, it
+is placed after the batch's pending steps that precede a move in precedence (the other reveals), so the accept is filed where
+it happens and the party moves last. The fresh read after the unlocking step still decides whether the move is issued; a
+missed unlock is reported `guarded` as before.
+
+**Not changed.** The gates; the other families; which candidates the builders issue; a clue no `ask` row names (one the
+prescreen located, one an open obligation guards); the handout rows (asked and recorded, no reader: a sought handout is not
+shown by the clerk); §32's admission rules; §135.30.7's locality.
+
+**Telemetry.** `features.ask` as above; `ask_cleared` on the compile row (`lane: "route"`, `purpose: "compile"`) and on the
+policy's compile step; `fired` lists `ask_clue` or `guard_unlock` once per filed clue.
+
+**Three ends (§31).** *Writer:* Jev (one answer per `ask` row), `readFeatures` (the sought set). *Reader:* the predicates
+(`interpretCompile`), `compileAdmission`, the operator (`ask_cleared`). *Actor:* the clerk, which files each sought clue in row
+order and then the staged move; the Keeper, told through `clerk_did`.
+
+*Tests.* `tests/extension/single-loop-ask-fanout.test.mjs`: at the policy seam over Knott's office, turn 1's answers (the leads
+and the keys sought) select both clues in row order and stage the move after both; a declaration that seeks one files one; a
+row under the gate or `unclear` is not filed and falls through; a sought skill-check clue is not filed; each clue is admitted
+on its own row's record. On the emitted kernel over the haunting through the hybrid engine: turn 1's sentence files the leads,
+the keys and then the move, three clerk writes admitted `path: "compile"`, receipts for both clues and the move, and
+`ask_cleared` on the compile row. The mutations and the replay of gate #6's turn 1 are in the SL-52 ticket's Comments.
 
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
 

@@ -1,4 +1,4 @@
-Status: ready-for-human (filed 2026-09-24 from long gates #3–#5; batch 6; measured 2026-09-24; re-ruled and implemented 2026-09-25 -- writes are silent; the next long gate measures it)
+Status: ready-for-human (filed 2026-09-24 from long gates #3–#5; batch 6; measured 2026-09-24; re-ruled and implemented 2026-09-25 -- writes are silent; stage 2 implemented 2026-09-25 -- the rule in the clerk note's head, once per run; long gate #7 measures it)
 Stage: SL-50 (P2, delivery; the largest remaining wall on the starter)
 Spec: docs/kernel-rpc.md §34.16, §135.11 (turn close), the `text_beside_tool_calls` drop
 
@@ -174,3 +174,31 @@ units only, so SL-51's `bookText` was empty here. The replay cannot measure the 
 - **Measurement:** the next long gate -- `text_beside_tool_calls` rows per table (#5: 14) and model steps per turn (#5: 60 over 20).
 
 - **2026-09-25, owner, after long gate #6 (`longgate6-haunting-2155`).** The capsule-head rule changed nothing: 15 `text_beside_tool_calls` drops (#5: 14), 64 model steps (#5: 60), 12 turns with ≥ 3 steps (#5: 11); the steer landed on every drop (`steered: apply 11, resolve 4`) and the next step still wrote the turn. Stage 2, guidance placement: the rule moves to the clerk note's head line (§135.31.2, the line the model reads with the carried views on every step), stated once per run, and the capsule head keeps its sentence. Measured on long gate #7 against the same lines (drops ≤ 7, steps ≤ 52, turns ≥ 3 steps ≤ 8). Only if that fails: the structural option, where a step carrying writes and prose gets its results back with a one-line "the turn is still owed: narrate now" instead of a full re-prompt.
+
+### 2026-09-25 — stage 2 implemented: the rule in the clerk note's head, once per run (branch `claude/sl52-20260925`)
+
+Worked with SL-52 on `claude/sl52-20260925` from `95a3970c5`. **Commit** `925176f10` (contract §135.11.2, `runtime/jev/hybrid-engine.ts`,
+`tests/extension/single-loop-note-head.test.mjs`).
+
+- **Contract** §135.11.2 (new subsection; §135.8's "nothing new to say: no message" cross-referenced): the run's first `coc-clerk`
+  note carries `head`, right after `kind`, whose value is `CLERK_NOTE_HEAD` (writes are silent; no prose beside `apply`/`resolve`/
+  `lookup`; the turn's prose through `narrate` or the final text step, in the same response as the writes whenever nothing among
+  them needs a result first). Once per run: the first note stays in the request for the run (append-only), an earlier run's note is
+  closed noise to the next turn, so each run states it exactly once. The run's first model step always has a note (the head is
+  something to say). The capsule head keeps `SILENT_WRITES` (`kernel-ts/read/assemble.ts` untouched), the carried views' own head
+  and the drop's steer are unchanged. The measurement lines for long gate #7 are written into the section (drops ≤ 7, steps ≤ 52,
+  turns ≥ 3 steps ≤ 8); the structural fallback is named, not implemented.
+- **Code.** `projection()` in the engine: `head` for the run's first note (`RunState.headShown`), the note sent when it carries the
+  head even with nothing else new.
+- **Tests** (structure only): on the emitted kernel through the hybrid engine, a run of two model steps sends two notes -- the
+  first has `head === CLERK_NOTE_HEAD` as its second key, the later one (the carried scene after the Keeper's move) has no `head`
+  -- and the next turn's run states it again once; at the engine seam, a run's first step with nothing else to say gets a note whose
+  keys are exactly `kind, head, purpose, reason`, the next step with nothing new gets none, and a new run's first note has the head.
+- **Mutations** (copy-revert, all killed by both tests): H1 the head never sent; H2 the head on every note; H3 the head at the end
+  of the note (not the head line); H4 the first note not forced (nothing else to say: no note).
+- **Suites** (leehow-pc, at `925176f10`): `ext` "ℹ tests 3091 / ℹ pass 3091 / ℹ fail 0" (`== ext on leehow-pc @ 925176f103aa…: exit=0
+  wall=245s`); `loop` "# tests 186 / # pass 186 / # fail 0" (`exit=0 wall=42s`); `py` "1725 passed, 2 skipped in 265.26s (0:04:25)"
+  (`exit=0 wall=268s`).
+- **Not measurable in a replay**: the replayed Keeper replays its recorded calls and never reads the note, so SL-52's gate #6 t1
+  replay shows no effect of the head (two model steps in both arms). The measurement is long gate #7 against gate #6's lines.
+
