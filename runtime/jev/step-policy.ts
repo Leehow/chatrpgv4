@@ -23,8 +23,8 @@ import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts'
 import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
 import {answerOf, clears} from './decision-gate.ts';
-import {askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, ORDINARY_CHECK, reachable, unlockedRow,
-  type FeatureRows, type GuardedDestination} from './route-compile.ts';
+import {askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, interpretReask, ORDINARY_CHECK,
+  reachable, REASK_FAMILY, reaskBatch, reaskOf, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput} from './route-compile.ts';
 
 type Row = Record<string, any>;
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
@@ -239,7 +239,12 @@ export interface RunView {
   unlocks?: StagedUnlock[];
   /** §135.30.5: the staged moves the fresh read did not issue (or whose step was refused), as §135.30.4's guarded entries. */
   unlockMissed?: GuardedDestination[];
+  /** §135.30.9.2 (SL-52 stage 2): the run already re-asked the scene's clue rows after a settling step (once per run). */
+  reasked?: boolean;
+  /** §135.30.9.2: the clues the re-ask filed, staged after the last settling step (`after`), with their compile record. */
+  settledClues?: StagedClue[];
 }
+export interface StagedClue {after: string; key: string; compile: Json}
 export interface StagedUnlock {after: string; to: string; compile: Json; guarded: GuardedDestination}
 export type StepRequest =
   | {kind: 'direct'; item: PendingItem}
@@ -247,7 +252,7 @@ export type StepRequest =
   /** §135.30: the typed-feature compile, before a route question, when the read offers a candidate no compile of the run was asked over. */
   | {kind: 'decide'; purpose: 'compile'; digest: string}
   /** `offline`: a clerk bind settled without asking Jev (its budget is spent): rules defaults, else the Keeper (§135.28). */
-  | {kind: 'decide'; purpose: 'bind' | 'locate'; item: PendingItem; offline?: string}
+  | {kind: 'decide'; purpose: 'bind' | 'locate' | 'reask'; item: PendingItem; offline?: string}
   | {kind: 'infer'; purpose: 'bind' | 'adjudicate' | 'compose'; reason: string; item?: PendingItem; deferred?: DeferredStep[]}
   | {kind: 'finish'; reason: string};
 
@@ -300,6 +305,8 @@ export function next(view: RunView): StepRequest {
   // Guard 3: a spent Jev budget hands the rest of the run to the LLM. A clerk bind is the exception (§135.28): parameter
   // binding never goes to the LLM, so it is settled without asking Jev -- its rules defaults, else the Keeper's turn.
   if (head?.kind === 'decide') {
+    // §135.30.9.2: the re-ask was owed with budget left when the compile put it; it is asked, never escalated.
+    if (head.purpose === 'reask') return {kind: 'decide', purpose: 'reask', item: head};
     if (!exhausted(view.budget)) return {kind: 'decide', purpose: head.purpose as 'bind' | 'locate', item: head};
     if (head.purpose === 'bind' && head.candidate?.clerk) return {kind: 'decide', purpose: 'bind', item: head, offline: 'jev_budget'};
     return {kind: 'infer', purpose: head.purpose === 'bind' ? 'bind' : 'adjudicate', reason: 'jev_budget', item: head};
@@ -668,12 +675,48 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
   if (declared.length) view.compileSelected = [...new Set([...(view.compileSelected ?? []), ...declared])];
   // §135.30.8 (SL-43): the act an obligation check fired on is settled for the rest of the run.
   settleActs(view, outcome.actsSettled ?? []);
+  // §135.30.9.2 (SL-52 stage 2): a compile that settles a step of the book re-asks the scene's clue rows once, before the batch.
+  const reask = !view.reasked && result.status === 'complete' && !exhausted(view.budget) ? reaskOf(view.candidates, view.rows, selected, unlocked) : undefined;
+  if (reask) { view.reasked = true; view.pending.unshift({kind: 'decide', purpose: 'reask', extra: reask as unknown as Record<string, Json>}); }
   observe(view, {kind: 'decide', purpose: 'compile', status: result.status, ...(keys.length ? {choice: keys.join(' + ')} : {}), reason: outcome.reason});
   return {step, kind: 'decide', purpose: 'compile', choice: keys.length ? keys.join(' + ') : null, confidence: null, ms, jev_calls: 1, reason: outcome.reason,
     detail: {features: outcome.features, fired: selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
       selected: keys, decided: outcome.decided, fell_through: outcome.fellThrough, ...(outcome.askCleared ? {ask_cleared: outcome.askCleared} : {}),
       ...(outcome.guarded ? {guarded: outcome.guarded} : {}), ...(view.actsSettled?.length ? {acts_settled: view.actsSettled} : {}),
-      ...(unlocked.length ? {unlocked: unlocked.map(unlockedRow)} : {}), family: batch.family} as unknown as Json};
+      ...(unlocked.length ? {unlocked: unlocked.map(unlockedRow)} : {}), ...(reask ? {reask: {settled_by: reask.settled.map(entry => entry.key), clues: reask.clues}} : {}),
+      family: batch.family} as unknown as Json};
+}
+
+/**
+ * §135.30.9.2 (SL-52 stage 2): the re-ask's answer folded in. Each clue it filed is a declaration's own step (SL-20), staged
+ * after the last settling step; the rest stay as they were (the route's, the Keeper's).
+ */
+export function settleReask(view: RunView, step: number, input: ReaskInput, batch: DecisionBatch, result: DecisionResult, ms: number, gate: number): TelemetryRow {
+  view.budget.jevCalls++;view.budget.jevMs += ms;
+  const outcome = interpretReask(view, input, result, gate), keys = outcome.filed.map(candidate => candidate.key);
+  view.settledClues = [...(view.settledClues ?? []), ...outcome.filed.map(candidate => ({after: input.after, key: candidate.key,
+    compile: (candidate.basis as Row).compile as Json}))];
+  if (keys.length) view.compileSelected = [...new Set([...(view.compileSelected ?? []), ...keys])];
+  observe(view, {kind: 'decide', purpose: 'reask', status: result.status, ...(keys.length ? {choice: keys.join(' + ')} : {}), reason: outcome.reason});
+  return {step, kind: 'decide', purpose: 'reask', choice: keys.length ? keys.join(' + ') : null, confidence: null, ms, jev_calls: 1, reason: outcome.reason,
+    detail: {settled_by: input.settled.map(entry => entry.key), answers: outcome.answers, filed: keys, family: batch.family} as unknown as Json};
+}
+/**
+ * §135.30.9.2: the clues staged after the settling step `key`. `settled`: the step was taken (a check that did not fail) and a
+ * fresh read followed; each clue the fresh read still issues runs among the batch's reveals, before a staged move. A step
+ * that did not settle takes its staged clues with it.
+ */
+function settleStagedClues(view: RunView, key: string, settled: boolean): void {
+  const staged = (view.settledClues ?? []).filter(entry => entry.after === key);
+  if (!staged.length) return;
+  view.settledClues = (view.settledClues ?? []).filter(entry => entry.after !== key);
+  if (!settled) return;
+  for (const entry of [...staged].reverse()) {
+    const found = view.candidates.find(value => value.key === entry.key);
+    if (!found) continue;
+    const at = view.pending.findIndex(item => item.kind === 'infer' || !!item.call || !item.candidate || rank(item.candidate) > rank(found));
+    view.pending.splice(at < 0 ? view.pending.length : at, 0, ...itemsFor(carryCompile(found, entry.compile)));
+  }
 }
 
 /** §135.30.8 (SL-43): acts an obligation step settled, added to the run's. */
@@ -964,6 +1007,8 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
   }
   // §135.30.5 (SL-38): the guard of a move staged after this clerk step is evaluated now, by the fresh read after its
   // effect: the kernel issues the move when the effect met it, and the move runs next with the compile's record of it.
+  // §135.30.9.2: the clues the re-ask staged after this step, placed first, so a staged move still runs after them.
+  if (!item.call && item.candidate) settleStagedClues(view, item.candidate.key, executed.ok && !!fresh && (executed.summary as Row | null)?.check !== 'failed');
   if (!item.call && item.candidate) settleUnlocks(view, item.candidate.key, executed.ok && !!fresh);
   if (item.call) {
     observe(view, {kind: 'direct', purpose: 'execute', status: executed.ok ? 'ok' : 'refused', choice: item.call.label, summary: {...(executed.summary as Row), params: item.call.params} as Json});
@@ -983,6 +1028,7 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
 export type StepArtifact =
   | {kind: 'route'; result: DecisionResult}
   | {kind: 'compile'; result: DecisionResult}
+  | {kind: 'reask'; result: DecisionResult}
   | {kind: 'bind'; result: DecisionResult}
   | {kind: 'bind-ordinary'; bound: OrdinaryBinding}
   | {kind: 'locate'; calls: number; ms: number; summary: Json}
@@ -1055,7 +1101,7 @@ function owesTurnClose(driver: DriverView<StepPolicyState>): boolean {
 const unavailable = (reason: string): DecisionResult => ({batchId: '', status: 'unavailable', answers: {}, coverage: {required: [], answered: [], unknown: []}, issues: [], failure: {code: reason, retryable: false}} as unknown as DecisionResult);
 const decisionOf = (observation: ObservationView): DecisionResult => {
   const artifact = observation.artifact as StepArtifact | undefined;
-  return observation.status === 'ok' && artifact && (artifact.kind === 'route' || artifact.kind === 'bind' || artifact.kind === 'compile') ? artifact.result
+  return observation.status === 'ok' && artifact && (artifact.kind === 'route' || artifact.kind === 'bind' || artifact.kind === 'compile' || artifact.kind === 'reask') ? artifact.result
     : unavailable(observation.status === 'ok' ? 'no_answer' : observation.status);
 };
 /** What a model-visible infer request says about the operation the LLM is asked to complete (never its host key). */
@@ -1129,6 +1175,12 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
           candidates: state.candidates, rows: state.rows ?? null, gate: driver.policyState.gate, actsSettled: state.actsSettled ?? []}};
       }
       if (request.kind === 'decide' && request.purpose === 'locate') return {kind: 'decide', purpose: 'locate', question: {rawInput: state.rawInput}};
+      if (request.kind === 'decide' && request.purpose === 'reask') {
+        if (!binding) return {kind: 'decide', purpose: 'reask', question: unbound};
+        const input = request.item.extra as unknown as ReaskInput;
+        return {kind: 'decide', purpose: 'reask', question: {batch: reaskBatch(state, input, binding.scope, binding.readSet, doneThisTurn(state)),
+          input: input as unknown as Json, candidates: state.candidates, gate: driver.policyState.gate}};
+      }
       if (request.kind === 'decide') {
         const candidate = request.item.candidate!;
         // §135.28: a clerk bind past the Jev budget is settled without a question (rules defaults, else the Keeper).
@@ -1203,6 +1255,11 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         const batch = binding ? compileBatch(policyState.view, binding.scope, binding.readSet, doneThisTurn(policyState.view))
           : {family: COMPILE_FAMILY, questions: []} as unknown as DecisionBatch;
         settleCompile(view, step, batch, decisionOf(observation), observation.ms, policyState.gate);
+      } else if (request.kind === 'decide' && request.purpose === 'reask') {
+        const input = request.item.extra as unknown as ReaskInput;
+        const batch = binding ? reaskBatch(policyState.view, input, binding.scope, binding.readSet, doneThisTurn(policyState.view))
+          : {family: REASK_FAMILY, questions: []} as unknown as DecisionBatch;
+        settleReask(view, step, input, batch, decisionOf(observation), observation.ms, policyState.gate);
       } else if (request.kind === 'decide' && request.purpose === 'locate') {
         settleLocate(view, step, artifact?.kind === 'locate' ? artifact : {calls: 0, ms: 0, summary: {status: observation.status}}, observation.ms);
       } else if (request.kind === 'decide') {

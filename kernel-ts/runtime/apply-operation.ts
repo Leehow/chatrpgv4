@@ -11,7 +11,7 @@ import {fulfillmentHandlers, fulfillmentPromiseNavigation} from './fulfillment-o
 import {array, string, type Row} from '../read/values.js';
 import {obligationNodes, openGuards, sceneObligations} from '../read/obligations.js';
 import {activeMods} from '../read/mods.js';
-import {destinationView, guardedWay, unlockGuard} from '../read/destination-rows.js';
+import {destinationView, grantingCues, guardedWay, unlockGuard} from '../read/destination-rows.js';
 
 export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
     return {...fulfillmentHandlers(context), 'table.apply.options': async params => {
@@ -25,8 +25,11 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         // Contract §134.10: a candidate an unsettled stated obligation guards keeps its row and names the guard.
         const guards=openGuards(graph,campaign.world,scene);
         const add=(effect:Row,description:Row,guard?:string)=>candidates.push({alias:`effect:${candidates.length}`,effect,description,...(guard?{guarded_by:guard}:{})});
-        for (const clue of cluesHere(graph,campaign.world,scene)) if (clue.discovered!==true)
-            add({kind:'clue',clue:clue.name},{kind:'clue',...clue,authority:'authored_candidate_not_discovered'},guards.clues.get(string(graph.find(clue.name,['clue'])?.node_id)));
+        // §135.30.9.2 (SL-52 stage 2): a clue row carries the book's cues for it here -- the affordances of this scene that grant it.
+        for (const clue of cluesHere(graph,campaign.world,scene)) if (clue.discovered!==true) {
+            const node=graph.find(clue.name,['clue']), cues=node&&scene?grantingCues(scene,string(node.node_id)):[];
+            add({kind:'clue',clue:clue.name},{kind:'clue',...clue,...(cues.length?{cues}:{}),authority:'authored_candidate_not_discovered'},guards.clues.get(string(node?.node_id)));
+        }
         const destinations=new Set<string>();
         // §135.30.4: a move row says what the place is, and an unmet unlock names what opens it (the book's own data).
         const conditions=new Map(graph.sceneExits(scene).map(exit=>[string(exit.to),exit.when]));

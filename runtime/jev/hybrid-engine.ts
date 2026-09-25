@@ -47,7 +47,7 @@ import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev
 import type { HostOperationContext, OperationIdentity } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 import { buildCandidates, keeperCall } from './candidates.ts';
 import { compileRows } from './compile-rows.ts';
-import { interpretCompile, unlockedRow, type FeatureRows, type GuardedDestination } from './route-compile.ts';
+import { interpretCompile, interpretReask, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput } from './route-compile.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import { CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
@@ -668,7 +668,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       } finally { lease.close(); }
     }
     const batch = question.batch as DecisionBatch | undefined;
-    if (!batch || (request.purpose !== 'route' && request.purpose !== 'bind' && request.purpose !== 'compile'))
+    if (!batch || (request.purpose !== 'route' && request.purpose !== 'bind' && request.purpose !== 'compile' && request.purpose !== 'reask'))
       return {status: 'unavailable' as const, artifact: {reason: batch ? `no_${request.purpose}_decider` : 'no_scope_binding'}};
     const began = Date.now();
     const lease = new TaskLease({owner: batch.family, goal: `run ${request.runId} ${request.purpose}`, scope: batch.scope, capabilities: ['decision'],
@@ -689,6 +689,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         ? interpretCompile({candidates: array(question.candidates) as Candidate[], rows: (question.rows ?? undefined) as FeatureRows | undefined, actsSettled},
           result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE)
         : undefined;
+      // §135.30.9.2 (SL-52 stage 2): the re-ask row names the settling steps, each clue's answer and what it filed.
+      if (request.purpose === 'reask') {
+        const input = object(question.input) as unknown as ReaskInput;
+        const reasked = interpretReask({candidates: array(question.candidates) as Candidate[]}, input, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE);
+        record({lane: 'route', purpose: 'reask', run: run.runId, step: request.stepId, status: result.status, ms: Date.now() - began,
+          settled_by: array(input.settled).map(entry => object(entry).key), answers: reasked.answers, filed: reasked.filed.map(candidate => candidate.key), reason: reasked.reason});
+        return {status: result.status === 'complete' ? 'ok' as const : 'unavailable' as const, artifact: {kind: 'reask', result} as StepArtifact};
+      }
       record({lane: 'route', purpose: request.purpose, run: run.runId, step: request.stepId, status: result.status, ms: Date.now() - began,
         ...(request.purpose === 'route' ? {offered: offered.map(candidate => candidate.key), selected: routed?.selected ?? [], exit: routed?.exit ?? null, reason: routed?.reason ?? null,
           ...(settled.length ? {settled} : {})}

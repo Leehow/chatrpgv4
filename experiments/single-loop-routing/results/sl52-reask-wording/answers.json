@@ -1,0 +1,310 @@
+{
+ "generated_at": "2026-09-25T03:27:53.874Z",
+ "runs": 5,
+ "arms": {
+  "V0": [
+   {
+    "status": "complete",
+    "knott-commission": {
+     "choice": "no",
+     "confidence": 0.88,
+     "probabilities": {
+      "no": 0.92,
+      "unclear": 0.07,
+      "yes": 0.01
+     }
+    },
+    "knott-macario-summary": {
+     "choice": "no",
+     "confidence": 0.86,
+     "probabilities": {
+      "no": 0.91,
+      "unclear": 0.06,
+      "yes": 0.03
+     }
+    },
+    "knott-keys": {
+     "choice": "no",
+     "confidence": 0.83,
+     "probabilities": {
+      "unclear": 0.09,
+      "no": 0.89,
+      "yes": 0.02
+     }
+    }
+   },
+   {
+    "status": "complete",
+    "knott-commission": {
+     "choice": "no",
+     "confidence": 0.91,
+     "probabilities": {
+      "no": 0.9299999999999999,
+      "unclear": 0.06,
+      "yes": 0.01
+     }
+    },
+    "knott-macario-summary": {
+     "choice": "no",
+     "confidence": 0.85,
+     "probabilities": {
+      "no": 0.9,
+      "unclear": 0.07,
+      "yes": 0.03
+     }
+    },
+    "knott-keys": {
+     "choice": "no",
+     "confidence": 0.87,
+     "probabilities": {
+      "no": 0.92,
+      "unclear": 0.07,
+      "yes": 0.01
+     }
+    }
+   },
+   {
+    "status": "complete",
+    "knott-commission": {
+     "choice": "no",
+     "confidence": 0.91,
+     "probabilities": {
+      "no": 0.94,
+      "unclear": 0.05,
+      "yes": 0.01
+     }
+    },
+    "knott-macario-summary": {
+     "choice": "no",
+     "confidence": 0.87,
+     "probabilities": {
+      "no": 0.91,
+      "unclear": 0.06,
+      "yes": 0.03
+     }
+    },
+    "knott-keys": {
+     "choice": "no",
+     "confidence": 0.87,
+     "probabilities": {
+      "no": 0.92,
+      "unclear": 0.07,
+      "yes": 0.01
+     }
+    }
+   },
+   {
+    "status": "complete",
+    "knott-commission": {
+     "choice": "no",
+     "confidence": 0.91,
+     "probabilities": {
+      "no": 0.94,
+      "yes": 0.01,
+      "unclear": 0.05
+     }
+    },
+    "knott-macario-summary": {
+     "choice": "no",
+     "confidence": 0.86,
+     "probabilities": {
+      "no": 0.91,
+      "yes": 0.04,
+      "unclear": 0.05
+     }
+    },
+    "knott-keys": {
+     "choice": "no",
+     "confidence": 0.85,
+     "probabilities": {
+      "unclear": 0.09,
+      "no": 0.9,
+      "yes": 0.01
+     }
+    }
+   },
+   {
+    "status": "complete",
+    "knott-commission": {
+     "choice": "no",
+     "confidence": 0.91,
+     "probabilities": {
+      "no": 0.94,
+      "yes": 0.01,
+      "unclear": 0.05
+     }
+    },
+    "knott-macario-summary": {
+     "choice": "no",
+     "confidence": 0.87,
+     "probabilities": {
+      "no": 0.91,
+      "yes": 0.03,
+      "unclear": 0.06
+     }
+    },
+    "knott-keys": {
+     "choice": "no",
+     "confidence": 0.86,
+     "probabilities": {
+      "no": 0.91,
+      "yes": 0.01,
+      "unclear": 0.08
+     }
+    }
+   }
+  ],
+  "V1": [
+   {
+    "status": "complete",
+    "knott-commission": {
+     "choice": "no",
+     "confidence": 0.72,
+     "probabilities": {
+      "unclear": 0.17,
+      "no": 0.81,
+      "yes": 0.02
+     }
+    },
+    "knott-macario-summary": {
+     "choice": "no",
+     "confidence": 0.66,
+     "probabilities": {
+      "yes": 0.01,
+      "unclear": 0.21,
+      "no": 0.78
+     }
+    },
+    "knott-keys": {
+     "choice": "no",
+     "confidence": 0.54,
+     "probabilities": {
+      "yes": 0.04,
+      "unclear": 0.27,
+      "no": 0.69
+     }
+    }
+   },
+   {
+    "status": "complete",
+    "knott-commission": {
+     "choice": "no",
+     "confidence": 0.75,
+     "probabilities": {
+      "no": 0.83,
+      "unclear": 0.15,
+      "yes": 0.02
+     }
+    },
+    "knott-macario-summary": {
+     "choice": "no",
+     "confidence": 0.68,
+     "probabilities": {
+      "unclear": 0.2,
+      "yes": 0.02,
+      "no": 0.78
+     }
+    },
+    "knott-keys": {
+     "choice": "no",
+     "confidence": 0.58,
+     "probabilities": {
+      "no": 0.72,
+      "unclear": 0.23,
+      "yes": 0.05
+     }
+    }
+   },
+   {
+    "status": "complete",
+    "knott-commission": {
+     "choice": "no",
+     "confidence": 0.7,
+     "probabilities": {
+      "yes": 0.02,
+      "unclear": 0.18,
+      "no": 0.8
+     }
+    },
+    "knott-macario-summary": {
+     "choice": "no",
+     "confidence": 0.68,
+     "probabilities": {
+      "yes": 0.02,
+      "unclear": 0.2,
+      "no": 0.78
+     }
+    },
+    "knott-keys": {
+     "choice": "no",
+     "confidence": 0.53,
+     "probabilities": {
+      "yes": 0.05,
+      "no": 0.69,
+      "unclear": 0.26
+     }
+    }
+   },
+   {
+    "status": "complete",
+    "knott-commission": {
+     "choice": "no",
+     "confidence": 0.71,
+     "probabilities": {
+      "unclear": 0.18,
+      "yes": 0.02,
+      "no": 0.8
+     }
+    },
+    "knott-macario-summary": {
+     "choice": "no",
+     "confidence": 0.7,
+     "probabilities": {
+      "unclear": 0.18,
+      "yes": 0.02,
+      "no": 0.8
+     }
+    },
+    "knott-keys": {
+     "choice": "no",
+     "confidence": 0.54,
+     "probabilities": {
+      "unclear": 0.24,
+      "yes": 0.06,
+      "no": 0.7
+     }
+    }
+   },
+   {
+    "status": "complete",
+    "knott-commission": {
+     "choice": "no",
+     "confidence": 0.73,
+     "probabilities": {
+      "yes": 0.02,
+      "no": 0.82,
+      "unclear": 0.16
+     }
+    },
+    "knott-macario-summary": {
+     "choice": "no",
+     "confidence": 0.69,
+     "probabilities": {
+      "yes": 0.01,
+      "no": 0.8,
+      "unclear": 0.19
+     }
+    },
+    "knott-keys": {
+     "choice": "no",
+     "confidence": 0.53,
+     "probabilities": {
+      "yes": 0.04,
+      "no": 0.69,
+      "unclear": 0.27
+     }
+    }
+   }
+  ]
+ }
+}
