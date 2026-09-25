@@ -283,12 +283,12 @@
     {
       "id": "SL-56",
       "file": "56-npc-material-never-holds-a-turn.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-57",
       "file": "57-a-refused-detail-read-is-retried-once.md",
-      "status": "ready"
+      "status": "ready-for-human"
     }
   ],
   "relatedSpecs": [
