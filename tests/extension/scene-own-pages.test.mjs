@@ -107,7 +107,9 @@ test("§22.4.8 on the emitted kernel: a scene's detail read writes its own index
 	campaign(workspace, mid, "before");
 	assert.deepEqual(landingPages(workspace, "before", "Bar", "t1-c1"), [1], "never read: the page that named it");
 
-	const detail = (focus) => { ok(workspace, [["module.read.request", { module_id: mid, purpose: "detail", focus, retry: true }]]); return claim(workspace, mid); };
+	// §22.3.3 (SL-57): each refused read below queues one background retry of itself; a foreground request puts the job asked
+	// for ahead of them, so the claim that follows is that job.
+	const detail = (focus) => { ok(workspace, [["module.read.request", { module_id: mid, purpose: "detail", focus, retry: true, foreground: true }]]); return claim(workspace, mid); };
 	const refusal = { message: "visual review found /nodes/0 unsupported (unsupported): fixture", path: "/nodes/0", rule: "review_unsupported", reason: "reading_failed" };
 	// The Bar: refused after reading 4-6; its draft cites 5, 6 and an unviewed 2.
 	finish(workspace, detail("Bar"), { outcome: "failed", refusal, observations: [4, 5, 6],

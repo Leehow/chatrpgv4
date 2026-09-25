@@ -23,6 +23,7 @@ import { ModuleStore, validateModuleId } from './store.js';
 import { playsFromReading, bindStarterSource, boundFileIntact, boundReadingState, declaredWindow, freshReadingState, starterDeclarationsForBook, starterSourceDeclaration, windowMatches, windowOf } from './bound-source.js';
 import { applyOpeningChoice, assembleVisual, attachMapCandidates, checkDraft, checkReview, classificationFields, recordContested, reject, resolveStartScene } from './visual.js';
 import { pageSpans } from './transcription.js';
+import { passageKey } from '../read/table-people.js';
 const object = (value: any): boolean => isJsonObject(value);
 import { SOURCE_ANSWER_PROTOCOL, checkSourceAnswer, checkSourceAnswerReview, sourceAnswerResult } from './source-answer.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
@@ -36,8 +37,15 @@ function refusalOf(value: any): Row | null {
     const out: Row = { message: value.message.slice(0, 1000) };
     for (const key of ['path', 'rule', 'reason'])
         if (typeof value[key] === 'string' && value[key]) out[key] = value[key].slice(0, 500);
+    // §22.3.3 (SL-57): the review's refused fields and the reviewer's reasons, for the one retry that reads with them.
+    const refused = array(value.refused).filter(entry => isJsonObject(entry) && typeof entry.path === 'string' && entry.path && typeof entry.reason === 'string')
+        .slice(0, REFUSED_FIELDS).map(entry => ({ path: string(entry.path).slice(0, 500), ...(typeof entry.verdict === 'string' ? { verdict: string(entry.verdict).slice(0, 40) } : {}),
+            reason: string(entry.reason).slice(0, 500) }));
+    if (refused.length) out.refused = refused;
     return out;
 }
+/** §22.3.3 (SL-57): at most this many refused fields travel with a refusal to the retry that reads with them. */
+const REFUSED_FIELDS = 8;
 /** §22.2.1: the purposes that read graph material of a named focus, one reading of a focus at a time. */
 const FOCUSED = ['opening', 'detail'];
 /** §22.4.3 (SL-36): at most this many memoised answers (and index rows) travel with one consultation reply. */
@@ -91,7 +99,26 @@ export interface MaterialGate {
     moves?: Map<unknown, {effect: number; land: boolean}>;
     /** Scenes the party entered on their index text (`world.index_scenes`): the party's place passes the gate. */
     entered?: ReadonlySet<string>;
+    /** §22.4.7.1 (SL-56): the names the caller put in a person's seat (`resolve`'s actor and target, `apply npc`'s name). */
+    people?: ReadonlySet<unknown>;
+    /** §22.4.7.1: people landed on the book's text before (`world.index_people`): they pass the gate. */
+    textPeople?: ReadonlySet<string>;
+    /** §22.4.7.1: the host's `_land_on_text`: the people it asks to land on the book's text, by the gate's key, with the passage it found. */
+    land?: ReadonlyMap<string, Row | null>;
 }
+/** §22.4.7 and §22.4.7.1: what the material gate let through on the book's text. */
+export interface TextLanding {
+    kind: 'scene' | 'person';
+    name: string;
+    focus: string;
+    pages: number[];
+    /** A person: the display name, whether the graph has them, and the passage the host found. */
+    person?: string;
+    book?: boolean;
+    passage?: Row | null;
+}
+/** §22.4.7.1: the names a person's text may use (the node's name and aliases, or the given name), at most this many. */
+const PERSON_NAMES = 6;
 /**
  * §22.4.6: a job enters its present class (queued, promoted, demoted or yielded) at this moment; the slot wait counts from
  * it, so it keeps milliseconds (the host's `slot_wait_ms`), unlike the second-precision `at`.
@@ -411,6 +438,15 @@ export class Reading {
             status: 'unusable', reason: reason.slice(0, 1000), job_id: job.job_id, node_ids: [], generation: meta.generation ?? 0 }];
         return true;
     }
+    /** §22.3.3 (SL-57): a detail read refused twice settles its identity as unusable, once. Returns whether a row was written. */
+    static settleText(meta: Row, job: Row, reason: string): boolean {
+        meta.reading ??= Reading.initialState();
+        const materials = array(meta.reading.materials);
+        if (materials.some(material => material.key === job.key)) return false;
+        meta.reading.materials = [...materials, { key: job.key, purpose: 'detail', focus: job.focus, question: job.question,
+            status: 'unusable', reason: reason.slice(0, 1000), job_id: job.job_id, node_ids: [], generation: meta.generation ?? 0 }];
+        return true;
+    }
     /**
      * §107.1: a `running` job whose owner process is gone is recovered when the table next opens. A map job whose
      * focus is settled, or whose identity already failed once, fails and settles; any other job is re-queued to the
@@ -500,9 +536,22 @@ export class Reading {
             for (const index of own) add(index + 1);
             return pages;
         }
-        for (const ref of array(node.source_refs))
+        return this.indexPagesOf(graph, node, graph.handle(node), sections);
+    }
+    /**
+     * §22.4.7.1 (SL-56): a person's index pages, structure only: the pages the node's own `source_refs` cite in the bound
+     * document, then the pages of every index row whose name or entities meet the person's focus identity, in order, at
+     * most `SCENE_INDEX_PAGES`. An index-only name has no node: only the rows.
+     */
+    async personIndexPages(graph: ModuleGraph, node: Row | null, focus: string): Promise<number[]> {
+        return this.indexPagesOf(graph, node, focus, await this.store.sections(graph.moduleId));
+    }
+    private async indexPagesOf(graph: ModuleGraph, node: Row | null, focus: string, sections: Row[]): Promise<number[]> {
+        const mid = graph.moduleId, pages: number[] = [];
+        const add = (page: number) => { if (Number.isSafeInteger(page) && page >= 1 && !pages.includes(page) && pages.length < SCENE_INDEX_PAGES) pages.push(page); };
+        for (const ref of array(node?.source_refs))
             if (ref?.source_id === `pdf:${mid}` && integer(ref.pdf_index)) add(number(ref.pdf_index) + 1);
-        const identity = await this.focusIdentity(mid), wanted = identity(graph.handle(node));
+        const identity = await this.focusIdentity(mid), wanted = identity(focus);
         for (const section of sections) {
             const named = [section.name, ...array(section.entities)].filter(value => typeof value === 'string');
             if (!named.some(value => Reading.meet(identity(value), wanted))) continue;
@@ -513,35 +562,68 @@ export class Reading {
         }
         return pages;
     }
+    /** §22.3.3 (SL-57): the unusable settlement of a text focus (not a map), if any. */
+    static textSettlement(meta: Row, focus: string): Row | undefined {
+        return array(row(meta.reading).materials).find(material => material.status === 'unusable' && material.material === undefined
+            && material.purpose === 'detail' && normalize(string(material.focus ?? '')) === normalize(focus));
+    }
     /**
-     * The material gate. Returns the move destinations it let through on their index text (§22.4.7): the host asked
-     * (`land`) and the scene has index pages.
+     * The material gate. Returns what it let through on the book's text: move destinations (§22.4.7: the host asked with
+     * `land` and the scene has index pages) and people (§22.4.7.1: the host asked with `_land_on_text` and the text names them).
      */
-    async requireMaterial(graph: ModuleGraph, names: any[], gate: MaterialGate = {}): Promise<Array<{name: string; focus: string; pages: number[]}>> {
+    async requireMaterial(graph: ModuleGraph, names: any[], gate: MaterialGate = {}): Promise<TextLanding[]> {
         if (graph.materialOverride) {
             for (const name of names) if (typeof name === 'string' && graph.find(name) && graph.materialOverride(name) !== 'ready')
                 throw new RpcError('needs', 'The pinned source material is not prepared; read the source and prepare a reviewed rebase', {details: {reason: 'adaptation_material_missing', focus: name}});
             return [];
         }
-        const mid = graph.moduleId, landed: Array<{name: string; focus: string; pages: number[]}> = [];
-        if (!await this.store.exists(mid) || !playsFromReading(await this.store.module(mid)))
-            return landed;
+        const mid = graph.moduleId, landed: TextLanding[] = [];
+        if (!await this.store.exists(mid)) return landed;
+        const meta = await this.store.module(mid);
+        if (!playsFromReading(meta)) return landed;
         const indexed = new Set((await this.store.sections(mid)).flatMap(section => [section.name ?? '', ...array(section.entities)]).filter(value => typeof value === 'string').map(normalize));
         for (const name of names) {
             if (typeof name !== 'string' || !name || await this.materialReady(mid, name))
                 continue;
             const node = graph.find(name);
+            // §22.4.7.1 (SL-56): a person this table established is not book material; nothing is read for them (§87).
+            if (graph.isTablePerson(node))
+                continue;
             if (node === null && !indexed.has(normalize(name)))
                 continue;
-            const focus = node ? graph.handle(node) : name;
+            const focus = node ? graph.handle(node) : name, settled = !!Reading.textSettlement(meta, focus);
+            const person = !!gate.people?.has(name) && (node === null || ['npc', 'creature'].includes(string(node.node_kind)));
+            if (person) {
+                if (gate.textPeople?.has(focus)) continue;
+                const pages = await this.personIndexPages(graph, node, focus);
+                // §22.3.3 (SL-57): a settled focus is not read again; it still lands on the text when it has some.
+                if (settled && !pages.length) continue;
+                const spelled = node ? [graph.displayName(node), string(node.name), ...array(node.aliases)] : [name];
+                const personNames = [...new Set(spelled.filter(value => typeof value === 'string' && value.trim()).map(value => value.trim()))].slice(0, PERSON_NAMES);
+                if (gate.land?.has(name)) {
+                    const passage = Reading.passageNaming(gate.land.get(name), personNames);
+                    if (node ? pages.length || passage : passage) {
+                        landed.push({ kind: 'person', name, focus, pages, person: node ? graph.displayName(node) : name, book: !!node, passage });
+                        continue;
+                    }
+                }
+                throw new RpcError('needs', `the source material for ${repr(focus)} is not prepared`, {
+                    fix: 'read the required material before retrying this unchanged action',
+                    details: { reason: 'material_pending', read: { purpose: 'detail', focus },
+                        person: { key: name, name: node ? graph.displayName(node) : name, names: personNames, book: !!node },
+                        ...(pages.length ? { index: { pages } } : {}) },
+                });
+            }
             // §22.4.7: the party's place, entered on its index text, is not held while its record is read.
             if (node && node.node_kind === 'scene' && gate.entered?.has(focus))
                 continue;
             const move = gate.moves?.get(name), pages = move && node && node.node_kind === 'scene' ? await this.sceneIndexPages(graph, node) : [];
             if (move?.land && pages.length) {
-                landed.push({ name, focus, pages });
+                landed.push({ kind: 'scene', name, focus, pages });
                 continue;
             }
+            // §22.3.3 (SL-57): a settled focus is not read again; a move with index pages still lands on them.
+            if (settled && !pages.length) continue;
             throw new RpcError('needs', `the source material for ${repr(focus)} is not prepared`, {
                 fix: 'read the required material before retrying this unchanged action',
                 details: { reason: 'material_pending', read: { purpose: 'detail', focus },
@@ -549,6 +631,17 @@ export class Reading {
             });
         }
         return landed;
+    }
+    /**
+     * §22.4.7.1: the host's passage, when its sentence holds one of the person's names under §11.5.4's comparison; else
+     * null (absent, malformed, or a sentence that holds none of them).
+     */
+    private static passageNaming(value: Row | null | undefined, names: string[]): Row | null {
+        if (!isJsonObject(value) || typeof value.sentence !== 'string') return null;
+        const sentence = passageKey(value.sentence);
+        if (!names.some(name => { const key = passageKey(name); return [...key].length >= 2 && sentence.includes(key); })) return null;
+        return { scene: typeof value.scene === 'string' && value.scene ? value.scene : null, page: integer(value.page) ? value.page : null,
+            label: typeof value.label === 'string' && value.label ? value.label : null, sentence: value.sentence.trim() };
     }
     async queueAdjacentReading(graph: ModuleGraph, scene: Row): Promise<string[]> {
         if (graph.materialOverride) return [];
@@ -761,7 +854,8 @@ export class Reading {
     private async focusTouched(mid: string, meta: Row, focus: string, from: unknown): Promise<boolean> {
         if (!normalize(string(focus ?? ''))) return false;
         const identity = await this.focusIdentity(mid), wanted = identity(focus);
-        return array(row(meta.reading).materials).some(material => number(material.generation) > number(from)
+        // §22.3.3 (SL-57): a settlement is not material.
+        return array(row(meta.reading).materials).some(material => material.status !== 'unusable' && number(material.generation) > number(from)
             && Reading.meet(new Set([...array(material.node_ids).map(id => `node:${id}`), ...(normalize(string(material.focus ?? '')) ? identity(material.focus) : [])]), wanted));
     }
     /**
@@ -937,7 +1031,8 @@ export class Reading {
                     && (job.purpose !== 'answer' || equal(job.context_generation, meta.generation ?? 0)));
             }
             if (settling) {
-                if (truth(params.foreground) && !truth(settling.foreground)) {
+                // §22.3.3 (SL-57): a review retry is background; a foreground request answers it without promoting it.
+                if (truth(params.foreground) && !truth(settling.foreground) && !truth(settling.review_retry)) {
                     enterClass(settling, true);
                     await this.store.writeQueue(mid, queue);
                 }
@@ -955,9 +1050,11 @@ export class Reading {
                         existing.task_preparation=clone(preparation);
                         boundPreparation=true;
                     }
-                    if (truth(params.foreground) && !truth(existing.foreground))
+                    // §22.3.3 (SL-57): a review retry is background; a foreground request answers it without promoting it.
+                    const promote = truth(params.foreground) && !truth(existing.foreground) && !truth(existing.review_retry);
+                    if (promote)
                         enterClass(existing, true);
-                    if(boundPreparation||truth(params.foreground))await this.store.writeQueue(mid,queue);
+                    if(boundPreparation||promote)await this.store.writeQueue(mid,queue);
                     return { ...result, state: existing.state === 'running' ? 'reading' : 'queued', job_id: existing.job_id, ...await this.answerKnown(mid, purpose, focus) };
                 }
                 if (existing.state === 'completed') {
@@ -1230,9 +1327,24 @@ export class Reading {
                 // §107.1: a refused review or a failed read settles the map's focus as unusable, once; a cancel does not.
                 if (outcome === 'failed' && job.material === 'map' && Reading.settleMap(meta, job, string(refusal?.message || job.detail)))
                     await this.store.writeModule(meta);
+                // §22.3.3 (SL-57): a detail read refused for a fact its page does not state is read once more, in the background,
+                // with the reviewer's reasons; the retry refused the same way settles the focus unusable.
+                let requeued: Row | undefined;
+                if (outcome === 'failed' && job.purpose === 'detail' && !truth(job.material) && refusal?.rule === 'review_unsupported') {
+                    if (!truth(job.review_retry)) {
+                        const retry: Row = { job_id: `read-${queue.length + 1}`, key: job.key, purpose: 'detail', focus: job.focus, question: job.question, pages: job.pages ?? [],
+                            foreground: false, state: 'queued', attempts: 0, at: nowIso(), review_retry: { of: job.job_id, message: refusal.message, refused: array(refusal.refused) },
+                            ...(truth(job.work_dir) ? { resume_from: job.work_dir } : {}) };
+                        retry.class_at = retry.at;
+                        queue.push(retry);
+                        requeued = { job_id: retry.job_id, reason: 'review_refused', of: job.job_id };
+                    }
+                    else if (Reading.settleText(meta, job, string(refusal.message)))
+                        await this.store.writeModule(meta);
+                }
                 await this.store.writeQueue(mid, queue);
                 await this.release(mid, job.job_id);
-                return { state: outcome };
+                return { state: outcome, ...(requeued ? { requeued } : {}) };
             }
             const preparation=job.task_preparation as OwnedSourcePreparation|undefined;
             if(preparation) {
@@ -1359,9 +1471,10 @@ export class Reading {
                     meta.reading.retranscriptions = [...array(meta.reading.retranscriptions),
                         ...retranscribed.map(item => ({ ...item, job_id: job.job_id, generation: number(meta.generation) + 1 }))];
                 // §107.1: a published map replaces the focus's unusable settlement.
-                if (job.material === 'map')
-                    meta.reading.materials = array(meta.reading.materials).filter(material => !(material.status === 'unusable' && material.material === 'map'
-                        && (material.key === job.key || normalize(material.focus ?? '') === normalize(job.focus ?? ''))));
+                // §22.3.3 (SL-57): so does a published text reading of the focus.
+                meta.reading.materials = array(meta.reading.materials).filter(material => !(material.status === 'unusable'
+                    && (material.material ?? null) === (job.material ?? null) && string(job.focus ?? '').trim()
+                    && (material.key === job.key || normalize(material.focus ?? '') === normalize(job.focus ?? ''))));
                 meta.reading.materials.push({ key: job.key, purpose: job.purpose, ...(job.material ? { material: job.material } : {}), focus: job.focus, question: job.question, node_ids: filled.ready_nodes, generation: number(meta.generation) + 1 });
                 meta.status = meta.opening_ready ? 'installed' : 'assembled';
                 // §22.4.8: the scene's own index row, from the published draft's citation of it.

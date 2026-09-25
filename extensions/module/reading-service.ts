@@ -156,6 +156,9 @@ function providerFailure(run: ReaderOutcome, shared: boolean): { error: KernelEr
  * kernel kept -- the field it refused and the gate's own reason, the same record findings.json holds. It is
  * written here, so it is branded `said` here; the preparation overlay shows it instead of the generic stop.
  */
+/** §22.3.3 (SL-57): what a reader re-reading a refused focus is told (system language). */
+export const REVIEW_RETRY_ASK = "An earlier reading of this focus was refused at independent review: task.review_retry.refused lists each refused field "
+	+ "with the reviewer's reason. Re-read the pages those fields came from and write only what the pages state; correct or drop what they do not.";
 function refusedReading(params: Row, refusal: Row, fix: string): KernelError {
 	const of = String(params.focus ?? "").trim(), at = typeof refusal.path === "string" && refusal.path ? ` at ${refusal.path}` : "";
 	const failure = new KernelError({ code: "needs", fix,
@@ -625,6 +628,8 @@ export class ReadingService implements ReadingBridge {
 			}
 			retry = false;
 			if (response.state === "ready") return response;
+			// §22.3.3 (SL-57): a focus settled unusable is answered, not read again; the waiter takes the settlement.
+			if (response.state === "unusable") return response;
 			if (response.state === "blocked") {
 				const choice = response.opening?.choice;
 				if (choice) throw new KernelError({ code: "needs_choice", message: "the book offers more than one opening",
@@ -727,7 +732,9 @@ export class ReadingService implements ReadingBridge {
 			known_claims: (job.known_claims ?? []).map((claim: Row) => Object.fromEntries(
 				["subject_id", "predicate", "object", "truth_status", "visibility", "reason", "known_by_ids", "asserted_by_ids", "validity"]
 					.filter(key => key in claim).map(key => [key, claim[key]]))),
-			vocabulary: job.vocabulary, coverage_domains: job.coverage_domains, commands };
+			vocabulary: job.vocabulary, coverage_domains: job.coverage_domains, commands,
+			// §22.3.3 (SL-57): an earlier reading of this focus was refused at review; these are the refused fields and the reasons.
+			...(job.review_retry ? { review_retry: { refused: job.review_retry.refused ?? [], message: job.review_retry.message ?? "" } } : {}) };
 		if (job.purpose === "index") { delete task.index; delete task.known_nodes; delete task.known_claims; delete task.field_spans; delete task.vocabulary; delete task.coverage_domains; delete task.commands.check; }
 		const freshSkeleton = !campaign && job.purpose === 'skeleton' && Array.isArray(job.known_nodes)
 			&& job.known_nodes.length === 1 && job.known_nodes[0].node_kind === 'module' && job.known_nodes[0].ready === false;
@@ -883,7 +890,7 @@ export class ReadingService implements ReadingBridge {
 							eventLog: join(cwd, `${phase}-${round}.jsonl`),
 							brief: phase === "index-audit"
 								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json${round > 1 || job.resume_from ? " and findings.json" : ""}. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Every task.required_map_candidates row must remain. Preserve existing sections and candidates; repair missing section source_refs but do not cite any page unless you viewed that full page in this audit or it is in task.index_audit_pages. If another page is needed as a reference, view it first. Do not rewrite for style. Finish only after every assigned page has been checked, then stop.`
-								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening","detail","answer"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}${job.resumed?.reread === true ? " The published material on this focus changed since the retained draft was written: check it against the current task and the pages, and repair what no longer holds." : ""}`,
+								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening","detail","answer"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}${job.resumed?.reread === true ? " The published material on this focus changed since the retained draft was written: check it against the current task and the pages, and repair what no longer holds." : ""}${job.review_retry ? ` ${REVIEW_RETRY_ASK}` : ""}`,
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
 								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {
@@ -1017,6 +1024,9 @@ export class ReadingService implements ReadingBridge {
 					let review: Row | undefined;
 					try { review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8")); } catch { /* no review yet */ }
 					const unsupported: Row[] = review ? (review.checked ?? []).filter((row: Row) => row.verdict !== "supported") : [];
+					// §22.3.3 (SL-57): the refused fields and the reviewer's reasons travel with the refusal, for the one retry that reads with them.
+					if (refusal && unsupported.length) refusal.refused = unsupported.flatMap((row: Row) => (Array.isArray(row.paths) ? row.paths : [row.path])
+						.filter((path: unknown) => typeof path === "string" && path).map((path: string) => ({ path, verdict: String(row.verdict ?? ""), reason: String(row.reason ?? "") })));
 					let repairs: string[] = [];
 					if (unsupported.length) {
 						try { repairs = unsupportedNumberRepairs(JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")), unsupported); }
@@ -1039,8 +1049,11 @@ export class ReadingService implements ReadingBridge {
 			if (this.displaced.has(key)) { await this.yieldSlot(job, campaign, key); return; }
 			// Completed jobs replay here; failed attempts release their claim and preserve all artifacts.
 			const outcome = this.jobOutcome(key, signal.aborted, detail);
-			await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
+			const finished = await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
 				...outcome, ...(outcome.outcome === "failed" && refusal ? { refusal } : {}) }, campaign).catch(() => undefined);
+			// §22.3.3 (SL-57): the refused read is queued once more, in the background, with the reviewer's reasons.
+			if (finished?.requeued) this.note({ lane: "reading", event: "requeued", module_id: job.module_id, campaign, job_id: finished.requeued.job_id,
+				of: job.job_id, purpose: job.purpose, focus: job.focus ?? "", reason: finished.requeued.reason });
 		}
 	}
 }

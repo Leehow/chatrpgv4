@@ -107,7 +107,7 @@ function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|n
  * §87's record of a person the table has and the book (so far) does not; with §11.5.4's `from_passage` when a passage the
  * source text carried this turn names them. Idempotent on the name.
  */
-export function establishPerson(context:ApplyContext,name:string,why:string|null,passage:Row|null):Row{
+export function establishPerson(context:Pick<ApplyContext,'graph'|'world'|'turn'>,name:string,why:string|null,passage:Row|null):Row{
     const {graph,world}=context,trimmed=name.trim(),people=array(world.table_people??=[]);
     const node=graph.addTablePerson(tablePersonId(trimmed),trimmed,{reason:why,turn:context.turn.turn,...(passage?{from_passage:passage}:{})});
     if(!people.some(person=>normalize(string(row(person).name))===normalize(trimmed)&&!row(person).replaced_by))
@@ -252,4 +252,32 @@ export async function stageHandout(context:ApplyContext,effect:Row,asset:(module
     const receipt={id:`handout:${handle}-t${context.turn.turn}`,kind:'handout',call_id:context.callId,handout:handle,name:display,label:label||display,visibility,summary:node.summary??null,attachment,at:nowIso()};
     if(!array(world.handouts_shown??=[]).includes(handle))world.handouts_shown.push(handle);
     return {receipt,event:{type:'handout-shown',data:{handout:handle,name:display,visibility,attachment_available:attachment.available,media_type:attachment.media_type}}};
+}
+
+/**
+ * §22.4.7.1 (SL-56): the host's `_land_on_text` -- the people it asks to land on the book's text, by the gate's key, with
+ * the passage it found (or none). Host-only; a malformed entry is ignored, never a refusal.
+ */
+export function landRequests(value:unknown):Map<string,Row|null>{
+    const out=new Map<string,Row|null>();
+    for(const entry of array(value))if(isJsonObject(entry)&&typeof entry.key==='string'&&entry.key)out.set(entry.key,isJsonObject(entry.passage)?entry.passage:null);
+    return out;
+}
+/** Why a person the gate landed on the book's text was registered (the record keeps the passage). */
+const LANDED_WHY='the book\'s text names them; their record is still being read';
+/**
+ * §22.4.7.1 (SL-56): what a person's landing on the book's text writes -- an index-only name registered provisionally in
+ * §11.5.4's shape, and the focus in `world.index_people` so the gate passes it until the record lands -- and the result's
+ * `person_text` rows.
+ */
+export function landPeople(context:Pick<ApplyContext,'graph'|'world'|'turn'>,landed:Array<{kind:string;name:string;focus:string;pages:number[];person?:string;book?:boolean;passage?:Row|null}>):Row[]{
+    const out:Row[]=[];
+    for(const entry of landed){
+        if(entry.kind!=='person')continue;
+        if(!entry.book&&entry.passage)establishPerson(context,entry.name,LANDED_WHY,entry.passage);
+        const people=array(context.world.index_people).filter((value):value is string=>typeof value==='string');
+        if(!people.includes(entry.focus))context.world.index_people=[...people,entry.focus];
+        out.push({person:entry.person??entry.name,focus:entry.focus,pages:entry.pages,...(entry.passage?{passage:entry.passage}:{})});
+    }
+    return out;
 }
