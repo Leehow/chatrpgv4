@@ -12,7 +12,7 @@ import {TaskLease} from './task-context.ts';
 import {createTaskProviderBudget, type TaskProviderBudget} from './provider-budget.ts';
 
 /** The import's stages (§20 addendum 2) and the reads raised during play (§20 addendum 3): one table. */
-export type ReadingStage = 'inspect' | 'guidance' | 'opening' | 'prepare' | 'detail' | 'answer' | 'map';
+export type ReadingStage = 'inspect' | 'guidance' | 'opening' | 'prepare' | 'detail' | 'answer' | 'map' | 'index' | 'skeleton';
 export interface PageCost {inputTokens: number; outputTokens: number; actions: number; costUsd: number}
 
 /**
@@ -22,7 +22,9 @@ export interface PageCost {inputTokens: number; outputTokens: number; actions: n
  *   opening round was 213,189 input / 11,401 output tokens over 16 page images in 6 calls.
  * - `share`: how much of the whole book, read once, a stage may spend. `inspect` makes no provider call. The reads raised
  *   during play (SL-41) read a focused part of the book: `detail` a scene, `answer` a consultation, `map` the map pages;
- *   on any book under about a thousand pages the floor decides.
+ *   on any book under about a thousand pages the floor decides. The background index and a skeleton outside a stage (SL-53)
+ *   sample the book rather than read it once: the batch-6 book's index rounds viewed 21 and 32 of its 111 pages and the map-page audit
+ *   the same pages again, about half the book's pages' worth of images.
  * - `floor`: eight whole-context reservations of a 500,000-token reader, so a stalled image call and its
  *   retry fit in each of two rounds with the review still to pay; `ceiling`: the absolute cap.
  * - `minMeasuredPages`: fewer measured pages than this is not a measurement.
@@ -31,7 +33,7 @@ export interface PageCost {inputTokens: number; outputTokens: number; actions: n
  */
 export const READING_STAGE_BUDGET = Object.freeze({
   perPage: Object.freeze({inputTokens: 16_000, outputTokens: 1_000, actions: 0.5, costUsd: 0.03}),
-  share: Object.freeze({inspect: 0, guidance: 0.5, opening: 1, prepare: 1.5, detail: 0.25, answer: 0.1, map: 0.1}),
+  share: Object.freeze({inspect: 0, guidance: 0.5, opening: 1, prepare: 1.5, detail: 0.25, answer: 0.1, map: 0.1, index: 0.5, skeleton: 0.5}),
   floor: Object.freeze({inputTokens: 4_000_000, outputTokens: 262_144, actions: 64, costUsd: 10}),
   ceiling: Object.freeze({inputTokens: 40_000_000, outputTokens: 2_000_000, actions: 800, costUsd: 100}),
   minMeasuredPages: 4,
@@ -95,12 +97,13 @@ export async function measuredPageCost(moduleDir: string): Promise<PageCost | un
 }
 
 /**
- * The stage a reading job raised during play is sized as (§20 addendum 3): `detail` (`map` for a map's pages) and `answer`.
- * Other purposes outside a stage lease keep the fixed per-child lease.
+ * The stage a reading job with no stage lease is sized as: the reads raised during play (§20 addendum 3), `detail` (`map`
+ * for a map's pages) and `answer`, and the background index and a skeleton outside a stage (§20 addendum 5, SL-53).
+ * Opening and guidance outside a stage lease keep the fixed per-child lease.
  */
-export function playReadStage(job: {purpose?: unknown; material?: unknown}): ReadingStage | undefined {
+export function readingJobStage(job: {purpose?: unknown; material?: unknown}): ReadingStage | undefined {
   if (job.purpose === 'detail') return job.material === 'map' ? 'map' : 'detail';
-  return job.purpose === 'answer' ? 'answer' : undefined;
+  return job.purpose === 'answer' || job.purpose === 'index' || job.purpose === 'skeleton' ? job.purpose : undefined;
 }
 
 /** Open the stage's lease. The caller closes it when the stage ends; readings it queued in the background keep their own. */

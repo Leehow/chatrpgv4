@@ -14,7 +14,7 @@
  * its composes with the prose the live Keeper streamed, message by message. The action-admission lane (§32) is a replay too: it answers each review with the live
  * table's recorded verdict for the same verb, in order. Jev is live.
  */
-import {copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+import {copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -332,6 +332,13 @@ export interface ProductRunOptions {
   readerModel?: string;
   /** SL-36: before each `then` turn, wait up to this long for a pending consultation (SL-47: or a scene's record) to settle. */
   waitAnswerMs?: number;
+  /**
+   * SL-54: after the last turn, wait up to this many ms until no reading job of the campaign's module fork is `queued` or
+   * `running` (a parked consultation that resumes in the background is then followed to its end), logged as `wait_reads`.
+   */
+  waitReadsMs?: number;
+  /** SL-54: keep the disposable workspace (the campaign, its module fork and queue) instead of removing it; its path is logged. */
+  keepWorkspace?: boolean;
 }
 
 /**
@@ -551,6 +558,18 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
       turnIndex++; state.cursor = Number.MAX_SAFE_INTEGER; turnBegan = Date.now(); await session.prompt(next); turnWalls.push(Date.now() - turnBegan);
     }
     log({turn_walls_ms: turnWalls});
+    if (options.waitReadsMs) {
+      // SL-54: the fork's own queue says when its readings have ended; the session stays open until then.
+      const until = Date.now() + options.waitReadsMs, started = Date.now();
+      const queueFile = join(workspace, '.coc/module-campaigns', campaign, 'modules', String(fixture.module ?? ''), 'deepen-queue.json');
+      const forks = join(workspace, '.coc/module-campaigns', campaign, 'modules');
+      const open = () => {
+        const files = existsSync(queueFile) ? [queueFile] : existsSync(forks) ? readdirSync(forks).map(entry => join(forks, entry, 'deepen-queue.json')).filter(existsSync) : [];
+        return files.flatMap(file => array(JSON.parse(readFileSync(file, 'utf8')))).filter((job: Row) => ['queued', 'running'].includes(String(job.state))).map((job: Row) => String(job.job_id));
+      };
+      while (open().length && Date.now() < until) await sleep(2000);
+      log({wait_reads: open().length ? 'timeout' : 'settled', waited_ms: Date.now() - started, open: open()});
+    }
   } finally {
     try { if (runner?.hasHandlers?.('session_shutdown')) await runner.emit({type: 'session_shutdown', reason: 'quit'}); } catch { /* the run is over */ }
     try { session?.dispose(); } catch { /* the run is over */ }
@@ -561,7 +580,8 @@ export async function productReplayOnce(name: string, run: number, outDir: strin
   const telemetry = existsSync(telemetryPath) ? readFileSync(telemetryPath, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
   const runStart = events.find(event => event.type === 'run_start'), runId = runStart?.runId;
   const own = telemetry.filter(row => !runId || row.run === runId || row.runId === runId || (row.lane === 'admission' && Date.parse(row.at ?? row.ts ?? '') >= began) || row.turn === fixture.turn);
-  removeTree(workspace);
+  if (options.keepWorkspace) log({kept_workspace: workspace});
+  else removeTree(workspace);
   const stepCounts: Record<string, number> = {};
   for (const event of events.filter(event => event.type === 'step_start')) stepCounts[event.kind] = (stepCounts[event.kind] ?? 0) + 1;
   const llmPurposes = events.filter(event => event.type === 'step_start' && event.kind === 'infer').map(event => event.purpose);
@@ -623,12 +643,13 @@ export async function main(argv: string[]): Promise<void> {
   const lane = arg('--lane', 'replay') as 'replay' | 'live', laneModel = argv.includes('--lane-model') ? arg('--lane-model', '') : undefined;
   const reader = arg('--reader', 'none') as 'none' | 'live', readerModel = argv.includes('--reader-model') ? arg('--reader-model', '') : undefined;
   const waitAnswerMs = argv.includes('--wait-answer') ? Number(arg('--wait-answer', '0')) : undefined;
+  const waitReadsMs = argv.includes('--wait-reads') ? Number(arg('--wait-reads', '0')) : undefined, keepWorkspace = argv.includes('--keep-workspace');
   const then = argv.flatMap((value, index) => value === '--then' ? [argv[index + 1]] : []);
   const outDir = arg('--out', join(REPO, 'experiments/single-loop-routing/results', `${new Date().toISOString().replace(/[:.]/g, '-')}-product-${name.split('/').filter(Boolean).at(-1)}-${admission}${keeper === 'live' ? `-live-${thinking ?? 'low'}` : ''}`));
   const summaries: ProductRunSummary[] = [];
   for (let run = 1; run <= runs; run++) {
     const summary = await productReplayOnce(name, run, outDir, admission, {keeper, arm, latency, compile, prescreen, lane, reader, ...(readerModel ? {readerModel} : {}),
-      ...(waitAnswerMs ? {waitAnswerMs} : {}), ...(laneModel ? {laneModel} : {}), ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {}), ...(seed ? {seed} : {}), ...(fastMin ? {fastMin} : {})});
+      ...(waitAnswerMs ? {waitAnswerMs} : {}), ...(waitReadsMs ? {waitReadsMs} : {}), ...(keepWorkspace ? {keepWorkspace} : {}), ...(laneModel ? {laneModel} : {}), ...(thinking ? {thinking} : {}), ...(model ? {model} : {}), ...(then.length ? {then} : {}), ...(seed ? {seed} : {}), ...(fastMin ? {fastMin} : {})});
     summaries.push(summary);
     console.log(JSON.stringify({run, fixture: name, admission, keeper: summary.keeper, thinking: summary.thinking, arm, latency, seed: summary.seed, wall_ms: summary.wall_ms, turn_walls_ms: summary.turn_walls_ms,
       budget: summary.budget ? {elapsed_at_compose: summary.budget.elapsed_at_compose, over: summary.budget.over_budget, deferred: array(summary.budget.deferred_by_budget).map((value: Row) => value.key)} : null,

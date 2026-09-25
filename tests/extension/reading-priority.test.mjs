@@ -172,3 +172,26 @@ test('§22.4.6 the reading service: a blocking detail read arriving while three 
   cancel.abort();
   await assert.rejects(waiting, /cancelled/);
 });
+
+// SL-53 (contract §20 addendum 5): the fork's index job has no stage lease either; it is sized from the book like the play
+// reads, where batch 6's ran under the fixed 1,000,000-token lease and lost a round to it.
+test('§20 addendum 5 the reading service sizes the book\'s index job: its reader child carries the index lease and the row is written', async t => {
+  const f = await book(t, 'index-lease');
+  const rows = [], {started, runtime} = heldReaders();
+  const service = new ReadingService({home: f.home, runtime, call: (method, params) => f.client.call(method, params),
+    model: () => ({id: 'fixture/vision', vision: true, thinking: 'off'}), progress() {}, record(row) { rows.push(row); }});
+  t.after(() => service.close());
+  const cancel = new AbortController();
+  const waiting = service.ensure(f.module_id, {purpose: 'detail', focus: 'last-chance-bar', foreground: true}, cancel.signal);
+  waiting.catch(() => undefined);
+  await until(async () => (await f.queue()).some(job => job.purpose === 'index' && job.state === 'running') && started.length === 2);
+  const index = (await f.queue()).find(job => job.purpose === 'index');
+  const child = started.find(entry => entry.cwd.includes(`/work/${index.job_id}/`));
+  assert.ok(child, 'the index job reached a reader');
+  assert.deepEqual({stage: child.lease?.stage, pages: child.lease?.pageCount, input: child.lease?.inputTokens, call: child.lease?.callOutputTokens},
+    {stage: 'index', pages: PAGES, input: 4_000_000, call: 32_768}, 'the book-sized floor, not the fixed 1,000,000');
+  const sized = rows.find(row => row.event === 'stage_budget' && row.job_id === index.job_id);
+  assert.deepEqual([sized?.purpose, sized?.stage, sized?.pageCount, sized?.inputTokens], ['index', 'index', PAGES, 4_000_000]);
+  cancel.abort();
+  await assert.rejects(waiting, /cancelled/);
+});
