@@ -340,9 +340,10 @@ class PiProcess:
 # --------------------------------------------------------------------------
 
 class Daemon:
-    def __init__(self, run_id: str, campaign: str, launcher: str | None, model: str | None):
+    def __init__(self, run_id: str, campaign: str, launcher: str | None, model: str | None, thinking: str | None = None):
         self.run_id = run_id
         self.campaign = campaign
+        self.thinking = thinking
         self.dir = run_dir(run_id)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.log = DriverLog(self.dir / "driver.log")
@@ -828,7 +829,7 @@ class Daemon:
 
 def _daemon_main(args: argparse.Namespace) -> int:
     try:
-        daemon = Daemon(run_id=args.run, campaign=args.campaign, launcher=args.launcher, model=args.model)
+        daemon = Daemon(run_id=args.run, campaign=args.campaign, launcher=args.launcher, model=args.model, thinking=getattr(args, "thinking", None))
     except DriverError:
         return 1
     except Exception as exc:  # noqa: BLE001 -- startup crash must still be diagnosable
@@ -982,6 +983,8 @@ def cmd_start(args: argparse.Namespace) -> int:
         cmd += ["--launcher", args.launcher]
     if args.model:
         cmd += ["--model", args.model]
+    if getattr(args, "thinking", None):
+        cmd += ["--thinking", args.thinking]
 
     env = dict(os.environ)
     for pair in args.env or []:
@@ -1150,6 +1153,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--run", required=True)
     sp.add_argument("--campaign", required=True)
     sp.add_argument("--model", default=None)
+    sp.add_argument("--thinking", default=None)
     sp.add_argument("--launcher", default=None)
 
     return p
