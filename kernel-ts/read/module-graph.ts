@@ -379,7 +379,15 @@ export class ModuleGraph {
             throw error;
         }
     }
-    candidates(name: string, kinds?: string[], limit = 6): Row[] {
+    /**
+     * The ranked part of `candidates()` alone -- name overlap, then similarity -- never the roster
+     * `candidates()` appends afterwards (contract §11.5.7/SL-64). `personOfEffect`
+     * (`kernel-ts/apply/entities.ts`) consults this to decide whether to *refuse* an unmatched name
+     * instead of minting it a table person: the established roster is a list of this table's own
+     * people to resolve a name against (§87.4, §11.5.6/SL-62's Jev question), never a count that bars
+     * minting a person nobody has named before.
+     */
+    private rankedCandidateIds(name: string, kinds?: string[], limit = 6): string[] {
         const key = normalize(name),
             pool = new Map<string, string>(),
             ranked: string[] = [];
@@ -396,16 +404,23 @@ export class ModuleGraph {
             if (!ranked.includes(id))
                 ranked.push(id);
         }
+        return ranked;
+    }
+    candidates(name: string, kinds?: string[], limit = 6, opts: { roster?: boolean } = {}): Row[] {
+        const ranked = this.rankedCandidateIds(name, kinds, limit);
         // Last, and only after everything the query itself ranked: the people this table established
         // (see `read/table-people.ts`). A Keeper who has called one man the caretaker, the doorman,
         // superintendent and the janitor makes four of him: deciding those are one person is the open
         // semantic judgement this project forbids and no code here will make it. What a roster does
         // instead is give the Keeper the chance to pick a handle it already used -- a list, not a
         // match. Nothing compares the query to these names; they are appended, so a genuine near-name
-        // is never displaced by one.
-        for (const id of this.tableNames.keys())
-            if (!ranked.includes(id) && (!kinds?.length || kinds.includes("npc")))
-                ranked.push(id);
+        // is never displaced by one. `opts.roster: false` (§11.5.7/SL-64) leaves it off entirely, for the
+        // one caller that must not see an established person as a candidate at all: appending it there
+        // is what turns "this table has met someone before" into a bar against minting someone new.
+        if (opts.roster !== false)
+            for (const id of this.tableNames.keys())
+                if (!ranked.includes(id) && (!kinds?.length || kinds.includes("npc")))
+                    ranked.push(id);
         return ranked.slice(0, limit).map(id => this.describe(this.nodes.get(id)!));
     }
     describe(node: Row): Row {

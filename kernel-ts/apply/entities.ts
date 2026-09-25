@@ -84,6 +84,16 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
  * `skill` and `archetype` refuse an unknown name outright. Those pin numbers, and pinning numbers
  * onto someone the same call is inventing is how a stat block gets attached to a typo; the Keeper
  * establishes the person first and pins afterwards, which is the order §34.10 already describes.
+ *
+ * **A table person already established is never counted here (contract §11.5.7/SL-64).** `candidates`
+ * appends this table's own roster last, unconditionally, once it has minted anyone at all (§87.4) --
+ * that roster is a list for the Keeper (or SL-62's Jev question on the host) to resolve a name
+ * *against*, never a headcount that should make a second, unrelated name refuse instead of minting.
+ * `graph.candidates(name, ['npc'], 6, {roster: false})` asks only whether the book/graph's own
+ * ranking -- name overlap or similarity -- has anything to say; the roster plays no part in the
+ * decision to mint. It still rides in the refusal's own `details.candidates` when the graph *did*
+ * have something to say (line 91's rethrown `error` carries `graph.npc`'s own candidates, roster
+ * included, exactly as before).
  */
 function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|null):{node:Row;established:false|'table'|'passage';from_passage?:Row}{
     const {graph}=context;
@@ -98,7 +108,7 @@ function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|n
         if(effect.skill!=null||effect.archetype!=null||effect.conditions!=null||effect.reunion!=null)throw error;
         // §11.5.4 (SL-51): a name the source text carried this turn holds is not invented, candidates or not.
         passage=passageOf(effect,name);
-        if(!passage&&graph.candidates(name,['npc']).length)throw error;
+        if(!passage&&graph.candidates(name,['npc'],6,{roster:false}).length)throw error;
     }
     const node=establishPerson(context,name,why,passage);
     return{node,established:passage?'passage':'table',...(passage?{from_passage:passage}:{})};

@@ -1033,6 +1033,51 @@ Jev call at all. `tests/extension/name-resolution-receipt.test.mjs` (the emitted
 resolves to, and a batch that sends none carries no such field. Mutations for all three are recorded in the SL-62
 ticket's Comments. The gate #10 t4 replay (recorded Keeper, live Jev) is also in the ticket's Comments.
 
+#### 11.5.7 A campaign mints as many table persons as the Keeper introduces; an existing one is a resolution candidate, never a bar to minting (2026-09-25, SL-64; amends §87.4)
+
+**Evidence** (ticket 29's batch-9 entry, campaign `sl29ab9-xuese-1922`, 血色公路). Once `apply npc "卡尔"`
+established this table's first table person at t11, every later `npc`-kind name refused `unknown_entity` with
+`details.candidates: ["卡尔"]` -- 霍默 (t11, t17, t18), 马瑟 and 马瑟先生 (t14, t15) -- none of them a near
+name of 卡尔 or of each other. `npc-ledger.json` holds exactly one table person here and in the batch-8
+campaign before it: the defect predates batch 9 and only surfaced because this Keeper named more people than
+one.
+
+**The cause.** §87.4's roster -- the people this table has already established -- is appended to
+`candidates()`'s ranked list last and unconditionally, once the table has minted anyone at all
+(`kernel-ts/read/module-graph.ts`). `personOfEffect` (`kernel-ts/apply/entities.ts`) reads
+`graph.candidates(name, ['npc']).length` to decide whether the graph's silence on a name is real: with the
+roster folded in, that length is never zero again once a first table person exists, so every later distinct
+name found the graph "not silent" and refused instead of minting.
+
+**The ruling (owner, 2026-09-25).** The table persons a campaign already holds are candidates for resolving a
+name (§11.5.6/SL-62's Jev question, or an exact match), never a reason to refuse a new one: when a name clears
+no candidate -- book or table -- a new table person is minted (§87), exactly as the first one was, regardless
+of how many the table has already established. §87.4's roster is unchanged as a *list to choose from*; it is
+only removed from the count that decides whether to mint.
+
+**The fix.** `ModuleGraph.candidates()` gains an options parameter, `{roster?: boolean}`, defaulting to
+`true` (every existing caller, including `resolve()`'s own `unknown_entity` refusal and `recall`'s, is
+unaffected and still sees the roster in `details.candidates`). `personOfEffect`'s gating check alone calls it
+with `{roster: false}`: whether to refuse now asks only the book/graph's own ranking (name overlap, then
+similarity) and never this table's own established people. Minting itself (`establishPerson`,
+`world.table_people[]`) is unchanged; so is the exact-match path (`graph.npc(name)` resolves a name matching
+an established person's own name exactly, or one of its keys, before `personOfEffect`'s catch block is ever
+reached) and SL-62's host-side Jev resolution against the scene's known people, which never consulted
+`candidates()` in the first place (§11.5.6).
+
+**Three ends (§31).** *Writer:* the kernel (`establishPerson`, `world.table_people[]`, one row per distinct
+name). *Reader:* `personOfEffect`'s own gating check, on the next `npc` effect. *Actor:* the Keeper, whose
+second and third named person mint exactly as the first one did, and whose exact repeat of a name already at
+the table lands on the same person without a new row.
+
+*Tests.* `tests/extension/a-person-this-table-has.test.mjs`: two distinct names establish two table persons,
+each with its own `npc-ledger.json` entry after the turn closes; the same name established twice still
+folds to one (existing test, unamended by this section); a t11-shaped batch from the 血色公路 fixture --
+one name this table has already met beside a second, unrelated one in the same `apply` -- mints both.
+Mutation: reverting `personOfEffect`'s gating call to `graph.candidates(name, ['npc']).length` (roster
+included) reproduces the batch-9 refusal and is caught by the two-distinct-mints test. The batch-9 t11
+replay (recorded Keeper, live Jev) is in the SL-64 ticket's Comments.
+
 ### 11.6 结果与收据
 
 `outcome.kind` 取 `check`、`opposed`、`combined`、`social`、`psychology`、`healing`、`push`、`luck`、`magic`、`development`、`combat`、`chase`、`sanity`、`none`。每种至少有 `level` 或 `status`、涉及的骰面与目标值、`effects`。`effects` 每条 `{kind: hp|san|mp|luck|condition|ammo|position, subject, before, after}`。
