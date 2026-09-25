@@ -32,7 +32,7 @@ candidate row to ask about once the party moved on.
 `scenePersonCandidates` now merges `present` and `roster`, deduplicated by handle, still capped at
 `PERSON_RESOLUTION_MAX_CANDIDATES` (12) and asked with the exact same per-row Jev question as before — presence
 decides what the check can target (`present`), not whether the name resolves (`roster` fills the rest). Full text:
-docs/kernel-rpc.md §11.5.8 (a new subsection amending §11.5.6, following this doc's own convention of amending a
+docs/kernel-rpc.md §11.5.7 (the SL-67 text sits under that heading, amending §11.5.6; following this doc's own convention of amending a
 numbered `11.5.x` section with the next one rather than nesting an "addendum" inside it).
 
 **Tests, mutation-killed.** `tests/extension/name-resolution.test.mjs` (host + fake kernel + stubbed Jev, new
