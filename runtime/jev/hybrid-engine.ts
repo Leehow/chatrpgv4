@@ -761,8 +761,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     for (const entry of carried.pending ?? []) run.shown.pending.add(JSON.stringify([entry.focus, entry.question]));
     // §11.5.4 (SL-51): the source text this note carried -- a scene_text view's pages as they went, a source view's book
     // passages -- is the turn's carried text, which a write about a person the book names is checked against.
-    const text = carriedPassages(carried.views, sceneTexts);
-    if (text.length && run.turn !== undefined) api?.events?.emit?.('coc:carried-text', {campaign: bridge.campaign, turn: run.turn, run: run.runId, passages: text});
+    const carriedRows = carriedPassages(carried.views, sceneTexts);
+    if (carriedRows.length && run.turn !== undefined) api?.events?.emit?.('coc:carried-text', {campaign: bridge.campaign, turn: run.turn, run: run.runId, passages: carriedRows});
     // A name is settled once its card went (now or earlier under another name), or once `look` does not resolve it.
     for (const {name, id} of carried.resolved) if (ids.has(id) || run.shown.people.has(id)) run.shown.people.add(name);
     for (const entry of carried.omitted) if (entry.focus === 'npc' && entry.reason === 'not_found' && entry.name) run.shown.people.add(entry.name);
