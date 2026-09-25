@@ -79,3 +79,5 @@ Provider model data the product knows to be wrong is corrected by the product, a
 - **Undone: scope 4 (live gate #10 with `--thinking off`)** is explicitly the owner's, not this worker's, per
   the marker.
 - **Also undone, by choice:** the Electron/pi-backend wiring above (recorded as a follow-up, not restructured).
+
+- **2026-09-25, owner, after the merge (5f52c6018).** Verified on the product path: a fresh table launch wrote the agent home's `models.json` with the two entries and Pi confirmed `thinkingLevelMap.off = "off"` for the Keeper. One follow-up landed with it: the corrections note is `//` comment lines, which Pi strips but `runtime/tasks.ts`'s lane child catalog parsed with bare `JSON.parse` and would have dropped the whole file (a provider defined only there would be refused as one the lane cannot run); both readers now share `runtime/json-comments.ts`, with a Mod-child case in `fast-model-resolution.test.mjs` that fails without it. The Electron App's dead `installBundledModelCapabilityOverrides` hook stays a follow-up for the App session.
