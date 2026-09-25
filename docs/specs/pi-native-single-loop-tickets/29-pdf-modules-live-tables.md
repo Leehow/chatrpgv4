@@ -585,3 +585,169 @@ Evidence (git-ignored, kept — the fork and reading workspace were deliberately
 - triage: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b7/.coc/playtests/sl29a-b7/triage.txt`
 - harness (this branch only, originals under `29-book-a-b6/` untouched): `docs/specs/pi-native-single-loop-tickets/29-book-a-b7/{worker.sh,start.sh,play.py,triage.py,script.md,preregistration.md}`
 - per-turn prose (not committed, carries book-derived text): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b7/.coc/playtests/sl29a-b7/turns.log`
+
+### 2026-09-25 — book A (血色公路) SL-29A batch-8 on `41672d838` (integration `claude/integ-single-loop-20260923`, batch 8 merged on top of batch 7: SL-56, SL-57): SL-56 confirmed fixed for the exact table-person shape batch-7 filed it against (the `resolve`-blocks-on-NPC-material wall is gone); SL-57 confirmed live end to end (a refused detail read retried once in the background with the reviewer's reasons, landing on the retry); one new, unrelated P1 finding — a `lookup {kind:"source", source_mode:"prepare"}` call has no allowance or landing path at all and blocks the full foreground `reading_timeout` (120,003 ms, three times this table); one new P2 finding — a batch `apply` naming several book NPCs at once, when the first not-yet-read one is hit, fails hard and fast with no landing even though the turn's own carried text names all three verbatim
+
+Measurement only, no product fixes. New worktree `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b8` (branch
+`claude/sl29a-b8-20260925`) at `41672d838`, node_modules symlinked from `chatrpgv4-wt-pi-coc-v2` (six paths per the
+marker), `npm run build:runtime` clean. Confound noted before the table opened, not touched: long gate #8 (campaign
+`longgate8-haunting-0312`, worktree `chatrpgv4-wt-integ-sl`, pid 78720) was running concurrently on this Mac's
+grok-build login (confirmed by `ps aux` before the table opened). The App's `.pi/coc-agent/auth.json` grok-build
+entry had 26.7 minutes remaining at copy time — below the 45-minute floor set for this run — and a scan of every
+`chatrpgv4-wt-*/.pi/coc-agent/auth.json` found no fresher entry anywhere (every live worktree shares the same
+`expires` timestamp), so the copied entry was used as-is; the table completed without a credential stall. The
+imported home was reused, not re-imported: `chatrpgv4-wt-pdf-a/.coc/playtests/sl29-a-run2/home` (module `book-1`,
+generation 2, the same graph batches 4-7 tested) was copied into `.coc/playtests/sl29a-b8/home` (stale `.lock` files under
+`.coc/modules` removed before use). A NEW campaign, `sl29ab8-xuese-0512`, was created via the onboarding worker's
+`converse` action (title `血色公路`, no `.pdf` suffix); harness adapted from `29-book-a-b7/` as
+`29-book-a-b8/{worker.sh,start.sh,play.py,triage.py,script.md}` (script unmodified), with
+`29-book-a-b8/preregistration.md` written and committed (`ed89fe8fd`) before the table opened. Investigator
+雷·卡特 (same identity as batches 4-7's) was made in a live setup session replaying the recorded exchange
+turn-for-turn (5 turns, 98.2 s, 9 tool calls, run `sl29ab8-xuese-0512-setup-20260925T073108Z` — the same shape as
+batch-7's setup). The table was played with `29-book-a-b8/play.py` (one sentence a turn, structural branches only)
+on driver run `sl29ab8-xuese-0512-20260925T073327Z`, hybrid-v1, `PI_COC_JEV_PRESELECT=1`, grok-build/grok-4.7-build-
+fast low. Per-turn structural table: `.coc/playtests/sl29a-b8/triage.txt` (from `29-book-a-b8/triage.py`). The
+campaign fork and reading workspace were kept (not deleted), continuing batches 5-7's procedural change; two reads
+(`read-10`, `read-12`) were still `running` when the daemon was stopped after turn 20 settled — their in-flight
+review rounds show `reason: "review"`, `detail: "The runtime owner or operation is closed or cancelled"` at the
+same timestamp as the stop call, and their job-state rows stayed `running` (not corrupted or marked `failed`); this
+is an artifact of stopping the daemon after the table finished, not a live-table finding, and is called out
+separately from the two reads' own earlier, genuinely live events (see SL-54 below).
+
+**Table-wide.** 20/20 turns settled, 0 stranded, 0 provider errors, `infer(bind)` = 0, admission max 13.0 s (one row
+at `cap_ms: 13000`, `review_pending`, `ok: true`; 0 `review_timeout`), 14 `lookup` calls total (8 `kind: source`,
+counted separately per the class line: 5 `source_mode: answer` each exactly 8,002 ms, 3 `source_mode: prepare` each
+exactly 120,003 ms — see finding 1), speech 5 resolved / 2 unresolved, 0 sanity rolls (this script's sentences do
+not reach a sanity-triggering scene). Walls `[87, 33, 29, 155, 27, 37, 146, 63, 44, 60, 67, 30, 31, 91, 36, 34, 35,
+23, 55, 143]`; median 40.4 s, 12/20 ≤ 60 s (60%), max 155.3 s (t4). Three turns (t4 155.3 s, t7 145.8 s, t20 142.8 s)
+each spend exactly 120,003 ms of their wall inside one `lookup source_mode=prepare` call (finding 1); without those
+three, median 36.0 s, max 91.3 s (t14, dominated by ordinary provider-call time, 72,287 ms across 2 calls — no
+reading wait), 13/17 ≤ 60 s (76%).
+
+**Table (Scope 3), keyed to what batch 8 changed.**
+
+| class | pre-registered line | measured | verdict |
+| --- | --- | --- | --- |
+| delivery | 20/20 with prose | 20/20 settled, 0 stranded, every turn delivered real Keeper prose | **pass** |
+| wall | median ≤45s, ≥80% ≤60s | median 40.4s, 12/20 ≤60s (60%), max 155.3s; three turns share one new, unrelated cause (finding 1) — without them, median 36.0s, 13/17 ≤60s (76%) | **fails on the line's own numbers this table, entirely on finding 1's account — not SL-56 or SL-57's own targets, both of which held** |
+| routing | declared move lands or narrates honestly | Two `apply` moves raised all table: t1 `welcome-to-abattoir` (the town's own arrival, lands on first declaration, no wait) and t8 `esso-gas-station` (one sub-location entered — versus batch-7's 0, batch-6's 2, batch-5's 2, batch-4's 0); 马瑟综合商店/最后一站食宿酒吧 were asked about via `lookup`/`recall` but never entered as scenes this table | **not a defect — Keeper-choice/pacing noise, as batch-6/7 already characterized this axis** |
+| admission | no row >12s | admission max 13.0s (t11, `review_pending`, `cap_ms: 13000`), 0 `review_timeout` | **marginal miss (1.0s over the line) — a single row at its own configured cap, not a new pattern** |
+| binding | `infer(bind)` = 0 | 0 | pass |
+| looks | ≤1/turn after first visit | 6 non-source lookups across 20 turns (4 `module`, 1 `catalog`, 1 `adaptation`); one turn (t17) carried 2 non-source lookups in the same turn; 8 `lookup kind=source` counted separately | **pass overall; one turn (t17) over the per-turn line** |
+| prescreen | status per read; own allowance | `prepared` every read, 2-4 candidates as the graph grew, no fallback anywhere | pass |
+| drops | every drop has a reason | `text_beside_tool_calls` 14, `floor_steer` 3, `speech_steer` 2 (19 total; a turn can carry more than one); all with rows, no stranded turn | pass |
+| fiction/rules | no off-sheet skill | Psychology, Appearance, Drive Auto and other checks all on 雷·卡特's own sheet, none off-sheet | pass |
+| stalls | none; provider errors listed | 0 provider `error` rows anywhere | pass |
+| reading (PDF) | every read has a telemetry row and outcome | every one of this table's 12 reads (`read-1`..`read-12`) has purpose/focus/ms rows; 8 completed, 1 failed (`read-4`, review-refused), 1 queued (`read-8`, never claimed), 2 still running at daemon stop (`read-10`, `read-12`); **zero `budget_input_tokens`/`provider_refused` events anywhere** | pass |
+| SL-53 (index/skeleton job under the book-sized lease) | a `stage_budget` row before the job runs; no fixed-lease refusal | every job that actually ran got a `stage_budget` row (12/12: `read-1`..`read-7`, `read-9`..`read-12`; `read-8` never ran), all `pageCount: 111`, zero `budget_input_tokens` refusals | **confirmed still fixed, no exception found — third table running** |
+| SL-54 (a displaced read resumes) | `displaced`/`resumed` rows; no `source_context_changed` failure on a resumed job | **Exercised live for the first time in this ticket's book-A line.** `read-10` (`answer`, focus 阿巴托尔镇民与氛围) was displaced to free a slot for `read-7` (SL-57's retry) after running 72,230 ms (`event: "displaced", for_job: "read-7"`); it resumed as attempt 2 at the same `base_generation` (`resume_from` set to attempt-1's work dir) and continued reading — no `source_context_changed` failure, the job was never marked `failed`. **Gap noted**: no explicit `resumed` telemetry row (as the ticket's own success line names) appears anywhere in `reading-telemetry.jsonl` for this displacement, even though the state file (`deepen-queue.json`, `attempts: 2`) and the continued reading activity show the resumption plainly happened | **the mechanism itself works (no failure, no lost pending row); the specific `resumed` telemetry event the ticket names was not found — worth a follow-up check, not scored as a wall/delivery defect** |
+| SL-55 (an answer running through a publication lands, or re-reads once) | `finished_under`/`requeued` rows; no bare `source_context_changed` at finish | The fork advanced generation 2→5 this table (unlike batch-7's stuck-at-2) as multiple reads landed while others were queued/running, with no `source_context_changed` failure anywhere; the one `requeued` row found is SL-57's own flavor (`reason: "review_refused"`), not SL-55's (`reason: "focus_changed"`); zero `finished_under` rows | **not directly exercised (no mid-flight publication observed racing a running, undisplaced job to a `focus_changed` requeue); the multiple clean generation advances are a soft positive sign, not a direct exercise** |
+| SL-52 (ask fan-out / accept-obligation yields) | `ask_cleared`/`settled_clue`/obligation-yield rows if triggered | Zero `ask_cleared`, `settled_clue`, `obligation_check` or `guard_unlock` rows anywhere (`"ask_cleared":[]` is an empty compile field, not an event) | not exercised, exactly as pre-registered — this book's 4-node starting graph carries no obligation/accept node |
+| SL-50 stage 2 (writes-are-silent; note head once per run) | own counts, not a pass/fail gate | 55 model steps total (52 across turns 1-20, 3 on the opening), 19 delivery drops, 7 of 20 played turns needed ≥3 model steps | reported for comparison only; drops (19) and steps (55) both somewhat above batch-7's own counts (10, 52), turns≥3 (7) about the same |
+| SL-56 (NPC material never holds a turn) | table person never held (no `material_pending`/`reading_timeout` on him); book/index person lands on text; only a genuinely unnamed-anywhere person still waits | **See findings 2 and 3 below — the table-person half is confirmed fixed; the book-person landing-on-carried-text half was posed and did not land** | **fixed for the case it was filed against; a related, narrower gap found in the same feature** |
+| SL-57 (a refused detail read is retried once, then settles unusable) | `requeued` row with reasons; a second refusal settles `unusable` once | **See finding 4 below — confirmed live end to end for the retry-once half; the retry succeeded, so the second-refusal/`unusable` half was not posed** | **confirmed working for the case it was exercised on** |
+
+**Findings, one root cause each**
+
+- **Finding 1 (new, P1 wall) — a foreground `lookup {kind:"source", source_mode:"prepare"}` call has no allowance
+  or landing path at all: it blocks the full `reading_timeout` every time, to the millisecond.** Three times this
+  table (t4 `query: "welcome-to-abattoir"`, t7 `query: "esso-gas-station"`, t20 `query: "最后一站食宿酒吧"`) the
+  Keeper issued a `lookup` with `source_mode: "prepare"` — after the destination scene had *already* been entered
+  by a successful `apply move` on a prior or the same turn, landing on SL-47's index text — apparently to pull the
+  scene's fuller material before narrating in more depth. Each call took exactly `120003`/`120003`/`120003` ms
+  before returning `needs: the source is still being read` (`retryable: false`). By contrast, every
+  `source_mode: "answer"` call this table (5 of them, t9/t11/t13/t15/t17) returned in exactly `8002`/`8001`/`8002` ms
+  — SL-36's own 8-second allowance holds precisely for the mode it actually covers (ticket 36 is scoped to
+  `purpose: "answer"` only; `source_mode: "prepare"` was never in its scope). This is a distinct code path from
+  SL-47 (which already lands the move itself instantly) and from SL-36 (answer-mode only): a `prepare`-mode request
+  for a scene already landed on index text still has no pending/allowance treatment, and drove 360 of this table's
+  1227.4 total wall-seconds (29%) across exactly 3 of 20 turns. Not seen in batches 4-7 because none of those
+  tables' Keepers used this lookup mode after a move — this table's Keeper did, three separate times, on three
+  different scenes. Evidence: `.coc/playtests/sl29ab8-xuese-0512-20260925T073327Z/turn-{4,7,20}.json`
+  (`tools[].name==="lookup"`, `args.kind==="source"`, `args.source_mode==="prepare"`, `ms` exactly `120003`/`120003.1`/`120003`);
+  contrast `turn-{9,11,13,15,17}.json` (`source_mode:"answer"`, `ms` `8002.1`/`8002.1`/`8001.9`/`8001.7`/`8002.0`).
+- **Finding 2 (SL-56, confirmed fixed) — the exact table-person shape batch-7 filed no longer blocks the turn.**
+  At t8-t10 the Keeper, refused when trying to place book-named NPCs (finding 3), fell back to an unnamed
+  description ("灰发男人", "the grey-haired man") exactly as batch-7's Keeper did with "最靠边的那个男人". At t10 the
+  first `resolve` on him failed fast (`missing target`, no NPC yet present) — not a reading wait — so the Keeper
+  issued `apply {npc, person}` to establish him, which the NPC subsystem recorded as `npc-table-408a5a8f57fda4acee64`
+  (`personality.origin: "table_supplement"`, i.e. a table person per §87), and the *next* `resolve` calls (a
+  first-impression check, then the Psychology observation the player's sentence asked for) both succeeded
+  immediately — no `material_pending`, no `reading_timeout`, anywhere in t10. Turn 10's whole wall was 60.5 s
+  (compare batch-7's t10 172.1 s / t11 176.7 s, each ~125-131 s of which was exactly this same shape's
+  `reading_timeout` block). This is a clean, direct confirmation that §22.4.7.1's `withTablePeople` consultation in
+  the gate now works for the case the ticket was filed against. Evidence:
+  `.coc/playtests/sl29a-b8/home/.coc/campaigns/sl29ab8-xuese-0512/npc-ledger.json` (key
+  `npc-table-408a5a8f57fda4acee64`); `.coc/playtests/sl29a-b8/home/.coc/campaigns/sl29ab8-xuese-0512/npc/jobs/`
+  (packet `npc.personality.origin: "table_supplement"`); `.coc/playtests/sl29ab8-xuese-0512-20260925T073327Z/turn-10.json`
+  (`tools[]`: `resolve` "missing target" → `apply npc+person` → `resolve` ×3, none refused, wall 60.5s); zero
+  `material_pending`/`reading_timeout` rows anywhere in `telemetry.jsonl` for turns 9-11.
+- **Finding 3 (new, P2, same feature as SL-56) — a batch `apply` naming several book NPCs at once fails hard and
+  fast on the first not-yet-ready one, with no landing even though the turn's own carried text names all three
+  verbatim.** At t8 the Keeper's carried note (`focus: "scene_text"`, `esso-gas-station`) already held the book's
+  own page-17 text verbatim, naming all three attendants: 拉斯·威廉姆斯 (as an alias of the book's "拉塞尔·威廉姆斯"),
+  内特·帕特森 and 史蒂夫·布朗. The Keeper's `apply` placed all three as `npc` effects plus a `person` effect for the
+  first, in one call; the call was refused in 22 ms (`code: "needs", reason: "material_pending", read_focus:
+  "内特·帕特森"`, `retryable: false`) — the whole batch failed atomically (no partial receipts), and no read was
+  queued for the person specifically (only the pre-existing scene-level `read-4`/`read-7` continued). This is not
+  the same code path as finding 2's fast, correct table-person success: `内特·帕特森` is a real book name (matching a
+  graph node still mid-read), and per §22.4.7.1's own comments the host should attempt `landPerson` — checking the
+  turn's carried text (which literally contains "内特·帕特森") and resending with `_land_on_text` — before surfacing
+  the refusal to the model. No such landing was observed: the raw refusal reached the model unchanged, and the
+  Keeper recovered narratively (finding 2's fallback) rather than the product landing him on the very text it had
+  just carried. Distinguish from SL-51 (never exercised in batches 4-7 for lack of a carried-text NPC name posed
+  before its record lands) — this table posed exactly that race, on a real book name, and it did not land. Evidence:
+  `.coc/playtests/sl29ab8-xuese-0512-20260925T073327Z/events.jsonl` (the `coc-clerk` message before t8's `apply`,
+  `views[].focus==="scene_text"` carrying page 17's text with all three names verbatim; the `apply` toolcall naming
+  them); `.coc/playtests/sl29a-b8/home/.coc/campaigns/sl29ab8-xuese-0512/telemetry.jsonl` (turn 8, `tool:"apply"`,
+  `call_id:"t8-c2"`, `ms:22`, `reason:"material_pending"`, `read_focus:"内特·帕特森"`).
+- **Finding 4 (SL-57, confirmed live end to end) — a refused detail read was retried once in the background with
+  the reviewer's reasons, and the retry landed.** `read-4` (`detail`, `esso-gas-station`) failed at review 4-5
+  minutes into the table: the reviewer refused `/nodes/1/aliases` and seven other paths as `unsupported` (aliases
+  printed only in Chinese where the draft added an English form, a keeper-note claim not on the page, a delivery
+  section mismatch, two visibility claims not marked keeper-only), `rule: "review_unsupported"`. `module.read.finish`
+  queued `read-7` as `{review_retry: {of: "read-4", refused: [...8 rows...]}, foreground: false, resume_from:
+  ".../read-4/attempt-1"}`, and `reading-telemetry.jsonl` recorded `{event: "requeued", job_id: "read-7", of:
+  "read-4", reason: "review_refused"}` — exactly SL-57's own shape: once, in the background, carrying the reasons.
+  `read-7` then completed cleanly (no second refusal), publishing generation 5 and updating `esso-gas-station`'s own
+  `scene_index` row to cite `job_id: "read-7"` (SL-48 held again on the new job id). Because the retry succeeded,
+  SL-57's other half (a second refusal settling the focus `unusable`, shown once) was not posed this table — a
+  table whose retry is *also* refused the same way would be needed to exercise it. Evidence:
+  `.coc/playtests/sl29a-b8/home/.coc/module-campaigns/sl29ab8-xuese-0512/modules/book-1/deepen-queue.json`
+  (`read-4.refusal.rule:"review_unsupported"`; `read-7.review_retry.of:"read-4"`, `read-7.state:"completed"`,
+  `read-7.result:{generation:5}`); `.coc/playtests/sl29a-b8/home/.coc/reading-telemetry.jsonl` (`event:"requeued"`
+  row); `module.json` (`reading.scene_index` row for `esso-gas-station`, `job_id:"read-7"`).
+- **SL-54, exercised live for the first time in this book-A line (see table row above) — the displacement/resume
+  mechanism itself works; the named telemetry event does not appear.** Not scored as a wall or delivery defect
+  (nothing failed, nothing was lost), but worth a follow-up: does `resumed` fire under a different shape, or is it
+  missing from this code path?
+- **Not exercised this table: SL-52 (no obligation node in this book's graph, as pre-registered), SL-55's own
+  specific mid-flight-publication race (generations advanced cleanly but not via a `finished_under`/`focus_changed`
+  sequence), SL-49 (both disputes seen this table — `read-4`'s and `read-6`'s — were fact-level, not
+  classification-field), SL-38/SL-42/SL-40's guard-narration path (this script's only gate is the town's own
+  arrival), SL-43 (no obligation-vs-ordinary conflict).**
+
+**Comparison with batch 7's own findings.**
+- **Fixed:** SL-56's own P1 (batch-7's `resolve`-blocks-on-NPC-material wall, ~125-131 s twice) — confirmed fixed
+  above (finding 2), same NPC-creation shape, now 60.5 s with no reading wait at all.
+- **Remains, narrower:** the "a scene's detail read fails at review and the Keeper falls back to unnamed
+  description" shape recurs (batch-7's own workaround for its NPC; this table's for the gas-station attendants),
+  but the underlying "refused reading never retried" gap that produced it in batches 5-7 is now fixed by SL-57 —
+  this table's own retry succeeded, so the fallback in finding 3 is not from an abandoned reading but from a
+  same-turn landing gap in the `apply`-batch case specifically (see finding 3).
+- **New:** finding 1 (the `source_mode: "prepare"` 120 s block) and finding 3 (batch-`apply` book-NPC landing gap)
+  — neither seen in batches 4-7, both novel to this table's own script/Keeper behavior, neither inside SL-56/57's
+  own scope.
+- **Confirmed again:** SL-53 (third table running, no exception); SL-48 (index cites the successful retry's own job
+  id, fourth table running this mechanism).
+
+Evidence (git-ignored, kept — the fork and reading workspace were deliberately not deleted this batch):
+- setup: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b8/.coc/playtests/sl29ab8-xuese-0512-setup-20260925T073108Z/`
+- table: playtest `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b8/.coc/playtests/sl29ab8-xuese-0512-20260925T073327Z/` (turn-{1..20}.json, driver.log, events.jsonl)
+- campaign: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b8/.coc/playtests/sl29a-b8/home/.coc/campaigns/sl29ab8-xuese-0512/` (turns/0000-0020.json, telemetry.jsonl, campaign.json, npc-ledger.json, npc/jobs/, npc/responses/)
+- campaign fork (kept, not deleted): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b8/.coc/playtests/sl29a-b8/home/.coc/module-campaigns/sl29ab8-xuese-0512/modules/book-1/` (`deepen-queue.json` read-1..12; `module.json` `reading.scene_index`)
+- reading telemetry (stage_budget/displaced/requeued rows): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b8/.coc/playtests/sl29a-b8/home/.coc/reading-telemetry.jsonl`
+- triage: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b8/.coc/playtests/sl29a-b8/triage.txt`
+- harness (this branch only, originals under `29-book-a-b7/` untouched): `docs/specs/pi-native-single-loop-tickets/29-book-a-b8/{worker.sh,start.sh,play.py,triage.py,script.md,preregistration.md}`
+- pre-registration commit: `ed89fe8fd` (before the table opened)
+- per-turn prose (not committed, carries book-derived text): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b8/.coc/playtests/sl29a-b8/turns.log`
