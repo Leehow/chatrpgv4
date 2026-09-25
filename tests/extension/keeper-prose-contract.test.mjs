@@ -6,9 +6,15 @@ test('compressed context supplies facts but never the player-facing sentence pat
   const prompt = await readFile(new URL('../../prompts/keeper.md', import.meta.url), 'utf8');
   assert.ok(prompt.includes('facts, never prose samples'));
   assert.ok(prompt.includes('Retained delivered prose is continuity evidence too, not a style or voice authority'));
-  assert.ok(prompt.includes('Write natural, complete sentences in `play_language`'));
-  assert.ok(prompt.includes('make clear who does what'));
-  assert.ok(prompt.includes('Before `narrate`, reread the final draft as the player'));
+  // docs/specs/prose-mod.md §6: the craft sentences left the base for the prose package.
+  const craft = await readFile(new URL('../../mods/narration-craft/agent.md', import.meta.url), 'utf8');
+  assert.equal(prompt.includes('Write natural, complete sentences in `play_language`'), false);
+  assert.equal(prompt.includes('it owes four things'), false);
+  assert.equal(prompt.includes('at most one sentence of room and one gesture'), false);
+  assert.equal(prompt.includes('give a little, refuse harder, or change the subject'), false);
+  assert.ok(craft.includes('who does what to whom is never left for the reader to reconstruct'));
+  assert.ok(craft.includes('do not repeat, paraphrase or summarise them'));
+  assert.ok(craft.includes('the position moves only when the fiction moves it'));
   assert.ok(prompt.includes('Address every player-controlled investigator in the second person'));
   assert.ok(prompt.includes('Words the player directly spoke are already their part of the conversation'));
   assert.ok(prompt.includes('intended actions still need ordinary adjudication and settlement'));

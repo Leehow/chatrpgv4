@@ -145,7 +145,7 @@ async function refuseRepeatedLine(snapshot: CampaignSnapshot, campaign: Campaign
     const repeat = repeatedLine(lines, records, 12, index => !host.has(index));
     if (!repeat) return host.size ? repeatedLines(lines, records, 12, index => host.has(index)) : [];
     throw new RpcError('needs', `${string(repeat.name)} already said this at this table (turn ${string(repeat.earlier_turn)}): ${string(repeat.line)}`, {
-        fix: 'This person does not repeat. When the same point comes back they move: give a little, refuse harder, or change the subject. Rewrite only that line and deliver again; everything else stands.',
+        fix: 'Say it again in fresh words: the person keeps the same position unless the fiction moved it. Rewrite only that line and deliver again; everything else stands.',
         details: { reason: 'repeated_line', ...repeat },
     });
 }
@@ -1015,7 +1015,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...(hostRepeats.length ? { warnings: hostRepeats.map(repeat => ({ lane: 'speech', kind: 'repeated_line',
                 quote: chars(string(repeat.line), 120),
                 why: chars(`${string(repeat.name)} already said this at turn ${string(repeat.earlier_turn)}; the host wrapped the line, so it was delivered, not refused`, 200),
-                fix: 'Already delivered: do not rewrite it. When the same point comes back, this person moves: give a little, refuse harder, or change the subject.',
+                fix: 'Already delivered: do not rewrite it. Next time the same point comes back, say it in fresh words; the position need not move.',
                 at: nowIso() })) } : {})
         };
         await campaign.writeTurnRecord(record);

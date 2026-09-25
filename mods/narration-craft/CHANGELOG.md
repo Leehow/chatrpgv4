@@ -1,5 +1,10 @@
 # Narration Craft
 
+## 2.0.0
+- The one prose package (docs/specs/prose-mod.md, owner ruling 2026-09-25). `agent.md`, `brief.md` and `style.json` are rewritten: open with the world's reply and never restate the player's words; whole sentences, one focus per paragraph, a thing's full name once; people answer what they heard in their own register and keep their position; nine per-beat directives replace the four that every beat shared; the floor's uptake line says the world answers, not that the words are received.
+- Declares `npc.voice.generation.v2`: the voice-mask lane now belongs to this package (contract §40.7 owner rule), so a new campaign gets masks again. `npc-voice` stays the legacy owner for old locks.
+- Settings are `coarse_language` and `density_guide` only. Old versions keep their bytes and locks (§26).
+
 ## 1.9.0
 - Carries the capsule's craft lines through `context.style.v1` (contract §137): `style.json` holds the six axes, the four directives with their full and brief lines, the beat table and the four floor lines, moved verbatim from the retired base table `content/craft/beat-directives.json`. A new table sees the same `style` section as before; with this package off, `style` carries only the play language and register.
 - Instructions, brief, settings, voice vocabulary and the craft reference are unchanged from 1.7.1. Campaigns locked to an earlier version keep their bytes and now receive no craft lines in `style` until they upgrade explicitly.

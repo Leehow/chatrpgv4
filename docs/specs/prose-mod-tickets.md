@@ -30,10 +30,13 @@ Status: `ready-for-agent`。分支 `claude/prose-mod-w3-20260925`。范围：规
 
 ## W4 — 2.0.0 与基底瘦身（lead）
 
-Status: `ready-for-human`。在集成分支上做，依赖 W1–W3 合入。范围：规格 §6。
+Status: `ready-for-human`（实施完成 2026-09-25，见 Comments）。在集成分支上做，依赖 W1–W3 合入。范围：规格 §6。
 
 ## W5 — 真桌验收（lead）
 
 Status: `ready-for-human`。依赖 W4。范围：规格 §7。
 
 ## Comments
+
+- 2026-09-25 W1 `330529e50`（+ §30.7f `89fd97391`）、W2 `863775319`、W3 `bb4ed9c91` 合入集成分支；W1 发现删 capability 名会锁死 1.5.0–1.7.1 的旧战役，lead 改为名字留作惰性接受（`88610909b`）。
+- 2026-09-25 W4：narration-craft 2.0.0（agent.md / brief.md 968 B / style.json：全量 2015 B、最重 beat 简式 1308 B，按 35 字符语言标签量）；keeper.md 33064 → 30042 B；`repeated_line` 的 fix 文案不再要求人物让步/加码/换话题；定向测试：pytest 九文件 120 过、ext 九文件 201 过。

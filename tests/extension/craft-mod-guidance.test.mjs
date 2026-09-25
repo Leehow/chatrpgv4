@@ -93,7 +93,12 @@ for (const engine of ['legacy', 'hybrid-v1']) test(`craft guidance follows activ
   await configure({enabled: false});
   await table.session.prompt('I remain in the office.');
   assert.equal(craftOf(requests[2]), undefined, 'disabled instructions cannot survive in the retained briefing');
-  assert.deepEqual(await currentStyle(), initialStyle, 'the optional Mod never edits the base style');
+  // Contract §137: with the provider disabled the base keeps only language and register; the lines were the package's.
+  assert.deepEqual(Object.keys(initialStyle).sort(), ['axes', 'directives', 'floor', 'language', 'register']);
+  const bare = await currentStyle();
+  assert.deepEqual(Object.keys(bare).sort(), ['language', 'register'], 'without a style provider the base carries no craft lines');
+  assert.equal(bare.language, initialStyle.language);
+  assert.equal(bare.register, initialStyle.register);
 
   await configure({version: '0.0.1', enabled: true});
   await table.session.prompt('I ask for a short answer.');

@@ -1,103 +1,122 @@
 {
   "schema_version": 1,
   "axes": [
-    "write natural, complete sentences with clear speakers and relationships",
-    "give the exchange its next meaningful response or settled consequence",
-    "choose scene detail for what the player is doing and can perceive",
-    "let established NPC intentions and relationships shape their wording and register",
-    "vary focus and rhythm with the scene; plain answers, narration, dialogue and purposeful silence are all available",
-    "preserve source truth, player agency and the actual settled outcome"
+    "whole sentences: subject, verb and object plain to see",
+    "long and short in turn; a fragment is one beat, not the texture",
+    "a thing's full name once, then the pronoun or the short name",
+    "what is seen, heard and said; a mood or cause only when established",
+    "dialogue carries information; narration carries what it cannot"
   ],
   "directives": {
-    "exchange-response": {
-      "full": "start from the world's uptake of the declaration; a necessary bridge is not a replay of the player's whole input",
-      "brief": "Answer the declaration through the world, not a replay."
+    "answer-first": {
+      "full": "open with the world's reply; the player's words are on record and are never restated",
+      "brief": "open with the world's reply; never restate the player's words"
     },
-    "voice-with-purpose": {
-      "full": "let each relevant speaker answer, ask, offer, evade or refuse from their established position; their words can carry the beat without a compulsory gesture",
-      "brief": "Let established voices answer; gestures are optional."
+    "one-focus": {
+      "full": "one focus per paragraph, each sentence leading on; errands in a clause, the moment gets room",
+      "brief": "one focus per paragraph; errands in a clause, the moment gets room"
     },
-    "selective-detail": {
-      "full": "make the relevant person, object or space intelligible; choose details that change perception or meaning rather than filling a sensory or atmosphere quota",
-      "brief": "Choose relevant detail, not a sensory or atmosphere quota."
+    "speak-in-person": {
+      "full": "answer what they heard in their own register, wanting something; positions move only with the fiction",
+      "brief": "answer what they heard, in their register, wanting something; positions move only with the fiction"
     },
-    "clarity-and-completion": {
-      "full": "carry the settled result to its actual endpoint; reread for clear agency, speaker transitions and natural play_language",
-      "brief": "Complete the settled result; keep agency and speakers clear."
+    "show-the-change": {
+      "full": "show what the result changed in the room, body or face; an unestablished cause stays unstated",
+      "brief": "show what the result changed; an unestablished cause stays unstated"
+    },
+    "place-the-eye": {
+      "full": "a viewing path from where they stand; the thing that matters last and clearest",
+      "brief": "a viewing path from where they stand; the thing that matters last"
+    },
+    "plain-then-strange": {
+      "full": "the strange beside the plain in plain words; no adjective does the fear's work or names the cause",
+      "brief": "the strange beside the plain, in plain words; no verdict on the cause"
+    },
+    "carry-through": {
+      "full": "carry the action through what needs no choice; stop at the first outcome, obstacle, risk or fork",
+      "brief": "carry the action to its first outcome, obstacle, risk or fork"
+    },
+    "return-by-change": {
+      "full": "on a return, lead with what differs since they last looked; the rest takes half a sentence",
+      "brief": "on a return, lead with what changed; the unchanged in half a sentence"
+    },
+    "press-and-cost": {
+      "full": "the cost in the body or room, the clock in what people do; never a number, label or warning",
+      "brief": "the cost in the body or room, the clock in what people do; no labels"
     }
   },
   "beats": {
     "REVEAL": [
-      "exchange-response",
-      "voice-with-purpose",
-      "selective-detail",
-      "clarity-and-completion"
+      "show-the-change",
+      "place-the-eye",
+      "plain-then-strange",
+      "answer-first"
     ],
     "PRESSURE": [
-      "exchange-response",
-      "voice-with-purpose",
-      "selective-detail",
-      "clarity-and-completion"
+      "press-and-cost",
+      "carry-through",
+      "answer-first",
+      "one-focus"
     ],
     "CHOICE": [
-      "exchange-response",
-      "voice-with-purpose",
-      "selective-detail",
-      "clarity-and-completion"
+      "answer-first",
+      "speak-in-person",
+      "one-focus",
+      "carry-through"
     ],
     "SUBSYSTEM": [
-      "exchange-response",
-      "voice-with-purpose",
-      "selective-detail",
-      "clarity-and-completion"
+      "carry-through",
+      "show-the-change",
+      "press-and-cost",
+      "one-focus"
     ],
     "CHARACTER": [
-      "exchange-response",
-      "voice-with-purpose",
-      "selective-detail",
-      "clarity-and-completion"
+      "speak-in-person",
+      "answer-first",
+      "one-focus",
+      "show-the-change"
     ],
     "RECOVER": [
-      "exchange-response",
-      "voice-with-purpose",
-      "selective-detail",
-      "clarity-and-completion"
+      "answer-first",
+      "speak-in-person",
+      "carry-through",
+      "return-by-change"
     ],
     "CUT": [
-      "exchange-response",
-      "voice-with-purpose",
-      "selective-detail",
-      "clarity-and-completion"
+      "one-focus",
+      "carry-through",
+      "place-the-eye",
+      "return-by-change"
     ],
     "ADVANCE": [
-      "exchange-response",
-      "voice-with-purpose",
-      "selective-detail",
-      "clarity-and-completion"
+      "carry-through",
+      "place-the-eye",
+      "answer-first",
+      "one-focus"
     ],
     "MONTAGE": [
-      "exchange-response",
-      "voice-with-purpose",
-      "selective-detail",
-      "clarity-and-completion"
+      "one-focus",
+      "carry-through",
+      "return-by-change",
+      "show-the-change"
     ],
     "DEEPEN": [
-      "exchange-response",
-      "voice-with-purpose",
-      "selective-detail",
-      "clarity-and-completion"
+      "place-the-eye",
+      "plain-then-strange",
+      "speak-in-person",
+      "show-the-change"
     ],
     "PAYOFF": [
-      "exchange-response",
-      "voice-with-purpose",
-      "selective-detail",
-      "clarity-and-completion"
+      "show-the-change",
+      "plain-then-strange",
+      "speak-in-person",
+      "one-focus"
     ]
   },
   "floor": [
-    "uptake: make clear how the world receives the player's chosen action or words without requiring the whole declaration to be spoken or performed twice",
-    "answer: show the actual settled result and answer the selected exchange; quiet play needs no new event and an offer is not a debt",
-    "voice: use the touched person's own speech or meaningful silence; preserve who said what and who knows what",
-    "handoff: complete the selected goal or stop at a genuinely new unselected consequential decision, with enough public context to judge"
+    "uptake: the world answers; the player's words are on record and are not repeated back",
+    "answer: the settled result or the chosen exchange is perceptible; a quiet turn owes no event",
+    "voice: whoever the exchange touches speaks in their own register inside a say token, or chooses silence",
+    "handoff: stop at a completed goal or a real unselected decision with enough seen to judge; no menu or reflexive question"
   ]
 }

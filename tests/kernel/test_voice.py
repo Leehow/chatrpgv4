@@ -93,6 +93,7 @@ def test_the_shipped_package_declares_the_two_words_the_lane_writes(kernel):
 def test_nobody_needs_a_voice_while_the_package_is_off(kernel):
     create_campaign(kernel)
     narrate_opening(kernel)
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": EXPRESSION, "enabled": False})  # 2.0.0 owns the lane by default
     configure(kernel, enabled=False)
     kernel.table("player_input", text="我仔细观察诺特。")
     assert job(kernel) == {"job_id": None}
@@ -309,6 +310,7 @@ def legacy_campaign(kernel, tmp_path):
     installed_voice(kernel, tmp_path, "1.1.2", 1)
     create_campaign(kernel)
     narrate_opening(kernel)
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": EXPRESSION, "enabled": False})  # legacy lane only: 2.0.0 owns it by default
     # Model a save with no enrollment, then use the real activation path for its old lock.
     path = campaign_dir(kernel.workspace) / "world.json"
     world = read_json(path)

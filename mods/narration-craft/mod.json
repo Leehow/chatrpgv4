@@ -1,26 +1,39 @@
 {
   "id": "narration-craft",
-  "version": "1.9.0",
+  "version": "2.0.0",
   "game_api": "pipicoc.game.v1",
   "state_version": 2,
-  "migrations": [{"from": 1, "to": 2, "operations": [{"op": "default", "key": "dossier", "value": {}}]}],
+  "migrations": [
+    {
+      "from": 1,
+      "to": 2,
+      "operations": [
+        {
+          "op": "default",
+          "key": "dossier",
+          "value": {}
+        }
+      ]
+    }
+  ],
   "author": "PipiCOC",
   "name": {
     "en": "Narration Craft",
     "zh-Hans": "叙述手艺"
   },
   "description": {
-    "en": "The turn floor as craft — uptake, the world's answer, a voice, the handoff — with material chosen from the live exchange and the dossier, NPCs who speak in their own voice, crisis scenes in order, quiet or friendly scenes allowed to be complete, and an optional density guide.",
-    "zh-Hans": "把回合地板做成手艺——接住玩家的话、世界的回答、在场者开口、把回合交回去——按当场交流与在场者档案挑材料、NPC 用自己的声音说话、危机场景按顺序写、安静或友善的场景也算完整，另有可选的篇幅密度指引。"
+    "en": "The one prose package: how the Keeper writes. Open with the world's reply, never a replay; whole sentences with one focus per paragraph; people who answer what they heard in their own register and keep their position; per-beat craft lines in the capsule's style; the turn floor; NPC voice masks and their generation lane; coarse language and an optional density guide. Turn it off and the base keeps only its interfaces.",
+    "zh-Hans": "唯一的文笔包：守秘人怎么写。以世界的回答开头、不复述玩家的话；整句、一段一个焦点；在场的人用自己的口吻回答听到的问题、立场不因换词而动；按 beat 的文风行进胶囊 style；回合地板；NPC 口吻面具与生成车道；粗话开关与可选的密度指引。关掉它，基底只剩接口。"
   },
   "default_enabled": true,
   "requires": [
     "mods.package-files.v1",
+    "context.style.v1",
+    "npc.voice.generation.v2",
+    "npc.voice.consolidation.v1",
     "graph.vocabulary.v1",
     "graph.vocabulary.table.v1",
-    "context.npc.v1",
-    "npc.voice.consolidation.v1",
-    "context.style.v1"
+    "context.npc.v1"
   ],
   "package_files": [
     "agent.md",
@@ -28,13 +41,20 @@
     "style.json"
   ],
   "dependencies": {},
-  "conflicts": ["npc-voice"],
+  "conflicts": [
+    "npc-voice"
+  ],
   "settings": {
     "density_guide": "off",
     "coarse_language": true
   },
   "settings_schema": {
-    "coarse_language": {"title": {"zh-Hans": "允许粗话", "en": "Coarse language"}},
+    "coarse_language": {
+      "title": {
+        "zh-Hans": "允许粗话",
+        "en": "Coarse language"
+      }
+    },
     "density_guide": {
       "enum": [
         "off",
@@ -43,10 +63,22 @@
     }
   },
   "contributes": {
-    "vocabulary": {"actor_profile_keys": [
-      {"key": "voice_mask", "label": "mask", "shape": "lines", "ask": "one line, only when the book prints this person's speech: their register and flexible habits of address, wording or sentence endings, without requiring a catchphrase or a marker in every sentence"},
-      {"key": "exchanges", "label": "in exchange", "shape": "lines", "ask": "up to three exchanges the book prints, each on one line: what someone says to this person, an arrow, what this person says back"}
-    ]},
+    "vocabulary": {
+      "actor_profile_keys": [
+        {
+          "key": "voice_mask",
+          "label": "mask",
+          "shape": "lines",
+          "ask": "one line, only when the book prints this person's speech: their register and flexible habits of address, wording or sentence endings, without requiring a catchphrase or a marker in every sentence"
+        },
+        {
+          "key": "exchanges",
+          "label": "in exchange",
+          "shape": "lines",
+          "ask": "up to three exchanges the book prints, each on one line: what someone says to this person, an arrow, what this person says back"
+        }
+      ]
+    },
     "instructions": "agent.md",
     "brief": "brief.md",
     "style": "style.json"
