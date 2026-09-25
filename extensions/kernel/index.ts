@@ -49,7 +49,7 @@ import {
 } from "../../runtime/jev/speech-attribution-domain.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
 import { PendingAnswers, memoAnswer, pendingAnswer, sourceAnswerAllowanceMs } from "./source-answers.ts";
-import { SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
+import { PERSON_TEXT_NOTE, SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
 import { bookText, CarriedText, findPassage } from "./carried-text.ts";
 import { speechPass } from "../../kernel-ts/write/speech-pass.ts";
 import {
@@ -3229,6 +3229,56 @@ export default function (pi: ExtensionAPI) {
 			...(!drivenEngine && entry.scene === focus ? { text: texts } : {}) })) };
 	}
 
+	/**
+	 * Contract §22.4.7.1 (SL-56). The kernel refused a check or write on a person not yet read with `material_pending` and
+	 * `details.person`. When the book's text names them -- the turn's carried text first, then the native text of the
+	 * person's index pages (`details.index`) -- the same call is sent again with `_land_on_text` for that person: it lands,
+	 * the person's reading is queued blocking with no waiter, the index pages (when they were used) are kept to carry once,
+	 * and the pending row names the person. Anything short of that answers undefined and the caller keeps §22.4's wait.
+	 */
+	async function landPerson(state: TableState, failure: KernelError, payload: Record<string, unknown>, signal: AbortSignal | undefined,
+		invoke: () => Promise<Record<string, unknown> | undefined>): Promise<Record<string, unknown> | undefined> {
+		const details = failure.details ?? {}, read = (details.read ?? {}) as Record<string, unknown>, focus = asString(read.focus);
+		const person = (details.person ?? {}) as Record<string, unknown>, key = asString(person.key), name = asString(person.name) ?? key;
+		if (!focus || !key || !name || !reading || !readingModule) return undefined;
+		const names = (Array.isArray(person.names) ? person.names : [name]).filter((value): value is string => typeof value === "string" && !!value.trim());
+		const lookup = (passages: Array<Record<string, any>>) => { for (const spelled of names) { const found = findPassage(passages as never, spelled); if (found) return found; } return undefined; };
+		let passage = lookup(carriedText.of(state.campaign, state.turn)), texts: Array<{page: number; pdf_label?: string; text: string}> = [];
+		const pages = Array.isArray((details.index as { pages?: unknown } | undefined)?.pages)
+			? ((details.index as { pages: unknown[] }).pages).filter((page): page is number => Number.isSafeInteger(page) && (page as number) >= 1) : [];
+		if (!passage && pages.length && reading.sourcePages) {
+			try { texts = (await reading.sourcePages(readingModule, pages, {}, signal)).filter((page) => page.text.trim().length > 0); }
+			catch (error) { void record({ lane: "reading", event: "person_text_unavailable", turn: state.turn, person: name, detail: error instanceof Error ? error.message : String(error) }); }
+			passage = lookup(texts.map((page) => ({ scene: null, page: page.page, label: page.pdf_label ?? null, text: page.text })));
+		}
+		// An index-only name lands only on a sentence that holds it; a book person on their index pages' text as well.
+		if (!passage && !(person.book === true && texts.length)) {
+			void record({ lane: "reading", event: "person_text_unavailable", turn: state.turn, person: name, detail: "the book's text at hand does not name them" });
+			return undefined;
+		}
+		payload._land_on_text = [{ key, ...(passage ? { passage: { ...passage } } : {}) }];
+		let result: Record<string, unknown>;
+		try { result = (await invoke()) ?? {}; }
+		finally { delete payload._land_on_text; }
+		// The person's reading, blocking and waited on by nobody: the call returns at once, the record lands later.
+		let settled: Promise<any>;
+		try {
+			const reply = await reading.ensure(readingModule, { ...read, foreground: true }, undefined, { allowanceMs: 0, blocking: true });
+			settled = reply?.state === "pending" && reply.settled ? reply.settled : Promise.resolve(reply);
+		} catch (error) { settled = Promise.reject(error); }
+		settled.catch(() => undefined);
+		// The turn's carried text already holds the passage: only index pages the Keeper has not seen are carried.
+		const carried = passage && !texts.length ? [] : texts;
+		sceneReadings.register(state.campaign, focus, carried, state.turn, settled, name);
+		if (!drivenEngine && carried.length) carriedText.note(state.campaign, state.turn, carried.map((page) => ({ scene: null, page: page.page, label: page.pdf_label ?? null, text: page.text })));
+		void record({ lane: "reading", event: "person_text", turn: state.turn, person: name, focus, pages: (carried.length ? carried : []).map((page) => page.page),
+			source: carried.length ? "index" : "carried" });
+		const landed = Array.isArray(result.person_text) ? result.person_text as Array<Record<string, unknown>> : [{ person: name, focus, pages }];
+		return { ...result, person_text: landed.map((entry) => ({ ...entry, note: PERSON_TEXT_NOTE,
+			// On the hybrid engine the pages ride the next note once; the legacy engine has no note, so they ride here.
+			...(!drivenEngine && entry.focus === focus && carried.length ? { text: carried } : {}) })) };
+	}
+
 	function sourceWaitInstruction(state: TableState, wait: NonNullable<TableState["sourceWait"]>): string {
 		const named = wait.focus ? ` for ${wait.focus}` : "";
 		const landed = state.landed.length > 0
@@ -3372,6 +3422,8 @@ export default function (pi: ExtensionAPI) {
 		const closesOpening = spec.name === "narrate" && state.openingPending;
 		if(spec.name==='ask' && params.kind!=='mechanics')throw new Error('Use narrate for ordinary story questions and await free input; ask only accepts mechanics');
     const payload: Record<string, unknown> = { ...params, campaign: state.campaign };
+		// §22.4.7.1 (SL-56): only the host asks the kernel to land a person on the book's text.
+		delete payload._land_on_text;
         if (dispatcher.tracksMutation(toolCallId)) payload._task_read_set = true;
 		if (WRITE_TOOLS.has(spec.name)) {
 			payload.call_id = takeCallId(state, toolCallId);
@@ -3545,7 +3597,10 @@ export default function (pi: ExtensionAPI) {
 				}
 				// §22.4.7 (SL-47): a move into a scene not yet read lands on the book's text for it when the kernel names the scene's
 				// index pages and they have native text; the scene's reading goes on on a blocking slot and its record lands later.
-				const landing = spec.name === 'apply' && !ownedPreparation ? await landOnIndex(state, failure, payload, signal, invokeOperation) : undefined;
+				// §22.4.7.1 (SL-56): a check or write on a person not yet read lands on the book's text that names them, the same way.
+				const landing = ownedPreparation ? undefined
+					: (spec.name === 'apply' || spec.name === 'resolve') && failure.details?.person ? await landPerson(state, failure, payload, signal, invokeOperation)
+					: spec.name === 'apply' ? await landOnIndex(state, failure, payload, signal, invokeOperation) : undefined;
 				if (landing) result = landing;
 				else {
 				const readKey = JSON.stringify([read.purpose ?? "", read.material ?? "", read.focus ?? "", read.question ?? "", read.guidance_key ?? ""]);

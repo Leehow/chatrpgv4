@@ -125,7 +125,7 @@ export function fitView(view: Row, max = CARRIED_VIEW_BYTES, first: readonly str
 
 /** One carried view as the host keeps it: `look`'s focus, the name `look` gives, the view, the cut marks and its read. */
 export interface CarriedView {
-  focus: 'scene' | 'npc' | 'session' | 'source' | 'source_answer' | 'scene_text' | 'scene_record';
+  focus: 'scene' | 'npc' | 'session' | 'source' | 'source_answer' | 'scene_text' | 'scene_record' | 'person_text' | 'person_record';
   name?: string;
   /** The npc's own id from its card (the host's dedupe key); host-side only. */
   id?: string;
@@ -154,9 +154,12 @@ export interface CarriedViews {
  */
 export async function readCarriedViews(input: {call: Call; scene?: string; people: readonly string[]; skip?: ReadonlySet<string>;
   session?: Row | 'read'; passages?: {scene: string; view: Row}; answers?: Array<{name: string; view: Row}>; pending?: Row[];
-  /** §22.4.7: the book's text of scenes a move landed on (once each), and the records of scenes that settled away from the party. */
-  sceneTexts?: Array<{scene: string; pages: Array<{page: number; pdf_label?: string; text: string}>}>;
-  sceneRecords?: Array<{scene: string; view: Row}>}): Promise<CarriedViews> {
+  /**
+   * §22.4.7: the book's text of scenes a move landed on (once each), and the records of scenes that settled away from the
+   * party; §22.4.7.1: an entry with `person` is a person's text (`person_text`) or record (`person_record`), named by them.
+   */
+  sceneTexts?: Array<{scene: string; person?: string; pages: Array<{page: number; pdf_label?: string; text: string}>}>;
+  sceneRecords?: Array<{scene: string; person?: string; view: Row}>}): Promise<CarriedViews> {
   const began = Date.now();
   let reads = 0;
   const read = async (method: string, params: Row): Promise<{ok: true; value: Row} | {ok: false; code: string}> => {
@@ -183,9 +186,10 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
       if (Object.keys(view).length && bytes({...view, [key]: page.text}) > SCENE_TEXT_VIEW_BYTES) { dropped.push(key); continue; }
       view[key] = page.text;
     }
-    due.push({focus: 'scene_text', name: entry.scene, read: null, view, ...(dropped.length ? {dropped} : {})});
+    due.push({focus: entry.person ? 'person_text' : 'scene_text', name: entry.person ?? entry.scene, read: null, view, ...(dropped.length ? {dropped} : {})});
   }
-  for (const entry of input.sceneRecords ?? []) due.push({focus: 'scene_record', name: entry.scene, view: entry.view, read: null});
+  for (const entry of input.sceneRecords ?? [])
+    due.push({focus: entry.person ? 'person_record' : 'scene_record', name: entry.person ?? entry.scene, view: entry.view, read: null});
   const skip = new Set(input.skip ?? []);
   const cards = await Promise.all(input.people.filter(name => !skip.has(name)).map(async name => {
     const params = {focus: 'npc', name};
@@ -214,7 +218,7 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
   for (const item of due) {
     const named = item.name ? {name: item.name} : {};
     if (item.reason || !item.view) { omitted.push({focus: item.focus, ...named, reason: item.reason ?? 'read_failed'}); continue; }
-    const fitted = fitView(item.view, item.focus === 'scene_text' ? SCENE_TEXT_VIEW_BYTES : CARRIED_VIEW_BYTES, FIELD_ORDER[item.focus] ?? []);
+    const fitted = fitView(item.view, item.focus === 'scene_text' || item.focus === 'person_text' ? SCENE_TEXT_VIEW_BYTES : CARRIED_VIEW_BYTES, FIELD_ORDER[item.focus] ?? []);
     const omittedFields = [...(item.dropped ?? []), ...(fitted.omitted_fields ?? [])];
     const entry: CarriedView = {focus: item.focus, ...named, ...(item.id ? {id: item.id} : {}), view: fitted.view, read: item.read,
       ...(fitted.truncated || item.dropped?.length ? {truncated: true as const} : {}), ...(omittedFields.length ? {omitted_fields: omittedFields} : {})};
@@ -255,6 +259,19 @@ export const CARRIED_SCENE_TEXT_HEAD = 'A view with focus scene_text is the book
 export const CARRIED_SCENE_RECORD_HEAD = 'A view with focus scene_record says a scene\'s reviewed record has landed (look focus=scene when the party '
   + 'is there) or could not be read (the clerk\'s business, never the fiction); a scene view of a scene you were given as scene_text is its '
   + 'reviewed record, carried once.';
+/** §22.4.7.1 (SL-56): what the Keeper is told about a person's book text (`focus: "person_text"`). */
+export const CARRIED_PERSON_TEXT_HEAD = 'A view with focus person_text is the book\'s own text about a person a check or write just named, carried once: '
+  + 'their reviewed record (numbers, what they know, how they act) is still being read. Play them from it; do not invent numbers or facts it '
+  + 'does not state. The record lands on a later note.';
+/** §22.4.7.1: what the Keeper is told about a person record that settled (`focus: "person_record"`). */
+export const CARRIED_PERSON_RECORD_HEAD = 'A view with focus person_record says a person\'s reviewed record has landed (look focus=npc shows it) or '
+  + 'could not be read (the clerk\'s business, never the fiction).';
+/** §22.4.7.1: what the Keeper is told when a pending row names a person. */
+export const CARRIED_PENDING_PERSON_HEAD = 'A pending row with a person is that person\'s reviewed record: not known yet; play them from the book\'s text '
+  + 'you were given and do not invent what it does not state.';
+/** §22.3.3 (SL-57): what the Keeper is told about a record marked unusable. */
+export const CARRIED_RECORD_UNUSABLE_HEAD = 'A record marked unusable could not be read from the book and will not be read again unless asked: play on '
+  + 'the book\'s text you were given. It is the clerk\'s business, never the fiction\'s, and it is said once.';
 /** §22.4.7: what the Keeper is told when a pending row names a scene. */
 export const CARRIED_PENDING_SCENE_HEAD = 'A pending row with a scene is that scene\'s reviewed record (its exits, the people there, the things and '
   + 'clues): not known yet; do not invent them.';
@@ -278,8 +295,12 @@ export function carriedSection(carried: CarriedViews, options: {document?: boole
     ...(carried.views.some(entry => entry.focus === 'source_answer') ? [CARRIED_ANSWERS_HEAD] : []),
     ...(carried.views.some(entry => entry.focus === 'scene_text') ? [CARRIED_SCENE_TEXT_HEAD] : []),
     ...(options.record || carried.views.some(entry => entry.focus === 'scene_record') ? [CARRIED_SCENE_RECORD_HEAD] : []),
+    ...(carried.views.some(entry => entry.focus === 'person_text') ? [CARRIED_PERSON_TEXT_HEAD] : []),
+    ...(carried.views.some(entry => entry.focus === 'person_record') ? [CARRIED_PERSON_RECORD_HEAD] : []),
+    ...(carried.views.some(entry => (entry.focus === 'scene_record' || entry.focus === 'person_record') && entry.view.status === 'unusable') ? [CARRIED_RECORD_UNUSABLE_HEAD] : []),
     ...(carried.pending?.length ? [CARRIED_PENDING_HEAD] : []),
-    ...(carried.pending?.some(row => typeof row.scene === 'string') ? [CARRIED_PENDING_SCENE_HEAD] : [])].join(' ');
+    ...(carried.pending?.some(row => typeof row.scene === 'string') ? [CARRIED_PENDING_SCENE_HEAD] : []),
+    ...(carried.pending?.some(row => typeof row.person === 'string') ? [CARRIED_PENDING_PERSON_HEAD] : [])].join(' ');
   return {head, views: carried.views.map(keeperView),
     ...(carried.omitted.length ? {omitted: carried.omitted} : {}), ...(carried.pending?.length ? {pending: carried.pending} : {})} as Json;
 }

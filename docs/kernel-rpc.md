@@ -901,6 +901,11 @@ note carried; the typed reviewer's state carries `bookText` at the seam only on 
 turn's carried text; on the legacy engine the pages the apply result carried are, and a person they name is established
 from them. Mutations in the SL-51 ticket's Comments.
 
+*Amended by §22.4.7.1 (2026-09-25, SL-56):* a table person (this section's `from_passage` entry included) is never held by
+the reading's material gate, and a check or write on a book person not yet read lands on a passage of the book's text (the
+turn's carried text first, then the person's index pages) and registers an index-only name provisionally in this
+section's shape.
+
 ### 11.6 结果与收据
 
 `outcome.kind` 取 `check`、`opposed`、`combined`、`social`、`psychology`、`healing`、`push`、`luck`、`magic`、`development`、`combat`、`chase`、`sanity`、`none`。每种至少有 `level` 或 `status`、涉及的骰面与目标值、`effects`。`effects` 每条 `{kind: hp|san|mp|luck|condition|ammo|position, subject, before, after}`。
@@ -3020,6 +3025,69 @@ three marks, and `look focus=scene` there shows them under `where.contested`; an
 refuses; `contested` on a fact field refuses; a later reading that supports the field settles the mark; a verdict
 outside the words is a schema error at the host. Mutations in the SL-49 ticket's Comments.
 
+### 22.3.3 A detail read refused for an unsupported fact is read once more with the reviewer's reasons; a second refusal settles it (2026-09-25, SL-57; amends §22.2, §22.3.1, §22.3.2 and §107.1)
+
+**Evidence** (ticket 29, batches 6 and 7, 血色公路). Batch 6: the church-steeple detail read (`read-3`) was refused at
+publication, `visual review found /claims/1/reason unsupported`, and stayed `failed` for the rest of the table. Batch 7:
+`welcome-to-abattoir`'s own detail read (`read-2`) was refused on `/nodes/0/summary` four minutes in and stayed `failed`
+for 19 turns while the party stood in that scene; `read-5`'s first review named two unsupported fields with the
+reviewer's reasons (`work/read-5/attempt-1/findings.json`). §22.2 re-dispatches a failed request only on an explicit
+retry, and nobody asked: the reasons were on disk and no reader ever read them. The scene then played on its index text
+(§22.4.7), which is the floor, not the ceiling.
+
+**The refusal carries the reasons (amends §22.3.1).** The host's refusal record gains `refused: [{path, verdict,
+reason}]`: every non-`supported` entry of the review that refused, one row per path, at most `REFUSED_FIELDS` (8, a
+named default in `kernel-ts/modules/reading.ts`), strings bounded like the rest; a malformed row is dropped.
+
+**Once more, in the background.** `module.read.finish {outcome: "failed"}` of a `detail` job (a map job keeps §107.1)
+whose refusal's `rule` is `review_unsupported` (§22.3.2: a fact the cited page does not state), when that job is not
+itself a review retry: the job is failed exactly as before, and one new job of the same identity is queued:
+`{job_id, key, purpose: "detail", focus, question, foreground: false, state: "queued", review_retry: {of, message,
+refused}, resume_from: <the failed attempt's directory>}`. The reply adds `requeued: {job_id, reason: "review_refused"}`
+and the host writes `{lane: "reading", event: "requeued", reason: "review_refused", job_id, of, module_id, campaign,
+purpose, focus}`. A refusal for another reason (a missing field, a lease, a transport failure, a slip) is not retried
+here; `retry: true` reads it, as §22.2 has it.
+- *Background.* A review retry is never promoted: `module.read.request` with `foreground: true` answers it
+  (`queued` / `reading`) without making it blocking, so it takes a slot as a background read does (§22.4.6). A waiter that
+  was following the refused read -- the scene or person reading of §22.4.7 / §22.4.7.1 -- keeps following it, because a
+  request of the identity now finds the queued retry instead of the failed job.
+- *The reader's context.* The claim's packet carries `review_retry`; the host copies it into `task.json` and the read
+  instruction says: an earlier reading of this focus was refused at review; `task.review_retry.refused` lists each refused
+  field with the reviewer's reason; re-read those pages and write only what they state. The retained draft is the
+  starting point (`resume_from`, §22.2); being another job, the retry never skips its read phase.
+
+**A second refusal settles.** The retry's `failed` finish with `review_unsupported` writes, once per identity,
+`meta.reading.materials += {key, purpose: "detail", focus, question, status: "unusable", reason, job_id, node_ids: [],
+generation}` -- §107.1's settlement without `material` -- and queues nothing. `reason` is the refusal's message. A retry
+that fails for another reason is only failed (no settlement; `retry: true` reads it).
+- *Not raised again.* `module.read.request` for the identity answers `{state: "unusable", reason}` (the path §107.1
+  already had for any `detail` key); the reading service's waiter resolves with that reply instead of polling on. The
+  material gate (`requireMaterial`) passes a settled focus, except where it can still land on the book's text: a move into
+  a scene with index pages (§22.4.7) and a person with index pages or a passage (§22.4.7.1) are still refused naming them,
+  so the host lands them and the Keeper plays from the book's own words. `focusTouched` (§22.4.6.1) ignores unusable rows.
+- *Replaced* only by `retry: true` on the identity (the Keeper's `lookup kind=source ... retry: true`; it removes the row and
+  queues afresh, §107.1) or by a completed publication of that focus, which removes the unusable rows of its key or focus.
+
+**The Keeper's note shows it once.** An entry of the host's scene-readings list (§22.4.7, §22.4.7.1) whose reading
+resolves `unusable` settles `unusable` with the reason; its record row is carried as `{status: "unusable", reason}`
+(`scene_record` or `person_record`) once, and once per campaign and focus in this process: a later landing on the same
+settled focus carries no second settlement. Telemetry: `scene_record_unusable` / `person_record_unusable` (`turn, ms,
+reason`). The head says: a record marked unusable could not be read from the book and will not be read again unless asked;
+play on the text you were given; it is the clerk's business, never the fiction's.
+
+**Three ends (§31).** *Writer:* the host's refusal record (`refused`), `module.read.finish` (the retry job, the
+settlement), the scene-readings list (`unusable`). *Reader:* the next reader (`task.review_retry`), `module.read.request`
+and the gate (the settlement), the engine's note (the record row). *Actor:* the reader, who re-reads the refused fields
+against their pages; the Keeper, who plays the scene or person on the book's text and meets the settlement once.
+
+*Tests.* `tests/extension/review-refused-retry.test.mjs`: on the emitted kernel, a detail read refused `review_unsupported`
+is re-queued once, background, with `review_retry` naming the refused fields and reasons and resuming the failed attempt;
+a foreground request does not promote it; its claim's packet carries the reasons; a second refusal settles the focus
+`unusable` and queues nothing; the request answers `unusable`; a move into the settled scene is still refused naming its
+index pages (to land on its text), a resolve there passes; `retry: true` replaces the row; a refusal of another rule is
+not re-queued. On the host: the reading service returns an `unusable` reply to its waiter; the scene-readings list
+carries an unusable settlement once and not again for the same focus. Mutations in the SL-57 ticket's Comments.
+
 ### 22.4 七动词与等待
 
 Keeper 工具总数仍是七个。`lookup {kind: "module", query}` 查现有图；`lookup {kind: "source", query, question?, retry?: boolean}` 明确请求核对原 PDF。source 由扩展编排阅读服务，完成后转为内核的 module 查询；Python RPC 不阻塞等待模型。普通查询误带 question 不启动读者，并明确说明返回的是图谱资料。这个区分来自真桌中普通行军问题意外启动原文阅读的反馈。
@@ -3461,6 +3529,89 @@ page and drops the next whole. Mutations in the SL-47 ticket's Comments.
 
 *Note.* A scene node published by a reading always cites a page (the publication gate requires `source_refs`), so on a read
 PDF the wait of §22.4 for a move remains in practice only where the pages carry no native text or the extraction fails.
+
+#### 22.4.7.1 A check or write on a person not yet read lands on the book's text; the person's record lands when read (2026-09-25, SL-56; amends §22.4, §22.4.7, §11.5.4 and §135.31.2)
+
+The owner's ruling (2026-09-25): the umbrella rule "Reading never holds a turn" covers persons. A write or check that
+names a person the index or the carried text names (§11.5.4's `from_passage` shape) lands on that text; the person's
+detail read continues on a blocking slot and the record lands on a later note; the foreground wait remains only for a
+person the book's text nowhere names.
+
+**Evidence** (ticket 29's batch-7 entry, campaign `sl29ab7-xuese-0445`). At t10 the Keeper placed a man the book had not
+yet named (`apply npc 最靠边的那个男人 to: here`, established `table`, §87) and then checked him (`resolve` with that
+`target`). The resolve was refused `material_pending` with `read {purpose: "detail", focus: "最靠边的那个男人"}`, and the turn
+waited 124.5 s; at t11 the same resolve waited 131.4 s on the same job (`read-5`), a detail read of a focus no page of
+the book uses, which spent five minutes on twelve pages and was still running when the table ended. Two causes: the
+reading's gate asked the published graph file whether a person was ready, so a table person -- whom `withTablePeople`
+already answers `ready` for the loaded module ("a table person needs no source reading") -- was held as unread book
+material; and a book person not yet read held the turn for the record even where the book's text naming them was at
+hand, where §22.4.7 had already stopped that for scenes.
+
+**A person's seat.** The gate learns from its caller which names stand where a person stands: `resolve`'s
+`action.actor` and `action.target`, `apply npc`'s `name`. No name is classified by its words.
+
+**Who is held (`Reading.requireMaterial`).**
+- A **table person** (§87 and §11.5.4: installed from `world.table_people`, `established: "table"` or `"passage"`) is not
+  book material. The gate passes them and queues no read: the book does not have them under that name (t10's `read-5`),
+  and one established from a passage gets their record when the scene's reading names them (§11.5.4's replacement).
+- A person in a person's seat whose focus is in `world.index_people` (landed on text before, below) passes.
+- A **book person not yet read** -- a graph `npc` or `creature` node whose material is not ready, or a name in a person's
+  seat that no graph node names and a §22.1 index row lists -- is refused `material_pending` as before, now with
+  `details.person {key, name, names, book}` (`key`: the name as the gate met it; `name`: the display name; `names`: the
+  names the book's text may use -- the node's name and aliases, at most six, or the given name; `book`: whether a graph
+  node exists) and, when the person has index pages, `details.index {pages}`.
+- **A person's index pages** (`Reading.personIndexPages`), structure only: the pages the node's own `source_refs` cite in
+  the bound document, then the pages of every index row whose `name` or one of whose `entities` meets the person's focus
+  identity (§22.2.1), in the book's order, at most `SCENE_INDEX_PAGES`.
+- A focus settled `unusable` (§22.3.3) passes when it has no index pages; with index pages it is still refused as above,
+  so that it lands on the text.
+
+**The landing.** On §22.4's wait path (never for an owned source preparation), the host looks for the person in the
+book's text: first the turn's carried text (§11.5.4, `findPassage` for each of `names`, newest passage first), then the
+native text of `details.index.pages` (`ReadingBridge.sourcePages`) with the same lookup. It re-sends the same call (same
+`call_id`) with the host-only `_land_on_text: [{key, passage?}]` (the host strips a model-sent one; `passage` is §11.5.4's
+`{scene, page, label, sentence}`). The kernel lets that person through when it still refuses them and: for a book node,
+the person has index pages or the passage's sentence holds one of `names`; for an index-only name, the passage's sentence
+holds the name (§11.5.4's comparison). Then:
+- an index-only name is registered provisionally exactly as §11.5.4 registers one (`world.table_people` with
+  `from_passage`, installed on the graph); the record replaces the entry by name, once, when the person's reading
+  publishes them (§11.5.4, `withTablePeople`);
+- the focus joins `world.index_people` (a book node's handle, or the given name), and the gate passes it from then on;
+  a `resolve` writes the world for this at the gate, before any roll;
+- the result carries `person_text: [{person, focus, pages, passage?}]`.
+
+The host then queues the person's `detail` read (`details.read`) as blocking with no waiter, as §22.4.7 does for a scene,
+and keeps it in the scene-readings list as a person's entry:
+- the note's `pending` rows (§135.31.2) name the person: `{focus, question: "", since_turn, purpose: "detail", person}`;
+- when the landing used the index pages' text (not the turn's carried text, which the Keeper already has), the pages are
+  carried once as a view `{focus: "person_text", name: <person>, view: {"page <n> (<label>)": <text>, …}}` under
+  `SCENE_TEXT_VIEW_BYTES`, with the head: the book's own text about a person a check or write just named, carried once;
+  their reviewed record (numbers, what they know, how they act) is still being read; play them from it and do not invent
+  what it does not state. On the legacy engine the same pages ride the result's `person_text[].text`, and are the turn's
+  carried text (§11.5.4);
+- the record lands once: `{focus: "person_record", name, view: {status: "landed", note}}` (`look focus=npc` shows the
+  record), or `{status: "unavailable" | "unusable", reason}` (§22.3.3), carried exactly once;
+- telemetry `lane: "reading"`: `person_text` (`turn, person, focus, pages, source: "carried" | "index"`),
+  `person_record_landed` / `person_record_unavailable` / `person_record_unusable` (`turn, person, ms`).
+
+**When the wait remains.** A person in a person's seat whom the book's text nowhere names: a book node with no index
+pages and no carried passage; an index-only name that no sentence of the carried text or of its index pages holds; a
+host without `sourcePages` and no carried passage. §22.4's foreground wait, single repair and timeout, as written.
+
+**Three ends (§31).** *Writer:* the kernel (`details.person`, the landing, `world.index_people`, the provisional person,
+`person_text`), the host (the passage lookup, `_land_on_text`, the blocking read, the person's entry). *Reader:* the gate
+(`index_people`, table persons), the engine's note (`person_text`, `pending`, `person_record`), the legacy result.
+*Actor:* the Keeper, whose check or write on a person the book names lands at once, who plays them from the book's text,
+and who meets their record on a later note.
+
+*Tests.* `tests/extension/person-text-landing.test.mjs`: on the emitted kernel, a table person is not held (t10's shape);
+a resolve on a book person not yet read refuses naming the person and their index pages, lands with `_land_on_text`,
+writes `index_people`, and a second check passes without landing; an index-only person lands only with a passage whose
+sentence holds the name, and is then registered `from_passage`; at the extension seam (hybrid-v1, faux Keeper, the
+emitted kernel, a stub reading bridge over page texts) the resolve lands in one call, the next step's note carries the
+page text once and a pending row naming the person, and after the read lands the next turn's first step carries the
+record once; a person whose name the text nowhere holds keeps the foreground wait. Mutations in the SL-56 ticket's
+Comments.
 
 ### 22.4.8 A scene's detail read writes the scene's own index row; the landing is its own pages first (2026-09-24, SL-48; amends §22.1 and §22.4.7)
 

@@ -23,7 +23,8 @@ import { stageMove } from './move.js';
 import {appendJsonl} from '../fileio.js';
 import {join} from 'node:path';
 import {stageFlag,stageNote,stageRuling,stageThreat} from './bookkeeping.js';
-import {stageClue,stageNpc,stageHandout} from './entities.js';
+import {stageClue,stageNpc,stageHandout,landPeople,landRequests} from './entities.js';
+import type {MaterialGate,TextLanding} from '../modules/reading.js';
 import {stagePerson} from './person.js';
 import {presentArrivalMaps,revealMap} from '../read/maps.js';
 import {stageItem,stageCash,commitInventorySheets} from './inventory.js';
@@ -70,9 +71,11 @@ export interface ApplyContributions {
         receipt: Row;
         event: DomainEvent;
     }>;
-    /** §22.4.7: `gate` names the move destinations and the scenes entered on their index text; returns the moves landed on it. */
-    readonly requireMaterial?: (graph: ModuleGraph, names: any[], gate?: {moves?: Map<unknown, {effect: number; land: boolean}>; entered?: ReadonlySet<string>})
-        => Promise<Array<{name: string; focus: string; pages: number[]}> | void>;
+    /**
+     * §22.4.7: `gate` names the move destinations and the scenes entered on their index text; §22.4.7.1: the names in a
+     * person's seat, the people landed before and the host's landings. Returns what it let through on the book's text.
+     */
+    readonly requireMaterial?: (graph: ModuleGraph, names: any[], gate?: MaterialGate) => Promise<TextLanding[] | void>;
     /** §107.1: queue the arrived scene's map reading in the background; never refuses the move. */
     readonly queueArrivalMap?: (graph: ModuleGraph, scene: Row) => Promise<Row>;
     readonly materialReady?: (moduleId: string, name: string) => Promise<boolean>;
@@ -115,7 +118,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 kernel, campaign, world:transaction.world, turn, graph, effects:effects as Row[], bindings:params._fulfillments as unknown as FulfillmentSelection[]});
             const authored: Row = { move: 'to', clue: 'clue', npc: 'name', handout: 'name', map: 'name' };
             const kinds: Record<string, string[]> = { move: ['scene'], clue: ['clue'], npc: ['npc'], handout: ['handout', 'asset'], map: ['handout', 'asset'] };
-            const names = effects.filter(isJsonObject).filter(effect => Object.hasOwn(authored, string(effect.kind))).map(effect => {
+            const seated = effects.filter(isJsonObject).filter(effect => Object.hasOwn(authored, string(effect.kind)));
+            const names = seated.map(effect => {
                 const name = effect[authored[string(effect.kind)]];
                 if (typeof name !== 'string') return name;
                 const node = ['handout','map'].includes(string(effect.kind)) ? graph.find(name, ['handout']) ?? graph.find(name, ['asset']) : graph.find(name, kinds[string(effect.kind)]);
@@ -130,11 +134,15 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 moves.set(node?.node_id ?? effect.to, { effect: index, land: effect._land_on_index === true });
             }
             const entered = new Set(array(transaction.world.index_scenes).filter((value): value is string => typeof value === 'string'));
-            let indexLanded: Array<{name: string; focus: string; pages: number[]}> = [];
+            // §22.4.7.1 (SL-56): an `npc` effect's name stands in a person's seat; the host may ask to land it on the book's text.
+            const people = new Set(seated.flatMap((effect, index) => effect.kind === 'npc' ? [names[index]] : []));
+            const textPeople = new Set(array(transaction.world.index_people).filter((value): value is string => typeof value === 'string'));
+            let textLanded: TextLanding[] = [];
             if (contributions.requireMaterial)
-                indexLanded = (await contributions.requireMaterial(graph, names, { moves, entered })) ?? [];
+                textLanded = (await contributions.requireMaterial(graph, names, { moves, entered, people, textPeople, land: landRequests(params._land_on_text) })) ?? [];
             else if (playsFromReading(module.meta))
                 throw new RpcError('not_implemented', 'The source material gate is not implemented in the TypeScript apply runtime');
+            const indexLanded = textLanded.filter(entry => entry.kind === 'scene');
             if (!Object.hasOwn(transaction.world, 'scene_trail')) {
                 const repaired = await writer.transaction(params, { preload: false });
                 Object.assign(transaction.world, repaired.world);
@@ -167,6 +175,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             let timeEffects = 0, restMinutes = 0;
             const refused: { index: number; error: RpcError }[] = [];
             let stagedWorldline:Row|null=null;
+            // §22.4.7.1 (SL-56): the people this batch names that landed on the book's text, registered before their effects stage.
+            const personText = landPeople(context, textLanded);
             for (const [index, given] of effects.entries()) {
                 try {
                     if (!isJsonObject(given) || typeof given.kind !== 'string')
@@ -359,6 +369,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             }
             if (landedHere.length)
                 result.scene_text = landedHere.map(entry => ({ scene: entry.focus, pages: entry.pages }));
+            if (personText.length)
+                result.person_text = personText;
             if (crossed)
                 result.obligation_open = crossed;
             if (recovery.recovered.length)

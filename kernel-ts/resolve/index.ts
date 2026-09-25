@@ -10,6 +10,8 @@ import { activeMods } from '../read/mods.js';
 import { SessionView } from '../read/session-view.js';
 import { array, clone, integer, normalize, number, repr, row, string, truth, type Row } from '../read/values.js';
 import { playsFromReading } from '../modules/bound-source.js';
+import type { MaterialGate, TextLanding } from '../modules/reading.js';
+import { landPeople, landRequests } from '../apply/entities.js';
 import { RuleTables } from '../rules/tables.js';
 import { SkillResolver } from '../rules/skills.js';
 import { nowIso } from '../write/store.js';
@@ -36,7 +38,7 @@ export type { SettlementPort } from './settlement.js';
 const INTENTS = ['ambiguous', 'cast', 'combat', 'flee', 'idle', 'investigate', 'meta', 'montage', 'move', 'social', 'stuck'];
 const NONE_INTENTS = new Set(['idle', 'meta', 'stuck', 'ambiguous']);
 export interface ResolveContributions extends FixedFamilies {
-    requireMaterial?: (graph: ModuleGraph, names: any[], gate?: {entered?: ReadonlySet<string>}) => Promise<unknown>;
+    requireMaterial?: (graph: ModuleGraph, names: any[], gate?: MaterialGate) => Promise<TextLanding[] | void>;
     beforeMain?: (input:ModResolveInput)=>Promise<ModResolveResult|null>;
 }
 function modifiers(input: any, arithmetic: CheckArithmetic, intent: unknown = null): [
@@ -243,10 +245,18 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                     action = { ...action, scenario_san_reward_expr: endingReward.expression };
             }
             if (!NONE_INTENTS.has(intent)) {
-                if (contributions.requireMaterial)
+                if (contributions.requireMaterial) {
                     // §22.4.7: a scene the party entered on its index text is not held while its record is read.
-                    await contributions.requireMaterial(graph, [transaction.world.active_scene, action.actor, action.target],
-                        { entered: new Set(array(transaction.world.index_scenes).filter((value): value is string => typeof value === 'string')) });
+                    // §22.4.7.1 (SL-56): the actor and the target stand in a person's seat; a person the book's text names lands on it.
+                    const landed = await contributions.requireMaterial(graph, [transaction.world.active_scene, action.actor, action.target], {
+                        entered: new Set(array(transaction.world.index_scenes).filter((value): value is string => typeof value === 'string')),
+                        people: new Set([action.actor, action.target].filter(value => typeof value === 'string' && value)),
+                        textPeople: new Set(array(transaction.world.index_people).filter((value): value is string => typeof value === 'string')),
+                        land: landRequests(params._land_on_text) }) ?? [];
+                    // The landing is recorded where the gate lets it through, before any roll, like the reading it queues.
+                    if (landPeople({ graph, world: transaction.world, turn: transaction.turn }, landed).length)
+                        await transaction.campaign.writeWorld(transaction.world);
+                }
                 else if (playsFromReading(module.meta))
                     throw new RpcError('not_implemented', 'The source material gate is not implemented in the TypeScript resolve runtime');
             }

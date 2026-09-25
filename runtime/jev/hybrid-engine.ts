@@ -99,14 +99,15 @@ export function withEntrance(entry: GuardedDestination, passages: readonly Passa
  * string `content` (§135.31.1's book passages; its graph-entity units are the graph's own words). Structure only.
  */
 export function carriedPassages(views: ReadonlyArray<{focus: string; name?: string; view: Row}>,
-  sceneTexts: ReadonlyArray<{scene: string; pages: Array<{page: number; pdf_label?: string; text: string}>}> = []): Row[] {
+  sceneTexts: ReadonlyArray<{scene: string; person?: string; pages: Array<{page: number; pdf_label?: string; text: string}>}> = []): Row[] {
   const out: Row[] = [];
   for (const entry of views) {
-    if (entry.focus === 'scene_text') {
-      const pages = sceneTexts.find(value => value.scene === entry.name)?.pages ?? [];
-      for (const page of pages) {
+    // §22.4.7.1 (SL-56): a person's text is carried text too; its rows keep the focus the reading reads as their scene.
+    if (entry.focus === 'scene_text' || entry.focus === 'person_text') {
+      const text = entry.focus === 'person_text' ? sceneTexts.find(value => value.person === entry.name) : sceneTexts.find(value => !value.person && value.scene === entry.name);
+      for (const page of text?.pages ?? []) {
         const key = `page ${page.page}${page.pdf_label ? ` (${page.pdf_label})` : ''}`;
-        if (typeof entry.view[key] === 'string') out.push({scene: entry.name ?? null, page: page.page, label: page.pdf_label ?? null, text: entry.view[key]});
+        if (typeof entry.view[key] === 'string') out.push({scene: entry.focus === 'person_text' ? null : entry.name ?? null, page: page.page, label: page.pdf_label ?? null, text: entry.view[key]});
       }
     } else if (entry.focus === 'source') {
       for (const [label, value] of Object.entries(entry.view)) {
@@ -134,8 +135,12 @@ export interface TurnClosePort {
 /** The kernel extension's consultation port (`coc:source-answers`, contract §135.31.2): what went pending, what landed since. */
 export interface SourceAnswersPort {
   campaign?: string;
-  take(): {pending: Array<{focus: string; question: string; since_turn: number; purpose?: string}>;
-    landed: Array<{focus: string; question: string; since_turn: number; answer?: Row; unavailable?: string}>};
+  take(): {pending: Array<{focus: string; question: string; since_turn: number; purpose?: string; scene?: string; person?: string}>;
+    landed: Array<{focus: string; question: string; since_turn: number; answer?: Row; unavailable?: string}>;
+    /** §22.4.7 / §22.4.7.1: the book's text of a scene or person landed on it, once. */
+    texts?: Array<{scene: string; person?: string; pages: Array<{page: number; pdf_label?: string; text: string}>}>;
+    /** §22.4.7 / §22.4.7.1 / §22.3.3: a scene's or person's record that settled, once. */
+    records?: Array<{scene: string; since_turn: number; person?: string; unavailable?: string; unusable?: string}>};
 }
 /** The kernel extension's canonical operation gateway (`coc:operation-dispatcher`). */
 export interface OperationGateway {
@@ -762,9 +767,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // itself when the party is still there, else a row saying it landed (or could not be read).
     const sceneTexts = taken.texts ?? [];
     const records = taken.records ?? [];
-    const here = records.find(entry => !entry.unavailable && entry.scene === run.scene);
-    const sceneRecords = records.filter(entry => entry !== here).map(entry => ({scene: entry.scene,
-      view: entry.unavailable ? {status: 'unavailable', reason: entry.unavailable} : {status: 'landed', note: 'look focus=scene there shows it'}}));
+    const here = records.find(entry => !entry.unavailable && !entry.unusable && !entry.person && entry.scene === run.scene);
+    // §22.4.7.1 (SL-56): a person's record is a row naming them; §22.3.3 (SL-57): a settled focus says so, once.
+    const sceneRecords = records.filter(entry => entry !== here).map(entry => ({scene: entry.scene, ...(entry.person ? {person: entry.person} : {}),
+      view: entry.unusable ? {status: 'unusable', reason: entry.unusable} : entry.unavailable ? {status: 'unavailable', reason: entry.unavailable}
+        : {status: 'landed', note: entry.person ? 'look focus=npc shows it' : 'look focus=scene there shows it'}}));
     const sceneDue = scene ?? (here ? here.scene : undefined);
     if (!sceneDue && !people.length && !session && !passages && !answers.length && !pending.length && !sceneTexts.length && !sceneRecords.length) return undefined;
     const carried = await readCarriedViews({call, ...(sceneDue ? {scene: sceneDue} : {}), people, skip: run.shown.people, ...(session ? {session} : {}),
@@ -788,10 +795,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     for (const entry of carried.omitted) if (entry.focus === 'npc' && entry.reason === 'not_found' && entry.name) run.shown.people.add(entry.name);
     record({lane: 'run', event: 'carried', run: run.runId, step: stepId,
       views: carried.views.map(entry => ({focus: entry.focus, ...(entry.name ? {name: entry.name} : {}), bytes: bytes(entry.view),
-        ...(entry.focus === 'source_answer' || entry.focus === 'scene_record' ? {status: entry.view.status ?? null} : {}),
+        ...(entry.focus === 'source_answer' || entry.focus === 'scene_record' || entry.focus === 'person_record' ? {status: entry.view.status ?? null} : {}),
         ...(entry.truncated ? {truncated: true, omitted_fields: entry.omitted_fields ?? []} : {})})),
       omitted: carried.omitted, ...(carried.pending?.length ? {pending: carried.pending.map(entry => ({focus: entry.focus, since_turn: entry.since_turn, purpose: entry.purpose ?? null,
-        ...(typeof entry.scene === 'string' ? {scene: entry.scene} : {})}))} : {}),
+        ...(typeof entry.scene === 'string' ? {scene: entry.scene} : {}), ...(typeof entry.person === 'string' ? {person: entry.person} : {})}))} : {}),
       ...(here ? {scene_record: here.scene} : {}),
       bytes: carried.bytes, reads: carried.reads, ms: carried.ms});
     return carriedSection(carried, {...(run.document === undefined ? {} : {document: run.document}), ...(here ? {record: true} : {})});
