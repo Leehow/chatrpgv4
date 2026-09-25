@@ -1,4 +1,4 @@
-Status: ready-for-human (filed 2026-09-24 from long gates #3–#5; batch 6; measured and partly implemented 2026-09-24 -- the keep rule is handed back, see Comments)
+Status: ready-for-human (filed 2026-09-24 from long gates #3–#5; batch 6; measured 2026-09-24; re-ruled and implemented 2026-09-25 -- writes are silent; the next long gate measures it)
 Stage: SL-50 (P2, delivery; the largest remaining wall on the starter)
 Spec: docs/kernel-rpc.md §34.16, §135.11 (turn close), the `text_beside_tool_calls` drop
 
@@ -142,3 +142,34 @@ units only, so SL-51's `bookText` was empty here. The replay cannot measure the 
 - `py` -- "1725 passed, 2 skipped in 177.71s" (`== py on leehow-pc @ 6436a1633…: exit=0 wall=179s`).
 
 - **2026-09-25, owner re-ruling after the measurement.** The keep rule is withdrawn: 21 of the 26 apply-only drafts were the Keeper announcing its bookkeeping ("我先把这段空档记进他的账上…"), median 40 characters against 238 for the delivered turn; keeping them would deliver a preamble, not the turn, and the run would still take the later step. The cost is the preamble itself: a step spent writing prose that can only be dropped. New rule, guidance side, structural on the host side: (1) the Keeper's guidance says writes are silent (no prose beside `apply`/`resolve`/`lookup` calls; the turn's prose comes through `narrate` or the final text step, in the same response as the writes when nothing in the writes needs a result first); (2) the drop's steer names the rule and the call kinds it sat beside (the drop row already carries them); (3) the measurement is the next long gate: `text_beside_tool_calls` per table (#5: 14) and steps per turn (#5: 60 over 20). Scope for the worker: the guidance text (one place, the assembled capsule; check the budget in `assemble.ts` before adding a line), the steer text, a test that the steer carries the call kinds, no keep path. Status stays `ready` for that follow-up.
+
+### 2026-09-25 — the re-ruling implemented on `claude/sl50-20260924` (merged `claude/integ-single-loop-20260923` at `787ddf480` first; no conflicts)
+
+**Commit** `ac9cdcd6b` (contract §135.11.1 addendum, `kernel-ts/read/assemble.ts`, `extensions/kernel/index.ts`,
+`tests/extension/beside-drop-row.test.mjs`). No keep path.
+
+- **The guidance, one place: the capsule's head.** `HEAD` ends with `SILENT_WRITES` (writes are silent: no prose beside
+  `apply`/`resolve`/`lookup`, it is dropped and never shown; the turn's prose through `narrate` or the final text step, in the same
+  response as the writes whenever none needs its result first). **Budget check:** the head is outside every §13.6 section budget
+  (`test_capsule_budgets` exempts it), so **nothing is displaced**. Not used: the `style` section, whose first-turn full form measures
+  2 001 of 2 048 bytes in zh-Hans (1 959 en; the brief form 1 246 of 1 536 at worst) -- a new ~220-byte line there would pop the last
+  directive (`rewrite-abstract-psychological-explanation`), as §40's longer voice line once did; and `floor_lines`, which the kernel
+  validates as exactly the four kinds a turn owes (§34.2).
+- **The steer.** The first call of the dropped message that answers carries `prose_dropped: {beside, steer}` in its result: `beside` the
+  message's distinct call kinds in order, `steer = besideSteer(beside)` (names the rule and those kinds). A landed call: in its JSON
+  result (content and `details`); a refused call: in `details` and as a line after its error text. Once per message; never on
+  `narrate`/`ask`; a message whose every call a gate blocked is not steered (the gate's own reason is). The drop row gains `steered`
+  (the carrying tool, or `null`).
+- **Tests** (structure, not wording): prose beside `apply` + `resolve` → the `apply`'s result carries `beside: [apply, resolve]` and the
+  steer over those kinds, the `resolve` and a later unrelated call carry nothing, a refused `apply` beside prose carries it in `details`
+  and its text, the rows name the steering call, the steer names a kind the rule's own sentence never does (`recall`), the turn's capsule
+  head carries `SILENT_WRITES`; a message whose only call is `narrate` is not steered.
+- **Mutations** (copy-revert, `mutate.py` in the session scratchpad; all 9 killed): T1 never steered; T2 only the first call's kind;
+  T3 every call steered (not once per message); T4 a delivery steered (killed by the `narrate`-only test); T5 a refused call's text not
+  steered; T6 the steer without the kinds; T7 `SILENT_WRITES` not in the head (runtime rebuilt for it and after); T8 the row's `steered`
+  dropped; T9 a refused call's `details` not steered.
+- **Suites** (leehow-pc, at `ac9cdcd6b`): `ext` -- "ℹ tests 3080 / ℹ pass 3080 / ℹ fail 0" (`== ext on leehow-pc @ ac9cdcd6b…: exit=0
+  wall=156s`); `loop` -- "# tests 175 / # pass 175 / # fail 0" (`== loop on leehow-pc @ ac9cdcd6b…: exit=0 wall=42s`). `py` was not
+  rerun (not asked; the head change touches `test_capsule_module`'s substring checks, which hold).
+- **Measurement:** the next long gate -- `text_beside_tool_calls` rows per table (#5: 14) and model steps per turn (#5: 60 over 20).
+
