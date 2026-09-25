@@ -19,3 +19,5 @@ Provider model data the product knows to be wrong is corrected by the product, a
 4. Live: the owner runs long gate #10 with `--thinking off` on this build; the ticket records its numbers.
 
 ## Comments
+
+- **2026-09-25, owner, scope 4 (live).** Long gate #10 on the same runtime with the agent home's `models.json` override and `--thinking off`: 73 Keeper calls, reasoning tokens 0 on every one, p50 2.6 s / p90 7.1 s (gate #9 "low": p50 27 s, 11 calls over 45 s); median wall 26 s, 19/20 turns under 60 s; prose zh-Hans and coherent on the four turns read. The one stranded turn (t4) is unrelated to thinking (SL-62/63). The override is the right shape; this ticket ships it as product data.
