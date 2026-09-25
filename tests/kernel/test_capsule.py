@@ -99,7 +99,11 @@ def test_the_appearance_the_player_wrote_reaches_the_keeper_bounded(kernel):
 def test_look_focus_variants(kernel):
     open_turn(kernel)
     scene = kernel.table("look")
-    assert set(scene) == {"where", "present"}
+    # §11.5.8 (SL-67): `roster` rides beside `where`/`present` -- the campaign's own established table/`from_passage`
+    # persons, unconditioned by scene or presence, so SL-62's host-side name resolution can ask about someone
+    # established elsewhere too. Empty here: this fixture has established nobody yet.
+    assert set(scene) == {"where", "present", "roster"}
+    assert scene["roster"] == []
     assert scene == kernel.table("look", focus="scene")
     assert kernel.table("status")["state"] == "acting"
 

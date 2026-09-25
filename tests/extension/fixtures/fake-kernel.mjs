@@ -37,6 +37,10 @@
  *                          （契约 §21.5，票 #31）。`investigator.save` 每次调用回一个
  *                          新铸的 library_id，不真的把桌上的卡写进这份名册。
  *   FAKE_KERNEL_PRESENT    JSON array: replaces the capsule's `present` rows (contract §13.1)
+ *   FAKE_KERNEL_ROSTER     JSON array: `table.look {focus:"scene"}`'s `roster` field (contract §11.5.8,
+ *                          SL-67) -- the campaign's established table/`from_passage` persons, unconditioned
+ *                          by scene or presence; not given is an empty roster, same as a campaign that has
+ *                          established nobody yet.
  *   FAKE_KERNEL_SAY_PASS   JSON object {"<name>": {"npc"|"investigator": id, "name"}}: narrate runs the
  *                          kernel's own say-token repair (§40.1) over the text and resolves names through
  *                          this map, so `speech`, `marked_text` and `rendered_text` follow the text sent
@@ -895,7 +899,9 @@ function handle(method, params) {
 			if (process.env.FAKE_KERNEL_LOOK_MAPS) {
 				return { ok: true, result: { map_views: JSON.parse(process.env.FAKE_KERNEL_LOOK_MAPS) } };
 			}
-			return { ok: true, result: { where: capsule(null).where, present: capsule(null).present } };
+			// §11.5.8 (SL-67): `roster` rides beside `present` and `where`, unconditioned by either.
+			return { ok: true, result: { where: capsule(null).where, present: capsule(null).present,
+				roster: process.env.FAKE_KERNEL_ROSTER ? JSON.parse(process.env.FAKE_KERNEL_ROSTER) : [] } };
 		case "table.lookup":
 			if (state === "open") state = "acting";
 			return { ok: true, result: { entities: [{ name: params.query ?? "科比特", display_name: params.query ?? "科比特",

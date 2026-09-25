@@ -50,8 +50,16 @@ export interface StageBudget {
 const DIMENSIONS = ['inputTokens', 'outputTokens', 'actions', 'costUsd'] as const;
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
 
-/** The stage's lease: per dimension, clamp(floor, pages × per-page × share, ceiling). `null` for a stage that calls no provider. */
-export function readingStageBudget(stage: ReadingStage, options: {pageCount: number; perPage?: PageCost}): StageBudget | null {
+/** How many whole-context reservations the input-token floor is built to survive (contract §20 addendum 6, SL-65). */
+const FLOOR_RESERVATIONS = 8;
+
+/** The stage's lease: per dimension, clamp(floor, pages × per-page × share, ceiling). `null` for a stage that calls no provider.
+ *
+ * `contextWindow` (§20 addendum 6, SL-65): the reader's own context window, when the caller knows it. An image call
+ * reserves the whole window (`runtime/jev/provider-budget.ts`), so the input-token floor -- "eight whole-context
+ * reservations" -- is `FLOOR_RESERVATIONS × contextWindow`, never below the fixed default (a reader smaller than the
+ * default, or one the caller does not know the window of, keeps the same protection every stage always had). */
+export function readingStageBudget(stage: ReadingStage, options: {pageCount: number; perPage?: PageCost; contextWindow?: number}): StageBudget | null {
   const share = READING_STAGE_BUDGET.share[stage];
   if (share === undefined) throw new Error(`unknown reading stage: ${stage}`);
   if (!share) return null;
@@ -59,8 +67,10 @@ export function readingStageBudget(stage: ReadingStage, options: {pageCount: num
   // A measurement can raise the per-page cost, never lower it below the default: it counts the author's
   // rounds only, while the stage's lease also pays the independent review of every page read.
   const perPage = Object.fromEntries(DIMENSIONS.map(key => [key, Math.max(READING_STAGE_BUDGET.perPage[key], options.perPage?.[key] ?? 0)])) as unknown as PageCost;
+  const contextWindow = Number.isFinite(options.contextWindow) && (options.contextWindow as number) > 0 ? options.contextWindow as number : 0;
+  const floor = {...READING_STAGE_BUDGET.floor, inputTokens: Math.max(READING_STAGE_BUDGET.floor.inputTokens, FLOOR_RESERVATIONS * contextWindow)};
   const sized = Object.fromEntries(DIMENSIONS.map(key => {
-    const raw = clamp(pageCount * perPage[key] * share, READING_STAGE_BUDGET.floor[key], READING_STAGE_BUDGET.ceiling[key]);
+    const raw = clamp(pageCount * perPage[key] * share, floor[key], READING_STAGE_BUDGET.ceiling[key]);
     return [key, key === 'costUsd' ? raw : Math.ceil(raw)];
   })) as Record<typeof DIMENSIONS[number], number>;
   return {stage, pageCount, perPage: {...perPage}, measured: !!options.perPage, ...sized,

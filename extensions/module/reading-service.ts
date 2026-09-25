@@ -50,7 +50,7 @@ interface Dependencies {
 	home: string;
 	runtime?: HostRuntime;
 	navigateFresh?: FreshSourceNavigator;
-	model(): { id: string; vision: boolean; thinking?: string };
+	model(): { id: string; vision: boolean; thinking?: string; contextWindow?: number };
 	progress(row: Row): void;
 	record(row: Row): void;
 	/** The operator's out-of-fiction surface for a lane that stopped working (contract §22, shaped after §32.2). */
@@ -798,10 +798,12 @@ export class ReadingService implements ReadingBridge {
 		await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
 		// §20 addendum 3 (SL-41) and 5 (SL-53): a read raised during play, the background index and a skeleton outside a stage
 		// have no stage lease; each is sized from the book like the import's stages, once per job, and every reader child of
-		// the job opens a lease of that size (runtime/tasks.ts).
+		// the job opens a lease of that size (runtime/tasks.ts). §20 addendum 6 (SL-65): the size also carries this reader's
+		// own context window, so the floor holds its "eight whole-context reservations" against the reader actually reading
+		// this book, not a fixed assumption -- a campaign's private fork reads under the exact same rule as the library.
 		const stage = providerBudget ? undefined : readingJobStage(job);
 		const readingLease: StageBudget | undefined = stage ? readingStageBudget(stage, { pageCount: Number(job.source?.page_count) || 0,
-			perPage: await measuredPageCost(resolve(cwd, "..", "..", "..")) }) ?? undefined : undefined;
+			perPage: await measuredPageCost(resolve(cwd, "..", "..", "..")), contextWindow: model.contextWindow }) ?? undefined : undefined;
 		if (readingLease) this.deps.record({ lane: "reading", event: "stage_budget", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, ...readingLease });
 		// §20 addendum 3: a call a stage lease refused on an overrun it could pay; the round went on.
 		const overrunRows = (run: ReaderOutcome, phase: string, round: number, extra: Row = {}) => {

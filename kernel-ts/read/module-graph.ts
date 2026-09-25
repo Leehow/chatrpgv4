@@ -304,6 +304,16 @@ export class ModuleGraph {
     isTablePerson(node: Row | null | undefined): boolean {
         return !!node && this.tableNames.has(string(node.node_id));
     }
+    /**
+     * §11.5.8 (SL-67): every person this campaign has established -- table-invented and `from_passage` alike,
+     * `establishPerson` makes no distinction between them in `tableNames` -- described the same way `candidates()`
+     * describes a book person. Unconditioned by scene or presence: this is the roster itself, not a ranking against
+     * any one name, so a person named `unknown_entity` before it can resolve them against the scene's present
+     * people (§11.5.6) can also resolve them against this.
+     */
+    establishedPeople(): Row[] {
+        return [...this.tableNames.keys()].map(id => this.describe(this.nodes.get(id)!));
+    }
     displayName(node: Row): string {
         for (const key of ["display_name", "name", "title"])
             if (typeof recordOf(node)[key] === "string" && recordOf(node)[key])

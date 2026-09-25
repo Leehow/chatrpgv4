@@ -39,6 +39,35 @@ test('whole fields and grapheme endpoint selections preserve CRLF, emoji and com
     assert.throws(()=>selected(source,'profile.name',{source:whole(source).source,range:{first:units.at(-1).alias,last:units[0].alias}}));
     assert.throws(()=>selected(source,'profile.name',{source:whole(source).source,range:{first:'input:other/u:0',last:unit.alias}}));
 });
+test('§98 addendum 7 (SL-66) a selected name range stops at the word, never at the punctuation or space after/before it',()=>{
+    // The b10 setup turn-4 fixture: "...名字叫雷·卡特，现在就做卡吧。" -- the selected range's last grapheme was the
+    // sentence's own trailing comma, one past the name's own last character.
+    const sentence='别人常找我跟丢了的人的线索，追踪失踪人口是我的老本行。名字叫雷·卡特，现在就做卡吧。';
+    const source=catalog('name-epoch',4,sentence),units=source.public.sources[0].units;
+    const nameStart=units.findIndex(unit=>unit.text==='雷'),nameEnd=units[nameStart+3],comma=units[nameStart+4];
+    assert.deepEqual([nameEnd.text,comma.text],['特','，'],'the fixture: the grapheme right after the name is the trailing comma');
+    const trimmed=selected(source,'profile.name',{source:whole(source).source,range:{first:units[nameStart].alias,last:comma.alias}});
+    assert.equal(trimmed.values['profile.name'],'雷·卡特','the trailing comma never enters the stamped name');
+    assert.deepEqual(validateSetupInputs(trimmed.envelope,{campaign:'c1',inputKey:'name-epoch',values:trimmed.values}),trimmed.envelope,'the recorded ref is the trimmed range: re-validation agrees without re-trimming');
+    // A range ending on a letter (no trailing punctuation to trim) is unchanged.
+    const clean=selected(source,'profile.name',{source:whole(source).source,range:{first:units[nameStart].alias,last:nameEnd.alias}});
+    assert.equal(clean.values['profile.name'],'雷·卡特');
+    assert.deepEqual(clean.envelope.bindings['profile.name'].ref.selector,trimmed.envelope.bindings['profile.name'].ref.selector,'a clean range and a trimmed one land on the identical ref');
+    // Leading punctuation and space are trimmed too, not only trailing.
+    const leading=catalog('leading-epoch',1,'  ，雷·卡特，'),leadUnits=leading.public.sources[0].units;
+    const leadTrimmed=selected(leading,'profile.name',{source:whole(leading).source,range:{first:leadUnits[0].alias,last:leadUnits.at(-1).alias}});
+    assert.equal(leadTrimmed.values['profile.name'],'雷·卡特');
+    // A range that is wholly punctuation/space has no word to bound to: it is left exactly as selected, not emptied.
+    const blank=catalog('blank-epoch',1,'，， ，'),blankUnits=blank.public.sources[0].units;
+    const blankResult=selected(blank,'profile.name',{source:whole(blank).source,range:{first:blankUnits[0].alias,last:blankUnits.at(-1).alias}});
+    assert.equal(blankResult.values['profile.name'],'，， ，');
+    // A whole-field selection (no range) and every `pending_action` selection keep T14's exact-bytes contract unamended.
+    const untouched=selected(catalog('untouched-epoch',1,sentence),'profile.name',whole(catalog('untouched-epoch',1,sentence)));
+    assert.equal(untouched.values['profile.name'],sentence,'a whole-field profile.name selection is never trimmed');
+    const actionSource=catalog('action-epoch',1,'，Open the door，'),actionUnits=actionSource.public.sources[0].units;
+    const action=selected(actionSource,'pending_action',{source:whole(actionSource).source,range:{first:actionUnits[0].alias,last:actionUnits.at(-1).alias}});
+    assert.equal(action.values['pending_action'],'，Open the door，','pending_action ranges are never trimmed, only profile.name');
+});
 test('generated authority is name-only, stale epochs and copied strings never become references',()=>{
     const source=catalog(),generated=selected(source,'profile.name',{generated:'Proposed Name'});
     assert.deepEqual(generated.envelope.bindings['profile.name'],{authority:'generated'});

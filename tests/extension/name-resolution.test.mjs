@@ -104,3 +104,58 @@ test("§11.5.6: a name no scene person is present for spends no Jev call", async
 	assert.equal(requests.length, 0, "no known people, no candidates, no question -- the candidates are the scene's own rows");
 	assert.deepEqual(writes(table).map((row) => [row.ok, row.code]), [[false, "unknown_entity"]]);
 });
+
+// §11.5.8 (SL-67; amends §11.5.6). Evidence: SL-29A batch-10 t14 -- 拉斯/内特/史蒂夫, shortened from three persons
+// (拉斯·威廉姆斯/内特·帕特森/史蒂夫·布朗) this campaign established at t1 via `from_passage`, refused `unknown_entity`
+// when the party had moved on and none of the three were in `present` any more. The candidate rows now also come
+// from the campaign's own roster (`table.look`'s `roster`, unconditioned by scene or presence), asked with the
+// same per-row question: presence decides what the check can target, not whether the name resolves.
+const ESTABLISHED = "拉斯·威廉姆斯", SHORTENED = "拉斯";
+
+test("§11.5.8: a shortened name of a person this campaign established elsewhere resolves via the roster, party absent", async (t) => {
+	const requests = installJev(t, () => ({ choice: "yes", confidence: 0.85 }));
+	const table = await openTable({ env: { EXT_JEV_APIKEY: "test-jev-key",
+		FAKE_KERNEL_PRESENT: JSON.stringify([]), // the party is elsewhere: nobody from the roster is present this scene
+		FAKE_KERNEL_ROSTER: JSON.stringify([{ name: ESTABLISHED, display_name: ESTABLISHED }]),
+		FAKE_KERNEL_UNKNOWN_ENTITY: JSON.stringify({ name: SHORTENED }) },
+		responses: [place(SHORTENED), narrate("拉斯点了点头。")] });
+	t.after(() => table.dispose());
+	await table.session.prompt("我向拉斯问起这件事");
+	await waitForIdle(table.session);
+
+	assert.equal(requests.length, 1, "one fan-out question, one row for the roster's one established person");
+	assert.deepEqual(requests[0].state.candidates.map((row) => row.alias), ["person_1"]);
+	assert.deepEqual(writes(table).map((row) => row.ok), [true], `the write lands after resolving against the roster: ${JSON.stringify(writes(table))}`);
+	assert.deepEqual(resolutions(table).map((row) => [row.name, row.status, row.resolved_to]), [[SHORTENED, "resolved", ESTABLISHED]]);
+});
+
+test("§11.5.8: an unrelated name still refuses unknown_entity even with an established roster to ask", async (t) => {
+	const requests = installJev(t, () => ({ choice: "no", confidence: 0.9 }));
+	const table = await openTable({ env: { EXT_JEV_APIKEY: "test-jev-key", FAKE_KERNEL_PRESENT: JSON.stringify([]),
+		FAKE_KERNEL_ROSTER: JSON.stringify([{ name: ESTABLISHED, display_name: ESTABLISHED }]),
+		FAKE_KERNEL_UNKNOWN_ENTITY: JSON.stringify({ name: "一个陌生人" }) },
+		responses: [place("一个陌生人"), narrate("没有人回应。")] });
+	t.after(() => table.dispose());
+	await table.session.prompt("我叫住那个陌生人");
+	await waitForIdle(table.session);
+
+	assert.equal(requests.length, 1, "the roster is asked, but a genuinely unrelated name clears no row");
+	assert.deepEqual(writes(table).map((row) => [row.ok, row.code]), [[false, "unknown_entity"]]);
+	assert.deepEqual(resolutions(table).map((row) => [row.name, row.status]), [["一个陌生人", "unresolved"]]);
+});
+
+test("§11.5.8: a person in both present and the roster is one candidate row, not two", async (t) => {
+	const requests = installJev(t, () => ({ choice: "yes", confidence: 0.8 }));
+	const table = await openTable({ env: { EXT_JEV_APIKEY: "test-jev-key",
+		FAKE_KERNEL_PRESENT: JSON.stringify([{ name: CLERK }]),
+		FAKE_KERNEL_ROSTER: JSON.stringify([{ name: CLERK, display_name: CLERK }]),
+		FAKE_KERNEL_UNKNOWN_ENTITY: JSON.stringify({ name: VARIANT }) },
+		responses: [place(VARIANT), narrate("他从窗口后抬起头。")] });
+	t.after(() => table.dispose());
+	await table.session.prompt("我走到窗口前");
+	await waitForIdle(table.session);
+
+	assert.equal(requests.length, 1);
+	assert.deepEqual(requests[0].state.candidates.map((row) => row.alias), ["person_1"],
+		"present and the roster agree on the same handle: it is asked about once, not twice");
+});

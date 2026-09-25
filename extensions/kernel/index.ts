@@ -3304,29 +3304,44 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * Contract §11.5.6 (SL-62). The scene's known people, as fan-out candidates: §135.31's own `present` reduction
-	 * (`table.look {focus: "scene"}`), each person's table name and the name they are called by. No name list, no
-	 * regex: the candidates are this scene's own rows, whatever they are this turn.
+	 * Contract §11.5.6 (SL-62), extended by §11.5.8 (SL-67). The candidate rows for the fan-out: §135.31's own
+	 * `present` reduction (`table.look {focus: "scene"}`), each person's table name and the name they are called
+	 * by, *and* the campaign's own roster of established table/`from_passage` persons (§11.5.8's `roster`,
+	 * unconditioned by scene or presence) -- so a shortened name of someone this table established earlier still
+	 * resolves wherever the party is now, not only while they are on screen. No name list, no regex: the
+	 * candidates are this scene's own rows and this campaign's own roster, whatever they are this turn. Present
+	 * and roster overlap when an established person is also in the current scene; a handle already added from
+	 * `present` is not duplicated from `roster`.
 	 */
 	async function scenePersonCandidates(state: TableState): Promise<PersonResolutionCandidate[]> {
 		let view: Record<string, unknown>;
 		try { view = await state.kernel.call<Record<string, unknown>>("table.look", { campaign: state.campaign, focus: "scene", _context_read: true }); }
 		catch { return []; }
 		const present = Array.isArray(view.present) ? view.present as Array<Record<string, unknown>> : [];
-		const candidates: PersonResolutionCandidate[] = [];
+		const roster = Array.isArray(view.roster) ? view.roster as Array<Record<string, unknown>> : [];
+		const candidates: PersonResolutionCandidate[] = [], seen = new Set<string>();
 		for (const entry of present) {
 			const handle = asString(entry.name);
-			if (!handle) continue;
+			if (!handle || seen.has(handle)) continue;
+			seen.add(handle);
 			const names = [handle, asString(entry.called)].filter((value): value is string => !!value);
+			candidates.push({ handle, names: [...new Set(names)] });
+		}
+		for (const entry of roster) {
+			const handle = asString(entry.name);
+			if (!handle || seen.has(handle)) continue;
+			seen.add(handle);
+			const names = [handle, asString(entry.display_name)].filter((value): value is string => !!value);
 			candidates.push({ handle, names: [...new Set(names)] });
 		}
 		return candidates.slice(0, PERSON_RESOLUTION_MAX_CANDIDATES);
 	}
 
 	/**
-	 * Contract §11.5.6 (SL-62). One typed fan-out over the scene's known people for one name, memoised on `state`
-	 * (cleared with the player turn): a name already asked this turn is never asked again. Returns the resolved
-	 * handle, or undefined when the fan-out has nothing to offer or clears no row (unresolved, cached as such).
+	 * Contract §11.5.6 (SL-62), extended by §11.5.8 (SL-67). One typed fan-out over the scene's known people and
+	 * the campaign's own roster (`scenePersonCandidates`) for one name, memoised on `state` (cleared with the
+	 * player turn): a name already asked this turn is never asked again. Returns the resolved handle, or undefined
+	 * when the fan-out has nothing to offer or clears no row (unresolved, cached as such).
 	 */
 	async function resolveScenePerson(state: TableState, name: string, signal: AbortSignal | undefined,
 		parent: TaskProviderBudget | undefined): Promise<string | undefined> {

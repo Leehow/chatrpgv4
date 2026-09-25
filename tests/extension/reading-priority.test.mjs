@@ -195,3 +195,28 @@ test('§20 addendum 5 the reading service sizes the book\'s index job: its reade
   cancel.abort();
   await assert.rejects(waiting, /cancelled/);
 });
+
+// SL-65 (contract §20 addendum 6; amends addendum 3/5): a campaign's own fork reads under the same book-sized
+// lease as the library, but sized to the reader that is actually doing the reading -- the b10 fork's index and
+// detail jobs got the (correctly book-sized) floor of 4,000,000, and still lost every round to three consecutive
+// provider-error calls that each reserved 1,000,000 tokens (this reader's own whole context window, twice the
+// 500,000-token reader the fixed floor assumed).
+test('§20 addendum 6 a background job\'s lease is sized to this reader\'s own context window, not a fixed one', async t => {
+  const f = await book(t, 'index-lease-context-window');
+  const rows = [], {started, runtime} = heldReaders();
+  const service = new ReadingService({home: f.home, runtime, call: (method, params) => f.client.call(method, params),
+    model: () => ({id: 'fixture/vision', vision: true, thinking: 'off', contextWindow: 1_000_000}), progress() {}, record(row) { rows.push(row); }});
+  t.after(() => service.close());
+  const cancel = new AbortController();
+  const waiting = service.ensure(f.module_id, {purpose: 'detail', focus: 'last-chance-bar', foreground: true}, cancel.signal);
+  waiting.catch(() => undefined);
+  await until(async () => (await f.queue()).some(job => job.purpose === 'index' && job.state === 'running') && started.length === 2);
+  const index = (await f.queue()).find(job => job.purpose === 'index');
+  const child = started.find(entry => entry.cwd.includes(`/work/${index.job_id}/`));
+  assert.ok(child, 'the index job reached a reader');
+  assert.equal(child.lease?.inputTokens, 8_000_000, 'eight reservations of this 1,000,000-token reader, not the 500,000-token default');
+  const sized = rows.find(row => row.event === 'stage_budget' && row.job_id === index.job_id);
+  assert.equal(sized?.inputTokens, 8_000_000);
+  cancel.abort();
+  await assert.rejects(waiting, /cancelled/);
+});
