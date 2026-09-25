@@ -1,5 +1,10 @@
 # Narration Craft
 
+## 1.8.0
+- Retires the Jev craft-reference selector (owner ruling 2026-09-25, docs/specs/prose-mod.md §5; contract §30.7f). Drops `cards.en.json`, `starter-ids.json` and `craft-reference.json`, `contributes.craft_reference`, the `reference_mode` setting and its schema, and `context.craft-reference.v2` from `requires`; `package_files` is `agent.md` and `brief.md` only. The paired evaluations and the live table measured no gain from the per-turn reference, while it cost 240-520 ms per input on the compose path.
+- `agent.md` and `brief.md` are byte-for-byte unchanged from 1.7.1; the rewrite is a later release. The 48 cards and the twelve-card candidate list are archived at `docs/archive/craft-reference-cards-v2/`, outside the runtime.
+- 1.5.0 through 1.7.1 stay frozen (§26). They require a capability the kernel no longer provides, so they now list as incompatible; how a campaign that locks one reaches 1.8.0 is recorded as open in contract §30.7f.
+
 ## 1.7.1
 - Makes the register-contrast method directly selectable: a grounded answer may sound informal or formal without changing help, facts or terms.
 - Keeps twelve candidates by moving the ordinary-texture method back to the retained catalog; no card is deleted and no extra selection call is added.

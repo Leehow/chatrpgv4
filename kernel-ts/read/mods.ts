@@ -16,15 +16,12 @@ import {CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2} from '../mods/audit-result.js';
 import {USAGE_CAPABILITY, usageViews} from '../mods/usages.js';
 import {publicOffer} from '../mods/object-offer.js';
 import { checkDeclarationRefusals } from "../modules/obligation-shape.js";
-import {CRAFT_REFERENCE_CAPABILITY, CRAFT_REFERENCE_V2_CAPABILITY, validateCraftContribution, craftReferenceMetadata} from '../mods/craft-package.js';
 import {VOICE_CONSOLIDATION_CAPABILITY, EXPRESSION_MOD, LEGACY_VOICE_MOD, newModDefault} from '../mods/voice-consolidation.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1", "context.workspace.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
 MOD_CAPABILITIES.add(USAGE_CAPABILITY);
 MOD_CAPABILITIES.add("npc.voice.generation.v2");
-MOD_CAPABILITIES.add(CRAFT_REFERENCE_CAPABILITY);
-MOD_CAPABILITIES.add(CRAFT_REFERENCE_V2_CAPABILITY);
 MOD_CAPABILITIES.add(VOICE_CONSOLIDATION_CAPABILITY);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
@@ -246,7 +243,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     // Contract §28.9. A name this build does not know is recorded on the manifest and makes the
     // package incompatible -- exactly what an unknown capability in `requires` already does five
@@ -280,7 +277,6 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     if (manifest.contributes.brief != null && manifest.contributes.instructions == null)
         invalid("contributes.brief is the per-turn form of contributes.instructions and needs it");
     validateSetupSlots(manifest, files);
-    validateCraftContribution(manifest, files);
     const checks = array(manifest.contributes.checks);
     for (const check of checks) {
         if (!plain(check) || !/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/.test(string(check.name ?? "")))
@@ -496,7 +492,7 @@ export function modProviders(active: Row[]): Row {
     for (const mod of active) {
         const contributions = mod.contributes,
             keys = array(contributions.checks).map(check => `check:${check.name}`);
-        keys.push(...["materializer", "document_editor", "craft_reference"].filter(key => truth(contributions[key])));
+        keys.push(...["materializer", "document_editor"].filter(key => truth(contributions[key])));
         if (truth(contributions.auditor))
             keys.push(`audit:${contributions.audit_slot ?? mod.id}`);
         for (const key of keys)
@@ -696,9 +692,7 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
         scene = graph.scene(world.active_scene);
     const unregistered = active.some(mod => truth(mod.contributes.materializer)) ? unregisteredEquipment(party, claimedEquipment(world)) : [];
     const words = vocabularyContext(graph, active);
-    const craftReference = craftReferenceMetadata(active, world);
     const result: Row = {
-        ...(craftReference ? {craft_reference: craftReference} : {}),
         active: active.map(mod => ({
             id: mod.id,
             version: mod.version

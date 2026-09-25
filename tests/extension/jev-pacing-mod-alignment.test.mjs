@@ -11,8 +11,8 @@ const ROOT=resolve(import.meta.dirname,"../..");
 const PACKAGES={
 	"keeper-pacing":{version:"1.3.0",state_version:1,requires:["context.pacing.v1","mods.package-files.v1"],settings:{stall_turns:2},
 		settings_schema:{stall_turns:{minimum:1,maximum:6}}},
-	"narration-craft":{version:"1.7.1",state_version:2,requires:["mods.package-files.v1","context.craft-reference.v2","graph.vocabulary.v1","graph.vocabulary.table.v1","context.npc.v1","npc.voice.consolidation.v1"],settings:{density_guide:"off",reference_mode:"jev",coarse_language:true},
-		settings_schema:{coarse_language:{title:{["zh-Hans"]:"允许粗话",en:"Coarse language"}},reference_mode:{enum:["off","jev"]},density_guide:{enum:["off","on"]}}},
+	"narration-craft":{version:"1.8.0",state_version:2,requires:["mods.package-files.v1","graph.vocabulary.v1","graph.vocabulary.table.v1","context.npc.v1","npc.voice.consolidation.v1"],settings:{density_guide:"off",coarse_language:true},
+		settings_schema:{coarse_language:{title:{["zh-Hans"]:"允许粗话",en:"Coarse language"}},density_guide:{enum:["off","on"]}}},
 };
 
 async function kernel(t){
@@ -43,9 +43,9 @@ test("changed packages bump versions without changing state, settings, requireme
 		assert.equal(manifest.version,expected.version);assert.equal(manifest.state_version,expected.state_version);
 		assert.deepEqual(manifest.requires,expected.requires);assert.deepEqual(manifest.settings,expected.settings);assert.deepEqual(manifest.settings_schema,expected.settings_schema);
 		if(id==="narration-craft")assert.deepEqual(manifest.contributes.vocabulary.actor_profile_keys.map(row=>row.key),["voice_mask","exchanges"]);
-		assert.deepEqual(Object.keys(manifest.contributes).sort(),id==="narration-craft"?["brief","craft_reference","instructions","vocabulary"]:["brief","instructions"]);
+		assert.deepEqual(Object.keys(manifest.contributes).sort(),id==="narration-craft"?["brief","instructions","vocabulary"]:["brief","instructions"]);
 		assert.equal(manifest.contributes.instructions,"agent.md");assert.equal(manifest.contributes.brief,"brief.md");
-		assert.deepEqual(manifest.package_files,["agent.md","brief.md",...(id==="narration-craft"?["craft-reference.json","cards.en.json","starter-ids.json"]:[])]);assert.deepEqual(manifest.dependencies,{});assert.deepEqual(manifest.conflicts,id==="narration-craft"?["npc-voice"]:[]);
+		assert.deepEqual(manifest.package_files,["agent.md","brief.md"]);assert.deepEqual(manifest.dependencies,{});assert.deepEqual(manifest.conflicts,id==="narration-craft"?["npc-voice"]:[]);
 	}
 	const npc=JSON.parse(await readFile(join(ROOT,"mods/npc-voice/mod.json"),"utf8"));
 	const voice=await readFile(join(ROOT,"mods/npc-voice/agent.md"),"utf8");
