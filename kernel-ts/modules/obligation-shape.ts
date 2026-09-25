@@ -34,7 +34,7 @@ export const RULE_CHECK_KEYS = ["approaches_unstated", "book", "difficulty", "di
 export const TRIGGERS = { mod: ["contact"], obligation: ["attempt", "after"] } as const;
 /** The graph contract's semantic id law; world flags are stored under exactly this form (`stageFlag`). */
 const SEMANTIC_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-const OBLIGATION_KEYS = ["demand", "reaction", "scene", "settles", "trigger", "who"];
+const OBLIGATION_KEYS = ["demand", "reaction", "scene", "settles", "trigger", "who", "yields"];
 const CHECK_STEP_KEYS = ["approaches_unstated", "difficulty", "difficulty_unstated", "kind", "push", "results", "scope", "selection", "target", "values"];
 const VALUE_KEYS = ["label", "minimum", "path"];
 
@@ -245,17 +245,18 @@ export function obligationRefusals(graph: ModuleGraph, rules: { skills: readonly
         // The demand: an ordered, closed list of steps.
         const demand = ob.demand;
         if (!Array.isArray(demand) || !demand.length)
-            refuse("obligation_empty_demand", `${base}.demand`, "demand is a non-empty list of meet, check and cost steps");
+            refuse("obligation_empty_demand", `${base}.demand`, "demand is a non-empty list of meet, check, cost and accept steps");
         else demand.forEach((step: any, index: number) => {
             const at = `${base}.demand[${index}]`;
-            if (!plain(step) || !["meet", "check", "cost"].includes(step.kind)) {
-                refuse("obligation_empty_demand", at, "a step is meet, check or cost");
+            if (!plain(step) || !["meet", "check", "cost", "accept"].includes(step.kind)) {
+                refuse("obligation_empty_demand", at, "a step is meet, check, cost or accept");
                 return;
             }
-            const allowed = step.kind === "meet" ? ["kind", "npc"] : step.kind === "cost" ? ["book", "kind"] : CHECK_STEP_KEYS;
+            // §134.18 (SL-52 stage 3): an accept step names the person whose offer the investigators accept.
+            const allowed = step.kind === "meet" || step.kind === "accept" ? ["kind", "npc"] : step.kind === "cost" ? ["book", "kind"] : CHECK_STEP_KEYS;
             for (const key of unknownKeys(step, allowed))
                 refuse("obligation_unknown_key", `${at}.${key}`, `a ${step.kind} step carries only ${allowed.join(", ")}`);
-            if (step.kind === "meet") person(step.npc, `${at}.npc`);
+            if (step.kind === "meet" || step.kind === "accept") person(step.npc, `${at}.npc`);
             else if (step.kind === "cost") {
                 if (!text(step.book)) refuse("obligation_empty_demand", `${at}.book`, "a cost step is one Keeper-only book line");
             } else {
@@ -272,6 +273,37 @@ export function obligationRefusals(graph: ModuleGraph, rules: { skills: readonly
                     }
             }
         });
+        // §134.18 (SL-52 stage 3): what an accept's settlement yields -- only on an obligation that has an accept step.
+        if (Object.hasOwn(ob, "yields")) {
+            const yields = ob.yields, at = `${base}.yields`, bad = (path: string, message: string) => refuse("obligation_yields", path, message);
+            if (!Array.isArray(demand) || !demand.some((step: any) => plain(step) && step.kind === "accept"))
+                bad(at, "yields belong to an obligation with an accept step");
+            if (!plain(yields)) bad(at, "yields is {clues?, items?, cash?}");
+            else {
+                for (const key of unknownKeys(yields, ["cash", "clues", "items"])) bad(`${at}.${key}`, "yields carry only clues, items and cash");
+                if (!["clues", "items"].some(key => Array.isArray(yields[key]) && yields[key].length) && !Object.hasOwn(yields, "cash"))
+                    bad(at, "yields name at least one clue, item or cash");
+                const here = sceneOk ? graph.sceneClueIds(graph.nodes.get(ob.scene)!) : [];
+                if (Object.hasOwn(yields, "clues")) {
+                    if (!Array.isArray(yields.clues)) bad(`${at}.clues`, "clues is a list of clue node ids");
+                    else yields.clues.forEach((value: any, index: number) => {
+                        if (!kindOf(value, "clue")) bad(`${at}.clues[${index}]`, "must name a clue node");
+                        else if (!here.includes(value)) bad(`${at}.clues[${index}]`, "must be discoverable at the obligation's scene");
+                    });
+                }
+                if (Object.hasOwn(yields, "items")) {
+                    if (!Array.isArray(yields.items)) bad(`${at}.items`, "items is a list of {name}");
+                    else yields.items.forEach((value: any, index: number) => {
+                        if (!plain(value) || unknownKeys(value, ["name"]).length || !text(value.name)) bad(`${at}.items[${index}]`, "an item is {name: <item name>}");
+                    });
+                }
+                if (Object.hasOwn(yields, "cash") && (!plain(yields.cash) || unknownKeys(yields.cash, ["delta"]).length
+                    || typeof yields.cash.delta !== "number" || !Number.isFinite(yields.cash.delta) || yields.cash.delta <= 0))
+                    bad(`${at}.cash`, "cash is {delta: <a positive number>}");
+                if ((Array.isArray(yields.items) && yields.items.length || Object.hasOwn(yields, "cash")) && !Object.hasOwn(ob, "who"))
+                    bad(at, "items and cash need who, the person who gives them");
+            }
+        }
         const settles = ob.settles;
         if (!plain(settles) || sorted(Object.keys(settles)).join(",") !== "flag_id,kind" || settles.kind !== "flag_set"
             || typeof settles.flag_id !== "string" || !SEMANTIC_ID.test(settles.flag_id))

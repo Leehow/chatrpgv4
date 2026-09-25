@@ -18595,6 +18595,66 @@ a derived haunting with a second open obligation at the morgue whose check is Pe
 arguments go to the social adjudication and, with `decision: core-check:ordinary-check`, settle claiming nothing with
 `obligation_ambiguous`.
 
+### 134.18 An `accept` step, and what its settlement yields (2026-09-25, SL-52 stage 3; amends §134.1, §134.3, §134.9, §134.10 and §134.11)
+
+The owner's ruling of 2026-09-25: the haunting's commission is an obligation at `commission-briefing` whose settlement yields the
+keys clue, the research leads, the key item and the $20. The book (p. 435, pdf index 446, "gives you the keys") has Knott offer
+the job, and on acceptance hand over the key, the address and a day's pay in advance; nothing is rolled.
+
+**The shape** (amends §134.1). A step may be `{kind: "accept", npc: <npc node_id seated in scene>}`: the investigators accept what
+that person offers. It is settled by the declaration that accepts it, never by a roll, and never by meeting the person. The
+obligation gains an optional **`yields`**, allowed only when its demand has an `accept` step (rule **`obligation_yields`**):
+
+```
+yields: {clues?: [clue node_id, discoverable at scene], items?: [{name: <item name>}], cash?: {delta: <positive number>}}
+```
+
+At least one entry. `items` and `cash` need `who` (the giver). The validator (§134.3) refuses a malformed `accept` (unknown
+key, `npc` not an npc seated in the scene) under the existing rules, and a malformed `yields` under `obligation_yields`: a
+yield on an obligation without an accept step, an empty yields, a clue that is not a clue node or not discoverable at the
+obligation's scene, an item without a name, a cash delta that is not a positive number, items or cash without `who`, an
+unknown key. The visual reader does not write `accept` or `yields` in this build (a starter's authored data only).
+
+**State and `next`** (amends §134.9). An obligation with an `accept` step is never settled by its meetings. Its state is the flag's
+(§134.4), as for a check. `next` is the first unmet meeting, else the first check, else the accept, whose view is `{kind:
+"accept", person, settle: [effects]}`. **`settle`** is the complete `apply` that settles it, built from the graph only, in this
+order:
+1. `{kind: "flag", name: <flag>, value: true}` (no `why`, so the state reads `settled`, §134.9);
+2. one `{kind: "clue", clue: <handle>, from: <who>}` per `yields.clues`;
+3. one `{kind: "item", name, from: <who>}` per `yields.items`;
+4. `{kind: "cash", delta, source: "quote", with: <who>}` for `yields.cash`.
+
+The row also carries `yields: {clues?: [handle], items?: [name], cash?: delta}`. The flag comes first, so the batch's guarded
+clues cross nothing (§134.12 reads the state after the batch). Yields are filed only by this settlement: the kernel applies
+nothing on its own, a Keeper's waiver (`apply flag` with a `why`) yields nothing, and an obligation settled by a check states no
+yields (refused, above). The capsule row's cue for an open accept names the person, the flag and the yields, and says the
+settlement is one `apply`.
+
+**`resolve`** (amends §134.11). `action.obligation` on an obligation whose next step is an accept is refused
+`obligation_step`, with `details.next: "accept"` and a fix naming the settlement `apply`. §134.17's fold reads only check
+steps, unchanged.
+
+**The haunting** (amends §134.6). `requirement-knott-commission` "Accept Knott's commission", linked from
+`scene-commission-briefing` by one `has-requirement` claim, cited as the neighbouring office nodes cite page 446 ("gives you
+the keys", `span-page-446-anchor-9`):
+- `attempt`, guarding `clue-knott-keys` and `clue-knott-research-leads`;
+- `who` Steven Knott, demand `[accept Steven Knott]`;
+- yields the two clues, the item "Corbitt House key" and $20; settles `knott-commission-accepted`.
+
+The research exits keep their own guard `clue_discovered: knott-research-leads` (§135.30.4); the settlement's leads clue meets
+it. The guidance bundles are re-stamped with `guidanceFingerprint` (text unchanged: the opening scene and its guides did not
+move). A campaign is a compile snapshot: an existing campaign sees the obligation after its module is re-registered, a new one
+at once.
+
+*Three ends (§31).* *Writer:* the starter author (the node). *Reader:* `sceneObligations` (the row, `settle`, `yields`), the
+capsule cue. *Actor:* the clerk (§135.30.9.3) or the Keeper, through the `apply` it states.
+
+*Tests.* `tests/kernel/test_scene_obligations.py`: on a fresh haunting campaign the office lists the commission `open` with
+`next` `accept` and its settlement effects, and guards the keys and leads clues. Applying the settlement lands the flag, both
+clues, the key item and the cash with receipts. The obligation reads `settled`, crossing nothing, and the research exits open.
+`action.obligation` on it is refused `obligation_step`. `tests/extension/obligation-shape.test.mjs`: every `obligation_yields`
+case and the malformed accept refused through `module.register`; the shipped haunting registers.
+
 ## 135. The single-loop run settles the player's declared bookkeeping itself: candidates, clerk authority, one tool catalog (2026-09-23, SL-02 of `docs/specs/pi-native-single-loop.md`)
 
 §133 is taken on this branch and §134 on another; this section is §135, and §-numbers are stable ids (§133's
@@ -20648,6 +20708,19 @@ gate (0.6). The margin rule is not applied, and an answer without a reported con
 *Tests.* `tests/extension/single-loop-ask-fanout.test.mjs`: a `yes` whose distribution leads by the margin but whose confidence
 is under the gate (the morgue's 0.53 / 0.29 at 0.29) files nothing and stays the route's; a `yes` at the gate files.
 
+**Amended 2026-09-25 (SL-52 stage 3, owner ruling after the stage-2 replay): the within-row margin replaces the flat gate.** The
+flat 0.6 gate dropped the accept's own leads clue in 2 of 3 runs (reported confidence 0.55 and 0.53, with `no` at 0.18–0.19).
+A fan-out row (an `ask` row, §135.30.9, and a re-ask row, §135.30.9.2) now clears on its own margin, two named defaults in
+`runtime/jev/route-compile.ts`: `ROW_MIN = 0.5` and `ROW_RATIO = 2`. A `yes` answer clears when its reported confidence is at
+least `ROW_MIN` and at least `ROW_RATIO` times the row's `no` probability; a `no` answer clears on the same terms against the
+row's `yes` probability (an option the distribution leaves out counts 0); `unclear`, `unknown`, a missing confidence or a
+missing distribution never clear. **Which numbers:**
+the answer's own reported confidence against the opposite option's probability. On the recorded rows this clears the leads in
+all 6 (confidence 0.50–0.61 against `no` 0.16–0.19) and the morgue's fire-cutoff in none of 4 (confidence 0.29–0.46); reading
+the `yes` probability instead would have cleared the cutoff in 2 of the 4 (0.64 against 0.24, 0.61 against 0.28), which the
+ruling rules out. Every choice question with rows keeps §135.2's two gates. *Tests:* a row cleared by the margin files (the
+leads at 0.55 against 0.19); the fire-cutoff at 0.29 with 0.53/0.29 does not; a 0.5 `yes` against a `no` of 0.3 does not.
+
 ##### 135.30.9.2 Addendum (2026-09-25, SL-52 stage 2): a declaration that settles a step of the book re-asks the scene's clue rows once, against each clue's own cues
 
 The owner's ruling of 2026-09-25: "When the compile settles an obligation in the same declaration (the commission), the
@@ -20709,6 +20782,44 @@ admitted on their record; a `yes` under the gate files nothing; a declaration th
 `ask_clue` files) gets no re-ask; a refused settling step takes its staged clue with it; a failed obligation check files nothing.
 On the emitted kernel over the haunting through the hybrid engine: turn 1's sentence files the leads, the keys (by the re-ask)
 and then the move, each admitted `path: "compile"`. Mutations and the gate #6 t1 replay in the SL-52 ticket's Comments.
+
+##### 135.30.9.3 Addendum (2026-09-25, SL-52 stage 3): the commission is an accept step; the compile settles it and the clerk applies what it yields
+
+The owner's ruling of 2026-09-25 (b): "The keys are book data, not wording: the starter's graph models the commission as an
+obligation node at `commission-briefing` whose settlement yields `knott-keys`, `knott-research-leads`, the key item and the $20;
+the obligation fold files the yields when the compile settles the accept, so no re-ask is needed for them." And (c): settling is
+an obligation check the compile selects or the clue `guard_unlock` files (§135.30.9.2, confirmed). The kernel half is §134.18.
+
+**The candidate** (`runtime/jev/obligation-candidates.ts`). An `open` obligation row whose `next` is an `accept` step (§134.18)
+is one clerk candidate, key `apply:obligation:<handle>`, verb `apply`, family `obligation_check`, clerk `stated_obligation`,
+bound `{obligation, who: <person>, effects: next.settle}`: the kernel's own settlement effects, applied as one `apply` (the
+`effects` array is the call). Nothing is composed, so nothing is bound by Jev.
+
+**The predicate.** `obligation_check` reads it as it reads a check: it fires when the obligation's `ask` row is sought. Two of
+its guards read the step kind. The act guard does not apply: an accept carries no intent to match. The addressee guard refuses
+only an addressee cleared on another person, never a cleared `none`: an accept is aimed at the one person who offers it, and
+the live compile at gate #6 answered `none` (0.62 against 0.29) for "我接…" at Knott's desk. An accept settles no act
+(§135.30.8): it is not a check, so the ordinary check stays as §135.30.3 reads it.
+
+**What it unlocks.** §135.30.5's unlocking step gains a third effect: a selected `obligation_check` whose candidate's effects
+file the clue a cleared destination's guard names (`clue_discovered: <c>`) unlocks it, and the move is staged after it (the
+research exits after the commission's settlement files the leads). The settlement also triggers §135.30.9.2's re-ask for the
+scene's other clue rows with cues (the commission's terms, the Macario summary).
+
+**Order.** The accept ranks as an obligation step (§135.26's precedence): it runs before the batch's reveals, and a staged move
+still runs last.
+
+*Tests.* `tests/extension/single-loop-ask-fanout.test.mjs`, at the policy seam over the kernel's row shapes:
+- the accept's demand sought selects `apply:obligation:<handle>` with the kernel's settlement effects as one `apply`;
+- a cleared `none` addressee does not stop it; someone else does;
+- the move is staged after it, and it settles no act.
+
+`tests/extension/single-loop-guard-unlock.test.mjs`, on the emitted kernel over the haunting through the hybrid engine:
+- turn 1's sentence settles the commission in one clerk `apply` (flag, the leads, the keys, the key item, the $20), admitted
+  `path: "compile"`, then moves to the morgue;
+- the Keeper's bookkeeping of the office after that move (the Macario summary) lands at the office (§135.30.7).
+
+The fan-out file's emitted cases now use the office's remaining clue rows.
 
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
 

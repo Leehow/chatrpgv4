@@ -81,6 +81,11 @@ export async function bindObligation(input: {
     const step = nextStep(graph, world, node!);
     if (!step || step.kind !== 'check') {
         const person = step?.kind === 'meet' ? graph.nodes.get(string(step.npc)) : undefined;
+        // §134.18: an accept is settled by its one apply (the row's next.settle), never by a roll.
+        if (step?.kind === 'accept')
+            refuse('invalid_params', 'obligation_step', `${handle} is settled by accepting ${graph.displayName(graph.nodes.get(string(step.npc))!)}'s offer, not by a roll`, {
+                fix: 'apply the effects table.apply.options lists as this obligation\'s next.settle (its flag and what it yields)',
+                details: { obligation: handle, next: 'accept' } });
         refuse('invalid_params', 'obligation_step', person ? `${handle} first asks the investigators to meet ${graph.displayName(person)}` : `${handle} states no check`, {
             fix: person ? `apply {kind: "person", who: ${repr(graph.displayName(person))}, name: "<what this table calls them>"} to put them on stage first, then resolve this check` : 'resolve without action.obligation',
             details: { obligation: handle, next: step?.kind ?? null } });

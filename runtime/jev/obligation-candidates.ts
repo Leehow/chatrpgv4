@@ -138,7 +138,7 @@ function afterName(reads: ObligationReads, row: Row): string {
   const handle = text(object(row.trigger).after);
   return handle ? text(array(object(reads.applyOptions).obligations).map(object).find(value => value.handle === handle)?.name) || handle : '';
 }
-const basisOf = (row: Row, index: number, step: 'meet' | 'check'): Json =>
+const basisOf = (row: Row, index: number, step: 'meet' | 'check' | 'accept'): Json =>
   ({read: 'table.apply.options', path: `obligations[${index}]`, row: row as Json, obligation: text(row.handle), step});
 
 /**
@@ -249,6 +249,24 @@ function check(reads: ObligationReads, row: Row, index: number, rawInput: string
     clerk: 'stated_obligation', basis: basisOf(row, index, 'check'), ...(first ? {before: first} : {}), ...withFact(routeFact(reads, row))};
 }
 const withFact = (fact: Candidate['routeFact'] | undefined): Partial<Candidate> => fact ? {routeFact: fact} : {};
+
+/**
+ * §135.30.9.3 (SL-52 stage 3): an accept step (§134.18) is the kernel's own settlement -- one `apply` whose effects the row
+ * states (`next.settle`: the flag, then what it yields). Nothing is composed or bound: the candidate carries the effects.
+ */
+function accept(reads: ObligationReads, row: Row, index: number): Candidate | undefined {
+  const next = object(row.next), effects = array(next.settle).map(object);
+  if (!effects.length) return undefined;
+  const person = text(next.person), {words, detail} = guarded(reads, row);
+  return {key: `apply:obligation:${text(row.handle)}`, verb: 'apply', family: 'obligation_check', source: 'table.apply.options',
+    label: `The book's "${text(row.name)}": accept ${person ? `${person}'s ` : 'the '}offer${words.length ? `, which gives ${listed(words, 'and')}` : ''}`,
+    bound: {obligation: text(row.handle), ...(person ? {who: person} : {}), effects: effects as Json[]}, unbound: [],
+    detail: {demand: text(row.name), stated_by: 'the module', step: 'accept', ...(detail.length ? {guards: detail} : {}),
+      ...(row.yields ? {yields: row.yields as Json} : {})} as Json,
+    clerk: 'stated_obligation', basis: basisOf(row, index, 'accept'), ...withFact(routeFact(reads, row))};
+}
+/** §135.30.9.3: an accept step's candidate (verb `apply`), as opposed to an obligation's check. */
+export const isAccept = (candidate: Candidate | undefined): boolean => candidate?.family === 'obligation_check' && candidate.verb === 'apply';
 function descriptors(name: 'intent' | 'bonus' | 'penalty'): Record<string, string> {
   return Object.fromEntries(Object.entries(ORDINARY_CHOICES[name].criteria).filter(([key]) => key !== 'unknown').map(([key, value]) => [key, String(value)]));
 }
@@ -267,7 +285,7 @@ export function obligationCandidates(reads: ObligationReads, rawInput = ''): Can
     const next = object(row.next), then = object(row.then);
     // A meeting the book puts before a check is carried by that check (owner ruling 2026-09-23); a meeting alone is routed.
     const first = next.kind === 'meet' ? meeting(reads, row, index, rawInput) : undefined;
-    const candidate = next.kind === 'check' ? check(reads, row, index, rawInput)
+    const candidate = next.kind === 'accept' ? accept(reads, row, index) : next.kind === 'check' ? check(reads, row, index, rawInput)
       : first && then.kind === 'check' ? check(reads, row, index, rawInput, then, first) ?? first
         : first;
     if (candidate) out.push(candidate);
@@ -292,6 +310,7 @@ export function obligationClerkLine(candidate: Candidate, ok: boolean, result: R
   const where = [`receipt ${receipts.length ? receipts.join(', ') : 'none'}`, ...(pages.length ? [`pdf p.${pages.join(', ')}`] : [])].join('; ');
   if (!ok) return `obligation ${basis.handle}: the clerk's ${basis.step} step was refused, so it is still open and yours; ${where}`;
   if (basis.step === 'meet') return `obligation ${basis.handle}: met ${text(object(basis.row.next).person)}; ${where}`;
+  if (basis.step === 'accept') return `obligation ${basis.handle}: accepted ${text(object(basis.row.next).person)}'s offer, settled with what it yields; ${where}`;
   const outcome = object(result.outcome), claim = object(result.obligation);
   const skill = text(outcome.skill) || text(object(candidate.bound).skill) || 'the check';
   const settled = claim.settled === true ? 'settled' : `still open${text(claim.book) ? ` (book: ${text(claim.book)})` : ''}`;

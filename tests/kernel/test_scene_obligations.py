@@ -160,7 +160,9 @@ def test_a_scene_without_obligations_reads_as_before(tmp_path):
     try:
         client.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "pregen": "thomas-hayes", "play_language": "en"})
         client.table("narrate", call_id="t0-c1", text="The opening.")
-        client.table("player_input", text="I look around the office.")
+        # §134.18: the office states the commission, so the reading-as-before case is a scene that states none.
+        client.table("player_input", text="I walk over to the Central Library.")
+        client.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "central-library"}])
         assert "obligations" not in options(client)
         assert not scene_rows(client)
         assert all("guarded_by" not in row for row in options(client)["candidates"])
@@ -315,3 +317,67 @@ def test_the_offer_ledger_counts_the_obligation_and_marks_it_taken(tmp_path):
         assert "offers" not in json.dumps(nxt["obligations"])
     finally:
         client.close()
+
+
+# ---- §134.18 (SL-52 stage 3): the commission is an accept step whose settlement yields ------------------------------
+
+COMMISSION, COMMISSION_FLAG = "knott-commission", "knott-commission-accepted"
+COMMISSION_YIELDS = {"clues": ["knott-research-leads", "knott-keys"], "items": ["Corbitt House key"], "cash": 20}
+
+
+def at_office(client: RpcClient) -> None:
+    client.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "pregen": "thomas-hayes", "play_language": "en"})
+    client.table("narrate", call_id="t0-c1", text="The opening.")
+    client.table("player_input", text="I take the job.")
+
+
+def test_a_fresh_campaign_carries_the_commission_as_an_open_accept_with_its_settlement(tmp_path):
+    client = kernel_with(tmp_path, PASS)
+    try:
+        at_office(client)
+        issued = rows(client)
+        assert list(issued) == [COMMISSION]
+        commission = issued[COMMISSION]
+        assert commission["state"] == "open" and commission["who"] == "Steven Knott"
+        assert commission["trigger"] == {"kind": "attempt", "guards": {"clues": ["knott-keys", "knott-research-leads"]}}
+        assert commission["yields"] == COMMISSION_YIELDS
+        assert commission["next"] == {"kind": "accept", "person": "Steven Knott", "settle": [
+            {"kind": "flag", "name": COMMISSION_FLAG, "value": True},
+            {"kind": "clue", "clue": "knott-research-leads", "from": "Steven Knott"},
+            {"kind": "clue", "clue": "knott-keys", "from": "Steven Knott"},
+            {"kind": "item", "name": "Corbitt House key", "from": "Steven Knott"},
+            {"kind": "cash", "delta": 20, "source": "quote", "with": "Steven Knott"}]}
+        clues = clue_candidates(client)
+        assert {name for name, row in clues.items() if row.get("guarded_by") == COMMISSION} == {"knott-keys", "knott-research-leads"}
+        assert scene_rows(client)[COMMISSION]["cue"].startswith("next: accept Steven Knott's offer; settled by one apply")
+        assert_capsule_agrees(client)
+        # Not a roll: action.obligation names the apply that settles it.
+        code, reason = refusal(client.call("table.resolve", {"campaign": CAMPAIGN, "call_id": "t1-c1", "action": {
+            "intent": "social", "skill": "Persuade", "goal": "take the job", "method": "agree", "obligation": COMMISSION}}))
+        assert (code, reason) == ("invalid_params", "obligation_step")
+    finally:
+        client.close()
+
+
+def test_the_accept_settlement_files_its_yields_in_one_apply_and_crosses_nothing(tmp_path):
+    client = kernel_with(tmp_path, PASS)
+    try:
+        at_office(client)
+        settle = rows(client)[COMMISSION]["next"]["settle"]
+        result = client.table("apply", call_id="t1-c1", effects=settle)
+        assert "obligation_open" not in result, "the flag comes first: the guarded clues cross nothing"
+        receipts = turn_receipts(client)
+        assert [receipt["kind"] for receipt in receipts] == ["flag", "clue", "clue", "item", "cash"]
+        assert {receipt.get("clue") for receipt in receipts if receipt["kind"] == "clue"} == {"knott-research-leads", "knott-keys"}
+        cash = next(receipt for receipt in receipts if receipt["kind"] == "cash")
+        assert cash["delta"] == 20 and cash["source"] == "quote"
+        assert next(receipt for receipt in receipts if receipt["kind"] == "item")["name"] == "Corbitt House key"
+        assert all("obligation_open" not in receipt for receipt in receipts)
+        assert world(client)["flags"][COMMISSION_FLAG] is True
+        assert rows(client)[COMMISSION]["state"] == "settled"
+        # The research exits the leads hold open now.
+        moves = {row["effect"]["to"]: row["description"] for row in options(client)["candidates"] if row["effect"]["kind"] == "move"}
+        assert moves["newspaper-morgue"]["unlock_when"]["met"] is True
+    finally:
+        client.close()
+

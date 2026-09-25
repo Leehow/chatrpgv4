@@ -68,6 +68,18 @@ const QUESTIONS: Readonly<Record<FeatureFamily, {target: string; instructions: s
  * seeks several listed things clears each of them (the accept files the leads and the keys). The options are closed.
  */
 export const YES = 'yes', NO = 'no';
+/**
+ * §135.30.9.1 as amended (SL-52 stage 3, owner ruling): a fan-out row clears on its own margin -- the answer's reported
+ * confidence at least `ROW_MIN` and at least `ROW_RATIO` times the row's probability of the opposite answer. Named defaults.
+ */
+export const ROW_MIN = 0.5, ROW_RATIO = 2;
+/** Whether one yes/no row's answer clears (§135.30.9.1): `yes`/`no` only, against the other's probability. */
+export function rowClears(choice: string | undefined, confidence: number | undefined, probabilities: Record<string, number> | undefined): boolean {
+  if ((choice !== YES && choice !== NO) || typeof confidence !== 'number' || !probabilities) return false;
+  // An option the distribution leaves out has probability 0 (a Jev reply lists every option).
+  const other = probabilities[choice === YES ? NO : YES] ?? 0;
+  return typeof other === 'number' && confidence >= ROW_MIN && confidence >= ROW_RATIO * other;
+}
 const ASK_ROW = {
   instructions: 'Judge this one listed thing on its own: does the player\'s declared action seek to get, find, reach or learn it? Seeking it is '
     + 'enough; how the table answers is not this question. Other listed things may be sought too; judge only this one. Choose unclear when the '
@@ -163,6 +175,16 @@ const obligationPeople = (candidate: Candidate): string[] =>
 const obligationRow = (candidate: Candidate): string => `obligation:${text(basisOf(candidate).obligation)}`;
 /** The addressee, when it cleared, is one of these people (a cleared `none` or someone else says it is not). */
 const addresseeAllows = (cleared: Cleared, people: string[]): boolean => !cleared.addressee || (cleared.addressee.row !== null && people.includes(cleared.addressee.row));
+/**
+ * §135.30.9.3 (SL-52 stage 3): an accept step (§134.18) is the kernel's settlement applied as one `apply` (verb `apply`,
+ * family `obligation_check`). It is aimed at the one person who offers it, so only an addressee cleared on someone else
+ * refuses it; it carries no intent and settles no act.
+ */
+const isAccept = (candidate: Candidate): boolean => candidate.family === 'obligation_check' && candidate.verb === 'apply';
+const acceptAllows = (cleared: Cleared, people: string[]): boolean => !cleared.addressee?.row || people.includes(cleared.addressee.row);
+/** The clues an accept's settlement files (its kernel effects), by handle. */
+const acceptClues = (candidate: Candidate): string[] => isAccept(candidate)
+  ? (Array.isArray(candidate.bound.effects) ? candidate.bound.effects : []).map(object).filter(effect => effect.kind === 'clue').map(effect => text(effect.clue)).filter(Boolean) : [];
 /** The attack's issued targets: the one the kernel bound, else the closed options it issued. */
 const attackTargets = (candidate: Candidate): string[] => typeof candidate.bound.target === 'string'
   ? [candidate.bound.target] : candidate.unbound.find(value => value.name === 'target')?.options ?? [];
@@ -192,7 +214,8 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
     reads: candidate => candidate.family === 'obligation_check' && !!text(basisOf(candidate).obligation),
     decided: (cleared, candidate) => askAnswered(cleared, obligationRow(candidate)),
     fires: (candidate, cleared) => {
-      if (!sought(cleared, obligationRow(candidate)) || !addresseeAllows(cleared, obligationPeople(candidate))) return undefined;
+      if (!sought(cleared, obligationRow(candidate))) return undefined;
+      if (!(isAccept(candidate) ? acceptAllows(cleared, obligationPeople(candidate)) : addresseeAllows(cleared, obligationPeople(candidate)))) return undefined;
       // Outside a fight the act is a resolve intent: an act the check's own closed intents do not include is not this check.
       const intents = candidate.unbound.find(value => value.name === 'intent')?.options ?? (typeof candidate.bound.intent === 'string' ? [candidate.bound.intent] : []);
       if (cleared.act?.row && intents.length && !intents.includes(cleared.act.row)) return undefined;
@@ -357,9 +380,9 @@ export function readFeatures(rows: FeatureRows | undefined, result: DecisionResu
       for (const [alias, id] of Object.entries(aliases)) {
         const {choice, confidence, probabilities} = complete ? answerOf(result, alias) : {};
         const known = choice === YES || choice === NO;
-        // §135.30.9.1 (owner ruling 2026-09-25): an independent yes/no clears on its reported confidence alone; the margin rule
-        // chooses among the rows of one question and means nothing here.
-        const passed = known && typeof confidence === 'number' && confidence >= gate;
+        // §135.30.9.1 (owner rulings 2026-09-25): an independent yes/no clears on its own margin (`rowClears`), never on the
+        // choice gates of a question with rows.
+        const passed = known && rowClears(choice, confidence, probabilities);
         answers[alias] = {choice: choice ?? null, row: choice === YES ? id : null, confidence: confidence ?? null, probabilities: probabilities ?? null, cleared: passed};
         if (!passed) continue;
         asks[id] = {seeks: choice === YES, confidence: confidence ?? null, distribution: probabilities ?? null};
@@ -448,7 +471,9 @@ export interface UnlockedDestination extends GuardedDestination {after: string; 
 export function unlockingStep(guard: Json, selected: readonly CompileSelection[]): CompileSelection | undefined {
   const row: FeatureRow = {id: '', describe: null, guard};
   const clue = guardClue(row), obligation = guardObligation(row);
+  // §135.30.9.3: an accept whose settlement files the guard's clue unlocks it too.
   return selected.find(entry => (clue && entry.predicate === 'guard_unlock' && clueOf(entry.candidate) === clue)
+    || (clue && entry.predicate === 'obligation_check' && acceptClues(entry.candidate).includes(clue))
     || (obligation && entry.predicate === 'obligation_check' && text(basisOf(entry.candidate).obligation) === obligation));
 }
 /** The recorded shape of an unlocked destination (the compile row, the policy's step): without the move's record. */
@@ -530,7 +555,7 @@ export function settledActs(candidates: Candidate[], rows: FeatureRows | undefin
   if (!act) return [];
   return candidates.some(candidate => {
     const predicate = predicateOf(candidate, rows);
-    return predicate?.name === 'obligation_check' && !!predicate.fires(candidate, cleared, rows, run);
+    return predicate?.name === 'obligation_check' && !isAccept(candidate) && !!predicate.fires(candidate, cleared, rows, run);
   }) ? [act] : [];
 }
 
@@ -638,7 +663,7 @@ export function interpretReask(view: Pick<CompileView, 'candidates'>, input: Rea
   const complete = result?.status === 'complete';
   for (const [index, candidate] of clues.entries()) {
     const alias = reaskAlias(index), {choice, confidence, probabilities} = complete ? answerOf(result, alias) : {};
-    const cleared = (choice === YES || choice === NO) && typeof confidence === 'number' && confidence >= gate;
+    const cleared = rowClears(choice, confidence, probabilities);
     answers[alias] = {clue: candidate.key, choice: choice ?? null, confidence: confidence ?? null, probabilities: probabilities ?? null, cleared};
     if (!cleared || choice !== YES) continue;
     const row = clueRow(candidate);

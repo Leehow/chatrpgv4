@@ -204,20 +204,20 @@ function kernelSteps(workspace, requests) {
 	for (const frame of frames) if (!frame.ok) throw new Error(`kernel step ${frame.id} failed: ${JSON.stringify(frame.error)}`);
 	return frames.map((frame) => frame.result);
 }
+const ACCEPT = "apply:obligation:knott-commission", COMMISSION = "Accept Knott's commission";
 const aliasWhere = (question, match) => Object.entries(question?.criteria ?? {}).find(([, value]) => match(value))?.[0];
 const complete = (answers) => ({ batchId: "b", status: "complete", answers, issues: [], coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] } });
 const choice = (value, confidence) => ({ status: "answered", type: "choice", choice: value, confidence, probabilities: { [value]: confidence } });
 
-test("§135.30.5 on the emitted kernel: gate #3 turn 1's sentence at the office -- the clerk files the research leads, then moves to the morgue; both admitted by the compile", async (t) => {
-	const graph = JSON.parse(readFileSync(join(REPO, "content/starters/the-haunting/module-graph.json"), "utf8"));
-	const leads = graph.nodes.find((node) => node.node_id === "clue-knott-research-leads").summary;
+test("§135.30.5 / §135.30.9.3 on the emitted kernel: gate #3 turn 1's sentence at the office -- the clerk settles the commission (the flag, the leads, the keys, the key item, the $20 in one apply), then moves to the morgue; both admitted by the compile", async (t) => {
+	let workspace;
 	const rows = [];
-	// The gate #3 answers where their rows are offered (the morgue at 1.0, the leads at 0.90, investigate at 0.95), unclear
-	// elsewhere; every route question: finish.
+	// §134.18: the office's leads and keys are the commission's yields, so the sentence's ask is the commission's demand row:
+	// the morgue at 1.0, the demand yes at 0.9 (every other row no), investigate at 0.95; every route question: finish.
 	const decide = async (batch) => {
 		if (batch.family === COMPILE_FAMILY) return complete(Object.fromEntries(batch.questions.map((question) => {
 			const pick = question.key === "destination" ? [aliasWhere(question, (value) => value?.handle === "newspaper-morgue"), 1]
-				: isAskRow(question) ? [askWords(question)?.clue === leads ? "yes" : "no", 0.9]
+				: isAskRow(question) ? [askWords(question)?.demand === COMMISSION ? "yes" : "no", 0.9]
 					: question.key === "act" ? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("investigate")), 0.95] : [];
 			return [question.key, choice(pick[0] ?? "unclear", pick[0] ? pick[1] : 0.9)];
 		})));
@@ -226,50 +226,54 @@ test("§135.30.5 on the emitted kernel: gate #3 turn 1's sentence at the office 
 			choice(question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9)])));
 	};
 	const engine = createHybridEngine({ env: process.env, record: (row) => rows.push(row), decision: { decide } });
-	const table = await openTable({ realKernel: true, prepareWorkspace: (workspace) => kernelSteps(workspace, [
-		["table.open", {}], ["table.player_input", { text: "我听他说完。" }], ["table.narrate", { call_id: "t1-c1", text: "诺特把委托说了一遍。" }]]),
+	const table = await openTable({ realKernel: true, prepareWorkspace: (at) => { workspace = at; kernelSteps(at, [
+		["table.open", {}], ["table.player_input", { text: "我听他说完。" }], ["table.narrate", { call_id: "t1-c1", text: "诺特把委托说了一遍。" }]]); },
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
 		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你接下委托，去了报馆。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt(INPUT);
 
 	const compiled = rows.find((row) => row.lane === "route" && row.purpose === "compile");
-	assert.deepEqual(compiled.selected, ["apply:clue:knott-research-leads"], "the compile selects the clue the declaration files");
-	assert.deepEqual(compiled.unlocked?.map((entry) => [entry.to, entry.after]), [["newspaper-morgue", "apply:clue:knott-research-leads"]]);
+	assert.deepEqual(compiled.selected, [ACCEPT], "the compile selects the commission's accept, the kernel's own settlement");
+	assert.deepEqual(compiled.fired.map((entry) => entry.predicate), ["obligation_check"]);
+	assert.deepEqual(compiled.unlocked?.map((entry) => [entry.to, entry.after]), [["newspaper-morgue", ACCEPT]], "the accept files the leads the exits wait on");
 	assert.ok(!(compiled.guarded ?? []).some((entry) => entry.to === "newspaper-morgue"), "the morgue is not reported held");
 	const binds = rows.filter((row) => row.lane === "run" && row.event === "bind" && row.clerk);
 	assert.deepEqual(binds.slice(0, 2).map((row) => [row.candidate, row.status]),
-		[["apply:clue:knott-research-leads", "succeeded"], ["apply:move:newspaper-morgue", "succeeded"]], "the clue, then the move, both by the clerk");
+		[[ACCEPT, "succeeded"], ["apply:move:newspaper-morgue", "succeeded"]], "the settlement, then the move, both by the clerk");
 	const admissions = table.telemetry("test-camp").filter((row) => row.lane === "admission" && row.origin === "policy" && row.verb === "apply");
-	assert.deepEqual(admissions.slice(0, 2).map((row) => [row.path, row.predicate]), [["compile", "guard_unlock"], ["compile", "move"]]);
-	assert.equal(admissions[1].basis?.compile?.unlocked_by, "apply:clue:knott-research-leads");
+	assert.deepEqual(admissions.slice(0, 2).map((row) => [row.path, row.predicate]), [["compile", "obligation_check"], ["compile", "move"]]);
+	assert.equal(admissions[1].basis?.compile?.unlocked_by, ACCEPT);
 	assert.equal(table.lanes.admission.requests().length, 0, "no lane review for either line");
 	const tools = table.telemetry("test-camp").filter((row) => row.tool === "apply" && row.origin === "policy");
 	assert.deepEqual(tools.slice(0, 2).map((row) => row.ok), [true, true], "the kernel took both");
+	const record = JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns/0002.json"), "utf8"));
+	const landed = record.receipts.map((receipt) => [receipt.kind, receipt.clue ?? receipt.name ?? receipt.to ?? receipt.delta ?? null]);
+	for (const expected of [["flag", "knott-commission-accepted"], ["clue", "knott-research-leads"], ["clue", "knott-keys"], ["item", "Corbitt House key"], ["cash", 20],
+		["move", "newspaper-morgue"]]) assert.ok(landed.some(([kind, what]) => kind === expected[0] && what === expected[1]), `${expected.join(" ")} has a receipt`);
+	const keys = record.receipts.find((receipt) => receipt.kind === "clue" && receipt.clue === "knott-keys");
+	assert.deepEqual([keys.scene, keys.left_this_turn], ["commission-briefing", undefined], "filed at the office, before the move");
 });
 
 // ---------------------------------------------------------------------------------------------------
 // SL-42 (§135.30.7): the Keeper's bookkeeping of the scene the clerk's move left is accepted at that scene.
 // ---------------------------------------------------------------------------------------------------
 
-test("§135.30.7 on the emitted kernel: after the clerk's clue and move, the Keeper's accept -- Knott, the keys, the cash, the key, the handout -- lands with receipts", async (t) => {
-	const graph = JSON.parse(readFileSync(join(REPO, "content/starters/the-haunting/module-graph.json"), "utf8"));
-	const leads = graph.nodes.find((node) => node.node_id === "clue-knott-research-leads").summary;
+test("§135.30.7 on the emitted kernel: after the clerk's settlement and move, the Keeper's bookkeeping of the office -- Knott, the Macario summary, the handout -- lands with receipts", async (t) => {
 	const decide = async (batch) => {
 		if (batch.family === COMPILE_FAMILY) return complete(Object.fromEntries(batch.questions.map((question) => {
 			const pick = question.key === "destination" ? [aliasWhere(question, (value) => value?.handle === "newspaper-morgue"), 1]
-				: isAskRow(question) ? [askWords(question)?.clue === leads ? "yes" : "no", 0.9]
+				: isAskRow(question) ? [askWords(question)?.demand === COMMISSION ? "yes" : "no", 0.9]
 					: question.key === "act" ? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("investigate")), 0.95] : [];
 			return [question.key, choice(pick[0] ?? "unclear", pick[0] ? pick[1] : 0.9)];
 		})));
 		return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
 			choice(question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9)])));
 	};
-	// The recorded Keeper's first batch at gate #3 turn 1, less what the clerk already did (the leads clue and the move).
+	// The Keeper's bookkeeping of the office after the clerk's settlement (§134.18: the keys, the leads, the key and the cash
+	// were its yields) and move: Knott staged, the Macario summary he told, the commission handout.
 	const accept = [{ kind: "person", who: "Steven Knott", name: "史蒂文·诺特", why: "上一回他已自报姓名。" },
-		{ kind: "clue", clue: "knott-keys", how: "你接下委托，诺特把钥匙、地址和预付的二十美元交给你。", from: "Steven Knott", label: "科比特宅的钥匙与预付" },
-		{ kind: "cash", delta: 20, source: "quote", with: "Steven Knott", why: "诺特按事先说好的条件，预付一天的二十美元。" },
-		{ kind: "item", name: "Corbitt House key", from: "Steven Knott", label: "科比特宅钥匙", why: "诺特把压在账簿下的黄铜钥匙推过来。" },
+		{ kind: "clue", clue: "knott-macario-summary", how: "诺特讲了马卡里奥一家逃走的事。", from: "Steven Knott", label: "马卡里奥一家" },
 		{ kind: "handout", name: "Handout 1: Mr. Knott's Commission", label: "诺特先生的委托" }];
 	let workspace;
 	const engine = createHybridEngine({ env: process.env, decision: { decide } });
@@ -283,13 +287,13 @@ test("§135.30.7 on the emitted kernel: after the clerk's clue and move, the Kee
 
 	const tools = table.telemetry("test-camp").filter((row) => row.tool === "apply");
 	assert.deepEqual(tools.map((row) => [row.origin ?? "model", row.ok]), [["policy", true], ["policy", true], ["model", true]],
-		"the clerk's clue and move, then the Keeper's accept, all taken");
+		"the clerk's settlement and move, then the Keeper's batch, all taken");
 	const record = JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns/0002.json"), "utf8"));
 	const kinds = record.receipts.map((receipt) => [receipt.kind, receipt.clue ?? receipt.to ?? receipt.who ?? receipt.name ?? receipt.resource ?? null]);
-	for (const expected of [["clue", "knott-research-leads"], ["move", "newspaper-morgue"], ["person", "steven-knott"], ["clue", "knott-keys"], ["cash", "cash"], ["handout", "Handout 1: Mr. Knott's Commission"]])
+	for (const expected of [["clue", "knott-research-leads"], ["move", "newspaper-morgue"], ["person", "steven-knott"], ["clue", "knott-macario-summary"], ["cash", "cash"], ["handout", "Handout 1: Mr. Knott's Commission"]])
 		assert.ok(kinds.some(([kind, name]) => kind === expected[0] && String(name).toLowerCase().replace(/\s+/g, "-") === String(expected[1]).toLowerCase().replace(/\s+/g, "-")), `${expected.join(" ")} has a receipt`);
 	assert.ok(record.receipts.some((receipt) => receipt.kind === "item"), "the key item has a receipt");
-	const keys = record.receipts.find((receipt) => receipt.kind === "clue" && receipt.clue === "knott-keys");
-	assert.deepEqual([keys.scene, keys.left_this_turn], ["commission-briefing", true], "recorded at the office the clerk's move left");
+	const macario = record.receipts.find((receipt) => receipt.kind === "clue" && receipt.clue === "knott-macario-summary");
+	assert.deepEqual([macario.scene, macario.left_this_turn], ["commission-briefing", true], "recorded at the office the clerk's move left");
 	assert.equal(record.receipts.find((receipt) => receipt.kind === "clue" && receipt.clue === "knott-research-leads").left_this_turn, undefined);
 });

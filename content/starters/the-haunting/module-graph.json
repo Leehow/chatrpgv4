@@ -5077,6 +5077,63 @@
       ]
     },
     {
+      "node_id": "requirement-knott-commission",
+      "node_kind": "requirement",
+      "name": "Accept Knott's commission",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "Knott offers the job; on acceptance he hands over the house key, the address and a day's pay in advance.",
+      "evidence_span_ids": [
+        "span-page-446-anchor-9"
+      ],
+      "properties": {
+        "obligation": {
+          "scene": "scene-commission-briefing",
+          "trigger": {
+            "kind": "attempt",
+            "guards": {
+              "clues": [
+                "clue-knott-keys",
+                "clue-knott-research-leads"
+              ]
+            }
+          },
+          "who": "npc-steven-knott",
+          "demand": [
+            {
+              "kind": "accept",
+              "npc": "npc-steven-knott"
+            }
+          ],
+          "settles": {
+            "kind": "flag_set",
+            "flag_id": "knott-commission-accepted"
+          },
+          "yields": {
+            "clues": [
+              "clue-knott-research-leads",
+              "clue-knott-keys"
+            ],
+            "items": [
+              {
+                "name": "Corbitt House key"
+              }
+            ],
+            "cash": {
+              "delta": 20
+            }
+          }
+        }
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+          "pdf_index": 446,
+          "grep_anchor": "gives you the keys"
+        }
+      ]
+    },
+    {
       "node_id": "requirement-globe-clippings-access",
       "node_kind": "requirement",
       "name": "Access to the Globe clippings",
@@ -18098,6 +18155,24 @@
       "reason": "Authored scene obligation (contract section 133)."
     },
     {
+      "claim_id": "claim-has-requirement-knott-commission",
+      "subject_id": "scene-commission-briefing",
+      "predicate": "has-requirement",
+      "object": {
+        "node_id": "requirement-knott-commission"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-446-anchor-9"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Authored scene obligation (contract section 134.18)."
+    },
+    {
       "claim_id": "claim-has-requirement-globe-clippings-access",
       "subject_id": "scene-newspaper-morgue",
       "predicate": "has-requirement",
@@ -23010,6 +23085,14 @@
       "from_node_id": "scene-newspaper-morgue",
       "to_node_id": "requirement-globe-archivist",
       "claim_id": "claim-has-requirement-globe-archivist",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-has-requirement-knott-commission",
+      "relation_kind": "has-requirement",
+      "from_node_id": "scene-commission-briefing",
+      "to_node_id": "requirement-knott-commission",
+      "claim_id": "claim-has-requirement-knott-commission",
       "properties": {}
     },
     {
