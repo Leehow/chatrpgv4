@@ -328,17 +328,17 @@
     {
       "id": "SL-65",
       "file": "65-fork-background-reads-under-the-book-sized-lease.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-66",
       "file": "66-a-selected-name-stops-at-the-word.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-67",
       "file": "67-a-short-name-of-an-established-person-resolves.md",
-      "status": "ready"
+      "status": "ready-for-human"
     }
   ],
   "relatedSpecs": [
