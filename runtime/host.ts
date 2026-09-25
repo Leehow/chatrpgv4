@@ -6,6 +6,7 @@ import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { KernelClient, KernelError, type KernelClientOptions } from "../extensions/kernel/client.ts";
 import type { ReaderOutcome, ReaderRequest } from "../extensions/module/reader.ts";
 import { runtimeCapabilities } from "./tasks.ts";
+import { stripJsonComments } from "./json-comments.ts";
 import { assertWritableLocation, compiledEnvironment, readDeployment, resourcePath, resourceRootFrom,
   runtimeEntrypoints, type RuntimeEntrypoints, type RuntimeLayout } from "./deployment.mjs";
 
@@ -271,34 +272,6 @@ export interface ProviderModelCorrectionEntry {
   readonly model: string;
 }
 
-/**
- * Strip `//` and `/* *\/` comments outside string literals, matching the tolerance Pi's own
- * `models.json` loader has (`stripJsonComments`) -- an operator's hand-edited file, or an earlier
- * run's own corrections note (below), may carry either.
- */
-function stripJsonComments(text: string): string {
-  let out = "";
-  let inString = false;
-  let quote = "";
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      out += ch;
-      if (ch === "\\") { out += text[i + 1] ?? ""; i++; continue; }
-      if (ch === quote) inString = false;
-      continue;
-    }
-    if (ch === '"' || ch === "'") { inString = true; quote = ch; out += ch; continue; }
-    if (ch === "/" && text[i + 1] === "/") { while (i < text.length && text[i] !== "\n") i++; out += "\n"; continue; }
-    if (ch === "/" && text[i + 1] === "*") {
-      i += 2;
-      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
-      i++; continue;
-    }
-    out += ch;
-  }
-  return out;
-}
 
 function jsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};

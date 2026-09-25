@@ -9,6 +9,7 @@ import { KernelError } from "../extensions/kernel/client.ts";
 import { runReader, type ReaderRequest } from "../extensions/module/reader.ts";
 import type { RuntimeCapabilities, RuntimeCheck, RuntimeContext } from "./host.ts";
 import { runHostProcess } from "./process.ts";
+import { stripJsonComments } from "./json-comments.ts";
 import { FAST_MODEL_SETTINGS_FILE, fastModelChoiceOf, readFastModelChoice, resolveFastModel, resolveFastThinking } from "./fast-model.ts";
 
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
@@ -131,7 +132,8 @@ async function childCatalog(agentHome: string): Promise<ReadonlyMap<string, Read
       for (const [provider, entry] of Object.entries(store)) absorb(provider, (entry as { models?: unknown })?.models);
   } catch { /* an absent or half-written store is one source fewer, never a failure */ }
   try {
-    const custom = JSON.parse(await readFile(join(agentHome, "models.json"), "utf8"));
+    // Comments are legal in this file (Pi strips them; so does the product's correction note, §135.27.1).
+    const custom = JSON.parse(stripJsonComments(await readFile(join(agentHome, "models.json"), "utf8")));
     const providers = custom?.providers;
     if (providers && typeof providers === "object" && !Array.isArray(providers))
       for (const [provider, entry] of Object.entries(providers)) absorb(provider, (entry as { models?: unknown })?.models);

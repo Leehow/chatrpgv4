@@ -121,6 +121,22 @@ test("a Mod child runs on the fast model; PI_COC_MOD_MODEL wins; the table is th
 });
 
 /**
+ * §135.27.1: the agent home's `models.json` may begin with the product's corrections note (`//` lines)
+ * or an operator's own comments. The lane child catalog must read it the way Pi does, or a provider
+ * defined only there is refused as one the lane "cannot run".
+ */
+test("a Mod child accepts a provider defined only in a commented models.json", async t => {
+  const agent = await agentHome(t, "custom/only");
+  await writeFile(join(agent, "models.json"), `// the product's note sits above the JSON\n// and Pi's loader strips it\n${JSON.stringify({ providers: { custom: { baseUrl: "http://127.0.0.1:1/v1", api: "openai-completions", models: [{ id: "only" }] } } })}\n`);
+  const { home, context } = await childContext(t, agent);
+  const cwd = join(home, "mod");
+  await mkdir(cwd);
+  const outcome = await runtimeCapabilities.runTask(context, { kind: "mod", request: { cwd, brief: "capture", model: TABLE, thinking: "high" } }, new AbortController().signal);
+  assert.equal(outcome.ok, true, JSON.stringify(outcome));
+  assert.deepEqual(await launched(cwd), { model: "custom/only", thinking: LANE_THINKING_DEFAULT });
+});
+
+/**
  * A voice writer or NPC author hands the runtime a model it already resolved. When that model is the
  * operator's own per-lane variable it is pinned: before §37.10.1 the runtime re-resolved every `mod`
  * task, so the moment a setting existed it silently replaced `PI_COC_VOICE_MODEL` / `PI_COC_NPC_MODEL`.
