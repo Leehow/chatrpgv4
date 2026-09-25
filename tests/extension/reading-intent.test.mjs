@@ -9,6 +9,12 @@
  * Both cases travel the product path: the real extension's tool, the real reading service timing
  * out on a foreground wait (the kernel answers `reading` and lets nobody claim the job), and the
  * real kernel refusing an `apply` on the Haunting graph.
+ *
+ * §22.4.3.1 (SL-58) moved the first case off `lookup kind=source`: a direct source lookup (`answer`
+ * since SL-36, `prepare` since SL-58) now answers `pending` past its allowance instead of ever timing
+ * out in the foreground, so it can no longer produce this refusal. The automatic `material_pending`
+ * recovery an `apply`/`resolve` raises (contract §22.4) is untouched by that section and still runs the
+ * same real reading service on the same foreground wait, so it is this test's trigger now.
  */
 import { strict as assert } from "node:assert";
 import { createHash } from "node:crypto";
@@ -31,29 +37,29 @@ function toolResultTexts(session, tool) {
 
 test("a reading timeout shows the Keeper the focus and question its fix tells it to reuse", async (t) => {
 	const table = await openTable({
-		env: { FAKE_KERNEL_READING: "1", PI_COC_READ_WAIT_MS: "50" },
+		env: { FAKE_KERNEL_MATERIAL_PENDING: "1", FAKE_KERNEL_READING: "1", PI_COC_READ_WAIT_MS: "50" },
 		responses: [
-			fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "the-ruins", question: "What waits at the ruins?" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "The road to the ruins is still being prepared." })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("The road to the ruins is still being prepared."),
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "farm", travel_minutes: 10 }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "The road to the farm is still being prepared." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("The road to the farm is still being prepared."),
 		],
 	});
 	t.after(() => table.dispose());
-	await table.session.prompt("I walk out toward the ruins.");
-	const [text] = toolResultTexts(table.session, "lookup");
-	assert.ok(text, "the lookup returned a tool result");
+	await table.session.prompt("I walk out toward the farm.");
+	const [text] = toolResultTexts(table.session, "apply");
+	assert.ok(text, "the apply returned a tool result");
 	assert.match(text, /^needs: the source is still being read$/m);
 	assert.match(text, /^fix: .*details\.read.*do not invent another question$/m);
-	// What the fix names, as one line the Keeper can copy from: purpose, focus and question, verbatim.
-	assert.match(text, /^read: \{"purpose":"detail","focus":"the-ruins","question":"What waits at the ruins\?"\}$/m);
+	// What the fix names, as one line the Keeper can copy from: purpose and focus, verbatim (a move's material read
+	// carries no question).
+	assert.match(text, /^read: \{"purpose":"detail","focus":"farm"\}$/m);
 	// What the fix does not name stays out of the model's text: the job handle is telemetry's.
 	assert.doesNotMatch(text, /read-7/);
 
 	// The refusal row says what it waited for (#65): the queue's job and the read's target, never the question's prose.
-	const refusal = table.telemetry().find((row) => row.tool === "lookup" && row.ok === false);
+	const refusal = table.telemetry().find((row) => row.tool === "apply" && row.ok === false);
 	assert.equal(refusal?.reason, "reading_timeout", JSON.stringify(refusal));
-	assert.deepEqual([refusal.job_id, refusal.read_purpose, refusal.read_focus], ["read-7", "detail", "the-ruins"]);
-	assert.ok(!JSON.stringify(refusal).includes("What waits"));
+	assert.deepEqual([refusal.job_id, refusal.read_purpose, refusal.read_focus], ["read-7", "detail", "farm"]);
 });
 
 test("the claim row names the job and the wake it answered; a wake that finds nothing says so", async () => {

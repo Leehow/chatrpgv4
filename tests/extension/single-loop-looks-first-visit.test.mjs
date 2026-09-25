@@ -314,6 +314,63 @@ test("§135.31.2 at the extension seam: a consultation past its allowance answer
 	assert.ok(rows.every((row) => !Object.hasOwn(row, "question")), "telemetry never writes the Keeper's question");
 });
 
+// ---------------------------------------------------------------------------------------------------
+// §22.4.3.1 (SL-58): a `prepare` consultation gets the same allowance and landing, on a blocking slot.
+// ---------------------------------------------------------------------------------------------------
+
+const prepareLookup = (query) => fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query })], { stopReason: "toolUse" });
+
+test("§22.4.3.1 at the extension seam: a prepare lookup past its allowance answers pending on its blocking slot, the note carries it pending, and the next turn's first step carries the landing once", async (t) => {
+	let land;
+	const settled = new Promise((resolve) => { land = resolve; });
+	const ensures = [];
+	const table = await hybridTable({
+		route: (batch) => answered(batch, (question) => question.key === "exit" ? "ask_llm" : undefined),
+		responses: [prepareLookup("commission-briefing"), narrate("Knott shrugs and taps the lease."),
+			look("time"), narrate("You fold the paper and pocket it.")],
+	});
+	t.after(() => table.dispose());
+	const turnBudget = { signal: new AbortController().signal, deadlineAt: Date.now() + 600_000, async reserve() { return { settle() {}, release() {} }; } };
+	table.table.emit("coc:task-provider-budget", () => turnBudget);
+	table.table.emit("coc:reading-bridge", {
+		async ensure(_mid, params, _signal, options) {
+			ensures.push({ params, options });
+			return { state: "pending", job_id: "read-2", index: [{ name: "Knott's Office", pages: [[0, 0]] }], read: { purpose: "detail", focus: params.focus, question: "" }, settled };
+		},
+		reading() { return false; },
+	});
+	await table.table.session.prompt("I ask Knott to check the lease against the original book.");
+
+	assert.equal(ensures.length, 1);
+	assert.equal(ensures[0].params.purpose, "detail");
+	assert.equal(ensures[0].options.allowanceMs, SOURCE_ANSWER_ALLOWANCE_MS, "the same named allowance as an answer, not the 120 s foreground wait");
+	assert.equal(ensures[0].options.blocking, true, "a prepare consultation keeps its blocking slot (§22.4.6): the Keeper asked for this material now");
+	assert.equal(ensures[0].options.providerBudget, undefined, "past the allowance the reading is not the turn's provider work");
+	const result = table.table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "lookup");
+	const body = JSON.parse(result.content.map((block) => block.text ?? "").join(""));
+	assert.equal(body.source_answer.status, "pending");
+	assert.deepEqual(body.source_answer.index, [{ name: "Knott's Office", pages: [[0, 0]] }], "what the index holds on the focus");
+	const afterLookup = clerkNotes(table.requests[1]).at(-1);
+	assert.deepEqual(afterLookup.carried.pending.map((row) => [row.focus, row.purpose]), [["commission-briefing", "prepare"]], "the note carries it pending, named prepare");
+	assert.ok(afterLookup.carried.head.includes(CARRIED_PENDING_HEAD));
+	assert.equal(turnRecord(table, 2).closed_by, "narrate", "the turn delivered without the material");
+
+	land({ state: "ready", generation: 2 });
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	await table.table.session.prompt("I go on to the Globe tomorrow.");
+
+	const landed = distinctNotes(table.requests).flatMap(({ request, note }) => (note.carried?.views ?? [])
+		.filter((view) => view.focus === "source_answer").map((view) => ({ request, view })));
+	assert.equal(landed.length, 1, `carried once: ${JSON.stringify(landed)}`);
+	assert.equal(landed[0].request, 2, "on the next turn's first model step");
+	assert.equal(landed[0].view.name, "commission-briefing");
+	assert.equal(landed[0].view.view.status, "material_ready", "a prepare's landing is material readiness, never a checked answer");
+	assert.ok(clerkNotes(table.requests[2]).at(-1).carried.head.includes(CARRIED_ANSWERS_HEAD));
+	const rows = table.table.telemetry(CAMPAIGN).filter((row) => row.lane === "reading" && String(row.event).startsWith("answer_"));
+	assert.deepEqual(rows.map((row) => row.event), ["answer_pending", "answer_landed"]);
+	assert.ok(rows.every((row) => row.purpose === "prepare"), "telemetry names the mode");
+});
+
 test("§22.4.4 at the extension seam: a pending text read with a draft delivers the draft, and the note carries the pending read", async (t) => {
 	const draft = "You read the lease twice while Knott watches the clock.";
 	const table = await hybridTable({

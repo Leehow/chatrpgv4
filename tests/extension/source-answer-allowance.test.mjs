@@ -188,6 +188,35 @@ test('§22.4.3 past its allowance a consultation resolves pending with the index
   assert.equal(requests.at(-1).foreground, false, 'polled in the background after the allowance');
 });
 
+test('§22.4.3.1 (SL-58) past its allowance a prepare consultation also resolves pending, but keeps its blocking slot: no unwait, still polled foreground', async t => {
+  let landed = false;
+  const unwaited = [], requests = [];
+  const service = new ReadingService({home: ROOT, model: () => ({id: 'fixture/vision', vision: true}), progress() {}, record() {}, async call(method, params) {
+    if (method === 'module.read.request') {
+      requests.push(params);
+      return landed ? {state: 'ready', generation: 2}
+        : {state: 'reading', job_id: 'read-9', generation: 2, index: [{name: 'esso-station', pages: [[17, 19]]}]};
+    }
+    if (method === 'module.read.claim') return {job_id: null};
+    if (method === 'module.read.unwait') { unwaited.push(params.job_id); return {foreground: false}; }
+    throw new Error(method);
+  }});
+  t.after(() => service.close());
+  const began = Date.now();
+  const pending = await service.ensure(MID, {purpose: 'detail', focus: 'esso-station', question: '', foreground: true}, undefined, {allowanceMs: 60, blocking: true});
+  assert.ok(Date.now() - began < 5_000, 'the allowance, not the foreground wait -- ticket 29 batch-8 t4/t7/t20 walled 120,003 ms each on this path before SL-58');
+  assert.equal(pending.state, 'pending');
+  assert.equal(pending.job_id, 'read-9');
+  assert.deepEqual(pending.index, [{name: 'esso-station', pages: [[17, 19]]}]);
+  assert.deepEqual(pending.read, {purpose: 'detail', focus: 'esso-station', question: ''});
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(unwaited, [], 'a prepare consultation keeps its blocking slot (§22.4.6): the party asked for this material now, so nothing gives up its lease');
+  assert.equal(requests.at(-1).foreground, true, 'still polled as a blocking read after the allowance, unlike an answer past its allowance');
+  landed = true;
+  const settled = await pending.settled;
+  assert.equal(settled.state, 'ready', 'the same reading, followed to its end');
+});
+
 /** A fake reader runtime for one answer job: `reviews` are the reviewer attempts' outputs, in order. */
 function answerRuntime({cache, reviews, draft}) {
   const tasks = [];
