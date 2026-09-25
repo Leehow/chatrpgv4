@@ -446,3 +446,142 @@ Evidence (git-ignored, kept — the fork and reading workspace were deliberately
 - triage: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b6/.coc/playtests/sl29a-b6/triage.txt`
 - harness (this branch only, originals under `29-book-a-b5/` untouched): `docs/specs/pi-native-single-loop-tickets/29-book-a-b6/{worker.sh,start.sh,play.py,triage.py,script.md,preregistration.md}`
 - per-turn prose (not committed, carries book-derived text): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b6/.coc/playtests/sl29a-b6/turns.log`
+
+### 2026-09-25 — book A (血色公路) SL-29A batch-7 on `716d48649` (integration `claude/integ-single-loop-20260923`, batch 7 merged on top of batch 6: SL-53, SL-54, SL-55, SL-52 through stage 3, SL-50 stage 2): SL-53 confirmed fixed for every job raised, including the index job batch-6 flagged; SL-54/SL-55 not exercised (no slot contention, no mid-flight publication); one new P1/P2 finding — a `resolve` targeting an NPC blocks the whole turn for a full `reading_timeout` cycle with no SL-47-style partial-landing equivalent, and it repeats because the underlying detail read never completes
+
+Measurement only, no product fixes. New worktree `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b7` (branch
+`claude/sl29a-b7-20260925`) at `716d48649`, node_modules symlinked from `chatrpgv4-wt-pi-coc-v2` (six paths per the
+marker), `npm run build:runtime` clean, `.pi/coc-agent` copied from `chatrpgv4-wt-integ-sl/.pi/coc-agent`
+(grok-build token 82.6 min remaining at copy time, above the 60-minute floor, so no substitution was needed). The
+imported home was reused, not re-imported: `chatrpgv4-wt-pdf-a/.coc/playtests/sl29-a-run2/home` (module `book-1`,
+generation 2, the same graph batches 4/5/6 tested) was copied into `.coc/playtests/sl29a-b7/home` (stale `.lock`
+files under `.coc/modules` removed before use) and loaded cleanly on the batch-7 build. A NEW campaign,
+`sl29ab7-xuese-0445`, was created via the onboarding worker's `converse` action (title `血色公路`, no `.pdf` suffix);
+harness adapted from `29-book-a-b6/` as `29-book-a-b7/{worker.sh,start.sh,play.py,triage.py,script.md}` (script
+unmodified), with `29-book-a-b7/preregistration.md` written and committed (`2f7b872af`) before the table opened.
+Investigator 雷·卡特 (Private Investigator, Drive Auto/Spot Hidden on his sheet, same identity as batches 4/5/6's)
+was made in a live setup session replaying the recorded exchange turn-for-turn (5 turns, 92.9 s, 9 tool calls, run
+`sl29ab7-xuese-0445-setup-20260925T044620Z`). The table was played with `29-book-a-b7/play.py` (one sentence a turn,
+structural branches only) on driver run `sl29ab7-xuese-0445-20260925T044840Z`, hybrid-v1, `PI_COC_JEV_PRESELECT=1`,
+grok-build/grok-4.7-build-fast low. **Confound noted, not scored as a finding**: long gate #7 (campaign
+`longgate7-haunting-0042`, worktree `chatrpgv4-wt-integ-sl`) was running concurrently on this Mac's grok-build login
+throughout this table (confirmed by `ps aux` before the table opened; its daemon was never touched). Per-turn
+structural table: `.coc/playtests/sl29a-b7/triage.txt` (from `29-book-a-b7/triage.py`). The campaign fork and
+reading workspace were kept (not deleted), continuing batches 5/6's procedural change.
+
+**Table-wide.** 20/20 turns settled, 0 stranded, 0 provider errors, `infer(bind)` = 0, admission max 11.3 s (0
+`review_timeout`), 7 `look`/`lookup` calls total (6 of them `kind: source`, counted separately), speech 9
+resolved / 3 unresolved, 0 sanity rolls (none of this script's sentences reach a sanity-triggering scene). Walls
+`[47, 31, 45, 23, 21, 42, 35, 31, 30, 172, 177, 55, 32, 26, 40, 34, 25, 29, 38, 30]`; median 33.2 s, 18/20 ≤ 60 s
+(90%), max 176.6 s (t11). Both turns over 60 s (t10 172.2 s, t11 176.7 s) share one cause (finding 3 below); without
+them, median 31.5 s, max 55.3 s (t12) — the best "without the one cause" wall numbers this ticket's book-A line has
+produced.
+
+**Table (Scope 3), keyed to what batch 7 changed.**
+
+| class | pre-registered line | measured | verdict |
+| --- | --- | --- | --- |
+| delivery | 20/20 with prose | 20/20 settled, 0 stranded, every turn delivered real Keeper prose (including t10/t11, whose drafts were kept across the reading wait — see finding 3) | **pass** |
+| wall | median ≤45s, ≥80% ≤60s | median 33.2s, 18/20 ≤60s (90%), max 176.6s; both over-60s turns share one new cause (finding 3) | **pass on the line's own numbers; one new wall cause found (not any of SL-53/54/55's own targets)** |
+| routing | declared move lands or narrates honestly | The Keeper moved the party from `prologue` straight to `welcome-to-abattoir` on **turn 1** (one `apply` covering the fork, the dirt road and the bridge in the same response — the graph has no separate nodes for those beats, so this is a legitimate single move, not an invented receipt), then **never left `welcome-to-abattoir` for the rest of the table**: no `esso-station`/`mather-general-store`/`last-stop`/`church-steeple` node was ever entered by a declared move (contrast batch-5's 2/4, batch-6's 2/4, batch-4's 0/4) | **not a defect — Keeper-choice/pacing noise, as batch-6 already characterized this axis; zero sub-locations entered this table because the Keeper treated the gas station and its attendant as part of the arrival scene, not a separate node** |
+| admission | no row >12s | admission max 11.3s (t11), 0 `review_timeout` | pass |
+| binding | `infer(bind)` = 0 | 0 | pass |
+| looks | ≤1/turn after first visit | 1 `lookup kind=module` total across the table, 6 `lookup kind=source` counted separately | pass |
+| prescreen | status per read; own allowance | `prepared` every read, 2→3 candidates as the graph grew, no fallback anywhere | pass |
+| drops | every drop has a reason | `text_beside_tool_calls` 10, `floor_steer` 6, `speech_steer` 8 (a turn can carry more than one); all with rows, no stranded turn | pass |
+| fiction/rules | no off-sheet skill | Spot Hidden ×3 (t5:55, t6:67, t16:2), Drive Auto ×1 (t12:27), Listen ×1 (t17:6) — all base/occupational skills on 雷·卡特's own sheet, none off-sheet | **SL-40 confirmed still fixed** |
+| stalls | none; provider errors listed | 0 provider `error` rows anywhere (driver log and `pi-stderr.log` both clean) | pass |
+| reading (PDF) | every read has a telemetry row and outcome | every one of this table's 7 reads (`read-1`..`read-7`) has purpose/focus/ms/outcome rows; **zero `budget_input_tokens`/`provider_refused` events anywhere in the table** | pass |
+| SL-53 (index/skeleton job under the book-sized lease) | a `stage_budget` telemetry row before the job runs; no fixed-lease refusal | **`read-1` (`purpose: "index"`, this table's fork-completion job, the exact job type batch-6 found uncovered) got a `stage_budget` row** (`pageCount: 111`, logged 04:48:42.083Z, before it ran) and **completed cleanly in one round, 281s, zero refusals**. All 7 jobs raised this table (index, detail, answer) got a `stage_budget` row — 7/7, none missing. | **confirmed fixed — the exact gap batch-6 filed (P2: "the background `index` job is not covered... pre-SL-41 fixed 1,000,000-token ceiling signature recurs there") does not reproduce** |
+| SL-54 (a displaced read resumes) | `displaced`/`resumed` rows; no `source_context_changed` failure on a resumed job | **Not exercised.** This table never contended all 3 reading slots (at most 2 concurrent: `read-1` background + `read-2` foreground at the start; every later job ran alone in the background). Zero `displaced` events, zero `resumed` events anywhere in `reading-telemetry.jsonl`. | not exercised — the mechanism batch-6 found live for the first time did not fire here, for lack of slot contention, not for lack of the fix |
+| SL-55 (a running answer survives a generation move) | `finished_under`/`requeued` rows; no bare `source_context_changed` at finish | **Not exercised.** The module's fork never advanced past `generation: 2` for the whole table: `read-2` (the town's own detail read) failed at review (finding 2) and was never retried, and the five `answer` jobs never publish to the graph. With no publication ever landing mid-table, no running job could race one. Zero `finished_under`, zero `requeued` rows. | not exercised — no generation ever moved during this table |
+| SL-52 (ask fan-out / accept-obligation yields) | `ask_cleared`/`settled_clue`/obligation-yield rows if triggered | **Not exercised, as pre-registered.** Zero `ask_cleared`, `settled_clue`, `obligation_check`, `guard_unlock` or `ask_clue` rows anywhere in the campaign's `telemetry.jsonl`: 血色公路's 4-node starting graph carries no obligation/accept node for this script to trigger (unlike the Haunting fixture SL-52 was built against) | not exercised, exactly as pre-registered |
+| SL-50 stage 2 (writes-are-silent; note head once per run) | own counts, not a pass/fail gate against Haunting-calibrated numbers | 52 model steps total (49 across turns 1-20, 3 on the opening), 10 `text_beside_tool_calls` drops, 9 of 20 played turns needed ≥3 model steps. Against the ticket's own long-gate-#7 target lines (drops ≤7, steps ≤52, turns≥3 ≤8 — calibrated to the Haunting's longer script): steps within range, drops and turns≥3 both slightly over. | reported for comparison only, as pre-registered; inconclusive on a different, shorter script |
+| SL-48 (index cites a read's own pages, even when refused) | own pages land on the index row after the read, published or not | `read-2` (welcome-to-abattoir's own detail read) **failed at review** (finding 2) yet `module.json` `reading.scene_index` still gained the read's own pages (`[[16,16],[75,75]]`, 0-based → pages 17 and 76) under `job_id: "read-2"` — the graph's own published `source_refs` correctly did not change (nothing published) | **confirmed again — third table running to show "a refused reading still writes the row" live, now on a different node (welcome-to-abattoir) and a different dispute shape (a `summary` field, not `delivery_kind`)** |
+| SL-49 (field-level dispute publishes `contested`) | a classification-field dispute publishes `contested`; a fact/root dispute still refuses | `read-2`'s dispute (`/nodes/0/summary`, "the summary claims one man + several others; the station text says three men") and `read-6`'s dispute (`/status`, "unclear" on a book-wide negative) are both **fact-level**, not classification fields — correctly still hard refusals under the ruling | not exercised (no classification-field dispute arose) — consistent with, not contrary to, the ruling |
+| SL-51 (a carried-text name accepted `from_passage`) | a `person`/`npc` write naming carried text is accepted `from_passage` | The NPC placed at t10 (`最靠边的那个男人`, "the man sitting at the far end") is the Keeper's own paraphrase of the carried answer text, not a name the book states verbatim — SL-51's race (a *named* person from carried text, refused `unknown_entity` before the record lands) was never posed this table | not exercised — this table's only NPC has no book-given name to test the race against |
+
+**Findings, one root cause each**
+
+- **P0 SL-53, confirmed fixed.** Every reading job raised this table — including `purpose: "index"`, the exact job
+  type batch-6's own evidence showed running with no `stage_budget` row and hitting the pre-SL-41 fixed
+  1,000,000-input-token ceiling — now gets a `stage_budget` row before it runs and completed with zero refusals.
+  This closes batch-6's P2 finding outright. Evidence: `.coc/playtests/sl29a-b7/home/.coc/reading-telemetry.jsonl`
+  (`event:"stage_budget"` rows for `read-1`..`read-7`, all with `pageCount: 111`); `deepen-queue.json` `read-1`
+  (`state: "completed"`, `attempts: 1`, no `detail`/`refusal` field).
+- **P2 reading, carried (not new) — a scene's own detail read can fail at review and is never retried while the
+  party stays in that scene, so the whole rest of the table runs on SL-47's index-only text for it.**
+  `welcome-to-abattoir`'s own `detail` read (`read-2`) failed at review 4 minutes into the table (a `summary` field
+  the reviewer judged unsupported by the yellow-box sentence) and stayed `failed`, `attempts: 1`, for the remaining
+  ~16 minutes and 19 turns the party spent in that scene. SL-47's landing mechanism means this cost no turn a wall
+  (the Keeper narrated correctly from the index's carried pages the whole time, per the routing row above), but it
+  means the scene's richer reviewed record (its exits, full NPC roster, clues) never arrived this table at all —
+  not "later," as batches 5/6 both observed for their own sub-locations, but never. This is the same underlying gap
+  those batches' own "P1 reading, new" findings named (a content-review false rejection or a lease/scheduling issue
+  blocks a scene's detail record from ever publishing); batch 7 reproduces it on a different node with a different
+  review objection and confirms it has no session-level retry. Evidence:
+  `.coc/module-campaigns/sl29ab7-xuese-0445/modules/book-1/deepen-queue.json` `read-2` (verbatim refusal above);
+  `module.json` (still generation 2 at table end).
+- **P1 wall, new — a `resolve` whose target is an NPC still being read blocks the whole turn for a full
+  `reading_timeout` cycle (~120-131s), with no SL-47-style partial-landing equivalent for NPC material, and it
+  repeats because the underlying read never finishes.** At t10 the Keeper placed an NPC (`最靠边的那个男人`, "the man
+  at the far end," paraphrased from the carried answer text, not book-named) present and raised its own `detail`
+  read (`read-5`, focus `最靠边的那个男人`). The t10 `resolve` call (a first-impression check on that NPC) blocked for
+  124,553 ms before returning `{code:"needs", reason:"reading_timeout", job_id:"read-5"}` — the turn still delivered
+  real prose (SL-37's draft-kept behavior held: `delivery reading_wait_draft_kept`, and the final text is a genuine
+  scene beat, not a bare notice). `read-5` was still `running` (never claimed a review round) when t10 ended, so at
+  t11 the *next* `resolve` call against the same NPC (asking about lodging/the sheriff) blocked again — 131,353 ms,
+  the exact same `job_id: "read-5"`, the exact same `reading_timeout` reason — and again delivered real prose after
+  timing out. `read-5` was still `running`, unclaimed by any review round, when the table ended at t20, ten turns
+  later. Unlike SL-47 (a move into an unread *scene* lands instantly on the index's own text while the detail read
+  continues in the background) there is no equivalent for a `resolve` whose target is an NPC: the check simply waits
+  out the full foreground timeout, twice, on the same never-finishing read, before falling back. Net cost: 256 s
+  across two turns, both attributable to one job. New root cause, distinct from SL-53/54/55's own scope (it is not a
+  lease-sizing, displacement or generation-move issue — `read-5` never even reached a review round to hit any of
+  those paths); likely worth its own ticket (an SL-47-shaped partial-landing rule for a `resolve` blocked on its
+  target NPC's own material, or a foreground-priority promotion for that specific read the way SL-45 promotes a
+  blocking `detail`/`answer` job). Evidence:
+  `.coc/playtests/sl29a-b7/home/.coc/campaigns/sl29ab7-xuese-0445/telemetry.jsonl` (turn 10 and turn 11 rows with
+  `"reason":"reading_timeout","job_id":"read-5"`, `ms: 124549` and `ms: 131353`); `deepen-queue.json` `read-5`
+  (`state: "running"` at table end); `turn-10.json`/`turn-11.json` (`tools[].name==="resolve"`, `ms` matching).
+- **Not exercised this table (all new-to-batch-7 lines): SL-54 (no slot contention — max 2 concurrent jobs, never
+  3), SL-55 (no generation ever moved — `read-2`'s failure and the `answer` jobs' non-publishing nature meant the
+  fork stayed at generation 2 throughout), SL-52 (this book's graph has no obligation/accept node, as
+  pre-registered).** None of these is contradicted by this table's evidence; each needs a table whose reading
+  workload happens to hit 3-slot contention (SL-54), a mid-table publication (SL-55), or an obligation-bearing scene
+  (SL-52) to be exercised live.
+- **Not exercised this table (carried from every prior SL-29A book-A table): SL-43 (no obligation-vs-ordinary
+  conflict), SL-38/SL-42/SL-40's guard-narration path (this script's only gate is the town's own arrival), SL-49
+  (no classification-field dispute arose), SL-51 (this table's only NPC has no book-given name).**
+- **SL-48, confirmed a third time, on a new node and dispute shape.** See the table row above; this is now the
+  strongest-standing mechanism in this ticket's own line (three tables running, three different nodes, three
+  different dispute shapes, all correctly writing the index row on a refused reading).
+- **Routing/pacing note, not a defect.** Zero sub-locations entered this table (versus batch-4's 0, batch-5's 2,
+  batch-6's 2) because the Keeper's turn-1 move folded the gas station and its attendant into `welcome-to-abattoir`
+  itself rather than raising a separate node — consistent with batch-6's own conclusion that which/how-many
+  sub-locations get entered is Keeper-choice noise across tables, not a routing defect (no invented move receipt,
+  no refused move, honest narration throughout).
+
+**Comparison with batch 6's own findings.**
+- **Fixed:** SL-53 (batch-6's P2, the background index job's missing `stage_budget` row and fixed-lease refusal) —
+  confirmed fixed above, no exception found.
+- **Remains (same root cause, different instance):** the "a scene's detail read fails at review and is never
+  retried" gap batches 5/6 both flagged (there as `last-stop`/`church-steeple`'s own reads; here as
+  `welcome-to-abattoir`'s), and the reviewer's own book-wide-negative strictness (`read-6`'s refusal echoes SL-55's
+  own `read-7` replay note almost verbatim: "an empty `limitations` on a book-wide negative").
+- **New:** the `resolve`-blocks-on-NPC-material finding (P1 wall, above) — not seen in batches 4/5/6, because none
+  of those tables raised an NPC `detail` read that a same-or-next-turn `resolve` then depended on before it
+  finished.
+- **Not carried forward as findings (batch-6's SL-54 displacement-retry and structural gap notes):** SL-54 could not
+  be re-exercised this table (no slot contention); its own fix (resuming under the current generation rather than
+  failing) is measured directly by SL-54's own ticket entry, not by this table.
+
+Evidence (git-ignored, kept — the fork and reading workspace were deliberately not deleted this batch):
+- setup: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b7/.coc/playtests/sl29ab7-xuese-0445-setup-20260925T044620Z/`
+- table: playtest `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b7/.coc/playtests/sl29ab7-xuese-0445-20260925T044840Z/` (turn-{1..20}.json, driver.log, events.jsonl)
+- campaign: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b7/.coc/playtests/sl29a-b7/home/.coc/campaigns/sl29ab7-xuese-0445/` (turns/0000–0020.json, telemetry.jsonl, campaign.json)
+- reading fork (kept, not deleted): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b7/.coc/playtests/sl29a-b7/home/.coc/module-campaigns/sl29ab7-xuese-0445/modules/book-1/` (`deepen-queue.json` read-1..7; `module.json` `reading.scene_index`)
+- reading telemetry (stage_budget rows for SL-53): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b7/.coc/playtests/sl29a-b7/home/.coc/reading-telemetry.jsonl`
+- triage: `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b7/.coc/playtests/sl29a-b7/triage.txt`
+- harness (this branch only, originals under `29-book-a-b6/` untouched): `docs/specs/pi-native-single-loop-tickets/29-book-a-b7/{worker.sh,start.sh,play.py,triage.py,script.md,preregistration.md}`
+- per-turn prose (not committed, carries book-derived text): `/Users/haoli/leehow/code/chatrpgv4-wt-sl29a-b7/.coc/playtests/sl29a-b7/turns.log`
