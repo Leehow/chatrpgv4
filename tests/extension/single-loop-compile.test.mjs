@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { createRealCampaign } from "./harness.mjs";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { runDriver } from "./pi-agent-core.mjs";
+import { fanAsk } from "./compile-ask.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY, NONE, UNCLEAR, compileBatch, compileOnly, compileReaches, interpretCompile, predicateOf } from "../../runtime/jev/route-compile.ts";
@@ -72,12 +73,13 @@ function fight() {
 }
 const built = (reads) => ({ candidates: buildCandidates(reads, INPUT), rows: compileRows(reads) });
 
-/** A complete Jev answer: `choices[key]` = [choice, confidence, probabilities?]. */
+/** A complete Jev answer: `choices[key]` = [choice, confidence, probabilities?]; a single `ask` choice is fanned out (§135.30.9). */
 const answer = (choices) => ({ batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
-	answers: Object.fromEntries(Object.entries(choices).map(([key, [choice, confidence, probabilities]]) => [key,
-		{ status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } }])) });
-/** The alias the compile question gives a row, read from the question itself (never assumed). */
+	answers: fanAsk(Object.fromEntries(Object.entries(choices).map(([key, [choice, confidence, probabilities]]) => [key,
+		{ status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } }]))) });
+/** The alias the compile question gives a row, read from the question itself (never assumed); an `ask` row's is its own key. */
 const alias = (batch, family, id, rows) => {
+	if (family === "ask") return batch.questions.find((value) => value.key === `ask_${rows.ask.findIndex((row) => row.id === id) + 1}`)?.key;
 	const question = batch.questions.find((value) => value.key === family);
 	const index = rows[family].findIndex((row) => row.id === id);
 	return Object.keys(question.criteria)[index];
@@ -106,9 +108,11 @@ test("§135.30 rows: every option is a kernel row plus none and unclear; a famil
 	assert.deepEqual(rows.target, [], "outside a fight there are no fighters");
 	const batch = compileBatch(initialView({ runId: "r", rawInput: INPUT, context, candidates: [], rows }), scope, [], []);
 	assert.equal(batch.family, COMPILE_FAMILY);
-	assert.deepEqual(batch.questions.map((question) => question.key), ["destination", "addressee", "ask", "act", "item"], "target has no rows: not asked");
+	assert.deepEqual(batch.questions.map((question) => question.key), ["destination", "addressee", "ask_1", "ask_2", "act", "item"],
+		"target has no rows: not asked; §135.30.9: one question per ask row, in the rows' order");
 	for (const question of batch.questions) {
 		const keys = Object.keys(question.criteria), family = question.key;
+		if (family.startsWith("ask_")) { assert.deepEqual(keys, ["yes", "no", "unclear"], `${family}: its own yes/no`); continue; }
 		assert.deepEqual(keys, [...rows[family].map((_, index) => `${family}_${index + 1}`), NONE, UNCLEAR], `${family}: rows, then none and unclear`);
 	}
 	assert.deepEqual(batch.questions[0].criteria.destination_1, { place: "The Globe offices", handle: "morgue" }, "the row's own words");
@@ -216,10 +220,13 @@ test("§135.30 attack: act and target cleared select the investigator's attack w
 
 test("§135.30: nothing a predicate can reach, no compile; the rows alone never make one", () => {
 	const reads = office();
-	reads.applyOptions.candidates = reads.applyOptions.candidates.filter((row) => row.effect.kind !== "move");
+	reads.applyOptions.candidates = reads.applyOptions.candidates.filter((row) => row.effect.kind !== "move" && row.effect.kind !== "clue");
 	const view = compileView(reads);
 	assert.ok(view.rows.act.length > 0 && view.rows.ask.length > 0, "there are rows");
-	assert.equal(compileReaches(view.candidates, view.rows), false, "a clue and a handout: no predicate reads them");
+	assert.equal(compileReaches(view.candidates, view.rows), false, "a handout: no predicate reads it");
+	// §135.30.9 (SL-52): an issued clue with its ask row is reachable (`ask_clue`), so it owes a compile.
+	const clue = compileView({ ...office(), applyOptions: { ...office().applyOptions, candidates: office().applyOptions.candidates.filter((row) => row.effect.kind === "clue") } });
+	assert.equal(compileReaches(clue.candidates, clue.rows), true, "a clue with its ask row: ask_clue reaches it");
 	assert.deepEqual([next(view).kind, next(view).purpose], ["decide", "route"]);
 	// Without rows (a reader that builds none) there is never a compile, and `compile: false` turns it off for the run.
 	const { candidates } = built(office());
@@ -544,7 +551,8 @@ test("SL-26 (§135.30.3): the ordinary check owes a compile; investigate at the 
 	assert.deepEqual([chosen.basis.compile.bound.intent.value, chosen.basis.compile.bound.intent.confidence], ["investigate", 1], "with the act answer's confidence");
 	assert.equal(Object.values(chosen.basis.compile.bound.intent.distribution)[0], 1, "and its distribution");
 	assert.deepEqual(chosen.basis.compile.read_features, { act: { row: "investigate", confidence: 1, cleared: true }, addressee: { row: null, confidence: null, cleared: false },
-		ask: { row: null, confidence: null, cleared: false }, destination: { row: null, confidence: 0.96, cleared: true } }, "every family it reads, the unanswered guards as not cleared");
+		ask: { row: null, rows: [], confidence: null, cleared: false }, destination: { row: null, confidence: 0.96, cleared: true } },
+		"every family it reads, the unanswered guards as not cleared (§135.30.9: the ask as the sought rows, none here)");
 	assert.ok(chosen.unbound.some((value) => value.binder === "ordinary-resolve"), "the profile is still the binder's");
 	assert.ok(!view.consumed.includes(ORDINARY));
 });

@@ -27,6 +27,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
+import { askWords, fanAsk, isAskRow } from "./compile-ask.mjs";
 import { compileAdmission } from "../../extensions/kernel/admission.ts";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
@@ -71,8 +72,8 @@ function office({ leads = false, gate = false } = {}) {
 }
 const built = (reads) => ({ candidates: buildCandidates(reads, INPUT), rows: compileRows(reads) });
 const answer = (choices) => ({ batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
-	answers: Object.fromEntries(Object.entries(choices).map(([key, [choice, confidence, probabilities]]) => [key,
-		{ status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } }])) });
+	answers: fanAsk(Object.fromEntries(Object.entries(choices).map(([key, [choice, confidence, probabilities]]) => [key,
+		{ status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } }]))) });
 const alias = (rows, family, id) => id === NONE || id === "unclear" ? id : `${family}_${rows[family].findIndex((row) => row.id === id) + 1}`;
 /** The compile over `reads`, answered with rows by id: `{destination: [id, confidence], ask: [...], act: [...]}`. */
 function compileOver(reads, choices) {
@@ -113,7 +114,7 @@ test("§135.30.5 policy: after the clue lands, the fresh read's move runs next w
 	const clue = runHead(view, true, office({ leads: true }));
 	const move = view.pending[0]?.candidate;
 	assert.equal(move?.key, "apply:move:morgue", "the move the fresh read issued is next");
-	assert.deepEqual(move.basis.compile, { predicate: "move", features: { destination: "morgue", ask: "clue:leads", act: "investigate" },
+	assert.deepEqual(move.basis.compile, { predicate: "move", features: { destination: "morgue", ask: ["clue:leads"], act: "investigate" },
 		read_features: { destination: { row: "morgue", confidence: 1, cleared: true } }, unlocked_by: "apply:clue:leads" });
 	assert.equal(move.basis.row.description.unlock_when.met, true, "the move carries the fresh read's kernel row, whose guard is now met");
 	assert.deepEqual(view.unlocks, [], "the staged move is spent");
@@ -137,17 +138,23 @@ test("§135.30.5 policy: a guard the batch does not unlock still falls through a
 		assert.equal(view.unlocks, undefined);
 	}
 	// The declaration files the leads but goes to the house, whose guard names the keys: the leads open nothing it goes to.
+	// §135.30.9 (SL-52): the sought leads are still filed (`ask_clue`), with no move staged; the house stays held.
 	const house = compileOver(office(), { ...GATE3, destination: ["house", 0.95] });
-	assert.deepEqual(house.row.detail.selected, [], "the leads clue is not selected for a destination it does not open");
+	assert.deepEqual(house.row.detail.fired.map((entry) => [entry.predicate, entry.candidate]), [["ask_clue", "apply:clue:leads"]],
+		"the leads clue is filed, not as an unlock of a destination it does not open");
+	assert.equal(house.row.detail.unlocked, undefined);
 	assert.deepEqual(house.row.detail.guarded, [{ to: "house", place: "The Corbitt House", guard: KEYS }]);
 	// The predicate reaches a clue only when a destination row is guarded by it and its ask row exists.
 	const { candidates, rows } = built(office());
 	assert.equal(predicateOf(candidates.find((candidate) => candidate.key === "apply:clue:leads"), rows)?.name, "guard_unlock");
 	const opened = built(office({ leads: true }));
 	assert.equal(predicateOf(opened.candidates.find((candidate) => candidate.key === "apply:clue:keys"), { ...opened.rows,
-		destination: opened.rows.destination.filter((entry) => entry.id !== "house") }), undefined, "no destination held by it: not reachable");
-	// Never decided: a compile where it does not fire leaves it to the route.
-	assert.ok(interpretCompile({ candidates, rows }, answer({ destination: [NONE, 0.9], ask: [alias(rows, "ask", "clue:leads"), 0.9] }), 0.6).fellThrough.includes("apply:clue:leads"));
+		destination: opened.rows.destination.filter((entry) => entry.id !== "house") })?.name, "ask_clue",
+		"no destination held by it: guard_unlock does not reach it; §135.30.9's ask_clue does");
+	// Never decided: a compile where it does not fire leaves the clue to `ask_clue` (§135.30.9), and one where neither fires to the route.
+	const elsewhere = interpretCompile({ candidates, rows }, answer({ destination: [NONE, 0.9], ask: [alias(rows, "ask", "clue:leads"), 0.9] }), 0.6);
+	assert.deepEqual(elsewhere.selected.map((entry) => entry.predicate), ["ask_clue"]);
+	assert.ok(interpretCompile({ candidates, rows }, answer({ destination: [NONE, 0.9], ask: [NONE, 0.9] }), 0.6).fellThrough.includes("apply:clue:leads"));
 });
 
 test("§135.30.5 policy: a staged move the fresh read does not issue, or whose clue was refused, is reported as held", () => {
@@ -210,7 +217,7 @@ test("§135.30.5 on the emitted kernel: gate #3 turn 1's sentence at the office 
 	const decide = async (batch) => {
 		if (batch.family === COMPILE_FAMILY) return complete(Object.fromEntries(batch.questions.map((question) => {
 			const pick = question.key === "destination" ? [aliasWhere(question, (value) => value?.handle === "newspaper-morgue"), 1]
-				: question.key === "ask" ? [aliasWhere(question, (value) => value?.clue === leads), 0.9]
+				: isAskRow(question) ? [askWords(question)?.clue === leads ? "yes" : "no", 0.9]
 					: question.key === "act" ? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("investigate")), 0.95] : [];
 			return [question.key, choice(pick[0] ?? "unclear", pick[0] ? pick[1] : 0.9)];
 		})));
@@ -251,7 +258,7 @@ test("§135.30.7 on the emitted kernel: after the clerk's clue and move, the Kee
 	const decide = async (batch) => {
 		if (batch.family === COMPILE_FAMILY) return complete(Object.fromEntries(batch.questions.map((question) => {
 			const pick = question.key === "destination" ? [aliasWhere(question, (value) => value?.handle === "newspaper-morgue"), 1]
-				: question.key === "ask" ? [aliasWhere(question, (value) => value?.clue === leads), 0.9]
+				: isAskRow(question) ? [askWords(question)?.clue === leads ? "yes" : "no", 0.9]
 					: question.key === "act" ? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("investigate")), 0.95] : [];
 			return [question.key, choice(pick[0] ?? "unclear", pick[0] ? pick[1] : 0.9)];
 		})));

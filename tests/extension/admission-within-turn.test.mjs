@@ -20,6 +20,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
+import { askWords, isAskRow } from "./compile-ask.mjs";
 import { withOriginTamper } from "./origin-tamper.mjs";
 import { DEFAULT_ADMISSION_TIMEOUT_MS, REVIEW_PENDING, REVIEW_TIMEOUT, admissionTimeoutMs, compileAdmission } from "../../extensions/kernel/admission.ts";
 import { admissionBindings, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
@@ -242,7 +243,7 @@ test("§32.12: basis.compile.read_features records every family the predicate re
 		bound: { obligation: ACCESS, target: "Arty" }, unbound: [], basis: { obligation: ACCESS } };
 	const rows = { ask: [{ id: `obligation:${ACCESS}`, describe: {} }], addressee: [{ id: "Arty", describe: {} }], act: [{ id: "social", describe: "social" }] };
 	const result = { batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] }, answers: {
-		ask: { status: "answered", type: "choice", choice: "ask_1", confidence: 0.9, probabilities: { ask_1: 0.9, none: 0.1 } },
+		ask_1: { status: "answered", type: "choice", choice: "yes", confidence: 0.9, probabilities: { yes: 0.9, no: 0.1 } },
 		addressee: { status: "answered", type: "choice", choice: "addressee_1", confidence: 0.47, probabilities: { addressee_1: 0.47, unclear: 0.45 } },
 		act: { status: "answered", type: "choice", choice: "act_1", confidence: 0.95, probabilities: { act_1: 0.95 } } } };
 	const [selected] = interpretCompile({ candidates: [check], rows }, result, 0.6).selected;
@@ -296,7 +297,7 @@ function stubJev(compile) {
 	} };
 }
 /** The compile at the morgue: the demand asked of Arty (`addressee` as given), a social act. */
-const askArty = (addressee) => (question) => question.key === "ask" ? [aliasWhere(question, (value) => value && typeof value === "object" && "demand" in value), 0.9]
+const askArty = (addressee) => (question) => isAskRow(question) ? [askWords(question)?.demand ? "yes" : "no", 0.9]
 	: question.key === "addressee" ? addressee(aliasWhere(question, (value) => JSON.stringify(value).includes("城市版编辑")))
 	: question.key === "act" ? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("social")), 0.95]
 	: undefined;
@@ -425,7 +426,7 @@ const movedIn = (workspace) => kernelSteps(workspace, [
 	["table.narrate", { call_id: "t1-c2", text: "报馆里油墨味很重。" }],
 ]);
 /** The gate #7 compile: the demand at 0.91; Arty as the addressee at 0.51 (0.63 against unclear 0.35: the margin rule); social. */
-const gate7Compile = (question) => question.key === "ask" ? [aliasWhere(question, (value) => value && typeof value === "object" && "demand" in value), 0.91]
+const gate7Compile = (question) => isAskRow(question) ? [askWords(question)?.demand ? "yes" : "no", 0.91]
 	: question.key === "addressee" ? (() => { const alias = aliasWhere(question, (value) => JSON.stringify(value).includes("Arty") || JSON.stringify(value).includes("城市版编辑") || JSON.stringify(value).includes("gatekeeper"));
 		return [alias, 0.51, { [alias]: 0.63, unclear: 0.35, none: 0.01 }]; })()
 	: question.key === "act" ? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("social")), 0.97]

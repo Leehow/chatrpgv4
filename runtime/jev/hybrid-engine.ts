@@ -64,6 +64,14 @@ const digest = (value: unknown): string => createHash('sha256').update(JSON.stri
 const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8');
 
 /**
+ * §135.11.2 (SL-50 stage 2): the head line of the run's first `coc-clerk` note -- writes are silent, stated once per run
+ * where the model reads it beside the carried views right before its step. The capsule's own sentence stays (§135.11.1).
+ * Keeper-only, system language.
+ */
+export const CLERK_NOTE_HEAD = 'Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never shown). The '
+  + 'turn\'s prose goes through narrate, or is the text of your final step, in the same response as the writes whenever nothing among '
+  + 'them needs a result first.';
+/**
  * §135.30.6 (SL-40): what the Keeper is told with a held destination. The guard is a pacing condition: the place and its
  * entrance exist (the guard's `exists`), so the Keeper narrates the entrance as the book has it and what is missing, never
  * the place or the way as absent. Keeper-only, system language.
@@ -281,6 +289,8 @@ function defaultLine(candidate: Candidate): string | undefined {
 /** Per-run state the ports share; the policy's own state stays in the driver. */
 interface RunState {
   runId: string;
+  /** §135.11.2: the note's head (`CLERK_NOTE_HEAD`) was sent in this run's first note. */
+  headShown?: boolean;
   rawInput: string;
   inputRevision: string;
   session?: Row;
@@ -684,6 +694,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           ...(settled.length ? {settled} : {})}
           : compiled ? {features: compiled.features, fired: compiled.selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
             selected: compiled.selected.map(entry => entry.candidate.key), decided: compiled.decided, fell_through: compiled.fellThrough, reason: compiled.reason,
+            // §135.30.9 (SL-52): the sought `ask` rows, in row order.
+            ...(compiled.askCleared ? {ask_cleared: compiled.askCleared} : {}),
             ...(actsSettled.length || compiled.actsSettled?.length ? {acts_settled: [...new Set([...actsSettled, ...(compiled.actsSettled ?? [])])]} : {}),
             ...(compiled.guarded ? {guarded: compiled.guarded} : {}), ...(compiled.unlocked ? {unlocked: compiled.unlocked.map(unlockedRow)} : {})}
             : {candidate: question.candidate ?? null}),
@@ -779,7 +791,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
 
   /** The run's note to the Keeper before a model step. Nothing new to say: no message. */
   async function projection(run: RunState, view: {policyState: StepPolicyState}, step: {purpose: string; reason: string; request?: unknown}, stepId: string) {
-    const content: Row = {kind: 'single_loop_step', purpose: step.purpose, reason: step.reason};
+    // §135.11.2 (SL-50 stage 2): the run's first note opens with the head line (right after `kind`), once per run.
+    const head = !run.headShown;
+    const content: Row = {kind: 'single_loop_step', ...(head ? {head: CLERK_NOTE_HEAD} : {}), purpose: step.purpose, reason: step.reason};
+    const base = Object.keys(content).length;
     run.lastInferAt = now() - run.startedAt;
     // §135.11.1 (SL-50): the model step the Keeper's next message answers, for the kernel extension's drop row.
     api?.events?.emit?.('coc:model-infer', {run: run.runId, step: stepId});
@@ -865,8 +880,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const shown = await carriedFor(run, view, request, stepId);
     if (shown) content.carried = shown;
     const messages: Row[] = [];
-    if (Object.keys(content).length > 3 || fresh.length) messages.push({role: 'custom', customType: CLERK_TYPE, content: JSON.stringify(content), display: false,
-      details: {coc_host: true, run: run.runId, step: stepId, ...(run.turn !== undefined ? {turn: run.turn} : {})}, timestamp: Date.now()});
+    // Nothing new to say: no message (§135.8) -- except the run's first note, whose head is something to say (§135.11.2).
+    if (head || Object.keys(content).length > base || fresh.length) {
+      messages.push({role: 'custom', customType: CLERK_TYPE, content: JSON.stringify(content), display: false,
+        details: {coc_host: true, run: run.runId, step: stepId, ...(run.turn !== undefined ? {turn: run.turn} : {})}, timestamp: Date.now()});
+      run.headShown = true;
+    }
     // §135.11: the turn-close steer, last, as the same `coc-host` message legacy's `agent_end` sends.
     if (run.steer && step.reason.startsWith('turn_close:')) { messages.push({role: 'custom', ...run.steer, timestamp: Date.now()}); run.steer = undefined; }
     return messages.length ? messages as any : undefined;

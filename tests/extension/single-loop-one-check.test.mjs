@@ -23,6 +23,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
+import { askWords, fanAsk, isAskRow } from "./compile-ask.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY, NONE, UNCLEAR, compileBatch } from "../../runtime/jev/route-compile.ts";
@@ -61,8 +62,8 @@ function morgue({ settled = false, stacks = false } = {}) {
 }
 const fresh = (reads) => ({ context, candidates: buildCandidates(reads, INPUT), rows: compileRows(reads) });
 const answer = (choices) => ({ batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
-	answers: Object.fromEntries(Object.entries(choices).map(([key, [choice, confidence, probabilities]]) => [key,
-		{ status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } }])) });
+	answers: fanAsk(Object.fromEntries(Object.entries(choices).map(([key, [choice, confidence, probabilities]]) => [key,
+		{ status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } }]))) });
 const alias = (rows, family, id) => id === NONE || id === UNCLEAR ? id : `${family}_${rows[family].findIndex((row) => row.id === id) + 1}`;
 function viewAt(reads = morgue()) {
 	const { candidates, rows } = fresh(reads);
@@ -179,7 +180,6 @@ const metArty = (workspace) => kernelSteps(workspace, [
 const aliasWhere = (question, match) => Object.entries(question?.criteria ?? {}).find(([, value]) => match(value))?.[0];
 const choice = ([value, confidence, probabilities]) => ({ status: "answered", type: "choice", choice: value, confidence, probabilities: probabilities ?? { [value]: confidence } });
 const complete = (answers) => ({ batchId: "b", status: "complete", answers, issues: [], coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] } });
-const demand = (question) => aliasWhere(question, (value) => value && typeof value === "object" && "demand" in value);
 const arty = (question) => aliasWhere(question, (value) => JSON.stringify(value).includes("城市版编辑") || JSON.stringify(value).includes("Arty"));
 const social = (question) => aliasWhere(question, (value) => typeof value === "string" && value.startsWith("social"));
 /**
@@ -193,7 +193,7 @@ function gate4Jev({ firstAct = 0.96 } = {}) {
 		if (batch.family === COMPILE_FAMILY) {
 			const n = ++compiles;
 			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(
-				question.key === "ask" ? (n === 1 ? [demand(question), 0.87] : [NONE, 0.28, { none: 0.28, unclear: 0.26 }])
+				isAskRow(question) ? (n === 1 ? [askWords(question)?.demand ? "yes" : "no", 0.87] : ["no", 0.28, { no: 0.28, unclear: 0.26 }])
 					: question.key === "addressee" ? (n === 1 ? [arty(question), 0.53, { [arty(question)]: 0.65, unclear: 0.33 }] : [arty(question), 0.79])
 						: question.key === "act" ? (n === 1 && firstAct === null ? [UNCLEAR, 0.9] : [social(question), n === 1 ? firstAct : 0.99])
 							: question.key === "destination" ? [NONE, 0.79] : [UNCLEAR, 0.9])])));
