@@ -253,12 +253,27 @@
     {
       "id": "SL-50",
       "file": "50-prose-beside-settled-bookkeeping-is-the-draft.md",
-      "status": "ready-for-human"
+      "status": "ready"
     },
     {
       "id": "SL-51",
       "file": "51-a-person-named-by-carried-text-is-known.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-52",
+      "file": "52-the-ask-feature-fans-out.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-53",
+      "file": "53-the-index-job-is-under-the-book-sized-lease.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-54",
+      "file": "54-a-displaced-read-resumes.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
