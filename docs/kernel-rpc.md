@@ -2623,6 +2623,11 @@ call and the next call is dispatched; a default lease still cancels); `tests/ext
 111-page book where the fixed lease refused the third, and the reading service sizes a `detail`, `answer` and map job
 and writes the row). Mutations in the SL-41 ticket's Comments.
 
+### §20 addendum 4 -- a scene's detail read indexes the scene's own pages (2026-09-24, SL-48)
+
+See §22.4.8: a finished `detail` reading writes the focus's own §22.1 index row from the pages its draft cites for the
+scene, and a move into the scene lands on those pages before the page that merely named it.
+
 ## 21. 调查员库：建一次，之后哪一局都能用（切片 12，票 #31）
 
 用户 2026-09-06 的四条拍板：**载入整卡快照原样带过**；**库里的卡与新模组时代不符也允许，原样不动**；**在战役里玩过之后每回合自动回流**；建卡与载入都要有入口。
@@ -2807,6 +2812,93 @@ Evidence (SL-29A, `book-1`, both refusals in the attempts' `findings.json`): gui
 - **The refusal reaches the player.** A failed reading's structured refusal -- the refused pointer, the gate's message and its `rule`/`reason` when it has them, the same record `findings.json` holds -- travels in `module.read.finish {outcome: "failed", refusal}`; the kernel keeps it on the job (bounded strings; a malformed record is dropped, never allowed to keep a failed job from being released), and a blocked `module.read.request` reply returns it as `refusal`. The reading service turns it into one sentence, `The reading of "<focus>" was refused at <path>: <message>.`, and brands it `said` where it writes it (§48.1), so the preparation overlay shows it instead of `PREPARATION_STOPPED`.
 
 Producer: the reviewed publication writes `field_spans` and `reading.retranscriptions`; the host writes the refusal it also puts in `findings.json`. Reader: the claim packet, `task.json`, the draft check and the next publication read the spans; the blocked request reads the refusal. Adoption: the reader either copies a published value or re-reads its page, and the reviewer names each re-transcribed pointer; the player sees which field stopped the preparation and why. Tests: `tests/extension/same-span-retranscription.test.mjs`.
+
+### 22.3.2 A reviewer's disagreement on a classification is a recorded conflict, not a refusal (2026-09-24, SL-49; amends 22.3)
+
+The owner's ruling (2026-09-24): the review gate refuses a record for what is not in the book (a fabricated node, a span
+that does not say it), never for a disagreement about how a supported fact is classified. A field the reviewer disputes
+is published with the reader's value and a `contested` mark carrying the reviewer's reason; the Keeper sees the mark; a
+later reading may settle it.
+
+**Evidence** (SL-29A batch 5, 血色公路, campaign `sl29ab5-xuese-5001`, `work/read-6/attempt-1`). The bar's detail read
+reached its own pages both rounds and was refused at publication both rounds with one message, "visual review did not
+support ['/nodes/4']: ...", `details.path: "/"`. The merged reviews held more than that message named. Round 1:
+`/nodes/0` with its summary and dramatic question (Keeper-box material in a player-safe scene) and
+`/nodes/5/.../results/regular/book`. Round 2, four entries: `/nodes/4` (the whole long-pig clue; its reason disputes
+`delivery_kind: skill_check` where the book gives the Keeper's choice or a Luck roll), `/nodes/5/.../check/selection` and
+`/nodes/6/.../check/selection` (the book names no `maximum`), and `/claims/4` (the whole `discoverable-at` claim; its
+reason says investigators do not learn the proposition there). `/nodes/4/properties/delivery_kind` was not among the
+reviewer's assigned pointers, so the classification dispute was written on the record's root.
+
+**Verdicts.** A review entry's `verdict` is `supported`, `contested` or `unsupported`:
+- `supported`: the cited page states it.
+- `contested`: the page states the fact; the reviewer would classify it differently.
+- `unsupported`: the page does not state it (a record the book does not have, a value its cited span does not say).
+
+The earlier words keep their meaning: `contradicted` and `unclear` are read as `unsupported`, so a recorded review is
+judged as what it was. Any other verdict is the reviewer's slip: `checkReviewEvidence` (host, and `submit_reading` in the
+child) refuses it as a schema error, spent on the unit's one semantic retry (§22.4.3's shape rule, now for graph reviews
+too).
+
+**Classification fields come from the schema.** `content/modules/module-graph-contract-v3.json` declares
+`classification_fields: {law, node: [pattern, ...]}`: JSON pointers relative to a node (`/nodes/<i>`), `*` for any one
+token. A draft pointer is a classification field when its part under its node matches a pattern exactly (not a prefix).
+No field name is listed in code; the kernel's gate and the reviewer read the same declaration (`vocabulary()` carries it
+to the reader's `task.vocabulary`, and the focused detail review input copies it to `task.classification_fields`).
+Declared: a clue's `properties/delivery_kind` (the product's category for how a clue reaches play; the book writes the
+circumstance, not the category) and a check's `selection` in its three seats (`properties/mechanics/check/selection`,
+the record view's `properties/runtime_projection/record/mechanics/check/selection`, and
+`properties/obligation/demand/*/selection`; the book says who rolls, not `maximum`). Deliberately not declared, so a
+dispute on them stays a refusal: `visibility` (a contest would publish Keeper material player-safe), `truth_status`
+(whether a statement is true in the fiction), a claim's `predicate` (a relation's kind can be the fact: `allied-with`
+against `opposes`), a check's `difficulty` and `scope` (the book prints them), `node_kind` (the node id carries it).
+Adding a pattern is a change to this contract.
+
+**The gate** (`checkReview` at `module.read.finish`, detail, opening, skeleton and guidance). For each entry and each of
+its paths:
+- `supported`: reviewed.
+- a classification field with any other verdict: **contested**. It is reviewed (the required-review omission check
+  counts it) and never refuses.
+- any other path with any other verdict: **unsupported**, refused: `invalid_params`, message `visual review found <path>
+  unsupported (<verdict as written>): <reason>`, `details {reason: "reading_failed", path: <the path>, rule:
+  "review_unsupported", verdict}`. A `contested` on a fact field is unsupported: a fact is on the page or not. A record's
+  root (`/nodes/<i>`, `/claims/<i>`) is a fact -- that the record is in the book -- so a non-supported verdict on a root
+  refuses whatever its reason names; the gate never reads a reason. The first unsupported path in review order is the
+  one named. The host carries `path` and `rule` into the refusal record (§22.3.1), so the player's sentence names the
+  field instead of `/`.
+- `missing` non-empty refuses as before.
+
+**The mark.** Publication writes the graph's top-level `contested` map, keyed like `field_spans` (§22.3.1) by
+`/nodes/<node_id><field>`: `{value, reason, verdict, source_refs, job_id, generation}` -- the reader's value as published,
+the reviewer's reason and word, the reviewer's cited pages as runtime refs. The published value is the reader's. A later
+publication settles a mark: a review that supports the field (its pointer or an ancestor listed `supported`) removes it;
+a new contest replaces it.
+
+**The Keeper sees it.** `look focus=scene` carries `where.contested: [{record, field, value, reason}]` for the scene's
+node and every node one relation from it (its clues, people, rules, places), at most `CONTESTED_ROWS` (8, a named default
+in `kernel-ts/read/capsule.ts`), each reason cut at `CONTESTED_REASON_CHARS` (240) characters, with
+`where.contested_note`: the reviewer disputed how the book's fact is classified in these fields; the value is the
+reader's; judge delivery from the book's text and the reason; a later reading may settle it. Absent when there is no
+mark. The carried scene view (§135.31) orders `where.contested` right after `where.obligations`, ahead of `present` and
+the prose, so its cut does not drop it first; on hybrid-v1 the landed record of §22.4.7 is this scene view, so the mark
+rides the note.
+
+**The reviewer is told** (`content/setup/visual-reader.md`, verify phase): the three words; name the deepest pointer you
+dispute (any pointer under your assigned records that exists in the draft, not only an assigned one); name a record's
+root only when the record itself is not in the book; for a pointer matching `task.classification_fields` (or
+`task.vocabulary.classification_fields`) that you would classify differently, write `contested` with the reason.
+
+**Three ends (§31).** *Writer:* the reviewer (the verdict and its pointer), the kernel's publication (`contested`).
+*Reader:* `where.contested` (look focus=scene; the carried scene view; the landed record). *Actor:* the Keeper, who runs
+the contested delivery from the book's text and the reviewer's reason; a later reading that supports the field.
+
+*Tests.* `tests/extension/review-contested-field.test.mjs`: on the emitted kernel, a detail reading whose review has the
+shape of the bar's round 2 (a structural replica, no book text) refuses naming `/nodes/4` and the reviewer's reason with
+`rule: "review_unsupported"`, while its two `selection` disputes alone do not refuse; the same review with the clue's
+dispute named on `/nodes/4/properties/delivery_kind` and no claim dispute publishes, keeps the reader's values, writes
+three marks, and `look focus=scene` there shows them under `where.contested`; an `unsupported` verdict on a fact field
+refuses; `contested` on a fact field refuses; a later reading that supports the field settles the mark; a verdict
+outside the words is a schema error at the host. Mutations in the SL-49 ticket's Comments.
 
 ### 22.4 七动词与等待
 
@@ -3142,6 +3234,46 @@ page and drops the next whole. Mutations in the SL-47 ticket's Comments.
 
 *Note.* A scene node published by a reading always cites a page (the publication gate requires `source_refs`), so on a read
 PDF the wait of §22.4 for a move remains in practice only where the pages carry no native text or the extraction fails.
+
+### 22.4.8 A scene's detail read writes the scene's own index row; the landing is its own pages first (2026-09-24, SL-48; amends §22.1 and §22.4.7)
+
+**Evidence.** SL-47's replay (ticket 47): the bar's node cited only page 17, the town's arrival page, which names the bar
+once; its own pages (28-30) were found by the detail reader and reachable by no structure, because no index row names the
+bar. Batch 5 (ticket 29): `esso-station` landed on [17, 18, 19] (its section starts on 19), `last-stop` on [17] only.
+
+**The row.** When a `detail` reading of a focus finishes -- `completed`, or `failed` once its read phase wrote
+`observations.json` for the bound source -- the kernel writes that focus's own index row, a §22.1 record:
+`{name, pages: [[first, last], ...], topics: [], entities: [<node_id or focus>], references: [], state: "indexed",
+scene?: <node_id>, job_id}`, pages 0-based as §22.1 has them, consecutive pages joined into one range. `scene` is the
+graph scene node the focus names (§22.2.1's focus identity); a focus no scene node names keeps the row by its name.
+
+**Its pages.** The pages the reading's own draft cites for that scene -- the drafted node whose identity meets the focus,
+its `source_refs` -- kept only where the reader viewed them (`observations.read_pages`); when the draft has no such node,
+the pages the reader viewed. On a completed reading this is the checked, published draft; on a refused one the retained
+draft of the attempt. Structure only: the draft's citation is the reader's own statement of where the scene is, and no
+text is read. The row is navigation (§22.1): not a reviewed fact, which is why a refused reading may still write it.
+*Why not the whole page set:* the bar's read viewed 25-30, and 25-27 are the general store, the barber and the town hall;
+its draft cited 28-29. A later reading of the same focus adds its pages (in book order, no duplicates).
+
+**Where it lives.** `module.json` `reading.scene_index` of the workspace that read it (a campaign's fork, or the library),
+because the book's index file is the index job's retained evidence and is never rewritten. `ModuleStore.sections`
+answers the index file's rows followed by these, so every reader of the index sees them: the next reader's packet
+`index`, a consultation's `index` (§22.4.3), the material gate's names. A re-index rewrites only the file's rows
+(`ModuleStore.indexRows`).
+
+**The landing (§22.4.7 amended).** `Reading.sceneIndexPages`: the pages of the scene's own rows (`scene` is its node id)
+in book order, at most `SCENE_INDEX_PAGES`. Only a scene with no own row keeps §22.4.7's rule (the node's own
+`source_refs`, then the index rows that meet its focus). The arrival page stands in only when nothing else is cited.
+
+**Three ends (§31).** *Writer:* `module.read.finish` for a `detail` job. *Reader:* `sceneIndexPages` (the move's
+`details.index` and the landing), `sections` (packets, consultations, the gate). *Actor:* the Keeper, who narrates the
+arrival from the scene's own pages.
+
+*Tests.* `tests/extension/scene-own-pages.test.mjs`: on the emitted kernel, a scene known only by its arrival page cites it
+before any reading; a detail reading refused at review whose draft cites pages 5-6 (viewed 4-6) writes the row, and a
+later move into the scene refuses naming [5, 6] and lands on them; a completed reading writes the row from the published
+draft; a draft without the scene's node falls back to the viewed pages; a reading that failed before its read phase
+writes nothing; a re-index keeps the row. Mutations in the SL-48 ticket's Comments.
 
 ### 22.5 开场、失败与旧数据
 

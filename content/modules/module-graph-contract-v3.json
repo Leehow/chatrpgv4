@@ -217,6 +217,15 @@
       "validity"
     ]
   },
+  "classification_fields": {
+    "law": "A classification field holds the product's own category for a fact the book states, which the book does not itself name in these terms. An independent review may contest it: the reader's value is published with a contested mark carrying the reviewer's reason, and the Keeper sees the mark. A classification field never refuses a record; only a fact the page does not state does (contract 22.3.2). Patterns are JSON pointers relative to a node (/nodes/<i>); * stands for any one token.",
+    "node": [
+      "properties/delivery_kind",
+      "properties/mechanics/check/selection",
+      "properties/runtime_projection/record/mechanics/check/selection",
+      "properties/obligation/demand/*/selection"
+    ]
+  },
   "actor_dossier": {
     "why": "A stat block is not a person (contract §17.2). These are the words the extraction vocabulary uses for what a book says about someone as a person, so the reader prompt, the starter projector, the playability brief and the table all read one list instead of each keeping their own.",
     "profile_keys": [
