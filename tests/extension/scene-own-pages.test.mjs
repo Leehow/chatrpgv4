@@ -115,8 +115,8 @@ test("§22.4.8 on the emitted kernel: a scene's detail read writes its own index
 	// The Cellar: refused; its draft has no node for the scene, so the pages viewed stand.
 	finish(workspace, detail("Cellar"), { outcome: "failed", refusal, observations: [3, 4],
 		draft: { nodes: [{ node_id: "npc-sexton", node_kind: "npc", name: "Sexton", source_refs: refs(3) }], claims: [] } });
-	// The Attic: failed before its read phase wrote anything.
-	finish(workspace, detail("Attic"), { outcome: "failed", refusal });
+	// The Attic: failed before its read phase viewed a page (the service writes empty observations when a job starts).
+	finish(workspace, detail("Attic"), { outcome: "failed", refusal, observations: [] });
 	// The Loft: completed; the published draft cites page 2, viewed 2 and 3.
 	const loft = { nodes: [{ node_id: "scene-loft", node_kind: "scene", name: "Loft", source_refs: refs(2), summary: "A loft above the stables.", visibility: "player-safe" }],
 		claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ["scene-loft"] };
