@@ -704,6 +704,12 @@ export class ReadingService implements ReadingBridge {
 							slot_wait_ms: since(job.class_at ?? job.at), queue_wait_ms: since(job.at),
 							// §22.4.6.1 (SL-54): a job claimed under a generation other than its last attempt's says so.
 							...(job.resumed ? { resumed: job.resumed } : {})});
+						// §22.4.6.1 addendum (SL-60): the `concurrency` row above buries `resumed` in a field a triage has to know to
+						// look for -- on the b8 table the state-level resume (queued, then completed) left no telemetry naming it, and
+						// the triage had to infer it from the queue file. A dedicated row, one per resuming claim, is the one the
+						// `requeued` row already gets on the finish side (§22.4.6.1 addendum, SL-55).
+						if (job.resumed) this.note({lane: "reading", event: "resumed", module_id: mid, campaign, job_id: job.job_id,
+							purpose: job.purpose, focus: job.focus ?? "", ...job.resumed});
 					}
 					if (!active.size) { if (wakeRequested) continue; return; }
 					await Promise.race([...active, wake]);

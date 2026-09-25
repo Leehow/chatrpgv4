@@ -40,6 +40,17 @@ export const MEMO_ANSWER_NOTE = 'The campaign has already checked the book on th
 	+ 'answered, and no new reading was made. They are source consultations, not prepared material. If none of them answers your question, '
 	+ 'repeat the lookup with retry: true to have the book read for it (past a short allowance it is carried to you on a later turn).';
 
+/**
+ * §22.4.3.1 (SL-58): what the Keeper is told when a `prepare` consultation outlives its allowance (Keeper-only, system
+ * language). Unlike an `answer` past its allowance, this reading keeps its blocking slot (the Keeper asked for this
+ * material now), so it is not competing with background work for a slot; it is only not the turn's own wait any more.
+ */
+export const PENDING_PREPARE_NOTE = 'The book is still being read to prepare this material: it is not ready yet, and this turn goes on without it. '
+	+ 'The reading keeps its own slot and continues; when it settles it is carried to you once, in a later clerk note (carried view focus '
+	+ 'source_answer). Until then use what is already known: the carried source passages, the capsule, and the index rows here (where the book '
+	+ 'treats this focus). Narrate what the investigator does while the material is not there; do not narrate what the book would say, do not put '
+	+ 'the reading into the fiction, and do not send this lookup again this turn. The pending read is the clerk\'s business, not the player\'s.';
+
 export interface PendingAnswer {
 	/** The consultation's identity for this list: focus and question as the Keeper sent them. */
 	key: string;
@@ -52,6 +63,8 @@ export interface PendingAnswer {
 	answer?: Row;
 	reason?: string;
 	carried?: boolean;
+	/** §22.4.3.1 (SL-58): `'answer'` (default) is a checked consultation; `'prepare'` is source material being prepared. */
+	kind: 'answer' | 'prepare';
 }
 /** What the engine takes before a model step: the consultations still reading, and those that settled and were not yet carried. */
 export interface SourceAnswersTake {
@@ -82,6 +95,19 @@ export function memoAnswer(memo: Row[]): Row {
 export function pendingAnswer(response: Row, read: {focus: string; question: string}): Row {
 	return {status: 'pending', focus: read.focus, index: Array.isArray(response.index) ? response.index : [], note: PENDING_ANSWER_NOTE};
 }
+/** §22.4.3.1 (SL-58): the `prepare` lookup's result past the allowance: `pending`, with whatever index rows came back. */
+export function pendingPrepare(response: Row, read: {focus: string; question: string}): Row {
+	return {status: 'pending', focus: read.focus, index: Array.isArray(response.index) ? response.index : [], note: PENDING_PREPARE_NOTE};
+}
+/**
+ * §22.4.3.1 (SL-58): a `prepare` consultation's landing -- the material became ready, was settled unusable, or (via the
+ * rejection branch in `register`, below) failed reading. Never a checked answer: `prepare` publishes graph material, not
+ * an answer artifact, so `settledAnswer` does not apply to it.
+ */
+export function preparedLanding(response: Row): Row {
+	if (response?.state === 'unusable') return {status: 'material_unusable', reason: response.reason ?? null};
+	return {status: 'material_ready'};
+}
 
 export class PendingAnswers {
 	private lists = new Map<string, PendingAnswer[]>();
@@ -91,25 +117,27 @@ export class PendingAnswers {
 
 	/**
 	 * A consultation outlived its allowance: keep it, and follow `settled` (the same reading) to its end. A second
-	 * pending ask of the same focus and question is the same entry. Telemetry never writes the question (§22 #65).
+	 * pending ask of the same focus and question of the same kind is the same entry. Telemetry never writes the question
+	 * (§22 #65) but always names the kind (§22.4.3.1, SL-58): `'answer'` (the default) or `'prepare'`.
 	 */
-	register(campaign: string, read: {focus: string; question: string}, turn: number, jobId: string | undefined, settled: Promise<Row> | undefined): PendingAnswer {
-		const key = JSON.stringify([read.focus, read.question]), list = this.lists.get(campaign) ?? [];
+	register(campaign: string, read: {focus: string; question: string}, turn: number, jobId: string | undefined, settled: Promise<Row> | undefined,
+		kind: 'answer' | 'prepare' = 'answer'): PendingAnswer {
+		const key = JSON.stringify([kind, read.focus, read.question]), list = this.lists.get(campaign) ?? [];
 		this.lists.set(campaign, list);
 		const existing = list.find(entry => entry.key === key && entry.state === 'pending');
 		if (existing) return existing;
-		const entry: PendingAnswer = {key, focus: read.focus, question: read.question, ...(jobId ? {jobId} : {}), turn, since: this.now(), state: 'pending'};
+		const entry: PendingAnswer = {key, focus: read.focus, question: read.question, ...(jobId ? {jobId} : {}), turn, since: this.now(), state: 'pending', kind};
 		list.push(entry);
-		this.record({lane: 'reading', event: 'answer_pending', campaign, turn, focus: read.focus, ...(jobId ? {job_id: jobId} : {})});
+		this.record({lane: 'reading', event: 'answer_pending', campaign, turn, focus: read.focus, purpose: kind, ...(jobId ? {job_id: jobId} : {})});
 		const settle = (state: 'landed' | 'unavailable', fields: Partial<PendingAnswer>) => {
 			if (entry.state !== 'pending') return;
 			Object.assign(entry, {state}, fields);
-			this.record({lane: 'reading', event: state === 'landed' ? 'answer_landed' : 'answer_unavailable', campaign, turn, focus: read.focus,
+			this.record({lane: 'reading', event: state === 'landed' ? 'answer_landed' : 'answer_unavailable', campaign, turn, focus: read.focus, purpose: kind,
 				...(jobId ? {job_id: jobId} : {}), ms: this.now() - entry.since, ...(fields.reason ? {reason: fields.reason} : {}),
 				...(fields.answer ? {status: fields.answer.status ?? null} : {})});
 		};
 		void (settled ?? Promise.reject(new Error('no reading to follow'))).then(response => {
-			const answer = settledAnswer(response);
+			const answer = kind === 'prepare' ? preparedLanding(response) : settledAnswer(response);
 			if (answer) settle('landed', {answer});
 			else settle('unavailable', {reason: 'no_answer'});
 		}, failure => settle('unavailable', {reason: String(failure?.details?.reason ?? failure?.code ?? 'reading_failed')}));
@@ -122,7 +150,7 @@ export class PendingAnswers {
 	 */
 	take(campaign: string): SourceAnswersTake {
 		const list = this.lists.get(campaign) ?? [];
-		const pending = list.filter(entry => entry.state === 'pending').map(entry => ({focus: entry.focus, question: entry.question, since_turn: entry.turn, purpose: 'answer'}));
+		const pending = list.filter(entry => entry.state === 'pending').map(entry => ({focus: entry.focus, question: entry.question, since_turn: entry.turn, purpose: entry.kind}));
 		const settled = list.filter(entry => entry.state !== 'pending' && !entry.carried);
 		for (const entry of settled) entry.carried = true;
 		this.lists.set(campaign, list.filter(entry => !entry.carried));

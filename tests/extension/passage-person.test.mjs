@@ -122,6 +122,102 @@ test("a person named nowhere is still refused, npc and person alike", async (t) 
 	assert.equal(((await game.world()).table_people ?? []).length, 0, "nothing was established");
 });
 
+// ---------------------------------------------------------------------------------------------------
+// §11.5.5 (SL-59): a batch places several persons the carried text names; each lands, a nameless one
+// refuses only its own line.
+//
+// Evidence (ticket 29's batch-8 entry): one `apply` placing three book-named NPCs at once, when the carried
+// `scene_text` note named all three verbatim, was refused hard in 22 ms (`retryable: false`) with no landing.
+// This section's per-effect `_passage` marking (SL-51) already covers a batch when every name lands; the gap
+// was `kernel-ts/apply/index.ts`'s all-or-nothing commit, which discarded every effect a batch had already
+// resolved when one other effect in the same batch refused `unknown_entity`.
+// ---------------------------------------------------------------------------------------------------
+
+test("SL-59: a batch of three persons the carried text names lands three provisional entries in one call", async (t) => {
+	const game = await table(t);
+	const names = ["Ruth Blakemore", "Tom Carrow", "Nadia Singh"];
+	const passageFor = (name) => ({ scene: "newspaper-morgue", page: 17, label: null, sentence: `Behind the counter stands ${name}, sorting clippings.` });
+	const result = await game.apply(names.map((name) => ({ kind: "npc", name, to: "here", why: "the book puts them at the counter", _passage: passageFor(name) })));
+	assert.equal(result.not_landed, undefined, "nothing refused: three lines, three landings");
+	const npcs = await receipts(game, "npc");
+	assert.equal(npcs.length, 3, "three provisional entries in the one call, not a partial batch");
+	assert.ok(npcs.every((receipt) => receipt.established === "passage"), "each established from the book's text");
+	assert.deepEqual(npcs.map((receipt) => receipt.name).sort(), [...names].sort());
+	const world = await game.world();
+	assert.deepEqual((world.table_people ?? []).map((row) => row.name).sort(), [...names].sort(), "none dropped for the others' sake");
+});
+
+test("SL-59: a batch with one unnamed person lands two and refuses one line with unknown_entity", async (t) => {
+	const game = await table(t);
+	const passageFor = (name) => ({ scene: "newspaper-morgue", page: 17, label: null, sentence: `Behind the counter stands ${name}, sorting clippings.` });
+	const result = await game.apply([
+		{ kind: "npc", name: "Ruth Blakemore", to: "here", why: "book text", _passage: passageFor("Ruth Blakemore") },
+		{ kind: "npc", name: "Tom Carrow", to: "here", why: "book text", _passage: passageFor("Tom Carrow") },
+		// No `_passage`, no near-name book NPC, no index row: the text nowhere names this one.
+		{ kind: "npc", name: "Zeb Okonkwo-Marchetti", to: "here", why: "nobody names him" },
+	]);
+	assert.equal(result.not_landed.length, 1, "one refused line, reported beside the landing, not thrown");
+	assert.equal(result.not_landed[0].index, 2);
+	assert.equal(result.not_landed[0].code, "unknown_entity");
+	assert.match(result.not_landed[0].message, /Zeb Okonkwo-Marchetti/);
+	const npcs = await receipts(game, "npc");
+	assert.deepEqual(npcs.map((receipt) => receipt.name).sort(), ["Ruth Blakemore", "Tom Carrow"], "the call is a success: the named two land with their own receipts");
+	const world = await game.world();
+	assert.deepEqual((world.table_people ?? []).map((row) => row.name).sort(), ["Ruth Blakemore", "Tom Carrow"]);
+});
+
+test("SL-59: a non-isolable refusal beside a landing still refuses the whole batch -- only npc/person unknown_entity is a line of its own", async (t) => {
+	const game = await table(t);
+	const passageFor = (name) => ({ scene: "newspaper-morgue", page: 17, label: null, sentence: `Behind the counter stands ${name}, sorting clippings.` });
+	// A move to a scene the graph has never heard of also refuses unknown_entity, but a move's line is not a person's:
+	// isolating it here would silently drop that the move never happened.
+	const failure = await refusal(game.apply([
+		{ kind: "npc", name: "Ruth Blakemore", to: "here", why: "book text", _passage: passageFor("Ruth Blakemore") },
+		{ kind: "move", to: "a-scene-nobody-wrote" },
+	]));
+	assert.equal(failure?.code, "unknown_entity");
+	assert.deepEqual(((await game.world()).table_people ?? []), [], "the batch is whole: the npc line did not land either");
+});
+
+test("SL-59: an npc refusal that is not unknown_entity beside a landing still refuses the whole batch", async (t) => {
+	const game = await table(t);
+	const passageFor = (name) => ({ scene: "newspaper-morgue", page: 17, label: null, sentence: `Behind the counter stands ${name}, sorting clippings.` });
+	// Steven Knott is a real book NPC (`established: false`): pinning him a skill outside 0-100 is `invalid_params`,
+	// never `unknown_entity`, and is not a line about a person the text does or does not name.
+	const failure = await refusal(game.apply([
+		{ kind: "npc", name: "Nadia Singh", to: "here", why: "book text", _passage: passageFor("Nadia Singh") },
+		{ kind: "npc", name: "Steven Knott", skill: { name: "Spot Hidden", value: 250 } },
+	]));
+	assert.equal(failure?.code, "invalid_params");
+	assert.deepEqual(((await game.world()).table_people ?? []), [], "the batch is whole: the other npc's line did not land either");
+});
+
+test("SL-59: a bookkeeping effect beside a refused npc pin still refuses whole -- a batch is isolable only when it is entirely about persons", async (t) => {
+	const game = await table(t);
+	// tests/kernel/test_apply.py::test_reserved_and_unknown_effect_kinds pins this exact shape: a `time` effect that would
+	// otherwise land alone beside an npc pin on an unresolvable name. Landing the clock while the pin stays refused would
+	// silently advance play past a refusal the Keeper never saw.
+	const failure = await refusal(game.apply([
+		{ kind: "time", minutes: 1 },
+		{ kind: "npc", name: "x", archetype: "ordinary_adult", why: "numbers" },
+	]));
+	assert.equal(failure?.code, "unknown_entity");
+	assert.equal(failure?.details?.index, 1);
+	const world = await game.world();
+	assert.equal(world.clock?.minutes ?? 0, 0, "the clock did not advance: the batch is whole");
+});
+
+test("SL-59: a batch where every line refuses unknown_entity still refuses whole -- nothing lands to isolate it from", async (t) => {
+	const game = await table(t);
+	// Both have a real near-name book NPC among their candidates (Ruth Blake, Kim Debrun), like t7's; neither carries a passage.
+	const failure = await refusal(game.apply([
+		{ kind: "npc", name: NEWCOMER, to: "here", why: "nobody names her here" },
+		{ kind: "npc", name: "Kim Debrunner", to: "here", why: "nor him" },
+	]));
+	assert.equal(failure?.code, "unknown_entity", "nothing landed, so there is nothing to isolate the refusal from");
+	assert.deepEqual(((await game.world()).table_people ?? []), []);
+});
+
 test("a passage vouches for a name, never for numbers: a pin stays refused", async (t) => {
 	const game = await table(t);
 	const pinned = await refusal(game.apply([{ kind: "npc", name: NEWCOMER, archetype: "ordinary_adult", why: "numbers", _passage: passage() }]));

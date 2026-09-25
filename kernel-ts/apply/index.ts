@@ -287,7 +287,20 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     mapViews.push({...item.view,receipt:item.receipt.id,label:item.receipt.label});
                 }
             }
-            if (refused.length) {
+            // §11.5.5 (SL-59): a person named nowhere refuses only its own line, in a batch that is only about naming
+            // persons. `unknown_entity` on an `npc`/`person` effect names nobody but itself -- no other effect's landing
+            // depends on this one existing -- so it alone is isolable, the same shape §32.12.3 already gives an admission
+            // line the reviewer never reads. This is narrower than "every refusal is isolable": a `time` effect beside a
+            // refused `npc` pin (`tests/kernel/test_apply.py::test_reserved_and_unknown_effect_kinds`) is not a batch about
+            // persons, and landing the clock while the pin stays refused would silently advance play past a refusal the
+            // Keeper has not seen -- so the whole batch's kind, not only the refused lines', decides. A batch entirely of
+            // isolable refusals still refuses (there is nothing to land alone), and one non-isolable refusal beside an
+            // isolable one still refuses the whole batch.
+            const isolable = (entry: { index: number; error: RpcError }): boolean => entry.error.code === 'unknown_entity'
+                && isJsonObject(effects[entry.index]) && ['npc', 'person'].includes(string((effects[entry.index] as Row).kind));
+            const allPersonEffects = effects.every(effect => isJsonObject(effect) && ['npc', 'person'].includes(string((effect as Row).kind)));
+            const isolatedRefusals = refused.length && receipts.length && allPersonEffects && refused.every(isolable) ? refused : [];
+            if (refused.length && !isolatedRefusals.length) {
                 const [first] = refused;
                 // The first refusal stays exactly what it was -- code, message, fix, index -- because that is
                 // what the Keeper reads and what a refusal is counted by. The rest ride along, and say plainly
@@ -353,6 +366,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             }
             const material = module.material(graph.scene(staged.active_scene).node_id);
             const result: Row = { receipts: ids, markers: markersOf({ ...turn, receipts: [...array(turn.receipts), ...receipts] }, receipts), world: { active_scene: staged.active_scene, clock: staged.clock }, material_ready: material === 'ready', material };
+            // §11.5.5 (SL-59): the lines this batch could not land alone, beside the ones that did (line-level, §32.12.3's shape).
+            if (isolatedRefusals.length) result.not_landed = isolatedRefusals.map(({ index, error }) => ({ index, code: error.code, message: error.message,
+                ...(error.fix ? { fix: error.fix } : {}), ...(error.details ? { details: error.details } : {}) }));
             if (receipts.some(receipt => receipt.kind === 'move' && receipt.renamed) && !receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed))
                 result.location_note = `A rename changed only a display label. The actual scene remains ${graph.displayName(graph.scene(staged.active_scene))}. No arrival at a different place occurred. A player-chosen new destination needs lookup kind adaptation, prepare; accept the ready proposal, then apply move. Never narrate a different place as reached by a rename.`;
             if (receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed)) {

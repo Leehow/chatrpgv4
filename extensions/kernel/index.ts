@@ -48,7 +48,7 @@ import {
 	speechAttributionBindings,
 } from "../../runtime/jev/speech-attribution-domain.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
-import { PendingAnswers, memoAnswer, pendingAnswer, sourceAnswerAllowanceMs } from "./source-answers.ts";
+import { PendingAnswers, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs } from "./source-answers.ts";
 import { PERSON_TEXT_NOTE, SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
 import { bookText, CarriedText, findPassage } from "./carried-text.ts";
 import { speechPass } from "../../kernel-ts/write/speech-pass.ts";
@@ -3501,15 +3501,18 @@ export default function (pi: ExtensionAPI) {
 				const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: params.question ?? "" };
 				dispatcher.requireCapability(toolCallId, answerOnly ? 'lookup.source.answer' : 'source.prepare');
 				try {
-					// §22.4.3 (SL-36): a consultation waits at most its allowance. It is not the turn's provider work past that
-					// allowance, so it carries no turn budget: the reading goes on in the background like a read-ahead.
+					// §22.4.3 (SL-36) / §22.4.3.1 (SL-58): a consultation, checked or preparing, waits at most its allowance. Past
+					// it neither is the turn's provider work: an answer goes on in the background like a read-ahead, and a
+					// `prepare` keeps its blocking slot instead (§22.4.6) -- the Keeper asked for this material now, so it is not
+					// competing with background work for a slot the way a demoted answer is.
 					const consult = answerOnly && !nativeSource;
 					const response = answerOnly && nativeSource
 						? await nativeSource({moduleId: readingModule, campaign: state.campaign, toolCallId, question: String(params.question)}, signal)
 						: consult
 							? await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, ...(params.retry === true ? { memo: false } : {}), foreground: true },
 								signal, {allowanceMs: sourceAnswerAllowanceMs()})
-							: await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal, {providerBudget});
+							: await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal,
+								{allowanceMs: sourceAnswerAllowanceMs(), blocking: true});
 					if (consult && response.state === 'pending') {
 						const read = { focus: String(params.query), question: String(params.question) };
 						pendingAnswers.register(state.campaign, read, state.turn, asString(response.job_id), response.settled);
@@ -3520,11 +3523,19 @@ export default function (pi: ExtensionAPI) {
 					} else if (answerOnly) {
 						if (!response.source_answer || typeof response.source_answer !== 'object') throw new KernelError({code:'internal', message:'The source consultation returned no checked answer'});
 						sourceAnswer = response.source_answer;
+					} else if (!answerOnly && response.state === 'pending') {
+						// §22.4.3.1 (SL-58): past the allowance a `prepare` lookup answers `pending` too, with what the index holds;
+						// the reading goes on and its landing (material ready, unusable, or failed) is carried once on a later note.
+						const read = { focus: String(params.query), question: String(params.question ?? '') };
+						pendingAnswers.register(state.campaign, read, state.turn, asString(response.job_id), response.settled, 'prepare');
+						sourceAnswer = pendingPrepare(response, read);
 					}
 				}
 				catch (readFailure) { throw sourceMaterialRefusal(readFailure, sourceRead); }
 				delete payload.source_mode;
-				if (!answerOnly) { payload.kind = "module"; payload.canonical_source = true; }
+				// A prepare lookup that landed within its allowance (ready or settled unusable) still becomes a module lookup, as
+				// before; one still pending carries its own result (`sourceAnswer`, above) instead.
+				if (!answerOnly && !sourceAnswer) { payload.kind = "module"; payload.canonical_source = true; }
 			}
 			let result: Record<string, unknown>;
 			let prepared: ReviewPrepared | void = undefined;

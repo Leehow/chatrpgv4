@@ -218,6 +218,13 @@ test('§22.4.6.1 the pending row of a consultation displaced by a blocking read 
   assert.deepEqual([done.state, done.attempts, done.resumed], ['completed', 2, {from_generation: before, generation: before + 1, reread: false}]);
   const resumedRow = rows.find(row => row.event === 'concurrency' && row.job_id === parked.job_id && row.resumed);
   assert.deepEqual(resumedRow?.resumed, done.resumed, 'the claim row says it resumed under a new generation');
+  // §22.4.6.1 addendum (SL-60): a dedicated row beside the `concurrency` one, findable by event name alone -- on the b8
+  // table this state-level resume left nothing a triage could grep for, and had to be inferred from the queue file.
+  const dedicated = rows.find(row => row.event === 'resumed' && row.job_id === parked.job_id);
+  assert.ok(dedicated, 'a dedicated resumed row, not only a field on concurrency');
+  assert.deepEqual({from_generation: dedicated.from_generation, generation: dedicated.generation, reread: dedicated.reread}, done.resumed);
+  assert.equal(dedicated.purpose, 'answer');
+  assert.equal(dedicated.focus, parked.focus);
   assert.ok(tasks.some(task => task.cwd.includes(`/work/${parked.job_id}/attempt-2`)), 'read by its second attempt');
   cancel.abort();
   await moving.catch(() => undefined);

@@ -906,6 +906,56 @@ the reading's material gate, and a check or write on a book person not yet read 
 turn's carried text first, then the person's index pages) and registers an index-only name provisionally in this
 section's shape.
 
+#### 11.5.5 A batch places several persons the carried text names; each lands, a nameless one refuses only its own line (2026-09-25, SL-59; amends this section, §22.4.7.1 and §32.12.3)
+
+The owner's ruling (2026-09-25): a batch is not one person's write. This section's passage establishment already runs
+per effect (the host marks every `npc`/`person` effect of a batch independently, since SL-51), so a batch of several
+persons the carried text names already lands together when every one of them is in it. What did not survive a batch was
+the opposite case: one line this section cannot establish -- a name the book's text nowhere holds and the graph offers
+real candidates for (§87's "silence is what mints, not failure to resolve": a name with *no* candidates is minted plain,
+`established: "table"`, without ever reaching this refusal) -- refused `unknown_entity` as any single write does, and
+`kernel-ts/apply/index.ts`'s batch commit is otherwise whole: every effect's write is computed in memory regardless of
+order, but nothing is written to the world, and no receipt is kept, when any one effect refused. Two persons this
+section had already established provisionally, in the same batch as a third it could not, were discarded with the third.
+
+**Evidence** (ticket 29's batch-8 entry, campaign `sl29ab8-xuese-0512`). One `apply` placing three book-named NPCs at
+once, when the carried `scene_text` note named all three verbatim, was refused hard in 22 ms (`retryable: false`) with no
+landing.
+
+**Which refusals are isolable** (`kernel-ts/apply/index.ts`, the batch's commit, after its per-effect loop). A refusal is
+isolable when its code is `unknown_entity` and its effect's `kind` is `npc` or `person`: such a line names nobody but
+itself, so no other effect's landing depends on it existing -- the same shape §32.12.3 already gives an admission line
+the reviewer never reads. Nothing else is isolable: a `move` to a scene the graph does not have also refuses
+`unknown_entity`, but a move's line is not a person's, and an npc/person effect refused for any other reason (`invalid_
+params` on a malformed pin, say) is not a line about a name the text does or does not hold.
+
+**What the batch does.** When the batch is entirely `npc`/`person` effects, every refusal in it is isolable, *and* at
+least one effect landed (a batch entirely of isolable refusals still refuses whole: there is nothing to land alone), the
+batch commits the effects that did not refuse -- their receipts, their world writes, everything the per-effect loop
+already computed for them -- and the call succeeds; `result.not_landed` lists the refused lines (`{index, code, message,
+fix?, details?}`, each exactly what the effect's own refusal carried). Any other mix -- a batch that is not entirely
+about persons (`tests/kernel/test_apply.py::test_reserved_and_unknown_effect_kinds`: a `time` effect beside a refused
+`npc` pin does not land the clock while the pin stays refused, since that would silently advance play past a refusal the
+Keeper never saw), one non-isolable refusal anywhere, or every line refusing -- keeps the existing whole-batch refusal
+(the first refusal's code, message and `fix`, `details.refused` beside it when there is more than one), unchanged.
+
+**What the Keeper reads.** A `not_landed` line is the same shape a single failed write of that person would have refused
+with on its own; the Keeper resends only that line's write, under a name the text or a fresh check names, exactly as
+before. The landed lines' receipts are already in the same call's `receipts`.
+
+**Three ends (§31).** *Writer:* the kernel (`kernel-ts/apply/index.ts`'s commit, `result.not_landed`). *Reader:* the
+Keeper's next tool result. *Actor:* the Keeper, whose batch placing several book-named persons lands the ones the text
+names and is told, in the same breath, which one line it could not place.
+
+*Tests.* `tests/extension/passage-person.test.mjs`: on the kernel (in process), a batch of three persons the carried text
+names lands three provisional entries in one call; a batch with one unnamed person (no passage, real near-name
+candidates) lands the other two and reports `not_landed` naming the refused line, `unknown_entity`; a non-isolable
+refusal (a `move` to an unknown scene, or an npc effect refused `invalid_params`) beside a landing still refuses the
+whole batch; a `time` effect beside a refused npc pin still refuses whole (the batch is not entirely about persons --
+the shape `tests/kernel/test_apply.py::test_reserved_and_unknown_effect_kinds` already pins); a batch where every line
+refuses `unknown_entity` still refuses whole, having nothing to isolate it from.
+Mutations in the SL-59 ticket's Comments.
+
 ### 11.6 结果与收据
 
 `outcome.kind` 取 `check`、`opposed`、`combined`、`social`、`psychology`、`healing`、`push`、`luck`、`magic`、`development`、`combat`、`chase`、`sanity`、`none`。每种至少有 `level` 或 `status`、涉及的骰面与目标值、`effects`。`effects` 每条 `{kind: hp|san|mp|luck|condition|ammo|position, subject, before, after}`。
@@ -3237,6 +3287,56 @@ service: allowance to `pending` and the same reading settling later, the schema 
 verify-only round, a refusal refusing); `tests/extension/single-loop-looks-first-visit.test.mjs` (the seam, §135.31.2).
 The mutation record is in the SL-36 ticket's Comments.
 
+#### 22.4.3.1 A `prepare` consultation gets the same allowance and landing as an answer, on a blocking slot (2026-09-25, SL-58; amends §22.4, §22.4.1 and this section)
+
+The owner's ruling (2026-09-25): the umbrella rule "Reading never holds a turn" covers `prepare` as it covers `answer`. A
+`lookup {kind: "source", source_mode: "prepare"}` (or `source_mode` omitted, which preserves preparation) waits at most
+the answer allowance (§22.4.3's `SOURCE_ANSWER_ALLOWANCE_MS`); past it the lookup answers `pending` with what the book's
+index holds, the reading continues on its own blocking slot (§22.4.6, not demoted the way a background answer is -- the
+Keeper asked for this material now), and its landing (the material became ready, was settled unusable, or failed) is
+carried to the Keeper once, in a later clerk note, exactly as an answer's is (§135.31.2).
+
+**Evidence** (ticket 29's batch-8 entry, campaign `sl29ab8-xuese-0512`). Three `lookup {kind: "source", source_mode:
+"prepare"}` calls (t4, t7, t20) each blocked exactly 120,003 ms (`reading_timeout`), 360 s of the table's wall (29%):
+`answer` mode had its allowance since SL-36; `prepare` mode had none, no `pending`, and no landing.
+
+**The call** (`extensions/kernel/index.ts`, the `lookup kind=source` path). Where `answerOnly` (`source_mode: "answer"`)
+calls `reading.ensure(..., {allowanceMs: sourceAnswerAllowanceMs()})`, a `prepare` lookup (`!answerOnly`, still purpose
+`"detail"`: it publishes graph material, unlike an answer) now calls `reading.ensure(..., {allowanceMs:
+sourceAnswerAllowanceMs(), blocking: true})` in place of the plain 120 s foreground wait on `providerBudget`. Past the
+allowance it carries no turn provider budget either, same as an answer.
+
+**What the lookup returns**, besides §22.4.1's checked module lookup (a `prepare` that lands within its allowance still
+becomes `{kind: "module", canonical_source: true}` as before): `source_answer: {status: "pending", focus, index, note}`,
+the `note` in `prepare`'s own words (`PENDING_PREPARE_NOTE`, `extensions/kernel/source-answers.ts`) -- it says the
+reading keeps its own slot rather than competing with background work, and is otherwise the same instruction as an
+answer's: use what is already known, narrate around the gap, do not send this lookup again this turn.
+
+**The landing.** A `prepare` publishes graph material, never a checked answer, so its landing is not `settledAnswer`
+(§22.4.3): `preparedLanding` (`extensions/kernel/source-answers.ts`) reads `{status: "material_ready"}` off a settled
+`ready` reading, `{status: "material_unusable", reason}` off one settled `unusable` (§22.3.3), and the pending list's
+rejection branch (unchanged) answers `unavailable` for an actual failure. `PendingAnswers.register` and `.take` carry an
+explicit `kind: "answer" | "prepare"` (the list's key is `[kind, focus, question]`, so an answer and a prepare on the
+same focus are never the same entry); the pending row's `purpose` and the landing's carried view (`focus:
+"source_answer"`, as an answer's) are `entry.kind`, so the Keeper's note and the telemetry both name the mode.
+
+**Three ends (§31).** *Writer:* the reading service (`pending`, `settled`, unchanged from §22.4.3), the host's pending
+list (`extensions/kernel/source-answers.ts`, now kind-tagged). *Reader:* the lookup's result and the clerk note
+(§135.31.2). *Actor:* the Keeper, who narrates the turn without the material and does not ask again this turn.
+
+*Telemetry.* `lane: "reading"`: `answer_pending` / `answer_landed` / `answer_unavailable`, as §22.4.3, now every row
+carrying `purpose: "answer" | "prepare"`.
+
+*Tests.* `tests/extension/source-answer-allowance.test.mjs` (the reading service: a prepare past its allowance also
+resolves `pending`, but its blocking slot is never given up -- no `unwait`, still polled `foreground: true`, unlike an
+answer past its allowance); `tests/extension/single-loop-looks-first-visit.test.mjs` (the seam: a prepare lookup past its
+allowance answers `pending` on its blocking slot, the note carries it `pending` with `purpose: "prepare"`, and the next
+turn's first model step carries the landing -- `status: "material_ready"` -- once; telemetry names the mode throughout).
+`tests/extension/reading-intent.test.mjs`'s foreground-timeout fix-rendering test moved off `lookup kind=source` (which
+this section takes out of the foreground-timeout path entirely) onto the `material_pending` auto-recovery an `apply`
+raises, untouched by this section and still running the same real reading service on the same foreground wait. Mutations
+in the SL-58 ticket's Comments.
+
 ### 22.4.4 A turn whose only action waits on a read still delivers fiction (2026-09-24, SL-37; amends §22.4 and §47)
 
 The ruling "Reading never holds a turn" (c) binds this section. **Evidence.** SL-29A 血色公路: on t4, t8, t15 and t20 the
@@ -3456,6 +3556,24 @@ question re-asked while its job is parked or reading under an older generation a
 emitted kernel with the pending list, a consultation whose focus is published while it reads stays pending, is read again
 from its draft and lands. `tests/kernel/test_source_answers.py`'s changed-context test is amended to the untouched landing.
 Mutations in the SL-55 ticket's Comments.
+
+**Addendum (2026-09-25, SL-60): the host writes a dedicated `resumed` row.** The owner's ruling: a displaced read that
+resumes writes its own telemetry row, not only a field inside another one. **Evidence** (ticket 29's batch-8 entry): on
+the b8 table SL-54's displacement and resume worked at the state level (a job went back to `queued` and later
+completed), but no `resumed {from_generation, generation, reread}` row was written; the triage had to infer it from the
+queue file, the same gap the `requeued` row (this section's SL-55 addendum) already closed on the finish side. Item 2's
+`concurrency` row already carries `resumed` as one of its fields, which is enough for a reader who already knows to look
+there, and not enough for a triage grepping telemetry by event name.
+
+The host (`ReadingService`'s claim loop, `extensions/module/reading-service.ts`) writes `{lane: "reading", event:
+"resumed", module_id, campaign, job_id, purpose, focus, from_generation, generation, reread}` once per claim that binds a
+job carrying item 2's `resumed` marker -- every claim the kernel returns it on, whether the last attempt was displaced,
+handed off, re-queued after its lock was lost, or a consultation re-bound by item 1. It is additional, not a
+replacement: the `concurrency` row keeps its own `resumed` field.
+
+*Tests.* One test on the reading service: over a fake kernel whose claim response carries `resumed`, the service writes a
+dedicated `event: "resumed"` row naming the job and repeating the marker's fields, beside the existing `concurrency` row.
+Mutations in the SL-60 ticket's Comments.
 
 ### 22.4.7 A move into a scene not yet read lands on the book's text; the scene's record lands when read (2026-09-24, SL-47; amends §22.4, §22.4.4 and §135.31.2)
 
