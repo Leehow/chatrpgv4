@@ -1,4 +1,4 @@
-Status: ready (stage 2, 2026-09-25) (filed 2026-09-25 from long gates #4–#6; batch 7; implemented and replayed 2026-09-25 -- the fan-out works, but on gate #6 t1 live Jev answers the keys row `no`, so the keys are still not filed; see Comments)
+Status: ready-for-human (stage 2 implemented and replayed 2026-09-25 -- confidence-only rows stop the fire-cutoff but also drop the leads 2/3; the re-ask asks the keys against their cue and Jev answers no; see Comments) (filed 2026-09-25 from long gates #4–#6; batch 7)
 Stage: SL-52 (P2, compile routing)
 Spec: docs/kernel-rpc.md §135.30.x (compile rows, the `ask` feature), §135.30.5 (SL-38 guard_unlock), §134.17; docs/specs/pi-native-single-loop.md "fan-out not pick-one"
 
@@ -117,3 +117,102 @@ is not on stage (both structural; neither ruled).
 - `py` -- "1725 passed, 2 skipped in 265.26s (0:04:25)" (`== py on leehow-pc @ 925176f103aa2617c0ffbb1b9a0e79a04b0ec512: exit=0 wall=268s`).
 
 - **2026-09-25, owner, after the gate #6 t1 replay.** Three decisions. (1) Confirmed: a clue whose kernel row says it is found by a skill check is never filed by the ask feature; it belongs to the check. (2) A fan-out row clears on confidence only: the margin rule chooses among rows of one question and has no meaning for an independent yes/no; the morgue's fire-cutoff clue (yes 0.53 against no 0.29) must not have been filed on turn 1 before Arty spoke. (3) The accept case: when the compile settles an obligation in the same declaration (the commission), the scene's clue rows are re-asked once with the settlement as context, the question being whether settling that obligation yields the clue as the clue's own `found_at.cues` state (the book's data, Jev judging; no list). The keys row's cue says "Accept the commission explicitly and take the key, address, and cash advance": that is the yes the first question could not give. Stage 2 scope: (2) and (3), tests for both, the same t1 replay. Handouts stay unfiled by the ask feature.
+
+### 2026-09-25 — stage 2 implemented, tested, replayed: the fire-cutoff is no longer filed; the keys still are not, and confidence-only drops the leads in 2 of 3
+
+Branch `claude/sl52-20260925`, fast-forwarded to `claude/integ-single-loop-20260923` at `fddb5689b` first (no conflicts). **Commit**
+`c88c7f5a1` (contract §135.30.9.1 and §135.30.9.2, the kernel's clue cues, the policy and engine, the tests); the probe script,
+the replay results and this entry in the commit after it.
+
+**Contract.**
+- §135.30.9.1: an `ask` row clears when it is `yes`/`no` with a reported confidence ≥ 0.6; no margin rule, no clearing without a
+  reported confidence. Every other choice question keeps §135.2's two gates.
+- §135.30.9.2: the re-ask. **One reading to confirm:** the ruling says "when the compile settles an obligation in the same
+  declaration (the commission)", but the haunting states no obligation at Knott's office (its only stated obligations are the
+  Globe's two); the office's book condition is its exits' guard `clue_discovered: knott-research-leads`. Read literally, the
+  re-ask would never fire on the turn the ruling names. Implemented: a compile *settles a step of the book* when it selects an
+  obligation's check (`obligation_check`) or the clue that meets the guard of the destination the declaration goes to
+  (`guard_unlock`). Nothing else settles (a plain move, a clue `ask_clue` files, the ordinary check, a meeting, the first blow).
+  Then, once per run and before the batch runs, one Jev call (`single-loop-compile-reask`) asks about each issued clue of the scene
+  the compile did not select, that is not found by a check, and whose kernel row carries `cues`. The state is the declaration plus
+  `settled` (the settling step's row words and the place it opens). There is one yes/no per clue, the target carrying the clue's
+  words and its cues, and each clears on confidence only. A `yes` is filed as `settled_clue` (a named predicate only the re-ask
+  selects, so `compileAdmission` admits it line by line). It is staged after the last settling step and runs among the batch's
+  reveals before a staged move. It is dropped when that step is refused or its check fails. Handouts: never.
+- The kernel: `table.apply.options` clue rows gain `cues`, the `cue` of each affordance of the active scene that grants the clue
+  (the book's data: the keys row carries "Accept the commission explicitly and take the key, address, and cash advance.").
+
+**Tests.**
+- `tests/extension/single-loop-ask-fanout.test.mjs`, 16 tests (6 new or rewritten for stage 2):
+  - a margin-only `yes` (0.5, distribution 0.7/0.25) is not filed; one at 0.6 is;
+  - the morgue's gate #6 fire-cutoff case (0.29 with 0.53/0.29) is not filed;
+  - the accept with the keys row `no` 0.88: one re-ask over the commission, Macario and keys rows with their cues and the leads as
+    the settlement, whose `yes` on the keys is filed after the leads and before the move, admitted `settled_clue` on its own
+    record;
+  - a re-ask `yes` under the gate (margin included) files nothing;
+  - a skill-check clue and a clue without cues are not re-asked;
+  - no re-ask for a plain move, an `ask_clue`-only filing, or nothing selected;
+  - a refused settling step and a failed obligation check each take the staged clue with them (a passed check files it);
+  - on the emitted kernel through the hybrid engine: leads, keys (by the re-ask) and move, admitted `guard_unlock` / `settled_clue`
+    / `move`, the keys receipt at the office.
+- `tests/kernel/test_jev_apply.py`: the office's clue rows carry the book's cues.
+- Two obligation seam tests in `scene-obligation-candidates.test.mjs` now expect the re-ask ahead of the check's bind.
+
+**Mutations** (copy-revert, `mutate2.py` in the session scratchpad; B11 rebuilt the emitted kernel before and after; all killed):
+
+| id | mutation | killed by |
+| --- | --- | --- |
+| B1 | the margin rule clears an ask row again | the margin test, the fire-cutoff test |
+| B2 | no re-ask | 6 |
+| B3 | any selection settles (a re-ask after every selecting compile) | the no-re-ask test, the row-order test |
+| B4 | the re-ask clears on the margin rule | the re-ask under-the-gate test |
+| B5 | a staged clue runs whether its settling step settled or not | the refused / failed-check test |
+| B6 | a skill-check clue is re-asked | the eligibility test |
+| B7 | a clue without cues is re-asked | the eligibility test |
+| B8 | `settled_clue` not a named predicate (admission cannot read it) | the accept test, the emitted-kernel test |
+| B9 | a failed check still files its staged clue | the refused / failed-check test |
+| B10 | the re-ask carries no settlement words | the accept test |
+| B11 | the kernel's clue rows carry no cues | the emitted-kernel test; `test_jev_apply.py` 1 failed |
+
+Not mutation-covered: "once per run" (`reasked`) needs a second settling compile in one run; the flag is asserted set.
+
+**Replay of gate #6 t1** (the same fixture, flags and seed as stage 1: recorded Keeper and lane at live latency, live Jev,
+`--latency live --seed 1`, 3 runs). Results `experiments/single-loop-routing/results/sl52-longgate6-t1-stage2`; the earlier arms
+are unchanged.
+
+| arm | leads clue | keys clue | move | fire-cutoff | re-ask | model steps | wall (s) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| before `95a3970c5` | clerk 3/3 | none 3/3 | clerk 3/3 | none | -- | 2, 2, 2 | 36.7, 32.0, 32.4 |
+| stage 1 `925176f10` | clerk 3/3 | none 3/3 | clerk 3/3 | clerk 3/3 | -- | 2, 2, 2 | 33.3, 31.9, 31.9 |
+| stage 2 `c88c7f5a1` | clerk 1/3; **not filed 2/3** | none 3/3 | clerk 1/3, replayed Keeper 2/3 | none 3/3 | 1/3: keys `no` 0.72 | 2, 2, 2 | 34.4, 30.2, 30.2 |
+
+- **Confidence-only costs the leads.** Jev's leads `yes` came at a reported confidence of 0.61, 0.55, 0.53 (yes 0.74, 0.70, 0.69):
+  under the gate in runs 2 and 3, so the compile selected nothing. No clerk step meant no settlement and no re-ask. The replayed
+  Keeper's own move (the clerk's live write) landed; the kernel takes a model-origin move under a pacing guard. **The leads clue was
+  then never filed that turn**, because the recorded Keeper never filed it (the live clerk had). In stage 1 the same row cleared 3/3
+  on the margin rule (confidence 0.50–0.61). So ruling (2) stops the fire-cutoff (`yes` 0.41 in run 1: not filed) and also drops
+  the accept's own clue on this sentence in 2 of 3.
+- **The re-ask asked the keys against their cue and Jev said no.** Run 1 settled (leads 0.61) and re-asked the commission, Macario
+  and keys rows: `no` 0.93 / 0.77 / 0.72 (keys `yes` 0.05). A pre-registered wording probe
+  (`results/sl52-reask-wording/PREREGISTERED.md`, `sl52-reask-probe.mjs`, 5 live calls per arm on the product's batch) compared the
+  committed question with the ruling's own framing ("does settling that step, as declared, yield this clue as its cue states"). The
+  committed question gave keys `no` 0.83–0.87 5/5; the ruling's framing gave `no` 0.53–0.58 5/5; the commission and Macario were
+  `no` everywhere. By the pre-registered rule the committed question stays. Jev does not read "我接。先去《环球报》剪报室…" as doing
+  "accept the commission explicitly and take the key, address, and cash advance", even with the leads settled as context.
+- Wall: no material change (median 30.2 s stage 2, 31.9 s stage 1, 32.4 s before). The two runs without a compile selection skipped
+  the clerk writes the replayed Keeper then did itself.
+
+**For the owner (nothing decided here):**
+(a) Rule (2) against the leads: a confidence-only gate at 0.6 drops the t1 accept's leads 2/3. Options are a lower gate for fan-out
+rows, the margin rule within the yes/no distribution kept for rows (it is the row's own distribution, not a choice among rows),
+or accepting that the Keeper files the leads.
+(b) The keys: two question framings both fail on this sentence. What the book ties the keys to is the commission's acceptance,
+which no kernel row states as a step. A settled step the re-ask can name ("the commission accepted") would have to be book data
+(an obligation or a flag the accept sets), not a question wording.
+(c) The settlement reading (guard_unlock counts) is mine; say if it should be obligations only.
+
+**Suites** (leehow-pc, at `c88c7f5a1`):
+- `ext` -- "ℹ tests 3106 / ℹ pass 3106 / ℹ fail 0" (`== ext on leehow-pc @ c88c7f5a1235237a56ef3b713d693fd1eff1df15: exit=0 wall=159s`);
+- `loop` -- "# tests 193 / # pass 193 / # fail 0" (`== loop on leehow-pc @ c88c7f5a1235237a56ef3b713d693fd1eff1df15: exit=0 wall=43s`);
+- `py` -- "1726 passed, 2 skipped in 185.97s (0:03:05)" (`== py on leehow-pc @ c88c7f5a1235237a56ef3b713d693fd1eff1df15: exit=0 wall=187s`).
+
