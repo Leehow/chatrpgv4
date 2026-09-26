@@ -693,10 +693,15 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
             for (const npc of present) {
                 const pair = jsonDigest([name, actor.id, npc.node_id]),
                     known = values(row(row(world.mods).state)).map(state => row(state.checks)[pair]).filter(Boolean).sort((a, b) => number(a.turn) - number(b.turn))[0];
+                // SL-83: `target` is the table's display name for the person (what the Keeper says); `handle` is the
+                // graph handle, the same identifier the first-impression `roll` receipt's `npc` carries
+                // (`mods/resolve.ts`: `npc: graph.handle(target)`), so a consumer that must pair this row with
+                // that receipt compares handle to handle and never a label to a handle.
                 if (known)
                     relationships.push({
                         actor: actor.name,
                         target: graph.displayName(npc),
+                        handle: graph.handle(npc),
                         decision: name,
                         impression: row(row(known.result).outcome).impression ?? null,
                         since_turn: known.turn
@@ -705,6 +710,7 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
                     contacts.push({
                         actor: actor.name,
                         target: graph.displayName(npc),
+                        handle: graph.handle(npc),
                         decision: name,
                         when: "first meaningful contact, not merely appearing in this list"
                     });

@@ -20,7 +20,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
-import { disableStepThinking, isFirstStepOfTurn } from "../../extensions/kernel/first-step-thinking.ts";
+import { disableStepThinking, firstStepCallCapMs, firstStepThinkingEnabled, isFirstStepOfTurn } from "../../extensions/kernel/first-step-thinking.ts";
 
 const call = (name, args) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
 
@@ -32,6 +32,33 @@ test("isFirstStepOfTurn: the first provider call of a turn observes roundTrips =
 	assert.equal(isFirstStepOfTurn(1), true);
 	assert.equal(isFirstStepOfTurn(2), false);
 	assert.equal(isFirstStepOfTurn(3), false);
+});
+
+test("firstStepThinkingEnabled: only the exact string \"1\" turns it on", () => {
+	assert.equal(firstStepThinkingEnabled({ COC_FIRST_STEP_THINKING: "1" }), true);
+	assert.equal(firstStepThinkingEnabled({ COC_FIRST_STEP_THINKING: "true" }), false);
+	assert.equal(firstStepThinkingEnabled({ COC_FIRST_STEP_THINKING: "0" }), false);
+	assert.equal(firstStepThinkingEnabled({}), false);
+});
+
+// ---------------------------------------------------------------------------
+// SL-82 (contract §135.29 addendum 2): the turn's first Keeper call sizes its own per-call cap.
+// ---------------------------------------------------------------------------
+
+test("firstStepCallCapMs: flag off returns the ordinary cap untouched, on any step", () => {
+	assert.equal(firstStepCallCapMs(false, 1, 22_500, 60_000), 22_500, "step 1, flag off: ordinary cap");
+	assert.equal(firstStepCallCapMs(false, 2, 22_500, 60_000), 22_500, "step 2, flag off: ordinary cap");
+});
+
+test("firstStepCallCapMs: flag on, step 1 (or the defensive 0) takes the larger of the ordinary cap and the allowance", () => {
+	assert.equal(firstStepCallCapMs(true, 1, 22_500, 60_000), 60_000, "allowance is larger: allowance wins");
+	assert.equal(firstStepCallCapMs(true, 0, 22_500, 60_000), 60_000, "roundTrips===0 is still the first step (isFirstStepOfTurn's own boundary)");
+	assert.equal(firstStepCallCapMs(true, 1, 90_000, 60_000), 90_000, "ordinary cap already larger than the allowance: ordinary wins, never shrinks it");
+});
+
+test("firstStepCallCapMs: flag on, step >= 2 keeps the ordinary cap -- the allowance never reaches a later call", () => {
+	assert.equal(firstStepCallCapMs(true, 2, 22_500, 60_000), 22_500, "second call: ordinary cap, not the allowance");
+	assert.equal(firstStepCallCapMs(true, 3, 22_500, 60_000), 22_500, "third call: same");
 });
 
 test("disableStepThinking: deepseek and zai share the disabled shape thinking:{type:\"disabled\"}", () => {

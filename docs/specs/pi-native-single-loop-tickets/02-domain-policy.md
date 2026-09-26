@@ -710,3 +710,32 @@ Class lines: all met (median 37 ≤ 45, 18/20; t1 commission settled with keys/l
 Model-layer notes: t14 three `invalid_params` (move to the current scene; offer with adopt; an unaccepted definition name) each with a usable fix, no class limit. Refusal codes for the table: needs 27, invalid_params 3, internal 10 (all `usage-prefetch runtime_closed` cancellations, not Keeper refusals).
 Batch 12 verdict: SL-71/72/73 do what they were filed for; two new tickets (SL-80 P2, SL-81 P1) for batch 13 with SL-76/SL-74.
 
+### Long gate #14 (2026-09-26, b088de327, batch 13 live; INVALID for SL-74: cap × thinking, see SL-82)
+INVALID for SL-74 as run: delivered 12/20, stranded t9/10/12/13/17/18/19/20, median 107 s, ≤60 s 6/20. Cause is not the provider: every stranded turn is a step-1 call (thinking ON) killed by SL-69's per-call cap (22,500 ms, streaming phase) — 35 "exceeded its cap a second time" + 11 "timed out" error stops, four 200-responses per turn each ~25 s apart, then `ask_llm unavailable` → `model_unavailable:no_delivered_evidence`. A deepseek thinking call runs ≈35 s (gate #9), so the cap = max(floor, turn budget/2) kills it by construction. The two variables were never tested together; the pre-registration budgeted the call's time but not the cap.
+Valid readings on the same table:
+- SL-81 ✓: 64 lane starts all `off`/`off`; admission n 42, p50 0 / p90 2,268 / max 2,813 ms; review_timeout 0, review_pending 0 (line 4 met; #13: p90 10,275, 4 timeouts, 5 pending).
+- SL-76 shadow (preliminary, 10 turns with rows, stranded turns give `keeper_did: null`): npc_reaction cleared 7 (keeper_did false 2, other 1, null 4, true 0); clue_follow_up cleared 11 (keeper_did true 6, null 5) — clue agreement 6/6 where the Keeper acted; npc_reaction never agreed where paired (2 false): the reaction candidate fires on presence, the Keeper does not stage a first impression at those moments. Rows land only at turn close, so the eight stranded turns lost their pairing.
+- SL-80: no speech-only implicit draft this table (floor rows 0); nothing to confirm.
+- SL-74 side-effects visible even so: Keeper refusals needs 2 / invalid_params 5 / unknown_entity 1 (#13: 27 / 3 / 0); `first_step_thinking: true` on 51 of 93 requests because every retry of the killed step-1 call is again step 1.
+Next: exempt or resize the cap for the thinking step (SL-82), rerun as #15 with the same four variables.
+
+### Long gate #15 (2026-09-26, b088de327, #14 rerun with the cap floor at 60 s)
+1. Delivery 17/20 ✗ — stranded t10/t18/t19: step-1 thinking calls still killed by the cap at 60,000 ms (9 `keeper_call_cap` rows, 6 "timed out" + 3 "a second time"). Step-1 reasoning p50 4,697 tokens, max 7,879 (gate #9's p50 was 2,883): the first step of a turn thinks longest, and on this provider `low` is not low.
+2. Wall ✗: median 83 s (line ≤ 55; #13 42); ≤ 60 s 7/20 (line ≥ 14); max 143.
+3. SL-74's benefit ✓ (the reason for the experiment): Keeper refusals needs 2 / invalid_params 2 / unknown_entity 1 (#13: 27 / 3 / 0); model calls 62 (#13: 71); looks 8 (#13: 14); zero refusal-budget cuts. Planning errors do fall with thinking — at +41 s median and 3 stranded turns even with a 60 s cap.
+4. SL-81 ✓ (second table): 90 lane starts `off`/`off`; admission p90 2,440 / max 5,714 ms; review_timeout 0, review_pending 0.
+5. SL-76 shadow: rows present; Jev ≈ 0.5 s per turn; pairing numbers in SL-77 (npc_reaction blocked by SL-83's label/handle bug; clue_follow_up clean).
+6. SL-80: no speech-only implicit draft (floor rows 0).
+7. Routing ✓ (11 core-checks, 9 moves, 7 clues); prescreen prepared 31, no fallback; infer(bind) 0.
+Reading: first-step thinking on opencode-go/deepseek-v4.1-flash buys fewer planning refusals at a cost that breaks the ≤ 60 s turn and strands turns; the same refusals are being removed structurally (SL-71/72/73, Stage 2 candidates) at ~0 s. Recommendation: do not adopt; keep the flag as an experiment switch (SL-82 still worth landing so the switch is safe to use).
+
+### Long gate #16 (2026-09-26, b088de327; thinking off, shadow, lane off)
+1. Delivery 20/20 ✓; cap rows 0 ✓.
+2. Wall ✓: median 41 s; ≤60 s 18/20; max 76; reasoning 0 on 98/98 calls.
+3. SL-81 ✓ (third table): 118 lane starts `off`/`off`; admission p90 2,640 / max 4,201 ms; timeouts 0, pending 0.
+4. Shadow: 15/21 turns carried a shadow call, Jev median 495 ms/turn, max 813 ✓; `clue_follow_up` 1 cleared-but-false (t3 `house-built-1835` at 0.86: the Keeper filed no clue that turn; on gate #13 the same turn did) — at the line's limit; `npc_reaction` corrected agreement 2/4 = 0.50 (floor met; execute bar 0.9 not met; SL-83 pending).
+5. Keeper refusals: needs 8 ✓, unknown_entity 2 ✗ — both `look` on an unregistered object name (not SL-71's resolve class); invalid_params 9 (reunion continuity ×3, "library-research states no check" ×2, stated/minutes ×2, own-name ×1, transfer owner ×1): all with usable fixes, no class limit; cuts 0 ✓.
+6. SL-80: no speech-only draft; no thin delivery ✓.
+7. Routing ✗ on its face — moves by the compile 7/12 — but **Jev returned service errors on every call from turn 8 to turn 14** (route/compile/consequence/admission fast-path all `jev_service_error` in 200–440 ms, `jev_input_tokens: 0`; prescreen "Adaptive material retrieval: unavailable"); the product degraded exactly as §135.32 D2.7 says (the Keeper chose; admission fell to the lane; 7/7 of those turns delivered, walls 27–76 s). Excluding the outage turns the compile selected 7/7 of the script's moves it could see. Gap found: the adapter's failure code/HTTP status is not written to telemetry, so the outage cannot be classified (429 rate limit vs 529 overload vs 401) from the table's own records — SL-84.
+Reading: the batch-13 build with thinking off is back inside #13's envelope with the lane fixed (median 41, 18/20 ≤60, zero admission timeouts); the Jev outage is the table's one real event and it was survivable.
+

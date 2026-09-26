@@ -138,3 +138,5 @@ turns it green again --
 
 **Commits** on `claude/sl76-20260926`: `5ac4d94d4` (contract + rules data), `ecb39b04d` (kernel structural read),
 `d2e095c18` (runtime implementation), `485c84023` (tests).
+- Live (gate #14, b088de327, shadow): 59 rows over 10 turns; clue_follow_up cleared 11, keeper_did true 6 / null 5 (agreement 6/6 where paired); npc_reaction cleared 7, keeper_did false 2 / other 1 / null 4 / true 0 — the presence condition is too wide (a present NPC is not an engaged one); the eight stranded turns lost their pairing (rows land at turn close). Preliminary; SL-77 reads gate #15 too.
+- Live (gate #16, shadow): 15/21 turns with a shadow call, Jev median 495 ms; clue_follow_up 1 cleared-but-false (t3); npc_reaction corrected 2/4; Jev outage t8–14 (SL-84) removed those turns from the sample.

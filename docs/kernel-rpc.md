@@ -17549,7 +17549,13 @@ Failure is not global:
 
 Exact state, exact source, exact catalog/module/rule, secret-scope projection, and other sufficient local reads take the zero-Jev path. Jev is invoked only for a real semantic decision over host-issued candidates. Disabled or unconfigured Jev uses the declared incumbent or existing unavailable result; it never weakens admission.
 
-### S0 private role protocol and integration gate
+#### Jev attempt/batch failure telemetry (2026-09-26, SL-84)
+
+Gate #16 turns 8-14 answered every compile/route/consequence/admission-fast-path call `status: unavailable, reason: jev_service_error` in 200-440 ms with no row anywhere naming which HTTP status, or which network/timeout code, the typed family actually saw; the adapter's own `AdapterTrace` (`attempt` with `status`, `retry` with `reason`, `failure` with `code`) was emitted to a callback nothing subscribed. The product degraded correctly (§32.2's fail-closed admission, the incumbent path elsewhere), which is exactly why the outage went unnoticed without the triage's route column.
+
+Every Jev attempt that fails now writes one telemetry row `{lane: "jev", event: "attempt_failed", family, status (HTTP) | code (network/timeout), retry: n, ms}`, where `retry` is the number of attempts already made before this one (0 on the first attempt) and `ms` is that attempt's own round-trip time. A batch that exhausts every attempt additionally writes `{lane: "jev", event: "batch_failed", family, code, attempts}`, using the same closed `DecisionResult.failure.code` enum already in this section's shared-contract table. A rate-limit response (429) also carries the raw `retry-after` header text as `retry_after` when the provider sent one. No request or response content -- state, questions, answers, or the raw provider body -- ever reaches either row; only family, status/code, retry count, timing and, for a 429, the retry-after header text.
+
+`DecisionResult.failure` gains an optional `status: number | string`: the last attempt's HTTP status when a response was ever received, or its network/timeout code otherwise (absent when the batch never dispatched at all, e.g. `disabled`/`unconfigured`/`packing_limit`/`schema_error` before transport). Every existing `jev_service_error`-shaped row -- the route/compile/reask telemetry, the consequence shadow route, and the admission fast path's `jev_fallback` -- carries this same value forward as `jev_status`, so a reason string that only ever said "the typed family failed" now also says with what status. This is telemetry only: no domain policy, threshold, or admission verdict reads `status`, and a batch's `code`/`status`/`reason` classification is unchanged by its presence.
 
 S0 is a bounded public-SDK seam probe, not S2's production TaskRuntime. The planner is a private lane of the configured Keeper role and receives exactly one private `submit_plan_packet` protocol tool for the strict semantic submission. That tool is not added to the normal global seven gameplay verbs, does not write player prose, and is not Workpad. A simple plan may instead return a direct draft through the private role response. The writer uses the existing `narrate`/`ask` role tools; there is no private `submit_delivery_draft` wrapper. Existing `message_end`, delivery-termination, and split-order guards remain authoritative. The writer receives only validated real observations. The host retains the complete private role transcript, typed artifacts, provider usage/accounting, read-dispatch trace, cancellation, audit evidence, and delivery result under existing privacy rules.
 
@@ -19727,7 +19733,13 @@ rules data (§136) or the session view can issue is no longer boss-only by const
   candidate, one `exists` Noul per family -- never the route/compile fan-out's own `need`/typed-feature questions,
   and never able to select or change what those choose), but under `COC_JEV_STEPS=shadow` (the default; SL-76) it
   is never executed: it is logged and paired at turn close with what the Keeper did on its own (`{lane: "route",
-  shadow: true, class, key, cleared, confidence, distribution, keeper_did}`). `COC_JEV_STEPS=on` (SL-78's acceptance)
+  shadow: true, class, key, cleared, confidence, distribution, keeper_did}`). The pairing compares handles, never
+  a display name to a handle (SL-83): a `capsule.mods.pending_contacts[]`/`relationships[]` row carries the
+  person's `handle` (the graph handle, the same identifier the first-impression `roll` receipt's `npc` carries)
+  beside its display-name `target`; `npc_reaction`'s `key` and `bound.target` are that handle, its `label` and
+  Noul keep the display name, and `keeperDidFor` matches `bound.target` against `roll.npc` (a display-name target
+  from a row without `handle` is resolved through the turn's own `person` receipts, `name` → `who`, first; one no
+  receipt this turn names cannot pair). `COC_JEV_STEPS=on` (SL-78's acceptance)
   runs a cleared one through the same `clerkStep` gateway as any other clerk candidate (§135.4); `off` builds none
   of the three. Thresholds (`row_min`, `row_ratio`) are `content/rulesets/coc7/host-budgets.json`'s `jev_steps`
   entry, the same shape as `ROW_MIN`/`ROW_RATIO` (§135.30.9.1), never a literal in the policy.
@@ -21224,6 +21236,76 @@ step (`run_end undelivered`, the §38.7 notice) without exhausting the session's
 `first_byte`, since no header ever arrived); `keeperCallCapMs(env)`'s own floor-vs-half-budget arithmetic,
 including an explicit-floor override. `tests/extension/vendored-pi.test.mjs` pins the series (patch `0004`
 alongside `0001`–`0003`).
+
+#### 135.29 addendum 2 -- with SL-74's flag on, the turn's first Keeper call sizes its own cap (2026-09-26, SL-82; amends this section's SL-69 addendum)
+
+**Evidence.** Long gate #14 (`longgate14-haunting-0509`, `docs/specs/pi-native-single-loop-tickets/
+82-first-step-thinking-sizes-its-own-cap.md`): `deepseek-v4.1-flash` with thinking pays roughly 35 s a call
+(gate #9); the turn budget's own SL-69 cap on that table was `max(20 000, 45 000/2) = 22 500` ms. Every
+stranded turn (t9/10/12/13/17/18/19/20) shows the same shape: four `200` responses about 25 s apart, "Keeper
+call timed out: exceeded its per-call cap of 22500 ms (phase: streaming)" ×11, then "… a second time" ×35,
+then `ask_llm unavailable` → `model_unavailable:no_delivered_evidence`. Delivered turns were the ones whose
+thinking call happened to finish under the cap. Gate #15, same build, with
+`PI_COC_KEEPER_CALL_CAP_FLOOR_MS=60000`: no cap stops on turns 1–2, both delivered (75 s / 65 s). SL-69's cap
+is sized from the table's ordinary turn budget; §38.7.1's flag (SL-74) deliberately buys the turn's first call
+a slower, thinking-on model at the cost of every later call in the same turn running faster with thinking
+off. SL-69's addendum did not know about that trade when it set one cap for every call of a table: the flag
+was creating a cost it did not also budget for.
+
+**The ruling (owner, 2026-09-25, filed as this ticket).** The flag owns the cost it creates. With
+`COC_FIRST_STEP_THINKING=1`, the first Keeper provider call of a turn (§38.7.1's `isFirstStepOfTurn`, `step
+<= 1`) is capped at `max(the ordinary SL-69 cap, a thinking-call allowance)` -- a named default,
+`content/rulesets/coc7/host-budgets.json`'s `first_step_thinking.call_cap_ms`, read by the same loader
+SL-76's `jev_steps` uses (`runtime/jev/host-budgets.ts`), shipped at `60000` from the measured ≈35 s call
+with headroom to spare (the same margin gate #15's floor override already proved sufficient). Every call
+from the turn's second onward keeps the ordinary SL-69 cap unchanged: by the time that call goes out,
+§38.7.1 has already turned its thinking off, so it runs at the pace the ordinary cap was sized for. The flag
+off leaves every call's cap exactly as SL-69 computed it -- this addendum changes nothing about a table that
+does not set `COC_FIRST_STEP_THINKING=1`. If the flag ever becomes a setting rather than an experiment, the
+run's own time budget (§135.25) must add the same allowance for its first call, so the compose step is not
+squeezed by a budget that never knew about the extra time thinking spends.
+
+**The mechanism.** SL-69 handed the vendored session one fixed `keeperCallCapMs` number at construction
+(`runtime/pi-hybrid.ts` → `createAgentSession`, vendored patch `0004`). Which call of the turn is about to go
+out is known only once the RunDriver's session has emitted that call's `turn_start` -- information the
+vendored `streamFn` seam does not have and must not be taught, since the whole point of the vendored patch is
+to add one narrow capability (a per-call cap) without teaching Pi's own code about the product's turn
+structure. So `CreateAgentSessionOptions.keeperCallCapMs` accepts a plain number (unchanged) or a zero-argument
+function returning a number or a `Promise<number>`; `sdk.ts`'s `streamFn` resolves whichever shape it was
+given fresh on every attempt, immediately before composing `watchCallCap` around that attempt -- a plain
+number behaves exactly as before this addendum, byte for byte. `runtime/jev/hybrid-engine.ts` supplies the
+function form only when the flag is on: it keeps its own `turn_start`/`before_agent_start` counter (the same
+events and the same reset/increment contract as `extensions/kernel/first-step-thinking.ts`'s
+`isFirstStepOfTurn` documents for the kernel extension's own `table.roundTrips`, tracked independently so this
+engine never reaches into the kernel extension's private state for it), and on each resolution reads the data
+file's allowance and returns `firstStepCallCapMs(true, step, keeperCallCapMs(env), allowance)`
+(`extensions/kernel/first-step-thinking.ts`'s new pure decision function, the natural home for it beside
+`disableStepThinking`/`isFirstStepOfTurn` since it answers the same "which call of the turn is this" question
+for the same flag). With the flag off, `createHybridEngine` returns the plain ordinary number exactly as
+before this addendum -- the per-call function is never built, so a table running without
+`COC_FIRST_STEP_THINKING=1` takes the identical code path SL-69 already shipped. The `keeper_call_cap`
+telemetry row (`onKeeperCallCap` in `hybrid-engine.ts`) gains a `step` field on every row, flag or no flag,
+since the engine already knows it and it costs nothing to record: which call of the turn a cap fired on was
+previously only inferable from row order.
+
+**Three ends (§31).** *Writer:* `runtime/jev/hybrid-engine.ts` (the per-call cap function, the `step` on the
+telemetry row), `extensions/kernel/first-step-thinking.ts` (the pure decision), `content/rulesets/coc7/
+host-budgets.json` (the allowance). *Reader:* the vendored `streamFn` seam, which resolves whichever shape it
+was handed without knowing why. *Actor:* the Keeper, whose one thinking-on first call is no longer measured
+against a budget sized for a thinking-off one; the player, who no longer strands on a turn whose only fault
+was the flag's own cost never being budgeted.
+
+*Tests.* `tests/extension/first-step-thinking.test.mjs`: `firstStepCallCapMs` unit-covered at the flag on/off
+and step 1/2/3 boundary (mirroring `isFirstStepOfTurn`'s own boundary tests). A host-budgets test proves the
+allowance is read from `content/rulesets/coc7/host-budgets.json`, not a literal (mutating the fixture file
+changes the resolved cap), with the shipped file's own default recorded. `tests/extension/
+keeper-call-cap-first-step.test.mjs`: `createHybridEngine`'s own `turn_start`/`before_agent_start` counter
+driven directly against a stub extension host proves the exposed `keeperCallCapMs` is the plain ordinary
+number (not a function) when the flag is off, and a function resolving to the allowance on step 1 and the
+ordinary cap on step 2 when it is on; a real-socket integration test (the `keeper-call-cap-integration.test.
+mjs` harness) proves the vendored seam itself accepts and freshly resolves a function value, including one
+that changes its answer between attempts, and that the `keeper_call_cap` telemetry row it writes carries
+`step`.
 
 ### 135.30 Routing asks what the player does: one compile per run reads the declaration into typed features, and predicates select the clerk's candidates (2026-09-24, SL-13; amends §135.1, §135.6, §135.7, §135.26)
 
@@ -23131,6 +23213,23 @@ starters, each in a fresh seeded campaign) against the parent `566dca9da`, and a
 **The rule.** A consequence whose candidate the graph, the roster, the rules data (§136) or the session view can issue is the clerk's to route through Jev (§135.30's fan-out: one Noul per candidate, an `exists` Noul per family, the exits); only a consequence with no issuable candidate remains the Keeper's. Three classes are added to §135.2's candidates with the new clerk authority `consequence_bookkeeping` (§135.3): `npc_reaction` (a present, authored, not-yet-met NPC; bound actor/target/decision), `clue_follow_up` (a scene clue whose gate — data, evaluated in code — the run's receipts satisfy), `time_cost` (a settled action whose §136 shape states a cost: direct; `_unstated` with a rules default: one Noul). Questions carry no kernel-internal tags and only the state they need; optional parameters take a "stated?" Noul; a candidate's confidence is its weakest judgment; thresholds live in `content/rulesets/coc7/host-budgets.json`; the model is pinned `jev-1.13.0`; an outage degrades to the Keeper choosing, never to a guess.
 
 **Stages.** `COC_JEV_STEPS=shadow` (default from SL-76): the classes are routed and logged with `shadow: true` and paired at turn close with what the Keeper did (`keeper_did`), never executed. `on` (SL-78, opened by SL-77's agreement report meeting the spec's D6 2a): cleared candidates execute as clerk steps through the one gateway (§135.4, §32.12), the loop re-routes after each, the projection lists them under "clerk did" (§135.8), and a `residual` row per turn counts the Keeper's own `apply/resolve/look/lookup/recall`. Stage 3 (SL-79, opened by two tables meeting D6 2b): the compose step's catalog narrows to `narrate`, `ask`, `say` and a typed `propose {key}` over the run's offered candidates; free handles cannot be written by construction. Jev never writes prose and never `ask`s (§135.11 unchanged).
+
+#### 135.32 addendum — execute mode is per class (2026-09-26, owner, after SL-77's three-table report)
+`COC_JEV_STEPS=on` executes only the classes named in `content/rulesets/coc7/host-budgets.json` `jev_steps.execute` (data, no literal); every other class keeps the shadow path (routed, paired at turn close, never executed). Opened for `clue_follow_up` (agreement 6/6 on three tables, false positives ≤ 1); `npc_reaction` (corrected 0.50–0.60) and `time_cost` (no candidate issued yet) stay shadow. SL-78 lands the switch, the re-route after an executed step, the "clerk did" line and the per-turn `residual` row.
+
+#### 135.32 addendum 2 — the execution point, the re-route, the projection line and the `residual` row (2026-09-26, SL-78)
+
+**The execution point.** The shadow route (SL-76) fires once, from `turnCloseStep`, deliberately after every model step of the turn -- fine for pairing (it reads what the Keeper already did), wrong for executing (a clue filed only there reaches no narration this turn). `COC_JEV_STEPS=on` instead routes the listed classes' D1 candidates (`jevStepsBudget().execute`, e.g. `clue_follow_up`) at every point in the run a write just settled -- the compile-selected clerk step (`clerkStep`'s own tail) and the Keeper's own `apply`/`resolve` (`modelStep`'s WRITE_VERBS branch) -- using the same fresh read that step already took (`freshOf`, no extra kernel round trip). For a compile-selected declaration this sits strictly before the run's next step, which for a settled declaration is the compose (§135.11 addendum, "the exit leans to finish"): the executed clue is on the clerk-did note the run prepends to that very compose call (§135.8), so the Keeper can narrate or reverse it in the same turn. Unlisted classes are never routed here; they keep the single turn-close call, byte for byte as `shadow` always ran it -- `off` and `shadow` call none of this and are unaffected.
+
+**The re-route.** Because a settled write is exactly what a `clue_follow_up` candidate's gate is evaluated against, executing one is itself a settled write: `clerkStep`'s tail calls the same execution point again after its own dispatch succeeds, so a clue an executed clue's own write unlocks (a `time_cost` shape reachable only once the clue is filed, or a further clue the kernel now offers) is offered without waiting for the next model step. This is the loop's whole re-route; it needs no new anti-loop gate beyond the ones already in force: a key `run.consequenceExecuted` (SL-76) already holds is never offered to execute twice in the same run (the same "material" -- the candidate's own kernel row -- clears the same question at most once); `maxSteps` and §135.25's run-time budget bound the turn as they always did, since the re-route runs inside one host step's own async body, never as an additional driven-run step; the run's own decision budget (§135.6/§135.25) is untouched, because the consequence route has its own lease, exactly as the shadow path always used. A finite scene offers finitely many clues, so the chain always terminates; a fixed round cap on the recursion (`CONSEQUENCE_INLINE_ROUNDS_CAP`, 12) is a circuit breaker only, never reached on a real table. A refused write (the gateway declines it) settles nothing and re-routes nothing.
+
+**The projection line.** No new mechanism: an executed D1 candidate is a clerk write like any other (§135.4), so it already lands on `run.clerkDid` and reaches the Keeper's `coc-clerk` note under "clerk did" (§135.8) with the rules-default line where one was taken (§135.28's `defaultLine`) -- `clue_follow_up`'s own bound parameters are `stated`/`composed`, so ordinarily none is defaulted. The Keeper reconciles the clue in the fiction or reverses it with a real operation of its own, unchanged from the 2026-09-23 ruling (§135.3).
+
+**The `residual` row.** Once per turn, at turn close, `COC_JEV_STEPS=on` only (never `shadow`/`off`, so their telemetry is unaffected): `{lane: "residual", turn, keeper_calls: {apply, resolve, look, lookup, recall}, compile_calls, clerk_calls, consequence_calls}`. `keeper_calls` counts the Keeper's own tool calls this turn by verb, attempted or refused (`modelStep`'s own counter: a free-text `apply`/`resolve`/`look`/`lookup`/`recall` the Keeper made on its own, the residual SL-78 measures); `compile_calls` every `purpose: "compile"` Jev decision the run asked; `clerk_calls` every policy-origin write the gateway saw this run (`run.clerkDid.length`, admitted or refused); `consequence_calls` the subset of those whose clerk authority was `consequence_bookkeeping` (SL-78's own executions, never the compile-selected `declared_bookkeeping`/`declared_check`/… ones). `turn` is the kernel's own turn number, `null` before the run's read has bound one.
+
+**Three ends (§31).** *Writer:* `clerkStep`'s and `modelStep`'s own tails (the execution point and the re-route), `decide` (the compile counter), `modelStep` (the keeper-call counter). *Reader:* the Keeper's `coc-clerk` note (the projection line, unchanged mechanism), `tests/play/jev-steps-report.py`'s new "residual" section (the row). *Actor:* the Keeper, who narrates or reverses an executed clue exactly as any other clerk write; the operator, reading the residual row per table to decide when Stage 3 (§135.32, SL-79) opens.
+
+**Tests.** `tests/extension/consequence-shadow-gate.test.mjs`: `consequenceKeysToExecute` executes a cleared row only when its class is in the `executeClasses` argument, `on` with an empty or omitted list executes nothing, `shadow` never executes regardless. `tests/extension/consequence-host-budgets.test.mjs`: `jevStepsBudget().execute` reads the data file's array, drops a non-string entry, falls back to empty on a bad shape, and the shipped file names `["clue_follow_up"]`. `tests/extension/consequence-execute-mode.test.mjs` (SL-78, engine seam, stub `DecisionPort` and stub operation-dispatcher gateway): a cleared `clue_follow_up` executes through the gateway and produces a receipt, appearing on `clerkDid`/the projection's "clerk did" before the compose note; a cleared `npc_reaction` never executes under `on` (only listed classes do); the residual row's shape and counts after a mixed turn; a decision-port or gateway outage mid-run leaves the run deliverable with no consequence step executed.
 
 ## 137. context.style.v1: a package contributes the capsule's craft lines (2026-09-25, W3 of docs/specs/prose-mod.md)
 

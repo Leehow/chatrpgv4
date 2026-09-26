@@ -393,7 +393,7 @@
     {
       "id": "SL-78",
       "file": "78-execute-mode-and-residual.md",
-      "status": "blocked"
+      "status": "ready"
     },
     {
       "id": "SL-79",
@@ -408,6 +408,21 @@
     {
       "id": "SL-81",
       "file": "81-the-lane-thinks-at-low-on-a-model-where-low-is-full.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-82",
+      "file": "82-first-step-thinking-sizes-its-own-cap.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-83",
+      "file": "83-shadow-pairing-compares-a-label-to-a-handle.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-84",
+      "file": "84-a-jev-outage-leaves-no-status-code.md",
       "status": "ready"
     }
   ],
