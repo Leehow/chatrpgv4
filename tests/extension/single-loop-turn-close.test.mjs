@@ -337,3 +337,87 @@ test("§135.11 addendum: process talk beside a tool call leaves the message with
 	assert.equal(row?.dropped, 1, "the dropped text block is counted");
 	assert.equal(lastAssistantText(table.table.session), prose);
 });
+
+/**
+ * §135.11's SL-80 addendum (2026-09-26). Long gate #13 t1 (`longgate13-haunting-0400`): the clerk had already
+ * settled the commission and the move -- `toolCallsThisTurn` was not zero -- and the Keeper's whole reply was one
+ * 66-character say span, delivered by the implicit narrate in 36.8 s: no scene, no arrival, nobody but a gatekeeper
+ * the player had not met. The floor of §34.6 only fired when the turn called no tool at all, so this reply sailed
+ * past it. The floor's own condition now also catches a draft that is nothing but a say span, whatever else the
+ * turn's tools did.
+ */
+const settledCheck = () => fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "social", goal: "get the clippings", method: "explain the errand", skill: "Spot Hidden" } })], { stopReason: "toolUse" });
+const sayOnly = '{{say:Gatekeeper}}"Not today."{{/say}}';
+const sayWithProse = 'The gatekeeper folds his arms. {{say:Gatekeeper}}"Not today."{{/say}}';
+
+test("§135.11 SL-80: a reply that is one say span and nothing else, after a settled check, is floor-steered once, not delivered; a second leg with prose then delivers", async (t) => {
+	const table = await hybridTable({
+		env: { FAKE_KERNEL_PRESENT: GATEKEEPER },
+		responses: [settledCheck(), fauxAssistantMessage(sayOnly), fauxAssistantMessage(sayWithProse)],
+	});
+	t.after(() => table.dispose());
+	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
+
+	assert.deepEqual(steerIn(table.requests[2]), ["floor"], "the say-only draft is floor-steered even though a check settled this turn");
+	const narrates = kernel(table.table, "table.narrate");
+	assert.equal(narrates.length, 1, "the say-only first draft never reached the kernel");
+	assert.equal(narrates[0].params.text, sayWithProse, "the second leg's prose is what the player reads");
+	assert.equal(narrates[0].params.implicit, true);
+	assert.ok(table.table.telemetry().some((entry) => entry.lane === "floor" && entry.steered === true && entry.reason === "speech_only"),
+		"the floor steer's telemetry names why it fired, not just that it did");
+	assert.ok(table.table.telemetry().some((entry) => entry.lane === "delivery" && entry.ok === false && entry.reason === "floor_steer"),
+		"the drop is the existing floor_steer reason, not a second one");
+	assert.equal(runEnd(table.events).status, "delivered");
+	assert.equal(runEnd(table.events).reason, "implicit_narrate");
+	assert.equal(unfinished(table.table.session).length, 0);
+});
+
+test("§135.11 SL-80: a second leg that brings nothing delivers the held say-only draft once the steer is spent", async (t) => {
+	const table = await hybridTable({
+		env: { FAKE_KERNEL_PRESENT: GATEKEEPER },
+		responses: [settledCheck(), fauxAssistantMessage(sayOnly), fauxAssistantMessage([{ type: "thinking", thinking: "Nothing to add." }], { stopReason: "stop" })],
+	});
+	t.after(() => table.dispose());
+	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
+
+	assert.deepEqual(steerIn(table.requests[2]), ["floor"]);
+	const narrates = kernel(table.table, "table.narrate");
+	assert.equal(narrates.length, 1);
+	assert.equal(narrates[0].params.text, sayOnly, "the held say-only draft closes the turn -- the dropped-draft rule, §135.11's gate #4 addendum");
+	assert.equal(runEnd(table.events).reason, "implicit_narrate");
+	assert.equal(unfinished(table.table.session).length, 0);
+});
+
+test("§135.11 SL-80: a reply with prose beside the say span is not speech-only and delivers on its first leg", async (t) => {
+	const table = await hybridTable({
+		env: { FAKE_KERNEL_PRESENT: GATEKEEPER },
+		responses: [settledCheck(), fauxAssistantMessage(sayWithProse)],
+	});
+	t.after(() => table.dispose());
+	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
+
+	assert.equal(table.requests.length, 2, "no floor steer at all: the first leg already carried prose beside the say span");
+	const narrates = kernel(table.table, "table.narrate");
+	assert.equal(narrates.length, 1);
+	assert.equal(narrates[0].params.text, sayWithProse);
+	assert.equal(runEnd(table.events).reason, "implicit_narrate");
+	assert.equal(unfinished(table.table.session).length, 0);
+});
+
+test("§135.11 SL-80: an explicit narrate of the same say-only shape is unchanged -- this check never runs on that path", async (t) => {
+	const table = await hybridTable({
+		decide: (batch) => answered(batch, "finish"),
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: sayOnly })], { stopReason: "toolUse" })],
+	});
+	t.after(() => table.dispose());
+	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
+
+	assert.equal(table.requests.length, 1, "no floor steer: an explicit narrate is never gated by this check");
+	const narrates = kernel(table.table, "table.narrate");
+	assert.equal(narrates.length, 1);
+	assert.equal(narrates[0].params.text, sayOnly);
+	assert.equal(narrates[0].params.implicit, undefined, "the Keeper's own explicit call, not the host's implicit close");
+	assert.equal(runEnd(table.events).status, "delivered");
+	assert.equal(runEnd(table.events).reason, "delivery_accepted");
+	assert.equal(unfinished(table.table.session).length, 0);
+});

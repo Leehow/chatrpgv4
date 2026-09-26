@@ -34,7 +34,7 @@ import { randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { disableStepThinking, isFirstStepOfTurn } from "./first-step-thinking.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
-import { learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
+import { isSpeechOnlyDraft, learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
@@ -5445,11 +5445,18 @@ export default function (pi: ExtensionAPI) {
 			// turn. Once, the host drops that draft and steers it back to the capsule; whatever the second leg
 			// brings is honoured, an explicit narrate or prose closed implicitly as before. The opening is
 			// exempt (it has its own instruction), and so is any turn in which a tool was tried, refused or not.
+			// §135.11's SL-80 addendum (2026-09-26): the same one steer also fires when the draft is nothing
+			// but a say span -- a voice with no world's answer, uptake or handoff around it (§34.2) -- even
+			// when the turn's clerk already settled a check or a move. Structural: `isSpeechOnlyDraft` reads
+			// span and marker syntax, never the words. Not a second floor: the same floorDraft/deliveryFix/
+			// steeredThisTurn machinery, the same FLOOR_STEER text, so the one-steer budget and the dropped-
+			// draft fallback of the gate #4 addendum apply exactly as they do to the no-tool-call case.
 			const opening = state.state === "awaiting_player" && state.openingPending;
-			if (state.toolCallsThisTurn === 0 && !opening && !state.steeredThisTurn) {
+			const speechOnly = !opening && !state.steeredThisTurn && isSpeechOnlyDraft(prose);
+			if ((state.toolCallsThisTurn === 0 || speechOnly) && !opening && !state.steeredThisTurn) {
 				state.floorDraft = prose;
 				state.deliveryFix = { kind: "floor", text: FLOOR_STEER };
-				await record({ lane: "floor", turn: state.turn, steered: true, round_trips: state.roundTrips });
+				await record({ lane: "floor", turn: state.turn, steered: true, round_trips: state.roundTrips, ...(speechOnly ? { reason: "speech_only" } : {}) });
 				return dropText("floor_steer");
 			}
 			// §40 (2026-09-15): people are on stage and the draft carries no say token. Once, the host drops
