@@ -10,12 +10,18 @@ keeper-visible `roll` receipt of family `stakes` in the open turn -- once per pe
 out something no one at the table knew they had; the table's permission line rides with it (`severe_surprise` on a severe
 roll). The three columns rise with the rung, or the table is refused.
 
+§139.26 (ticket 27, the table `npc-acts-d`): a person being fought is not calm between blows. Two structural shifts join
+the table -- `in_fight_with_investigators` (a fight is running with them and an investigator among its participants) and
+`attacked_last_turn` (this turn's predicate over the newest committed turn). With `attacked_this_turn` they are one
+dimension, violence toward this person: the table groups them (`shift_groups`), and a group moves the rung once, by its
+largest step -- the punch that opens a fight is +1, not +2 (the lead's ruling, 2026-09-26).
+
 Corbitt is the person. As the starter ships, the natural-npc Mod's first-impression check against him is still to come:
 a row of his `constraints` for the generator, and no prepared reaction -- only the book's preordained reaction is one
-(Arty Wilmot's, below). His book gives him no combat disposition, so his base is the table's default. With seeds 3, 2
-and 1 the investigator's punch lands (its damage die is rolled; his Flesh Ward armour takes it, so his hit points stay
-whole) and the die then says severe, escalates and nothing. Every expected number is read from the shipped table, never
-restated.
+(Arty Wilmot's, below). His book gives him no combat disposition, so his base is the table's default. The investigator's
+punch opens a fight with him in it: since §139.26 both the blow and the fight hold, one group, one rung up. With seeds 3,
+2 and 1 the punch lands (its damage die is rolled; his Flesh Ward armour takes it, so his hit points stay whole) and the
+die then says severe, escalates and nothing. Every expected number is read from the shipped table, never restated.
 """
 
 import json
@@ -32,10 +38,13 @@ INVESTIGATOR = "thomas-hayes"
 TABLE = CONTENT_DIR / "rulesets" / "coc7" / "rules-json" / "npc-stakes.json"
 # Seeds whose landed blow is followed by each outcome of the die (chosen by running them; the die is the kernel's).
 # Re-read for ticket 20's thresholds (dangerous 15/45): seed 3 rolls 5, seed 2 rolls 30, seed 1 rolls 56.
+# §139.26: the fight the punch opens is in the blow's group, so the rung is still dangerous and these seeds stand.
 LANDED = {3: "severe", 2: "escalates", 1: "nothing"}
 # §139.19: seeds whose die, after the punch (landed or not, the rung is dangerous), falls on each side of the rung's
 # surprise column (30): 5 and 30 (the boundary) allow a surprise, 39 and 56 do not. Chosen by running them, as above.
 SURPRISE_SEEDS = {3: True, 2: True, 7: False, 1: False}
+# §139.26: the two shifts the fight and the blow put on him, in the table's order -- one group, one rung.
+IN_A_FIGHT = ["attacked_this_turn", "in_fight_with_investigators"]
 
 
 def rules():
@@ -51,9 +60,17 @@ def rung_row(name):
 
 
 def moved(base, shifts):
-    """The rung the table puts `base` on after `shifts`, clamped to its ends."""
+    """The rung the table puts `base` on after `shifts`, clamped to its ends. §139.26: a shift of no group adds its step;
+    the shifts of one group add once, the largest step among them."""
     names, table = rung_names(), rules()
-    index = names.index(base) + sum(table["shifts"][name]["step"] for name in shifts)
+    alone, grouped = 0, {}
+    for name in shifts:
+        shift = table["shifts"][name]
+        if "group" not in shift:
+            alone += shift["step"]
+        elif abs(shift["step"]) > abs(grouped.get(shift["group"], 0)):
+            grouped[shift["group"]] = shift["step"]
+    index = names.index(base) + alone + sum(grouped.values())
     return names[max(0, min(len(names) - 1, index))]
 
 
@@ -128,9 +145,9 @@ def test_after_a_landed_blow_the_rung_is_one_above_his_base_and_only_the_keeper_
         table, names = rules(), rung_names()
         base = table["default_rung"]
         assert receipt["base"] == {"rung": base, "from": "default"}, "no disposition, no archetype: the table's default"
-        assert receipt["shifts"] == ["attacked_this_turn"]
-        assert names.index(receipt["rung"]) == names.index(base) + 1, "one rung above the base"
-        assert receipt["rung"] == moved(base, ["attacked_this_turn"])
+        assert receipt["shifts"] == IN_A_FIGHT, "the blow, and the fight it opened (§139.26)"
+        assert names.index(receipt["rung"]) == names.index(base) + 1, "one rung above the base: the blow and the fight are one group"
+        assert receipt["rung"] == moved(base, IN_A_FIGHT)
         rung = rung_row(receipt["rung"])
         assert isinstance(receipt["roll"], int) and 1 <= receipt["roll"] <= 100
         assert receipt["outcome"] == outcome_of(rung, receipt["roll"]) == outcome, f"seed {seed} rolls {receipt['roll']}"
@@ -164,7 +181,7 @@ def test_on_the_dangerous_rung_a_roll_at_most_its_surprise_column_allows_a_surpr
         hit_corbitt(client)
         result = stakes(client)
         [receipt] = stakes_receipts(client)
-        assert receipt["rung"] == "dangerous" == moved(rules()["default_rung"], ["attacked_this_turn"]), "the punch moves him to dangerous"
+        assert receipt["rung"] == "dangerous" == moved(rules()["default_rung"], IN_A_FIGHT), "the punch moves him to dangerous"
         rung = rung_row(receipt["rung"])
         assert receipt["surprise_at_most"] == rung["surprise_at_most"] == 30, "the ticket's dangerous surprise column"
         assert receipt["surprise"] is (receipt["roll"] <= rung["surprise_at_most"]) is expected, f"seed {seed} rolls {receipt['roll']}"
@@ -256,12 +273,14 @@ def test_the_die_is_rolled_once_per_person_per_turn_and_only_in_an_open_turn(tmp
         assert error["code"] == "turn_state" and error["details"]["state"] == "awaiting_player"
         assert read_json(campaign_dir(client.workspace) / "turn.json")["receipts"] == []
 
-        # The next turn is a new turn: last turn's die is not this turn's, and nothing was done to him yet.
+        # The next turn is a new turn: last turn's die is not this turn's, and nothing was done to him yet this turn --
+        # but since §139.26 last turn's punch and the fight still running move him (one group: one rung).
         client.table("player_input", text="I back away from him.")
         assert situation(client)["stakes"] is None
         second = stakes(client)
         [again] = stakes_receipts(client)
-        assert again["id"] != receipt["id"] and again["shifts"] == [] and again["rung"] == rules()["default_rung"]
+        assert again["id"] != receipt["id"] and again["shifts"] == ["attacked_last_turn", "in_fight_with_investigators"]
+        assert again["rung"] == moved(rules()["default_rung"], again["shifts"])
         assert second["stakes"]["rung"] == again["rung"]
     finally:
         client.close()
@@ -383,10 +402,143 @@ def test_hit_points_at_half_move_him_up_and_the_last_rung_holds(tmp_path):
         edit_fight(client, hp_fraction=rules()["shifts"]["hp_at_most_half"]["hp_fraction_at_most"])
         stakes(client)
         [receipt] = stakes_receipts(client)
-        assert receipt["shifts"] == ["attacked_this_turn", "hp_at_most_half"]
+        assert receipt["shifts"] == [*IN_A_FIGHT, "hp_at_most_half"]
         names, base = rung_names(), rules()["base_by_disposition"]["fights_to_the_end"]
         assert names.index(base) + 2 > len(names) - 1, "the case is one the clamp decides"
         assert receipt["rung"] == names[-1], "clamped to the last rung"
+    finally:
+        client.close()
+
+
+# ---- §139.26: a person being fought is not calm between blows (ticket 27) --------------------------------------------
+#
+# The table `npc-acts-d`: the Keeper gave Knott `avoids_fighting` (base calm), and the only upward shift a fight moved
+# was "attacked this turn" -- so on his own turn of the fight, a turn after a punch, and when he had just been chased and
+# struck, he stood on calm. Corbitt carries the same authored disposition here.
+
+CALM = {"disposition": "avoids_fighting"}
+
+
+def at_least(name, floor):
+    names = rung_names()
+    return names.index(name) >= names.index(floor)
+
+
+def test_in_a_fight_with_the_investigators_a_calm_man_is_at_least_tense_though_no_one_struck_him(tmp_path):
+    """He throws the first punch: a fight runs with him and the investigator in it, and no attack roll was made against
+    him and he lost no hit points, this turn or before. The fight alone moves him."""
+    client = client_for(tmp_path, 7, combat=CALM)
+    try:
+        n = at_corbitt(client)
+        swing = resolve(client, f"t1-c{n}", intent="combat", goal="he lunges", method="", actor="Walter Corbitt", target="Thomas Hayes")
+        session = swing["session"]
+        assert session["kind"] == "combat" and session["status"] == "active"
+        assert {CORBITT, INVESTIGATOR} <= {p["name"] for p in session["participants"]}, "he and the investigator are in the fight"
+        receipts = client.table("status")["receipts"]
+        assert not any(r["kind"] == "roll" and r.get("combat_action") == "attack" and r.get("npc") == CORBITT and r.get("actor") != CORBITT
+                       for r in receipts), "no attack was made against him"
+        assert not any(r["kind"] == "delta" and r.get("resource") == "hp" and r.get("subject") == CORBITT for r in receipts)
+        assert situation(client)["state"]["in_session"] is True
+        stakes(client)
+        [receipt] = stakes_receipts(client)
+        base = rules()["base_by_disposition"]["avoids_fighting"]
+        assert receipt["base"] == {"rung": base, "from": "disposition", "word": "avoids_fighting"} and base == "calm"
+        assert receipt["shifts"] == ["in_fight_with_investigators"]
+        assert receipt["rung"] == moved(base, ["in_fight_with_investigators"])
+        assert at_least(receipt["rung"], "tense"), "a man in a fight is not calm"
+    finally:
+        client.close()
+
+
+def test_a_punch_that_opens_a_fight_is_one_rung_not_two(tmp_path):
+    """The lead's ruling (2026-09-26): being struck, being struck last turn and being in the fight are one dimension,
+    violence toward this person. The punch that opens the fight makes two of them hold; he moves one rung."""
+    client = client_for(tmp_path, 2, combat=CALM)
+    try:
+        hit_corbitt(client)
+        stakes(client)
+        [receipt] = stakes_receipts(client)
+        names = rung_names()
+        assert receipt["base"]["rung"] == "calm" and receipt["shifts"] == IN_A_FIGHT
+        assert names.index(receipt["rung"]) - names.index("calm") == 1, "+1, not +2"
+        assert receipt["rung"] == "tense"
+    finally:
+        client.close()
+
+
+def test_all_three_violence_facts_at_once_are_still_one_rung(tmp_path):
+    """Turn 1 the investigator's punch; turn 2, the fight still running, he swings back and the investigator punches him
+    again: struck this turn, struck last turn and in the fight -- the group moves him once."""
+    client = client_for(tmp_path, 2, combat=CALM)
+    try:
+        n = hit_corbitt(client)
+        narrate(client, f"t1-c{n}", "他挨了一拳，退到墙边。")
+        client.table("player_input", text="I hit him again.")
+        resolve(client, "t2-c1", intent="combat", goal="he swings back", method="", actor="Walter Corbitt", target="Thomas Hayes")
+        resolve(client, "t2-c2", intent="combat", goal="combat:defend", method="combat:defend", actor="thomas-hayes", defense="dodge")
+        resolve(client, "t2-c3", intent="combat", goal="hit him", method="fists", target="Walter Corbitt", weapon="unarmed")
+        resolve(client, "t2-c4", intent="combat", goal="combat:defend", method="combat:defend", actor="Walter Corbitt", defense="dodge")
+        stakes(client)
+        [receipt] = stakes_receipts(client)
+        assert receipt["shifts"] == ["attacked_this_turn", "attacked_last_turn", "in_fight_with_investigators"]
+        assert receipt["rung"] == "tense" == moved("calm", receipt["shifts"]), "three facts of one group: one rung"
+    finally:
+        client.close()
+
+
+def test_his_own_turn_of_the_fight_a_turn_after_the_punch_is_tense(tmp_path):
+    """Table D, turn 4: calm base, the fight still runs and last turn's punch stands against him. Nothing was done to him
+    yet this turn; both shifts hold, one group, one rung: tense (the lead's ruling, 2026-09-26)."""
+    client = client_for(tmp_path, 2, combat=CALM)
+    try:
+        n = hit_corbitt(client)
+        narrate(client, f"t1-c{n}", "他挨了一拳，退到墙边。")
+        client.table("player_input", text="I grab the envelope.")
+        assert situation(client)["state"]["in_session"] is True
+        stakes(client)
+        [receipt] = stakes_receipts(client)
+        assert receipt["shifts"] == ["attacked_last_turn", "in_fight_with_investigators"]
+        assert receipt["rung"] == moved("calm", receipt["shifts"]) == "tense"
+    finally:
+        client.close()
+
+
+def test_last_turns_blow_moves_him_with_no_fight_running_and_only_the_newest_committed_turn_counts(tmp_path):
+    """Turn 1 the punch, then the fight is ended; turn 2 no fight runs and nothing is done to him: last turn's blow alone
+    moves him. Turn 3: the blow is two committed turns back, not the newest -- calm again."""
+    client = client_for(tmp_path, 2, combat=CALM)
+    try:
+        n = hit_corbitt(client)
+        resolve(client, f"t1-c{n}", intent="combat", goal="both back off", method="", decision="combat:end", outcome="stalemate")
+        assert client.table("look")["where"]["session"] is None
+        narrate(client, f"t1-c{n + 1}", "两人都退开了。")
+        record = read_json(campaign_dir(client.workspace) / "turns" / "0001.json")
+        assert any(r["kind"] == "roll" and r.get("combat_action") == "attack" and r.get("npc") == CORBITT for r in record["receipts"]), \
+            "the committed turn holds the attack made against him"
+
+        client.table("player_input", text="I watch him from the doorway.")
+        assert situation(client)["state"]["in_session"] is False, "no fight runs"
+        stakes(client)
+        [second] = stakes_receipts(client)
+        assert second["shifts"] == ["attacked_last_turn"]
+        assert second["rung"] == moved("calm", ["attacked_last_turn"]) and at_least(second["rung"], "tense")
+        narrate(client, "t2-c1", "他没有动。")
+
+        client.table("player_input", text="I keep watching him.")
+        stakes(client)
+        [third] = stakes_receipts(client)
+        assert third["shifts"] == [] and third["rung"] == "calm", "a blow two committed turns back is not last turn's"
+    finally:
+        client.close()
+
+
+def test_nothing_done_and_no_fight_is_calm_as_before(tmp_path):
+    client = client_for(tmp_path, 7, combat=CALM)
+    try:
+        at_corbitt(client)
+        stakes(client)
+        [receipt] = stakes_receipts(client)
+        assert receipt["shifts"] == [] and receipt["rung"] == "calm"
     finally:
         client.close()
 
@@ -410,7 +562,34 @@ def falling_rungs(table):
     table["rungs"][0]["severe_at_most"] = table["rungs"][-1]["severe_at_most"] + 1
 
 
-BROKEN = [certain_severe, unknown_shift, default_is_no_rung, falling_rungs]
+def fight_shift_with_a_parameter(table):
+    """§139.26: the two structural shifts take no parameter."""
+    table["shifts"]["in_fight_with_investigators"]["hp_fraction_at_most"] = 0.5
+
+
+def last_turn_shift_without_an_integer_step(table):
+    table["shifts"]["attacked_last_turn"]["step"] = 0.5
+
+
+def shift_names_an_undeclared_group(table):
+    table["shifts"]["hp_at_most_half"]["group"] = "rage"
+
+
+def group_of_one_shift(table):
+    for name in ("attacked_last_turn", "in_fight_with_investigators"):
+        del table["shifts"][name]["group"]
+
+
+def group_whose_steps_move_both_ways(table):
+    table["shifts"]["stance_friendly"]["group"] = "violence"
+
+
+def group_without_a_note(table):
+    table["shift_groups"]["violence"] = " "
+
+
+BROKEN = [certain_severe, unknown_shift, default_is_no_rung, falling_rungs, fight_shift_with_a_parameter, last_turn_shift_without_an_integer_step,
+          shift_names_an_undeclared_group, group_of_one_shift, group_whose_steps_move_both_ways, group_without_a_note]
 
 
 @pytest.mark.parametrize("breaking", BROKEN, ids=[f.__name__ for f in BROKEN])
@@ -516,4 +695,10 @@ def test_the_shipped_table_names_every_disposition_and_archetype_and_no_certain_
     assert set(table["base_by_disposition"]) == set(disposition["dispositions"])
     assert all(rung["severe_at_most"] < 100 for rung in table["rungs"]), "no rung makes severe certain (spec D9)"
     assert table["default_rung"] in names
-    assert set(table["shifts"]) == {"attacked_this_turn", "hp_at_most_half", "table_clock_past_half", "stance_friendly"}
+    assert set(table["shifts"]) == {"attacked_this_turn", "attacked_last_turn", "in_fight_with_investigators", "hp_at_most_half",
+                                    "table_clock_past_half", "stance_friendly"}
+    # §139.26: violence toward this person is one group; the other shifts stand alone.
+    assert set(table["shift_groups"]) == {"violence"}
+    assert {name for name, shift in table["shifts"].items() if shift.get("group") == "violence"} == \
+        {"attacked_this_turn", "attacked_last_turn", "in_fight_with_investigators"}
+    assert not any("group" in table["shifts"][name] for name in ("hp_at_most_half", "table_clock_past_half", "stance_friendly"))

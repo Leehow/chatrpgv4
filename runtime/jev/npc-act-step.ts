@@ -11,8 +11,9 @@
  *   4. asks Jev ONE closed batch: which way, each way's closed parameters, the rulebook record of what the act brings
  *      out when a surprise of the stakes die let it bring something out (`produces`, D10, §139.19 -- which folded D9's
  *      severe-only weapon draw into it; a price list longer than one question holds is asked by its part first, and the
- *      record within that part in a second batch), and which of their last rows the act is the same thing as, for the
- *      same purpose whatever the hands do (§139.5's semantic gate, asked by purpose since §139.14);
+ *      record within that part in a second batch), whether that thing was already known at the table (§139.27: then it
+ *      is no surprise, and nothing is drawn or placed), and which of their last rows the act is the same thing as, for
+ *      the same purpose whatever the hands do (§139.5's semantic gate, asked by purpose since §139.14);
  *   5. treats a repeat of a thread never carried out as that thread (§139.14): an act that settles it continues it; one
  *      that does not is re-asked once ("twice without doing it: do it or drop it"), and a second repeat gives the row up
  *      (abandoned, when nothing settles it); the same thing held up again right after it was given up opens no row;
@@ -69,6 +70,8 @@ const DRAWN = 'weapon_drawn';
 const NONE = 'none';
 /** §139.19: the question of which price-list record the act brings out, and of its part when the list is too long. */
 const PRODUCE = 'produce', PRODUCE_PART = 'produce_part';
+/** §139.27: the question of whether what the act brings out was already known at the table, and its two answers. */
+const KNOWN = 'produces_known', KNOWN_YES = 'known', KNOWN_NO = 'new';
 
 /**
  * A closed option of `npc.act.options`. A price-list record (§139.19's `produce`) is `{value: price_id, label: the
@@ -165,6 +168,26 @@ export function sameQuestion(key: string, target: string, rows: Record<string, R
 }
 
 /**
+ * §139.27 (ticket 28; table `npc-acts-d`, turn 2): whether the thing the act brings out was already known at the table.
+ * The stakes die's surprise allows a thing no one knew this person had; the generator named a rental notice that had lain
+ * under his hand since the turn before, and a pen on the desk, and they were placed as a surprise. What the table already
+ * knows is an open judgement over the situation's facts -- what is at hand, what happened, what they said, their state --
+ * so it is one more closed question of the same batch, never a word list. Only a cleared `known` takes the surprise away.
+ */
+export const KNOWN_QUESTION = Object.freeze({
+  key: KNOWN, target: 'whether the thing the act brings out was already known at the table', type: 'choice' as const,
+  instructions: 'This act has this person bring out something; state.produces names it. state.situation is what the table already knows of '
+    + 'this person: what they hold and what is around them (at_hand), what was done and said to them this turn and the turn before '
+    + '(happened), what they said most recently (recent_speech) and their condition (state). Select known when state.situation already '
+    + 'shows that same thing, whatever words or language name it -- in their hands, in the place, handed over, seen or spoken of -- so '
+    + 'bringing it out tells the table nothing it did not know. Select new when nothing in state.situation shows it or says they have it.',
+  criteria: {
+    [KNOWN_NO]: 'Nothing in state.situation shows this thing or says this person has it: no one at the table knew of it.',
+    [KNOWN_YES]: 'state.situation already shows this same thing: among what they hold or what is around them, or in what happened or what they said.',
+  },
+});
+
+/**
  * §139.19's question over price-list records: which one gives the thing the act brings out its rules, or none. Asked by
  * kind since §139.22 (ticket 23): a record is the thing's kind, and the words' make, size or hiding place do not make it
  * another thing -- asked "which record is that thing", a snub revolver under a ledger was no record and could not fire.
@@ -193,8 +216,9 @@ function producePlan(produces: string, catalog: ActOption[]): ProducePlan {
 
 /**
  * The one closed batch for an act: `way`; each way's parameter with more than one option; `produce` (or
- * `produce_part`) when the act brings something out (`produces`, allowed by a surprise, §139.19); `same` over their
- * last rows (§139.5), minus the row the act already is.
+ * `produce_part`) when the act brings something out (`produces`, allowed by a surprise, §139.19), and with it
+ * `produces_known` (§139.27) over the situation's `happened` and `recent_speech` besides its `state` and `at_hand`;
+ * `same` over their last rows (§139.5), minus the row the act already is.
  */
 export function npcActBatch(input: {runId: string; person: string; act: string; packet: Row; options: ActOptions; rows: Row[]; produces?: string | null},
   scope: ScopeBinding, readSet: ReadSet): {batch: DecisionBatch; plan: BindPlan} {
@@ -227,14 +251,18 @@ export function npcActBatch(input: {runId: string; person: string; act: string; 
         + 'where it was hidden that no record names does not make it another thing). Select none when no record of any part is that kind of thing.',
       criteria: {...Object.fromEntries(Object.entries(plan.produce.categories).map(([alias, part]) => [alias, {part: part.category, records: part.records.map(entry => entry.label)}])),
         [NONE]: 'No record of the price list is that kind of thing.'}});
+  if (plan.produce) questions.push({key: KNOWN_QUESTION.key, target: KNOWN_QUESTION.target, type: KNOWN_QUESTION.type,
+    instructions: KNOWN_QUESTION.instructions, criteria: {...KNOWN_QUESTION.criteria}});
   if (input.rows.length) {
     plan.same = Object.fromEntries(input.rows.map((entry, index) => [`row_${index + 1}`, entry]));
     questions.push(sameQuestion('same', 'whether the act is something this person already set out to do, for the same purpose', plan.same));
   }
   const packet = object(input.packet);
+  // §139.27: what the table already knows of them is read over what happened and what they said too, only when asked.
   const state = {purpose: 'bind the act of one person to a way the rules settle it', person: input.person, act: input.act,
     ...(plan.produce ? {produces: plan.produce.produces} : {}),
-    situation: {state: packet.state ?? null, at_hand: packet.at_hand ?? null}, policy: POLICY} as Json;
+    situation: {state: packet.state ?? null, at_hand: packet.at_hand ?? null,
+      ...(plan.produce ? {happened: packet.happened ?? [], recent_speech: packet.recent_speech ?? []} : {})}, policy: POLICY} as Json;
   return {plan, batch: {id: digest([NPC_ACT_BIND_FAMILY, input.runId, input.person, input.act, state, questions.map(question => question.key)]), model: JEV_MODEL,
     family: NPC_ACT_BIND_FAMILY, familyVersion: NPC_ACT_BIND_VERSION, scope, readSet, state, questions}};
 }
@@ -254,12 +282,23 @@ export function npcProduceBatch(input: {runId: string; person: string; act: stri
 }
 
 /**
+ * §139.27: the batch cleared that what the act brings out was already known at the table -- no surprise, so nothing is
+ * matched to the book, drawn or placed. Below the gate, `new` or no answer leaves it a surprise, as before.
+ */
+export function producesKnown(plan: BindPlan, result: DecisionResult | undefined, gate: number): boolean {
+  if (!plan.produce) return false;
+  const {choice, confidence} = answerOf(result, KNOWN);
+  return choice === KNOWN_YES && clears(result, KNOWN, choice, confidence, gate);
+}
+
+/**
  * §139.19: the part of a long price list the first batch cleared, whose records the second batch asks over; null when
- * the list was asked in one question, when no part cleared, or when the answer was none.
+ * the list was asked in one question, when no part cleared, when the answer was none, or (§139.27) when the thing was
+ * already known at the table -- there is nothing to match, so no second batch.
  */
 export function producePart(plan: BindPlan, result: DecisionResult | undefined, gate: number): {part: string; records: ActOption[]} | null {
   const parts = plan.produce?.categories;
-  if (!parts || result?.status !== 'complete') return null;
+  if (!parts || result?.status !== 'complete' || producesKnown(plan, result, gate)) return null;
   const {choice, confidence} = answerOf(result, PRODUCE_PART);
   if (!choice || choice === NONE || choice === 'unknown' || !parts[choice] || !clears(result, PRODUCE_PART, choice, confidence, gate)) return null;
   return {part: parts[choice].category, records: parts[choice].records};
@@ -277,8 +316,10 @@ export interface BoundAct {
   judged: boolean;
   way: string;
   params: Record<string, ActOption>;
-  /** §139.19: what the act brings out, when a surprise let it (`null` otherwise). */
+  /** §139.19: what the act brings out, when a surprise let it (`null` otherwise, and when §139.27 found it already known). */
   produced: Produced | null;
+  /** §139.27: the batch cleared that what the act brings out was already at the table: no surprise, nothing brought out. */
+  producesKnown: boolean;
   same: {alias: string; row: Row; confidence: number | null} | null;
   reason: string;
   answers: Record<string, Json>;
@@ -311,8 +352,11 @@ export function interpretNpcAct(plan: BindPlan, result: DecisionResult | undefin
     answers[PRODUCE] = {...(answers[PRODUCE] as Record<string, Json>), cleared_by: 'kind', on_records: Math.round(onRecords * 100) / 100};
     return records[choice];
   };
+  // §139.27: a thing the table already knew of is no surprise -- nothing is matched, drawn or placed; the act binds as it is.
+  if (plan.produce) pick(KNOWN);
+  const producesKnownNow = producesKnown(plan, result, gate);
   const produced = ((): Produced | null => {
-    if (!plan.produce) return null;
+    if (!plan.produce || producesKnownNow) return null;
     const own: Produced = {name: plan.produce.produces, source: 'table'};
     const catalog = (record: ActOption | undefined): Produced => record ? {name: record.label, source: 'catalog', record} : own;
     if (plan.produce.records && Object.keys(plan.produce.records).length) return catalog(pickRecord(result, plan.produce.records));
@@ -326,7 +370,7 @@ export function interpretNpcAct(plan: BindPlan, result: DecisionResult | undefin
   const sameAlias = plan.same ? pick('same') : undefined;
   const same = sameAlias && sameAlias !== NONE && plan.same![sameAlias]
     ? {alias: sameAlias, row: plan.same![sameAlias], confidence: answerOf(result, 'same').confidence ?? null} : null;
-  const fallback = (reason: string): BoundAct => ({judged: complete, way: 'intention_only', params: {}, produced, same, reason, answers});
+  const fallback = (reason: string): BoundAct => ({judged: complete, way: 'intention_only', params: {}, produced, producesKnown: producesKnownNow, same, reason, answers});
   if (!complete) return fallback(`jev_${result?.status ?? 'unavailable'}`);
   const way = pick('way'), asked = answerOf(result, 'way').choice;
   const found = plan.ways.find(entry => entry.way === way);
@@ -342,7 +386,7 @@ export function interpretNpcAct(plan: BindPlan, result: DecisionResult | undefin
     if (!chosen) return fallback(`param_unbound:${param}`);
     params[param] = chosen;
   }
-  return {judged: true, way: found.way, params, produced, same, reason: 'bound', answers};
+  return {judged: true, way: found.way, params, produced, producesKnown: producesKnownNow, same, reason: 'bound', answers};
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -468,6 +512,8 @@ export interface NpcActOutcome {
    * dropped (`producesDropped`).
    */
   produces?: string | null; produced?: {name: string; source: string; record?: string} | null; producesDropped?: boolean;
+  /** §139.27: the thing `produces` named was already known at the table, so nothing was brought out (`produced` null). */
+  producesKnown?: boolean;
   /**
    * A dropped act (§139.14): `dropped` is the ref of the thread it repeats, `droppedAct` its line. The line is on the
    * telemetry row only -- it was not done, so it is not `act`, which the Keeper's note reads as what the table did.
@@ -521,7 +567,8 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
       opened: outcome.opened ?? false, continued: outcome.continued ?? null, abandoned: outcome.abandoned ?? null,
       reask: outcome.reask ?? false, draw: outcome.draw ?? null, ...(outcome.dropped ? {dropped: outcome.dropped} : {}),
       ...(outcome.produces ? {produces: outcome.produces} : {}), produced: outcome.produced ?? null,
-      ...(outcome.producesDropped ? {produces_dropped: true} : {}), receipts: outcome.receipts, calls: outcome.calls,
+      ...(outcome.producesDropped ? {produces_dropped: true} : {}), ...(outcome.producesKnown ? {produces_known: true} : {}),
+      receipts: outcome.receipts, calls: outcome.calls,
       ...(outcome.passedTurn !== undefined ? {passed_turn: outcome.passedTurn} : {})});
     return outcome;
   };
@@ -574,7 +621,8 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
       const bound = interpretNpcAct(plan, result, deps.gate, follow);
       deps.record({lane: 'route', purpose: 'npc-act', run: deps.runId, step: deps.stepId, npc: base.handle, status: result?.status ?? 'unavailable',
         ms: Date.now() - began, way: bound.way, reason: bound.reason, answers: bound.answers, offered: options.ways.map(entry => entry.way), rows: rows.length,
-        ...(bound.produced ? {produced: {name: bound.produced.name, source: bound.produced.source, ...(bound.produced.record ? {record: bound.produced.record.value} : {})}} : {})});
+        ...(bound.produced ? {produced: {name: bound.produced.name, source: bound.produced.source, ...(bound.produced.record ? {record: bound.produced.record.value} : {})}} : {}),
+        ...(bound.producesKnown ? {produces_known: true} : {})});
       return {options, bound, continues};
     }
     const plan: BindPlan = {ways: options.ways, params: [], ...(produces ? {produce: {produces}} : {})};
@@ -624,7 +672,7 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
     dropped = hit.row;
   }
   const {options, bound} = bind;
-  const told = {produces, ...(producesDropped ? {producesDropped} : {})};
+  const told = {produces, ...(producesDropped ? {producesDropped} : {}), ...(bound.producesKnown ? {producesKnown: true} : {})};
   if (dropped) {
     const ref = text(dropped.ref);
     return done({...base, status: 'dropped', droppedAct: act, way: bound.way, params: {}, ref, opened: false, continued: null, reask, dropped: ref,

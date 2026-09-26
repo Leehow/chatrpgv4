@@ -32,7 +32,7 @@ import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { createHybridEngine, readTable } from "../../runtime/jev/hybrid-engine.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { createFixtureNpcActPort, npcActLaneInput } from "../../runtime/jev/npc-act.ts";
-import { NPC_ACT_BIND_FAMILY, SAME_QUESTION, interpretNpcAct, npcActBatch, npcActWrites, npcProduceBatch, npcScanCandidate, producePart, runNpcAct } from "../../runtime/jev/npc-act-step.ts";
+import { KNOWN_QUESTION, NPC_ACT_BIND_FAMILY, SAME_QUESTION, interpretNpcAct, npcActBatch, npcActWrites, npcProduceBatch, npcScanCandidate, producePart, runNpcAct } from "../../runtime/jev/npc-act-step.ts";
 import { COMPILE_FAMILY, compileBatch } from "../../runtime/jev/route-compile.ts";
 import { initialView, next, npcScanDue, npcScanItem, settleCompile, settleExecute, startStep } from "../../runtime/jev/step-policy.ts";
 import { markNpcAct } from "../../extensions/kernel/npc-act-marks.ts";
@@ -57,11 +57,14 @@ const aliasWhere = (question, match) => Object.entries(question?.criteria ?? {})
  * option's label, or an alias; unmatched parameters take their first option. `same`: a matcher over the row, or "none".
  * `produce` (§139.19): a matcher over the book's name of a price-list record, or "none" -- it answers the record question,
  * and the part question with the part whose records it matches (the second batch of a long list is answered the same way).
+ * `known` (§139.27): "new" or "known", or a function of the batch giving one -- whether what the act brings out was
+ * already at the table.
  */
-function actAnswer(batch, { way = "unknown", params = {}, same = "none", produce = "none" } = {}) {
+function actAnswer(batch, { way = "unknown", params = {}, same = "none", produce = "none", known = "new" } = {}) {
 	const answers = {};
 	for (const question of batch.questions) {
 		if (question.key === "way") answers.way = choice(way);
+		else if (question.key === "produces_known") answers.produces_known = choice(typeof known === "function" ? known(batch) : known);
 		else if (question.key === "same") answers.same = choice(typeof same === "function" ? aliasWhere(question, same) ?? "none" : same);
 		else if (question.key === "produce") answers.produce = choice(typeof produce === "function" ? aliasWhere(question, produce) ?? "none" : produce);
 		else if (question.key === "produce_part") answers.produce_part = choice(typeof produce === "function"
@@ -117,7 +120,7 @@ test("§139.3 batch: one closed question for the way, one per parameter with a c
 	assert.equal(batch.state.act, SHOUT, "keyed on the act the generation wrote");
 	assert.equal(batch.state.produces, undefined);
 	const producing = batchOf({ produces: PISTOL }).batch;
-	assert.deepEqual(producing.questions.map((question) => question.key), ["way", "attack.weapon", "check.skill", "produce"]);
+	assert.deepEqual(producing.questions.map((question) => question.key), ["way", "attack.weapon", "check.skill", "produce", "produces_known"]);
 	assert.equal(producing.state.produces, PISTOL, "Jev reads what the act brings out");
 	assert.ok(Object.values(producing.questions.find((question) => question.key === "attack.weapon").criteria).some((label) => /bring out/.test(label)),
 		"the attack's weapon options include the thing the act brings out, when the book prices weapons");
@@ -224,6 +227,57 @@ const writeContext = (extra = {}) => ({ name: "Steven Knott", handle: "steven-kn
 	turn: 3, spend: true, abandon: false, place: "commission-briefing", ...extra });
 const bound = (way, params = {}, extra = {}) => ({ judged: true, way, params: Object.fromEntries(Object.entries(params).map(([key, value]) => [key, { value, label: value }])),
 	draw: null, same: null, reason: "bound", answers: {}, ...extra });
+
+// ---------------------------------------------------------------------------------------------------
+// §139.27 (ticket 28; table `npc-acts-d`, turn 2): a surprise is something no one knew. The generator's `produces` was a
+// rental notice that had lain under his hand since turn 1, and a pen on the desk; they were placed as a surprise. One
+// more question of the same batch asks whether the thing was already known at the table; a cleared `known` takes the
+// surprise away -- nothing is matched, drawn or placed -- and the act binds as it is.
+// ---------------------------------------------------------------------------------------------------
+
+const NOTICE = "折好的租房广告";
+const KNOWN_PACKET = { ...PACKET, happened: [`turn 1: Steven Knott's stance set to wary (why: 他把${NOTICE}压在手底下)`, "Thomas Hayes (investigator) declared: \"不接\""],
+	recent_speech: ["turn 1: 这房子便宜"], at_hand: { holdings: [], objects: ["desk"], exits: [], present: ["Thomas Hayes"] } };
+
+test("§139.27 batch: with a produces, one more closed question -- was it already at the table -- over what happened and what they said besides their state and what is at hand", () => {
+	const { batch } = batchOf({ produces: NOTICE, packet: KNOWN_PACKET });
+	const question = batch.questions.find((entry) => entry.key === "produces_known");
+	assert.ok(question, "asked in the same batch");
+	assert.equal(batch.questions.at(-1).key, "produces_known", "after the produce question; no rows, so nothing after it");
+	assert.deepEqual(Object.keys(question.criteria), ["new", "known"], "two closed answers, no word list");
+	assert.deepEqual([question.instructions, question.criteria], [KNOWN_QUESTION.instructions, KNOWN_QUESTION.criteria]);
+	assert.deepEqual(batch.state.situation, { state: KNOWN_PACKET.state, at_hand: KNOWN_PACKET.at_hand, happened: KNOWN_PACKET.happened,
+		recent_speech: KNOWN_PACKET.recent_speech }, "Jev reads the packet's at_hand, happened, recent_speech and state");
+	const plain = batchOf({ packet: KNOWN_PACKET }).batch;
+	assert.ok(!plain.questions.some((entry) => entry.key === "produces_known"), "no produces, no question");
+	assert.deepEqual(Object.keys(plain.state.situation), ["state", "at_hand"], "and the state stays what it was");
+});
+
+test("§139.27 reading: a cleared known takes the surprise away and the act binds as it is; new, below the gate or no answer leave it a surprise", () => {
+	const { batch, plan } = batchOf({ produces: NOTICE, packet: KNOWN_PACKET });
+	const known = interpretNpcAct(plan, actAnswer(batch, { way: "check", params: { "check.skill": (label) => label.startsWith("Listen") }, known: "known",
+		produce: (label) => label === "Umbrella" }), 0.6);
+	assert.equal(known.produced, null, "no record, no object: the thing was already there");
+	assert.deepEqual([known.way, known.params.skill.value, known.producesKnown, known.answers.produces_known?.choice],
+		["check", "Listen", true, "known"], "the act is bound as usual, and the answer is on the row");
+	assert.ok(!npcActWrites(known, writeContext()).some((call) => call.carries), "no write carries a draw or a produce");
+	const fresh = interpretNpcAct(plan, actAnswer(batch, { way: "check", known: "new", produce: (label) => label === "Umbrella" }), 0.6);
+	assert.deepEqual([fresh.producesKnown, fresh.produced.source, fresh.produced.name], [false, "catalog", "Umbrella"], "new: as before");
+	const doubtful = actAnswer(batch, { way: "check", produce: "none" });
+	doubtful.answers.produces_known = { status: "answered", type: "choice", choice: "known", confidence: 0.2, probabilities: { known: 0.6, new: 0.4 } };
+	const low = interpretNpcAct(plan, doubtful, 0.6);
+	assert.deepEqual([low.producesKnown, low.produced], [false, { name: NOTICE, source: "table" }], "below the gate: still a surprise");
+	const none = interpretNpcAct(plan, undefined, 0.6);
+	assert.deepEqual([none.producesKnown, none.produced], [false, { name: NOTICE, source: "table" }], "no Jev: as before");
+	const drawn = interpretNpcAct(plan, actAnswer(batch, { way: "attack", params: { "attack.weapon": "weapon_drawn" }, produce: (label) => label.startsWith(".38"), known: "known" }), 0.6);
+	assert.deepEqual([drawn.way, drawn.reason, drawn.produced], ["intention_only", "param_unbound:weapon", null], "a known thing is no weapon brought out");
+	// A long price list: the part cleared, but the thing was known -- no second batch.
+	const records = ["tools", "weapon_table"].flatMap((category) => Array.from({ length: 150 }, (_, index) => ({ value: `eq.${category}.${index}`, label: `${category} thing ${index}`, category })));
+	const long = batchOf({ produces: NOTICE, packet: KNOWN_PACKET, options: fightOptions({ produce: records }) });
+	const partly = actAnswer(long.batch, { way: "check", produce: (label) => label === "tools thing 3", known: "known" });
+	assert.equal(producePart(long.plan, partly, 0.6), null, "nothing to match, so no second batch");
+	assert.equal(producePart(long.plan, actAnswer(long.batch, { way: "check", produce: (label) => label === "tools thing 3" }), 0.6).part, "tools", "new: the second batch as before");
+});
 
 test("§139.3 writes: a new act opens its row (spending the turn on their turn of a fight unless the way is a fight action), then every write names it", () => {
 	assert.deepEqual(npcActWrites(bound("check", { skill: "Listen" }), writeContext()).map((call) => [call.tool, call.args]), [
@@ -1238,4 +1292,64 @@ test("§139.19: a surprise, a produces no record of the book is -- Jev says none
 	assert.equal(npcAct.calls.length, 2);
 	assert.ok(npcAct.calls[1].packet.at_hand.holdings.includes(PHOTO), JSON.stringify(npcAct.calls[1].packet.at_hand));
 	assert.ok(!npcAct.calls[0].packet.at_hand.holdings.includes(PHOTO), "and it was not there before he brought it out");
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Ticket 28 (§139.27) on the emitted kernel: a thing already at the table is no surprise. The stub Jev stands in for the
+// judgement by reading the batch's own state: `known` when the situation it was given already shows what `produces`
+// names. Nothing in the step reads the words; the batch carries the question and the facts.
+// ---------------------------------------------------------------------------------------------------
+
+const seenAtTheTable = (batch) => JSON.stringify(batch.state.situation ?? {}).includes(batch.state.produces) ? "known" : "new";
+const SHOW_AGAIN = "他又把那张泛黄的全家福举到你眼前。";
+
+test("§139.27: a thing already in his hands is no surprise -- Jev says known, nothing is placed or drawn, the row says produces_known; the first time, new, it was placed as before", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "steven-knott": [{ act: SHOW, produces: PHOTO }, { act: SHOW_AGAIN, produces: PHOTO }] });
+	const game = await seam(t, { npcAct, stakes: stakesView("escalates", true), act: () => ({ way: "intention_only", produce: "none", known: seenAtTheTable }) });
+	await call0(game);
+	await spokenTo(game);
+	const first = knottActs(game).at(-1);
+	assert.deepEqual([first.produced, first.produces_known], [{ name: PHOTO, source: "table" }, undefined], "not yet at the table: placed, as before");
+	await spokenTo(game, "我盯着那张照片。");
+	const receipts = turnReceipts(game, 3);
+	assert.ok(!receipts.some((receipt) => receipt.produced || receipt.draws), "no _produces and no draw was written");
+	const row = knottActs(game).at(-1);
+	assert.deepEqual([row.status, row.way, row.produces, row.produced, row.produces_known, row.draw], ["bound", "intention_only", PHOTO, null, true, null]);
+	const bind = game.decisions.filter((batch) => batch.family === NPC_ACT_BIND_FAMILY).at(-1);
+	assert.ok(bind.state.situation.at_hand.holdings.includes(PHOTO), "his packet's at_hand already holds it");
+	assert.ok(bind.questions.some((question) => question.key === "produces_known"), "asked in the one bind batch");
+	assert.ok(receipts.some((receipt) => receipt.intent?.text === SHOW_AGAIN && receipt.intent.generated === true), "the act itself is bound as usual");
+	const world = JSON.parse(readFileSync(join(game.workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8"));
+	assert.equal(Object.keys(world.objects.instances).length, 1, "the one photograph of turn 2, nothing more");
+	assert.equal(world.npc_weapons, undefined);
+});
+
+/** Turn 2 the Keeper writes a line of his that shows the pistol (or does not); turn 3 he brings out "a pocket pistol". */
+async function pistolAlreadyShown(t, shown) {
+	const npcAct = createFixtureNpcActPort({ "steven-knott": { act: POCKET, produces: PISTOL } });
+	const game = await seam(t, { npcAct, stakes: stakesView("escalates", true),
+		act: () => ({ way: "intention_only", produce: (label) => String(label).startsWith(".25 Derringer"), known: seenAtTheTable }) });
+	await call0(game);
+	await game.say("我盯着诺特的抽屉。");
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "Steven Knott", stance: "wary", why: shown ? "他把一把袖珍手枪压在抽屉边上。" : "他往椅背上靠了靠。" }] });
+	await game.close("诺特没有说话。");
+	await spokenTo(game);
+	return { game, binds: game.decisions.filter((batch) => batch.family === NPC_ACT_BIND_FAMILY), row: knottActs(game).at(-1) };
+}
+
+test("§139.27: the pistol his last turn's line already showed is no surprise -- known over happened: no record looked up, nothing drawn", async (t) => {
+	const { game, binds, row } = await pistolAlreadyShown(t, true);
+	assert.ok(binds[0].state.situation.happened.some((line) => line.includes(PISTOL)), "the packet's happened already shows it");
+	assert.equal(binds.length, 1, "no second batch: nothing to match to the book");
+	assert.deepEqual([row.status, row.produces, row.produced, row.produces_known, row.draw], ["bound", PISTOL, null, true, null]);
+	assert.ok(!turnReceipts(game, 3).some((receipt) => receipt.produced || receipt.draws), "no draw was written");
+	assert.equal(JSON.parse(readFileSync(join(game.workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8")).npc_weapons, undefined);
+});
+
+test("§139.27: the same pistol no line showed is a surprise as before -- new: the book's Derringer, drawn", async (t) => {
+	const { game, binds, row } = await pistolAlreadyShown(t, false);
+	assert.equal(binds.length, 2, "the part, then the record within it");
+	assert.deepEqual([row.produced?.source, row.produced?.name, row.draw, row.produces_known], ["catalog", ".25 Derringer (1B)", "automatic_25_derringer", undefined]);
+	const world = JSON.parse(readFileSync(join(game.workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8"));
+	assert.deepEqual(world.npc_weapons["steven-knott"].map((weapon) => weapon.weapon_id), ["automatic_25_derringer"]);
 });

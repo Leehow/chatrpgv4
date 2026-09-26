@@ -15,6 +15,12 @@
  * bring out something no one at the table knew they had. The table gives the permission as a line (`lines.surprise`, or
  * `lines.severe_surprise` on a severe roll): a permission and its degree, never an object.
  *
+ * Ticket 27 (§139.26): a person being fought is not calm between blows. Two more structural shifts -- a fight running
+ * with them and an investigator among its participants, and last turn's attack or damage against them (the newest
+ * committed turn, read by the same predicate as this turn's). With `attacked_this_turn` they are one dimension, violence
+ * toward this person: the table groups them (`shift_groups`, a shift's `group`), and a group moves the rung once, by the
+ * largest step among its shifts that hold -- the punch that opens a fight is one event, not two.
+ *
  * Every number is the table's; this file knows only what each shift compares.
  */
 import {join} from 'node:path';
@@ -34,7 +40,7 @@ import {npcProfileOf} from '../resolve/context.js';
 import {stanceTable} from '../write/contributions.js';
 import type {createWriteRuntime} from '../write/index.js';
 import {nowIso, turnStateError} from '../write/store.js';
-import {personOf, placedConstraints, stateOf, type Person} from './situation.js';
+import {committedOnLine, personOf, placedConstraints, stateOf, type Person} from './situation.js';
 import {STAKES_FAMILY, isStakesRoll, stakesView} from './stakes-receipt.js';
 
 const FILE = 'npc-stakes.json', CONTRACT = 'coc.npc-stakes.v1';
@@ -54,6 +60,8 @@ const COLUMNS = ['severe_at_most', 'escalates_at_most', 'surprise_at_most'] as c
  */
 const SHIFT_PARAMETERS: Readonly<Record<string, string | null>> = Object.freeze({
     attacked_this_turn: null,
+    attacked_last_turn: null,
+    in_fight_with_investigators: null,
     hp_at_most_half: 'hp_fraction_at_most',
     table_clock_past_half: 'clock_fraction_above',
     stance_friendly: 'stance_in',
@@ -61,6 +69,8 @@ const SHIFT_PARAMETERS: Readonly<Record<string, string | null>> = Object.freeze(
 
 const tableError = (message: string, details: Row = {}) => new RpcError('campaign_not_ready', `npc-stakes: ${message}`,
     {fix: `restore content/rulesets/coc7/rules-json/${FILE}`, details});
+/** §139.26: a group needs at least two shifts to mean anything; one alone is a malformed group. */
+const GROUP_MIN_SHIFTS = 2;
 /** A number from 0 to 1 as the table's JSON reads it (a decimal arrives as the kernel's Python float). */
 const fraction = (value: unknown): boolean => numeric(value) && Number(value) >= 0 && Number(value) <= 1;
 
@@ -111,18 +121,29 @@ export async function stakesTable(context: KernelContext): Promise<Row> {
     const shifts = table.shifts;
     if (!isJsonObject(shifts))
         throw tableError('shifts is an object of the shifts the kernel reads', {options: Object.keys(SHIFT_PARAMETERS)});
+    // §139.26: the groups a shift may name, each with its English note; a group is declared before it is named.
+    const groups = table.shift_groups ?? {};
+    if (!isJsonObject(groups) || Object.entries(groups).some(([name, note]) => !name.trim() || typeof note !== 'string' || !note.trim()))
+        throw tableError('shift_groups maps a group name to its note', {shift_groups: table.shift_groups ?? null});
     const stances = array((await stanceTable(context)).levels).map(level => string(row(level).value));
     for (const [name, value] of Object.entries(shifts)) {
         const shift = row(value), parameter = Object.hasOwn(SHIFT_PARAMETERS, name) ? SHIFT_PARAMETERS[name] : undefined;
-        const allowed = ['step', 'note', ...(parameter ? [parameter] : [])];
+        const allowed = ['step', 'note', 'group', ...(parameter ? [parameter] : [])];
         const bad = parameter === undefined || !isJsonObject(value) || !Number.isInteger(shift.step)
             || Object.keys(shift).some(key => !allowed.includes(key))
+            || Object.hasOwn(shift, 'group') && (typeof shift.group !== 'string' || !Object.hasOwn(groups, shift.group))
             || parameter === 'hp_fraction_at_most' && !fraction(shift[parameter])
             || parameter === 'clock_fraction_above' && !fraction(shift[parameter])
             || parameter === 'stance_in' && (!array(shift[parameter]).length || !array(shift[parameter]).every(word => stances.includes(word)));
         if (bad)
-            throw tableError(`shift ${name} is {step: <integer>${parameter ? `, ${parameter}` : ''}} and a shift the kernel reads`,
-                {shift: name, options: Object.keys(SHIFT_PARAMETERS), ...(parameter === 'stance_in' ? {stances} : {})});
+            throw tableError(`shift ${name} is {step: <integer>${parameter ? `, ${parameter}` : ''}, group?: <a declared group>} and a shift the kernel reads`,
+                {shift: name, options: Object.keys(SHIFT_PARAMETERS), groups: Object.keys(groups), ...(parameter === 'stance_in' ? {stances} : {})});
+    }
+    // A group moves the rung once, by its largest step: its shifts all move the same way, and there are at least two.
+    for (const group of Object.keys(groups)) {
+        const steps = Object.values(shifts).map(row).filter(shift => shift.group === group).map(shift => number(shift.step));
+        if (steps.length < GROUP_MIN_SHIFTS || steps.some(step => step > 0) && steps.some(step => step < 0))
+            throw tableError('a shift group has at least two shifts, all of whose steps move the same way', {group, steps});
     }
     return table;
 }
@@ -141,9 +162,9 @@ function baseRung(graph: ModuleGraph, world: Row, handle: string, table: Row): R
 }
 
 /**
- * Whether this turn an attack roll was made against this person (a combat roll whose `combat_action` is `attack` and
- * whose `npc`, the person it was made against, is them) or they lost hit points (an `hp` delta whose `after` is below
- * its `before`). Structure only.
+ * Whether among these receipts (this turn's; §139.26 also last turn's) an attack roll was made against this person (a
+ * combat roll whose `combat_action` is `attack` and whose `npc`, the person it was made against, is them) or they lost
+ * hit points (an `hp` delta whose `after` is below its `before`). Structure only.
  */
 export function attackedThisTurn(receipts: Row[], me: Person): boolean {
     return receipts.some(value => {
@@ -165,11 +186,29 @@ function tableClocks(graph: ModuleGraph, world: Row): Array<[number, number]> {
     return [...book, ...minted];
 }
 
+/**
+ * §139.26: whether a fight is running with this person and an investigator among its participants -- the active session
+ * is a combat, they are a participant (by handle, as the packet's `state.in_session` reads it) and so is someone of the
+ * party. Their side, their turn and whether anyone struck them do not matter: being in the fight is the fact.
+ */
+export function inFightWithInvestigators(view: SessionView, session: Row | null, me: Person): boolean {
+    if (session?.kind !== 'combat' || session.status !== 'active') return false;
+    const names = array(session.participants).map(value => string(row(value).name));
+    return names.includes(me.handle) && names.some(name => view.isInvestigator(name));
+}
+
 /** The facts the shifts compare, as the situation packet reads them. */
-interface StakesFacts { attacked: boolean; hp: number | null; hpMax: number | null; stance: string | null; clocks: Array<[number, number]> }
+interface StakesFacts {
+    attacked: boolean; attackedLast: boolean; inFight: boolean;
+    hp: number | null; hpMax: number | null; stance: string | null; clocks: Array<[number, number]>;
+}
 function shiftHolds(name: string, shift: Row, facts: StakesFacts): boolean {
     if (name === 'attacked_this_turn')
         return facts.attacked;
+    if (name === 'attacked_last_turn')
+        return facts.attackedLast;
+    if (name === 'in_fight_with_investigators')
+        return facts.inFight;
     if (name === 'hp_at_most_half')
         return facts.hp !== null && facts.hpMax !== null && facts.hpMax > 0 && facts.hp / facts.hpMax <= number(shift.hp_fraction_at_most);
     if (name === 'table_clock_past_half')
@@ -179,11 +218,30 @@ function shiftHolds(name: string, shift: Row, facts: StakesFacts): boolean {
     return false;
 }
 
-/** The rung this person stands on now: base plus every shift that holds, clamped to the table's first and last rung. */
+/**
+ * The move of the shifts that hold (§139.26): a shift of no group adds its step; the shifts of one group add once, the
+ * largest step among those that hold (the table's check keeps a group's steps all one way, so it is the largest in size).
+ */
+export function shiftMove(table: Row, holding: string[]): number {
+    const byGroup = new Map<string, number>();
+    let move = 0;
+    for (const name of holding) {
+        const shift = row(row(table.shifts)[name]), step = number(shift.step);
+        if (typeof shift.group !== 'string') { move += step; continue; }
+        const kept = byGroup.get(shift.group);
+        if (kept === undefined || Math.abs(step) > Math.abs(kept)) byGroup.set(shift.group, step);
+    }
+    return move + [...byGroup.values()].reduce((sum, step) => sum + step, 0);
+}
+
+/**
+ * The rung this person stands on now: base plus the move of every shift that holds (a group once), clamped to the
+ * table's first and last rung. `shifts` names every shift that held, in the table's order.
+ */
 export function stakesRung(table: Row, base: Row, facts: StakesFacts): {rung: Row; shifts: string[]} {
     const rungs = array(table.rungs).map(row), names = rungs.map(rung => string(rung.name));
     const shifts = Object.entries(row(table.shifts)).filter(([name, shift]) => shiftHolds(name, row(shift), facts)).map(([name]) => name);
-    const moved = names.indexOf(string(base.rung)) + shifts.reduce((sum, name) => sum + number(row(row(table.shifts)[name]).step), 0);
+    const moved = names.indexOf(string(base.rung)) + shiftMove(table, shifts);
     return {rung: rungs[Math.max(0, Math.min(rungs.length - 1, moved))], shifts};
 }
 
@@ -207,9 +265,14 @@ async function factsOf(context: KernelContext, campaign: CampaignSnapshot, graph
     let ledger: Row = {};
     try { ledger = row(await campaign.optional('npc-ledger.json')); } catch { /* An unreadable ledger is an empty one, as for the situation read. */ }
     const stance = stanceNow(graph, ledger, await stanceTable(context), turn, me.handle);
-    const state = stateOf(graph, world, me, new SessionView(campaign, graph, party, world).activeSession(), stance);
+    const view = new SessionView(campaign, graph, party, world), session = view.activeSession();
+    const state = stateOf(graph, world, me, session, stance);
     const hp = typeof state.hp === 'number' ? state.hp : null, hpMax = typeof state.hp_max === 'number' ? state.hp_max : null;
-    return {attacked: attackedThisTurn(array(turn.receipts), me), hp, hpMax, stance, clocks: tableClocks(graph, world)};
+    // §139.26: last turn is the newest committed turn before this one on the campaign's line, the record the situation's
+    // `happened` reads its earlier sentences from.
+    const {previous} = committedOnLine(campaign);
+    return {attacked: attackedThisTurn(array(turn.receipts), me), attackedLast: previous !== null && attackedThisTurn(array(previous.receipts), me),
+        inFight: inFightWithInvestigators(view, session, me), hp, hpMax, stance, clocks: tableClocks(graph, world)};
 }
 
 export function createStakesHandlers(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {
