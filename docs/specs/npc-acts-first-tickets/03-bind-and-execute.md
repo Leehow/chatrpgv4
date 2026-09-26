@@ -13,6 +13,7 @@ Spec: docs/specs/npc-acts-first.md（D3、D4）
   - `overRun` 已过 → 跳过，遥测 `skipped_budget`。
 - `intention_only` = `apply npc {name, intends: act, outcome: attempted}`，走 §138 已有的写入面。
 - 数值：规则缺省（§135.28）；本线无 band-then-roll。
+- D9 的允许：包里 `stakes.outcome === 'severe'` 时，绑定可以在同一批里加一件武器——`equipment.json` `records` 的一条，Jev 按生成的那句在闭合目录里选（闭合问题，unknown 就不加）；加了就把它写进他的持有并让 `attack` 的 weapon 选项含它。`stakes` 缺席或不是 severe → 绝不加。用例：夹具包带 severe + 夹具行「从腰里拔出手枪开火」+ Jev 夹具选 `.38 Revolver` → 收据里有持有写入与带该武器的攻击；同一行不带 severe → 绑到 `intention_only` 或无武器路径，没有持有写入（变异：去掉 severe 判断，用例逮住）。
 
 ## Not in scope
 
