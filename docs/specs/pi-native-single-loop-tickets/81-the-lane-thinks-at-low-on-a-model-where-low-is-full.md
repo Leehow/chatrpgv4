@@ -94,3 +94,4 @@ from an in-memory copy before the next check; final state re-verified green.
   are a live-table measurement, out of scope for this worker (no live model calls; real playtest
   gates are run by the human/live-KP process per the project's playtest rules).
 - Live (gate #14, b088de327): 64 lane starts all `off`/`off`; admission p50 0 / p90 2,268 / max 2,813 ms; review_timeout 0, review_pending 0 (#13: p90 10,275, 4 timeouts, 5 pending). Line met.
+- Live (gate #15): 90 lane starts `off`/`off`; admission p90 2,440 / max 5,714 ms; 0 timeouts, 0 pending. Confirmed on two tables.

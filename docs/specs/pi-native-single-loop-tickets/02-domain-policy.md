@@ -719,3 +719,13 @@ Valid readings on the same table:
 - SL-74 side-effects visible even so: Keeper refusals needs 2 / invalid_params 5 / unknown_entity 1 (#13: 27 / 3 / 0); `first_step_thinking: true` on 51 of 93 requests because every retry of the killed step-1 call is again step 1.
 Next: exempt or resize the cap for the thinking step (SL-82), rerun as #15 with the same four variables.
 
+### Long gate #15 (2026-09-26, b088de327, #14 rerun with the cap floor at 60 s)
+1. Delivery 17/20 ✗ — stranded t10/t18/t19: step-1 thinking calls still killed by the cap at 60,000 ms (9 `keeper_call_cap` rows, 6 "timed out" + 3 "a second time"). Step-1 reasoning p50 4,697 tokens, max 7,879 (gate #9's p50 was 2,883): the first step of a turn thinks longest, and on this provider `low` is not low.
+2. Wall ✗: median 83 s (line ≤ 55; #13 42); ≤ 60 s 7/20 (line ≥ 14); max 143.
+3. SL-74's benefit ✓ (the reason for the experiment): Keeper refusals needs 2 / invalid_params 2 / unknown_entity 1 (#13: 27 / 3 / 0); model calls 62 (#13: 71); looks 8 (#13: 14); zero refusal-budget cuts. Planning errors do fall with thinking — at +41 s median and 3 stranded turns even with a 60 s cap.
+4. SL-81 ✓ (second table): 90 lane starts `off`/`off`; admission p90 2,440 / max 5,714 ms; review_timeout 0, review_pending 0.
+5. SL-76 shadow: rows present; Jev ≈ 0.5 s per turn; pairing numbers in SL-77 (npc_reaction blocked by SL-83's label/handle bug; clue_follow_up clean).
+6. SL-80: no speech-only implicit draft (floor rows 0).
+7. Routing ✓ (11 core-checks, 9 moves, 7 clues); prescreen prepared 31, no fallback; infer(bind) 0.
+Reading: first-step thinking on opencode-go/deepseek-v4.1-flash buys fewer planning refusals at a cost that breaks the ≤ 60 s turn and strands turns; the same refusals are being removed structurally (SL-71/72/73, Stage 2 candidates) at ~0 s. Recommendation: do not adopt; keep the flag as an experiment switch (SL-82 still worth landing so the switch is safe to use).
+
