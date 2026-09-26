@@ -20184,6 +20184,56 @@ ticket's Comments: whether the hybrid engine's own runaway-cut run reaches this 
 that replay's own finding, since the legacy-engine test above cannot exercise the `aborted_during_operate` path this
 section exists for.
 
+#### 135.11.4 A delivery that is one say block and nothing else is not a delivery on the implicit path: the floor's one steer applies, and the held draft closes the turn once it is spent (2026-09-26, SL-80)
+
+**Evidence** (long gate #13, `longgate13-haunting-0400`, campaign turns/0001.json). Turn 1 (accept the commission, go to
+the Globe's morgue): the clerk settled the commission and the move -- `toolCallsThisTurn` was not zero -- and the
+Keeper's own reply was 66 characters, entirely `{{say:阿蒂·威尔莫特}}"钥匙拍在桌上也没用，先生。剪报室不对外……"{{/say}}`: a
+gatekeeper the player has not yet met, delivered as the whole turn, `closed_how: implicit narrate`, in 36.8 s. No scene,
+no arrival, no Knott, no morgue. Gates #11 and #12's t1 (same script, explicit narrate) delivered 744 and 476 characters
+of prose; over three tables this is the only delivery under 80 characters, and it is the one the floor of §34.6 does not
+reach, because that check fires only when the turn called no tool at all, and this turn's clerk had already settled two
+things.
+
+**The owner's ruling (2026-09-26, following the turn-floor ruling of 2026-09-11 and §34.6).** The turn floor's one steer
+is not a property of "no tool was called": it is a property of "no prose was delivered," and a reply that is nothing but
+a say span is exactly that -- a voice with nobody's world's answer, uptake or handoff around it (§34.2's four kinds).
+The floor's own condition (`extensions/kernel/index.ts`, the `floor_steer` drop) now also fires when the draft is
+speech-only, structurally: every character outside `{{say:name}}...{{/say}}` (repaired per §40.1) and outside a
+mechanics marker is blank. This is not a second floor -- the same `floorDraft`/`deliveryFix`/`steeredThisTurn`
+machinery, the same `FLOOR_STEER` text, the same telemetry row (`lane: "floor"`, now carrying `reason: "speech_only"`
+when this is why it fired) -- so the existing one-steer-per-turn budget, the opening's exemption and the dropped-draft
+fallback of §135.11's gate #4 addendum all apply unchanged. A draft with prose beside a say span (any non-blank,
+non-marker character outside every span) is not speech-only and delivers on its first leg, exactly as before. Nothing
+here reads the spoken words, the narration, or decides who speaks: the check is span boundaries and marker syntax, the
+same structural class of check the floor and speech steers already make.
+
+**What happens next.** The steered second leg is honoured however it comes, like every other floor/speech leg: an
+explicit `narrate`, prose closed implicitly (speech-only or not), or nothing -- in which case the draft the floor steer
+dropped, the original say-only reply, closes the turn once the steer is spent (§135.11's "dropped draft" rule). A
+second leg the kernel refuses falls back to the same held draft, as gate #4's addendum already provides. The floor
+fires at most once per turn: a second leg that is again speech-only is not steered a second time and delivers as
+written, the same one-steer bound every other floor/speech case keeps.
+
+**`isSpeechOnlyDraft`** (`extensions/kernel/unwrapped-speech.ts`). Runs the draft through the same `speechPass` repair
+the delivery and the speech-steer checks already use (§40.1: an open before a close closes the previous span, an
+unclosed open closes at the end of its paragraph, an empty span is withdrawn), removes every repaired say span whole
+(open token, words, close token) and every mechanics marker, and reports whether anything but blank remains. A draft
+with no say span at all answers `false` -- that is the existing bare-of-tokens speech steer's shape, not this one's.
+
+**Three ends (§31).** *Writer:* `message_end`'s floor check (`extensions/kernel/index.ts`), which now reads
+`isSpeechOnlyDraft` beside `toolCallsThisTurn`. *Reader:* the same `floor_steer` drop row and the turn-close steer the
+floor already sends (`takeTurnCloseSteer`, unchanged). *Actor:* the Keeper, whose second leg is free to answer however
+it likes; a clerk (policy-origin) step settles nothing about this and is never refused by it.
+
+*Tests.* `tests/extension/unwrapped-speech.test.mjs`: `isSpeechOnlyDraft` is true for a lone say span with only
+whitespace or a mechanics marker beside it, false for a say span with any other character beside it, and false for a
+draft with no say span. `tests/extension/single-loop-turn-close.test.mjs`: a turn whose clerk settled a check and a
+move and whose Keeper's only reply is one say span is floor-steered once (not delivered, `lane: "floor"` carries
+`reason: "speech_only"`), a second leg with prose delivers, a second leg that brings nothing delivers the held
+say-only draft, and a reply with prose beside the say span delivers on the first leg; an explicit `narrate` of the
+same shape is unchanged, because the check never runs on that path.
+
 ### 135.20 The read hands the Keeper the bodies of what it issued (2026-09-23, SL-11 scope 1; the model-call diet)
 
 SL-11 takes §135.20–§135.24. §135.11 onward belongs to the SL-02 follow-ups in flight on the same base (§135.11 is
