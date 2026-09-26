@@ -119,6 +119,9 @@ test("the lane instruction is authored in English and asks for exactly the shape
   assert.match(instruction, /taken_masks/);
   assert.match(instruction, /play_language/);
   assert.match(instruction, /coarse_language/);
+  // 2026-09-26: the lane wrote an occasional-swearing habit into three of four masks on The Haunting, including a
+  // quiet clerk. The table's permission is not a trait.
+  assert.match(instruction, /permission, not a trait/);
   // `content/setup/**` is system content and is guarded against CJK by tests/kernel/test_system_language.py,
   // so the two-mouths example lives here in English and verbatim in the package's own agent.md.
   assert.match(instruction, /Same thought, two mouths/);
