@@ -91,12 +91,18 @@ export function resolveLaneModel(
  * but no registry lookup: the runtime refuses a child model it cannot run, by name, before launch
  * (`ensureChildRunnableModel`). The effort is the setting's or the lane's own level, never the
  * table's (§37.11). `table` is the Keeper's model label, or nothing when the session has none.
+ *
+ * SL-91 (contract §12.8.1 addendum 2): when `env` (the lane's own model override) is set, a matching
+ * `${envName}_THINKING` decides the effort on its own, ahead of the setting -- the same rank `runLane`
+ * gives it. No `env`, or no matching `_THINKING`, is today's resolution unchanged: the setting's level
+ * or the literal default, never the table (§37.11 stands for this road too).
  */
 export function fastLaneChoice(ctx: ExtensionContext | undefined, envName: string, table?: string): { model?: string; thinking: string; source: FastModelSource } {
 	const env = process.env[envName]?.trim();
 	const choice = fastChoice(ctx);
 	const resolved = resolveFastModel({ override: env, choice: env ? {} : choice, table });
-	return { ...resolved, thinking: resolveFastThinking({ choice }) };
+	const laneOverride = env ? process.env[`${envName}_THINKING`]?.trim() : undefined;
+	return { ...resolved, thinking: laneOverride || resolveFastThinking({ choice }) };
 }
 
 export function modelLabel(model: { provider: string; id: string }): string {
@@ -175,18 +181,57 @@ const REQUEST_ID_HEADERS: readonly string[] = ["x-request-id", "request-id"];
  * lane still keeps its own wall-clock budget separate from the table's (§37.11's original point, for
  * a `mod` child, stands), but a zero-tool `runLane` lane has no budget-shaped reason to *ignore* a
  * table that has already been told to think less.
+ *
+ * SL-91 (contract §12.8.1 addendum 2, 2026-09-26) adds one rank *above* all of these: when the lane's
+ * own model came from its own environment override (`envName`, e.g. `PI_COC_ADMISSION_MODEL` is set --
+ * `runLaneAttempt` already knows this from `resolveLaneModel`'s own check of the same variable), a
+ * matching `${envName}_THINKING` (e.g. `PI_COC_ADMISSION_MODEL_THINKING`) decides this lane's level on
+ * its own, ahead of the shared `PI_COC_LANE_THINKING`, the setting and the table -- gate #21's own
+ * lanes (grok-build/grok-4.5) paid 5-13 s admission reviews and two refusal-budget cuts in one turn on
+ * the shared table-following level, while gates #19/#20 measured `xai/grok-4.3` at `off` answering in
+ * 1.3-1.4 s p90 with zero timeouts as a *reviewer* (never as the Keeper, which the owner rejected for
+ * other reasons): an operator who names a different model for one lane needs a way to also name that
+ * model's own effort, without moving every other lane's. A table with no matching `_THINKING` variable
+ * set is unaffected: the lane-specific check is skipped entirely and the resolution below runs exactly
+ * as it did before this addendum.
  */
 const LANE_THINKING_DEFAULT = FAST_THINKING_DEFAULT as ModelThinkingLevel;
 const LANE_THINKING_LEVELS: ReadonlySet<string> = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
-/** The fast-model choice's thinking plus the table's own, so `resolveFastThinking` can rank them (SL-81). */
-export function laneThinkingLevel(ctx?: ExtensionContext): ModelThinkingLevel {
-	const resolved = resolveFastThinking({
-		override: process.env.PI_COC_LANE_THINKING,
-		choice: fastChoice(ctx),
-		table: ctx?.thinkingLevel,
-	}).trim().toLowerCase();
+/** Which rank decided a lane's reasoning level; recorded on the `start` row as `thinking_source` (SL-91). */
+export type LaneThinkingSource = "caller" | "lane-operator" | "operator" | "setting" | "table" | "default";
+
+export interface LaneThinkingChoice { level: ModelThinkingLevel; source: LaneThinkingSource }
+
+function normalizedThinkingLevel(raw: string): ModelThinkingLevel {
+	const resolved = raw.trim().toLowerCase();
 	return LANE_THINKING_LEVELS.has(resolved) ? (resolved as ModelThinkingLevel) : LANE_THINKING_DEFAULT;
+}
+
+/**
+ * The fast-model choice's thinking, the table's own, and (SL-91) the lane's own environment override
+ * when its model came from one too -- ranked, with which rank decided. `laneThinkingLevel` (below) is
+ * the pre-SL-91 string-returning shape every existing caller keeps using unchanged.
+ *
+ * `envName` is optional and mirrors `resolveLaneModel`'s own check of the same variable (never a
+ * second copy of that decision to drift from it: both read `process.env[envName]` at the moment the
+ * lane runs). Omitting it -- every caller before this ticket -- skips the lane-specific rank entirely
+ * and resolves exactly as `laneThinkingLevel` always has.
+ */
+export function laneThinkingChoice(ctx?: ExtensionContext, envName?: string): LaneThinkingChoice {
+	const laneOverride = envName && process.env[envName]?.trim() ? process.env[`${envName}_THINKING`]?.trim() : undefined;
+	if (laneOverride) return { level: normalizedThinkingLevel(laneOverride), source: "lane-operator" };
+	const shared = process.env.PI_COC_LANE_THINKING?.trim();
+	const choice = fastChoice(ctx);
+	const table = ctx?.thinkingLevel;
+	const level = normalizedThinkingLevel(resolveFastThinking({ override: shared, choice, table }));
+	const source: LaneThinkingSource = shared ? "operator" : choice.thinking ? "setting" : table ? "table" : "default";
+	return { level, source };
+}
+
+/** The fast-model choice's thinking plus the table's own, so `resolveFastThinking` can rank them (SL-81). */
+export function laneThinkingLevel(ctx?: ExtensionContext, envName?: string): ModelThinkingLevel {
+	return laneThinkingChoice(ctx, envName).level;
 }
 
 /** Anthropic's effort enum starts at `low`; `minimal` has no name there, so it lands on the nearest one. */
@@ -307,7 +352,7 @@ function laneCallRows(request: LaneRequest<unknown>, onFirstByte?: () => void) {
 	};
 	return {
 		/** Before `complete()` is called, with the model already resolved. Every later `ms` counts from here. */
-		start(model: string, thinking: ModelThinkingLevel, effective: ModelThinkingLevel, carried: boolean): Promise<void> {
+		start(model: string, thinking: ModelThinkingLevel, effective: ModelThinkingLevel, carried: boolean, source: LaneThinkingSource): Promise<void> {
 			startedAt = Date.now();
 			// What the lane asked for and whether this model's API had somewhere to put it. An API
 			// `laneReasoningOptions` does not map reads as `carried: false` here rather than as a
@@ -315,8 +360,12 @@ function laneCallRows(request: LaneRequest<unknown>, onFirstByte?: () => void) {
 			// addendum) is only ever different from `lane_thinking` when `thinking` is `off` and the
 			// model's own map has no `off`: it then reports the real floor `off` was bumped to
 			// (`clampThinkingLevel`), so the gap between what was asked and what could be delivered is
-			// visible on the row instead of only inferable from `thinking_carried`.
-			return write({ phase: "start", model, lane_thinking: thinking, lane_thinking_effective: effective, thinking_carried: carried });
+			// visible on the row instead of only inferable from `thinking_carried`. `thinking_source`
+			// (SL-91, contract §12.8.1 addendum 2) says which rank decided: `lane-operator` names the
+			// new `${envName}_THINKING` override, so a reader can tell it apart from the shared
+			// `PI_COC_LANE_THINKING` (`operator`), the fast-model setting, the table, or the literal
+			// default without re-deriving it from the other three fields.
+			return write({ phase: "start", model, lane_thinking: thinking, lane_thinking_effective: effective, thinking_carried: carried, thinking_source: source });
 		},
 		/** Handed to `complete()`. Both callbacks only read: `onPayload` returning undefined leaves the body untouched. */
 		options: {
@@ -469,13 +518,18 @@ async function runLaneAttempt<T>(
 		const rows = laneCallRows(request as LaneRequest<unknown>, firstByte);
 		// The lane names its own reasoning effort. `complete()` is the full `stream()` road, which
 		// carries no provider-neutral level for us, and every API's absent-level default is the
-		// provider's ceiling rather than a floor (see `laneReasoningOptions`).
-		const thinking = request.thinking ?? laneThinkingLevel(request.ctx);
+		// provider's ceiling rather than a floor (see `laneReasoningOptions`). SL-91: `envName` is
+		// passed through so a lane whose model came from its own environment override also takes its
+		// thinking level from a matching `${envName}_THINKING`, ranked above the shared resolution;
+		// `request.thinking` (a caller-named level; no caller does today) still outranks everything.
+		const { level: thinking, source: thinkingSource }: LaneThinkingChoice = request.thinking !== undefined
+			? { level: request.thinking, source: "caller" }
+			: laneThinkingChoice(request.ctx, request.envName);
 		const reasoning = laneReasoningOptions(resolved.model, thinking);
 		// `lane_thinking_effective` (SL-81): only computed -- and only ever different from `thinking`
 		// -- when `off` was asked for; every other level is recorded unmapped, exactly as requested.
 		const effective = thinking === "off" ? clampThinkingLevel(resolved.model, thinking) : thinking;
-		await rows.start(label, thinking, effective, Object.keys(reasoning).length > 0);
+		await rows.start(label, thinking, effective, Object.keys(reasoning).length > 0, thinkingSource);
 		let reply: Awaited<ReturnType<ExtensionContext["modelRegistry"]["complete"]>>;
 		const charges:ProviderCharge[]=[];
 		const retainUnknown=()=>{for(const charge of charges)charge.settle();};
