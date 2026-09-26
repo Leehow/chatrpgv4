@@ -1,4 +1,4 @@
-Status: ready (filed 2026-09-26, owner's ruling on the latency target; batch 17)
+Status: ready-for-human (filed 2026-09-26, owner's ruling on the latency target; batch 17; implemented 2026-09-26 on claude/sl94-20260926)
 Stage: SL-94 (host telemetry: the moment the turn's prose reaches the screen)
 Spec: docs/kernel-rpc.md §135.11.5 (new, this ticket); `Electron/packages/pi-backend/src/turn-telemetry.ts` (phases, `buildRecord`, the record allowlist), `Electron/packages/pi-backend/src/index.ts` (the `entry_appended` → `presentation` seam ~6324–6343, `startDeliveryPresentation`, the host-delivered custom-message branch ~6344–6360 and `projectHostDeliveries`, the `message_end` text diff/`replace:true` ~6739–6753), `Electron/packages/pi-backend/src/coc-view.ts` (`mechanicsEntry` ~469–508), `pipicoc/mechanics.js` (the reading surface), `Electron/packages/pi-backend/test/turn-telemetry*.test.ts`
 
@@ -51,3 +51,22 @@ Long gates measure the metric from the driver's `events.jsonl`: #22 median 29.7 
 - In the packaged App, one real turn's `turns.jsonl` record carries `firstProseMs` and `firstProseVia`. Its value sits within 1 s of the moment the story card appears. The integrator checks this after packaging.
 
 ## Comments
+
+- 2026-09-26, implementation (claude/sl94-20260926, from b8079e9c1): contract `14c2f75d6` (§135.11.5), code and tests
+  `792332621`. `first_prose`, `durations.firstProseMs`, top-level `firstProseVia`; absent when there is no prose.
+  - **(c) applies.** A PipiCOC session renders assistant text: the host streams every `text_delta` and diffs at
+    `message_end` (`index.ts:6624-6633`, `:6739-6753` at b8079e9c1), the renderer draws it
+    (`transcript-model.ts:692-731`, `AssistantTranscriptContent.tsx:210-211`, `Transcript.tsx:353`), and the only fold is
+    `foldMarkedDeliveries` (`transcript-model.ts:231-243`) for a copy a `marked_text` card already draws.
+  - **Text beside tool calls is shown, then dropped (reported, not fixed).** Streamed live
+    (`agent-session.js:363-366`, `index.ts:6624-6633`), stripped only at the extension's `message_end` hook
+    (`extensions/kernel/index.ts:5495-5505`), removed by `replace: true` with an empty delta (`index.ts:6741-6742`,
+    `transcript-model.ts:692-700`). A player-visible leak for a separate ticket.
+  - **Host prose vs notice** is by the details' keys: a `coc-delivery` row with any key besides `coc_delivery` and
+    `turn` is a notice. Same answer as the driver's `NOTICE_DETAIL_KEYS` on every current row.
+  - **Hold.** Without it the settle's flush beat the host delivery's projection in the live seam test (mutation M9a
+    turned it red), so the §8 fallback would have gone unrecorded. The record waits for the projection (2 s bound);
+    a placement projected after the next dispatch stays with the turn that placed it.
+  - Tests: `test/turn-telemetry.test.ts` (15 -> 22), new `test/turn-telemetry-first-prose.test.ts` (9); 21 mutations,
+    all killed. Seam regression files compared by name against b8079e9c1: no new failures (the same 10 `coc-view.test.ts`
+    failures on both). Not done: the packaged-App acceptance (integrator, after packaging); `manifest.json` untouched.
