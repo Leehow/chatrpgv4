@@ -14,7 +14,10 @@
  * language: the packet is already the kernel's bounded projection, so there is no second whitelist here to drop a field
  * the kernel added.
  *
- * The answer is checked for structure only -- `{act}`, a non-empty string on one line of at most 200 characters.
+ * The answer is checked for structure only -- `{act, produces?}`: `act` a non-empty string on one line of at most 200
+ * characters; `produces` (§139.19, spec D10) the one thing the act brings out that no one knew this person had, a
+ * non-empty string on one line of at most 60 characters, taken only when the packet's stakes die allowed a surprise
+ * (`stakes.surprise === true`) -- otherwise it is dropped, said on the row (`produces_dropped`), and never retried.
  * Whether it is one sentence, in the play language, and something a person would do belongs to the instruction and the
  * model (Agents.md: no prose classifiers). A structurally bad answer is asked for once more, with the reason; then the
  * generation is unavailable. One deadline (`npc_act.timeout_ms`, `host-budgets.json`) covers both attempts.
@@ -37,6 +40,8 @@ export const NPC_ACT_LANE = 'npc-act';
 export const NPC_ACT_MODEL_ENV = 'PI_COC_NPC_ACT_MODEL';
 /** The act's bound, in characters (code points), as the instruction states it. */
 export const NPC_ACT_MAX_CHARS = 200;
+/** §139.19: the bound of `produces`, the thing an act brings out, in characters (code points). */
+export const NPC_PRODUCES_MAX_CHARS = 60;
 /** Two attempts is one retry, and only for an answer of the wrong shape. */
 const MAX_ATTEMPTS = 2;
 
@@ -63,7 +68,20 @@ export interface NpcSituation {
   recent_speech: string[];
   constraints: string[];
   truncated: string[];
+  /** §139.8 / §139.19: this turn's stakes die for them, or null. `surprise` lets the act bring out one unknown thing. */
+  stakes?: {rung: string | null; outcome: string | null; line: string | null; surprise?: boolean; surprise_line?: string | null} | null;
   [extra: string]: unknown;
+}
+
+/**
+ * §139.19: whether this situation lets the act bring out something no one knew this person had -- the stakes die of
+ * §139.8 said `surprise` for them this turn. Structure only; absent stakes is no surprise. The one gate of `produces`,
+ * shared by the lane (which drops it and says so on its row) and the act step (which binds nothing the gate refused, so
+ * a port that answers verbatim, like the fixture, is held to it too).
+ */
+export function mayProduce(packet: unknown): boolean {
+  const stakes = (packet as {stakes?: unknown} | null | undefined)?.stakes;
+  return !!stakes && typeof stakes === 'object' && (stakes as {surprise?: unknown}).surprise === true;
 }
 
 export interface NpcActInput {
@@ -82,26 +100,47 @@ export interface NpcActMeta {
   /** The answered attempt's provider usage, for the run's budget summary. */
   usage?: ProviderUsage;
   detail?: string;
+  /** §139.19: the answer named something it brings out without a surprise to allow it, and it was dropped. */
+  producesDropped?: boolean;
 }
 
-export type NpcActResult = ({act: string} | {unavailable: NpcActUnavailable}) & NpcActMeta;
+export type NpcActResult = ({act: string; produces?: string} | {unavailable: NpcActUnavailable}) & NpcActMeta;
 
 export interface NpcActPort {
   generate(input: NpcActInput, signal: AbortSignal): Promise<NpcActResult>;
 }
 
-/** Structure only: an object whose `act` is a non-empty string, on one line, of at most 200 characters. */
-export function checkAct(parsed: unknown): {ok: true; act: string} | {ok: false; why: string} {
+export type CheckedAct = {ok: true; act: string; produces?: string; producesDropped?: boolean} | {ok: false; why: string};
+
+/** One line of at most `limit` characters (code points), non-empty after trimming; the reason when it is not. */
+function oneLine(field: string, raw: string, limit: number): {ok: true; value: string} | {ok: false; why: string} {
+  const value = raw.trim();
+  if (!value) return {ok: false, why: `"${field}" is empty`};
+  // Line-break characters, not a reading of the text.
+  if (/[\r\n\u2028\u2029]/.test(value)) return {ok: false, why: `"${field}" spans more than one line`};
+  const length = [...value].length;
+  if (length > limit) return {ok: false, why: `"${field}" is ${length} characters; the limit is ${limit}`};
+  return {ok: true, value};
+}
+
+/**
+ * Structure only: an object whose `act` is a non-empty string, on one line, of at most 200 characters; and `produces`
+ * (§139.19), when the answer names one and a surprise allows it (`mayProduce`), a non-empty string on one line of at
+ * most 60 characters. `produces` absent, null or blank is no `produces`. Present without a surprise to allow it, it is
+ * dropped whatever its shape (`producesDropped`): the act stands, nothing is asked again.
+ */
+export function checkAct(parsed: unknown, allowProduces = false): CheckedAct {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {ok: false, why: 'the answer is not a JSON object'};
   const raw = (parsed as {act?: unknown}).act;
   if (typeof raw !== 'string') return {ok: false, why: 'the object has no string "act"'};
-  const act = raw.trim();
-  if (!act) return {ok: false, why: '"act" is empty'};
-  // Line-break characters, not a reading of the text.
-  if (/[\r\n\u2028\u2029]/.test(act)) return {ok: false, why: '"act" spans more than one line'};
-  const length = [...act].length;
-  if (length > NPC_ACT_MAX_CHARS) return {ok: false, why: `"act" is ${length} characters; the limit is ${NPC_ACT_MAX_CHARS}`};
-  return {ok: true, act};
+  const act = oneLine('act', raw, NPC_ACT_MAX_CHARS);
+  if (!act.ok) return act;
+  const named = (parsed as {produces?: unknown}).produces;
+  if (named === undefined || named === null || typeof named === 'string' && !named.trim()) return {ok: true, act: act.value};
+  if (!allowProduces) return {ok: true, act: act.value, producesDropped: true};
+  if (typeof named !== 'string') return {ok: false, why: '"produces" is not a string'};
+  const produces = oneLine('produces', named, NPC_PRODUCES_MAX_CHARS);
+  return produces.ok ? {ok: true, act: act.value, produces: produces.value} : produces;
 }
 
 const instructions = new Map<string, Promise<string>>();
@@ -151,8 +190,10 @@ export function createNpcActLane(pi: ExtensionAPI, options: NpcActLaneOptions): 
       // One outcome row per call, whatever the outcome.
       const finish = async (result: NpcActResult): Promise<NpcActResult> => {
         const unavailable = 'unavailable' in result ? result.unavailable : undefined;
+        const produced = 'act' in result && result.produces !== undefined ? {produces: result.produces} : {};
         await record({npc, ok: !unavailable, ms: result.ms, model: result.model ?? null, attempts: result.attempts ?? 0,
-          ...(unavailable ? {reason: unavailable} : {act: (result as {act: string}).act}),
+          ...(unavailable ? {reason: unavailable} : {act: (result as {act: string}).act, ...produced}),
+          ...(result.producesDropped ? {produces_dropped: true} : {}),
           ...(result.detail ? {detail: result.detail.slice(0, 200)} : {}),
           ...(result.usage ? {usage: result.usage} : {})});
         return result;
@@ -172,26 +213,30 @@ export function createNpcActLane(pi: ExtensionAPI, options: NpcActLaneOptions): 
           return await failed('lane_error', `the generation could not be prepared: ${error instanceof Error ? error.message : String(error)}`);
         }
         const total = options.timeoutMs ?? (await npcActBudget(options.contentRoot)).timeoutMs;
+        const allowProduces = mayProduce(input.packet);
         const deadline = began + total;
         let refusal: string | undefined, why: string | undefined, model: string | undefined;
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
           const left = deadline - Date.now();
           if (left <= 0) return await failed('timeout', `no act within the ${total} ms deadline: none was left for another attempt`, {attempts: attempt - 1, ...(model ? {model} : {})});
           why = undefined;
-          const lane = await runLane<string>({
+          const lane = await runLane<{act: string; produces?: string; producesDropped?: boolean}>({
             ctx, envName: NPC_ACT_MODEL_ENV, lane: NPC_ACT_LANE, record, signal, timeoutMs: left,
             ...(input.providerBudget ? {providerBudget: input.providerBudget} : {}),
             systemPrompt,
             input: refusal ? `${situation}\n\nYour previous answer was refused: ${refusal}. Answer again with the JSON object only.` : situation,
             shape: parsed => {
-              const checked = checkAct(parsed);
-              if (checked.ok) return checked.act;
+              const checked = checkAct(parsed, allowProduces);
+              if (checked.ok) return {act: checked.act, ...(checked.produces !== undefined ? {produces: checked.produces} : {}),
+                ...(checked.producesDropped ? {producesDropped: true} : {})};
               why = checked.why;
               return undefined;
             },
           });
           model = lane.model ?? model;
-          if (lane.ok) return await finish({act: lane.value, ms: Date.now() - began, model: lane.model, attempts: attempt, ...(lane.usage ? {usage: lane.usage} : {})});
+          if (lane.ok) return await finish({act: lane.value.act, ...(lane.value.produces !== undefined ? {produces: lane.value.produces} : {}),
+            ...(lane.value.producesDropped ? {producesDropped: true} : {}), ms: Date.now() - began, model: lane.model, attempts: attempt,
+            ...(lane.usage ? {usage: lane.usage} : {})});
           // The deadline is read off this call's own clock, not off the lane's reason: `runLane`'s own budget lease ends
           // at the same moment as its timer, and a round that lease cut comes back as `model_error`, not `timeout`.
           const expired = !signal?.aborted && Date.now() >= deadline;
@@ -209,7 +254,8 @@ export function createNpcActLane(pi: ExtensionAPI, options: NpcActLaneOptions): 
   };
 }
 
-export type NpcActFixtureAnswer = string | {unavailable: NpcActUnavailable};
+/** A fixture answer: the act alone, the act with what it brings out (§139.19), or an unavailable reason. */
+export type NpcActFixtureAnswer = string | {act: string; produces?: string} | {unavailable: NpcActUnavailable};
 
 export interface NpcActFixture extends NpcActPort {
   /** Every input the fixture was asked with, in order: what a re-ask added to the packet is read here. */
@@ -219,7 +265,8 @@ export interface NpcActFixture extends NpcActPort {
 /**
  * The test double the loop tests drive (the spec's acceptance section: the generator is a fixture port in contract tests). The table is keyed
  * by the packet's `npc.handle`, then `npc.name`, then `"*"`. A list answers that key's successive calls in order and
- * repeats its last entry. The act comes back verbatim: the fixture stands for the model, not for the lane's shape check.
+ * repeats its last entry. The act comes back verbatim, `produces` too, whatever the stakes: the fixture stands for the
+ * model, not for the lane's shape check (the act step holds its answer to `mayProduce` all the same).
  * No entry answers `model_unavailable`, naming the person; an aborted signal answers `cancelled`.
  */
 export function createFixtureNpcActPort(table: Readonly<Record<string, NpcActFixtureAnswer | readonly NpcActFixtureAnswer[]>>): NpcActFixture {
@@ -238,7 +285,8 @@ export function createFixtureNpcActPort(table: Readonly<Record<string, NpcActFix
       served.set(key, count + 1);
       const answer = Array.isArray(entry) ? entry[Math.min(count, entry.length - 1)] : entry as NpcActFixtureAnswer;
       if (answer === undefined) return {unavailable: 'model_unavailable', detail: `the fixture's list for ${key} is empty`};
-      return typeof answer === 'string' ? {act: answer} : {unavailable: answer.unavailable};
+      if (typeof answer === 'string') return {act: answer};
+      return 'unavailable' in answer ? {unavailable: answer.unavailable} : {act: answer.act, ...(answer.produces !== undefined ? {produces: answer.produces} : {})};
     },
   };
 }

@@ -22,7 +22,7 @@ import {CampaignSnapshot} from '../read/campaign.js';
 import {acceptReunion} from '../npc/reunion.js';
 import {INTENT_OUTCOMES} from '../npc/intents.js';
 import {generatedOf,intentStamp,refuseRepeat,refuseSaidDone,refuseSettled,resolveIntent} from './intent.js';
-import {stageDraw} from './draw.js';
+import {stageDraw, stageProduce} from './draw.js';
 import {fightTurn} from '../combat/execution.js';
 /** §135.30.7 (SL-42): the scenes the party left during this turn, latest departure first, from the turn's own move receipts. */
 function departedThisTurn(context:ApplyContext):string[]{
@@ -164,7 +164,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // is a result of (the porter comes up the stairs because Knott shouted), stamped by the batch (`apply/index.ts`).
     // With nothing else beside it, `{intent_ref, intent_outcome}` is this variant: it is how a Keeper writes "that one
     // failed" (live gate A2, 2026-09-26: refused eight times as an npc effect with no change, turn 8 lost to it).
-    const others=['to','stance','dead','skill','archetype','conditions','defense','action','disposition','reunion','_draws'];
+    const others=['to','stance','dead','skill','archetype','conditions','defense','action','disposition','reunion','_draws','_produces'];
     const settling=effect.intends==null&&effect.outcome==null&&effect.intent_ref!=null&&effect.intent_outcome!=null&&others.every(key=>effect[key]==null);
     if(settling)effect={...effect,outcome:effect.intent_outcome};
     if(effect.intends!=null||effect.outcome!=null){
@@ -189,8 +189,11 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),intent,previous:resolved.status,...(passes?{passes_turn:passes}:{}),...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
         return {receipt,event:{type:'npc-changed',data:{npc:handle,intent:{ref:intent.ref,text:intent.text,outcome},why}}};
     }
-    // §139.3 / spec D9: the weapon this person draws, host-only (`_draws`, the clerk's severe-stakes allowance).
+    // §139.3 / spec D9, §139.19 / spec D10: what this person brings out, host-only -- a rulebook weapon (`_draws`), or
+    // any other thing, the book's or the table's own (`_produces`); the act step sends either only on a surprise of the
+    // stakes die, and the kernel extension strips both from every other call.
     if(effect._draws!=null)return stageDraw(context,effect,node,handle);
+    if(effect._produces!=null)return stageProduce(context,effect,node,handle);
     if(effect.reunion!=null){
         if(['to','stance','dead','skill','archetype','conditions','defense','action','disposition'].some(key=>effect[key]!=null))
             throw new RpcError('invalid_params','Reunion continuity is separate from mechanical or positional NPC effects');

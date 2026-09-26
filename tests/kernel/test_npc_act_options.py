@@ -1,11 +1,12 @@
 """Contract §139.3 (docs/specs/npc-acts-first.md D3, ticket 03), over the emitted kernel.
 
-`npc.act.options {campaign, name, act?, draw?}` lists the ways the kernel can settle what this person does right now,
+`npc.act.options {campaign, name, act?, produce?}` lists the ways the kernel can settle what this person does right now,
 each with the closed options of its parameters, all from data the kernel already holds. Outside a fight there is no
 attack and no flight (the first blow is how a person opens one); on their own turn of a fight the attack's targets are
 only the opponents the running fight lists. `acted_on` is this turn's receipts that were done to them; `act` is the
-identity of a generated line as one of their intentions; `draw` (asked only on a severe stakes roll) lists the
-rulebook's priced weapons of the module's era.
+identity of a generated line as one of their intentions; `produce` (asked only when a surprise of the stakes die let the
+act bring something out, §139.19 -- it replaces D9's weapons-only `draw`) lists the rulebook's price list of the module's
+era, weapons marked with their profile.
 
 Knott is the ticket's person (the starter prints no numbers for him: the table pins an archetype, §34.10). With seed 1
 the investigator's punch lands and it is Knott's turn in the fight afterwards (the §139.1 fixture's shape).
@@ -125,24 +126,33 @@ def test_the_act_is_an_intention_of_his_the_same_line_under_way_continues_it_a_s
         "a settled intention is not tried again: a new attempt is a new line"
 
 
-def test_the_draw_list_is_the_priced_rulebook_weapons_of_the_modules_era_and_only_when_asked(knott):
+def test_the_produce_list_is_the_price_list_of_the_modules_era_and_only_when_asked(knott):
+    """§139.19: every record the book prices for the era, by its price_id and the book's name; a weapon record carries
+    its weapons.json profile, which is what the fight draws."""
     pinned(knott)
-    assert "draw" not in options(knott)
-    draw = options(knott, draw=True)["draw"]
+    assert "produce" not in options(knott) and "draw" not in options(knott)
+    produce = options(knott, produce=True)["produce"]
     weapons = json.loads((CONTENT_DIR / "rulesets" / "coc7" / "rules-json" / "weapons.json").read_text(encoding="utf-8"))["weapons"]
     equipment = json.loads((CONTENT_DIR / "rulesets" / "coc7" / "rules-json" / "equipment.json").read_text(encoding="utf-8"))["records"]
     priced = {row["price_id"]: row for row in equipment}
-    assert draw and all(option["value"] in weapons for option in draw), "every option is a weapons.json profile"
-    assert len({option["value"] for option in draw}) == len(draw), "one option per profile"
-    assert all(priced[option["price_id"]]["era"] == "1920s" for option in draw), "the haunting is a 1920s module"
-    assert any(option["value"] == "revolver_38_or_9mm" for option in draw)
+    era = [row for row in equipment if row["era"] == "1920s"]
+    assert [option["value"] for option in produce] == [row["price_id"] for row in era], "the haunting is a 1920s module: every record of it, in the book's order"
+    assert all(option["label"] == priced[option["value"]]["name"] and option["category"] == priced[option["value"]]["category"] for option in produce)
+    armed = [option for option in produce if "weapon" in option]
+    assert armed and all(option["weapon"] in weapons and priced[option["value"]]["entity_ref"]["entity_id"] == option["weapon"] for option in armed), \
+        "a weapon record names its weapons.json profile"
+    assert len(armed) == sum(1 for row in era if (row.get("entity_ref") or {}).get("kind") == "weapon")
+    assert any(option["weapon"] == "automatic_25_derringer" for option in armed), "the pocket pistol the loop test draws"
+    assert any(option["label"] == "Umbrella" and "weapon" not in option for option in produce), "and things that are not weapons"
+    assert len(produce) >= 255, "longer than one Jev question holds: the host asks by its part first"
+
 
 
 def test_refusals(knott):
     pinned(knott)
     assert knott.err("npc.act.options", {"campaign": "c1"})["code"] == "invalid_params"
     assert knott.err("npc.act.options", {"campaign": "c1", "name": "Nobody At All"})["code"] == "unknown_entity"
-    assert knott.err("npc.act.options", {"campaign": "c1", "name": "Steven Knott", "draw": "yes"})["code"] == "invalid_params"
+    assert knott.err("npc.act.options", {"campaign": "c1", "name": "Steven Knott", "produce": "yes"})["code"] == "invalid_params"
     assert knott.err("npc.act.options", {"campaign": "c1", "name": "Steven Knott", "act": ""})["code"] == "invalid_params"
 
 

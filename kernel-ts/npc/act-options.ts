@@ -1,5 +1,5 @@
 /**
- * Contract §139.3 (docs/specs/npc-acts-first.md D3, ticket 03): `npc.act.options {campaign, name, draw?}` -- the ways
+ * Contract §139.3 (docs/specs/npc-acts-first.md D3, ticket 03): `npc.act.options {campaign, name, produce?}` -- the ways
  * this person's act can be settled right now, each with the closed options of its parameters.
  *
  * The host binds a generated act (§139.2) to one of these ways by one closed Jev question (§139.3); nothing here reads
@@ -15,9 +15,11 @@
  * investigator who fled while they stood in the same scene. A receipt of their own act (its `intent` names them) or
  * their own roll is not something done to them.
  *
- * With `draw: true` (the host asks only when the stakes roll of §139.8 came out `severe`, spec D9) the result also
- * lists `draw`: the rulebook's priced weapons (`equipment.json` records whose `entity_ref` is a weapon profile) of the
- * module's era, one per profile.
+ * With `produce: true` (the host asks only when the generated act brings out something no one knew this person had --
+ * `produces`, allowed by a surprise of the stakes die, §139.19, spec D10) the result also lists `produce`: every record
+ * of the rulebook's price list (`equipment.json`) of the module's era, one option per record (`value` its `price_id`,
+ * `label` the book's name, `category`, and `weapon` -- its `weapons.json` profile -- when the record is a weapon). It
+ * replaces D9's weapons-only `draw` list (ticket 20): what a person brings out is anything the book prices.
  */
 import {join} from 'node:path';
 import type {KernelContext} from '../context.js';
@@ -91,7 +93,12 @@ function weaponLabel(catalog: Row, weapon: unknown): Option | null {
     return option(id, string(own.name || own.label || entry.display_name || entry.name) || id);
 }
 
-async function drawCatalog(context: KernelContext, graph: ModuleGraph): Promise<Option[]> {
+/**
+ * §139.19: the rulebook's price list of the module's era, one option per record. A record whose `entity_ref` names a
+ * `weapons.json` profile carries it as `weapon` (the host draws it through §139.3's `_draws`); every other record is an
+ * object the kernel places in the person's hands (`_produces`, `apply/draw.ts`).
+ */
+async function produceCatalog(context: KernelContext, graph: ModuleGraph): Promise<Option[]> {
     const read = async (name: string): Promise<Row> => {
         try { return row(await context.snapshots.readJson(join(context.content, 'rulesets', 'coc7', 'rules-json', name))); } catch { return {}; }
     };
@@ -99,10 +106,11 @@ async function drawCatalog(context: KernelContext, graph: ModuleGraph): Promise<
     const profiles = row(weapons.weapons), era = string(moduleDeclaration(graph.moduleNode).era);
     const out: Option[] = [];
     for (const value of array(equipment.records)) {
-        const record = row(value), ref = row(record.entity_ref), profile = string(ref.entity_id);
-        if (ref.kind !== 'weapon' || !Object.hasOwn(profiles, profile)) continue;
+        const record = row(value), id = string(record.price_id), name = string(record.name), ref = row(record.entity_ref), profile = string(ref.entity_id);
+        if (!id || !name) continue;
         if (era && string(record.era) && string(record.era) !== era) continue;
-        out.push(option(profile, string(record.name) || string(row(profiles[profile]).display_name), {price_id: string(record.price_id) || null}));
+        const weapon = ref.kind === 'weapon' && Object.hasOwn(profiles, profile) ? {weapon: profile} : {};
+        out.push(option(id, name, {category: string(record.category) || null, ...weapon}));
     }
     return once(out);
 }
@@ -114,8 +122,8 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
                 throw new RpcError('invalid_params', 'params.name must be a non-empty string', {details: {field: 'name'}});
             if (params.act != null && (typeof params.act !== 'string' || !params.act.trim() || Array.from(params.act.trim()).length > INTENT_TEXT_LIMIT))
                 throw new RpcError('invalid_params', `params.act is one line of at most ${INTENT_TEXT_LIMIT} characters, or absent`, {details: {field: 'act'}});
-            if (params.draw != null && typeof params.draw !== 'boolean')
-                throw new RpcError('invalid_params', 'params.draw is true, false or absent', {details: {field: 'draw'}});
+            if (params.produce != null && typeof params.produce !== 'boolean')
+                throw new RpcError('invalid_params', 'params.produce is true, false or absent', {details: {field: 'produce'}});
             const {campaign, module} = await readCampaign(context, params, false, false, {}, true);
             const {graph} = module, {world, turn, party} = campaign, node = graph.npc(params.name);
             const me = personOf(graph, world, node), handle = me.handle;
@@ -206,7 +214,7 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
                 acted_on: actedOn(me, turn, party, here),
                 ...(act ? {act} : {}),
                 ways: ways as unknown as Row[],
-                ...(params.draw === true ? {draw: await drawCatalog(context, graph) as unknown as Row[]} : {}),
+                ...(params.produce === true ? {produce: await produceCatalog(context, graph) as unknown as Row[]} : {}),
             };
         },
     };

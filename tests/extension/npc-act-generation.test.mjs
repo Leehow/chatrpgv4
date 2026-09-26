@@ -13,7 +13,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createFixtureNpcActPort, createNpcActLane, NPC_ACT_MAX_CHARS } from "../../runtime/jev/npc-act.ts";
+import { createFixtureNpcActPort, createNpcActLane, mayProduce, NPC_ACT_MAX_CHARS, NPC_PRODUCES_MAX_CHARS } from "../../runtime/jev/npc-act.ts";
 import { NPC_ACT_FALLBACK, npcActBudget } from "../../runtime/jev/host-budgets.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
 import { createTaskProviderBudget } from "../../runtime/jev/provider-budget.ts";
@@ -355,10 +355,100 @@ test("the instruction file: the bound, the play language, the JSON shape, and no
 	assert.match(text, /\b200 characters\b/);
 	assert.match(text, /play_language/);
 	assert.match(text, /\{"act": /, "the output shape is stated");
+	// §139.19: what an act may bring out is the stakes die's permission, in the answer's own field, with its bound.
+	assert.match(text, /`stakes\.surprise` is true/);
+	assert.match(text, /`produces` beside `act`/);
+	assert.match(text, new RegExp(`\\b${NPC_PRODUCES_MAX_CHARS} characters\\b`));
 	// Structure, not words: an action menu is a list, so the file carries no markdown list item at all (Agents.md: no
 	// hard-coded action menus; the ticket's guard against examples of acts).
 	const items = text.split("\n").filter((line) => /^\s*(?:[-*+]|\d+[.)])\s/.test(line));
 	assert.deepEqual(items, [], "no markdown list items in content/setup/npc-act.md");
+});
+
+// ---------------------------------------------------------------------------------------------------
+// §139.19 (ticket 20, spec D10): `produces`, the one thing an act brings out that no one knew this person had. Taken only
+// when the packet's stakes die allowed a surprise; then held to one line of at most 60 characters like the act's own
+// bound; without a surprise it is dropped and said on the row, never asked again.
+// ---------------------------------------------------------------------------------------------------
+
+const SURPRISE = { rung: "dangerous", outcome: "escalates", line: "This turn, this person goes further.", surprise: true,
+	surprise_line: "This person may have something on them that no one knew they had." };
+const PISTOL = "袖珍手枪";
+const surprised = (extra = {}) => ({ packet: packet({ stakes: SURPRISE, ...extra }) });
+
+test("§139.19 mayProduce: the stakes die's surprise, and nothing else", () => {
+	assert.equal(mayProduce(packet({ stakes: SURPRISE })), true);
+	for (const stakes of [undefined, null, { ...SURPRISE, surprise: false }, { ...SURPRISE, surprise: "true" }, { rung: "lethal", outcome: "severe", line: "x" }])
+		assert.equal(mayProduce(packet({ stakes })), false, JSON.stringify(stakes));
+});
+
+test("§139.19 produces with a surprise: taken, trimmed, on the result and the row; up to 60 characters counted as characters", async (t) => {
+	for (const [name, produces] of Object.entries({ "a short phrase": `  ${PISTOL}  `, "60 CJK": "枪".repeat(NPC_PRODUCES_MAX_CHARS),
+		"60 astral": "\u{1F52B}".repeat(NPC_PRODUCES_MAX_CHARS) })) await t.test(name, async (t) => {
+		const table = await lane(t, { answers: [json({ act: ACT, produces })] });
+		const result = await table.generate(surprised());
+		assert.equal(result.act, ACT);
+		assert.equal(result.produces, produces.trim());
+		assert.equal(result.producesDropped, undefined);
+		assert.equal(table.calls.length, 1);
+		const row = await onlyRow(table);
+		assert.equal(row.produces, produces.trim(), "the row keeps what the act brings out");
+		assert.equal(row.produces_dropped, undefined);
+	});
+});
+
+test("§139.19 produces with a surprise but of the wrong shape: asked once more with the reason, like a bad act", async (t) => {
+	const bad = {
+		"one character over the bound": "枪".repeat(NPC_PRODUCES_MAX_CHARS + 1),
+		"two lines": `${PISTOL}\n一把刀`,
+		"not a string": 7,
+	};
+	for (const [name, produces] of Object.entries(bad)) await t.test(name, async (t) => {
+		const table = await lane(t, { answers: [json({ act: ACT, produces }), json({ act: ACT, produces: PISTOL })] });
+		const result = await table.generate(surprised());
+		assert.equal(result.act, ACT);
+		assert.equal(result.produces, PISTOL, "the second, well-shaped answer is taken");
+		assert.equal(table.calls.length, 2, "one retry");
+		assert.match(table.calls[1].input, /"produces"/, "the retry says what was refused");
+		assert.equal((await onlyRow(table)).attempts, 2);
+	});
+	await t.test("twice the wrong shape is bad_output", async (t) => {
+		const answer = json({ act: ACT, produces: "枪".repeat(NPC_PRODUCES_MAX_CHARS + 1) });
+		const table = await lane(t, { answers: [answer, answer] });
+		const result = await table.generate(surprised());
+		assert.equal(result.unavailable, "bad_output");
+		assert.equal(table.calls.length, 2);
+	});
+});
+
+test("§139.19 produces absent, null or blank is no produces, surprise or not; nothing is dropped", async (t) => {
+	for (const [name, answer] of Object.entries({ absent: { act: ACT }, null: { act: ACT, produces: null }, blank: { act: ACT, produces: "   " } })) {
+		await t.test(name, async (t) => {
+			const table = await lane(t, { answers: [json(answer)] });
+			const result = await table.generate(surprised());
+			assert.deepEqual([result.act, result.produces, result.producesDropped], [ACT, undefined, undefined]);
+			const row = await onlyRow(table);
+			assert.deepEqual([row.produces, row.produces_dropped], [undefined, undefined]);
+		});
+	}
+});
+
+test("§139.19 produces without a surprise: dropped whatever its shape, the act kept, produces_dropped on the row, never asked again", async (t) => {
+	const cases = {
+		"no stakes at all": [packet(), PISTOL],
+		"a severe roll with no surprise": [packet({ stakes: { ...SURPRISE, outcome: "severe", surprise: false, surprise_line: null } }), PISTOL],
+		"a produces too long to take anyway": [packet({ stakes: null }), "枪".repeat(NPC_PRODUCES_MAX_CHARS + 5)],
+	};
+	for (const [name, [situation, produces]] of Object.entries(cases)) await t.test(name, async (t) => {
+		const table = await lane(t, { answers: [json({ act: ACT, produces }), json({ act: ACT })] });
+		const result = await table.generate({ packet: situation });
+		assert.equal(result.act, ACT, "the act stands");
+		assert.equal(result.produces, undefined, "what it brings out is not taken");
+		assert.equal(result.producesDropped, true);
+		assert.equal(table.calls.length, 1, "no retry");
+		const row = await onlyRow(table);
+		assert.deepEqual([row.ok, row.act, row.produces, row.produces_dropped], [true, ACT, undefined, true]);
+	});
 });
 
 test("the fixture port answers from its table, by handle, then name, then *, in order, verbatim", async () => {
@@ -378,6 +468,10 @@ test("the fixture port answers from its table, by handle, then name, then *, in 
 	assert.deepEqual(await ask({ handle: "someone", name: "Someone" }), { act: "anyone's act" });
 	assert.equal(fixture.calls.length, 6);
 	assert.equal(fixture.calls[0].packet.npc.handle, "steven-knott", "the inputs are kept for assertions on what a re-ask sent");
+
+	// §139.19: an answer with what the act brings out comes back as it is, stakes or not (the act step holds it to the die).
+	const producing = createFixtureNpcActPort({ "steven-knott": { act: "他掏出一把袖珍手枪。", produces: PISTOL } });
+	assert.deepEqual(await producing.generate({ packet: packet(), play_language: "zh-Hans" }, signal), { act: "他掏出一把袖珍手枪。", produces: PISTOL });
 
 	const bare = createFixtureNpcActPort({ "steven-knott": "x" });
 	const missing = await bare.generate({ packet: packet({ npc: { handle: "nobody", name: "Nobody" } }), play_language: "en" }, signal);
