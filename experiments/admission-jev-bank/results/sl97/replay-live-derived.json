@@ -1,0 +1,252 @@
+{
+  "note": "Case-level round latency (a case with N>1 line-batches dispatches them in parallel via Promise.all; elapsed is the round's wall time, close to but not exactly per-HTTP-call latency for multi-batch cases). Threshold 0.87 is not in replay.mjs's built-in THRESHOLDS array ([0,0.5,0.6,0.7,0.8,0.85,0.9,0.95]); computed here directly from replay-live.jsonl with the same logic as replay.mjs's summarize().",
+  "total_cases_sampled": 461,
+  "total_live_jev_calls": 496,
+  "cases_with_zero_calls": {
+    "n": 32,
+    "by_reason": {
+      "numeric_commitment": 32
+    }
+  },
+  "cases_that_called_jev": 429,
+  "threshold_0_87": {
+    "threshold": 0.87,
+    "decided": 2,
+    "coverage": 0.005390835579514825,
+    "exact_agreement": 0.5,
+    "admission_agreement": 0.5,
+    "false_admits": 0,
+    "false_refusals": 1,
+    "per_class": {
+      "authorized": {
+        "decided": 1,
+        "of": 90,
+        "exact": 1,
+        "same_admission": 1
+      },
+      "entailed": {
+        "decided": 0,
+        "of": 90,
+        "exact": 0,
+        "same_admission": 0
+      },
+      "not_authorized": {
+        "decided": 0,
+        "of": 90,
+        "exact": 0,
+        "same_admission": 0
+      },
+      "not_player_action": {
+        "decided": 1,
+        "of": 90,
+        "exact": 0,
+        "same_admission": 0
+      },
+      "review_pending": {
+        "decided": 0,
+        "of": 9,
+        "exact": 0,
+        "same_admission": 0
+      },
+      "uncertain": {
+        "decided": 0,
+        "of": 2,
+        "exact": 0,
+        "same_admission": 0
+      }
+    }
+  },
+  "confidence_histogram_per_lane_label_class": {
+    "not_authorized": {
+      "n": 86,
+      "histogram": {
+        "[0.0,0.1)": 0,
+        "[0.1,0.2)": 2,
+        "[0.2,0.3)": 12,
+        "[0.3,0.4)": 26,
+        "[0.4,0.5)": 23,
+        "[0.5,0.6)": 12,
+        "[0.6,0.7)": 4,
+        "[0.7,0.8)": 6,
+        "[0.8,0.9)": 1,
+        "[0.9,1.0)": 0
+      },
+      "mean": 0.43093023255813956,
+      "median": 0.41
+    },
+    "authorized": {
+      "n": 83,
+      "histogram": {
+        "[0.0,0.1)": 0,
+        "[0.1,0.2)": 4,
+        "[0.2,0.3)": 8,
+        "[0.3,0.4)": 13,
+        "[0.4,0.5)": 15,
+        "[0.5,0.6)": 15,
+        "[0.6,0.7)": 14,
+        "[0.7,0.8)": 7,
+        "[0.8,0.9)": 6,
+        "[0.9,1.0)": 1
+      },
+      "mean": 0.5091566265060241,
+      "median": 0.53
+    },
+    "entailed": {
+      "n": 86,
+      "histogram": {
+        "[0.0,0.1)": 0,
+        "[0.1,0.2)": 5,
+        "[0.2,0.3)": 11,
+        "[0.3,0.4)": 15,
+        "[0.4,0.5)": 18,
+        "[0.5,0.6)": 13,
+        "[0.6,0.7)": 15,
+        "[0.7,0.8)": 7,
+        "[0.8,0.9)": 2,
+        "[0.9,1.0)": 0
+      },
+      "mean": 0.46895348837209305,
+      "median": 0.46
+    },
+    "not_player_action": {
+      "n": 85,
+      "histogram": {
+        "[0.0,0.1)": 1,
+        "[0.1,0.2)": 10,
+        "[0.2,0.3)": 10,
+        "[0.3,0.4)": 22,
+        "[0.4,0.5)": 17,
+        "[0.5,0.6)": 8,
+        "[0.6,0.7)": 9,
+        "[0.7,0.8)": 5,
+        "[0.8,0.9)": 2,
+        "[0.9,1.0)": 1
+      },
+      "mean": 0.4218823529411765,
+      "median": 0.39
+    },
+    "uncertain": {
+      "n": 2,
+      "histogram": {
+        "[0.0,0.1)": 0,
+        "[0.1,0.2)": 0,
+        "[0.2,0.3)": 0,
+        "[0.3,0.4)": 0,
+        "[0.4,0.5)": 1,
+        "[0.5,0.6)": 0,
+        "[0.6,0.7)": 1,
+        "[0.7,0.8)": 0,
+        "[0.8,0.9)": 0,
+        "[0.9,1.0)": 0
+      },
+      "mean": 0.51,
+      "median": 0.51
+    },
+    "review_pending": {
+      "n": 9,
+      "histogram": {
+        "[0.0,0.1)": 0,
+        "[0.1,0.2)": 1,
+        "[0.2,0.3)": 2,
+        "[0.3,0.4)": 3,
+        "[0.4,0.5)": 1,
+        "[0.5,0.6)": 2,
+        "[0.6,0.7)": 0,
+        "[0.7,0.8)": 0,
+        "[0.8,0.9)": 0,
+        "[0.9,1.0)": 0
+      },
+      "mean": 0.35444444444444445,
+      "median": 0.36
+    }
+  },
+  "confidence_histogram_per_typed_verdict": {
+    "not_authorized": {
+      "n": 102,
+      "histogram": {
+        "[0.0,0.1)": 1,
+        "[0.1,0.2)": 8,
+        "[0.2,0.3)": 18,
+        "[0.3,0.4)": 25,
+        "[0.4,0.5)": 16,
+        "[0.5,0.6)": 11,
+        "[0.6,0.7)": 11,
+        "[0.7,0.8)": 8,
+        "[0.8,0.9)": 3,
+        "[0.9,1.0)": 1
+      },
+      "mean": 0.4295098039215686,
+      "median": 0.39
+    },
+    "authorized": {
+      "n": 92,
+      "histogram": {
+        "[0.0,0.1)": 0,
+        "[0.1,0.2)": 3,
+        "[0.2,0.3)": 7,
+        "[0.3,0.4)": 13,
+        "[0.4,0.5)": 18,
+        "[0.5,0.6)": 16,
+        "[0.6,0.7)": 17,
+        "[0.7,0.8)": 10,
+        "[0.8,0.9)": 7,
+        "[0.9,1.0)": 1
+      },
+      "mean": 0.5319565217391304,
+      "median": 0.53
+    },
+    "entailed": {
+      "n": 142,
+      "histogram": {
+        "[0.0,0.1)": 0,
+        "[0.1,0.2)": 8,
+        "[0.2,0.3)": 17,
+        "[0.3,0.4)": 38,
+        "[0.4,0.5)": 36,
+        "[0.5,0.6)": 22,
+        "[0.6,0.7)": 15,
+        "[0.7,0.8)": 5,
+        "[0.8,0.9)": 1,
+        "[0.9,1.0)": 0
+      },
+      "mean": 0.42838028169014086,
+      "median": 0.41
+    },
+    "not_player_action": {
+      "n": 15,
+      "histogram": {
+        "[0.0,0.1)": 0,
+        "[0.1,0.2)": 3,
+        "[0.2,0.3)": 1,
+        "[0.3,0.4)": 3,
+        "[0.4,0.5)": 5,
+        "[0.5,0.6)": 1,
+        "[0.6,0.7)": 0,
+        "[0.7,0.8)": 2,
+        "[0.8,0.9)": 0,
+        "[0.9,1.0)": 0
+      },
+      "mean": 0.4093333333333333,
+      "median": 0.42
+    }
+  },
+  "overall_confidence": {
+    "n": 351,
+    "mean": 0.45504273504273507,
+    "median": 0.44
+  },
+  "latency_ms_case_round": {
+    "typed_only": {
+      "n": 351,
+      "p50": 375,
+      "p90": 548,
+      "max": 1229
+    },
+    "typed_plus_fallback": {
+      "n": 429,
+      "p50": 386,
+      "p90": 592,
+      "max": 1229
+    }
+  }
+}
