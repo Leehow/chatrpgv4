@@ -14186,6 +14186,9 @@ somebody said it at this table and it was applied.
   `person-named`. **No mechanics row**: the player said it, so a card telling them it was recorded
   is noise, and §16.2 already projects nothing for a kind it does not know.
 
+*Amended by §87.8 (2026-09-26):* a word this table gave two people is `unknown_entity` naming both as
+`details.candidates`. `who` had taken the first owner that resolved.
+
 ### 79.3 The readers
 
 One junction, `personLabel(world, id, authored)` in `kernel-ts/read/capsule.ts`, beside `placeLabel`.
@@ -14224,6 +14227,12 @@ it was established in play and has not been withdrawn.
 
 On a confluence the record joins the union field by field (§15): two lines that each established one
 half keep both.
+
+*Amended by §87.8 (2026-09-26):* `personLabel` writes the word out; reading it back in is the other half.
+Every entrance that takes a Keeper's word for a person -- `resolve`'s `actor` and `target`, `look
+focus=npc` and the npc lane methods, `apply clue from`, `apply npc`, `apply person.who` and the say
+token -- resolves it through one junction beside `personLabel`: `calledPerson`, `personNode` and
+`npcNode` in `kernel-ts/read/capsule.ts`.
 
 ### 79.4 What this does not do
 
@@ -15054,6 +15063,10 @@ by its word with no flag. `resolve`'s `action.target`, `look focus=npc` and `app
 graph, so a §79 word there is still a miss or a label; that is the same gap at three other entrances, left for its
 own change.
 
+*Amended by §87.8 (2026-09-26):* those three entrances now read the word, through one junction, and so do
+`apply person.who` and the say token, which had each picked when two people carried it. The rules above are
+unchanged; `personOfEffect` reads the same order through the junction instead of its own copy.
+
 **Deployment (§87.6's rule).** `NpcEffect.walk_on` ships in `extensions/kernel/tools.ts` on the same branch. The
 dispatcher closes every schema (`additionalProperties: false`), so a kernel without the schema would refuse every
 newcomer with no way to declare one. The text ships with it: the `name` and `walk_on` descriptions, the adaptation
@@ -15075,6 +15088,87 @@ guards (`a-person-this-table-has`, `npc-effect-refusal-shape`, `workspace-advers
 `ts-kernel-name-phrase` adds a declared newcomer under an ambiguous run, refused. Mutations, each caught: the silent
 mint restored; the §79 lookup removed; `introduce` dropped; the ambiguity mark ignored; `walk_on` accepted on
 someone the table has; resemblance restored as a bar; `notAPerson` moved after the flag.
+
+### 87.8 One junction for a person's name (2026-09-26, amends §79.2, §79.3, §40.1 and §87.7)
+
+**Evidence** (the code, read against §87.7's "What this does not do"; the fixture is the starter's Steven Knott,
+given the word 门口的房东 with `apply person`).
+
+- `resolve {intent: social, target: 门口的房东, method: "persuade him"}`. `npcTarget()` asked `graph.actor`
+  alone, answered null, and `route` sends a social call without an NPC to the ordinary check (`!npc ?
+  [ORDINARY]`). It rolled Persuade against nobody: no `outcome.npc`, no motives, no `npc` on the roll receipt,
+  so §17.3's ledger fold never moved his stance. The same word as `actor` was `unknown_entity` (`actorKnown`).
+  An obligation claimed against a person refused the person's word as a check against somebody else
+  (`bindObligation`), and §134.17's fold never found the obligation at all; a dozen further readers of
+  `action.target` (combat, chase, a patient, the material gate, the rulings, a Mod's settlement) each asked the
+  graph on their own.
+- `look focus=npc`, `npc.perspective(s)`, `npc.job`, `npc.responses.job` and `apply clue from` called
+  `graph.npc`: the graph's `unknown_entity`.
+- The three entrances that did read the word had three copies of the lookup, and two of them picked when two
+  people carried it. `apply person.who` took the first owner that resolved; the say token took the last one
+  written (a `Map` built over the record). §87.7's "two owners are refused, never a pick" held in `apply npc`
+  alone.
+
+**The junction** (`kernel-ts/read/capsule.ts`, beside `calledOwners` and `personLabel`):
+
+| function | reads | on a miss |
+| --- | --- | --- |
+| `calledPerson(graph, world, name)` | §79's record only: the owners of the word in `world.person_labels` that are npcs of the graph | `null`. Two owners throw `unknown_entity` `{query, candidates}` naming both. |
+| `personNode(graph, world, name)` | the graph's actor (`graph.actor`: an npc by handle, alias or §2's anchored run, then a creature that states a stat block, §136.12), then `calledPerson` | `null` |
+| `npcNode(graph, world, name)` | the graph's npc (`graph.npc`), then `calledPerson` | the graph's own refusal, unchanged: its candidates are still the next step |
+
+The first layer with exactly one answer is the person. A word the graph answers is the graph's person even when
+the table gave the same word to somebody else; a word the graph finds ambiguous and the table gave to one person
+is that person, as `apply npc` already did under §87.7. Each entrance keeps the graph layer it already asked --
+`personNode` where a creature can fill the seat, `npcNode` where only people ever did -- and gains the table's
+word after it. Where an entrance takes an investigator, the party is asked first (a sheet's id or name): §79
+never gives an investigator a `name`.
+
+**Routed through it:**
+
+| entrance | before | now |
+| --- | --- | --- |
+| `resolve` `action.actor`, `action.target` | `graph.actor`, in each reader | read once at the entrance (`readCalledPeople`, `kernel-ts/resolve/pipeline.ts`), for every intent that settles anything. A seat the party or the graph's actor answers is left as written. A seat only `calledPerson` answers is read as that person's handle, which every reader after it already resolves. Two owners are refused there, before anything rolls. |
+| `look focus=npc` `name` | `graph.npc` | `npcNode`; the view's `called` carries the word |
+| `npc.perspective(s)`, `npc.job`, `npc.responses.job` `name` | `graph.npc` | `npcNode` |
+| `apply clue` `from` | `graph.npc` | `npcNode`; the receipt's `from` is the handle |
+| `apply npc` (§87.7) | its own copy of the lookup | `graph.npc` for the refusal it may need, then `personNode` |
+| `apply person` `who` (§79.2) | the first owner that resolved | the party, `graph.find` over npcs, then `calledPerson`: two owners are refused |
+| the say token (§40.1) | the last owner written | `calledPerson` after its own present-people, party and single-npc steps; two owners leave the name a label, because a token is a rendering hint and never a reason to refuse (§34.14) |
+
+**The stored call is the Keeper's.** `readCalledPeople` rewrites the local `action`, never `params`: the turn
+remembers the call as sent, so the same call id with the same word replays rather than colliding, exactly as
+§134.11's obligation binding leaves it. A refusal after the entrance names the handle in `details.query`, which the
+host's §11.5.6 question does not match against the call's own word, so it asks nothing. The `unknown_entity`
+refusals that can follow a resolved seat are about where a known person is (not in the scene, not in the fight),
+which is not a question about who the word means.
+
+**What this does not do.** It compares no word to any other word: it reads back what `apply person` wrote, by the
+normalization every name lookup uses. It does not reorder the graph against the table, and it gives a creature no
+§79 word (`apply person.who` still names investigators and npcs). It does not stop `apply person` from giving one
+word to two people; it refuses the word afterwards, wherever it is used. Three entrances that take a Keeper's word
+for a person still read only the graph, each one call from `npcNode`: `apply cash` `with`
+(`kernel-ts/apply/inventory.ts`), a Mod's `dossier` effect `name` (`kernel-ts/mods/stage.ts`) and a Mod effect's
+explicit target name (`effectTarget`, `kernel-ts/mods/effects.ts`; its default, `action.target`, is read at the
+resolve entrance above).
+
+**Three ends (§31).** *Writer:* `apply person` (§79.2), unchanged. *Reader:* the junction, at every entrance in
+the table above. *Actor:* the Keeper, who writes the table's word wherever they name the person, and whose rolls,
+views, clue sources and lines then land on that person, or are refused naming both when the word is two people's.
+
+*Tests.* `tests/kernel/test_person_junction.py` over the emitted kernel: a social check with the word as `target`
+runs the social adjudication against the person, carries `npc` on its roll, replays under the same call id and
+folds into the ledger; gate #3's Persuade against the archivist settles identically, §134.17's fold included,
+whether it names him by the book's name or the table's word, under the same seed; an obligation claimed against
+the word is that person's; the word as `actor` is that NPC's own keeper-side roll; a table word that collides with a
+book name leaves the book's person the target; a word two people carry refuses `resolve` before anything rolls,
+`look focus=npc`, `apply person.who`, and leaves a say token a label; `look focus=npc`, `npc.perspective`,
+`npc.job`, `npc.responses.job` and `apply clue from` each read the word. `tests/kernel/test_walk_on_gate.py` holds
+`apply npc`'s side. Mutations over the emitted kernel, each caught by the test that names it, the two files green
+again after every revert: the resolve entrance removed; the graph guard dropped from the entrance; `look
+focus=npc`, `npc/read.ts`, `npc.job`, `npc.responses.job` and `apply clue from` each back to `graph.npc`;
+`npcNode` asking the table first; `calledPerson` picking the first owner; `apply person.who` picking the first
+owner; the say token picking the last; `apply npc` without the table layer.
 
 ## 88. An offer is not a delivery (2026-09-17, extends §19's object model and §31)
 

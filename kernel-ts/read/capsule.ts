@@ -1,5 +1,6 @@
 /** Keeper and player read projections preserve the existing authored/state boundary. */
 import { pythonJsonDumps, compareUnicode, isJsonObject } from "../json.js";
+import { RpcError } from "../errors.js";
 import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionStatus, dossierLabels } from "./module-graph.js";
 import { entries, values, array, row, number, integer, truth, string, normalize, chars, length, words, clone, repr, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
@@ -50,6 +51,47 @@ export const personRecord = (world: Row, id: string): Row => row(row(world.perso
 export function calledOwners(world: Row, name: string): string[] {
     const key = normalize(name);
     return key ? entries(row(world.person_labels)).filter(([, record]) => normalize(string(row(record).name)) === key).map(([id]) => id) : [];
+}
+/**
+ * The one person this table calls `name`, as the graph's npc node, or `null` when nobody carries the
+ * word (contract §87.8). This is the table's layer of the junction every entrance that takes a
+ * Keeper's word for a person goes through. Two owners are `unknown_entity` naming both: which of them
+ * the Keeper meant is not something a record can answer, so it is refused, never picked.
+ */
+export function calledPerson(graph: ModuleGraph, world: Row, name: string): Row | null {
+    const owners = calledOwners(world, name).flatMap(id => { const node = graph.find(id, ['npc']); return node ? [node] : []; });
+    if (owners.length > 1)
+        throw new RpcError('unknown_entity', `this table calls more than one person ${repr(name)}`, {
+            fix: 'name one of details.candidates by its name; apply person gives one of them another word',
+            details: { query: name, candidates: owners.map(owner => graph.describe(owner)) },
+        });
+    return owners[0] ?? null;
+}
+/**
+ * The person a word names, for a seat a creature can fill too (contract §87.8): the graph's actor --
+ * an npc by handle, alias or §2's anchored run, then a creature that states a stat block (§136.12) --
+ * and then this table's own word. The first layer with exactly one answer is the person.
+ */
+export function personNode(graph: ModuleGraph, world: Row, name: string): Row | null {
+    return graph.actor(name) ?? calledPerson(graph, world, name);
+}
+/**
+ * The same junction for an entrance that has only ever named people and answers a miss with the
+ * graph's refusal (contract §87.8): the graph's npc, then this table's word, then that refusal
+ * unchanged, because its candidates are still the Keeper's next step.
+ */
+export function npcNode(graph: ModuleGraph, world: Row, name: string): Row {
+    try {
+        return graph.npc(name);
+    }
+    catch (error) {
+        if (!(error instanceof RpcError))
+            throw error;
+        const called = calledPerson(graph, world, name);
+        if (called)
+            return called;
+        throw error;
+    }
 }
 /** The table's name for a person, and the sheet's or the book's only until one exists (§79). */
 export const personLabel = (world: Row, id: string, authored: string): string => string(personRecord(world, id).name || authored);

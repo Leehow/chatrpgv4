@@ -5,7 +5,7 @@ import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
 import {isAmbiguity,notAPerson,personRefusal,recordOf} from '../read/module-graph.js';
 import {handoutFile} from '../read/handout-document.js';
-import {calledOwners,npcsPresent,personLabel,personRecord,untoldBlock} from '../read/capsule.js';
+import {npcNode,npcsPresent,personLabel,personNode,personRecord,untoldBlock} from '../read/capsule.js';
 import {unsupported} from '../read/handlers.js';
 import {passageOf,tablePersonId} from '../read/table-people.js';
 import {array,entries,integer,normalize,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
@@ -46,7 +46,7 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
     const scene=left??active;
     if(!here.includes(node.node_id)&&!left)throw new RpcError('not_here',`clue ${repr(handle)} is not discoverable at ${repr(graph.handle(scene))}`,{fix:'discover one of details.clues_here, or move first',details:{clue:handle,scene:graph.handle(scene),clues_here:here.map(id=>graph.handle(graph.nodes.get(id)!))}});
     let source:string|null=null;
-    if(typeof effect.from==='string'&&effect.from.trim())source=graph.handle(graph.npc(effect.from));
+    if(typeof effect.from==='string'&&effect.from.trim())source=graph.handle(npcNode(graph,world,effect.from));
     else {
         const present=new Set(npcsPresent(graph,world,scene).map(node=>graph.handle(node)));
         const holders=new Set((graph.incoming.get(node.node_id)||[]).filter(rel=>['held-by','delivered-by'].includes(rel.relation_kind)).map(rel=>graph.nodes.get(rel.from_node_id)).filter(node=>node?.node_kind==='npc').map(node=>graph.handle(node!)));
@@ -101,13 +101,9 @@ async function personOfEffect(context:ApplyContext,effect:Row,name:string,why:st
     if(walkOn!==null&&typeof walkOn!=='boolean')throw new RpcError('invalid_params','npc.walk_on must be true or false',{fix:'walk_on: true on the effect that brings in someone the book never had; leave it out for anyone this table already has',details:{field:'npc.walk_on'}});
     let node:Row|null=null,refusal:unknown=null;
     try{node=graph.npc(name);}catch(error){refusal=error;}
-    // A creature that states a stat block is the book's body, not a new person (contract §136.12).
-    node??=graph.actor(name);
-    if(!node){
-        const owners=calledOwners(world,name).flatMap(id=>{const named=graph.find(id,['npc']);return named?[named]:[];});
-        if(owners.length>1)throw new RpcError('unknown_entity',`this table calls more than one person ${repr(name)}`,{fix:'write to one of details.candidates by its name; apply person gives one of them another word',details:{query:name,candidates:owners.map(owner=>graph.describe(owner))}});
-        node=owners[0]??null;
-    }
+    // A creature that states a stat block is the book's body, not a new person (contract §136.12); then the word this
+    // table gave someone, through the one junction every person entrance reads (§87.8), which refuses two owners.
+    node??=personNode(graph,world,name);
     if(node){
         if(walkOn===true&&!graph.isTablePerson(node))throw new RpcError('invalid_params',`${repr(name)} is ${graph.displayName(node)}, whom this table already has; walk_on brings in someone it does not`,{fix:`leave walk_on out to write to ${graph.displayName(node)}; call a newcomer by a word nobody here carries`,details:{field:'npc.walk_on',query:name,person:graph.displayName(node)}});
         return{node,established:false};

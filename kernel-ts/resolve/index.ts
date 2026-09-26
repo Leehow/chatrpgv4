@@ -19,7 +19,7 @@ import { CheckArithmetic } from './arithmetic.js';
 import { incapacitatedBy } from '../healing/conditions.js';
 import { npcPatient } from '../healing/patient.js';
 import { SettleContext, type ResolveWriter } from './context.js';
-import { ResolvePipeline, actionSkills, fullDecisionRef, resolveActor, unsupportedValue, validateExtras } from './pipeline.js';
+import { ResolvePipeline, actionSkills, fullDecisionRef, readCalledPeople, resolveActor, unsupportedValue, validateExtras } from './pipeline.js';
 import { resolveResult,markersOf,modResolveEvents } from './projection.js';
 import {actor as selectActor} from '../read/handlers.js';
 import type {ModResolveInput,ModResolveResult} from '../mods/resolve.js';
@@ -218,6 +218,9 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                     transaction.turn.pending_choice = null;
             }
             const intent = string(action.intent);
+            // Contract §87.8: a person seat the table's own word fills is read as that person before anything reads it.
+            if (!NONE_INTENTS.has(intent))
+                action = readCalledPeople(await transaction.campaign.party() as Row[], graph, transaction.world, action);
             // Contract §134.11: a claimed obligation is validated and bound before anything reads the action;
             // the stored call parameters stay the Keeper's own.
             let claim: ObligationClaim | null = null;

@@ -12,7 +12,7 @@
  */
 import { RpcError } from '../errors.js';
 import type { DomainEvent } from '../transactions.js';
-import { calledOwners, personRecord } from '../read/capsule.js';
+import { calledPerson, personRecord } from '../read/capsule.js';
 import { normalize, repr, string, type Row } from '../read/values.js';
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
@@ -37,17 +37,12 @@ async function personOf(context: ApplyContext, who: any, effect: Row = {}): Prom
     for (const sheet of await context.campaign.party() as Row[])
         if ([normalize(string(sheet.id)), normalize(string(sheet.name))].includes(key))
             return { id: string(sheet.id), name: string(sheet.name || sheet.id), is_investigator: true };
-    const node = context.graph.find(who, ['npc']);
+    // The table's word after the book's, through the junction every person entrance reads (§87.8): one owner is that
+    // person, two are refused rather than the first one picked. Only an NPC carries a word here; §79 refuses an
+    // investigator a `name`, and the party was asked above.
+    const node = context.graph.find(who, ['npc']) ?? calledPerson(context.graph, context.world, who);
     if (node)
         return { id: context.graph.handle(node), name: context.graph.displayName(node), is_investigator: false };
-    for (const id of calledOwners(context.world, who)) {
-        const named = context.graph.find(id, ['npc']);
-        if (named)
-            return { id: context.graph.handle(named), name: context.graph.displayName(named), is_investigator: false };
-        const sheet = (await context.campaign.party() as Row[]).find(value => string(value.id) === id);
-        if (sheet)
-            return { id: string(sheet.id), name: string(sheet.name || sheet.id), is_investigator: true };
-    }
     // §11.5.4 (SL-51): a person the source text carried this turn names is not invented. Established from that passage
     // exactly as `apply npc` establishes one (§87's record with `from_passage`), so the label is written on them.
     const passage = passageOf(effect, who);
