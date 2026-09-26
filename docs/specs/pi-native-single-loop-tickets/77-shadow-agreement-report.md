@@ -123,3 +123,22 @@ vocabulary not covering every way the Keeper can genuinely engage someone). Reco
 numbers as a go/no-go signal: fix `keeperDidFor`'s `npc_reaction` branch to compare handles (not label vs. handle)
 before trusting the raw agreement figure for that class — this ticket does not do that (measurement only).
 - Gate #16 run of the script: see SL-02's #16 entry; rerun after SL-83 lands.
+
+### 2026-09-26 — after SL-83 (`claude/sl83-20260926@1e57df6ea`): the corrected tables
+
+SL-83 put the handle on the capsule row, keyed the candidate by it, and made `keeperDidFor` compare handles. The
+stored telemetry of both tables is unchanged (read-only); the fixed product function was replayed over each stored
+`npc_reaction` row's key and its turn's receipts (script: SL-83's ticket). Gate #15 has finished since the snapshot
+above (21 turn files, 0..20); it wrote no further `npc_reaction` rows after turn 7, so its 7 rows are the same 7.
+
+| table | rows | raw (as written, this report's tables above) | product after SL-83 (handle on the row) |
+|---|---|---|---|
+| gate #14 | 9 | 0/4 = 0.00 (true 0, false 4, other 5) | **3/6 = 0.50** (true 3, false 3, other 3) |
+| gate #15 | 7 | 0/2 = 0.00 (true 0, false 2, other 5) | **3/5 = 0.60** (true 3, false 2, other 2) |
+
+Identical to the diagnostic prediction above. The rows that move: gate #14 turns 4, 5, 6 (the clerk, Mr. Dooley,
+Vittorio Macario); gate #15 turn 6 twice (Vittorio Macario) and turn 7 (Gabriela Macario -- here the Keeper did stage
+a first impression, unlike gate #14's turn 7 Persuade). What stays `false` is the residual named above: a real
+engagement the Keeper resolved through a mechanic other than the first-impression roll. `jev-steps-report.py`'s
+`corrected_npc_reaction` prints the same 3/6 and 3/5 on these two tables and will equal the raw figure on any table
+played after SL-83.

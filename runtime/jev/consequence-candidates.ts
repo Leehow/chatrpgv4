@@ -69,6 +69,13 @@ function actorsOf(reads: ConsequenceReads): string[] {
  * the same row, in the separate consequence list, never a replacement for that candidate. Withheld exactly as a
  * `mod_contact` candidate would be: a book that preordains this person's reaction (owner ruling Q2), or a person
  * an open obligation's guard withholds.
+ *
+ * SL-83: the row's `target` is the person's display name (what the obligation rows' `who`/`guards.people` and the
+ * Keeper's own words use), its `handle` the graph handle -- the identifier the first-impression `roll` receipt's
+ * `npc` field carries. The candidate's `key` and `bound.target` carry the handle, so the turn-close pairing
+ * (`keeperDidFor`) compares handle to handle and `resolve` (which resolves a handle exactly) is given the same
+ * identifier; the display name stays in `label` and the Noul's words. A row without `handle` (a kernel older
+ * than SL-83) falls back to `target`, which is then a label and pairs only through the turn's own `person` receipts.
  */
 export function npcReactionCandidates(reads: ConsequenceReads, rawInput = ''): ConsequenceCandidate[] {
   const guards = guardsOf(reads), preordained = preordainedContacts(reads);
@@ -76,16 +83,16 @@ export function npcReactionCandidates(reads: ConsequenceReads, rawInput = ''): C
   for (const [index, contact] of array(object(object(reads.capsule).mods).pending_contacts).map(object).entries()) {
     const decision = text(contact.decision);
     if (decision !== NPC_REACTION_DECISION) continue;
-    const target = text(contact.target), rowActor = text(contact.actor);
+    const target = text(contact.target), rowActor = text(contact.actor), handle = text(contact.handle) || target;
     if (!target) continue;
     if (preordained.get(target)?.has(decision) || guards.people.has(target)) continue;
     const actor = rowActor || (actors.length === 1 ? actors[0] : '');
     const unbound: Unbound[] = [{name: 'intent', required: true, vocabulary: 'closed', options: resolveIntents()}];
     if (!actor) unbound.push({name: 'actor', required: true, vocabulary: 'closed', options: actors});
     out.push({
-      key: `consequence:npc_reaction:${actor || 'unbound'}:${target}`, verb: 'resolve', family: 'npc_reaction',
+      key: `consequence:npc_reaction:${actor || 'unbound'}:${handle}`, verb: 'resolve', family: 'npc_reaction',
       label: `${actor || 'The investigator'} engages ${target} for the first time`, source: 'capsule.mods.pending_contacts',
-      bound: {decision, ...(actor ? {actor} : {}), target, goal: rawInput, method: rawInput},
+      bound: {decision, ...(actor ? {actor} : {}), target: handle, goal: rawInput, method: rawInput},
       unbound, composed: ['goal', 'method'], consequenceClass: 'npc_reaction', clerk: 'consequence_bookkeeping',
       basis: {read: 'table.capsule', path: `mods.pending_contacts[${index}]`, row: contact as Json},
       noul: {

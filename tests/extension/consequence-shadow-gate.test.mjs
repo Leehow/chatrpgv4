@@ -49,6 +49,26 @@ test("keeperDidFor: npc_reaction -- true on the same NPC, other on a different o
 	assert.equal(keeperDidFor(entry, [{ kind: "clue", clue: "x" }]), false, "an unrelated receipt kind is not evidence of anything for this class");
 });
 
+test("keeperDidFor: npc_reaction -- SL-83: the candidate's handle pairs with the roll receipt's handle; the display name never did", () => {
+	// The shape SL-77 measured on gates #14/#15: the capsule row said "Vittorio Macario", the Keeper's own
+	// first-impression roll said `vittorio-macario`, and the pairing read 0/4 and 0/2 for a class whose every
+	// cleared row was a real engagement. The candidate now carries the handle (consequence-candidates.test.mjs).
+	const roll = { kind: "roll", decision: "natural-npc:first-impression", npc: "vittorio-macario", actor: "thomas-hayes" };
+	assert.equal(keeperDidFor({ consequenceClass: "npc_reaction", target: "vittorio-macario" }, [roll]), true, "handle to handle: the same person");
+	assert.equal(keeperDidFor({ consequenceClass: "npc_reaction", target: "vittorio-macario" }, [{ ...roll, npc: "gabriela-macario" }]), "other");
+});
+
+test("keeperDidFor: npc_reaction -- SL-83: a display-name target (a row from an older kernel) pairs only through the turn's own person receipt", () => {
+	const roll = { kind: "roll", decision: "natural-npc:first-impression", npc: "vittorio-macario", actor: "thomas-hayes" };
+	const person = { kind: "person", who: "vittorio-macario", name: "Vittorio Macario", label: "维托里奥·马卡里奥" };
+	const entry = { consequenceClass: "npc_reaction", target: "Vittorio Macario" };
+	assert.equal(keeperDidFor(entry, [roll, person]), true, "the turn's own `person` receipt says which handle this display name is; that is data, not a list");
+	assert.equal(keeperDidFor(entry, [person, roll]), true, "receipt order is not a condition");
+	assert.equal(keeperDidFor(entry, [roll]), "other", "without a receipt naming the person this turn, a label cannot be paired and reads as a stranger's roll");
+	assert.equal(keeperDidFor(entry, [roll, { ...person, who: "gabriela-macario", name: "Gabriela Macario" }]), "other", "another person's receipt does not lend its handle");
+	assert.equal(keeperDidFor(entry, [person]), false, "a person receipt alone is not a first impression");
+});
+
 test("keeperDidFor: clue_follow_up -- true on the same clue, other on a different one, false on none", () => {
 	const entry = { consequenceClass: "clue_follow_up", clue: "globe-unpublished-story" };
 	assert.equal(keeperDidFor(entry, [{ kind: "clue", clue: "globe-unpublished-story" }]), true);
