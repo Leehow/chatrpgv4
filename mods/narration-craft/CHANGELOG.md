@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 2.0.6
+- Restores "risk" to the brief's stopping boundary ("first outcome, obstacle, risk or fork"): it is the boundary docs/specs/prose-mod.md §6 shares with keeper-pacing, and `tests/extension/jev-pacing-mod-alignment.test.mjs` pins it. 2.0.5 had folded it away to save six bytes.
+
 ## 2.0.5
 - The brief is trimmed so that natural-npc's language rules fit back into the shared 5000-byte ceiling word for word: no status-note clause, no `density_guide` reminder (the full instruction keeps it), "risk" folded into "obstacle or fork", and the temper line reads "asked for something for nothing, they send you packing". Nothing is added.
 
