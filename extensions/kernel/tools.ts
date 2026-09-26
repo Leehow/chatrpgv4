@@ -265,7 +265,7 @@ const RulingEffect = Type.Object({
 
 /** A person moved on or off the stage, or where you read them as standing (contract §17.3). */
 const NpcEffect = Type.Object({
-	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, record that they died, change how they defend, or what they do in a fight" }),
+	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, record that they died, change how they defend, or what they do in a fight; or report what they set out to do and how it went" }),
 	name: Type.String({ description: "what you are calling this person. A name from the book, or -- for someone the book never had -- whatever you are already calling them, a description like \"the clerk at the archive window\" included; the table establishes them under that word on this call, and apply person is what decides the word the player sees. Reuse the exact word you used before: two spellings make two people, and a refusal lists the ones this table already has" }),
 	reunion: Type.Optional(Type.Object({
 		background:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
@@ -303,6 +303,15 @@ const NpcEffect = Type.Object({
 	})),
 	disposition: Type.Optional(StringEnum(["fights_to_the_end", "fights_then_flees", "avoids_fighting", "surrenders"] as const, {
 		description: "how this person behaves in a fight, when the fiction has shown it: it replaces the book's; each of their turns then reads the disposition table against their wounds, the odds and their stance (session.standing_action). This variant stands alone in one npc effect and needs why",
+	})),
+	intends: Type.Optional(Type.String({
+		description: "a new thing this person sets out to do, in one Keeper-facing English sentence: what they try, not what they say (\"shout down the stairs for the porter\", \"back to the door and bolt\", \"offer the key back if he stops\"). Write it the turn they start or announce it; every later result names it by intent_ref. This variant stands alone in one npc effect, with outcome",
+	})),
+	intent_ref: Type.Optional(Type.String({
+		description: "the ref of an intention already on this person's card (present[].history.intents), in director.offer, or in the NPC advice: report its next result instead of writing it again",
+	})),
+	outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, {
+		description: "where that intention stands after this turn: attempted (under way, the world has not answered yet), done (it happened), failed (stopped, or it came to nothing), abandoned (given up for something else). What a person announces gets a result by their next turn, and a settled intention (done, failed, abandoned) is not tried again: what they do next is a new intention. A roll or another effect that carries intent_ref reports the result itself; write this only for a result nothing else records",
 	})),
 	why: Type.Optional(Sentence("why they moved, why they now stand there, how they died, what changed how they defend, or why they attack, hold back or fight the way they do")),
 });

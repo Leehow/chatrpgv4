@@ -23263,3 +23263,50 @@ builds the two-argument `TextGraph`.
 - **Never otherwise.** A table with narration-craft disabled gets `language` and `register` only, as §137.3 says of any table without a provider; a current narration-craft is its own provider. The file is never edited: new craft goes into the package, and an explicit upgrade (`mods.configure`) moves a campaign onto it.
 - **Size.** The table fit the old 2048/1536 budgets and still does; `tests/kernel/test_capsule_nine.py` asserts no `truncated: style` for a legacy lock in both forms.
 
+
+## 138. What a person sets out to do is a ledger row with a result (2026-09-26, `docs/specs/npc-as-actor.md`; amends §17.3, §34 D2 and the NPC response bank)
+
+**Evidence.** Campaign `game-26d5a671` (2026-09-23, the owner's own table): the player refused the job, hit Knott, took
+the wages back and went for the key. From turn 5 to turn 12 Knott's whole part was a returned punch and one line, and
+five of those lines were the same thing: "touch me again and I'll call for help", "come here — ", "hit me again and I
+really will". He never called and nobody came, because nothing anywhere recorded that he had set out to: the speech had
+no receipt, the ledger had no field for it, the memory lane skipped two of the turns, and the NPC advice lane handed the
+Keeper "end the arrangement, reclaim the key" on four turns after Knott had already done exactly that on turn 3. The
+owner's ruling (2026-09-26): *the same person does not do the same thing two turns running, and anything announced gets
+a result on the next turn* -- with no list of what a person may do.
+
+**138.1 Identity.** An intention is one Keeper-facing English line owned by one person. Its reference is
+`intent:<handle>:<12 hex>`, the hex being the first twelve of `sha256(normalizeText(line))` (`kernel-ts/npc/intents.ts`).
+A row of the person's response bank and the same line written by the Keeper are one intention; two different sentences
+are two. Nothing reads what a line means.
+
+**138.2 Writers.** A receipt reports a result of an intention by carrying `intent: {ref, npc: <handle>, text, outcome}`,
+`outcome` one of `attempted` (under way, no result yet), `done`, `failed`, `abandoned` (the last three are settled).
+The first writer is `apply npc`'s intention variant: `{kind: "npc", name, intends?: <line>, intent_ref?: <ref>, outcome,
+why?}` -- `intends` names a new intention by its line, `intent_ref` an existing one (from the card, `director.offer` or
+the NPC advice); both may be given only when they agree. It stands alone in its npc effect (`details.conflicts` names
+what it was combined with), changes no world value, mints the ordinary `npc` receipt with `intent` and `previous` (the
+status before), `visibility: "keeper"`, and the event `npc-changed` with `data.intent`. Refusals, all `invalid_params`:
+a malformed or empty line (400 characters, no markers); a string that is not a reference; a reference owned by someone
+else (`details.owner`); a reference neither the person's ledger nor their current bank knows (`reason: "unknown_intent"`);
+and a settled intention named again, by reference or by the same line (`reason: "intent_settled"`, `details.ref`,
+`status`, `turn`). Every refusal lists `details.options`: the person's intentions under way, then their bank's open rows.
+
+**138.3 Fold and projection.** `foldNpcTurn` folds every receipt's `intent` into the person's ledger entry `intents`
+(`[{ref, text, status, since_turn, last_turn, attempts: [{turn, receipt, outcome}] (last four)}]`) before the kind's
+own fields, so the ledger stays rebuildable from `turns/` (`rebuildNpcLedger`). The present card shows them as
+`history.intents` -- every one under way, then the three most recently settled -- and a person with one under way ranks
+first in `present[]`, as a promise does. The Director's offer reads the intentions under way of the people present from
+the ledger (not from the budget-fitted `present[]`) and puts each in the consequence pool ahead of a failed check:
+`{kind: "consequence", who, ref, line, from: "npc.intents"}`; `director_adoption.offer_taken` counts it as
+`consequence:<ref>` when a receipt of the turn carries that ref.
+
+**138.4 The response bank.** A bank row is `{intent, when}` as before; every read attaches its `ref`. `npc.perspective(s)`
+hands the advice lane only the rows whose intention is not settled, plus `tried` (the card's view of the ledger), and a
+ready advice's `selected` carries the row's `ref`. The capsule's `response_options.count` counts open rows. The bank is
+renewed without anyone asking (`npc.responses.job` opens a job) when it is ready, intentions have settled since it was
+accepted (`settled_seen`, stored at acceptance), and fewer than `npc_responses.min_open_rows` of its rows are still open
+(`content/rulesets/coc7/host-budgets.json`; default 3) -- never twice for the same settled count, so an author that
+re-offers what was already tried cannot loop the lane. The renewal's packet carries `npc.tried` and
+`npc.previous_responses` (with each row's status), and the instruction says a settled intention is never offered again,
+in any words. While the renewal is pending the replaced bank's rows stay readable (`carried_responses`).

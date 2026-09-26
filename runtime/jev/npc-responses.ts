@@ -19,6 +19,7 @@ function stateOf(snapshot:Row):Json {
         commitments:rows(snapshot.commitments).map(r=>({subject:r.subject,entities:r.entities??[],...report(r)})),
         recent_speech:rows(snapshot.recent_speech).map(report),coverage:snapshot.coverage??{},
         continuity:snapshot.reunion?.status==='established'?{background:snapshot.reunion.background,reports:snapshot.reunion.reports,open_threads:snapshot.reunion.open_threads,origin:'table_established'}:null},
+        tried:rows(snapshot.tried).map(r=>({intent:r.intent,status:r.status,turn:r.turn??null})),
         responses:rows(snapshot.responses).map((r,i)=>({alias:`response:${i+1}`,intent:r.intent,when:r.when}))} as Json;
 }
 function questionsOf(snapshot:Row,includeScores:boolean):DecisionQuestion[]{
@@ -35,7 +36,7 @@ function questionsOf(snapshot:Row,includeScores:boolean):DecisionQuestion[]{
     }
     return questions;
 }
-export interface NpcResponseAdvice {npc:string;status:'ready'|'unavailable'|'unresolved'|'stale'|'unneeded';selected?:{intent:string;when:string};reason?:string;scores?:Row}
+export interface NpcResponseAdvice {npc:string;status:'ready'|'unavailable'|'unresolved'|'stale'|'unneeded';selected?:{intent:string;when:string;ref?:string};reason?:string;scores?:Row}
 async function within<T>(signal:AbortSignal,work:()=>Promise<T>):Promise<T>{
     signal.throwIfAborted();let abort:()=>void=()=>{};
     try{return await Promise.race([work(),new Promise<never>((_,reject)=>{
@@ -98,7 +99,7 @@ export async function evaluateNpcResponses(options:{campaign:string;snapshots:Ro
             const index=rows(snapshot.responses).findIndex((_,i)=>selected===`response:${i+1}`);
             if(index<0||answers[`eligible_${index}`]?.choice!=='supported')return finish({npc,status:'unresolved',reason:'unsupported_selected_premise'});
             const choice=rows(snapshot.responses)[index];
-            return finish({npc,status:'ready',selected:{intent:choice.intent,when:choice.when},...(options.includeScores!==false?{scores:{personality:answers[`personality_${index}`]?.score??null,relationship:answers[`relationship_${index}`]?.score??null}}:{})});
+            return finish({npc,status:'ready',selected:{intent:choice.intent,when:choice.when,...(typeof choice.ref==='string'?{ref:choice.ref}:{})},...(options.includeScores!==false?{scores:{personality:answers[`personality_${index}`]?.score??null,relationship:answers[`relationship_${index}`]?.score??null}}:{})});
         }catch(error){return finish({npc,status:'unavailable',reason:lease.signal.aborted?'cancelled':error instanceof PackingError?error.failure:'decision_unavailable'});}
     }));}finally{lease.close();}
 }

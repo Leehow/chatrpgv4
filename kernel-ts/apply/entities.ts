@@ -20,6 +20,8 @@ import {npcProfileOf} from '../resolve/context.js';
 import type {ApplyContext} from './index.js';
 import {CampaignSnapshot} from '../read/campaign.js';
 import {acceptReunion} from '../npc/reunion.js';
+import {INTENT_OUTCOMES} from '../npc/intents.js';
+import {intentStamp,refuseSettled,resolveIntent} from './intent.js';
 /** §135.30.7 (SL-42): the scenes the party left during this turn, latest departure first, from the turn's own move receipts. */
 function departedThisTurn(context:ApplyContext):string[]{
     const moves=[...array(context.turn.receipts),...(context.staged?.()??[])].filter(receipt=>isJsonObject(receipt)&&receipt.kind==='move'&&receipt.renamed!==true&&typeof receipt.from==='string'&&receipt.from!==receipt.to);
@@ -144,6 +146,20 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // the model never sends it, and it never changes who the effect is about, only what the receipt says about it.
     const resolvedFrom=typeof effect._resolved_from==='string'&&effect._resolved_from.trim()?effect._resolved_from.trim():undefined;
     const handle=graph.handle(node),{to,stance,dead}=effect;
+    // Contract §138.2: what this person is trying to do, and how it went -- the Keeper's own account of a result no
+    // other effect or roll carries (an announcement, a shout nobody answers, a plan dropped). Its own variant, like
+    // `defense`: it changes no world value, only where the intention stands.
+    if(effect.intends!=null||effect.intent_ref!=null||effect.outcome!=null){
+        const combined=['to','stance','dead','skill','archetype','conditions','defense','action','disposition','reunion'].filter(key=>effect[key]!=null);
+        if(combined.length)throw new RpcError('invalid_params','npc.intends is its own effect',{fix:'report the intention in one npc effect and the other change in a second effect of the same batch',details:{field:'npc.intends',conflicts:combined}});
+        const outcome=effect.outcome;
+        if(typeof outcome!=='string'||!INTENT_OUTCOMES.includes(outcome))unsupported('npc.outcome',outcome,[...INTENT_OUTCOMES],`npc.outcome ${repr(outcome)} is not where an intention can stand`);
+        const resolved=await resolveIntent(context,node,{intends:effect.intends,intent_ref:effect.intent_ref},'npc');
+        await refuseSettled(context,node,resolved,'npc');
+        const intent=intentStamp(handle,resolved,outcome as string);
+        const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),intent,previous:resolved.status,...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
+        return {receipt,event:{type:'npc-changed',data:{npc:handle,intent:{ref:intent.ref,text:intent.text,outcome},why}}};
+    }
     if(effect.reunion!=null){
         if(['to','stance','dead','skill','archetype','conditions','defense','action','disposition'].some(key=>effect[key]!=null))
             throw new RpcError('invalid_params','Reunion continuity is separate from mechanical or positional NPC effects');

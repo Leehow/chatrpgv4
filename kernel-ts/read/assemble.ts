@@ -21,7 +21,8 @@ import { playLanguageOf } from "./languages.js";
 import { RpcError } from "../errors.js";
 import { array, row, number, string, truth, chars, clone, normalize, type Row } from "./values.js";
 import type { ModuleGraph } from "./module-graph.js";
-import {responseBankFor,responseHint} from '../npc/responses.js';
+import {openResponseRows,responseHint} from '../npc/responses.js';
+import {openIntents} from '../npc/intents.js';
 /**
  * §135.11.1 (SL-50 re-ruling, 2026-09-25): writes are silent. Prose beside a write or read call is dropped before anyone
  * sees it (long gates #3-#5: 46 drops, the Keeper announcing its bookkeeping), and the run then asks for the turn again.
@@ -402,7 +403,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     const npcScope={worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)};
     const responseHints=new Map<string,Row>();
     await Promise.all(present.map(async node=>{
-        try{const bank=await responseBankFor({graph,world,scope:npcScope},node,file=>campaign.optional(file));
+        try{const bank=await openResponseRows({graph,world,scope:npcScope},node,file=>campaign.optional(file),row(row(campaign.jsonFiles.get("npc-ledger.json"))[string(node.node_id)]));
             if(bank.length)responseHints.set(graph.displayName(node),responseHint(graph.displayName(node),bank.length));}
         catch{/* Optional preparation cannot block the ordinary capsule. */}
     }));
@@ -511,7 +512,11 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         pacing: row(capsule.mods).pacing ?? null,
         pressures: array(capsule.pressures),
         obligations: array(capsule.obligations),
-        previous: previous ?? null
+        previous: previous ?? null,
+        // Contract §138.3: what the people present set out to do and have no result for yet, read from the ledger, not
+        // from present[] (whose rows the budget may already have cut).
+        intents: present.flatMap(node => openIntents(row(row(campaign.jsonFiles.get("npc-ledger.json"))[string(node.node_id)]))
+            .map(item => ({who: graph.displayName(node), ref: item.ref, intent: item.text, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null})))
     });
     // Offer rows go first when the section is over budget; because and grounded_by are the Director's account of itself.
     const fitted = row(capsule.director);

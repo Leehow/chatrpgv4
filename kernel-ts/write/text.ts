@@ -350,9 +350,11 @@ export function directorAdoption(graph: ModuleGraph, turn: Row, snapshot: Row, c
         const hit = o.kind === 'route' ? receipts.some(r => r.kind === 'move' && string(r.to) === where)
             : o.kind === 'person' ? receipts.some(r => (r.kind === 'clue' && truth(r.from) && sameName(graph, string(r.from), who)) || (r.kind === 'npc' && sameName(graph, string(r.name || r.handle), who)) || (r.kind === 'roll' && truth(r.npc) && sameName(graph, string(r.npc), who)))
             : o.kind === 'pressure' ? ticked.has(clockTargetKey(target))
+            // §138.3: an intention under way is taken when a receipt of this turn reports its next result.
+            : o.kind === 'consequence' && truth(o.ref) ? receipts.some(r => row(r.intent).ref === o.ref)
             : false;
         if (hit)
-            taken.add(o.kind === 'pressure' ? clockOfferId('pressure', target) : `${string(o.kind)}:${o.kind === 'route' ? where : who || where}`);
+            taken.add(o.kind === 'pressure' ? clockOfferId('pressure', target) : o.kind === 'consequence' ? `consequence:${string(o.ref)}` : `${string(o.kind)}:${o.kind === 'route' ? where : who || where}`);
     }
     return {
         beat,

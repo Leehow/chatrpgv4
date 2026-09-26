@@ -27,6 +27,8 @@ export interface OfferSources {
     pressures: Row[];
     obligations?: Row[];
     previous?: Row | null;
+    /** Contract §138.3: what the people present set out to do and have no result for yet. */
+    intents?: Row[];
 }
 /** Clip at a word boundary and mark the cut: a line the Keeper reads must not end mid-word. */
 const clip = (text: string): string => {
@@ -114,8 +116,19 @@ function pressureRows(pacing: Row | null | undefined, pressures: Row[], obligati
     }));
     return [...clocks, ...other, ...continuations];
 }
-function consequenceRows(previous: Row | null | undefined): Row[] {
-    const receipts = array(previous?.receipts), rows: Row[] = [];
+/**
+ * Contract §138.3: an intention under way is the most owed consequence there is -- someone started something and the
+ * world has not answered. The line says the three ways it can end; `ref` is what the result is written against.
+ */
+function intentRows(intents: Row[]): Row[] {
+    return intents.filter(item => truth(item.ref) && truth(item.intent)).map(item => ({
+        kind: "consequence", who: string(item.who), ref: string(item.ref),
+        line: clip(`${string(item.who)} set out to ${string(item.intent)} (turn ${string(item.since_turn)}) and it has no result yet: it succeeds, fails or is dropped now`),
+        from: "npc.intents"
+    }));
+}
+function consequenceRows(previous: Row | null | undefined, intents: Row[] = []): Row[] {
+    const receipts = array(previous?.receipts), rows: Row[] = intentRows(intents);
     for (const receipt of receipts) {
         if (receipt.kind === "roll" && receipt.form !== "dice" && receipt.passed === false)
             rows.push({ kind: "consequence", who: string(receipt.actor_label || receipt.actor || ""), line: clip(string(receipt.actor_label || receipt.actor || "someone") + "'s " + string(receipt.skill || receipt.decision || "check") + " failed last turn; its consequence is still owed"), from: "recent.receipts" });
@@ -130,7 +143,7 @@ export function directorOffer(beat: string, sources: OfferSources): Row[] {
         person: personRows(sources.present),
         route: routeRows(sources.where, sources.present, sources.thread),
         pressure: pressureRows(sources.pacing, sources.pressures, array(sources.obligations)),
-        consequence: consequenceRows(sources.previous)
+        consequence: consequenceRows(sources.previous, array(sources.intents))
     };
     const order = [...(OFFER_ORDER[beat] ?? DEFAULT_ORDER), ...DEFAULT_ORDER.filter(kind => !(OFFER_ORDER[beat] ?? DEFAULT_ORDER).includes(kind))];
     const chosen: Row[] = [];

@@ -7,6 +7,7 @@ import { incapacitatedBy } from "../healing/conditions.js";
 import { toldTurn } from "../journal/naming.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 import {personalityView} from '../npc/material.js';
+import { intentsView } from '../npc/intents.js';
 import {npcRelationships,npcRecentSpeech,npcCommitments} from '../npc/perspective.js';
 import {reunionView} from '../npc/reunion.js';
 import {cardAction,cardTactic} from '../combat/standing.js';
@@ -341,6 +342,10 @@ function npcHistory(ledger: Row, memories: Map<string, Row>): Row | null {
     const result: Row = {},
         seen = row(ledger.turns_present),
         disclosed = array(ledger.disclosed).filter(item => truth(item.clue)).map(item => string(item.clue));
+    // Contract §138.3: what this person set out to do and where each stands -- under way first, then the latest settled.
+    const intents = intentsView(ledger);
+    if (intents.length)
+        result.intents = intents;
     const promises = array(ledger.promises).slice(-3).flatMap(item => {
         const memory = memories.get(string(item.memory_id));
         return memory && memory.status !== "superseded" ? [{
@@ -479,7 +484,8 @@ export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledge
         memories.set(string(value.id),prior&&memoryOccurrenceKey(prior)!==memoryOccurrenceKey(value)
             ? {kind:'promise',status:'candidate',statement:null,authority:'conversation_report',fulfillment:{status:'unavailable',terms:[]}} : value);
     }
-    const rank = (entry: Row) => truth(row(entry.history).promises) ? 0 : truth(row(entry.history).met_turns) || truth(entry.toward_party) ? 1 : truth(entry.wants) ? 2 : 3;
+    // §138.3: someone with an intention under way owes the table a result this turn, as a promise does.
+    const rank = (entry: Row) => truth(row(entry.history).promises) || array(row(entry.history).intents).some(item => row(item).status === "attempted") ? 0 : truth(row(entry.history).met_turns) || truth(entry.toward_party) ? 1 : truth(entry.wants) ? 2 : 3;
     return npcsPresent(graph, world, scene).map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep", row(options.journal), options.records,options.scope)).sort((a, b) => rank(a) - rank(b));
 }
 export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, journal: Row = {}, records: Row[] = [], memory:Row[] = [], scope:Row = {}, combat: Row | null = null, dispositions: Row | null = null): Row {

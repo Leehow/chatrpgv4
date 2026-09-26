@@ -96,7 +96,9 @@ test('a prepared response bank is readable advice, accepts once, and never estab
    {intent:'Acknowledge the agreed departure and return to work.',when:'The visitor has chosen to leave and no urgent issue remains.'}];
  await client.call('npc.responses.submit',{campaign,job_id:job.job_id,claim:job.claim,responses});
  const view=await client.call('npc.perspective',{campaign,name:'Steven Knott'});
- assert.deepEqual(view.responses,responses);
+ // Contract §138.4: each row carries the reference its result is reported against.
+ assert.deepEqual(view.responses.map(({ref:_ref,...row})=>row),responses);
+ for(const row of view.responses)assert.match(row.ref,/^intent:steven-knott:[0-9a-f]{12}$/);
  const group=await client.call('npc.perspectives',{campaign});
  assert.deepEqual(group.views.find(row=>row.name==='Steven Knott'),view);
  const capsule=await client.call('table.capsule',{campaign});
