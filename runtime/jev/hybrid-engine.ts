@@ -69,11 +69,14 @@ const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value
 /**
  * §135.11.2 (SL-50 stage 2): the head line of the run's first `coc-clerk` note -- writes are silent, stated once per run
  * where the model reads it beside the carried views right before its step. The capsule's own sentence stays (§135.11.1).
- * Keeper-only, system language.
+ * §135.5 addendum (SL-88, "what needs no result does not wait"): names which calls are blocking and which are not, so a
+ * non-blocking apply goes out with its narrate in one call instead of costing a whole extra model step. Keeper-only,
+ * system language.
  */
-export const CLERK_NOTE_HEAD = 'Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never shown). The '
-  + 'turn\'s prose goes through narrate, or is the text of your final step, in the same response as the writes whenever nothing among '
-  + 'them needs a result first.';
+export const CLERK_NOTE_HEAD = 'Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never shown). '
+  + 'An apply whose landing is fixed by its own arguments is non-blocking: put it and the narrate that follows in the same response, '
+  + 'writes first, narrate last; resolve, look, lookup and recall are blocking -- the prose needs a result you do not have yet -- so '
+  + 'wait for their result before you narrate.';
 /**
  * §135.30.6 (SL-40): what the Keeper is told with a held destination. The guard is a pacing condition: the place and its
  * entrance exist (the guard's `exists`), so the Keeper narrates the entrance as the book has it and what is missing, never
