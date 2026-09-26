@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 2.0.3
+- A demand for something for nothing no longer ends in a polite refusal: the asker is sent packing, as rudely as the person's station allows (a shopkeeper shows them the door, a labourer tells them to get lost). On table temper-b (deepseek-v4.1-flash low) a dock labourer who had just been mocked answered a demand for free portering with a shrug and "we're square"; the owner expects a real person to tell the asker to get lost.
+
 ## 2.0.2
 - Carries the voice lane's instruction (`contributes.voice_lane`, `voice-lane.md`); the kernel no longer keeps it as base content. Older owners read a frozen compatibility copy.
 - People react to how they are treated: asked the same thing again they answer shorter, then sharper; sarcasm and insult land in their register; a demand for something for nothing is refused outright. A feeling that outlasts the exchange is recorded with `apply npc` and a stance.
