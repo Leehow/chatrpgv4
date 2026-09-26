@@ -73,7 +73,7 @@ export function consequenceBatch(view: ConsequenceView, scope: ScopeBinding, rea
     const materials = (view.materials ?? []).map((value, index) => ({alias: `material_${index + 1}`, kind: value.kind, label: value.label,
       ...(index < previews ? {content: Array.from(value.preview).slice(0, previewChars).join('')} : {})}));
     const candidateView = rows.map((candidate, index) => ({alias: consequenceAlias(index), verb: candidate.verb, class: candidate.consequenceClass,
-      label: candidate.label, bound: {...candidate.bound}}));
+      label: candidate.label, bound: {...candidate.bound}, ...(candidate.detail !== undefined ? {detail: candidate.detail} : {})}));
     const state = {purpose: 'judge whether a host-issued consequence candidate applies to this declaration', player_input: view.rawInput,
       now: {scene: view.context.scene, clock: view.context.clock, present: view.present}, settled_this_run: view.settled, materials,
       candidates: candidateView, policy: CONSEQUENCE_POLICY} as unknown as Json;
@@ -120,22 +120,29 @@ export interface ConsequenceOutcome {rows: ConsequenceRow[]; exists: Consequence
  * reported `direct: true, cleared: true` without ever having been asked. Jev unavailable or the batch incomplete:
  * every asked row comes back unresolved (`cleared: false`, confidence/distribution `null`) and `reason` names why
  * -- D2.7's "degrades to today's behaviour, never to a guess" applies here as much as to a live candidate.
+ *
+ * SL-86 (§135.32 addendum 3): `classThresholds` is an optional per-class override of `thresholds` (the shared
+ * gate), applied to both a candidate's own row and its class's `exists` row -- the same semantic gate, asked
+ * twice. A class absent from the map uses `thresholds` unchanged, so every call site that does not pass a map
+ * (or passes an empty one) behaves exactly as before this addendum.
  */
 export function interpretConsequenceResult(candidates: readonly ConsequenceCandidate[],
-  result: DecisionResult | undefined, thresholds: ConsequenceThresholds): ConsequenceOutcome {
+  result: DecisionResult | undefined, thresholds: ConsequenceThresholds,
+  classThresholds: Readonly<Partial<Record<ConsequenceClass, ConsequenceThresholds>>> = {}): ConsequenceOutcome {
   const complete = result?.status === 'complete', rows = askedConsequenceCandidates(candidates);
+  const gateFor = (cls: ConsequenceClass): ConsequenceThresholds => classThresholds[cls] ?? thresholds;
   const out: ConsequenceRow[] = [];
   for (const candidate of candidates) {
     if (!candidate.noul) { out.push({class: candidate.consequenceClass, key: candidate.key, cleared: true, confidence: null, distribution: null, direct: true}); continue; }
     const index = rows.indexOf(candidate);
     const p = complete && index >= 0 ? noulOf(result, consequenceAlias(index)) : undefined;
-    const gate = noulClears(p, thresholds);
+    const gate = noulClears(p, gateFor(candidate.consequenceClass));
     out.push({class: candidate.consequenceClass, key: candidate.key, cleared: gate === 'true',
       confidence: typeof p === 'number' ? p : null, distribution: typeof p === 'number' ? {true: p, false: 1 - p} : null});
   }
   const exists: ConsequenceExistsRow[] = classesOffered(candidates).map(cls => {
     const p = complete ? noulOf(result, existsAlias(cls)) : undefined;
-    const gate = noulClears(p, thresholds);
+    const gate = noulClears(p, gateFor(cls));
     return {class: cls, cleared: gate === undefined ? null : gate === 'true', confidence: typeof p === 'number' ? p : null,
       distribution: typeof p === 'number' ? {true: p, false: 1 - p} : null};
   });

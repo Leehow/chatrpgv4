@@ -70,10 +70,12 @@ import {
 	type AdmissionOutcome,
 	type AdmissionProposal,
 	type TypedAttempt,
+	admissionHardCapMs,
 	admissionPending,
 	admissionRefusal,
 	admissionRequest,
 	admissionTimedOut,
+	admissionTimeoutMs,
 	admissionUnavailable,
 	compileAdmission,
 	type ClerkEvidence,
@@ -91,8 +93,12 @@ import {
 } from "./admission.ts";
 import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
 
-/** One review returned pending (§32.12.2): the lane still running, if it is, and the typed reading the Keeper was shown. */
-interface AdmissionPendingEntry { lane?: Promise<AdmissionOutcome>; typed?: TypedReading; capMs: number; hardCapMs: number; collected: boolean }
+/**
+ * One review returned pending (§32.12.2): the lane still running, if it is, and the typed reading the Keeper was shown.
+ * §135.5/SL-88: the same shape also holds a review `message_end` started early, for a write step of the Keeper's own
+ * batch whose turn to execute has not come yet (`prefetched: true`) -- `admitOne` collects either kind the same way.
+ */
+interface AdmissionPendingEntry { lane?: Promise<AdmissionOutcome>; typed?: TypedReading; capMs: number; hardCapMs: number; collected: boolean; prefetched?: boolean }
 /**
  * §32.12.3: what line-level admission did to one call. `landed` lines go to the kernel in this call; `notLanded` lines (with
  * the refusal their own review gave) do not. `alreadyLanded` lines were dropped from a resend of a split batch because an
@@ -2184,6 +2190,97 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
+	 * The reviewer's scope for one call's effects (§32/§32.4), shared by the real admission path and the concurrent
+	 * prefetch §135.5/SL-88 starts from `message_end` before any call of a Keeper batch has executed: the move targets
+	 * among this call's own effects, resolved from the graph once, and nothing else. Returning the `scopeFor` closure
+	 * (not just one scope) lets a caller ask it again for a narrowed set of effects, as the split (§32.12.3) and the
+	 * already-landed resend (§32.4) both do.
+	 */
+	async function admissionScopeBuilder(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>):
+		Promise<(effects: Array<Record<string, unknown>>) => { party: string[]; scene?: TableState["scene"]; destinations?: AdmissionDestination[]; answered?: string[] }> {
+		const destinations: AdmissionDestination[] = [];
+		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
+			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
+			try {
+				const found = await state.kernel.call<{entities?: Array<Record<string, unknown>>}>('table.lookup',
+					{campaign: state.campaign, kind: 'module', query: effect.to, expected_kind: 'scene', limit: 1});
+				const entity = found.entities?.[0];
+				// The place's authored names travel with the projection: without them the reviewer
+				// reads the handle's slug as the place and refuses a move into the building the
+				// player just named (contract 32; 2026-09-15, turns 83 and 86).
+				if (entity) destinations.push(registeredDestination(effect.to, entity));
+			} catch { /* The authoritative apply path will report a missing or invalid destination. */ }
+		}
+		// The reviewer's scope for a set of this call's effects: the move targets among them, and nothing else (a part of a
+		// batch has the key a call carrying only that part would have, §32.4).
+		return (effects: Array<Record<string, unknown>>) => {
+			const targets = new Set(effects.filter((effect) => effect.kind === "move").map((effect) => effect.to));
+			const own = destinations.filter((value) => targets.has(value.requested));
+			return { party: state.party.map((member) => member.name), scene: state.scene,
+				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}) };
+		};
+	}
+
+	/**
+	 * The reviewer's picture of the table (§32), shared by the real admission path and the prefetch below. Read live
+	 * off `state` at call time -- a prefetch that started before an earlier step of the same batch landed reads the
+	 * table as it stood then, which is what the owner's ruling calls for (§32.12/SL-88: the reviews of one response's
+	 * write steps start together, from the same state, and settle in the batch's order).
+	 */
+	function admissionContextFor(state: TableState): AdmissionContext {
+		return {
+			turn: state.turn,
+			playerText: state.playerText!,
+			...(state.interruptedPlayerText ? { interruptedPlayerText: state.interruptedPlayerText } : {}),
+			investigators: state.party,
+			...(state.scene?.label ?? state.scene?.handle ? { scene: state.scene.label ?? state.scene.handle } : {}),
+			present: state.present,
+			delivered: [
+				...(state.prologue ? [{ turn: "setup", keeper: state.prologue }] : []),
+				...(state.delivered.length ? state.delivered : state.recent),
+			],
+			landed: state.landed,
+			refused: state.admissionRefused,
+			...(() => { const book = bookText(carriedText.of(state.campaign, state.turn)); return book.length ? { bookText: book } : {}; })(),
+		};
+	}
+
+	/**
+	 * §135.5/SL-88 ("what needs no result does not wait"): start this call's admission review now, ahead of the
+	 * `runTool` invocation that will eventually reach it. `message_end` calls this once for every `apply`/`resolve`
+	 * call of a Keeper's own batch, before any of them has executed (evidence, gate #18: 65 tool executions, 0
+	 * overlapping admission rounds) -- so their lane rounds run concurrently, one round for the whole response, instead
+	 * of strictly one after another. The kernel still executes the batch in the model's order (§135.5 is unchanged);
+	 * this only starts the wait earlier. It never decides anything on its own: `admitAction`, when it actually reaches
+	 * this call, is the one place a call is admitted or refused (§32.12's own line), and it collects what this started
+	 * through the same `state.admissionPending` map §32.12.2's resend already uses -- a prefetch a batch never reaches
+	 * (an earlier step fell, §135.5's failure branch) is simply never collected: wasted, never wrong, since nothing
+	 * here writes kernel state or settles a verdict by itself. A miss (the real call's own proposal key does not match,
+	 * because `runTool` normalizes the Keeper's raw arguments a little further before admission sees them) costs only
+	 * the head start: the real call reviews fresh, exactly as it would without this function.
+	 */
+	async function prefetchAdmission(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>): Promise<void> {
+		if (!state.playerText) return;
+		if (tool === "apply" && combatSceneMove(state, payload)) return;
+		const scopeFor = await admissionScopeBuilder(state, tool, payload);
+		const effects = Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : [];
+		const proposal = admissionRequest(tool, payload, scopeFor(effects));
+		// A verdict already kept for the turn, or a round already running (a genuine §32.12.2 pending resend, or an
+		// earlier call of this same batch proposing the identical thing) -- either way there is nothing to start.
+		if (!proposal || state.admission.has(proposal.key) || state.admissionPending.has(proposal.key)) return;
+		const ctx = sessionCtx;
+		if (!ctx) return;
+		const capMs = admissionTimeoutMs(), hardCapMs = admissionHardCapMs(capMs);
+		const lane = reviewAdmissionPrimary({
+			campaign: state.campaign, ctx, proposal, context: admissionContextFor(state),
+			providerBudget: foregroundProviderBudget?.(), record: (row) => record({ verb: tool, ...row, prefetch: true }),
+			...(state.lanes.signal ? { signal: state.lanes.signal } : {}), lineLevel: tool === "apply",
+		}).catch((error): AdmissionOutcome => ({ ok: false, reason: "prefetch_error",
+			detail: error instanceof Error ? error.message : String(error), ms: 0, reviewer: "lane", meta: {} }));
+		state.admissionPending.set(proposal.key, { lane, capMs, hardCapMs, collected: false, prefetched: true });
+	}
+
+	/**
 	 * Put a `resolve` or `apply` to review before it reaches a Mod hook or the kernel, and throw
 	 * the refusal the Keeper reads when it is not admitted. A call that is not a proposed voluntary
 	 * investigator action goes straight on; the opening turn, which has no player words, puts
@@ -2209,27 +2306,7 @@ export default function (pi: ExtensionAPI) {
 			await record({ lane: "admission", verb: tool, ok: true, skipped: "combat_scene_required", destination: internalCombatMove, path: "none", ms: 0, ...origin, ...who });
 			return;
 		}
-		const destinations: AdmissionDestination[] = [];
-		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
-			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
-			try {
-				const found = await state.kernel.call<{entities?: Array<Record<string, unknown>>}>('table.lookup',
-					{campaign: state.campaign, kind: 'module', query: effect.to, expected_kind: 'scene', limit: 1});
-				const entity = found.entities?.[0];
-				// The place's authored names travel with the projection: without them the reviewer
-				// reads the handle's slug as the place and refuses a move into the building the
-				// player just named (contract 32; 2026-09-15, turns 83 and 86).
-				if (entity) destinations.push(registeredDestination(effect.to, entity));
-			} catch { /* The authoritative apply path will report a missing or invalid destination. */ }
-		}
-		// The reviewer's scope for a set of this call's effects: the move targets among them, and nothing else (a part of a
-		// batch has the key a call carrying only that part would have, §32.4).
-		const scopeFor = (effects: Array<Record<string, unknown>>) => {
-			const targets = new Set(effects.filter((effect) => effect.kind === "move").map((effect) => effect.to));
-			const own = destinations.filter((value) => targets.has(value.requested));
-			return { party: state.party.map((member) => member.name), scene: state.scene,
-				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}) };
-		};
+		const scopeFor = await admissionScopeBuilder(state, tool, payload);
 		const effectsOf = () => (Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : []);
 		let proposal = admissionRequest(tool, payload, scopeFor(effectsOf()));
 		if (!proposal) return;
@@ -2261,22 +2338,7 @@ export default function (pi: ExtensionAPI) {
 		const compiled = compileAdmission(evidence);
 		const refusedCompile = compiled && !compiled.ok ? { compile_refused: compiled.reason } : {};
 		const ctx = sessionCtx;
-		const context = (): AdmissionContext => ({
-			turn: state.turn,
-			playerText: state.playerText!,
-			...(state.interruptedPlayerText ? { interruptedPlayerText: state.interruptedPlayerText } : {}),
-			investigators: state.party,
-			...(state.scene?.label ?? state.scene?.handle ? { scene: state.scene.label ?? state.scene.handle } : {}),
-			present: state.present,
-			delivered: [
-				...(state.prologue ? [{ turn: "setup", keeper: state.prologue }] : []),
-				...(state.delivered.length ? state.delivered : state.recent),
-			],
-			landed: state.landed,
-			refused: state.admissionRefused,
-			// §11.5.4 (SL-51): the book's text the Keeper was shown this turn, for the typed reviewer's grounds.
-			...(() => { const book = bookText(carriedText.of(state.campaign, state.turn)); return book.length ? { bookText: book } : {}; })(),
-		});
+		const context = (): AdmissionContext => admissionContextFor(state);
 
 		/**
 		 * One proposal through reuse, the compile's evidence, a kept pending review and the review itself; throws the refusal
@@ -2351,10 +2413,21 @@ export default function (pi: ExtensionAPI) {
 			const outcome = pending?.lane ? await pending.lane : await review();
 			// §32.12.3: the typed answer admitted some lines and not the rest; the caller reviews the rest.
 			if (outcome.ok === "split") return outcome;
-			const resent = pending ? { resend: true, resend_wait_ms: Date.now() - began, lane_ms: outcome.ms } : {};
+			// §135.5/SL-88: a round `message_end` started before this call's own turn came up is not a resend -- the
+			// Keeper never saw a `review_pending` refusal for it. `concurrent_wait_ms` is what this call still had to
+			// wait once its own turn actually arrived, which is the whole saving the ruling is for.
+			const resent = pending?.prefetched ? { concurrent: true, concurrent_wait_ms: Date.now() - began, lane_ms: outcome.ms }
+				: pending ? { resend: true, resend_wait_ms: Date.now() - began, lane_ms: outcome.ms } : {};
 			const noVerdict = outcome.ok === "late" || outcome.ok === false && outcome.reason === NO_GROUNDS
 				|| outcome.ok === true && outcome.verdict.verdict === REVIEW_TIMEOUT;
-			if (pending && noVerdict) {
+			// §135.5/SL-88: this shortcut is for a genuine §32.12.2 resend -- the Keeper already read a `review_pending`
+			// refusal for this exact call once, so a second no-verdict answer is final. A collected *prefetch* has not
+			// been shown to the Keeper at all; from its seat this is the first attempt, so a still-unresolved outcome
+			// falls through to the ordinary late-admission/park-for-resend handling below, exactly as a fresh `review()`
+			// reaching its own cap would. (A prefetch's own `.lane` is always `reviewAdmissionPrimary`'s full promise,
+			// which wraps a raw lane timeout into `ok: "late"` before it ever reaches here, so the raw-verdict branch of
+			// `noVerdict` is unreachable from a prefetch; only a genuine resend's stored raw lane promise takes it.)
+			if (pending && !pending.prefetched && noVerdict) {
 				if (outcome.ok === "late") watchLate(outcome.lane, REVIEW_TIMEOUT);
 				return settle({ verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${pending.hardCapMs} ms hard cap`, reviewer: "lane", path: "lane", capMs: pending.hardCapMs },
 					false, Date.now() - began, outcome.ok === "late" ? undefined : outcome.model,
@@ -5344,6 +5417,28 @@ export default function (pi: ExtensionAPI) {
 			? new Set(narrates.map((b) => String(b.id)))
 			: undefined;
 		state.effectRefusedBeforeDelivery = false;
+		// §135.5/§32.12 addendum (SL-88, "what needs no result does not wait"): the admission reviews of every
+		// write step of this response start together, here, before any of them has run `runTool` -- one concurrent
+		// round for the whole batch instead of the strictly sequential rounds gate #18 measured (65 tool executions,
+		// 0 overlapping). Only the Keeper's own calls reach this hook (a policy-origin dispatch is never an
+		// assistant-message tool call), so `prefetchAdmission` always reviews as a model-origin proposal. Each call's
+		// arguments are cloned and normalized the same way `runTool` will, so the prefetch's key matches the real
+		// one whenever it can; a call this batch never reaches after an earlier one is refused (§135.5's failure
+		// branch) simply leaves its head start uncollected. Never awaited: a slow or failed prefetch must not hold up
+		// this hook, which is on the critical path of every turn.
+		//
+		// Fewer than two reviewed calls has nothing to overlap with, so it is left alone: a lone `apply`/`resolve`
+		// gains no saving from starting its review one hook earlier, and every existing single-call admission
+		// timing (§32.12.2's cap/hard-cap/pending/resend ladder) stays exactly the shape it already is.
+		const reviewedCalls = calls.filter((call) => call.name === "apply" || call.name === "resolve");
+		if (reviewedCalls.length > 1) for (const call of reviewedCalls) {
+			const reviewedTool = call.name as "apply" | "resolve";
+			let cloned: Record<string, unknown> | undefined;
+			try { cloned = JSON.parse(JSON.stringify(call.arguments ?? {})) as Record<string, unknown>; } catch { cloned = undefined; }
+			if (!cloned) continue;
+			normalizeToolInput(reviewedTool, cloned);
+			void prefetchAdmission(state, reviewedTool, { ...cloned, campaign: state.campaign }).catch(() => {});
+		}
 		if (hasToolCalls) {
 			// An assistant message with tool calls keeps only the calls: the Keeper's process talk before a
 			// call ("let me check the clues first") is not a line, and player-visible text comes only from

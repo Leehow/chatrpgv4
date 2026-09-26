@@ -14,6 +14,7 @@
  */
 import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
 import type {Candidate, Json, Unbound} from './step-policy.ts';
+import type {DecisionDescriptor} from './contracts.ts';
 import {guardsOf, preordainedContacts, type ObligationReads} from './obligation-candidates.ts';
 import {composeSentence} from './composed-arguments.ts';
 
@@ -27,9 +28,11 @@ export type ConsequenceClass = 'npc_reaction' | 'clue_follow_up' | 'time_cost';
 /**
  * A D1 candidate's own Noul question (design D1/D2.1): one condition, phrased so a high answer means yes. Absent
  * on a `time_cost` candidate whose shape states an amount -- that one is direct (§135.28's `stated` path), never
- * a question (D4).
+ * a question (D4). `criteria.true`/`false` is a `DecisionDescriptor` (string | array | object | null, contracts.ts):
+ * SL-86 (§135.32 addendum 3) writes `clue_follow_up`'s boundary as the skill's structured `{what, examples}` /
+ * `{not_for}` rubric rather than a single sentence, so the book's own cue text can ride as `examples`.
  */
-export interface ConsequenceNoul {instructions: string; criteria: {true: string; false: string}}
+export interface ConsequenceNoul {instructions: string; criteria: {true: DecisionDescriptor; false: DecisionDescriptor}}
 export interface ConsequenceCandidate extends Candidate {
   consequenceClass: ConsequenceClass;
   noul?: ConsequenceNoul;
@@ -114,6 +117,15 @@ export function npcReactionCandidates(reads: ConsequenceReads, rawInput = ''): C
  * obligation's guard. Keyed apart from that family (`consequence:clue_follow_up:…`) so the two are never confused:
  * this class is judged against what the run has *settled* this turn, the live family against the player's
  * *declared* sentence (§135.30's compile), and shadow mode never executes either of this class's rows.
+ *
+ * SL-86 (§135.32 addendum 3): the row already carries the book's own cues for this clue (§135.30.9.2's
+ * `description.cues`, the affordances of the active scene that grant it, `grantingCues` in
+ * `kernel-ts/read/destination-rows.ts`) -- no new kernel field, only a read this function was not yet taking.
+ * The cues ride on `detail.cues` (`Candidate.detail`, state-only: it is sent to Jev in the question's state but
+ * never becomes a write argument -- `bound` stays `{kind: "clue", clue, how}`, the same shape as before this
+ * addendum) and the Noul's `criteria.true.examples` (the skill's Choice/Noul rubric: real book text, not a
+ * paraphrase), so a literal answer over "does this settled action reach the clue" has the book's own words for
+ * what "reach" means, not just the clue's post-discovery summary.
  */
 export function clueFollowUpCandidates(reads: ConsequenceReads): ConsequenceCandidate[] {
   const guards = guardsOf(reads), out: ConsequenceCandidate[] = [];
@@ -123,6 +135,7 @@ export function clueFollowUpCandidates(reads: ConsequenceReads): ConsequenceCand
     const clue = text(effect.clue);
     if (!clue || text(row.guarded_by) || guards.clues.has(clue)) continue;
     const summary = text(description.summary);
+    const cues = array(description.cues).filter((value): value is string => typeof value === 'string' && value.trim() !== '');
     out.push({
       key: `consequence:clue_follow_up:${clue}`, verb: 'apply', family: 'clue_follow_up',
       label: `Clue ${clue} as a consequence of the settled action${summary ? `: ${summary}` : ''}`, source: 'table.apply.options',
@@ -130,10 +143,18 @@ export function clueFollowUpCandidates(reads: ConsequenceReads): ConsequenceCand
       composed: ['how'], unbound: [{name: 'label', required: false, vocabulary: 'open'}],
       consequenceClass: 'clue_follow_up', clerk: 'consequence_bookkeeping',
       basis: {read: 'table.apply.options', path: `candidates[${index}]`, row: row as Json},
+      ...(cues.length ? {detail: {cues} as Json} : {}),
       noul: {
-        instructions: 'Judge one fact: does the action the host has already settled this turn -- the place searched, the person asked, the thing examined '
-          + '-- reach this clue where the book places it? Judge only what was settled, not what the player merely said or what the Keeper might add.',
-        criteria: {true: `The settled action reaches clue ${clue}${summary ? ` (${summary})` : ''}.`, false: 'The settled action does not reach this clue.'},
+        instructions: 'Judge one fact about the action the host has already settled this turn -- the place searched, the person asked, the thing '
+          + 'examined -- never what the player merely said in words or what the Keeper might narrate later: does it perform one of the book\'s own '
+          + 'ways to reach this clue, at the place the book puts it? Reach means doing that action, not merely naming, approaching, or standing near '
+          + 'the place.',
+        criteria: {
+          true: {what: `The action, as settled, does the thing the cue describes at the place the book puts clue ${clue}${summary ? ` (${summary})` : ''}.`,
+            ...(cues.length ? {examples: cues} : {})},
+          false: {not_for: 'Naming the place from afar, moving toward it without acting, or a different room, object or person than the ones the book '
+            + 'names for this clue.'},
+        },
       },
     });
   }

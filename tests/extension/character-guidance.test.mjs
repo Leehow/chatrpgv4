@@ -129,3 +129,17 @@ test('background graph enrichment does not invalidate guidance for the same sour
  await writeFile(join(folder,'module.json'),JSON.stringify({id:'story',file_sha256:'a'.repeat(64),generation:2,opening:{start_scene:'scene-story'}}));
  await prepareCharacterGuidance(options);assert.equal(calls(),2);
 });
+test('§140: a reviewer that ends without writing review.json is a coded failure that says so, and nothing is accepted',async()=>{
+ const {folder,options}=await fixture();
+ const author=options.runner;
+ // The shape a truncated reviewer leaves (occ-check, 2026-09-26): the child exits cleanly, no verdict on disk.
+ options.runner=async req=>req.systemPrompt.endsWith('character-guidance-review.md')?{ok:true}:author(req);
+ await assert.rejects(prepareCharacterGuidance(options),error=>error.code==='preparation_failed'
+  &&/reviewer ended without writing review\.json/.test(error.message));
+ const [key]=await readdir(join(folder,'character-guidance'));
+ await assert.rejects(readFile(join(folder,'character-guidance',key,'accepted.json')));
+ // An author that writes nothing is named the same way.
+ options.runner=async()=>({ok:true});
+ await assert.rejects(prepareCharacterGuidance(options),error=>error.code==='preparation_failed'
+  &&/author ended without writing guidance\.json/.test(error.message));
+});

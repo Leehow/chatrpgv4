@@ -25,10 +25,14 @@ import {responseBankFor,responseHint} from '../npc/responses.js';
 /**
  * §135.11.1 (SL-50 re-ruling, 2026-09-25): writes are silent. Prose beside a write or read call is dropped before anyone
  * sees it (long gates #3-#5: 46 drops, the Keeper announcing its bookkeeping), and the run then asks for the turn again.
+ * §135.5 addendum (SL-88, "what needs no result does not wait"): names which calls are blocking and which are not, so a
+ * non-blocking apply goes out with its narrate in one call instead of costing a whole extra model step (gate #18: 2.8
+ * calls/turn, apply p50 4.9s, none of it needed once the arguments already fix what lands).
  */
 export const SILENT_WRITES = "Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never " +
-    "shown). The turn's prose goes through narrate, or is the text of your final step, in the same response as the writes " +
-    "whenever none of them needs its result first.";
+    "shown). An apply whose landing is fixed by its own arguments is non-blocking: put it and the narrate that follows in " +
+    "the same response, writes first, narrate last; resolve, look, lookup and recall are blocking -- the prose needs a " +
+    "result you do not have yet -- so wait for their result before you narrate.";
 export const HEAD = "Everything at the start of this turn: the clock, the undiscovered clues here and their gates, the secrets " +
     "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer " +
     "situations, the Director's suggested beat, related memory and the style contract. Do not look/lookup " +

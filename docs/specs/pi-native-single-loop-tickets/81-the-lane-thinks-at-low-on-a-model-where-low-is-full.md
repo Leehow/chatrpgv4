@@ -96,3 +96,4 @@ from an in-memory copy before the next check; final state re-verified green.
 - Live (gate #14, b088de327): 64 lane starts all `off`/`off`; admission p50 0 / p90 2,268 / max 2,813 ms; review_timeout 0, review_pending 0 (#13: p90 10,275, 4 timeouts, 5 pending). Line met.
 - Live (gate #15): 90 lane starts `off`/`off`; admission p90 2,440 / max 5,714 ms; 0 timeouts, 0 pending. Confirmed on two tables.
 - Live (gate #16): 118 lane starts `off`/`off`; admission p90 2,640 / max 4,201 ms; 0 timeouts, 0 pending. Three tables.
+- Live (gates #18/#19): lanes on grok-4.5 low → admission p90 7,105 ms; lanes on grok-4.3 off → p90 1,385 ms. The lane needs a model whose map has `off`; the table-follow rule is right, the lane model choice matters more.

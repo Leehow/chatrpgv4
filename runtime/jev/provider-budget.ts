@@ -61,19 +61,40 @@ export function providerSpend(bound:ProviderBound):BudgetSpend {
   return {inputTokens:bound.inputTokens,outputTokens:bound.outputTokens,actions:1,costUsd:
     (bound.inputTokens*Math.max(...rates.flatMap(rate=>[rate.input,rate.cacheRead,rate.cacheWrite]))+bound.outputTokens*Math.max(...rates.map(rate=>rate.output)))/1_000_000};
 }
-/** Provider-specific output fields are closed API syntax, never inferred from prose. */
+/** Provider-specific output fields are closed API syntax, never inferred from prose. Null for an API with no known field. */
+export function outputFieldPath(api:string, payload:any):string[]|null {
+  switch(api) {
+    case 'openai-responses':case 'azure-openai-responses':case 'openai-codex-responses':return ['max_output_tokens'];
+    case 'openai-completions':return [Object.hasOwn(payload,'max_completion_tokens')?'max_completion_tokens':'max_tokens'];
+    case 'anthropic-messages':return ['max_tokens'];
+    case 'pi-messages':return ['options','maxTokens'];
+    case 'google-generative-ai':case 'google-vertex':return ['config','maxOutputTokens'];
+    case 'bedrock-converse-stream':return ['inferenceConfig','maxTokens'];
+    default:return null;
+  }
+}
+/**
+ * Contract §140: a child agent that runs without a lease still sends its own output bound, `min(model maxTokens,
+ * limit, any smaller bound already in the payload)`, so the provider's unstated default never decides it. Without
+ * one, opencode-go's default of 8,192 output tokens let deepseek-v4.1-flash spend the whole response reasoning (at
+ * "low", the lowest level it has) and end with no answer and no tool call. The payload is returned unchanged when the
+ * API has no known output field or the model declares no usable maxTokens: this bound is room, never a refusal.
+ */
+export function withOutputRoom(model:{api?:unknown;maxTokens?:unknown}|undefined, payload:any, limit:number):any {
+  if(!payload||typeof payload!=='object'||Array.isArray(payload)||typeof model?.api!=='string')return payload;
+  const path=outputFieldPath(model.api,payload),ceiling=Number(model.maxTokens);
+  if(!path||!Number.isSafeInteger(ceiling)||ceiling<1||!Number.isSafeInteger(limit)||limit<1)return payload;
+  const existing=path.reduce((value:any,key)=>value?.[key],payload);
+  const outputTokens=Math.min(ceiling,limit,typeof existing==='number'&&existing>0?existing:Infinity);
+  if(existing===outputTokens)return payload;
+  const bounded=structuredClone(payload);let target=bounded;
+  for(const key of path.slice(0,-1))target=target[key]??=( {} );target[path.at(-1)!]=outputTokens;
+  return bounded;
+}
 export function boundProviderRequest(model:ProviderModel, payload:any, outputLimit=8192):{payload:any;bound:ProviderBound} {
   if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new ContractError('provider_payload_unavailable');
-  let path:string[];
-  switch(model.api) {
-    case 'openai-responses':case 'azure-openai-responses':case 'openai-codex-responses':path=['max_output_tokens'];break;
-    case 'openai-completions':path=[Object.hasOwn(payload,'max_completion_tokens')?'max_completion_tokens':'max_tokens'];break;
-    case 'anthropic-messages':path=['max_tokens'];break;
-    case 'pi-messages':path=['options','maxTokens'];break;
-    case 'google-generative-ai':case 'google-vertex':path=['config','maxOutputTokens'];break;
-    case 'bedrock-converse-stream':path=['inferenceConfig','maxTokens'];break;
-    default:throw new ContractError('provider_output_bound_unsupported');
-  }
+  const path=outputFieldPath(model.api,payload);
+  if(!path)throw new ContractError('provider_output_bound_unsupported');
   const existing=path.reduce((value,key)=>value?.[key],payload);
   const outputTokens=Math.min(model.maxTokens,outputLimit,typeof existing==='number'?existing:Infinity);
   const body=JSON.stringify(payload);

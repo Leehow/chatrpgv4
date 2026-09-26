@@ -72,6 +72,47 @@ export function placeUnplacedMechanics(text: string, receipts: Row[], placed: Ro
     }
     return { text: next, placed: nextPlaced };
 }
+/**
+ * Contract §34.13 addendum (SL-88): the handle an apply effect's own receipt carries, keyed by the kernel's *own*
+ * receipt `kind` -- never `markerName`'s placement family (a move's card is drawn as a "scene" card, but its
+ * receipt is kind `move`, and an effect key names the write the Keeper made, not the card). Only the kinds a
+ * non-blocking apply effect lands with one natural handle are covered; every other kind falls through to
+ * `null`, which `effectKeyReceipt` reads as "no receipt of this turn names this", exactly as an unrecognised
+ * marker is read today.
+ */
+function effectKeyHandle(receipt: Row): string | null {
+    const slug = (value: any) => kebab(string(value || '')).replace(/[^a-zA-Z0-9-]/g, '').replace(/^-+|-+$/g, '');
+    switch (receipt.kind) {
+        case 'move': return receipt.renamed ? null : slug(receipt.to);
+        case 'clue': return slug(receipt.clue);
+        case 'item': return slug(receipt.name);
+        case 'handout': return slug(receipt.handout || receipt.name);
+        case 'map': return slug(receipt.map || receipt.name);
+        default: return null;
+    }
+}
+/**
+ * Contract §34.13 addendum (SL-88): a marker naming an effect by kind and handle (`{{clue:x}}`, `{{move:y}}`) for a
+ * write the Keeper composed in the same batch as this narrate -- it cannot have copied that write's own marker,
+ * because the write's result has not come back to it yet (§135.5's non-blocking shape: writes first, narrate
+ * last, one call). Closed vocabulary: `kind` is a receipt's own `kind`, `handle` is what the write named, folded
+ * the same way `markerName` folds a name into a marker (case, punctuation, nothing else) -- never a text search
+ * over the prose or any field the write did not name. The first turn receipt whose kind and handle match wins;
+ * `null` when none does, read by the caller exactly as an unknown marker.
+ */
+function effectKeyReceipt(marker: string, receipts: Row[]): string | null {
+    const at = marker.indexOf(':');
+    if (at < 1 || at === marker.length - 1)
+        return null;
+    const kind = marker.slice(0, at), handle = marker.slice(at + 1);
+    for (const receipt of receipts) {
+        if (receipt.kind !== kind || typeof receipt.id !== 'string')
+            continue;
+        if (effectKeyHandle(receipt) === handle)
+            return receipt.id;
+    }
+    return null;
+}
 export function bindMarkers(text: string, receipts: Row[]): MarkerBinding {
     const names = markersFor(receipts);
     const available = new Map([...names].map(([id, marker]) => [marker, id])), placed: Row = {}, unknown: string[] = [], duplicate: string[] = [];
@@ -79,7 +120,10 @@ export function bindMarkers(text: string, receipts: Row[]): MarkerBinding {
         // A say token is not a mechanics marker (§40.2): it names a person, not a receipt, and it stands.
         if (isSayMarker(marker))
             return whole;
-        if (!available.has(marker)) {
+        // §34.13 addendum: the ordinary placement name first; an effect key (kind:handle) only when that misses,
+        // so a receipt that already has a placement marker keeps resolving through it exactly as before.
+        const boundId = available.has(marker) ? available.get(marker)! : effectKeyReceipt(marker, receipts);
+        if (boundId === null) {
             if (!unknown.includes(marker))
                 unknown.push(marker);
             return '';
@@ -89,7 +133,7 @@ export function bindMarkers(text: string, receipts: Row[]): MarkerBinding {
                 duplicate.push(marker);
             return '';
         }
-        placed[marker] = available.get(marker);
+        placed[marker] = boundId;
         return whole;
     });
     return { placed, unknown, duplicate, text: cleaned };
