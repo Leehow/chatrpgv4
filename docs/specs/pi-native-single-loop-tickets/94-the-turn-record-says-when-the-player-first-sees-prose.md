@@ -67,6 +67,6 @@ Long gates measure the metric from the driver's `events.jsonl`: #22 median 29.7 
   - **Hold.** Without it the settle's flush beat the host delivery's projection in the live seam test (mutation M9a
     turned it red), so the §8 fallback would have gone unrecorded. The record waits for the projection (2 s bound);
     a placement projected after the next dispatch stays with the turn that placed it.
-  - Tests: `test/turn-telemetry.test.ts` (15 -> 22), new `test/turn-telemetry-first-prose.test.ts` (9); 21 mutations,
+  - Tests: `test/turn-telemetry.test.ts` (8 -> 16), new `test/turn-telemetry-first-prose.test.ts` (9); 21 mutations,
     all killed. Seam regression files compared by name against b8079e9c1: no new failures (the same 10 `coc-view.test.ts`
     failures on both). Not done: the packaged-App acceptance (integrator, after packaging); `manifest.json` untouched.
