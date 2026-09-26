@@ -19,3 +19,16 @@ Contract: §139.25（新）；修 §139.20 的扫描时机
 - loop（重放 D T3 的形状）：compile act=combat 过闸、没有书记员战斗步骤落地、诺特在对话中 → 模型步之前没有他的 `npc_act` 行；落地一个战斗步骤后的扫描照常。
 - loop：同回合另一个在场、没被这一拳指向的人照常以 engaged 行动。
 - 变异：去掉判据 → 第一条逮住。
+
+## 追加（2026-09-26，集成头 c94b1d682 的全量）
+
+全量在 c94b1d682：pytest 1886/2 skip 全绿；**loop 224/239、ext 3407/3416**，失败全是毫秒级确定性失败，不是负载：
+
+- `experiments/single-loop-routing/loop.test.mjs`：needs judged now…（扫描插在「人物 A」的 **LLM 绑定**之前，排到了书记员步骤前面）、low-confidence need…、ask_llm with nothing selected…、same question…escalates、after an LLM step…、exhausted Jev budget…、closed choice among issued actions…
+- `tests/extension/single-loop-binding.test.mjs`：§135.28 的三条
+- `tests/extension/single-loop-prescreen-budget.test.mjs`：spent decision budget composes once…
+- `tests/extension/single-loop-run-driver.test.mjs`：SL-01 gate…、without a Jev key…
+- `tests/extension/single-loop-turn-budget.test.mjs`：the pure policy: a spent time budget…、a model step that crosses the budget…
+- `tests/extension/host-state-not-fiction.test.mjs`：a delivery made under an adaptation wait carries the host's own notice（`said once per delivered turn: []`）
+
+**设计更正（本工单一并做）：** §139.20 的「KP 第一次模型步之前扫描一次」实现成了「第一次 `infer` 之前」，其中包括书记员中途交给模型的 **LLM 绑定**（`purpose: bind`）。扫描应当在 KP 写这回合的模型步（adjudicate / compose）之前，不在书记员工作中途的绑定之前；再加上正文的战斗动作判据。然后逐条过上面这些用例：设计变了的，按新设计改断言并在交接里逐条写理由（夹具里写 `npcScanned: []` 表示「这条用例不关心扫描」也行，但要说明）；行为错了的修代码。不许整体放宽断言。适应等待那条要查清是扫描吞了提示还是别的原因。
