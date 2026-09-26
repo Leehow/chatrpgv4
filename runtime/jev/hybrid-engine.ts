@@ -709,10 +709,6 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   }
 
   /**
-   * A clerk (policy-origin) write: the candidate's Keeper verb through the kernel extension's canonical gateway, so
-   * the `tool_call` gates, admission, Mod hooks, the kernel and the `tool_result` hooks run exactly as for the model.
-   */
-  /**
    * One policy-origin write through the kernel extension's canonical gateway, under the run's clerk lease: the same Keeper
    * verb, the `tool_call` gates, admission (reading `bindings` off the host origin), Mod hooks, kernel and `tool_result`
    * hooks. `unavailable` when there is no gateway to run it through.
@@ -754,6 +750,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     return {packet, callId: run.identities.get(operation.id)?.callId ?? null};
   }
 
+  /**
+   * A clerk (policy-origin) write: the candidate's Keeper verb through the kernel extension's canonical gateway, so
+   * the `tool_call` gates, admission, Mod hooks, the kernel and the `tool_result` hooks run exactly as for the model.
+   */
   async function clerkStep(run: RunState, params: Row, invocation: {runId: string; stepId: string; operationId: string; signal: AbortSignal}) {
     const candidate = params.candidate as Candidate | undefined, extra = object(params.extra) as Record<string, Json>;
     const refuse = (reason: string) => ({status: 'refused' as const, reason, artifact: {kind: 'execute', executed: {ok: false, summary: {origin: 'policy', refused: reason}}}});
