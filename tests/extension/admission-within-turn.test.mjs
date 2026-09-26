@@ -309,7 +309,9 @@ function countTyped(t) {
 	const original = globalThis.fetch, requests = [];
 	globalThis.fetch = async (url, init) => {
 		if (String(url) !== "https://api.typesafe.ai/v1/systemone") return original(url, init);
-		requests.push(JSON.parse(init.body));
+		const body = JSON.parse(init.body);
+		// §142.2: the time reading is a family of its own; it falls back (503) and is not counted with this file's requests.
+		if (!body.questions?.cut) requests.push(body);
 		return new Response(JSON.stringify({ error: { message: "the test counts typed requests and answers none" } }), { status: 503 });
 	};
 	t.after(() => { globalThis.fetch = original; });
