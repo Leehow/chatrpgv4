@@ -1,7 +1,7 @@
 # A time skip the Keeper narrates reaches the clock
 
-Status: **ready-for-agent** (TS-01 to TS-03, the fix); **needs-info** on the four owner questions at the end, which
-this spec does not implement. Written 2026-09-26 from task card `task_b66b90e1` (the B2 table's clock).
+Status: **ready-for-human** (TS-01 to TS-03 implemented on the branch, suites green, two live tables; the integrator
+merges it into line-2); **needs-info** on the owner questions at the end, which this spec does not implement. Written 2026-09-26 from task card `task_b66b90e1` (the B2 table's clock).
 Branch: `claude/keeper-time-skip-20260926`, cut from line-2 (`claude/integ-single-loop-2-20260926` @ `855630ac5`).
 Contract: §142 (new). Related: `docs/specs/band-then-roll.md` (BR-06, §138.10 on `0.9.5a` only: the clerk lands
 the time of the player's *declared* action), §51.4 (the capsule's `unrecorded`), §12.5 (the verifier's advisory
@@ -56,7 +56,8 @@ and none of them caught this:
 
 1. **Writer.** `apply time {minutes}`. The Keeper wrote it seven times. It was lost to batch atomicity plus a
    refusal budget that closes the whole tool, and its amount was a guess the tool offers no way to avoid.
-2. **Reader.** The capsule's `clock` (every turn) and `look focus time`. Present and ignored; not the gap.
+2. **Reader.** The capsule's `clock` (every turn) and `look focus time` (minutes only; owner question 5). The
+   capsule's reading was present and the Keeper acted on it; not the gap.
 3. **Reconciliation.** Nothing compares the delivered prose's time with the books. Markers that name nothing are
    dropped from a delivery (§40.4); a clue told without `apply clue` is recorded as `unrecorded` (§51.4); a person
    given lines off the board likewise. A time skip told without `apply time` has no counterpart. The verifier's
@@ -77,13 +78,15 @@ So the gap is (3), with a usability defect in (1). The fix does not touch the pr
 
 ### F1 — `apply time {until}` (kernel, TS-01)
 
-`time` accepts `until: {days, time}` in the slot `minutes` fills: `days` is a non-negative integer (0 = later today,
-1 = tomorrow), `time` is a local `HH:MM`. The kernel binds it against the staged clock (after this batch's earlier
-effects), exactly where `stated` binds (§136.22): minutes = the target local minute − the current local minute. It
-works on a dated clock (`at`) and an undated one (`day`, `hh`, `mm`) alike, so no calendar arithmetic reaches the
-Keeper. Refusals (`invalid_params`, `details.field: "until"`): `until_conflict` beside `minutes` or `stated`;
-`until_invalid` (not `{days: integer ≥ 0, time: "HH:MM"}`); `until_not_forward` when the target is not after the
-current clock (`details.clock` names the current reading; `fix` says to add a day). The receipt carries `until` and
+`time` accepts `until: {days, time}` in the slot `minutes` fills: `days` is a non-negative integer counted from the
+day this turn began (0 = that day, 1 = the day after), `time` is a local `HH:MM`. The kernel binds it where `stated`
+binds (§136.22): minutes = the target local minute − the staged clock's local minute (after this batch's earlier
+effects), and a target equal to the clock lands 0 minutes, so the same `until` twice is one time. It works on a
+dated clock (`at`) and an undated one (`day`, `hh`, `mm`) alike, so no calendar arithmetic reaches the Keeper.
+Refusals (`invalid_params`, `details.field: "until"`): `until_none` on another kind; `until_conflict` beside
+`minutes` or `stated`; `until_invalid` (not `{days: integer ≥ 0, time: "HH:MM"}`); `until_not_forward` when the
+target is before the current clock (`details.clock` names the current reading; `fix` says a time already past is
+`days` ≥ 1). The turn's day, not the staged clock's, came from the live table (TS-04 comments, `time-skip-a` turn 5). The receipt carries `until` and
 the bound `minutes`; rest, magic-point recovery and admission treat it as any `time`. The tool schema offers it with a
 one-line description; the fake kernel accepts it.
 
@@ -192,5 +195,10 @@ receipt on the same turn) and `tests/play/kpi.py`'s lanes section.
    Keeper's pacing gauge" and would push Keepers that rarely write time into refusals.
 4. **Line-2 lacks BR-05/BR-06.** The turn-1 move landed 0 minutes (no road minutes on line-2). Merging `0.9.5a`
    into line-2 brings both; no change here.
+5. **The Keeper's clock readers show minutes only.** `look focus time` answers `{"clock": {"minutes": 75}}` and
+   every `apply` result's `world.clock` is `{minutes}`; the local time is only in the capsule. On `time-skip-a` turn 5
+   the Keeper looked at the time, got minutes, and double-counted a night. Giving both the capsule's reading
+   (`at`/`day`, `day_part`) is small, but `look focus time` is pinned by existing tests and the frozen-oracle parity
+   test, so it is not changed here.
 
 ## Comments
