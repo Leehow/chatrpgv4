@@ -121,7 +121,7 @@ test("§139.3 batch: one closed question for the way, one per parameter with a c
 	assert.ok(Object.values(producing.questions.find((question) => question.key === "attack.weapon").criteria).some((label) => /bring out/.test(label)),
 		"the attack's weapon options include the thing the act brings out, when the book prices weapons");
 	assert.deepEqual(producing.questions.find((question) => question.key === "produce").criteria,
-		{ record_1: ".38 or 9mm Revolver", record_2: "Umbrella", none: "No record of the price list is that thing." }, "the book's names, and none");
+		{ record_1: ".38 or 9mm Revolver", record_2: "Umbrella", none: "No record of the price list is that kind of thing." }, "the book's names, and none");
 	const unarmed = batchOf({ produces: PISTOL, options: fightOptions({ produce: [{ value: "eq.u", label: "Umbrella", category: "miscellaneous" }] }) }).batch;
 	assert.ok(!unarmed.questions.some((question) => question.key === "attack.weapon"), "a price list with no weapon adds no weapon option");
 	const rows = [{ ref: "intent:steven-knott:aaaaaaaaaaaa", intent: "ring the bell", status: "attempted", since_turn: 1, turn: 1 }];
@@ -179,6 +179,44 @@ test("§139.19 a price list longer than one question: its parts first, the recor
 	assert.deepEqual(own.produced, { name: PISTOL, source: "table" }, "none of the parts: the table's own");
 	const unanswered = interpretNpcAct(plan, first, 0.6, { records: second.records, result: undefined });
 	assert.deepEqual([unanswered.produced.source, unanswered.reason], ["table", "param_unbound:weapon"], "the second batch unanswered: no record, so no weapon");
+});
+
+test("§139.22 which record, once it is a record at all: near kin splitting the answer leave no revolver the rules cannot fire", () => {
+	// Ticket 23 (ticket 20's live probe, T3): "a snub revolver hidden under an old ledger" reached the weapon part, no one
+	// record cleared, and it was minted the table's own -- a gun with no numbers. The thing exists (the die allowed it, the
+	// generator named it); the record only gives it rules, so the answer's mass on records is what has to clear.
+	const records = ["tools", "melee", "weapon_table"].flatMap((category) => Array.from({ length: 100 }, (_, index) => ({ value: `eq.${category}.${index}`,
+		label: category === "weapon_table" && index === 7 ? ".38 or 9mm Revolver" : category === "weapon_table" && index === 8 ? ".32 or 7.65mm Revolver" : `${category} thing ${index}`,
+		category, ...(category === "weapon_table" ? { weapon: index === 7 ? "revolver_38_or_9mm" : index === 8 ? "revolver_32_or_7_65mm" : `weapon_${index}` } : {}) })));
+	const { batch, plan } = batchOf({ produces: "藏在旧账本下的短管左轮手枪", options: fightOptions({ produce: records }) });
+	const first = actAnswer(batch, { way: "attack", params: { "attack.weapon": "weapon_drawn" }, produce: (label) => label.startsWith(".38") });
+	const part = producePart(plan, first, 0.6);
+	const second = npcProduceBatch({ runId: "r", person: "Steven Knott", act: GUN, produces: "藏在旧账本下的短管左轮手枪", part: part.part, records: part.records }, scope, []);
+	const alias = (label) => Object.entries(second.records).find(([, record]) => record.label === label)[0];
+	const r38 = alias(".38 or 9mm Revolver"), r32 = alias(".32 or 7.65mm Revolver");
+	const split = (probabilities) => {
+		const [lead, confidence] = Object.entries(probabilities).sort((a, b) => b[1] - a[1])[0];
+		return complete(second.batch, { produce: { status: "answered", type: "choice", choice: lead, confidence, probabilities } });
+	};
+	const bind = (probabilities) => interpretNpcAct(plan, first, 0.6, { records: second.records, result: split(probabilities) });
+
+	const kin = bind({ [r38]: 0.45, [r32]: 0.4, none: 0.15 });
+	assert.deepEqual([kin.way, kin.params.weapon.value, kin.produced.source, kin.produced.name], ["attack", "revolver_38_or_9mm", "catalog", ".38 or 9mm Revolver"],
+		"two revolvers split the answer below both gates, 0.85 on records: the leading one, a gun that fires");
+	assert.equal(kin.answers.produce.cleared_by, "kind", "the row says the record was taken by kind, not by the answer's own gate");
+	const sure = bind({ [r38]: 0.9, [r32]: 0.05, none: 0.05 });
+	assert.deepEqual([sure.produced.record.value, sure.answers.produce.cleared_by], [records[207].value, undefined], "a record clearing its own gate is taken as before");
+	const noneLeads = bind({ none: 0.5, [r38]: 0.3, [r32]: 0.2 });
+	assert.deepEqual([noneLeads.produced.source, noneLeads.reason], ["table", "param_unbound:weapon"], "none leading: the table's own, no weapon");
+	const thin = bind({ [r38]: 0.42, none: 0.41, [r32]: 0.17 });
+	assert.deepEqual([thin.produced.source, thin.reason], ["table", "param_unbound:weapon"], "0.59 on records under a 0.6 gate: not a record");
+
+	// The one-question list (records fit one question) reads the same way.
+	const short = batchOf({ produces: "藏在旧账本下的短管左轮手枪" });
+	const answered = actAnswer(short.batch, { way: "attack", params: { "attack.weapon": "weapon_drawn" } });
+	answered.answers.produce = { status: "answered", type: "choice", choice: "record_1", confidence: 0.5, probabilities: { record_1: 0.5, record_2: 0.3, none: 0.2 } };
+	const one = interpretNpcAct(short.plan, answered, 0.6);
+	assert.deepEqual([one.way, one.params.weapon.value, one.produced.source], ["attack", "revolver_38_or_9mm", "catalog"]);
 });
 
 const writeContext = (extra = {}) => ({ name: "Steven Knott", handle: "steven-knott", line: SHOUT, ref: "intent:steven-knott:bbbbbbbbbbbb", open: true, continuedTurn: null,
