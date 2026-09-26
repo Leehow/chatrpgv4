@@ -325,9 +325,13 @@ test("SL-08: several weapons or targets under a standing attack are a Jev bind o
 test("SL-08: hold and flee issue no attack and no other step for the NPC: the turn is the Keeper's; no standing keeps the previous route", async (t) => {
 	const { call } = kernel(t);
 	const { turn, n } = await knottsTurn(call, "fights_to_the_end");
-	await call("table.apply", { call_id: `t${turn}-c${n}`, effects: [{ kind: "npc", name: "Steven Knott", action: "hold", why: "He hesitates." }] });
-	const held = await reads(call);
-	assert.deepEqual(held.resolveOptions.context.session.standing_action, { action: "hold", basis: "keeper", disposition: { disposition: "fights_to_the_end", basis: "keeper" } });
+	const live = await reads(call);
+	// §138.5: a hold written on his own turn is how he spends it -- the kernel passes the turn on, so the fight no longer
+	// waits on him. The builder's own premise (a hold standing on his turn) is checked on the view as it stood.
+	const applied = await call("table.apply", { call_id: `t${turn}-c${n}`, effects: [{ kind: "npc", name: "Steven Knott", action: "hold", why: "He hesitates." }] });
+	assert.equal(applied.turn_passed[0].passed, "steven-knott");
+	assert.notEqual((await reads(call)).resolveOptions.context.session.turn_of, "steven-knott");
+	const held = withSession(live, (session) => ({ ...session, standing_action: { action: "hold", basis: "keeper", disposition: { disposition: "fights_to_the_end", basis: "keeper" } } }));
 	const none = (state) => buildCandidates(state, "我揍他").filter((candidate) => candidate.family === "combat");
 	assert.deepEqual(none(held), [], "a hold: no attack candidate, and no closed bind over his other actions");
 	const fled = withSession(held, (session) => ({ ...session, standing_action: { action: "flee", basis: "rule-default", disposition: { disposition: "fights_then_flees", basis: "authored" } } }));

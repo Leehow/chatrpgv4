@@ -236,7 +236,10 @@ test('Director signals and authored scoring match the Python decision table',asy
     {label:'session override precedes dying',signals:{...quiet,session:'combat',hp_state:'dying',last_roll:'fumble'}},
     ...dg.structureTypes.map(structure_type=>({label:`weighted stalled transition ${structure_type}`,signals:{...quiet,structure_type,intent:'stuck',stalled_turns:4,turns_in_scene:5,pushed_fail_pending:true}}))]
     .map(c=>({...c,scene:sceneId,canMove:true,overlap:c.signals.intent==='stuck'?2:0,pressureAvailable:true}));
-  await rows(t,scored,oracle('director',{cases:scored}),c=>api.score(dg,c.signals,scene,c));
+  // The frozen oracle predates §138.8: a live session still decides the beat, and the other beats' scores now ride
+  // beside SUBSYSTEM's. Compare everything the oracle has; the added scores are asserted in test_director_scoring.py.
+  const withoutSessionScores=section=>section.override==='session'?{...section,scores:{SUBSYSTEM:section.scores.SUBSYSTEM}}:section;
+  await rows(t,scored,oracle('director',{cases:scored}),c=>withoutSessionScores(api.score(dg,c.signals,scene,c)));
   const names=['decision:coc7:combat:attack','decision:mods:weapon:repair','rule:coc7:combat:attack','decision:short','legacy'];
   same(names.map(api.semanticName),oracle('semantic_names',{names}),'semantic decision names');
   const ontology=new api.Ontology(await json(join(CONTENT,'ontology/system-ontology.json')));
@@ -251,7 +254,7 @@ test('Director signals and authored scoring match the Python decision table',asy
     if(section.reveal)assert.deepEqual(section.reveal.map(clue=>clue.gate),[
       'environmental: check unspecified','environmental: check unspecified','obvious: check unspecified',
       'obvious: check unspecified','environmental: check unspecified']);
-    return withoutGates(withoutFloorBecause(section));
+    return withoutSessionScores(withoutGates(withoutFloorBecause(section)));
   });
 });
 
