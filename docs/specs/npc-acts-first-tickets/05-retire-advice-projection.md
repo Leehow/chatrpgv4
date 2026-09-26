@@ -1,4 +1,4 @@
-Status: ready-for-human（三处拍板后转 ready-for-agent）
+Status: ready-for-agent（2026-09-26 用户三处按推荐拍板：快模型、书记员执行、应对库退役）
 Spec: docs/specs/npc-acts-first.md（D5）
 
 # 05 — 应对库与 advice 选择整体退役；投影

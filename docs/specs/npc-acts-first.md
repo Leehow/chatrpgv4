@@ -1,6 +1,6 @@
 # NPC 先行动，再落参数
 
-Status: ready-for-human — 三处要拍板（第四节末），拍完 01–07 转 ready-for-agent；08 始终 ready-for-human
+Status: ready-for-agent（01–07；用户 2026-09-26 三处按推荐拍板，见第四节末）；08 ready-for-human
 Branch: `claude/npc-as-actor-20260926`（基于集成线 `claude/integ-single-loop-20260923@6eac0c2f9`）；契约落地写 §139
 Parent: `docs/specs/npc-as-actor.md`（§138：意图行有状态、NPC 的一轮是一次操作、写入面）。本 spec 不撤它，只把「谁来决定 NPC 做什么」倒过来
 Related: `docs/specs/pi-native-single-loop.md`（§135.28 参数绑定不过 LLM；§135.32 后果候选影子执行）、`docs/specs/jev-driven-steps.md`（D1 `npc_reaction`）、§11.5.3（NPC 常备动作）、§40.7（口吻面具：NPC 不需要自己的人格）、记忆 `npc-action-generated-first-then-bound`
@@ -125,11 +125,11 @@ Jev 一个闭合问题：「这句行动由上面哪一种结算」+ 各方式�
 - 不做 legacy 引擎。
 - 语言：`act` 用 play_language 写（§138.14 教训：指令要求英文让正文滑成英文）。
 
-### 要拍板的三处
+### 三处裁定（2026-09-26，用户：「三处都按你的推荐来」）
 
-1. **生成器用哪个模型。** 推荐：快模型设置（`PI_COC_NPC_ACT_MODEL` → fast-model → 本桌模型），和准入、口吻车道一致；一回合多一次 2–5 s 的调用（A2 桌中位 32 s）。备选：固定本桌 KP 模型（更慢，但「老板自己写」）。
-2. **书记员在 compose 前执行 NPC 的行动。** 这改变 09-26 上午「`npc_reaction` 继续影子」的边界：影子的是 Jev 判 Mod 检定，这里执行的是 LLM 写的行动的绑定。推荐：执行；否则又回到「参数在前」。
-3. **应对库与每回合 advice 选择整体退役**（D5）。推荐：退役；证据是 5/22 与重复行，理由是它枚举的是开集（用户 09-26 的判断）。保留只多一次 Jev、一个作者任务和一个面板。
+1. **生成器的模型 = 快模型设置**：`resolveLaneModel(ctx, 'PI_COC_NPC_ACT_MODEL')`（环境变量 → fast-model 设置 → 本桌模型），和准入、口吻车道一致；一回合多一次 2–5 s 的调用（A2 桌中位 32 s）。
+2. **书记员在 compose 前执行 NPC 的行动。** 09-26 上午「`npc_reaction` 继续影子」的边界不变——影子的是 Jev 判 Mod 检定；这里执行的是 LLM 写出的行动的绑定，§135.32 加注说明两者不同。
+3. **应对库与每回合 advice 选择整体退役**（D5），理由是它枚举的是开集。
 
 ## 五、验收
 
@@ -144,13 +144,13 @@ Jev 一个闭合问题：「这句行动由上面哪一种结算」+ 各方式�
 
 | 票 | 题 | 状态 | 依赖 |
 |---|---|---|---|
-| 01 | `npc.situation`：处境包 | ready-for-human（等拍板后转 agent） | — |
-| 02 | 生成步骤：指令文件、端口、模型解析 | 同上 | 01 |
-| 03 | `npc.act.options` 与绑定执行（会话内外两个触发） | 同上 | 01、02 |
-| 04 | 不重复的两道与欠账衔接 | 同上 | 02、03 |
-| 05 | 应对库与 advice 选择整体退役；投影 | 同上 | 03 |
-| 06 | KP 侧：keeper.md、工具说明、否决面 | 同上 | 03 |
-| 07 | 造景探针与裁判 | 同上 | 01–04 |
+| 01 | `npc.situation`：处境包 | ready-for-agent（派出，`claude/naf-01-situation-20260926`） | — |
+| 02 | 生成步骤：指令文件、端口、模型解析 | ready-for-agent（派出，`claude/naf-02-generation-20260926`；按 §139.1 的包形状并行） | 01 |
+| 03 | `npc.act.options` 与绑定执行（会话内外两个触发） | ready-for-agent（第二波，与 04 同一 worker） | 01、02 |
+| 04 | 不重复的两道与欠账衔接 | ready-for-agent（第二波） | 02、03 |
+| 05 | 应对库与 advice 选择整体退役；投影 | ready-for-agent（派出，`claude/naf-05-retire-bank-20260926`） | 03（只有 `by: table` 一行） |
+| 06 | KP 侧：keeper.md、工具说明、否决面 | ready-for-agent（第二波） | 03 |
+| 07 | 造景探针与裁判 | ready-for-agent（第三波，sonnet） | 01–04 |
 | 08 | 真桌 C、B | ready-for-human | 01–07 合入并重打包 |
 
 契约：新 §139（一节写完，不改 §138 的编号），修订 §11.5.3、§138.14、§135.32 的 `npc_reaction` 段各加一段带日期的注。
