@@ -31,7 +31,7 @@ BR-01 contract + schema + kernel band + registry ─┬─ BR-02 archetype/weapo
 
 ## BR-01 — The band registry, `band` on `time` and `damage`, and the kernel's roll
 
-Status: ready-for-agent
+Status: ready-for-human (implemented 2026-09-26 on `claude/br01-band-then-roll-20260926` at `5b8ef9a6b`, from `0.9.5a@dbc502675`; awaiting review and merge, see Comments)
 Depends on: nothing open.
 
 **What.** Write the contract section (spec D1–D4, D10): the fifth binding path, the closed band registry (the
@@ -159,4 +159,39 @@ replays' LLM step counts before and after; a live gate.
 
 ## Comments
 
-(none yet)
+### 2026-09-26 — BR-01 implemented (`claude/br01-band-then-roll-20260926`, `a8999b981` + review fixes `5b8ef9a6b`)
+
+Contract: `docs/kernel-rpc.md` §138 (138.1 the fifth binding path, 138.2 the registry, 138.3 `band` on `time` and
+`damage` with the three refusals and the receipt basis, 138.4 tools and fake kernel, 138.5 tests). Code:
+`kernel-ts/rules/bands.ts` (registry, `bandRows`), `kernel-ts/apply/band.ts` (`bindBand`, after `bindStated` in the
+apply loop), `stampBasis` gains `banded` / `band` / `band_roll`, `extensions/kernel/tools.ts` offers `band` on the two
+effects, the fake kernel answers it, `BindingPath` gains `'banded'` and `BindRecord` its `table` / `band` / `roll`,
+`time-costs.json` keeps every row and gets a true `source_note`, `test_rules_tables_register.py` drops `time-costs` from
+the unread list (it now has a reader).
+
+Tests: `tests/kernel/test_band_operations.py` (12 cases: inside the row with basis/band/band_roll; same seed same
+total; the roll is the seeded dice and not the row's min/default/max, pinned as forced values 242 / 363 for seeds
+11 / 12; banded damage on both receipts; the Keeper's own amount stays `keeper`; `band_conflict` beside `minutes`,
+`dice` and `stated`, nothing written; `band_unknown` listing the rows; `band_none` on cash; handle folding; a
+malformed table is `campaign_not_ready` and writes nothing; replay returns the journaled total; a banded night returns
+the hit point a banded scratch took) and `tests/extension/band-operations.test.mjs` (schema on exactly the two kinds,
+old shapes valid, pass-through, refusals reach the Keeper).
+
+Mutation record (each run over the kernel test file, restored by copy afterwards):
+
+| mutation | caught by |
+| --- | --- |
+| the roll replaced by the row's `min` | `test_the_roll_is_the_seeded_dice_and_not_a_fixed_figure_of_the_row` |
+| `basis` stamped `keeper` for a banded effect | the banded-time and banded-damage cases |
+| the `band_conflict` refusal beside the amount removed | `test_band_beside_the_amount_it_fills_is_a_conflict_and_nothing_is_written` |
+| the roll taken from `Math.random` instead of the seeded dice | the same-seed case and the forced-seed case (the replay case still passes: the journal, not the dice, is what makes a replay identical) |
+
+Golden walk (every shipped starter — the-haunting, mystery-house, voice-bench, the-haunting-rulebook — capsule,
+`table.apply.options`, `table.resolve.options` at the start scene and after one move, frozen clock, seed 5): 24 of 24
+reads byte-identical between the parent commit's kernel (`dbc502675`) and this branch's.
+
+Code review (high): seven findings, five fixed in `5b8ef9a6b` (the handle now folds with `tableSlug`; refusals throw
+at the site, no non-null assertions; the fake kernel's `band_conflict` mirrors the real shapes; one shared
+`refusalOf(field)` factory for `stated` and `band`; the malformed-table refusal has its test), one recorded as a
+documented boundary (a row with `min` 0 may roll 0 minutes, §138.3), one skipped (per-effect `RuleTables`
+construction; the same pattern as `apply/archetype.ts`).
