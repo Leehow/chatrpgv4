@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdir,mkdtemp,readFile,rm,symlink} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,rm,symlink,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {build} from 'esbuild';

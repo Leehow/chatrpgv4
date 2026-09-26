@@ -171,7 +171,9 @@ export function intentHistory(entry: Row): Row[] {
     const all = intentsOf(entry).map((item, index) => ({item, index}))
         .sort((a, b) => number(b.item.last_turn) - number(a.item.last_turn) || b.index - a.index).map(({item}) => item);
     return [...all.filter(item => !isSettled(item.status)), ...all.filter(item => isSettled(item.status))]
-        .map(item => ({ref: item.ref, intent: item.text, status: item.status, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null}));
+        .map(item => ({ref: item.ref, intent: item.text, status: item.status, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null,
+            // §139.6: a row the table's own act opened says so, as the card does.
+            ...(item.generated === true ? {by: 'table'} : {})}));
 }
 
 export function stateOf(graph: ModuleGraph, world: Row, me: Person, session: Row | null, stance: string | null): Row {

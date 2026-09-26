@@ -289,7 +289,7 @@ test("§139.3 at the table: Knott's own turn spent on a shout -- a check with sp
 	const opened = receipts.find((receipt) => receipt.kind === "npc" && receipt.intent?.text === SHOUT);
 	assert.ok(opened, "the act opened its row");
 	assert.deepEqual([opened.intent.outcome, opened.intent.generated, opened.passes_turn?.turn_of], ["attempted", true, "thomas-hayes"], "spend_turn passed the turn");
-	const roll = receipts.find((receipt) => receipt.kind === "roll" && receipt.actor === "steven-knott");
+	const roll = receipts.find((receipt) => receipt.kind === "roll" && receipt.actor === "steven-knott" && receipt.family !== "stakes");
 	assert.ok(roll, "his own check was rolled");
 	assert.deepEqual([roll.intent.text, roll.intent.ref, roll.intent.generated], [SHOUT, opened.intent.ref, true]);
 	assert.ok(["done", "failed"].includes(roll.intent.outcome), "the roll settled it");
@@ -305,14 +305,14 @@ test("§139.3 at the table: the same shout Jev cannot settle is the intention al
 	const receipts = turnRecord(table, 3).receipts;
 	const opened = receipts.find((receipt) => receipt.kind === "npc" && receipt.intent?.text === SHOUT);
 	assert.deepEqual([opened?.intent.outcome, opened?.intent.generated], ["attempted", true]);
-	assert.ok(!receipts.some((receipt) => receipt.kind === "roll" && receipt.actor === "steven-knott"), "nothing rolled for him");
+	assert.ok(!receipts.some((receipt) => receipt.kind === "roll" && receipt.actor === "steven-knott" && receipt.family !== "stakes"), "nothing rolled for him (the stakes die of §139.8 is not his check)");
 	assert.equal(npcActRows(table)[0].way, "intention_only");
 });
 
 /**
- * Ticket 09 (§139.8, in flight on its own branch) puts `stakes: {rung, outcome, line}` on the situation packet from a
- * keeper-visible roll. Until it lands on this line, the packet's field is laid on the kernel's own answer here: the
- * bridge the engine reads through is the kernel extension's, wrapped.
+ * §139.8 puts `stakes: {rung, outcome, line}` on the situation packet from a keeper-visible seeded die. These tests
+ * pin the outcome instead of depending on what the seed rolls for Knott: the bridge the engine reads through is the
+ * kernel extension's, wrapped.
  */
 function withStakes(table, outcome) {
 	const real = table.runtimeBridges().at(-1);

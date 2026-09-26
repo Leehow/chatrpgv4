@@ -24,6 +24,7 @@ import type {KernelContext} from '../context.js';
 import type {HandlerGroup} from '../handlers.js';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
+import {fleeBlockers} from '../combat/flee-footing.js';
 import {npcsPresent, personLabel} from '../read/capsule.js';
 import {readCampaign} from '../read/handlers.js';
 import {playLanguageOf} from '../read/languages.js';
@@ -144,7 +145,9 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
                 const catalog = row(combat!.weapon_catalog), weapons = once(array(fighter.weapons).map(value => weaponLabel(catalog, value)).filter((value): value is Option => !!value));
                 const targets = view.combatTargets(combat!, handle).map(id => option(id, label(id)));
                 if (targets.length) way('attack', {target: targets, weapon: weapons.length ? weapons : [option('unarmed', string(row(catalog.unarmed).display_name) || 'unarmed')]});
-                way('flee');
+                // §139.9: a person the ruleset's flight rules block (held, unconscious...) cannot flee, so it is not a way.
+                const fleeTable = campaign.standingTables?.flee;
+                if (!fleeTable || !fleeBlockers(fighter, fleeTable).length) way('flee');
             }
             if (!inSession && here && profile) {
                 // §138.11: outside a fight, a person present with a stat block may strike the first blow at an investigator.

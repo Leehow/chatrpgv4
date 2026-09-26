@@ -170,3 +170,18 @@ def test_the_generated_mark_is_true_or_absent(knott):
     pinned(knott)
     error = knott.table_err("apply", call_id="t1-c2", effects=[{"kind": "npc", "name": "Steven Knott", "intends": "Leave.", "outcome": "attempted", "_generated": "yes"}])
     assert error["code"] == "invalid_params" and error["details"]["field"] == "npc._generated"
+
+
+def test_a_person_the_flight_rules_block_is_not_offered_flee(knott):
+    """§139.9 through §139.3: the ruleset's `flee_blocked_by` (a held person) keeps `flee` out of the ways, as it keeps
+    `combat:flee` out of the session view; free again, the way is back."""
+    knotts_turn(knott)
+    path = campaign_dir(knott.workspace) / "save" / "combat.json"
+    combat = read_json(path)
+    knott_row = next(p for p in combat["participants"] if p["actor_id"] == KNOTT)
+    knott_row["conditions"] = [*knott_row.get("conditions", []), "grappled"]
+    path.write_text(json.dumps(combat, ensure_ascii=False, indent=2), encoding="utf-8")
+    assert "flee" not in ways(options(knott)), "a held person cannot run"
+    knott_row["conditions"] = [c for c in knott_row["conditions"] if c != "grappled"]
+    path.write_text(json.dumps(combat, ensure_ascii=False, indent=2), encoding="utf-8")
+    assert "flee" in ways(options(knott))
