@@ -354,6 +354,16 @@
       "id": "SL-70",
       "file": "70-several-new-persons-in-one-batch-mint.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-71",
+      "file": "71-an-npc-can-be-the-actor-of-a-resolve.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-72",
+      "file": "72-a-look-budget-per-turn.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
