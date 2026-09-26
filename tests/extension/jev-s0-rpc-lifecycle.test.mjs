@@ -29,7 +29,9 @@ function createJsonlClient(child, stderr) {
 	return async function command(type, data = {}) {
 		const id = "rpc-" + Math.random().toString(36).slice(2);
 		child.stdin.write(JSON.stringify({ id, type, ...data }) + "\n");
-		const deadline = Date.now() + 5_000;
+		// SL-87: how long a reply takes is not this file's subject. The first reply waits on the child's whole start (Node
+		// loading the TypeScript runtime and Pi), which outlasted 5 s on a loaded box; a minute bounds a hang.
+		const deadline = Date.now() + 60_000;
 		while (Date.now() < deadline) {
 			const found = lines.findIndex(line => line.type === "response" && line.id === id);
 			if (found >= 0) {

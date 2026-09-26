@@ -380,8 +380,13 @@ test("a settled thinking-only run returns a service notice and releases the turn
 	assert.equal(notices.length, 1, "one settled run gets one cause-neutral result");
 	assert.match(notices[0].content, /没有交付结果|without a delivered result/i);
 
+	// SL-87: the next input waits for the concrete event the test is about, §73's own close of the stranded turn (its
+	// `released` row), not only for the notice: on a loaded box the player spoke between the notice and the release, and the
+	// input then carried §38's release instead (a lawful path, not the one this test pins). The delivery is waited for too.
+	await waitFor(() => table.telemetry().some(row => row.lane === "turn" && row.event === "released" && row.ok === true),
+		{ label: "§73's close of the stranded turn", timeoutMs: 60_000 });
 	await table.session.prompt("Continue.");
-	await waitForIdle(table.session);
+	await waitFor(() => deliveryTexts(table).includes("The next turn reaches the player."), { label: "the next turn's delivery", timeoutMs: 60_000 });
 	assert.ok(deliveryTexts(table).includes("The next turn reaches the player."),
 		"the next input lands on an open table instead of being refused by turn_state");
 	// §73: the settled run closed the stranded turn itself, so under FAKE_KERNEL_STRICT_TURN the second

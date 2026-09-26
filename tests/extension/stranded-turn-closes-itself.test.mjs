@@ -19,7 +19,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { openTable, waitFor, waitForIdle } from "./harness.mjs";
+import { openTable, waitFor } from "./harness.mjs";
 import { reviewUnavailable } from "../../extensions/mods/audit-budget.ts";
 
 const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
@@ -39,6 +39,17 @@ const turnFile = (table, campaign) => join(table.workspace, ".coc/campaigns", ca
 const recordFile = (table, campaign, turn) =>
 	join(table.workspace, ".coc/campaigns", campaign, "turns", `${String(turn).padStart(4, "0")}.json`);
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
+/**
+ * SL-87: the tool result of the Keeper's `narrate` of `text` (its `isError` says whether the delivery was refused). The waits
+ * below are on these concrete deliveries, never on an idle heuristic: on a loaded box `waitForIdle` returned before the
+ * opening run had started, the refusal then fell on the opening's own delivery, and the cursor the test read was the
+ * opening's stranded close (turn 1), not the player's.
+ */
+function narrated(session, text) {
+	const call = session.messages.flatMap((message) => message.role === "assistant" && Array.isArray(message.content) ? message.content : [])
+		.find((block) => block.type === "toolCall" && block.name === "narrate" && block.arguments?.text === text);
+	return call && session.messages.find((message) => message.role === "toolResult" && message.toolCallId === call.id);
+}
 
 test("a run that settles with nothing delivered writes the stranded record before the player says anything else", async (t) => {
 	const campaign = "stranded-closes-itself";
@@ -55,11 +66,13 @@ test("a run that settles with nothing delivered writes the stranded record befor
 		],
 	});
 	t.after(() => table.dispose());
-	await waitForIdle(table.session, { timeoutMs: 60_000 });
+	const opening = await waitFor(() => narrated(table.session, "门在你身后合上。"), { label: "the opening's delivery", timeoutMs: 120_000 });
+	assert.equal(opening.isError, false, "the opening was delivered before the review started refusing");
 	refuseEveryDelivery(table);
 
 	await table.session.prompt("我推门进去，先听一听。");
-	await waitForIdle(table.session, { timeoutMs: 60_000 });
+	const refused = await waitFor(() => narrated(table.session, "这一段没有通过复核。"), { label: "the player's turn's refused delivery", timeoutMs: 120_000 });
+	assert.equal(refused.isError, true, "the review refused the player's turn's delivery");
 
 	// The assertion is the artifact, not a telemetry row about it: the record on disk and the cursor the
 	// player's next utterance would meet. Both must be true with no further input.
@@ -68,7 +81,7 @@ test("a run that settles with nothing delivered writes the stranded record befor
 			const value = await readJson(turnFile(table, campaign)).catch(() => undefined);
 			return value?.state === "awaiting_player" ? value : undefined;
 		},
-		{ label: "the table to leave `acting` with no further player input", timeoutMs: 20_000 },
+		{ label: "the table to leave `acting` with no further player input", timeoutMs: 60_000 },
 	);
 	assert.equal(cursor.turn, 2);
 
@@ -100,13 +113,16 @@ test("a release the kernel refuses leaves the turn marked, and the next player i
 	t.after(() => table.dispose());
 	refuseEveryDelivery(table);
 
+	// SL-87: each wait is on the kernel request the next assertion reads, not on an idle heuristic that can return before
+	// the run (or the replay of a held input) has begun.
+	const requests = (method) => table.kernelRequests().filter((request) => request.method === method);
 	await table.session.prompt("我推门进去，先听一听。");
-	await waitForIdle(table.session, { timeoutMs: 60_000 });
+	await waitFor(() => requests("table.release").length > 0, { label: "§73's attempt to close the stranded turn", timeoutMs: 60_000 });
 	// The release was attempted and refused, so the mark is still owed.
 	assert.equal(table.kernelRequests().filter((request) => request.method === "table.release").length, 1);
 
 	await table.session.prompt("我改主意，退回走廊。");
-	await waitForIdle(table.session, { timeoutMs: 60_000 });
+	await waitFor(() => requests("table.player_input").length >= 2, { label: "the second player input reaching the kernel", timeoutMs: 60_000 });
 
 	const inputs = table.kernelRequests().filter((request) => request.method === "table.player_input");
 	assert.equal(inputs.length, 2);

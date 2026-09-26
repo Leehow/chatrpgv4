@@ -37,7 +37,7 @@ import { createHash } from 'node:crypto';
 import { createDecisionAdapter, jevFailureTelemetry } from './decision-adapter.ts';
 import type { DecisionPort as JevDecisionPort } from './decision-port.ts';
 import { ContractError, type DecisionBatch, type DecisionResult, type IntentBinding, type Json, type ObservationPacket, type OperationProposal, type ReadSet, type ScopeBinding } from './contracts.ts';
-import { TaskLease } from './task-context.ts';
+import { TaskLease, type TaskClock } from './task-context.ts';
 import { JEV_MODEL } from './question-packing.ts';
 import { preparationProviderBudget } from './preparation-budget.ts';
 import { prepareCheckPreflight } from './check-preflight.ts';
@@ -162,6 +162,13 @@ export interface HybridEngineOptions {
   maxSteps?: number;
   /** The run's clock (§135.25); tests pass a stub. Defaults to `Date.now`. */
   now?: () => number;
+  /**
+   * SL-87: the clock of the run's steps and its Jev work -- the step timings the decision budget sums, each read's
+   * prescreen allowance (its deadline, timeouts and leases) and the decision leases -- for a test whose subject is that
+   * wall-clock budget. `now` defaults to it. Absent: the host's real clock and timers, exactly as before. The clerk's
+   * operation lease stays on the real clock (the kernel gateway reads it).
+   */
+  clock?: TaskClock;
   /** §135.30: the typed-feature compile before a route that has an uncompiled reachable candidate (default true). `false` is the SL-12 policy: the replays' control arm, and tests whose subject is the route. */
   compile?: boolean;
 }
@@ -508,7 +515,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   keeperCallCapMs: number | (() => Promise<number>); onKeeperCallCap: (phase: 'first_byte' | 'streaming', capMs: number) => void} {
   let bridge: KernelBridge | undefined, gateway: OperationGateway | undefined, closer: TurnClosePort | undefined, api: any;
   let consultations: SourceAnswersPort | undefined;
-  const now = options.now ?? (() => Date.now());
+  // SL-87: `clock`, when given, is the run's steps' and its Jev work's clock (the read's prescreen allowance, the decision
+  // leases); without it every one of them reads the host's real clock and timers, as before. `now` alone stays the policy's.
+  const clock = options.clock, stepNow = clock ? () => clock.now() : () => Date.now(), leaseClock = clock ? {clock} : {};
+  const now = options.now ?? stepNow;
   /** §135.25: the clerk steps the last run's budget deferred, for the next run's first note to the Keeper (session memory). */
   let carried: {campaign?: string; run: string; turn?: number; deferred: DeferredStep[]} | undefined;
   const record = (row: Record<string, unknown>) => {
@@ -594,12 +604,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const built = consequenceBatch(view, run.scope, run.readSet);
     if (!built) return;
     const thresholds = await jevStepsBudget();
-    const began = Date.now();
+    const began = stepNow();
     const lease = new TaskLease({owner: CONSEQUENCE_FAMILY, goal: `run ${run.runId} consequence`, scope: run.scope, capabilities: ['decision'],
-      readSet: run.readSet, signal, budget: {deadlineAt: Date.now() + 15_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
+      readSet: run.readSet, signal, ...leaseClock, budget: {deadlineAt: stepNow() + 15_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
     let result: DecisionResult | undefined;
     try { result = await jev.decide(built.batch, lease); } catch { result = undefined; } finally { lease.close(); }
-    const ms = Date.now() - began;
+    const ms = stepNow() - began;
     run.consequenceMs += ms;
     // SL-86 (§135.32 addendum 3): each class offered this batch gets its own gate (`thresholdsForClass`), falling
     // back to the shared `thresholds` for a class `content/rulesets/coc7/host-budgets.json`'s `jev_steps.classes`
@@ -662,11 +672,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
 
   function makePorts(run: RunState): RunDriverPorts {
     return {
-      clock: {now: () => Date.now()},
+      clock: {now: stepNow},
       record: {record: (event: RunEvent) => { record({lane: 'run', ...event}); if (event.type === 'run_end') budgetSummary(run); }},
       read: {
         async read(_proposal, invocation) {
-          const began = Date.now();
+          const began = stepNow();
           const {capsule, table, candidates, rows, consequences} = await tableReads(run);
           let bindingArtifact: Extract<StepArtifact, {kind: 'read'}>['binding'];
           if (table.scope && table.readSet && table.binding) {
@@ -693,11 +703,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             materials = reuse.materials; packet = reuse.message; outcome = reuse;
             prescreen = {status: 'reused', from: reuse.step, jev_calls: 0, ms: 0, materials: materials.length};
           } else if (!skipped && jev && bridge?.call && bridge.campaign && table.binding) {
-            const events: Row[] = [], prescreenBegan = Date.now();
+            const events: Row[] = [], prescreenBegan = stepNow();
             const message = await prepareKeeperSupport({call: (method, params) => bridge!.call!(method, params), campaign: bridge.campaign,
               binding: table.binding, capsule, signal: invocation.signal, decision: jev, env: options.env as NodeJS.ProcessEnv,
               record: event => { events.push(event); record({...event, run: run.runId, step: invocation.stepId}); },
-              byteBudget: PRESCREEN_BYTES, deadlineAt: Date.now() + allowance, providerBudget: run.providerBudget});
+              byteBudget: PRESCREEN_BYTES, deadlineAt: stepNow() + allowance, providerBudget: run.providerBudget, ...leaseClock});
             const prepared = events.find(event => event.event === 'prepared'), fallback = events.find(event => event.event === 'fallback');
             // A prescreen that fell back still spent its calls (§124.11): gate #5's read said 0 while 12 had run.
             calls = Number((prepared ?? fallback)?.jev_calls ?? 0);
@@ -706,7 +716,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             if (found.located.length) run.located = found.located;
             // What the read did, as the route question sees it under "done this turn": the prototype's read summary
             // (runs 11-13 decided the declared move with it), including the locate's own judgment of what is relevant.
-            const prescreenMs = Date.now() - prescreenBegan;
+            const prescreenMs = stepNow() - prescreenBegan;
             prescreen = {status: message ? 'prepared' : text(events.find(event => event.event === 'fallback' || event.event === 'skipped')?.event) || 'none',
               jev_calls: calls, ms: prescreenMs, allowance_ms: allowance, materials: materials.length, supplied: prepared?.supplied ?? null,
               stop_reason: prepared?.stop_reason ?? null, locate: prepared?.locate ?? null, located: found.located.length,
@@ -734,7 +744,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           for (const entry of issued?.bodies ?? []) if (entry.family === 'person') for (const name of [entry.name, text(entry.body.id)]) if (name) run.shown.people.add(name);
           if (packet && table.binding && bridge?.campaign)
             api?.events?.emit?.('coc:run-prescreen', {campaign: bridge.campaign, turn: table.binding.turn, run: run.runId, message: packet});
-          const ms = Date.now() - began;
+          const ms = stepNow() - began;
           record({lane: 'run', event: 'read', run: run.runId, stepId: invocation.stepId, ms, scene: table.context.scene,
             candidates: fresh.candidates.map(candidate => candidate.key), prescreen,
             ...(issued ? {bodies: {count: issued.bodies.length, bytes: issued.bytes, reads: issued.reads, ms: issued.ms,
@@ -992,15 +1002,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const candidate = question.candidate as Candidate | undefined;
       if (!candidate || !run.scope || !run.readSet || run.turn === undefined || !bridge?.campaign || !bridge.call)
         return {status: 'unavailable' as const, artifact: {kind: 'bind-ordinary', bound: {disposition: 'unavailable', unresolved: ['binder_unavailable'], calls: 0, ms: 0}} as StepArtifact};
-      const began = Date.now();
+      const began = stepNow();
       const lease = new TaskLease({owner: 'ordinary-resolve', goal: run.rawInput.trim() || 'ordinary check', scope: run.scope, capabilities: ['decision'],
-        readSet: run.readSet, signal: request.signal,
+        readSet: run.readSet, signal: request.signal, ...leaseClock,
         // A decision's own lease, like the route's (§135.6, SL-22 addendum): never the prescreen allowance's remainder.
-        budget: {deadlineAt: Date.now() + 15_000, remainingInputTokens: 400_000,
+        budget: {deadlineAt: stepNow() + 15_000, remainingInputTokens: 400_000,
           remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
       try {
         const result = await prepareCheckPreflight({campaign: bridge.campaign, turn: run.turn, rawInput: run.rawInput, goal: run.rawInput, scope: run.scope,
-          readSet: run.readSet, publicContext: [{role: 'player', text: run.rawInput}], call: (method, params) => bridge!.call!(method, params), decision: jev!, lease,
+          readSet: run.readSet, publicContext: [{role: 'player', text: run.rawInput}], call: (method, params) => bridge!.call!(method, params), decision: jev!, lease, ...leaseClock,
           // §135.30.3 (owner ruling 2026-09-24): the compile's cleared act settled roll-or-not; the binder's own answer is recorded.
           ...(compiledCheck(candidate) ? {compiled: compiledCheck(candidate)} : {}),
           // SL-31 (§135.28): the clerk's binder takes the difficulty and the dice from Jev only past the policy's gate, else
@@ -1009,7 +1019,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         // §135.30.3 (SL-26): the profile answer behind the skill rides with the action, so the bind record says whether it cleared.
         const skill = result.evidence?.profile;
         const bound = {disposition: result.advice.disposition, ...(result.advice.action ? {action: result.advice.action as unknown as Record<string, Json>} : {}),
-          unresolved: result.advice.unresolved, calls: result.decisionCalls, ms: Date.now() - began, ...(skill ? {skill} : {}),
+          unresolved: result.advice.unresolved, calls: result.decisionCalls, ms: stepNow() - began, ...(skill ? {skill} : {}),
           ...(result.evidence?.route ? {route: result.evidence.route} : {}), ...(result.evidence?.paths ? {paths: result.evidence.paths} : {})};
         record({lane: 'route', purpose: 'bind-ordinary', run: run.runId, step: request.stepId, candidate: candidate.key, disposition: bound.disposition,
           unresolved: bound.unresolved, ms: bound.ms, jev_calls: bound.calls,
@@ -1025,10 +1035,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const batch = question.batch as DecisionBatch | undefined;
     if (!batch || (request.purpose !== 'route' && request.purpose !== 'bind' && request.purpose !== 'compile' && request.purpose !== 'reask'))
       return {status: 'unavailable' as const, artifact: {reason: batch ? `no_${request.purpose}_decider` : 'no_scope_binding'}};
-    const began = Date.now();
+    const began = stepNow();
     const lease = new TaskLease({owner: batch.family, goal: `run ${request.runId} ${request.purpose}`, scope: batch.scope, capabilities: ['decision'],
-      readSet: batch.readSet, signal: request.signal,
-      budget: {deadlineAt: Date.now() + 15_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
+      readSet: batch.readSet, signal: request.signal, ...leaseClock,
+      budget: {deadlineAt: stepNow() + 15_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
     try {
       const result = await jev!.decide(batch, lease);
       const answers = result.status === 'complete' ? Object.fromEntries(Object.entries(result.answers ?? {}).map(([key, value]) => [key,
@@ -1048,13 +1058,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       if (request.purpose === 'reask') {
         const input = object(question.input) as unknown as ReaskInput;
         const reasked = interpretReask({candidates: array(question.candidates) as Candidate[]}, input, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE);
-        record({lane: 'route', purpose: 'reask', run: run.runId, step: request.stepId, status: result.status, ms: Date.now() - began,
+        record({lane: 'route', purpose: 'reask', run: run.runId, step: request.stepId, status: result.status, ms: stepNow() - began,
           // SL-84: the last attempt's HTTP status or network/timeout code, so a `jev_service_error` reason is legible.
           ...(result.failure?.status !== undefined ? {jev_status: result.failure.status} : {}),
           settled_by: array(input.settled).map(entry => object(entry).key), answers: reasked.answers, filed: reasked.filed.map(candidate => candidate.key), reason: reasked.reason});
         return {status: result.status === 'complete' ? 'ok' as const : 'unavailable' as const, artifact: {kind: 'reask', result} as StepArtifact};
       }
-      record({lane: 'route', purpose: request.purpose, run: run.runId, step: request.stepId, status: result.status, ms: Date.now() - began,
+      record({lane: 'route', purpose: request.purpose, run: run.runId, step: request.stepId, status: result.status, ms: stepNow() - began,
         // SL-84: the last attempt's HTTP status or network/timeout code, so a `jev_service_error` reason is legible.
         ...(result.failure?.status !== undefined ? {jev_status: result.failure.status} : {}),
         ...(request.purpose === 'route' ? {offered: offered.map(candidate => candidate.key), selected: routed?.selected ?? [], exit: routed?.exit ?? null, reason: routed?.reason ?? null,

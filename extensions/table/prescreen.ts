@@ -2,7 +2,7 @@
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
 import {readJevApiKey,readJevPreselectEnabled} from '../jev/agent/config.js';
 import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
-import {TaskLease} from '../../runtime/jev/task-context.ts';
+import {TaskLease,type TaskClock} from '../../runtime/jev/task-context.ts';
 import {JEV_MODEL,packDecisionBatch} from '../../runtime/jev/question-packing.ts';
 import {locateCards,locatedSelection,LOCATE_FAMILY,type LocateCard,type LocateResult} from '../../runtime/jev/semantic-locate.ts';
 import {preparationProviderBudget} from '../../runtime/jev/preparation-budget.ts';
@@ -259,22 +259,32 @@ export async function reusePrescreen(input:{call:(method:string,params:Row)=>Pro
 export type KeeperSupportInput={call:(method:string,params:Row)=>Promise<unknown>;campaign:string;binding:ContextBinding;capsule:Row;
     signal:AbortSignal;record:(event:Row)=>void;decision?:DecisionPort;timeoutMs?:number;deadlineAt?:number;env?:NodeJS.ProcessEnv;
     suppliedMessages?:Row[];byteBudget?:number;alreadySupplied?:string[];names?:string[];rules?:string[];initialSnapshot?:Row;
-    source?:{moduleId:string;runtime:PrescreenSourceRuntime};providerBudget?:{actions:number;inputTokens:number;outputTokens:number;costUsd:number}};
+    source?:{moduleId:string;runtime:PrescreenSourceRuntime};providerBudget?:{actions:number;inputTokens:number;outputTokens:number;costUsd:number};
+    /** SL-87: the clock the allowance is measured and enforced on (its deadlines, timeouts and leases). Absent: the host's real
+     * clock and timers, exactly as before. The source provider's own reads stay on the real clock. */
+    clock?:TaskClock};
+/** An `AbortSignal.timeout` on an injected clock (SL-87): aborts with the same `TimeoutError` when that clock reaches it. */
+function clockTimeout(clock:TaskClock,ms:number):AbortSignal{
+    const controller=new AbortController();
+    clock.schedule(()=>controller.abort(new DOMException('The operation was aborted due to timeout','TimeoutError')),ms);
+    return controller.signal;
+}
 export const preparePrescreen=(input:KeeperSupportInput):Promise<Row|undefined>=>prepareKeeperSupport(input);
 export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:SupportRequest}):Promise<Row|undefined> {
-    const env=input.env??process.env;
+    const env=input.env??process.env,clock=input.clock,now=clock?()=>clock.now():()=>Date.now(),
+        timeout=(ms:number)=>clock?clockTimeout(clock,ms):AbortSignal.timeout(ms),leaseClock=clock?{clock}:{};
     if(!input.decision&&!prescreenEnabled(env))return undefined;
     if(typeof input.binding.source_revision!=='string')return undefined;
-    const began=Date.now(),availableBytes=Math.min(MESSAGE_BYTES,Math.max(0,input.byteBudget??MESSAGE_BYTES));
+    const began=now(),availableBytes=Math.min(MESSAGE_BYTES,Math.max(0,input.byteBudget??MESSAGE_BYTES));
     const note=(event:Row)=>{try{input.record({lane:'prescreen',turn:input.binding.turn,...event});}catch{/* Advisory only. */}};
     if(availableBytes<512){note({event:'skipped',reason:'request_budget',bytes:availableBytes});return undefined;}
     if(input.providerBudget&&input.providerBudget.actions<=0){note({event:'skipped',reason:'turn_provider_budget'});return undefined;}
     const deadlineAt=input.deadlineAt??began+(input.timeoutMs??3000),remaining=Math.floor(deadlineAt-began);
     if(remaining<=0){note({event:'skipped',reason:'turn_budget_exhausted'});return undefined;}
-    const signal=AbortSignal.any([input.signal,AbortSignal.timeout(Math.max(1,remaining))]);
+    const signal=AbortSignal.any([input.signal,timeout(Math.max(1,remaining))]);
     const finalizationReserve=Math.min(FINALIZATION_RESERVE_MAX_MS,Math.max(FINALIZATION_RESERVE_MIN_MS,Math.floor(remaining/5))),
         semanticDeadlineAt=Math.max(began+1,deadlineAt-finalizationReserve),semanticRemaining=Math.max(1,semanticDeadlineAt-began),
-        semanticSignal=AbortSignal.any([input.signal,AbortSignal.timeout(semanticRemaining)]);
+        semanticSignal=AbortSignal.any([input.signal,timeout(semanticRemaining)]);
     const rpc=async(method:string,params:Row):Promise<Row>=>{
         signal.throwIfAborted();
         return object(await abortable(input.call(method,{...params,campaign:input.campaign}),signal));
@@ -291,7 +301,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         decision_groups_timed_out:decisionGroupsTimedOut,decision_groups_unavailable:decisionGroupsUnavailable,
         optional_decision_timeouts:optionalDecisionTimeouts,optional_decision_unavailable:optionalDecisionUnavailable,qualification_status:qualificationStatus,
         catalog_candidates:catalogCandidates,source_candidates:sourceCandidateCount,allowance_ms:remaining,
-        allowance_remaining_ms:Math.max(0,deadlineAt-Date.now())});
+        allowance_remaining_ms:Math.max(0,deadlineAt-now())});
     let locateSummary:Row={status:'not_run'},retrievalOutcome:Row|undefined;
     const charge=()=>{if(charged||!input.providerBudget)return;charged=true;const remaining=lease?.context.budget;
         if(!remaining)return;input.providerBudget.actions=Math.min(Math.max(0,input.providerBudget.actions-batches),remaining.remainingActions);
@@ -304,7 +314,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         const request=input.request?validateSupportRequest(input.request):supportRequest(playerText),query=request.query;
         const supplied=suppliedContext(input.suppliedMessages??[]);
         for(const locator of input.alreadySupplied??[])supplied.locators.add(locator);
-        const discoveryBegan=Date.now();
+        const discoveryBegan=now();
         const scope={owner:`campaign:${input.campaign}`,campaign:input.campaign,worldline:input.binding.worldline,loop:input.binding.loop,audience:'keeper' as const};
         const adapter=input.decision??createDecisionAdapter({env,maxConcurrency:4});
         const providerBudget=input.providerBudget??preparationProviderBudget();
@@ -312,26 +322,26 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             remainingCostUsd:providerBudget.costUsd,remainingActions:providerBudget.actions};
         const optionalDecision=async(batch:DecisionBatch,options:{lease?:TaskLease;partial?:boolean}={}):Promise<{result?:DecisionResult;reason?:'timeout'|'unavailable'}>=>{
             const owner=options.lease??lease;
-            if(!owner||semanticSignal.aborted||owner.signal.aborted||Date.now()>=semanticDeadlineAt){optionalDecisionTimeouts++;return {reason:'timeout'};}
+            if(!owner||semanticSignal.aborted||owner.signal.aborted||now()>=semanticDeadlineAt){optionalDecisionTimeouts++;return {reason:'timeout'};}
             if(batches>=providerBudget.actions)return{reason:'unavailable'};
-            const started=Date.now();batches++;
+            const started=now();batches++;
             // The upper bound is what budgets reserve; provider-reported usage is what was spent. Both are kept.
             try{inputUpperBound+=packDecisionBatch(batch).estimate.totalUpperBound;}catch{/* The adapter reports the packing failure. */}
             try{
                 const result=await abortable(adapter.decide(batch,owner),semanticSignal);calls+=result.attempts??0;
                 if(result.usage){inputTokens+=result.usage.inputTokens;outputTokens+=result.usage.outputTokens;}
-                decisionMs+=Date.now()-started;
+                decisionMs+=now()-started;
                 if(result.status!=='complete'&&!(options.partial&&result.status==='incomplete')){
                     const reason=['timeout','cancelled'].includes(String(result.failure?.code))?'timeout':'unavailable';
                     if(reason==='timeout')optionalDecisionTimeouts++;else optionalDecisionUnavailable++;return {reason};}
                 return {result};
-            }catch{decisionMs+=Date.now()-started;const reason=semanticSignal.aborted?'timeout':'unavailable';
+            }catch{decisionMs+=now()-started;const reason=semanticSignal.aborted?'timeout':'unavailable';
                 if(reason==='timeout')optionalDecisionTimeouts++;else optionalDecisionUnavailable++;return {reason};}
         };
         // Semantic locate (contract §124.10): Jev judges the whole closed entity/rule index before discovery.
         let selection:ReturnType<typeof locatedSelection>={priority:[],rules:[],seed:[]};
         if(!input.initialSnapshot){
-            const locateBegan=Date.now();
+            const locateBegan=now();
             try{
                 const indexKey=digest([input.campaign,input.binding.source_revision]);let index=indexCache.get(indexKey),current=Boolean(index);
                 if(!index){
@@ -357,8 +367,8 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                         const locateReadSet:ReadSet=[{kind:'world',resource:input.campaign,revision:digest([input.binding.worldline,input.binding.loop,input.binding.turn])},
                             {kind:'source',resource:input.campaign,revision:String(input.binding.source_revision)},
                             {kind:'model',resource:'decision',revision:JEV_MODEL},{kind:'family',resource:LOCATE_FAMILY,revision:'1'}];
-                        const locateLease=new TaskLease({owner:LOCATE_FAMILY,goal:query,scope,capabilities:['decision'],readSet:locateReadSet,signal:input.signal,
-                            budget:{deadlineAt:Math.min(semanticDeadlineAt,Date.now()+Math.max(LOCATE_MIN_MS,Math.floor(semanticRemaining*LOCATE_SHARE))),...leaseBudget}});
+                        const locateLease=new TaskLease({owner:LOCATE_FAMILY,goal:query,scope,capabilities:['decision'],readSet:locateReadSet,signal:input.signal,...leaseClock,
+                            budget:{deadlineAt:Math.min(semanticDeadlineAt,now()+Math.max(LOCATE_MIN_MS,Math.floor(semanticRemaining*LOCATE_SHARE))),...leaseBudget}});
                         try{located=await locateCards({request,context:context as Json,cards,scope,readSet:locateReadSet,
                             decide:batch=>optionalDecision(batch,{lease:locateLease,partial:true}),record:note});}
                         finally{const left=locateLease.context.budget;leaseBudget={remainingInputTokens:left.remainingInputTokens,
@@ -373,7 +383,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                         top:located.judgments.slice(0,6).map(value=>({family:value.family,handle:clip(value.handle,120),noul:value.noul}))};
                 }
             }catch(error){if(signal.aborted)throw error;locateSummary={status:'failed',reason:error instanceof Error?error.message.slice(0,160):'locate_unavailable'};}
-            locateSummary.ms=Date.now()-locateBegan;
+            locateSummary.ms=now()-locateBegan;
         }
         const catalogPriority=selection.priority,catalogRules=[...new Set([...selection.rules,...(input.rules??[])])].slice(0,8),
             priorityParam=catalogPriority.length?{priority:catalogPriority}:{};
@@ -396,7 +406,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             .filter((value):value is PrescreenCandidate=>Boolean(value)).filter(candidate=>!supplied.keys.has(candidate.key));
         const expandedMemory=await expandMemoryCandidates(base.pool,discoveryRpc),seen=new Set<string>();let pool=[...expandedMemory.pool,...sourceCandidates]
             .filter(candidate=>{if(seen.has(candidate.key))return false;seen.add(candidate.key);return true;});
-        discoveryMs=Date.now()-discoveryBegan;catalogCandidates=base.pool.length;sourceCandidateCount=sourceCandidates.length;
+        discoveryMs=now()-discoveryBegan;catalogCandidates=base.pool.length;sourceCandidateCount=sourceCandidates.length;
         let omitted=base.omitted+Number(sourceResult?.coverage.checked_answers.omitted??0)+Number(sourceResult?.coverage.native.candidate_omitted??0);
         const version=base.version;let catalogNext=Number.isSafeInteger(object(snapshot.materials).next)?Number(object(snapshot.materials).next):null,catalogPages=1;
         if(!pool.length)note({event:'catalog_empty',...(sourceFailure?{source_failure:sourceFailure}:{})});
@@ -407,7 +417,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             .filter((binding,index,all)=>all.findIndex(other=>other.kind===binding.kind&&other.resource===binding.resource)===index);
         // The capsule travels once, as the overview; the supplied-context preview does not repeat it.
         const current={capsule:overview(input.capsule),supplied:suppliedPreview(input.suppliedMessages??[],4096,['coc-capsule'])};
-        lease=new TaskLease({owner:FAMILY,goal:query,scope,capabilities:['decision'],readSet,signal:input.signal,
+        lease=new TaskLease({owner:FAMILY,goal:query,scope,capabilities:['decision'],readSet,signal:input.signal,...leaseClock,
             budget:{deadlineAt:semanticDeadlineAt,...leaseBudget}});
         const sourceKeys=new Set(sourceCandidates.map(candidate=>candidate.key)),materialized:PrescreenCandidate[]=[],
             gaps:PrescreenGap[]=[...expandedMemory.gaps],memoryKeys=new Set(expandedMemory.sessions.flatMap(session=>session.candidateKeys)),
@@ -423,7 +433,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         const checkContext=publicCheckContext(input.suppliedMessages??[],input.binding.turn);
         const checkWork:Promise<CheckPreflightResult>=!playerText.trim()||closed?Promise.resolve({advice:unknownCheck('no_active_player_action'),decisionCalls:0,
             check:async()=>({status:'unavailable',reason:'no_active_player_action'})}):prepareCheckPreflight({campaign:input.campaign,turn:input.binding.turn,rawInput:playerText,scope,readSet,
-            publicContext:checkContext,call:input.call,lease,signal:semanticSignal,decision:{async decide(batch){
+            publicContext:checkContext,call:input.call,lease,signal:semanticSignal,...(clock?{clock}:{}),decision:{async decide(batch){
                 const outcome=await optionalDecision(batch);
                 return outcome.result??{batchId:batch.id,status:'unavailable',answers:{},coverage:{required:[],answered:[],unknown:[]},issues:[],attempts:0,
                     failure:{code:outcome.reason==='timeout'?'timeout':'budget_exhausted',retryable:false}};
@@ -450,7 +460,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                 ...(publicRead(candidate)?{read:publicRead(candidate)}:{})});
         };
         const discover=async(target?:string):Promise<void>=>{
-            const started=Date.now(),context=target?{query,names:[target],rules:catalogRules}:originalCatalog;
+            const started=now(),context=target?{query,names:[target],rules:catalogRules}:originalCatalog;
             let cursor=target?0:catalogNext;
             if(cursor===null)return;
             if(target)followed.add(target);
@@ -476,7 +486,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             if(target&&cursor!==null)gaps.push({alias:`follow_${gaps.length+1}`,kind:'source',label:target,reason:'follow_catalog_partial',
                 read:{tool:'lookup',kind:'module',query:target},coverage:{status:'partial',continuation:true}});
             content.coverage.catalog={pages:catalogPages,candidates:catalogCandidates,continuation:catalogNext};
-            discoveryMs+=Date.now()-started;
+            discoveryMs+=now()-started;
         };
         const readCandidate=async(candidate:PrescreenCandidate):Promise<void|(()=>void)>=>{
             attempted.add(candidate.key);let hydrated=candidate;
@@ -530,11 +540,11 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             return publishes.length?()=>{for(const publish of publishes)publish();}:undefined;
         };
         const discoverPages=async(pages:number[]):Promise<void>=>{
-            if(!sourceResult?.readNativePages||reads>=READ_LIMIT)return;reads++;const started=Date.now();
+            if(!sourceResult?.readNativePages||reads>=READ_LIMIT)return;reads++;const started=now();
             const rows=await abortable(sourceResult.readNativePages(pages,semanticSignal),semanticSignal);
             for(const value of rows){const candidate=candidateOf(value,pool.length);if(!candidate||seen.has(candidate.key))continue;
                 seen.add(candidate.key);sourceKeys.add(candidate.key);directCandidates.add(candidate.key);pool.push(candidate);sourceCandidateCount++;}
-            content.coverage.source=structuredClone(sourceResult.coverage);discoveryMs+=Date.now()-started;
+            content.coverage.source=structuredClone(sourceResult.coverage);discoveryMs+=now()-started;
             if(!rows.length)gaps.push({alias:`source_${gaps.length+1}`,kind:'source',label:`Original PDF pages ${pages.join(', ')}`,
                 reason:'native_continuation_unavailable',coverage:{status:'unknown'},read:{tool:'lookup',kind:'source',query}});
         };
@@ -579,7 +589,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         if(assessment?.coverage!=='sufficient'){
             const retrieval=await runEvidenceAgent({request,current,scope,readSet,signal:semanticSignal,
                 assessWhenEmpty:true,
-                canContinue:()=>providerBudget.actions>batches&&Date.now()<semanticDeadlineAt,
+                canContinue:()=>providerBudget.actions>batches&&now()<semanticDeadlineAt,
                 decide:optionalDecision,record:event=>{if(event.event==='loop_cycle'&&event.tool==='read')readMs+=Number(event.ms??0);
                     if(event.event==='loop_operation_incomplete'){const candidate=pool.find(candidate=>`read:${candidate.key}`===event.key);
                         if(candidate)loopGap(candidate,'loop_timeout');}
@@ -638,7 +648,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         if(assessment?.coverage!=='sufficient')gaps.push({alias:'coverage',kind:'coverage',label:'Remaining evidence coverage',reason:String(assessment?.coverage??'unknown')});
         if(assessment?.consistency&&assessment.consistency!=='clear')gaps.push({alias:'consistency',kind:'conflict',label:'Relevant evidence consistency',reason:String(assessment.consistency)});
         // All owner checks happen after every dependent decision/read, immediately before publish.
-        const validationBegan=Date.now();signal.throwIfAborted();
+        const validationBegan=now();signal.throwIfAborted();
         const checkResult=await checkWork;
         const finalWorkspaceKeys=materialized.map(candidate=>candidate.key).filter(key=>!sourceKeys.has(key)&&!memoryKeys.has(key)),
             memoryRefresh:string[]=[];
@@ -678,7 +688,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             const [removed]=materialized.splice(index,1);content.materials.splice(index,1);dropped++;loopGap(removed,'binding_changed',key);
         }
         const bindingRefresh=volatileDrift.size?{changed:VOLATILE_BINDING_KEYS.filter(key=>volatileDrift.has(key)),dropped}:undefined;
-        signal.throwIfAborted();validationMs=Date.now()-validationBegan;
+        signal.throwIfAborted();validationMs=now()-validationBegan;
         if(assessment)content.assessment=assessment;
         const publicGaps=gaps.length>12?[...gaps.slice(0,8),...gaps.slice(-4)]:gaps;
         // A dropped material's binding key stays private (details and telemetry); the Keeper gets the reason and the read.
@@ -735,7 +745,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             jev_input_tokens:inputTokens,jev_output_tokens:outputTokens,jev_input_upper_bound:inputUpperBound,...outcome,...timing()});
         note({event:'prepared',candidates:pool.length,selected:attempted.size,supplemented:0,
             uncertain:assessment?.coverage==='uncertain'?materialized.length:0,
-            reads,failed,supplied:materialized.length,follow_up:gaps.length,omitted,bytes:requestSize([message]),ms:Date.now()-began,
+            reads,failed,supplied:materialized.length,follow_up:gaps.length,omitted,bytes:requestSize([message]),ms:now()-began,
             supplied_sources:materialized.map(({kind,label,authority})=>({kind,label,authority})),
             pending_reads:gaps.map(({kind,label,reason,key})=>({kind,label,reason,...(key?{key}:{})})),prepared_digest:preparedDigest,supplied_context_digest:supplied.digest,
             decision_batches:batches,jev_calls:calls,qualification_calls:qualificationCalls,jev_input_tokens:inputTokens,jev_output_tokens:outputTokens,
@@ -745,7 +755,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         charge();return message;
     }catch(error){charge();note({event:'fallback',reason:signal.aborted?'cancelled_or_timeout':error instanceof Error?error.message:'unavailable',
         ...(!signal.aborted&&error instanceof BindingChanged?{key:error.key}:{}),
-        ms:Date.now()-began,decision_batches:batches,jev_calls:calls,jev_input_tokens:inputTokens,jev_output_tokens:outputTokens,
+        ms:now()-began,decision_batches:batches,jev_calls:calls,jev_input_tokens:inputTokens,jev_output_tokens:outputTokens,
         jev_input_upper_bound:inputUpperBound,stop_reason:retrievalOutcome?.stop_reason??'not_run',retrieval:retrievalOutcome??null,locate:locateSummary,
         usage_complete:false,...timing()});return undefined;}
     finally{lease?.close();}

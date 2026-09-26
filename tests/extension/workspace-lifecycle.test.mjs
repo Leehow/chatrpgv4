@@ -76,7 +76,12 @@ test('scene drafts stay dormant and separate store instances compare revisions u
   const b = {...a, scene: 'archive'};
   const patch = {focus: 'Question at the office', upserts: [{id: 'question', kind: 'open_question', text: 'Where did the letter come from?', evidence: ['npc:knott']}]};
   const input = {scope: a, baseRevision: 0, turn: 1, stateStamp: 'a'.repeat(64), patch};
-  const outcomes = await Promise.all([api.createWorkpadStore(root).publish(input), api.createWorkpadStore(root).publish(input)]);
+  // SL-87: the lock's 500 ms wait is not this test's subject; the revision compare under the one lock is. On a loaded box one
+  // store's write and fsync outlast 500 ms and the other's wait ended in EAGAIN. Each store reads a clock that moves one
+  // millisecond per poll of the lock, so the wait is bounded by its 500 polls (each a 10 ms sleep), not by the box's speed.
+  const perPoll = () => { let ticks = 0; return () => ticks++; };
+  const outcomes = await Promise.all([api.createWorkpadStore(root, {now: perPoll()}).publish(input),
+    api.createWorkpadStore(root, {now: perPoll()}).publish(input)]);
   assert.deepEqual(outcomes.map(row => row.status).sort(), ['discarded', 'published']);
   assert.equal((await api.createWorkpadStore(root).read(b)).status, 'empty');
   assert.equal((await api.createWorkpadStore(root).read(a)).view.focus, patch.focus);

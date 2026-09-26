@@ -252,7 +252,11 @@ test("a delivery made under an adaptation wait carries the host's own notice, be
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("我进门找值班的人。");
-	await waitFor(() => waitNotices(table).length > 0, { label: "the host's preparation-wait notice" });
+	await waitFor(() => waitNotices(table).length > 0, { label: "the host's preparation-wait notice", timeoutMs: 60_000 });
+	// SL-87: the notice's telemetry row is written after the notice is sent (`void record`), so it is waited for too; on a
+	// loaded box the row had not landed when the notice was seen, and "said once" read no row at all.
+	await waitFor(() => table.telemetry().some((row) => row.reason === "preparation_wait_notice"),
+		{ label: "the notice's telemetry row", timeoutMs: 60_000 });
 
 	const notice = waitNotices(table).at(-1);
 	assert.deepEqual(notice.details.preparation_wait, { kind: "adaptation", name: "roxbury-sanitarium" });

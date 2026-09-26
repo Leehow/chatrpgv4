@@ -436,6 +436,11 @@
       "status": "ready"
     },
     {
+      "id": "SL-87",
+      "file": "87-wall-clock-budget-tests-must-not-time-the-box.md",
+      "status": "ready"
+    },
+    {
       "id": "SL-88",
       "file": "88-what-needs-no-result-does-not-wait.md",
       "status": "ready"

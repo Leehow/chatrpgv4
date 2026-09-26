@@ -179,17 +179,24 @@ async function fixture(t, options = {}) {
 		calls, decisions, traces, counts: () => ({ text: textCalls, visual: visualCalls }) };
 }
 
+// SL-87: neither the task's lease nor the deadlock guard is this file's subject. On a loaded box the real extraction and the
+// relevance batches outlasted the old 5 s guard. The lease is a minute, and the guard fires only past it: a hang still fails,
+// and a lease that runs out reports as the task's own status first.
+const ROOT_LEASE_MS = 60_000, DEADLOCK_GUARD_MS = 90_000;
+
 async function runRoot(table, question) {
 	const id = await table.taskRuntime.begin({ domain: "root-source", intent: intent(question), lease: {
 		owner: "keeper", goal: question, scope, capabilities: [SOURCE_CONSULT_CAPABILITY],
-		budget: { deadlineAt: Date.now() + 30_000, remainingInputTokens: 100_000, remainingOutputTokens: 100_000,
+		budget: { deadlineAt: Date.now() + ROOT_LEASE_MS, remainingInputTokens: 100_000, remainingOutputTokens: 100_000,
 			remainingCostUsd: 10, remainingActions: 100 }, readSet,
 	} });
-	const result = await Promise.race([
-		table.taskRuntime.submit(id, plan(question)),
-		new Promise((_, reject) => setTimeout(() => reject(new Error("source task deadlocked")), 5_000)),
-	]);
-	return { id, result, record: table.taskRuntime.snapshot(id) };
+	let guard;
+	try {
+		return { id, result: await Promise.race([
+			table.taskRuntime.submit(id, plan(question)),
+			new Promise((_, reject) => { guard = setTimeout(() => reject(new Error("source task deadlocked")), DEADLOCK_GUARD_MS); }),
+		]), record: table.taskRuntime.snapshot(id) };
+	} finally { clearTimeout(guard); }
 }
 
 test("root consultation completes through a child, actual extraction, independent relevance batches, and exact excerpts", async t => {

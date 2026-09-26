@@ -9,6 +9,7 @@ import {build} from 'esbuild';
 import npc from '../../extensions/npc/index.ts';
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
 import {supportWire} from './support-agent-helpers.mjs';
+import {PRESELECT_ALLOWANCE_MAX_MS} from '../../extensions/jev/agent/config.js';
 
 const root=resolve(import.meta.dirname,'../..'),evidence=join(root,'.pi/npc-prescreen-integration/tests');
 await mkdir(evidence,{recursive:true});
@@ -54,8 +55,14 @@ test('an early NPC intention is rechecked after other preparation and cannot sur
 });
 
 test('actual Keeper preparation overlaps NPC and material decisions and delivers both in one provider payload',async t=>{
- const table=await readyNpc(t),session=host(t,table,true),oldFlag=process.env.PI_COC_JEV_PRESELECT,oldFetch=globalThis.fetch;
- process.env.PI_COC_JEV_PRESELECT='1';t.after(()=>{globalThis.fetch=oldFetch;if(oldFlag===undefined)delete process.env.PI_COC_JEV_PRESELECT;else process.env.PI_COC_JEV_PRESELECT=oldFlag;});
+ // SL-87: the preparation's time is not this test's subject; the overlap and the one payload are. On a loaded box the NPC's
+ // own perspective read outlasted its 1.25 s wait window before its first decision was sent, so the material decisions
+ // waited alone. The allowance is the most the product accepts, and the host double gives the NPC the whole of it.
+ const allowanceMs=PRESELECT_ALLOWANCE_MAX_MS;
+ const table=await readyNpc(t),session=host(t,table,true),oldFlag=process.env.PI_COC_JEV_PRESELECT,oldAllowance=process.env.PI_COC_JEV_PRESELECT_ALLOWANCE_MS,oldFetch=globalThis.fetch;
+ process.env.PI_COC_JEV_PRESELECT='1';process.env.PI_COC_JEV_PRESELECT_ALLOWANCE_MS=String(allowanceMs);
+ t.after(()=>{globalThis.fetch=oldFetch;if(oldFlag===undefined)delete process.env.PI_COC_JEV_PRESELECT;else process.env.PI_COC_JEV_PRESELECT=oldFlag;
+  if(oldAllowance===undefined)delete process.env.PI_COC_JEV_PRESELECT_ALLOWANCE_MS;else process.env.PI_COC_JEV_PRESELECT_ALLOWANCE_MS=oldAllowance;});
  let npcActive=0,materialActive=0,overlap=false;const waiting=new Set();
  globalThis.fetch=async(url,init)=>{
   const body=JSON.parse(init.body),isNpc=Boolean(body.state.npc);if(isNpc)npcActive++;else materialActive++;
@@ -68,7 +75,8 @@ test('actual Keeper preparation overlaps NPC and material decisions and delivers
    return Response.json(supportWire(body,candidate=>candidate.kind==='npc'&&candidate.label==='Steven Knott'?'necessary':'skip'));
   }finally{waiting.delete(release);init.signal?.removeEventListener('abort',abort);if(isNpc)npcActive--;else materialActive--;}
  };
- await session.start();const opened=await table.call('table.open'),capsule=await table.call('table.capsule',{rehydrate:true}),{_context,...view}=capsule;
+ await session.start();session.events.emit('coc:npc-bridge',{...session.bridge,automaticWaitMs:()=>allowanceMs});
+ const opened=await table.call('table.open'),capsule=await table.call('table.capsule',{rehydrate:true}),{_context,...view}=capsule;
  session.events.emit('coc:table-open',{campaign:table.campaign,open:opened});
  session.events.emit('coc:capsule',{campaign:table.campaign,epoch:'integrated-input',capsule:view,context:_context});
  const ctx={cwd:table.home,model:{contextWindow:1000000},getSystemPrompt:()=>'',getContextUsage:()=>undefined,sessionManager:{getBranch:()=>[]}};

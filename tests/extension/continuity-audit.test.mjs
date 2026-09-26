@@ -236,23 +236,28 @@ test('a private session cannot exceed its reservation even with shared allowance
  * The gate is explicit rather than a race: `mods.job` is held until the test releases it, and the hold is
  * an order of magnitude longer than the whole fixture allowance, so a charge cannot fail to be visible.
  */
-test('a stalled preparation is not charged to the reviewer, and the verdict it delays still lands', async () => {
+test('a stalled preparation is not charged to the reviewer, and the verdict it delays still lands', async t => {
     const cwd = await mkdtemp(join(directory, 'stall-')), scope = join(cwd, 'budget');
     // Small enough that any preparation charge at all exhausts the allowance before the reviewer starts.
-    // Keep the review reservation comfortably above fixture I/O under a saturated full suite,
+    // Keep the review reservation comfortably above the reviewer's own time,
     // while the preparation stall still exceeds the entire shared allowance on its own.
     const limits = {...AUDIT_LIMITS, time_ms: 1000, per_review_ms: 500};
+    // SL-87: what the allowance is charged is this test's subject, so the clock it reads (`Date`) is node:test's mock and moves
+    // only when the fixture moves it: the stall by more than the whole allowance, the reviewer by 100 ms of its own. On a loaded
+    // box the fixture's own file I/O took 790 ms of real time inside the 500 ms reservation.
+    t.mock.timers.enable({apis: ['Date'], now: 1_000_000});
     let bridge; const pi = {events: new EventEmitter(), on() {}};
     pi.events.on('coc:mods-bridge', value => bridge = value); modsExtension(pi);
     pi.events.emit('coc:kernel-bridge', {call: async method => {
         if (method === 'mods.job') {
-            await new Promise(resolve => setTimeout(resolve, limits.time_ms + 200));
+            t.mock.timers.tick(limits.time_ms + 200);
             return {enabled: true, continuity_review: true, cwd, job: 'draft', review_scope: scope, limits,
                 focus: {}, system_prompt: join(cwd, 'prompt.md')};
         }
         if (method === 'mods.accept') return pass();
         return {};
     }, runtime: {async runTask(task) {
+        t.mock.timers.tick(100);
         const control = JSON.parse(await readFile(join(cwd, task.request.audit.control), 'utf8'));
         await writeFile(join(cwd, control.status_file), JSON.stringify({requests: 1, artifact_repairs: 0}));
         task.request.onEvent({type: 'tool_execution_end', toolName: 'submit_audit', result: {details: {kind: 'audit_submission'}}});
