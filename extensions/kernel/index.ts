@@ -3103,8 +3103,10 @@ export default function (pi: ExtensionAPI) {
 						{ home: cocHome(sessionCtx.cwd), agentHome: agentHomeOf(sessionCtx.cwd) });
 				} catch { /* a hint that cannot be worded is a hint not drawn; the delivery stands */ }
 			}
-			const adaptationPending = spec.name === 'lookup' && params.kind === 'adaptation' && ['pending', 'reviewing'].includes(String(result.status));
-			if (adaptationPending) {
+			// Foreground status and cold recovery hold the same proposal states. In particular, reading
+			// ready must not remove its explicit-control boundary before the next draft or tool call.
+			const adaptationHeld = spec.name === 'lookup' && params.kind === 'adaptation' && ADAPTATION_HELD.includes(String(result.status));
+			if (adaptationHeld) {
 				if (state.skillRun) state.skillRun.diverged = true;
 				state.preparationWait = { kind: "adaptation", name: asString(result.name), status: asString(result.status) };
 				const status = {campaign: state.campaign, turn: state.turn, name: result.name, status: result.status,
@@ -4466,9 +4468,16 @@ export default function (pi: ExtensionAPI) {
 				return dropText('standing_defense_unresolved');
 			}
 			const sourceWait = state.readingWait || state.sourceWait !== undefined;
-			if (state.preparationWait && !sourceWait) {
+			const preparationNeedsControl = Boolean(state.preparationWait?.status
+				&& !["pending", "reviewing"].includes(state.preparationWait.status));
+			// A running preparation spends one close steer, just like a source wait. Dropping every
+			// later completed draft strands the turn after that steer is spent. The ordinary implicit
+			// narrate below still carries preparation context and passes all delivery checks.
+			// A ready proposal is different: it still requires explicit control, never implicit acceptance.
+			if (state.preparationWait && (!sourceWait || preparationNeedsControl)
+				&& (!state.steeredThisTurn || preparationNeedsControl)) {
 				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state, state.preparationWait) };
-				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
+				return dropText("preparation_wait_requires_close");
 			}
 			// A source wait asks the Keeper to say so through narrate itself. That steer is spent once, like
 			// the two below it: prose on the second leg closes the turn implicitly, which is still a narrate
