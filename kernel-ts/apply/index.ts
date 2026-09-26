@@ -26,6 +26,7 @@ import {stageFlag,stageNote,stageRuling,stageThreat} from './bookkeeping.js';
 import {stageClue,stageNpc,stageHandout,landPeople,landRequests} from './entities.js';
 import { passNpcTurn } from '../combat/execution.js';
 import { effectIntent } from './intent.js';
+import { armDrawn } from './draw.js';
 import type {MaterialGate,TextLanding} from '../modules/reading.js';
 import {stagePerson} from './person.js';
 import {presentArrivalMaps,revealMap} from '../read/maps.js';
@@ -353,6 +354,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             await campaign.writeWorld(staged);
             // §138.5: a person who spent their own turn of the fight on this batch's hold or intention passes it, once the
             // whole batch has landed -- a refused batch passes nothing. The writer already checked it is their turn.
+            // §139.3 (spec D9): a weapon a person in the running fight drew is in their hands there too.
+            await armDrawn(context, receipts);
             const passedTurns: Row[] = [];
             for (const receipt of receipts)
                 if (receipt.kind === 'npc' && isJsonObject(receipt.passes_turn)) {

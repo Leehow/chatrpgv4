@@ -56,7 +56,10 @@ export function npcProfileOf(graph: LoadedModule['graph'], world: Row, handle: s
     if (profile === authored && Array.isArray(result.weapons))
         result.weapons = result.weapons.map((weapon: any) => isJsonObject(weapon) ? engineWeapon(weapon) : weapon);
     result.spells = [...new Set([...array(result.spells), ...Object.keys(row(row(row(world.objects).abilities)[handle]))])];
-    result.weapons = [...array(result.weapons), ...weaponRows(world, handle)];
+    // §139.3 (spec D9): a weapon the table's own act of this person drew (`world.npc_weapons`, apply npc `_draws`).
+    const drawn = array(row(world.npc_weapons)[handle]).filter(isJsonObject).map(weapon => ({ weapon_id: string(weapon.weapon_id), name: string(weapon.name) }))
+        .filter(weapon => weapon.weapon_id && !array(result.weapons).some((held: any) => (isJsonObject(held) ? held.weapon_id : held) === weapon.weapon_id));
+    result.weapons = [...array(result.weapons), ...weaponRows(world, handle), ...drawn];
     if (Object.hasOwn(resources, 'current_hp'))
         result.hp_current = resources.current_hp;
     for (const key of ['current_mp', 'conditions', 'characteristics'])

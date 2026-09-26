@@ -57,8 +57,8 @@ function onLine(value: Row, scope: Row): boolean {
 }
 
 /** Who a receipt field may name this person by: handle, node id, the book's names, the table's label (§79). */
-interface Person { node: Row; handle: string; label: string; is(value: unknown): boolean }
-function personOf(graph: ModuleGraph, world: Row, node: Row): Person {
+export interface Person { node: Row; handle: string; label: string; is(value: unknown): boolean }
+export function personOf(graph: ModuleGraph, world: Row, node: Row): Person {
     const handle = graph.handle(node), label = personLabel(world, handle, graph.displayName(node));
     const keys = new Set([handle, string(node.node_id), graph.displayName(node), label, ...graph.nameKeys(node)].filter(Boolean).map(normalize));
     return {node, handle, label, is: value => typeof value === 'string' && keys.has(normalize(value))};
@@ -148,7 +148,7 @@ export function happenedSentences(me: Person, world: Row, party: Row[], turn: Ro
 }
 
 /** The person's ledger entry as it folds now: the committed ledger with an open turn's receipts folded onto a copy. */
-function entryNow(graph: ModuleGraph, ledger: Row, table: Row, turn: Row, node: Row): Row {
+export function entryNow(graph: ModuleGraph, ledger: Row, table: Row, turn: Row, node: Row): Row {
     const entry = row(ledger[node.node_id]);
     if (!OPEN_STATES.includes(string(turn.state)) || !array(turn.receipts).length) return entry;
     const scratch: Row = Object.keys(entry).length ? {[node.node_id]: {...emptyLedgerEntry(), ...clone(entry)}} : {};
