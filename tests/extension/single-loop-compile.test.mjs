@@ -510,6 +510,37 @@ test("§135.30 at the engine: the compile row carries each feature's distributio
 	assert.ok(!families.slice(0, 2).includes(ROUTE_FAMILY) || families.indexOf(ROUTE_FAMILY) > 0, "no route before the compile");
 });
 
+test("SL-84 (contract §122 addendum): a compile the typed family could not answer names the last attempt's status on the route row", async () => {
+	const handlers = new Map(), rows = [];
+	const bus = { on: (name, handler) => handlers.set(name, handler), emit: (name, value) => handlers.get(name)?.(value) };
+	// The typed family itself never dispatched an HTTP request in this stub; `failure.status` stands in for what
+	// `createDecisionAdapter` would have set from the last attempt's response (contract §122 addendum, SL-84).
+	const decision = { decide: async (batch) => batch.family === COMPILE_FAMILY
+		? { batchId: batch.id, status: "unavailable", answers: {}, coverage: { required: [], answered: [], unknown: [] }, issues: [],
+			failure: { code: "service_error", retryable: false, status: 529 } }
+		: answer(Object.fromEntries(batch.questions.map((question) => [question.key, [question.key === "exit" ? "finish" : "later", 0.9]]))) };
+	const engine = createHybridEngine({ env: {}, decision, record: (row) => rows.push(row) });
+	engine.extension({ events: bus, on: () => {}, getActiveTools: () => [], setActiveTools: () => {} });
+	const reads = office(), source = "a".repeat(64);
+	bus.emit("coc:kernel-bridge", { campaign: "c", call: async (method) => method === "table.capsule"
+		? { ...reads.capsule, _context: { version: 1, campaign: "c", worldline: "main", loop: 0, turn: 3, source_revision: source } }
+		: method === "table.status" ? { turn: 3, state: "open", receipts: [] }
+			: method === "table.apply.options" ? reads.applyOptions : method === "table.resolve.options" ? reads.resolveOptions : {} });
+	bus.emit("coc:operation-dispatcher", { dispatch: async () => ({ status: "succeeded", receipts: ["move-1"], result: {} }) });
+	const plan = engine.runDriver.prepare({ runId: "run-jev-status", inputRevision: "rev", rawInput: INPUT, session: {} });
+	const modelEngine = {
+		async infer() { return fauxAssistantMessage("You set off.", { stopReason: "stop" }); },
+		async executeModelTool() { throw new Error("no model tool"); }, async refuseModelTool() { throw new Error("no model tool"); },
+		async closeTurn() { return { continueRequested: false }; },
+	};
+	await runDriver({ input: { runId: "run-jev-status", inputRevision: "rev", rawInput: INPUT, scopeId: "root" }, policy: plan.policy, ports: plan.ports, engine: modelEngine,
+		emit: () => {}, signal: new AbortController().signal, maxSteps: 30 });
+	const row = rows.find((entry) => entry.lane === "route" && entry.purpose === "compile");
+	assert.ok(row, "one compile row even on failure");
+	assert.equal(row.reason, "jev_service_error");
+	assert.equal(row.jev_status, 529, "the row names the last attempt's HTTP status, not just the generic service_error code");
+});
+
 // ---- SL-26 (§135.30.3): the declared ordinary check ----------------------------------------------------------------
 
 /** The long gate's bedroom (turn 12), reduced: two exits, one person present, an open obligation, the ordinary check offered. */

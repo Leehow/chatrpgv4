@@ -50,6 +50,27 @@ test('an unissued basis alias, an incomplete result or an absent confidence is a
   }
 });
 
+test('SL-84 (contract §122 addendum): a service-error fallback carries the last attempt\'s HTTP status onto jevStatus', async () => {
+  const value = input();
+  const owned = lease(value);
+  const result = await runAdmissionJev(value, {decide: async batch => ({batchId: batch.id, status: 'unavailable', answers: {},
+    issues: [], coverage: {required: [], answered: [], unknown: []}, failure: {code: 'service_error', retryable: false, status: 529}})}, owned);
+  owned.close();
+  assert.equal(result.status, 'fallback');
+  assert.equal(result.reason, 'service_error');
+  assert.equal(result.jevStatus, 529, 'the fast-path row can name which HTTP status the typed family saw, not just the generic code');
+});
+
+test('SL-84: a fallback with no failure.status (schema/timeout before any HTTP response) carries no jevStatus', async () => {
+  const value = input();
+  const owned = lease(value);
+  const result = await runAdmissionJev(value, {decide: async batch => ({batchId: batch.id, status: 'unavailable', answers: {},
+    issues: [], coverage: {required: [], answered: [], unknown: []}, failure: {code: 'disabled', retryable: false}})}, owned);
+  owned.close();
+  assert.equal(result.reason, 'disabled');
+  assert.equal(result.jevStatus, undefined);
+});
+
 test('a batch over the packing bound falls back before any request', async () => {
   const long = 'x'.repeat(1500);
   const value = input({delivered: Array.from({length: 40}, (_, turn) => ({turn, player: long, keeper: long}))});
