@@ -31,7 +31,7 @@ BR-01 contract + schema + kernel band + registry ─┬─ BR-02 archetype/weapo
 
 ## BR-01 — The band registry, `band` on `time` and `damage`, and the kernel's roll
 
-Status: ready-for-human (implemented 2026-09-26 on `claude/br01-band-then-roll-20260926` at `5b8ef9a6b`, from `0.9.5a@dbc502675`; awaiting review and merge, see Comments)
+Status: ready-for-human (implemented 2026-09-26 on `claude/br01-band-then-roll-20260926`, merged into `0.9.5a` by fast-forward at `667d64507`; suites recorded under Comments; owner review of the merged section pending)
 Depends on: nothing open.
 
 **What.** Write the contract section (spec D1–D4, D10): the fifth binding path, the closed band registry (the
@@ -195,3 +195,10 @@ at the site, no non-null assertions; the fake kernel's `band_conflict` mirrors t
 `refusalOf(field)` factory for `stated` and `band`; the malformed-table refusal has its test), one recorded as a
 documented boundary (a row with `min` 0 may roll 0 minutes, §138.3), one skipped (per-effect `RuleTables`
 construction; the same pattern as `apply/archetype.ts`).
+
+Suites on leehow-pc at the merged commit `667d64507` (the box at load 60 with two other sessions' suites in flight):
+`test:ext` 2839 / 2842, the three reds being 3–16 s process tests (continuity audit's stalled preparation, NPC
+preparation overlap, the TS RPC close) that pass 56 / 56 when their three files run alone on the Mac; `pytest
+tests/kernel tests/play` 1722 passed, 2 skipped, 2 failed, both `tests/play/test_driver.py` (status after stop on the
+loaded Linux box) and 63 / 63 on the Mac, where the driver runs. Nothing in either set touches a band.
+Merged into `0.9.5a` by fast-forward (the shared checkout was clean and its tip was still the branch point).
