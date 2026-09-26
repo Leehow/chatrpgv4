@@ -832,7 +832,8 @@ function handle(method, params) {
 					...(process.env.FAKE_KERNEL_MAP_WORDS ? { authored_map_words: JSON.parse(process.env.FAKE_KERNEL_MAP_WORDS) } : {}),
 					// 契约 §28.9：这套内核读不了的包，开桌时一并交出来，宿主据此给运维一条通知。
 					...(process.env.FAKE_KERNEL_MODS_UNREADABLE ? { mods_unreadable: JSON.parse(process.env.FAKE_KERNEL_MODS_UNREADABLE) } : {}),
-					turn: { number: turn, state },
+					// FAKE_KERNEL_OPENING_STATE: the opening's own Mod write already moved the turn (live table time-skip-a, turn 0).
+					turn: { number: turn, state: process.env.FAKE_KERNEL_OPENING_STATE ?? state },
 					investigators: [
 						{ id: "thomas-hayes", name: "托马斯·海耶斯", occupation: "记者", hp: 12, san: 55, mp: 11, luck: 60 },
 					],

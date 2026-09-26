@@ -329,3 +329,16 @@ test("an implicit close after the turn's one steer is spent is read, not refusab
 	assert.equal(table.telemetry().filter((row) => row.tool === "narrate" && row.ok === false).length, 0);
 	assert.ok(table.telemetry().some((row) => row.event === "turn-closed" && row.ok === true));
 });
+
+test("an implicit opening is not read, even once its own Mod writes moved the turn to acting (live table time-skip-a, turn 0)", async (t) => {
+	// Turn 0 of time-skip-a settled a first-contact check and definitions before it closed in prose; the turn was no
+	// longer awaiting the player, so a check keyed on that state read the opening. The exemption keys on the opening.
+	const { table, requests } = await play(t, {
+		env: { FAKE_KERNEL_OPENING: "1", FAKE_KERNEL_OPENING_STATE: "acting", FAKE_KERNEL_PRESENT: "[]" },
+		responses: [fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }), fauxAssistantMessage(SKIP)],
+	});
+	assert.equal(narrateParams(table)[0]?.implicit, true, "the opening closed in prose");
+	assert.equal(requests.length, 0);
+	assert.equal(narrateParams(table)[0].time_reading, undefined);
+	assert.deepEqual(readingRows(table), []);
+});

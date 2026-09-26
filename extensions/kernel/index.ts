@@ -5750,10 +5750,12 @@ export default function (pi: ExtensionAPI) {
 			let fallback = state.steeredThisTurn && state.floorDraft && state.floorDraft !== prose ? state.floorDraft : undefined;
 			for (;;) {
 				// §142.2: read at the same time as attribution; refusable only while the turn's one steer can still hand the
-				// kernel's fix back (§135.11).
+				// kernel's fix back (§135.11). The opening is never read: keyed on the opening itself, not on `opening`, which
+				// also asks for awaiting_player -- an opening whose own Mod writes moved the turn to acting is still the opening
+				// (live table time-skip-a, turn 0).
 				const [attributed, timeReading] = await Promise.all([
 					attributeUnwrappedSpeech(state, draft, state.lanes.signal, foregroundProviderBudget?.()),
-					opening ? undefined : readTimeSkip(state, draft, "implicit", !state.steeredThisTurn, state.lanes.signal, foregroundProviderBudget?.())]);
+					state.openingPending ? undefined : readTimeSkip(state, draft, "implicit", !state.steeredThisTurn, state.lanes.signal, foregroundProviderBudget?.())]);
 				const tool = "narrate";
 				const callId = mintCallId(state);
 				const startedAt = new Date().toISOString();
