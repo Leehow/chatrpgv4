@@ -9,6 +9,13 @@
  * `options.effort ?? "high"`. That is what the 2026-09-15 table paid for: the admission lane put a
  * 120 s cap around rounds whose median on `grok-4.6` was 34–95 s, the cap fired, and the player got
  * a host accounting failure instead of a turn.
+ *
+ * SL-81 (contract §12.8.1 addendum, 2026-09-26) adds the table's own level as the fallback before
+ * the literal default, and teaches `laneReasoningOptions` that `off` is never a literal to send:
+ * long gate #13 ran the admission lane at the literal `"low"` on `opencode-go/deepseek-v4.1-flash`
+ * for 100 calls while the Keeper on the same table ran `off`, because pi-ai's `deepseek`
+ * `thinkingFormat` treats any truthy `reasoningEffort` — `"low"`, even a literal `"off"` — as
+ * `thinking: {type: "enabled"}`.
  */
 
 import { strict as assert } from "node:assert";
@@ -114,4 +121,81 @@ test("遥测说得出这一轮要的等级，以及这个 API 有没有地方放
 	const dropped = rows.find((row) => row.phase === "start");
 	assert.equal(dropped.lane_thinking, "low");
 	assert.equal(dropped.thinking_carried, false, "an unmapped API must read as a gap, not as a level that did nothing");
+	// SL-81: for any level but `off`, `lane_thinking_effective` is never remapped -- it just repeats
+	// what was asked for, exactly as `lane_thinking` does.
+	assert.equal(carried.lane_thinking_effective, "low");
+	assert.equal(dropped.lane_thinking_effective, "low");
+});
+
+test("SL-81: off 从不作为字面值发出去，交给模型自己的映射表决定关闭的形状", () => {
+	// A model whose map explicitly supports off (§135.27.1's corrections: `thinkingLevelMap.off` a
+	// real value, never null) gets no `reasoningEffort` field at all -- the same "absent" branch
+	// pi-ai's own raw builders already consult to produce their disabled shape, for every one of the
+	// four APIs that share it.
+	for (const api of ["openai-responses", "azure-openai-responses", "openai-codex-responses", "openai-completions"]) {
+		assert.deepEqual(laneReasoningOptions({ api, thinkingLevelMap: { off: "off" } }, "off"), {}, api);
+	}
+	// No `thinkingLevelMap` at all reads as "not marked unsupported" too, matching pi-ai's own
+	// `!== null` convention -- most models never mention `off` explicitly.
+	assert.deepEqual(laneReasoningOptions({ api: "openai-completions" }, "off"), {});
+	// A model whose map says `off: null` (unsupported, e.g. `grok-4.6` pre-correction) keeps the
+	// pre-fix, unconditional literal -- the same shape any other level already got, so nothing about
+	// its request regresses.
+	assert.deepEqual(laneReasoningOptions({ api: "openai-completions", thinkingLevelMap: { off: null } }, "off"), { reasoningEffort: "off" });
+	// The other API families never got a literal "off" before either (off was never resolved at
+	// all); they now also read it as "nothing to send" rather than guessing a shape untested here.
+	assert.deepEqual(laneReasoningOptions({ api: "anthropic-messages" }, "off"), {});
+	assert.deepEqual(laneReasoningOptions({ api: "google-generative-ai" }, "off"), {});
+	assert.deepEqual(laneReasoningOptions({ api: "bedrock-converse-stream" }, "off"), {});
+	assert.deepEqual(laneReasoningOptions({ api: "pi-messages" }, "off"), {});
+});
+
+test("SL-81: 车道的默认档位先看桌子的等级，只在桌子也没有时才落到字面 low", () => {
+	assert.equal(laneThinkingLevel({ thinkingLevel: "off" }), "off");
+	assert.equal(laneThinkingLevel({ thinkingLevel: "medium" }), "medium");
+	assert.equal(laneThinkingLevel({}), "low");
+	assert.equal(laneThinkingLevel(undefined), "low");
+	// An operator's own env override still outranks the table, exactly as it outranks the setting.
+	const previous = process.env.PI_COC_LANE_THINKING;
+	process.env.PI_COC_LANE_THINKING = "high";
+	try {
+		assert.equal(laneThinkingLevel({ thinkingLevel: "off" }), "high");
+	} finally {
+		if (previous === undefined) delete process.env.PI_COC_LANE_THINKING;
+		else process.env.PI_COC_LANE_THINKING = previous;
+	}
+});
+
+test("SL-81: 桌子在 off、没有车道设置：请求里没有字面 off，行里的 lane_thinking_effective 与 lane_thinking 一致", async () => {
+	let seen;
+	const rows = [];
+	const ctx = laneCtx(
+		{ provider: "opencode-go", id: "deepseek-v4.1-flash", api: "openai-completions", reasoning: true, thinkingLevelMap: { off: "off" } },
+		(options) => { seen = options; },
+	);
+	ctx.thinkingLevel = "off";
+	const result = await lane(ctx, { record: (row) => rows.push(row) });
+	assert.equal(result.ok, true, JSON.stringify(result));
+	assert.equal("reasoningEffort" in seen, false, "off must never reach the wire as a literal reasoningEffort");
+	const start = rows.find((row) => row.phase === "start");
+	assert.equal(start.lane_thinking, "off");
+	assert.equal(start.lane_thinking_effective, "off");
+	assert.equal(start.thinking_carried, false, "no reasoning-shaped field was populated -- the model's own map disables it instead");
+});
+
+test("SL-81: 桌子在 off，但模型的映射表不支持 off：保留今天的字面形状，行里报出真正的地板", async () => {
+	let seen;
+	const rows = [];
+	const ctx = laneCtx(
+		{ provider: "xai", id: "grok-4.6", api: "openai-responses", reasoning: true, thinkingLevelMap: { off: null } },
+		(options) => { seen = options; },
+	);
+	ctx.thinkingLevel = "off";
+	const result = await lane(ctx, { record: (row) => rows.push(row) });
+	assert.equal(result.ok, true, JSON.stringify(result));
+	assert.equal(seen.reasoningEffort, "off", "a model without off in its map keeps today's literal shape");
+	const start = rows.find((row) => row.phase === "start");
+	assert.equal(start.lane_thinking, "off");
+	assert.equal(start.lane_thinking_effective, "minimal", "clampThinkingLevel's own floor for a model that cannot disable reasoning");
+	assert.equal(start.thinking_carried, true, "a field was sent, even though it did not achieve off");
 });

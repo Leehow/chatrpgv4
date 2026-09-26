@@ -10,8 +10,8 @@
  */
 
 import {boundProviderRequest, independentProviderBudget, type TaskProviderBudget, type ProviderCharge, providerUsage} from "../../runtime/jev/provider-budget.ts";
-import { parseJsonWithRepair } from "@earendil-works/pi-ai";
-import type { ThinkingLevel } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, parseJsonWithRepair } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel, ThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { LANE_THINKING_DEFAULT as FAST_THINKING_DEFAULT, readFastModelChoiceSync, resolveFastModel, resolveFastThinking, type FastModelSource } from "../../runtime/fast-model.ts";
 import { agentHomeOf } from "../ui/hints.ts";
@@ -162,24 +162,31 @@ function extractJsonObject(text: string): string | undefined {
 const REQUEST_ID_HEADERS: readonly string[] = ["x-request-id", "request-id"];
 
 /**
- * The reasoning effort a lane round runs at, `PI_COC_LANE_THINKING`.
+ * The reasoning effort a lane round runs at when its caller names none (`request.thinking`; no
+ * caller does today).
  *
- * The same value, for the same reason, as `LANE_THINKING_DEFAULT` in runtime/fast-model.ts (contract
- * §37.11): a lane has a fixed wall-clock budget its caller enforces, and the table's own effort is
- * a Keeper-quality choice with no relation to it, so a lane inherits neither the table's level nor
- * the provider's. `low` rather than `off` or `minimal` because it is the one level every authorized
- * lane model supports as written -- `grok-4.6` maps `off` to null and the DeepSeek family maps
- * `minimal` to null, so either of those means a different thing on a different model.
- *
- * Read per call: one process loads this file several times, and the operator may change it under a
- * running table.
+ * SL-81 (contract §12.8.1 addendum, 2026-09-26) rewired this: the operator's own `PI_COC_LANE_THINKING`
+ * still wins, then the fast-model setting (`ext.coc-keeper.laneThinking`, never consulted here before
+ * this ticket), then -- new -- **the table's own level** (`ctx.thinkingLevel`, read fresh at the
+ * moment the lane runs, through the same `resolveFastThinking` a `mod` child's model already uses).
+ * Only once none of those has anything to say does this fall to the literal `LANE_THINKING_DEFAULT`
+ * in `runtime/fast-model.ts`. Long gate #13 ran the admission lane at that literal `"low"` on a table
+ * sitting at `off` for 100 calls straight, because nothing before this fix ever looked past it: a
+ * lane still keeps its own wall-clock budget separate from the table's (§37.11's original point, for
+ * a `mod` child, stands), but a zero-tool `runLane` lane has no budget-shaped reason to *ignore* a
+ * table that has already been told to think less.
  */
-const LANE_THINKING_DEFAULT = FAST_THINKING_DEFAULT as ThinkingLevel;
-const LANE_THINKING_LEVELS: ReadonlySet<string> = new Set(["minimal", "low", "medium", "high", "xhigh", "max"]);
+const LANE_THINKING_DEFAULT = FAST_THINKING_DEFAULT as ModelThinkingLevel;
+const LANE_THINKING_LEVELS: ReadonlySet<string> = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
-export function laneThinkingLevel(): ThinkingLevel {
-	const raw = process.env.PI_COC_LANE_THINKING?.trim().toLowerCase();
-	return raw && LANE_THINKING_LEVELS.has(raw) ? (raw as ThinkingLevel) : LANE_THINKING_DEFAULT;
+/** The fast-model choice's thinking plus the table's own, so `resolveFastThinking` can rank them (SL-81). */
+export function laneThinkingLevel(ctx?: ExtensionContext): ModelThinkingLevel {
+	const resolved = resolveFastThinking({
+		override: process.env.PI_COC_LANE_THINKING,
+		choice: fastChoice(ctx),
+		table: ctx?.thinkingLevel,
+	}).trim().toLowerCase();
+	return LANE_THINKING_LEVELS.has(resolved) ? (resolved as ModelThinkingLevel) : LANE_THINKING_DEFAULT;
 }
 
 /** Anthropic's effort enum starts at `low`; `minimal` has no name there, so it lands on the nearest one. */
@@ -190,6 +197,16 @@ const ANTHROPIC_EFFORT: Readonly<Record<ThinkingLevel, string>> = Object.freeze(
 const GOOGLE_THINKING: Readonly<Record<ThinkingLevel, string>> = Object.freeze({
 	minimal: "MINIMAL", low: "LOW", medium: "MEDIUM", high: "HIGH", xhigh: "HIGH", max: "HIGH",
 });
+
+/**
+ * The APIs whose own option for a level is `reasoningEffort` -- the family pi-ai's own
+ * `streamSimple` maps a provider-neutral `off` to `undefined` for (never the literal string), and
+ * whose raw builders (`node_modules/@earendil-works/pi-ai/dist/api/*.js`) then consult the model's
+ * own `thinkingLevelMap.off` to decide the disabled shape when nothing was named at all.
+ */
+const REASONING_EFFORT_APIS: ReadonlySet<string | undefined> = new Set([
+	"openai-responses", "azure-openai-responses", "openai-codex-responses", "openai-completions",
+]);
 
 /**
  * The option that carries `level` to this model's API, or nothing when the API has no such option.
@@ -209,8 +226,30 @@ const GOOGLE_THINKING: Readonly<Record<ThinkingLevel, string>> = Object.freeze({
  * offers `none`/`high`, and a custom API has no documented name at all. The `lane_thinking` field
  * on the `start` row says what the lane asked for, so an unmapped API reads as a gap rather than as
  * a level that silently did nothing (contract §12.8.1).
+ *
+ * **`off` (SL-81, 2026-09-25/26).** `off` is not a value any provider documents for `reasoningEffort`
+ * -- sending it literally is exactly the bug long gate #13 traced: pi-ai's `deepseek` `thinkingFormat`
+ * (`node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js`) treats *any* truthy
+ * `reasoningEffort` as `thinking: {type: "enabled"}`, so a lane that named `"off"` there would have
+ * turned reasoning *on*. For the four `reasoningEffort`-shaped APIs, `off` is instead handed exactly
+ * the way pi's own `Agent`/`streamSimple` road already hands it -- omitted, never spelled out
+ * (`node_modules/@earendil-works/pi-agent-core/dist/agent.js`: `reasoning: thinkingLevel === "off" ?
+ * undefined : thinkingLevel`) -- whenever the model's own `thinkingLevelMap.off` is not explicitly
+ * `null`: `undefined`/absent counts as supported, matching pi-ai's own convention, and a corrected
+ * deepseek model (§135.27.1) has `off: "off"`. Omitting the field lets that API's own raw builder
+ * consult the same map and produce its disabled shape on its own -- this is not a new shape invented
+ * here, it is the same "absent `reasoningEffort`" branch already proven in that source for all four
+ * APIs. A model whose map still says `off: null` (unsupported) falls through to the switch below
+ * unchanged: the same literal `{reasoningEffort: "off"}` every other level already got, so nothing
+ * regresses for it (today's behaviour, kept on purpose -- there is nowhere better to put it).
  */
-export function laneReasoningOptions(model: { api?: string }, level: ThinkingLevel): Record<string, unknown> {
+export function laneReasoningOptions(
+	model: { api?: string; thinkingLevelMap?: ThinkingLevelMap },
+	level: ModelThinkingLevel,
+): Record<string, unknown> {
+	if (level === "off" && REASONING_EFFORT_APIS.has(model.api) && model.thinkingLevelMap?.off !== null) {
+		return {};
+	}
 	switch (model.api) {
 		case "openai-responses":
 		case "azure-openai-responses":
@@ -218,13 +257,13 @@ export function laneReasoningOptions(model: { api?: string }, level: ThinkingLev
 		case "openai-completions":
 			return { reasoningEffort: level };
 		case "anthropic-messages":
-			return { effort: ANTHROPIC_EFFORT[level] };
+			return level === "off" ? {} : { effort: ANTHROPIC_EFFORT[level] };
 		case "google-generative-ai":
 		case "google-vertex":
-			return { thinking: { enabled: true, level: GOOGLE_THINKING[level] } };
+			return level === "off" ? {} : { thinking: { enabled: true, level: GOOGLE_THINKING[level] } };
 		case "bedrock-converse-stream":
 		case "pi-messages":
-			return { reasoning: level };
+			return level === "off" ? {} : { reasoning: level };
 		default:
 			return {};
 	}
@@ -268,12 +307,16 @@ function laneCallRows(request: LaneRequest<unknown>, onFirstByte?: () => void) {
 	};
 	return {
 		/** Before `complete()` is called, with the model already resolved. Every later `ms` counts from here. */
-		start(model: string, thinking: ThinkingLevel, carried: boolean): Promise<void> {
+		start(model: string, thinking: ModelThinkingLevel, effective: ModelThinkingLevel, carried: boolean): Promise<void> {
 			startedAt = Date.now();
 			// What the lane asked for and whether this model's API had somewhere to put it. An API
 			// `laneReasoningOptions` does not map reads as `carried: false` here rather than as a
-			// level that quietly did nothing.
-			return write({ phase: "start", model, lane_thinking: thinking, thinking_carried: carried });
+			// level that quietly did nothing. `lane_thinking_effective` (SL-81, contract §12.8.1
+			// addendum) is only ever different from `lane_thinking` when `thinking` is `off` and the
+			// model's own map has no `off`: it then reports the real floor `off` was bumped to
+			// (`clampThinkingLevel`), so the gap between what was asked and what could be delivered is
+			// visible on the row instead of only inferable from `thinking_carried`.
+			return write({ phase: "start", model, lane_thinking: thinking, lane_thinking_effective: effective, thinking_carried: carried });
 		},
 		/** Handed to `complete()`. Both callbacks only read: `onPayload` returning undefined leaves the body untouched. */
 		options: {
@@ -346,10 +389,10 @@ export interface LaneRequest<T> {
 	 */
 	timeoutMs?: number;
 	/**
-	 * Reasoning effort for this round. Defaults to `laneThinkingLevel()`; a caller only names one
+	 * Reasoning effort for this round. Defaults to `laneThinkingLevel(ctx)`; a caller only names one
 	 * when its own budget differs from every other lane's, which none does today.
 	 */
-	thinking?: ThinkingLevel;
+	thinking?: ModelThinkingLevel;
 	/**
 	 * Shape check: narrow the parsed object down to the closed shape the lane wants, or undefined.
 	 * Only fields and closed enums are checked here; every semantic judgement belongs to the model
@@ -427,9 +470,12 @@ async function runLaneAttempt<T>(
 		// The lane names its own reasoning effort. `complete()` is the full `stream()` road, which
 		// carries no provider-neutral level for us, and every API's absent-level default is the
 		// provider's ceiling rather than a floor (see `laneReasoningOptions`).
-		const thinking = request.thinking ?? laneThinkingLevel();
+		const thinking = request.thinking ?? laneThinkingLevel(request.ctx);
 		const reasoning = laneReasoningOptions(resolved.model, thinking);
-		await rows.start(label, thinking, Object.keys(reasoning).length > 0);
+		// `lane_thinking_effective` (SL-81): only computed -- and only ever different from `thinking`
+		// -- when `off` was asked for; every other level is recorded unmapped, exactly as requested.
+		const effective = thinking === "off" ? clampThinkingLevel(resolved.model, thinking) : thinking;
+		await rows.start(label, thinking, effective, Object.keys(reasoning).length > 0);
 		let reply: Awaited<ReturnType<ExtensionContext["modelRegistry"]["complete"]>>;
 		const charges:ProviderCharge[]=[];
 		const retainUnknown=()=>{for(const charge of charges)charge.settle();};

@@ -14,13 +14,13 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fastLaneChoice, resolveLaneModel, runLane } from "../../extensions/lanes/subsession.ts";
+import { fastLaneChoice, laneThinkingLevel, resolveLaneModel, runLane } from "../../extensions/lanes/subsession.ts";
 import { adaptationModel, adaptationService } from "../../extensions/kernel/adaptation.ts";
 import { writeVoice } from "../../extensions/npc-voice/writer.ts";
 import { authorNpc } from "../../extensions/npc/writer.ts";
 import { composeRuntimeContext } from "../../runtime/host.ts";
 import { runtimeCapabilities } from "../../runtime/tasks.ts";
-import { LANE_THINKING_DEFAULT } from "../../runtime/fast-model.ts";
+import { LANE_THINKING_DEFAULT, resolveFastThinking } from "../../runtime/fast-model.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const TABLE = "table/keeper", FAST = "fast/small", OPERATOR = "operator/pinned";
@@ -234,4 +234,49 @@ test("the setting has one reader in the runtime, extensions and PipiCOC sources"
   }
   // The panel is the writer, not a reader of the document.
   assert.deepEqual(readers.sort(), ["pipicoc/settings-lane-model.js", "runtime/fast-model.ts"]);
+});
+
+/**
+ * SL-81 (contract §12.8.1 addendum, 2026-09-26): a zero-tool lane's thinking level now takes the
+ * table's own before the literal default, through the same `resolveFastThinking` a `mod` child's
+ * model already uses -- but a `mod` child itself must keep ignoring the table (§37.11), so `table`
+ * is optional and every existing caller that omits it is unaffected.
+ */
+test("resolveFastThinking: the table outranks the literal default, but never the override or the setting", () => {
+  assert.equal(resolveFastThinking({ choice: {}, table: "off" }), "off");
+  assert.equal(resolveFastThinking({ choice: { thinking: "medium" }, table: "off" }), "medium", "the setting still outranks the table");
+  assert.equal(resolveFastThinking({ override: "high", choice: { thinking: "medium" }, table: "off" }), "high", "the operator's variable outranks everything");
+  assert.equal(resolveFastThinking({ choice: {} }), LANE_THINKING_DEFAULT, "no table at all keeps the literal default -- unaffected callers (a `mod` child, `presentationLaneChoice`)");
+  assert.equal(resolveFastThinking({ choice: {}, table: "" }), LANE_THINKING_DEFAULT, "a blank table reads the same as no table");
+});
+
+/**
+ * Before this ticket the fast-model setting's own `ext.coc-keeper.laneThinking` was never read for a
+ * zero-tool lane at all (only `PI_COC_LANE_THINKING` and the literal default were); now it resolves
+ * through the same `laneThinkingLevel` as the table.
+ */
+test("every zero-tool lane's thinking level: the setting outranks the table, and the table outranks the literal default", async t => {
+  for (const [lane, envName] of ZERO_TOOL_LANES) await t.test(lane, async t => {
+    const agent = await agentHome(t, FAST, "medium");
+    withEnv(t, { PI_CODING_AGENT_DIR: agent, PI_COC_LANE_THINKING: undefined });
+    const { ctx } = sessionCtx(agent);
+    ctx.thinkingLevel = "off";
+    let seen;
+    ctx.modelRegistry.complete = async (_model, _context, options) => { seen = options; return { stopReason: "stop", content: [{ type: "text", text: '{"ok":true}' }] }; };
+    const result = await runLane({ ctx, envName, lane, systemPrompt: "return json", input: "x",
+      shape: parsed => (parsed && parsed.ok === true ? parsed : undefined) });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(laneThinkingLevel(ctx), "medium", "the setting outranks the table");
+    // These fixture models have no `api`, so `laneReasoningOptions` carries nothing either way; the
+    // level itself resolving to the setting rather than the table or the literal default is the point.
+    assert.equal("reasoningEffort" in (seen ?? {}), false);
+  });
+
+  await t.test("no setting: the table's own off is what the lane asks for", async t => {
+    const agent = await agentHome(t, undefined);
+    withEnv(t, { PI_CODING_AGENT_DIR: agent, PI_COC_LANE_THINKING: undefined });
+    const { ctx } = sessionCtx(agent);
+    ctx.thinkingLevel = "off";
+    assert.equal(laneThinkingLevel(ctx), "off");
+  });
 });
