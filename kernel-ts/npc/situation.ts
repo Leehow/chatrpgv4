@@ -20,11 +20,12 @@ import {isJsonObject} from '../json.js';
 import {jsonSize, npcsPresent, personLabel, sceneLabel} from '../read/capsule.js';
 import {readCampaign} from '../read/handlers.js';
 import {canonicalMemoryReceipts, withPromiseFulfillment} from '../read/memory.js';
+import {committedOnLine, stillWhereItClosed} from '../read/exchange.js';
 import type {ModuleGraph} from '../read/module-graph.js';
 import {activeMods, contactRows} from '../read/mods.js';
 import {capsuleRow, obligationNodes, sceneObligations} from '../read/obligations.js';
 import {SessionView} from '../read/session-view.js';
-import {array, clone, normalize, number, row, string, truth, values, type Row} from '../read/values.js';
+import {array, clone, normalize, number, row, string, values, type Row} from '../read/values.js';
 import {stanceNow} from '../combat/standing.js';
 import {npcProfileOf} from '../resolve/context.js';
 import {emptyLedgerEntry, foldNpcTurn, stanceTable} from '../write/contributions.js';
@@ -56,12 +57,6 @@ const once = (names: string[]): string[] => {
         return true;
     });
 };
-/** A record on this campaign's current line (the same test `npcPerspective` reads records under). */
-function onLine(value: Row, scope: Row): boolean {
-    return value.superseded_by == null && value.status !== 'superseded'
-        && (value.worldline == null || scope.worldline == null || value.worldline === scope.worldline)
-        && (value.loop == null || scope.loop == null || number(value.loop) === number(scope.loop));
-}
 
 /** Who a receipt field may name this person by: handle, node id, the book's names, the table's label (§79). */
 export interface Person { node: Row; handle: string; label: string; is(value: unknown): boolean }
@@ -153,22 +148,27 @@ function kindClause(receipt: Row, me: Person, world: Row): string | null {
  * `npc.situation`. `addressed`: the declaration was said to them -- the scan passes false only when the compile named
  * someone else (as amended 2026-09-26: named, in the conversation, or acted on with no one named all hear it). `declaredBeforeMove`: the declaration was put before a move of this turn brought the
  * investigator to where they are, so it was said somewhere else. Absent, the declaration is theirs, as §139.1 had it.
+ * §139.23 (ticket 24): `namedNoOne`: the compile named no one present (its addressee `none`, `unclear`, below the gate,
+ * or no compile), so whether the words were said to this person is the generator's to judge; the declaration they
+ * hear says it was said to no one by name.
  */
-export interface Heard { addressed?: boolean; declaredBeforeMove?: boolean }
+export interface Heard { addressed?: boolean; declaredBeforeMove?: boolean; namedNoOne?: boolean }
 
 /**
- * The last `happened` item (§139.1, §139.21), or null. The player's declaration when it was said to this person; when it
- * was said before a move brought the investigator here, one host sentence that the investigator has just arrived (the
- * words were said elsewhere, to someone else, and are not theirs); otherwise nothing -- the receipts already say what
- * was done to them, and a line said to another person is not something that happened to this one.
+ * The last `happened` item (§139.1, §139.21, §139.23), or null. The player's declaration when it was said to this
+ * person -- `declared (to no one by name)` when the compile named no one present, so the generator judges whether it was
+ * said to them; when it was said before a move brought the investigator here, one host sentence that the investigator
+ * has just arrived (the words were said elsewhere, to someone else, and are not theirs); otherwise nothing -- the
+ * receipts already say what was done to them, and a line said to another person is not something that happened to this
+ * one. `addressed: false` outranks `namedNoOne`: a named other is evidence, a name missing is not.
  */
 export function closingSentence(me: Person, world: Row, party: Row[], turn: Row, heard: Heard = {}): string | null {
     const who = party.length === 1 ? personLabel(world, string(party[0].id), string(party[0].name || party[0].id)) : 'an investigator';
     if (heard.declaredBeforeMove === true) return clip(`${who} (investigator) has just arrived where ${me.label} is`, SENTENCE_MAX);
     const said = flat(turn.player_text);
     if (!said || heard.addressed === false) return null;
-    const frame = `${who} (investigator) declared: ""`;
-    return `${who} (investigator) declared: "${clip(said, Math.max(ELLIPSIS.length + 1, SENTENCE_MAX - Array.from(frame).length))}"`;
+    const lead = `${who} (investigator) ${heard.namedNoOne === true ? 'declared (to no one by name)' : 'declared'}: `;
+    return `${lead}"${clip(said, Math.max(ELLIPSIS.length + 1, SENTENCE_MAX - Array.from(lead).length - 2))}"`;
 }
 
 /**
@@ -197,14 +197,9 @@ export function happenedSentences(me: Person, world: Row, party: Row[], turn: Ro
     return sentences;
 }
 
-/** The committed turn records on the campaign's current line, and the newest of them before this turn. */
-export function committedOnLine(campaign: CampaignSnapshot): {scope: Row; records: Row[]; previous: Row | null} {
-    const worldline = string(campaign.meta.active_worldline || 'main');
-    const scope = {worldline, loop: number(row(row(campaign.meta.worldlines)[worldline]).loop)};
-    const records = campaign.records.filter(record => truth(record.commit) && onLine(record, scope));
-    const previous = records.filter(record => number(record.turn) < number(campaign.turn.turn)).sort((a, b) => number(b.turn) - number(a.turn))[0] ?? null;
-    return {scope, records, previous};
-}
+/** The committed turn records on the campaign's current line, and the newest of them before this turn (§139.23 moved it to
+ *  `read/exchange.ts`, which `table.status` reads it through too). */
+export {committedOnLine};
 
 /**
  * §139.20 (ticket 21): whether this person is in the conversation the investigators are having where they stand -- the
@@ -219,7 +214,7 @@ export function committedOnLine(campaign: CampaignSnapshot): {scope: Row; record
  * Structure only: nothing reads what anyone said or did.
  */
 export function conversationOf(graph: ModuleGraph, world: Row, me: Person, turn: Row, previous: Row | null): {turn: number; order: number; by: string[]} | null {
-    const active = string(world.active_scene), scene = active ? graph.find(active, ['scene']) : null, here = scene ? graph.handle(scene) : active;
+    const active = string(world.active_scene);
     if (!active || string(row(world.npc_presence)[me.handle]) !== active) return null;
     const took = (record: Row): {turn: number; order: number; by: string[]} | null => {
         const receipts = array(record.receipts).map(row), by = new Set<string>();
@@ -237,8 +232,8 @@ export function conversationOf(graph: ModuleGraph, world: Row, me: Person, turn:
         });
         return by.size ? {turn: number(record.turn), order, by: [...by]} : null;
     };
-    const closed = previous ? row(previous.world) : {};
-    const stillThere = previous !== null && string(row(closed.scene).name) === here && array(closed.present).some(name => me.is(name));
+    // §139.23: the same "still where it closed" test `table.status`'s `last_exchange` reads.
+    const stillThere = stillWhereItClosed(graph, world, previous) && array(row(previous!.world).present).some(name => me.is(name));
     return took(turn) ?? (stillThere ? took(previous!) : null);
 }
 
@@ -391,12 +386,13 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
         'npc.situation': async params => {
             if (typeof params.name !== 'string' || !params.name.trim())
                 throw new RpcError('invalid_params', 'params.name must be a non-empty string', {details: {field: 'name'}});
-            // §139.21: what the host read about the player's words and this person, both optional booleans.
-            for (const field of ['addressed', 'declared_before_move'])
+            // §139.21, §139.23: what the host read about the player's words and this person, all optional booleans.
+            for (const field of ['addressed', 'declared_before_move', 'named_no_one'])
                 if (params[field] != null && typeof params[field] !== 'boolean')
                     throw new RpcError('invalid_params', `params.${field} is true, false or absent`, {details: {field}});
             const heard: Heard = {...(typeof params.addressed === 'boolean' ? {addressed: params.addressed} : {}),
-                ...(typeof params.declared_before_move === 'boolean' ? {declaredBeforeMove: params.declared_before_move} : {})};
+                ...(typeof params.declared_before_move === 'boolean' ? {declaredBeforeMove: params.declared_before_move} : {}),
+                ...(typeof params.named_no_one === 'boolean' ? {namedNoOne: params.named_no_one} : {})};
             const {campaign, module} = await readCampaign(context, params, false, false, {}, true);
             const {graph} = module, {world, turn, party} = campaign, node = graph.npc(params.name);
             const me = personOf(graph, world, node);

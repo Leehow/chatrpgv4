@@ -255,3 +255,35 @@ def test_the_readings_are_booleans_or_absent(knott):
     for field in ("addressed", "declared_before_move"):
         error = knott.err("npc.situation", {"campaign": "c1", "name": "Steven Knott", field: "yes"})
         assert error["code"] == "invalid_params" and error["details"]["field"] == field, error
+
+
+# ---------------------------------------------------------------------------------------------------
+# §139.23 (ticket 24, live table B2 turn 10): words that named no one. Arthur and Ruth were both in the conversation, the
+# compile could not say who "you" was, both packets closed on the player's line as if it were said to each of them, and
+# Ruth answered words said to Arthur. The host now says when the compile named no one present (`named_no_one`); the
+# line then reaches the person as said to no one by name, and the generator judges whether it was theirs.
+# ---------------------------------------------------------------------------------------------------
+
+GIVE_IT_BACK = "Then give me back my five dollars first."
+
+
+def test_words_that_named_no_one_are_said_to_no_one_by_name(knott):
+    open_turn(knott, GIVE_IT_BACK)
+    plain = knott.ok("npc.situation", {"campaign": "c1", "name": "Steven Knott", "addressed": True, "named_no_one": False})["happened"]
+    who = plain[-1].split(" (investigator) declared: ")[0]
+    assert plain[-1] == f'{who} (investigator) declared: "{GIVE_IT_BACK}"', "named him: the words as they were"
+    unnamed = knott.ok("npc.situation", {"campaign": "c1", "name": "Steven Knott", "addressed": True, "named_no_one": True})["happened"]
+    assert unnamed[-1] == f'{who} (investigator) declared (to no one by name): "{GIVE_IT_BACK}"', unnamed
+    assert sum(GIVE_IT_BACK in line for line in unnamed) == 1, "the words once, as the closing sentence"
+    # A named other is evidence; a missing name is not: `addressed: false` still leaves nothing in the words' place.
+    other = knott.ok("npc.situation", {"campaign": "c1", "name": "Steven Knott", "addressed": False, "named_no_one": True})["happened"]
+    assert not any(GIVE_IT_BACK in line for line in other), other
+    # The arrival still outranks every reading of the words.
+    moved = knott.ok("npc.situation", {"campaign": "c1", "name": "Steven Knott", "declared_before_move": True, "named_no_one": True})["happened"]
+    assert moved[-1] == f"{who} (investigator) has just arrived where Steven Knott is", moved
+
+
+def test_named_no_one_is_a_boolean_or_absent(knott):
+    open_turn(knott, "I look Knott over.")
+    error = knott.err("npc.situation", {"campaign": "c1", "name": "Steven Knott", "named_no_one": "yes"})
+    assert error["code"] == "invalid_params" and error["details"]["field"] == "named_no_one", error

@@ -13,6 +13,7 @@ import { SessionView } from "./session-view.js";
 import { dispositionTable } from "../combat/standing.js";
 import { RuleObservations } from "./rule-facts.js";
 import { buildCapsule } from "./assemble.js";
+import { lastExchange } from "./exchange.js";
 import { contextBinding } from "./context.js";
 import { workspaceRead } from "./workspace.js";
 import { clockSection, sceneLabel, personLabel, clueLabel, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection } from "./capsule.js";
@@ -334,7 +335,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             return { maps: await knownMapViews(module.graph, campaign.world, contributions.asset) };
         },
         "table.status": async (params) => {
-            const { campaign } = await readCampaign(context, params, false, true, contributions),
+            const { campaign, module } = await readCampaign(context, params, false, true, contributions),
                 { turn } = campaign,
                 receipts = array(turn.receipts);
             return {
@@ -346,7 +347,10 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 // delivered is read back from here, and without the words it would be the one card in
                 // the campaign drawn in the system language.
                 labels: await playerGlossary(context, await playLanguageOf(context, campaign.meta)),
-                pending_choice: turn.pending_choice ?? null
+                pending_choice: turn.pending_choice ?? null,
+                // §139.23: the newest committed turn's words and attributed lines while the investigators still stand
+                // where it closed -- what the host's compile reads "you" and "he" by. Null otherwise.
+                last_exchange: await lastExchange(campaign, module.graph)
             };
         },
         "table.workspace.read": async (params) => workspaceRead(context, params),

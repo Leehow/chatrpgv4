@@ -248,12 +248,16 @@ export function emptyTurnContext(): TurnContext {
   return {scene: '', clock: null, present: [], receipts: []};
 }
 
-/** The table context and the Jev scope binding from two read-only kernel reads. */
+/**
+ * The table context and the Jev scope binding from two read-only kernel reads. §139.23: the status's `last_exchange`, when
+ * the kernel gives one, rides on the context as it is (the compile's state carries it); nothing here reads what was said.
+ */
 export function readTable(capsule: Row, status: Row): {context: TurnContext; scope?: ScopeBinding; readSet?: ReadSet; turn?: number; binding?: ContextBinding} {
-  const where = object(capsule.where);
+  const where = object(capsule.where), exchange = status.last_exchange;
   const context: TurnContext = {scene: text(where.scene), clock: (where.clock ?? null) as TurnContext['clock'],
     present: array(capsule.present).map(person => text(object(object(person).called).name) || text(object(person).name)).filter(Boolean),
-    receipts: array(status.receipts).map(receipt => text(object(receipt).id) || JSON.stringify(receipt))};
+    receipts: array(status.receipts).map(receipt => text(object(receipt).id) || JSON.stringify(receipt)),
+    ...(exchange && typeof exchange === 'object' && !Array.isArray(exchange) ? {lastExchange: exchange as Json} : {})};
   const binding = bindingOf(capsule._context);
   if (!binding) return {context};
   return {context, turn: binding.turn, binding,

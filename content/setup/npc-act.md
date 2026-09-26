@@ -27,6 +27,12 @@ cut to fit; do not guess what was cut.
 a degree, never an act, and a `null` stakes or an `outcome` of `nothing` means
 nothing pushes them beyond their situation.
 
+The last sentence of `happened` may be the player's declaration. When it says
+`declared (to no one by name)`, the player named no one present, and the words
+may have been said to someone else here. Answer them only when they were said to
+this person, as what was just done to them, what they said most recently and who
+else is present tell you; otherwise do what this person does while others talk.
+
 These facts are everything you know. Do not add people, objects, places,
 injuries or knowledge that are not in them. Refer to people and things by the
 names the situation gives them.

@@ -21343,6 +21343,15 @@ question, but a `now` selects one only when a compile of the run cleared `act` o
 Keeper's for the run (`actGated` in `runtime/jev/route-compile.ts`). A demand, a question or an aside in a fight is never
 the clerk's punch, whatever `need` answered.
 
+*Note, 2026-09-26 (§139.23, NAF-24): the compile's state carries the last exchange.* Besides `player_input`, `now`,
+`done_this_turn` and `materials`, the state has `last_exchange` when the read's `table.status` gives one: the newest
+committed turn's player words and the lines its delivery's speech markers attributed to each person, while the
+investigators still stand where that turn closed (`{turn, player_text, speech: [{who, line}]}`; the key is absent
+otherwise). The `addressee` question's instructions gain one sentence -- a word that points at a person without naming
+them is read by `last_exchange`, who was just talking with the investigator -- and the policy line lists the last exchange
+among the data that are never instructions. Nothing in code reads a pronoun; Jev answers over the rows as before. The
+rule and its reader are §139.23.
+
 **It replaces the first fan-out.** When the compile selects, its candidates are the run's pending steps in the route's
 precedence (§135.26), and no route question is asked before them: the next route comes after them, over what the fresh
 read then offers less what the run consumed, and carries the exit question (after a settled declaration the exit leans to
@@ -25252,6 +25261,13 @@ them, and a line about words they did not hear invites an answer to them. With n
 unchanged; a person's own turn of a fight passes neither (they are in that fight with the investigator). The scan
 (§139.20) passes both for every act it runs. The budget never cuts the closing sentence.
 
+*Note, 2026-09-26 (§139.23, ticket 24, table B2 turn 10):* the reading is three-state. A third optional boolean,
+`named_no_one`, says the compile named no one present (its `addressee` `none`, `unclear`, below the gate, or no compile);
+with it, and `addressed` not false, the closing sentence is `<investigator> (investigator) declared (to no one by name):
+"<player_text>"`, and the generator judges whether the words were said to this person. `addressed: false` still leaves
+nothing (a named other is evidence, a missing name is not), and `declared_before_move: true` still gives the arrival.
+The scan passes all three for every act it runs. The rule is §139.23.
+
 **The language** (`npcActLaneInput`, `runtime/jev/npc-act.ts`; `content/setup/npc-act.md`). *Finding:* the tag was not
 missing at table B's opening. `npc.act.options` reads `play_language` from `campaign.json`, which held `zh-Hans` from
 `campaign.create` (14:52:27Z), four minutes before the opening's act (14:56:43Z), and the step passes exactly that; no
@@ -25303,3 +25319,96 @@ revolvers at 0.45/0.40 with `none` 0.15 bind the leading one and the attack fire
 0.9 is taken on its own gate with no mark; `none` leading, and 0.59 on records under a 0.6 gate, stay the table's own
 with no weapon; the one-question list reads the same. One existing assertion changed (the `none` criterion's words).
 Mutation (copy and restore): the kind reading disabled fails the near-kin case. **Not verified live.**
+
+**139.23 Who the words were said to: the compile reads the last exchange, and words that named no one reach the people
+they may have been said to as such (2026-09-26, ticket 24 of `docs/specs/npc-acts-first-tickets/`,
+`24-who-the-words-were-said-to.md`; spec D4 and section 九's table B2; amends §135.30's compile state, §139.1's
+`npc.situation` inputs and §139.21's closing sentence; adds `last_exchange` to `table.status`).**
+
+*Evidence* (table B2, `npc-acts-b2`, mystery-house). Turn 10, "我举起双手：行行行，我不带走。那你先把我那五块钱还给我。": the money had
+been with Arthur since the turn before, whose three lines the speech markers gave him. The compile's `addressee` answered
+`unclear` 0.83; Arthur and Ruth were both in the conversation (§139.20's `engaged`), both got the words (§139.21 as
+amended gives them to the engaged when no one else is named), and Ruth generated "阿蒂，这人问我讨五块钱" -- words said to
+Arthur, answered as hers; on turn 8 she had restated Arthur's position. Table B's turns 3, 4, 6 and 10 read `unclear`
+too (0.52, 0.86, 0.43, 0.27). The compile's state held `player_input`, `now {scene, clock, present}`, `done_this_turn`
+and `materials`: nothing said who had just been talking with the investigator, so "you" had nothing to point at.
+
+**The kernel's read: `table.status.last_exchange`** (`lastExchange`, `kernel-ts/read/exchange.ts`): `{turn, player_text,
+speech: [{who, line}]} | null`.
+
+- The record is the newest committed turn record on the campaign's line before this turn (`committedOnLine`, the one
+  §139.1's `happened` and §139.20's conversation already read; moved from `kernel-ts/npc/situation.ts` to
+  `read/exchange.ts`, and `situation.ts` re-exports it).
+- Only while the investigators still stand where it closed: its record's `world.scene.name` is the active scene
+  (`stillWhereItClosed`, which §139.20's `conversationOf` now reads too, adding that the person was among the record's
+  `present`). No such record, or a party that has moved since, is `null`.
+- `player_text` is that record's player words, whitespace folded, at most `EXCHANGE_WORDS_MAX` (400) code points (a
+  longer one ends with `...`), `null` when it had none (the opening). `speech` is the record's `speech` (§40.3, §128)
+  lines whose speaker the markers resolved to a person -- `who.npc` or `who.investigator`; a `who.label` that matched
+  nobody is left out -- in delivery order, the last `EXCHANGE_LINES` (6), each `{who: the table's name for them now
+  (personLabel, §79), line: the text, whitespace folded, at most EXCHANGE_LINE_MAX (200) code points}`. A record with
+  neither words nor such lines is `null`.
+- Structure only: nothing reads what was said, and no prose is parsed; `speech` is what the delivery's say markers
+  already attributed. `table.status` stays a minimal read: it reads the turns directory for this field alone (the parsed
+  file cache makes the repeat cheap). A turns directory that cannot be read gives `null`, not a failed status: the card
+  of a turn that could not be delivered is drawn from `table.status` (§50), and this field is context for a model,
+  never a gate.
+
+**The compile** (`readTable`, `runtime/jev/hybrid-engine.ts`; `compileBatch`, `runtime/jev/route-compile.ts`). Every read
+carries `status.last_exchange`, when it is an object, onto the turn context (`TurnContext.lastExchange`), refreshed like
+the rest of it; the compile's `state` carries it as `last_exchange` after `now`, and leaves the key out otherwise -- so a
+compile asked after the clerk's move in the same run reads the fresh status and no longer has it. The `addressee`
+question's instructions gain: "Read a word that points at a person without naming them (you, he, this gentleman) by
+last_exchange when the state has it: who was just talking with the investigator, and about what." The policy line names
+the last exchange among the data that are never instructions. The family stays `single-loop-compile` version `1`, as
+through §135.30's earlier addenda.
+
+**Words that named no one** (`runNpcScan`, `runtime/jev/npc-act-step.ts`; `closingSentence`, `kernel-ts/npc/situation.ts`).
+`npc.situation` takes a third optional boolean, `named_no_one` (anything else is `invalid_params` naming the field): the
+compile named no one present -- the run's cleared addressees are empty (`none`, `unclear`, an answer below the gate, or no
+compile asked). The scan passes it, beside `addressed` and `declared_before_move`, for every act it runs, and the
+`npc_act` row carries it. The closing sentence by the compile's addressee:
+
+| the compile's addressee | `addressed` | `named_no_one` | the closing sentence |
+| --- | --- | --- | --- |
+| named this person | true | false | `<investigator> (investigator) declared: "<player_text>"` |
+| named someone else | false | false | nothing (§139.21 as amended) |
+| named no one; the person was acted on or is in the conversation | true | true | `<investigator> (investigator) declared (to no one by name): "<player_text>"` |
+
+`declared_before_move: true` still gives the arrival whatever the other two say, and `addressed: false` outranks
+`named_no_one`. With `named_no_one` absent or false, §139.21 is unchanged; a person's own turn of a fight passes none of
+the three. The budget never cuts the closing sentence, in either wording. *Decided (the ticket left the shape open):* a
+new boolean beside `addressed`, not a third value of it -- the field keeps its type and every reading its meaning, and
+"no one was named" is a fact about the compile, not about this person.
+
+**The generator** (`content/setup/npc-act.md`). One paragraph: the last sentence of `happened` may be the player's
+declaration; one marked `declared (to no one by name)` named no one present and may have been said to someone else here,
+so the person answers it only when it was said to them (what was just done to them, what they said most recently and
+who else is present tell), and otherwise does what they do while others talk.
+
+**Three ends (§31).** Writers: the delivery's speech markers (the record's `speech`) and the player's words
+(`player_text`), both existing; the compile's `addressee` answer. Readers: `table.status.last_exchange`, the compile's
+state, and Jev's `addressee` question over it; the scan's `named_no_one`, `npc.situation`'s closing sentence, and the
+generator that reads the packet whole. Actors: the compile's addressee picks who acts (a person named silences another
+person's conversation, §139.20), and the generated act answers the words or not.
+
+**Not covered.** Whether "you" now clears on the live table, and whether the bystander still answers words said to
+someone else, is table B3's question. A turn that moved and then closed keeps that turn's words and lines as the exchange
+where it closed, words said before the move included: the scene test reads where the turn closed, not where each line
+was said.
+
+*Tests.* `tests/kernel/test_last_exchange.py` (the emitted kernel): Knott and Edna Hale each said a line last turn -- the
+exchange is the player's words and both lines by the table's names; nothing committed before this turn, and a record
+with neither words nor attributed lines, are `null`; the opening is an exchange when someone spoke in it
+(`player_text: null`); a move this turn ends it; the delivery's last six lines, a long line cut to 200 code points, an
+unresolved speaker left out. `tests/kernel/test_npc_situation.py`: `named_no_one` gives `declared (to no one by name)`,
+`addressed: false` outranks it, the arrival outranks both, and a non-boolean is `invalid_params`.
+`tests/extension/single-loop-npc-act.test.mjs`: at the table, the compile's state carries last turn's exchange from the
+record's `speech` (Knott's line and Edna's) and the addressee question names it; on the emitted kernel with the engine's
+own `readTable` and `compileBatch`, no `last_exchange` at the opening or after the party moved; at the table, both in
+the conversation and the compile `unclear` -- both packets close on the words said to no one by name, the rows
+`named_no_one: true`; the compile naming Edna -- only she acts, and her packet closes on the words as said. Two
+existing assertions changed to the new wording (§139.20's engaged case and §139.21's "acted on while the words named no
+one"), because both are the no-one-named case. Mutation record (copy and restore): the compile state's `last_exchange`
+removed fails the first table case (and the emitted-kernel case); the closing sentence put back to the words unconditionally
+(the kernel rebuilt each way) fails the both-in-the-conversation case; restored, green.

@@ -191,7 +191,11 @@ export interface Observation {
   reason?: string;
   summary?: Json;
 }
-export interface TurnContext {scene: string; clock: Json; present: string[]; receipts: string[]}
+/**
+ * The table as the latest read saw it. `lastExchange` (§139.23): `table.status.last_exchange` -- the newest committed
+ * turn's words and attributed lines while the investigators still stand where it closed; absent otherwise.
+ */
+export interface TurnContext {scene: string; clock: Json; present: string[]; receipts: string[]; lastExchange?: Json}
 /**
  * The Keeper's batch as an artifact of the run (spec Rulings, "Batches"; contract §135.5): the calls of one model
  * response in their order, each with one success branch (the next step) and one failure branch (back to the

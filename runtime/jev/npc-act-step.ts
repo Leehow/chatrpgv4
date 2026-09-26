@@ -444,9 +444,10 @@ export type NpcActTrigger = 'turn' | 'acted_on' | 'engaged';
 /**
  * §139.21: what the host read about the player's words and this person, passed to `npc.situation` as they are: the
  * declaration was said to them (`addressed`), or it was put before a move brought the investigator to them
- * (`declared_before_move`). Absent on a person's turn of a fight: §139.1's reading stands there.
+ * (`declared_before_move`). §139.23: the compile named no one present (`named_no_one`), so whether the words were said
+ * to this person is the generator's to judge. Absent on a person's turn of a fight: §139.1's reading stands there.
  */
-export interface HeardInput {addressed?: boolean; declared_before_move?: boolean}
+export interface HeardInput {addressed?: boolean; declared_before_move?: boolean; named_no_one?: boolean}
 export interface NpcActOutcome {
   npc: string; handle: string | null; trigger: NpcActTrigger;
   /** `dropped` (§139.14): the act repeats a thread they just gave up, with nothing to settle it; nothing is written. */
@@ -667,7 +668,9 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
  * false only when the compile named someone else -- addressed, in the conversation, or acted on while the words named no
  * one all hear it, as amended 2026-09-26) and whether it was put before a move brought the investigator to them
  * (`declared_before_move`: a move landed this turn, `moved`, and they were not among the people present when the run
- * began, `firstPresent`).
+ * began, `firstPresent`). §139.23 (ticket 24): and whether the compile named no one at all (`named_no_one`: the run's
+ * `addressees` is empty), so the words they hear say they were said to no one by name and the generator judges whether
+ * they were said to them.
  */
 export async function runNpcScan(deps: NpcActDeps, input: {present: readonly string[]; addressees: readonly string[]; seen: Set<string>; count: {acted: number};
   firstPresent?: readonly string[]; moved?: boolean}): Promise<NpcActOutcome[]> {
@@ -703,7 +706,10 @@ export async function runNpcScan(deps: NpcActDeps, input: {present: readonly str
     // Heard unless the compile named another person: a person acted on while the words named no one was the one they were
     // said to more often than not (the investigator grabs Knott and says "give me the key"), so only a named other takes
     // the line away (§139.21 as amended 2026-09-26).
-    out.push(await runNpcAct(deps, entry.name, entry.trigger, {addressed: !entry.elsewhere, declared_before_move: arrived}));
+    // §139.23: named no one -- `none`, `unclear`, below the gate or no compile -- is not "said to them"; it is said to
+    // no one by name, and the generator reads it so.
+    out.push(await runNpcAct(deps, entry.name, entry.trigger, {addressed: !entry.elsewhere, declared_before_move: arrived,
+      named_no_one: input.addressees.length === 0}));
   }
   return out;
 }
