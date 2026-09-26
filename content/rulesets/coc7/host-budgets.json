@@ -27,5 +27,14 @@
   },
   "delivery_floor": {
     "min_prose_chars": 40
+  },
+  "time_reading": {
+    "timeout_ms": 2500,
+    "min_confidence": 0.6,
+    "floors": {
+      "later_today": 60,
+      "next_day": 240,
+      "days": 1440
+    }
   }
 }

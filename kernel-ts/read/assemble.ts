@@ -17,6 +17,7 @@ import { obligationNodes, sceneObligations, capsuleRow } from "./obligations.js"
 import { mechanicsOf } from "./mechanics.js";
 import { directorOffer } from "./offer.js";
 import { pythonJsonDumps, utf8Bytes } from "../json.js";
+import { unrecordedTime } from "./time-reading.js";
 import { playLanguageOf } from "./languages.js";
 import { RpcError } from "../errors.js";
 import { array, row, number, string, truth, chars, clone, normalize, type Row } from "./values.js";
@@ -64,10 +65,12 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "on every line or a topic for every reply. Answer the player's words first; preserve source secrets and " +
     "listener identity. Exchanges are reference, never lines to read out or slogans to repeat. " +
     "unrecorded is what an earlier turn's prose already gave the player while the ledger still disagrees, " +
-    "of two kinds: a clue still called undiscovered, and a person you gave lines to here whom the books " +
-    "put in another scene or off the board. Each row names the call that closes the gap, and says only " +
+    "of three kinds: a clue still called undiscovered, a person you gave lines to here whom the books " +
+    "put in another scene or off the board, and a stretch of time the prose skipped that the clock never moved for. " +
+    "Each row names the call that closes the gap, and says only " +
     "that the two records disagree, never which of them is right. It is not a debt to invent anything — the " +
-    "player was told, and only the books disagree. Record it, or leave it and it stays until they walk away. " +
+    "player was told, and only the books disagree. Record it, or leave it: a clue or person row stays until they " +
+    "walk away, a time row until time next lands. " +
     "untold is the other half: a turn that settled receipts and then ended with nothing said to the player " +
     "(the run stopped before it could deliver). Its rows are already on the books and the ledger already " +
     "counts them, so do not write this turn as if none of it happened; say what landed, in your own prose, " +
@@ -439,7 +442,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         // Clues first: a row that is still findable in this room outranks a person the player heard
         // in it, and the section is trimmed from the end.
         unrecorded: [...unrecordedClues(graph, world, scene, campaign.records, number(turn.turn)),
-            ...unrecordedPeople(graph, world, scene, campaign.records, number(turn.turn))],
+            ...unrecordedPeople(graph, world, scene, campaign.records, number(turn.turn)),
+            ...unrecordedTime(campaign.records, number(turn.turn), clockSection(graph, world))],
         untold: untoldReceipts(campaign.records, number(turn.turn))
     });
     const truncated: string[] = [];

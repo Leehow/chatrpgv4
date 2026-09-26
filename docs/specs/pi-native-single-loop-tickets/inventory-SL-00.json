@@ -768,6 +768,18 @@
     },
     {
       "file": "extensions/kernel/index.ts",
+      "symbol": "readTimeSkip",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel ext: delivery time reading (142.2)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "not observed yet (fake-kernel seam tests; the pre-implementation probe in docs/specs/keeper-time-skip-tickets.md)",
+      "note": "Gate: PI_COC_TIME_READING != 0 (default on) and a Jev key. One bounded Jev request (Score cut + Choice ends_at, maxRetries 0) before an explicit, embedded or implicit narrate commits; never refuses by itself (the kernel compares, 142.3)."
+    },
+    {
+      "file": "extensions/kernel/index.ts",
       "symbol": "resolveScenePerson.resolve",
       "kind": "jev-adapter",
       "callee": "createDecisionAdapter",

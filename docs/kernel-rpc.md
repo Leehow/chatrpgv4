@@ -24192,3 +24192,114 @@ Addendum 2's execution point (`clerkStep`'s and `modelStep`'s own tails, calling
 **Three ends (§31).** *Writer:* the operator's `${envName}_THINKING` variable, read at the moment the lane runs (never frozen into a spawn environment, matching every other reader in this file, §37.10). *Reader:* `laneThinkingChoice`, then `runLaneAttempt`'s resolution and `laneReasoningOptions`/`clampThinkingLevel` downstream of it, unchanged. *Actor:* the operator, through the `start` row's `thinking_source` and the driver/gate scripts that now pass `--env PI_COC_ADMISSION_MODEL=xai/grok-4.3 --env PI_COC_ADMISSION_MODEL_THINKING=off` on the next gate (#22).
 
 *Tests.* `tests/extension/lane-reasoning-budget.test.mjs`: `laneThinkingChoice` ranks the lane-specific override above the shared variable, the setting and the table; the lane-specific check is skipped entirely when the model override is absent, even if a stray `_THINKING` variable is set; omitting `envName` altogether (every pre-addendum caller) resolves exactly as before; a garbage lane-specific value still names `lane-operator` as the source, normalized to the literal default, the same fallback the shared variable already gets; at the lane seam (`runLane`, a real `openai-responses`-shaped model whose map supports `off`), a lane with both envs set starts on its own model at `off` with no literal `reasoningEffort` sent and `thinking_source: "lane-operator"` on the `start` row, while a second, unrelated lane (a different, unset `envName`) in the same process still takes the shared level -- proving the override is per-lane, not process-wide once any lane's env is set. Mutations (a copy of `subsession.ts`, never `git checkout --`): dropping the lane-specific override read, dropping `thinking_source` from the `start` row, and dropping `request.envName` from the call into `laneThinkingChoice` inside `runLaneAttempt`, each turned the lane-seam test (and, for the first, the pure ranking test) red.
+
+## 142. A time skip the prose makes is reconciled with the clock at delivery; `apply time` takes the time it reaches (2026-09-26, `docs/specs/keeper-time-skip.md`; amends §5's `table.apply` `time` and `table.narrate`, §51.4's `unrecorded`)
+
+**Evidence.** Table `npc-acts-b2` (branch `claude/npc-as-actor-20260926`, Keeper `opencode-go/deepseek-v4.1-flash`):
+the clock read 0 minutes (1920-10-12 10:00, morning) on every one of eleven turns, and turn 8's implicit delivery cut
+from closing time to "the next morning". The Keeper had sent `{kind: "time", minutes: 15}` four times inside batches
+the kernel refused for their `npc` effects, then once alone after the refusal budget had closed `apply` (§34.12),
+and delivered the skip anyway. The verifier's `uncommitted_state` (§12.5) found nothing on that turn. Nothing
+compared the delivered prose's time with the books, and the one number `apply time` takes had to be counted by the
+Keeper (fifteen minutes for a night).
+
+### 142.1 `apply time {until}` (amends §5)
+
+`time` takes `until: {days, time}` in the slot `minutes` fills: `days` is an integer ≥ 0 (0 = later today, 1 =
+tomorrow), `time` a local `HH:MM` (00–23, 00–59). The kernel binds it against the **staged** clock (after the batch's
+earlier effects), where `stated` binds (§136.22): the current absolute minute is the clock's start minute of day
+(`clockStart`) plus `world.clock.minutes`; the target is the start of the current day plus `days` × 1440 plus the
+time's minute of day; `minutes` = target − current. A dated clock (`at`) and an undated one (`day`, `hh`, `mm`) bind
+alike; no calendar arithmetic reaches the Keeper. The receipt carries `until` beside the bound `minutes`; the clock,
+the rest entry (≥ 360) and the magic-point recovery (≥ 60) run on the minutes exactly as on a Keeper's number, and
+admission reviews it as any `time` (§32). Refused (`invalid_params`, `details.field: "until"`, nothing written):
+
+| reason | when |
+| --- | --- |
+| `until_none` | `until` on an effect other than `time` |
+| `until_conflict` | `until` beside `minutes` or `stated` (`details.fields`) |
+| `until_invalid` | not `{days: integer ≥ 0, time: "HH:MM"}` |
+| `until_not_forward` | the target is not after the current clock; `details.clock` is the current reading (`at` or `day`/`hh`/`mm`, and `day_part`); `fix` says a time earlier than now is `days` ≥ 1 |
+
+The tool schema offers `until` on `time` only; the fake kernel accepts it and binds it the same way.
+
+### 142.2 The host's time reading
+
+At every delivery (explicit `narrate`, `apply`'s embedded narrate, the implicit close) the host asks Jev one request
+of two questions, family `time-reading` version 1 (`runtime/jev/time-reading-domain.ts`, inventoried in SL-00):
+
+- `cut`, a Score over situations, lowest first: `continuous`, `short` (minutes up to about an hour skipped within the
+  same scene or errand), `later_today` (hours skipped, the same day), `next_day` (a night passed or the next day),
+  `days` (several days or longer). Only stretches the narration skips over count; the length of actions it plays
+  through, memories, plans, and anything a character *says* about another time do not.
+- `ends_at`, a Choice over the capsule's day parts (`small_hours`, `dawn`, `morning`, `midday`, `afternoon`,
+  `evening`, `night`) and `not_shown`: the part of the day the narration's last moment is set in, as the narration
+  shows it.
+
+State is the delivery text with say tokens and markers removed (the spoken words stay) and nothing else: not the clock
+(Jev does not compare times), not the Keeper's calls. The answer is each question's argmax and its confidence. It is
+taken after SL-93's floor and beside speech attribution (§128.3), capped by `time_reading.timeout_ms`
+(`content/rulesets/coc7/host-budgets.json`), and is fail-open: no key, a timeout or an error delivers without a
+reading. The same text is read once per turn. The opening delivery is not read.
+
+A cut is **read** when `cut` is `later_today`, `next_day` or `days` with confidence ≥ `time_reading.min_confidence`
+(0.6). Only then does the reading ride on `table.narrate`, host-only and outside the call's digest (as `keeper_reads`,
+§135.31): `time_reading: {cut, confidence, floor, ends_at?, refusable}`, where `floor` is `time_reading.floors[cut]`
+(`later_today` 60, `next_day` 240, `days` 1440), `ends_at` is present only when shown with confidence ≥ the gate, and
+`refusable` is false when the turn's one steer is already spent (the condition SL-93's floor reads) or the delivery
+closes the opening.
+
+One telemetry row per reading: `{lane: "time-reading", turn, path: "explicit" | "embedded" | "implicit", ok, cut,
+cut_confidence, ends_at, ends_at_confidence, distribution, sent, ms, reason?, skipped?}` (`sent`: the reading rode on
+the delivery). `skipped: "unconfigured"` (no key) and `"opening"` are `ok: true`; a failure is `ok: false` with the
+adapter's `reason`.
+
+### 142.3 The reconciliation in `table.narrate` (amends §5's `table.narrate`)
+
+With a `time_reading`, the kernel sums this turn's clock movement (`minutes` on its `time` and `move` receipts) and
+reads the clock after the turn (`clockSection`). A **gap** is `landed < floor`, or `ends_at` present and neither equal
+to the clock's `day_part` nor next to it in the cyclic order `small_hours, dawn, morning, midday, afternoon, evening,
+night`. The kernel reads no prose; it compares the host's reading with its own books.
+
+- **A gap on the turn's first such check, `refusable`:** `turn.json` keeps `time_gate: {call_id}`, the kernel appends
+  `{lane: "delivery", turn, ok: false, reason: "time_unrecorded", outcome: "refused", call_id, implicit, cut, landed,
+  floor, ends_at, day_part}` to telemetry, and refuses `needs`: `details = {reason: "time_unrecorded", cut, ends_at,
+  clock, landed_minutes, floor, suggest?}`. `suggest: {until: {days, time}}` is present when `ends_at` is: the start of
+  that day part (the kernel's own table: small_hours 00:00, dawn 05:00, morning 08:00, midday 12:00, afternoon 14:00,
+  evening 18:00, night 22:00) on the day the cut implies (`later_today`: today when that start is still ahead, else
+  tomorrow; `next_day`: tomorrow; `days`: none). The `fix`: land the skipped time with `apply time` (with `until`,
+  naming `details.suggest` when present) and deliver again, or keep the prose inside the time the books hold.
+- **A gap with the gate spent, or not `refusable`:** delivered as written. The turn record carries one `warnings` row
+  `{lane: "delivery", kind: "time_unrecorded", quote: null, why, fix, cut, ends_at, at}` and the kernel appends the
+  same telemetry row with `ok: true, outcome: "delivered"`.
+- No reading, or no gap: nothing changes.
+
+The host's side: an explicit or embedded refusal is an ordinary tool refusal; a refusal for `time_unrecorded` spends
+the turn's one steer as SL-93's floor does, so the next delivery that turn is not refusable. An implicit refusal takes
+the existing `audit-repair` steer (§109.4), which spends it.
+
+### 142.4 `unrecorded` gains the time kind (amends §51.4)
+
+The capsule's `unrecorded` carries, after the clue and person rows, at most one time row: the most recent
+`time_unrecorded` warning on an earlier turn, while no later turn holds a `time` receipt: `{time: <cut>, turn,
+ends_at, operation: "apply time", line}`, the line naming the turn, the cut, the clock now, and `apply time` (with
+`until` when `ends_at` is known). Like the other kinds it says the two records disagree, names the call that closes
+it, and clears itself: any later `time` receipt ends it. The `head` sentence names three kinds.
+
+### 142.5 Three ends (§31)
+
+*Writer:* the Keeper's `apply time` (`until` or `minutes`); the kernel's reconciliation (refusal, warning, `unrecorded`
+row). *Reader:* the Keeper, through the refusal's `fix` and `details.suggest`, the next capsule's `warnings`, and
+`unrecorded`. *Actor:* the Keeper, landing `apply time` or rewriting. Counted: the kernel's `lane: "delivery"` rows by
+`outcome`, the host's `lane: "time-reading"` rows, and a `time` receipt on a refused turn.
+
+### 142.6 Tests
+
+`tests/kernel/test_time_until.py` (emitted kernel: dated and undated clocks, days 0 and 1, a batch's earlier `time`
+moves the base, the three refusals write nothing, replay, a night by `until` heals); `tests/kernel/test_time_reconciliation.py`
+(emitted kernel: the gap on no time, on too little, on a far day part; none on a neighbouring day part or when enough
+landed; refused once then delivered with the warning; `refusable: false` delivers with the warning; `suggest`; the
+`unrecorded` row next turn and its clearing; the reading is outside the digest); `tests/extension/time-reading-domain.test.mjs`
+(the questions, state = text only, argmax and confidence, the gate, every non-answer); `tests/extension/time-reading.test.mjs`
+(fake kernel: the reading rides on all three paths only when a cut is read, `refusable` follows the steer, the opening
+is not read, fail-open rows, one read per text, a refusal spends the steer).

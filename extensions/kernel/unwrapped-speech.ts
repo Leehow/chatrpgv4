@@ -157,8 +157,13 @@ export function isSpeechOnlyDraft(draft: string): boolean {
  * reading of the words.
  */
 export function proseCharCount(draft: string): number {
+	return [...deliveryProse(draft)].length;
+}
+
+/** The draft's own prose, as `proseCharCount` counts it: every token gone, the spoken words left standing (§142.2 reads this). */
+export function deliveryProse(draft: string): string {
 	const { text } = speechPass(draft, (name) => ({ label: name }));
-	return [...text.replace(MARKER, "").trim()].length;
+	return text.replace(MARKER, "").trim();
 }
 
 /** The say token's name rule (§40.1): anything but `}}` and a line break, trimmed, 1–60 characters. */

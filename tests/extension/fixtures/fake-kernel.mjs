@@ -60,6 +60,10 @@ import { dirname, join } from 'node:path';
 import { SETUP_STEPS, SETUP_TABLE } from "./setup-steps.mjs";
 
 const LOG = process.env.FAKE_KERNEL_LOG;
+/** The fixture's clock reading (09:15 on day 1) as minutes of the day, for `until` (contract §142.1). */
+const FAKE_CLOCK_MINUTES = 555;
+/** The turn whose one §142.3 refusal was spent. */
+let timeGateTurn = -1;
 const ERRORS = process.env.FAKE_KERNEL_ERRORS ? JSON.parse(process.env.FAKE_KERNEL_ERRORS) : {};
 const CAMPAIGNS = process.env.FAKE_KERNEL_CAMPAIGNS
 	? JSON.parse(process.env.FAKE_KERNEL_CAMPAIGNS)
@@ -946,6 +950,19 @@ function handle(method, params) {
 						fix: "leave the amount out to use the book's, or stated out to use your own",
 						details: { index, field: "stated", reason: "stated_conflict", fields: amounts.filter((field) => effect[field] != null) } } };
 				}
+				// Contract §142.1: until names the time the clock reaches, against the fixture's clock (09:15, day 1).
+				if (effect.until != null) {
+					const refuse = (reason, message, details = {}) => ({ ok: false, error: { code: "invalid_params", message,
+						details: { index, field: "until", reason, ...details } } });
+					if (effect.kind !== "time") return refuse("until_none", `a ${effect.kind} effect takes no until`);
+					const fields = ["minutes", "stated"].filter((field) => effect[field] != null);
+					if (fields.length) return refuse("until_conflict", "until names the time the clock reaches; give one amount", { fields });
+					const match = /^(\d{2}):(\d{2})$/.exec(effect.until.time ?? "");
+					if (!Number.isInteger(effect.until.days) || effect.until.days < 0 || !match || Number(match[1]) > 23 || Number(match[2]) > 59)
+						return refuse("until_invalid", "until must be {days, time: HH:MM}");
+					const minutes = effect.until.days * 1440 + Number(match[1]) * 60 + Number(match[2]) - FAKE_CLOCK_MINUTES;
+					if (minutes <= 0) return refuse("until_not_forward", "until is not after the clock", { clock: { at: "1925-06-01T09:15", day_part: "morning" } });
+				}
 				if (effect.kind === "cash" && effect.stated == null && typeof effect.delta !== "number") {
 					return { ok: false, error: { code: "invalid_params", message: "cash 要带正负号的 delta", details: { index } } };
 				}
@@ -985,7 +1002,8 @@ function handle(method, params) {
 					mechanic({ kind: "clue", clue: effect.clue, ...(effect.label ? { label: effect.label } : {}) });
 				}
 				if (effect.kind === "time") {
-					mechanic({ kind: "time", minutes: effect.minutes });
+					const until = /^(\d{2}):(\d{2})$/.exec(effect.until?.time ?? "");
+					mechanic({ kind: "time", minutes: until ? effect.until.days * 1440 + Number(until[1]) * 60 + Number(until[2]) - FAKE_CLOCK_MINUTES : effect.minutes });
 				}
 				if (effect.kind === "map") {
 					mechanic({kind:'map',receipt:`map:${params.call_id}`,map:effect.name,name:effect.label??effect.name,
@@ -1057,6 +1075,15 @@ function handle(method, params) {
 			};
 		}
 		case "table.narrate": {
+			// Contract §142.3: FAKE_KERNEL_TIME_REFUSE=1 refuses the turn's first refusable reading, as the real
+			// reconciliation does for a gap; the fixture has no clock movement to compare, so every reading is a gap.
+			if (process.env.FAKE_KERNEL_TIME_REFUSE === "1" && params.time_reading?.refusable && timeGateTurn !== turn) {
+				timeGateTurn = turn;
+				return { ok: false, error: { code: "needs", message: "This delivery moves the story through a night or to the next day, and the clock reads 1925-06-01T09:15 (morning) with 0 minutes landed this turn",
+					fix: "Land the time the prose skips with apply time, then deliver again; or keep the prose inside the time the books hold.",
+					details: { reason: "time_unrecorded", cut: params.time_reading.cut, ends_at: params.time_reading.ends_at ?? null, landed_minutes: 0,
+						floor: params.time_reading.floor, suggest: { until: { days: 1, time: "08:00" } } } } };
+			}
 			const closed = turn;
 			state = "awaiting_player";
 			const facts = process.env.FAKE_KERNEL_NO_FACTS === "1"

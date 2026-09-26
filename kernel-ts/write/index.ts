@@ -18,7 +18,7 @@ import { mechanics } from '../read/mechanics.js';
 import { SessionView } from '../read/session-view.js';
 import { standingStates } from '../read/standing.js';
 import { authoredMapWords, presentPublishedArrivalMaps } from '../read/maps.js';
-import { sceneLabel } from '../read/capsule.js';
+import { clockSection, sceneLabel } from '../read/capsule.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
 import { playLanguages, playLanguageOf } from '../read/languages.js';
 import { modContext, kernelGaps, readModCatalog } from '../read/mods.js';
@@ -35,6 +35,7 @@ import { asciiSlug, facts, publicContext, directorAdoption, offerLedger } from '
 import { obligationByHandle, obligationState } from '../read/obligations.js';
 import { statedHandleOf } from '../read/stated.js';
 import { deliveryText, deliveryRecord, keeperReads } from './delivery.js';
+import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
@@ -134,6 +135,11 @@ export interface WriteContributions {
 function hostAttributed(params: Row, speech: unknown): Set<number> {
     const count = array(speech).length, value = params.host_attributed;
     return new Set(Array.isArray(value) ? value.filter(index => integer(index) && number(index) >= 0 && number(index) < count).map(index => number(index)) : []);
+}
+/** §142.3: the kernel's telemetry row for a time gap, refused or delivered. */
+function timeRow(gap: Row, turn: Row, callId: string, params: Row): Row {
+    return { lane: 'delivery', turn: number(turn.turn), reason: 'time_unrecorded', call_id: callId, implicit: truth(params.implicit),
+        cut: gap.cut, landed: gap.landed_minutes, floor: gap.floor, ends_at: gap.ends_at ?? null, day_part: gap.day_part };
 }
 /**
  * §113 D: a person does not repeat. A line the Keeper wrapped is refused before any audit, naming the
@@ -1039,7 +1045,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     }
     async function narrate(params: Row, report?: ProgressReporter): Promise<Row> {
         // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.
-        const { keeper_reads: readsIn, ...delivered } = params, reads = keeperReads(readsIn);
+        // §142.2: nor is the host's reading of a time skip.
+        const { keeper_reads: readsIn, time_reading: timeIn, ...delivered } = params, reads = keeperReads(readsIn), reading = timeReading(timeIn);
         params = delivered;
         const { campaign, snapshot, module } = await load(params), turn = snapshot.turn;
         const started = await createTurnTransaction(campaign, snapshot.world, turn).beginWrite('table.narrate', params, {
@@ -1054,6 +1061,14 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const text = required(params, 'text')!, receipts = [...array(turn.receipts)];
         const { placed, ...delivery } = deliveryText(text, receipts, speakerResolver(module.graph, snapshot.world, snapshot.party)), rendered = delivery.rendered_text;
         const hostRepeats = await refuseRepeatedLine(snapshot, campaign, delivery.speech, hostAttributed(params, delivery.speech));
+        // Contract §142.3: the host read a time skip in this delivery; the kernel holds it against its own clock. Refused
+        // once a turn when the host can hand the refusal back; otherwise delivered, with a finding §142.4 keeps raising.
+        const gap = timeGap(reading, receipts, clockSection(module.graph, snapshot.world));
+        if (gap && reading!.refusable && !truth(turn.time_gate)) {
+            await campaign.writeTurn({ ...turn, time_gate: { call_id: started.callId } });
+            await campaign.telemetry({ ...timeRow(gap, turn, started.callId, params), ok: false, outcome: 'refused' }).catch(() => undefined);
+            throw timeRefusal(gap);
+        }
         const language = await playLanguageOf(context, snapshot.meta);
         // Nothing is read out of the prose. Figures travel as the mechanics projection and the
         // frontend draws them (2026-09-09 user decision, contract section 16.3); whether the words
@@ -1107,11 +1122,12 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...(reads.length ? { reads } : {}),
             // §128.3: a repeat inside a line the host wrapped is a finding on the delivery, the same
             // `warnings` rows the verifier's `unmarked_speech` lands in, never a refusal.
-            ...(hostRepeats.length ? { warnings: hostRepeats.map(repeat => ({ lane: 'speech', kind: 'repeated_line',
+            // §142.3: so is a time skip the books do not hold, on a delivery that went out anyway.
+            ...(hostRepeats.length || gap ? { warnings: [...hostRepeats.map(repeat => ({ lane: 'speech', kind: 'repeated_line',
                 quote: chars(string(repeat.line), 120),
                 why: chars(`${string(repeat.name)} already said this at turn ${string(repeat.earlier_turn)}; the host wrapped the line, so it was delivered, not refused`, 200),
                 fix: 'Already delivered: do not rewrite it. Next time the same point comes back, say it in fresh words; the position need not move.',
-                at: nowIso() })) } : {})
+                at: nowIso() })), ...(gap ? [timeWarning(gap, nowIso())] : [])] } : {})
         };
         await campaign.writeTurnRecord(record);
         await updateNpcLedger(campaign, module.graph, record);
@@ -1161,6 +1177,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         record.commit = sha;
         record.calls[started.callId].result.commit = sha;
         await campaign.writeTurnRecord(record);
+        if (gap)
+            await campaign.telemetry({ ...timeRow(gap, turn, started.callId, params), ok: true, outcome: 'delivered' }).catch(() => undefined);
         const postStep=async(step:string,action:()=>Promise<unknown>)=>{try{await action();}catch(error){await campaign.telemetry({lane:'kernel',step,turn:n,ok:false,error:internalError(error).message});}};
         const moves=isJsonObject(record.worldline)&&truth(record.worldline.operation);
         let checkpointRecord=record,checkpointWorld=world,moved:Row|null=null;
