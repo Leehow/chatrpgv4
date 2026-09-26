@@ -152,6 +152,16 @@ export const SAME_QUESTION = Object.freeze({
     + 'at something none of them is aimed at.',
   none: 'The act is aimed at something none of these is aimed at.',
 });
+/**
+ * The purpose question over a person's rows (`row_<n>` aliases), as §139.5/§139.14 ask it: the rows' own lines and
+ * statuses, plus none. §139.24 asks the same question of the lines the Keeper gives a person in a delivery (ticket 25),
+ * so both callers build it here and the wording cannot drift apart; only the key and the target say whose act it is.
+ */
+export function sameQuestion(key: string, target: string, rows: Record<string, Row>): DecisionBatch['questions'][number] {
+  return {key, target, type: SAME_QUESTION.type, instructions: SAME_QUESTION.instructions,
+    criteria: {...Object.fromEntries(Object.entries(rows).map(([alias, entry]) => [alias, {intent: text(entry.intent), status: text(entry.status)}])),
+      [NONE]: SAME_QUESTION.none}};
+}
 
 /**
  * §139.19's question over price-list records: which one gives the thing the act brings out its rules, or none. Asked by
@@ -218,10 +228,7 @@ export function npcActBatch(input: {runId: string; person: string; act: string; 
         [NONE]: 'No record of the price list is that kind of thing.'}});
   if (input.rows.length) {
     plan.same = Object.fromEntries(input.rows.map((entry, index) => [`row_${index + 1}`, entry]));
-    questions.push({key: 'same', target: 'whether the act is something this person already set out to do, for the same purpose', type: SAME_QUESTION.type,
-      instructions: SAME_QUESTION.instructions,
-      criteria: {...Object.fromEntries(Object.entries(plan.same).map(([alias, entry]) => [alias, {intent: text(entry.intent), status: text(entry.status)}])),
-        [NONE]: SAME_QUESTION.none}});
+    questions.push(sameQuestion('same', 'whether the act is something this person already set out to do, for the same purpose', plan.same));
   }
   const packet = object(input.packet);
   const state = {purpose: 'bind the act of one person to a way the rules settle it', person: input.person, act: input.act,

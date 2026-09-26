@@ -57,6 +57,15 @@ import {
 	personResolutionBindings,
 	resolvePersonName,
 } from "../../runtime/jev/person-resolution-domain.ts";
+import {
+	KEEPER_LINE_FAMILY,
+	type KeeperLineInput,
+	type KeeperLinePerson,
+	askedPeople,
+	keeperLineBindings,
+	runKeeperLinePurpose,
+} from "../../runtime/jev/keeper-line-purpose.ts";
+import { npcActBudget } from "../../runtime/jev/host-budgets.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
 import { PendingAnswers, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs } from "./source-answers.ts";
 import { PERSON_TEXT_NOTE, SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
@@ -770,6 +779,9 @@ function needsPreparation(name: string, input: Record<string, unknown>, wait: { 
 const RESENT_ON_SECOND_DELIVERY: ReadonlyMap<string, string> = new Map([
 	["markup_in_prose", "markup_resent"],
 	["intent_result_owed", "intent_result_owed_resent"],
+	// §139.24: a person's lines read as saying again what they set out to do and never carried out -- refused once a turn,
+	// and the same draft sent again carries the same reading (no second batch), which the spent gate delivers with a finding.
+	["purpose_repeated", "purpose_repeated_resent"],
 ]);
 /** The one host steer of the turn floor (docs/specs/turn-floor.md D4), sent when a turn is about to close on prose alone. */
 const FLOOR_STEER =
@@ -819,6 +831,15 @@ const DEFAULT_SPEECH_ATTRIBUTE_TIMEOUT_MS = 2_500;
 function speechAttributeTimeoutMs(env: NodeJS.ProcessEnv): number {
 	const value = Number(env.PI_COC_SPEECH_ATTRIBUTE_TIMEOUT_MS?.trim() || NaN);
 	return Number.isFinite(value) && value > 0 ? value : DEFAULT_SPEECH_ATTRIBUTE_TIMEOUT_MS;
+}
+/**
+ * §139.24: cap on the one purpose batch of a delivery, `PI_COC_PURPOSE_GATE_TIMEOUT_MS`. The delivery waits for it and goes
+ * out naming nothing when it expires; the same cap as §128.3's attribution, which it runs beside.
+ */
+const DEFAULT_PURPOSE_GATE_TIMEOUT_MS = 2_500;
+function purposeGateTimeoutMs(env: NodeJS.ProcessEnv): number {
+	const value = Number(env.PI_COC_PURPOSE_GATE_TIMEOUT_MS?.trim() || NaN);
+	return Number.isFinite(value) && value > 0 ? value : DEFAULT_PURPOSE_GATE_TIMEOUT_MS;
 }
 /** §128.3: family minimum confidence, `PI_COC_SPEECH_ATTRIBUTE_MIN_CONFIDENCE`, in (0, 1]. Uncalibrated policy. */
 function speechAttributeMinConfidence(env: NodeJS.ProcessEnv): number {
@@ -2176,6 +2197,69 @@ export default function (pi: ExtensionAPI) {
 		counts.attributed = wraps.length;
 		note({ jev_calls: typed.calls });
 		return wraps.length ? { text: wrapPassages(found.text, wraps), hostAttributed: wrappedOrdinals(found.text, wraps) } : unchanged;
+	}
+
+	/**
+	 * Contract §139.24 (ticket 25). A delivery is about to reach the kernel with lines the Keeper wrapped in a person's say
+	 * token. The kernel lists who speaks by those tokens -- someone the table acted for this turn or who is in the
+	 * conversation -- with their rows never carried out (`npc.threads`); when anyone has one, one typed Jev batch asks
+	 * §139.14's purpose question of each person's lines over those rows (`runKeeperLinePurpose`). What it read goes to
+	 * `narrate` as the host-only `purpose_repeats`, and the kernel refuses that delivery once per turn when a named row is
+	 * that speaker's. Nothing is asked with no say token in the text, no Jev key, `PI_COC_PURPOSE_GATE=0`, or nobody
+	 * speaking with such a row; a failure or a timeout names nothing, so the delivery goes out as it would have. It reads
+	 * the Keeper's own text, before §128.3 wraps anything, so a line the host wraps is never asked about. Never a rewrite.
+	 */
+	async function purposeRepeats(state: TableState, text: string, signal: AbortSignal | undefined,
+		parent: TaskProviderBudget | undefined): Promise<Array<{ npc: string; ref: string }>> {
+		const env = process.env;
+		if (env.PI_COC_PURPOSE_GATE?.trim() === "0" || !text.includes("{{say:") || !readJevApiKey(env)) return [];
+		const began = Date.now(), row: Record<string, unknown> = { lane: "purpose", event: "purpose_check", turn: state.turn };
+		let people: KeeperLinePerson[];
+		try {
+			const read = await state.kernel.call<{ people?: KeeperLinePerson[] }>("npc.threads", { campaign: state.campaign, text });
+			const rows = (await npcActBudget()).sameActRows;
+			people = (Array.isArray(read?.people) ? read.people : [])
+				.map((person) => ({ ...person, threads: (person.threads ?? []).slice(0, rows) }))
+				.filter((person) => (person.lines ?? []).length > 0 && person.threads.length > 0);
+		} catch (error) {
+			void record({ ...row, read_ms: Date.now() - began, failure: "threads_unavailable", code: isKernelError(error) ? error.code : "internal" });
+			return [];
+		}
+		row.read_ms = Date.now() - began;
+		if (!people.length) { void record({ ...row, people: 0 }); return []; }
+		const input: KeeperLineInput = { campaign: state.campaign, turn: state.turn, people };
+		const asked = askedPeople(input);
+		Object.assign(row, { people: asked.length, lines: asked.reduce((sum, person) => sum + person.lines.length, 0),
+			threads: asked.reduce((sum, person) => sum + person.threads.length, 0) });
+		const jevBegan = Date.now();
+		let lease: TaskLease | undefined, accounting: ReturnType<typeof preparationBudget> | undefined;
+		let typed: Awaited<ReturnType<typeof runKeeperLinePurpose>> | undefined;
+		try {
+			const deadlineAt = Math.min(jevBegan + purposeGateTimeoutMs(env), parent?.deadlineAt ?? Infinity);
+			const outer = signal ?? state.lanes.signal;
+			const bound = parent ? AbortSignal.any([outer, parent.signal]) : outer;
+			const bindings = keeperLineBindings(input);
+			accounting = preparationBudget({
+				decision: createDecisionAdapter({ env, maxConcurrency: 4, retryPolicies: {
+					[KEEPER_LINE_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } }),
+				campaign: state.campaign, deadlineAt, signal: bound, ...(parent ? { parent } : {}),
+				owner: KEEPER_LINE_FAMILY, goal: "Read the Keeper's lines for a person against what that person set out to do",
+			});
+			lease = new TaskLease({ owner: KEEPER_LINE_FAMILY, goal: "Read the Keeper's lines for a person against what that person set out to do",
+				scope: bindings.scope, capabilities: ["decision"], readSet: bindings.readSet, signal: bound,
+				budget: { deadlineAt, remainingInputTokens: 200_000, remainingOutputTokens: 20_000, remainingCostUsd: 0.02, remainingActions: 2 } });
+			typed = await runKeeperLinePurpose(input, accounting.decision, lease);
+		} catch {
+			typed = undefined;
+		} finally {
+			lease?.close();
+			accounting?.close();
+		}
+		const hits = typed?.status === "decided" ? typed.hits : [];
+		void record({ ...row, jev_ms: Date.now() - jevBegan, jev_calls: typed?.calls ?? 0, hits: hits.length,
+			...(hits.length ? { repeats: hits.map(({ npc, ref }) => ({ npc, ref })) } : {}),
+			...(typed?.status === "decided" ? { answers: typed.answers } : { failure: typed?.reason ?? "keeper_line_purpose_owner_error" }) });
+		return hits.map(({ npc, ref }) => ({ npc, ref }));
 	}
 
 	/** A delivery joins the player-visible window the next review reads. */
@@ -3842,11 +3926,16 @@ export default function (pi: ExtensionAPI) {
 			// `host_attributed` is the host's word about its own wraps; the Keeper never supplies it.
 			delete payload.host_attributed;
 			delete payload.keeper_reads;
+			// §139.24: `purpose_repeats` is the host's reading of the Keeper's lines; the Keeper never supplies it.
+			delete payload.purpose_repeats;
 			if (spec.name === "ask") state.speechAttribution = undefined;
 			if (spec.name === "narrate" && typeof payload.text === "string") {
-				const attributed = await attributeUnwrappedSpeech(state, payload.text, signal, providerBudget);
+				// The purpose reading takes the Keeper's own text (its tokens are all the Keeper's), beside attribution.
+				const [attributed, repeats] = await Promise.all([attributeUnwrappedSpeech(state, payload.text, signal, providerBudget),
+					purposeRepeats(state, payload.text, signal, providerBudget)]);
 				payload.text = attributed.text;
 				if (attributed.hostAttributed?.length) payload.host_attributed = attributed.hostAttributed;
+				if (repeats.length) payload.purpose_repeats = repeats;
 			}
       if (mods) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
@@ -5592,10 +5681,15 @@ export default function (pi: ExtensionAPI) {
 			let fallback = state.steeredThisTurn && state.floorDraft && state.floorDraft !== prose ? state.floorDraft : undefined;
 			const resent = new Set<string>();
 			let attributed: { text: string; hostAttributed?: number[] } | undefined, attributedDraft: string | undefined;
+			let repeats: Array<{ npc: string; ref: string }> = [];
 			for (;;) {
-				// The same draft sent again keeps the attribution it already has: no second Jev batch for the same words.
+				// The same draft sent again keeps the attribution it already has: no second Jev batch for the same words. The
+				// §139.24 purpose reading rides with it, read from the Keeper's own draft beside attribution, once per draft.
 				if (attributed === undefined || attributedDraft !== draft) {
-					attributed = await attributeUnwrappedSpeech(state, draft, state.lanes.signal, foregroundProviderBudget?.());
+					const [wrapped, read] = await Promise.all([attributeUnwrappedSpeech(state, draft, state.lanes.signal, foregroundProviderBudget?.()),
+						purposeRepeats(state, draft, state.lanes.signal, foregroundProviderBudget?.())]);
+					attributed = wrapped;
+					repeats = read;
 					attributedDraft = draft;
 				}
 				const tool = "narrate";
@@ -5605,6 +5699,7 @@ export default function (pi: ExtensionAPI) {
 				try {
 					const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: attributed.text, implicit: true,
 						...(attributed.hostAttributed?.length ? { host_attributed: attributed.hostAttributed } : {}),
+						...(repeats.length ? { purpose_repeats: repeats } : {}),
 						...(state.preparationWait ? {preparation_wait: {kind: state.preparationWait.kind,
 							...(state.preparationWait.name ? {name: state.preparationWait.name} : {})}}
 							: state.sourceWait ? {preparation_wait: {kind: 'source',

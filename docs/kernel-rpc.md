@@ -23971,6 +23971,13 @@ carrying its `intent_ref` (C3 T6: a clue), is refused `invalid_params` (`reason:
 act that rolled nothing is not done by saying so: abandon it (intent_outcome: abandoned), or let the dice settle it").
 A row the table's binding already settled still keeps its result (`intent_settled`, above).
 
+*Note, 2026-09-26 (§139.24, ticket 25, live table B2):* the prose renders the table's act, and the lines it gives a
+person are now held to the same "not the same thing twice" as that act. A line the Keeper wraps in the token of a person
+the table acted for this turn, or who is in the conversation, that Jev reads (§139.14's purpose question) as the same
+purpose as one of that person's rows never carried out -- under way since an earlier turn, or given up -- refuses the
+delivery once per turn; the next delivery goes out, with a finding when it still says it. The present paragraph of
+`prompts/keeper.md` gains one sentence saying so.
+
 **139.8 The stakes die: where nothing is prepared, a person may go further (ticket 09, spec D9).** The owner's addition of
 2026-09-26: *where the story has nothing prepared, the table can roll for it -- a high roll, and the person may pull a gun.*
 Ruled the same day: the table's own die and table, not the CoC 7e Luck roll (Luck is the player's, per investigator,
@@ -25303,3 +25310,123 @@ revolvers at 0.45/0.40 with `none` 0.15 bind the leading one and the attack fire
 0.9 is taken on its own gate with no mark; `none` leading, and 0.59 on records under a 0.6 gate, stay the table's own
 with no weapon; the one-question list reads the same. One existing assertion changed (the `none` criterion's words).
 Mutation (copy and restore): the kind reading disabled fails the near-kin case. **Not verified live.**
+
+**139.24 The Keeper's added lines pass the same gate: a person's spoken line is held to the rows they never carried out
+(2026-09-26, ticket 25 of `docs/specs/npc-acts-first-tickets/`, `25-the-keepers-added-lines-pass-the-same-gate.md`; the
+spec's section 九, table B2; amends §139.5, §139.7, §139.14 and §139.11's gate order and re-send table).**
+
+*Evidence* (table `npc-acts-b2`, mystery-house, turn 9). The spec's record: the generation step was re-asked once and
+wrote an act with no words (the key in his pocket, a hand on the light switch, a stare), and the Keeper added a line of
+its own for Arthur -- 「楼要锁了。昨天的话不变：带纸来，带人来，随你挑」 -- the papers demand a third time. §139.5 and §139.14
+hold only the generated act to "not the same thing twice"; §139.7 said only that the prose renders the table's act. Read
+for this section from the campaign's turn records and `lane: "run"`, `event: "npc_act"` rows: at that delivery Arthur's
+rows were T2's application form (`abandoned` on T3), T3's private copy (`abandoned` on T4), T5's 「先带公函来」
+(`abandoned` on T7), T6's 「明天带纸来」 (continued by T9's silent act, which Jev bound `coercion` after the re-ask, and
+settled `failed` by its Intimidate roll that turn), T8's drawer (`abandoned` on T9 by the Keeper) and the Keeper's own row
+of T9. So the ticket's "an `attempted` papers row" is a simplification of the live ledger: as written below, T9's line is
+read against T5's official-papers row and T2's form -- both given up, never carried out -- while T6's row, settled by a
+roll, is a result and not a thread (§139.14). Whether Jev reads T9's line as the same purpose as those rows is live
+table B3's reading, not a test's.
+
+*Who speaks, and against what* (`npc.threads {campaign, text}`, `kernel-ts/npc/threads.ts`; a read, nothing written).
+`text` is the delivery about to be sent (`invalid_params`, `details.field: "text"`, when it is not a string). Result:
+`{turn, people: [{npc, name, trigger, lines, threads}]}`.
+- *Speakers*: the delivery's say spans resolved to an NPC by §40.1's resolution -- the same `speakerResolver` over the
+  same `speechPass` `table.narrate` runs -- in the order of each person's first line; `lines` their spoken words, tokens
+  stripped. A label or an investigator is no one here.
+- *Held* (`trigger`): `act` when a receipt of this turn carries the table's own act of them (an `intent` stamp that is
+  `generated` and names them, §139.6); else `conversation` when they are in the conversation where the investigators
+  stand (§139.20's `conversationOf`); anyone else is not listed.
+- *Threads*: their `intentHistory` rows `attempted` with `since_turn` before this turn, and every `abandoned` row. Not a
+  row set out this turn (the table's act or the Keeper's own: what the prose renders now), and not `done` or `failed` (a
+  result; saying it again in a new situation is lawful, as §139.14 has it for an act). Order: under way, then given up,
+  each newest first. A person with no thread is not listed. This differs from §139.14's thread on purpose: there a
+  given-up row counts only while nothing of theirs is newer, because it decides whether the table opens a row; a line
+  that says again what the person put down without doing it is the repeat whatever came between (T9's line is read
+  against rows given up two and six turns before).
+
+*The question* (`runtime/jev/keeper-line-purpose.ts`, family `keeper-line-purpose` v1). One batch per delivery, one
+Choice per person listed (at most eight), key `same_<n>`, built by `sameQuestion` in `runtime/jev/npc-act-step.ts` --
+the builder §139.5's `same` now also goes through, byte for byte as before -- so the instructions are
+`SAME_QUESTION.instructions` word for word (the same thing this person is trying to bring about, for the same purpose,
+whatever the hands do and whatever the words) and the options are the person's newest `npc_act.same_act_rows` (5)
+threads as `{intent, status}` plus `none`. The target names the act as what that person says aloud; the state carries
+`speakers.speaker_<n>: {person, act: [their lines]}` (at most eight lines of 400 UTF-16 units) and the policy, and no
+other prose. Read under §135.2's gates at the clerk's `DEFAULT_CONFIDENCE_GATE` (0.6), the gate the act's `same` is read
+under: a row that clears is a hit `{npc, ref}`; `none`, `unknown` or an answer below the gate names nothing; an
+incomplete result or a missing typed answer names nothing for the whole batch.
+
+*The host* (`purposeRepeats`, `extensions/kernel/index.ts`). For every delivery about to reach the kernel -- an explicit
+`narrate`, and each draft of the implicit close -- when the text holds a say token, a Jev key is configured and
+`PI_COC_PURPOSE_GATE` is not `0` (the control arm): read `npc.threads` with the Keeper's own text, before §128.3 wraps
+anything, so a line the host wraps is never asked about; cap each person's threads at `same_act_rows`; and when anyone
+is left, one batch through the shared decision adapter (no retry) inside a `preparationBudget` owner under the
+foreground provider budget, waiting at most `PI_COC_PURPOSE_GATE_TIMEOUT_MS` (2500). It runs beside §128.3's attribution
+batch, so a delivery waits for the slower of the two. What it names goes to `narrate` as the host-only
+`purpose_repeats: [{npc, ref}]`; a value the Keeper supplies is removed. The same implicit draft sent again keeps its
+reading (no second batch). A failed read, a failure or a timeout names nothing: the delivery goes out as it would have.
+Telemetry, one row per delivery whose read ran: `{lane: "purpose", event: "purpose_check", turn, read_ms, people,
+lines, threads, hits, jev_ms, jev_calls, repeats?, answers | failure}` (`people: 0` and nothing more when nobody had a
+thread; `failure: "threads_unavailable"` with the kernel's `code` when the read failed).
+
+*The kernel* (`table.narrate`, `kernel-ts/write/index.ts`). Checked after §113 D's repeated line and before §138.7's
+owed result: the prose's lines first, then what its receipts owe. `purpose_repeats` is kept only where it names a
+thread of a person who speaks in this delivery by the Keeper's own tokens (the spans not in `host_attributed`), as
+`npc.threads` computes it at this call; anything else -- another person's row, a result, a person who does not speak --
+is ignored, a hint never a reason by itself. The first delivery of a turn so named is refused `needs`: the message, per
+person, `<name> already set out on turn <since_turn> to "<row line>" and it has no result` (a given-up row: `and gave it
+up on turn <turn>`) `, and this delivery has <name> say it again`; the fix `Render what <names> does this turn instead,
+and do not have them say it again in any words. Rewrite only those lines and deliver again; everything else stands. What
+the table had them do this turn, if anything, is on the card (history.intents, by: table) and in this turn's receipts.`;
+`details: {reason: "purpose_repeated", repeats: [{npc, name, ref, intent, status, since_turn, turn, lines}]}` (at most
+four lines of 120 characters). `turn.json` keeps `purpose_gate: {call_id}`; a new turn starts without it. A later
+delivery of the same turn still so named is delivered, with one `warnings` row per person `{lane: "speech", kind:
+"purpose_repeated", quote, why, fix, ref, at}` (its fix begins "Already delivered: do not rewrite it."), which the next
+capsule's warnings show the Keeper (§12.5). Telemetry: `{lane: "delivery", ok: false, reason: "purpose_repeated", outcome:
+"refused", turn, call_id, implicit, people}` on the refusal, and the same with `ok: true, outcome: "delivered"` after the
+commit of a delivery still named.
+
+*Never blocked twice* (§139.10 and §139.11's channel; nothing new). `purpose_repeated` joins `RESENT_ON_SECOND_DELIVERY`
+as `purpose_repeated_resent`. An explicit narrate gets the refusal as the tool's result. An implicit draft refused for it
+while the turn's steer is unspent is dropped and held, and the kernel's fix rides the `audit-repair` steer; with the steer
+spent the same draft is sent again once, with its reading, and the spent gate delivers it with its finding; the
+refusal-budget fallback (§135.11.3) does the same. §139.11's order of the gates on every `table.narrate` is now
+`repeated_line`, `purpose_repeated`, `intent_result_owed`, `markup_in_prose`; a draft can meet this gate and then the
+owed one (a row under way is owed a result too), one re-send each, as there.
+
+*Prompt* (`prompts/keeper.md`, the present paragraph). One sentence after "... the same threat or plan is not simply
+announced again in other words.": "That holds for the lines you give them too: what their `history.intents` shows they
+set out to do and got no result for, or gave up, they do not say again in any words — render what they do this turn
+instead." 31,703 → 31,914 bytes (+211).
+
+*Cost per delivery.* One kernel read for a delivery with a say token (4–5 ms in the table fixture), and one Jev batch
+only when someone speaking has a thread (1–4 ms against the fixture's stub endpoint; a live batch is the typed API's
+latency, capped at 2.5 s), beside attribution. A refusal costs the Keeper one more model step, at most once a turn.
+
+*Three ends (§31).* Writers: the ledger's rows (§138, §139.3) and the Keeper's say tokens (§40.1); the host's reading
+(`purpose_repeats`); the kernel's refusal, `purpose_gate` and finding. Readers: `npc.threads`; Jev, through the purpose
+question; `table.narrate`'s gate; the next capsule's `warnings`. Actor: the Keeper, who rewrites the line or renders the
+act instead; the player, who reads the turn either way.
+
+*Not covered.* `ask`'s text (as §139.10). A line the host wrapped (§128.3's ruling: attribution opens no refusal path).
+A person the table neither acted for this turn nor who is in the conversation; an investigator's lines; a label's. A row
+the table's act of this turn continues with a roll still to come (an attack waiting for its defence) is still under way
+since its earlier turn, so a line rendering that act can cost one refusal; not tested (the only write that leaves an
+earlier row under way on a later turn -- §138.7's `refuseRepeat` refuses the rest). Whether a line is the same purpose
+is the model's reading, which only a live table (B3) measures.
+
+*Tests.* `tests/extension/keeper-line-purpose.test.mjs` (the hybrid engine's table on the emitted kernel, the kernel
+extension, the real decision adapter behind a stub typed endpoint, the fixture generation): B2 T9's shape -- the papers
+row under way since turn 1, the table's silent act this turn, the Keeper's added line -- one batch per delivery whose
+question is `SAME_QUESTION` over only the papers row, the first delivery refused `purpose_repeated` with the fix and
+`details` naming the row, the Keeper gives it up and rewrites, the second delivery goes out with no finding; a line of a
+new purpose not refused, one batch, one delivery; the same added line sent again after the refusal delivered with its
+finding; an implicit close with the steer spent sent again once with its reading (no second batch), then once more for
+the owed result, delivered with both findings; nobody speaking with a thread: read, no batch; the control arm.
+`tests/kernel/test_npc_threads.py` (RPC seam): the row under way listed and this turn's act not; refused once, then
+delivered with the finding and both telemetry rows, and a fresh gate on the next turn; a row given up two turns ago
+listed and one the dice settled not; a row the Keeper set out this turn not; a person neither acted for nor in the
+conversation not held, and a reading naming someone else's row refusing nothing; a line the host wrapped never held.
+`tests/extension/ts-kernel-foundation.test.mjs`: `npc.threads` joins the current-only method set (one existing line
+changed). Mutations (copy and restore): the kernel's refusal removed (rebuilt) fails the B2 T9 case (the first refusal is
+then the owed result's) and two kernel cases; the host's reading not handed to `narrate` fails the B2 T9 case.
