@@ -379,6 +379,26 @@
       "id": "SL-75",
       "file": "75-thinking-picker-needs-off.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-76",
+      "file": "76-consequence-candidates.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-77",
+      "file": "77-shadow-agreement-report.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-78",
+      "file": "78-execute-mode-and-residual.md",
+      "status": "blocked"
+    },
+    {
+      "id": "SL-79",
+      "file": "79-narrator-only-keeper.md",
+      "status": "blocked"
     }
   ],
   "relatedSpecs": [
