@@ -108,6 +108,23 @@ test('an NPC actor with no pinned or authored skill rolls the skill\'s rulebook 
 	assert.equal(result.outcome.target, 25);
 });
 
+/**
+ * Caught in review by `tests/kernel/test_npc_layer.py`'s existing
+ * `test_an_ordinary_npc_helper_needs_their_missing_skill_without_using_player_base` (Steven Knott,
+ * Animal Handling): an `uncommon` skill (`skills.json`) is not "what any ordinary person can do" the
+ * way a common one is, so it still asks rather than silently rolling its low printed base chance.
+ */
+test("an NPC actor's missing uncommon skill still asks, never rolling its printed base chance", async (t) => {
+	const game = await table(t);
+	const handle = await place(game);
+	const error = await game.resolve({ intent: 'move', actor: GUARD, skill: 'Animal Handling', goal: 'lead the pack animal', method: 'takes its reins' })
+		.then(() => null, (thrown) => thrown);
+	assert.ok(error, 'an uncommon skill has no safe rulebook default to fall back to');
+	assert.equal(error.code, 'needs');
+	assert.equal(error.details?.needs?.field, 'npc.skill');
+	assert.equal(error.details?.actor, handle);
+});
+
 test("an NPC actor's bare characteristic, with no authored or pinned value, still asks instead of guessing", async (t) => {
 	const game = await table(t);
 	const handle = await place(game);

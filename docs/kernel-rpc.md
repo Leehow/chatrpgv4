@@ -1162,7 +1162,13 @@ both closed here:
    skill name answers the same number every time, exactly as an investigator's own unlisted skill already
    falls back to it (`resolveTarget`'s `rulebook_base`, `basic.ts`). `hostLocked`'s `ref === ORDINARY`
    branch now tries `rulebookSkillDefault` (`bindings.ts`, wraps `tables.skillByName(label).base_chance`)
-   before asking; a characteristic, which has no table-wide default, still asks.
+   before asking; a characteristic, which has no table-wide default, still asks. So does a skill the
+   rules data itself marks `uncommon` (`skills.json`): CoC 7e uses that flag for a skill nobody has
+   without deliberate training (Animal Handling, base chance 5), so its printed number is not "what any
+   ordinary person can do" the way a common skill's is, and defaulting it would be exactly the invention
+   §17.9's L3 forbids. `tests/kernel/test_npc_layer.py`'s existing
+   `test_an_ordinary_npc_helper_needs_their_missing_skill_without_using_player_base` (Steven Knott,
+   missing Animal Handling) is the line: it still refuses `needs`, and this addendum leaves it that way.
 2. **The roll was public.** Nothing set `visibility` for this branch, so it defaulted to `"public"` --
    the number reached the player even though the name did not. `basic.ts`'s `executeCheck` now defaults
    `visibility` to `"keeper"` whenever the acting id resolves to a graph NPC (`context.npcNode(actor) !==
@@ -1186,14 +1192,17 @@ refusal or a silent redirect to whichever investigator the party happens to have
 
 *Tests* (mutation-killable, `tests/extension/`): an NPC actor with an authored skill rolls it and the
 roll receipt carries `actor_is_investigator: false`, `visibility: "keeper"` and no public name; an NPC
-actor with no authored or pinned skill rolls the skill's rulebook base chance instead of refusing; an NPC
-actor with neither an authored value nor a rulebook skill (a bare characteristic) still refuses `needs`
-naming the pin; an actor naming nobody the table or the book knows still refuses `unknown_entity`, with
-`details.candidates` carrying both investigator and NPC-kind entries; the investigator sheet is untouched
-(no `writeSheet` call, no `development-state` tick) by an NPC's own roll. Mutation: reverting
+actor with no authored or pinned *common* skill rolls that skill's rulebook base chance instead of
+refusing; an NPC actor with neither an authored value nor a rulebook default (a bare characteristic, and
+-- pinned by the existing pytest baseline, not newly added here -- an `uncommon` skill) still refuses
+`needs` naming the pin; an actor naming nobody the table or the book knows still refuses `unknown_entity`,
+with `details.candidates` carrying both investigator and NPC-kind entries; the investigator sheet is
+untouched (no `writeSheet` call, no `development-state` tick) by an NPC's own roll. Mutation: reverting
 `rulebookSkillDefault`'s callsite (falling straight to the `needs` refusal, as before this ticket)
 reproduces the gate #11 refusal shape and is caught by the fallback test; reverting `executeCheck`'s
-visibility default back to the literal `"public"` is caught by the keeper-visibility test.
+visibility default back to the literal `"public"` is caught by the keeper-visibility test; dropping the
+`uncommon` guard in `rulebookSkillDefault` is caught by `test_npc_layer.py`'s existing Animal Handling
+test (pytest, not this ticket's own suite, but the one that actually found the gap in review).
 
 #### 11.5.9 addendum -- a decision whose roles are fixed by the rules is oriented, not refused, when the Keeper writes the pair backward (2026-09-26, SL-71 continued; amends this section)
 

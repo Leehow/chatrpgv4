@@ -55,6 +55,15 @@ export function npcCheck(context: SettleContext, ref: string): [
  * falls back to for an investigator whose sheet does not carry a skill (`rulebook_base`). A
  * characteristic has no such table-wide default (it is always sheet- or profile-specific), so this
  * returns null for one and lets the caller ask instead.
+ *
+ * An `uncommon` skill (the rules data's own flag, `skills.json`) also returns null: CoC 7e marks a
+ * skill uncommon precisely because nobody has it without deliberate training, so its printed base
+ * chance is not "what any ordinary bystander can do" the way a common skill's is. `tests/kernel/
+ * test_npc_layer.py`'s `test_an_ordinary_npc_helper_needs_their_missing_skill_without_using_player_base`
+ * pins this: Steven Knott's missing Animal Handling (`uncommon: true`, base chance 5) still asks
+ * rather than silently rolling that 5 -- §17.9's "ask once, never invent" stands for an uncommon skill,
+ * and this addendum only relaxes it for the common ones where a rulebook base chance is genuinely a
+ * fixed, deterministic fact rather than a guess about this particular person's training.
  */
 export async function rulebookSkillDefault(context: SettleContext, label: string): Promise<number | null> {
     if (!label || Object.hasOwn(CHARACTERISTICS, label))
@@ -68,6 +77,8 @@ export async function rulebookSkillDefault(context: SettleContext, label: string
             return null;
         throw error;
     }
+    if (spec.uncommon === true)
+        return null;
     return integer(spec.base_chance) && number(spec.base_chance) >= 0 && number(spec.base_chance) <= 100 ? number(spec.base_chance) : null;
 }
 export function socialBinding(context: SettleContext, node: Row, approachSkill: string): Row {
