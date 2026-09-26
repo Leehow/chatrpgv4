@@ -24104,10 +24104,14 @@ the new thresholds: 3, 2 and 1 still roll 5, 30 and 56 on the dangerous rung, so
 `attacked_last_turn` (`attacked_this_turn`'s predicate over the newest committed turn before this one) and
 `in_fight_with_investigators` (a fight is running with this person and an investigator among its participants), each
 `{step: <integer>}` with no parameter; the shipped table gives each `step: 1`, in the order `attacked_this_turn`,
-`attacked_last_turn`, `in_fight_with_investigators`, `hp_at_most_half`, `table_clock_past_half`, `stance_friendly`. They
-stack with the others, as every shift here does. `stakesTable` reads six shift names now; an unknown one, or a parameter
-on either new one, is still refused. The Tests paragraph above describes ticket 09's first build: the landed punch now
-also opens a fight, so the rung is two above the base, and the seeds were re-picked (§139.26).
+`attacked_last_turn`, `in_fight_with_investigators`, `hp_at_most_half`, `table_clock_past_half`, `stance_friendly`. The
+table gains `shift_groups` (a group name to its English note), and a shift may name one (`group`): the shifts of one group
+move the rung once, by the largest step among those that hold, and the rest still sum. The shipped table puts the three
+violence facts -- `attacked_this_turn`, `attacked_last_turn`, `in_fight_with_investigators` -- in the group `violence`
+(the lead's ruling, 2026-09-26: the punch that opens a fight is one event). `stakesTable` reads six shift names now; an
+unknown one, a parameter on either new one, a group not declared, and a malformed group are refused. The landed punch
+of the Tests paragraph above now also opens a fight; in the same group, the rung is still one above the base and ticket
+09's seeds stand.
 
 **139.9 Flight needs footing, and a pursuit is the pursuer's own call (2026-09-26, ticket 10 of
 `docs/specs/npc-acts-first-tickets/`; amends §11.5's combat and chase lines and §138.10).** Two defects of the combat
@@ -25322,14 +25326,14 @@ revolvers at 0.45/0.40 with `none` 0.15 bind the leading one and the attack fire
 with no weapon; the one-question list reads the same. One existing assertion changed (the `none` criterion's words).
 Mutation (copy and restore): the kind reading disabled fails the near-kin case. **Not verified live.**
 
-**139.26 A person being fought is not calm between blows: the fight and last turn's blow are shifts of the stakes die
-(2026-09-26, ticket 27 of `docs/specs/npc-acts-first-tickets/`, `27-stakes-hold-in-a-fight.md`; spec D9, D10 and section
-九, table D; amends §139.8's shifts).**
+**139.26 A person being fought is not calm between blows: the fight and last turn's blow are shifts of the stakes die,
+one group with this turn's blow (2026-09-26, ticket 27 of `docs/specs/npc-acts-first-tickets/`,
+`27-stakes-hold-in-a-fight.md`; spec D9, D10 and section 九, table D; amends §139.8's shifts and how they add up).**
 **Evidence.** Table `npc-acts-d` (the-haunting): the Keeper gave Knott `avoids_fighting`, so his base rung was calm
 (`base_by_disposition`), and the only shifts that could move him up were `attacked_this_turn`, `hp_at_most_half` and
 `table_clock_past_half`. Turn 4 was his own turn of the fight a turn after a punch, turn 7 came right after he was chased
 and struck (the scan acted before the punch landed, ticket 26): both rolled on calm, a surprise at most 10. The owner's
-D10 is that the higher the threat, the likelier a surprise; a man being fought is not calm.
+D10 is that the higher the threat, the likelier a surprise; a man being fought does not fall back to calm between blows.
 **Two shifts, both structure** (data in `npc-stakes.json`, the kernel writes no step):
 - `in_fight_with_investigators`: the active session of the campaign (`SessionView.activeSession()`, the one the §139.1
   packet reads) is a combat with `status: "active"`, this person is among its participants (by handle, the test the
@@ -25341,39 +25345,57 @@ D10 is that the higher the threat, the likelier a surprise; a man being fought i
   on the campaign's line (`committedOnLine(campaign).previous`, the record the situation's `happened` reads its earlier
   sentences from). Only that turn: a blow two committed turns back moves nothing.
 
-Each is `{step: <integer>}` with no parameter (and an optional `note`); the shipped table gives each `step: 1`. The
-receipt's `shifts` name them in the table's order (`attacked_this_turn`, `attacked_last_turn`,
-`in_fight_with_investigators`, `hp_at_most_half`, `table_clock_past_half`, `stance_friendly`).
-**Stacking.** The ticket left it to the table's existing rule, and that rule (§139.8) sums the step of every shift whose
-condition holds and clamps the index to the first and last rung. So the new shifts stack with each other and with the
-rest: a calm person in a running fight is tense; on their own turn of it a turn after a punch (table D's turn 4),
-dangerous; struck again this turn, lethal. A person on the default rung (tense) whom an investigator punches is lethal at
-once -- the blow and the fight it opened. Conditions that usually come together (a blow and a fight) are each counted:
-each is a fact about how dangerous the moment is, and the owner asked that danger make a surprise likelier. The steps
-are data; a step of 0 turns a shift off without a code change.
-**The check.** `stakesTable` (§139.8) reads the two names as shifts the kernel compares; an unknown shift is still
-refused, and so is a parameter on either new one (`campaign_not_ready`, the offending shift in `details`). Nothing else
-of the table's check changes.
+Each is `{step: <integer>, group?}` with no parameter (and an optional `note`); the shipped table gives each `step: 1`.
+**One dimension, one step (the lead's ruling, 2026-09-26).** The first build summed every shift, as §139.8 had it, and
+the three violence facts counted one event more than once: the punch that opens a fight made a tense person lethal at
+once (a surprise at most 45, severe at most 30), every brawl opened on lethal, and the gradient the owner asked for --
+the higher the threat, the likelier a surprise -- collapsed. The intent of the ticket is that a person in a fight does
+not fall back between blows, not that the first punch counts twice. So `attacked_this_turn`, `attacked_last_turn` and
+`in_fight_with_investigators` are one dimension, violence toward this person, and move the rung at most once:
+- **Data.** The table gains `shift_groups`, an object from a group name to its English note, and a shift may carry
+  `group` naming one. The shipped table declares `violence` and puts the three shifts in it; `hp_at_most_half`,
+  `table_clock_past_half` and `stance_friendly` carry no group and stay independent.
+- **The move** (`shiftMove`, `kernel-ts/npc/stakes.ts`): a shift of no group adds its step, as before; the shifts of one
+  group that hold add once, the largest step among them (the check keeps a group's steps all one way, so this is the
+  largest in size); the index is then clamped to the first and last rung as before. So with the shipped table: a calm
+  person in a running fight is tense; on their own turn of it a turn after a punch (table D's turn 4), still tense; a
+  person on the default rung (tense) whom an investigator punches is dangerous -- one rung for the blow and the fight it
+  opened; struck this turn and last, in the fight, still one rung; hit points at half is a rung of its own on top.
+- **The receipt.** `shifts` still names every shift that held, in the table's order (`attacked_this_turn`,
+  `attacked_last_turn`, `in_fight_with_investigators`, `hp_at_most_half`, `table_clock_past_half`, `stance_friendly`), so
+  the Keeper sees what held; the rung is what the groups made of it. The receipt's shape does not change.
+**The check** (`stakesTable`, §139.8; `campaign_not_ready` with the offending entry in `details`): the two new names are
+shifts the kernel compares, each with no parameter -- an unknown shift and a parameter on either are refused, as before;
+`shift_groups`, when present, is an object whose names are non-empty and whose notes are non-empty strings; a shift's
+`group` is a string naming a declared group (an undeclared one is refused); a declared group has at least two shifts
+(`GROUP_MIN_SHIFTS`), and its shifts' steps do not move both ways (a positive and a negative step in one group is
+refused). A table with no `shift_groups` and no `group` reads as §139.8 had it.
 **Three ends (§31).** *Writer:* nothing new -- the combat engine's session (`save/combat.json`) and the committed turn
-records' receipts, as they already are. *Reader:* `npc.stakes` (`factsOf` → `stakesRung`, `kernel-ts/npc/stakes.ts`).
-*Actor:* the rung the die rolls on, which reaches the generator as `stakes` with its degree line and surprise permission
-(§139.8, §139.19), and the Keeper through the receipt's `shifts`.
-**Tests.** `tests/kernel/test_npc_stakes.py`: Corbitt with `avoids_fighting` (calm) throws the first punch -- a fight with
-him and the investigator in it, no attack made against him and no hit point lost -- is on tense with `shifts:
-["in_fight_with_investigators"]`; a turn after the investigator's punch, the fight still running, `["attacked_last_turn",
-"in_fight_with_investigators"]` and dangerous; the punch, the fight ended (`combat:end`), the turn committed -- the next
-turn, no fight running, `["attacked_last_turn"]` and tense, and the turn after that calm with no shift; nothing done and
-no fight, calm as before; two more malformed tables refused before a roll (a parameter on `in_fight_with_investigators`, a
-step of 0.5 on `attacked_last_turn`). Existing tests changed (five, no assertion loosened): the acceptance test after a landed
-punch now reads both shifts and a rung two above the base, lethal, and its seeds were re-picked because the new shift
-moved which rung they land on -- the rolls did not change (3, 1 and 21 roll 5, 56 and 78: severe, escalates, nothing on
-lethal 30/65, each after a landed punch; seed 2's 30 is severe there); the surprise test is on lethal (column 45), seeds
-re-picked to 3, 14, 22 and 1 (5 and 42 allow a surprise, 46 and 56 do not); the once-per-turn test's next turn now reads
-`["attacked_last_turn", "in_fight_with_investigators"]` where it read no shift (the fight still runs and last turn's
-punch stands); the clamp test's shifts gain `in_fight_with_investigators`; the shipped table's shift set gains the two
-names. Mutation record (copy and restore): `in_fight_with_investigators` removed from the table fails the first-punch
-case (`[] == ["in_fight_with_investigators"]`); the kernel never reading `attacked_last_turn` fails the no-fight case,
-the turn-4 case and the once-per-turn case. **Not verified live.**
+records' receipts, as they already are; the groups are the table's data. *Reader:* `npc.stakes` (`factsOf` →
+`stakesRung` → `shiftMove`). *Actor:* the rung the die rolls on, which reaches the generator as `stakes` with its degree
+line and surprise permission (§139.8, §139.19), and the Keeper through the receipt's `shifts` and `rung`.
+**Tests.** `tests/kernel/test_npc_stakes.py`, Corbitt with `avoids_fighting` (calm): he throws the first punch -- a fight
+with him and the investigator in it, no attack made against him and no hit point lost -- and is on tense with `shifts:
+["in_fight_with_investigators"]`; the investigator's punch that opens a fight is `["attacked_this_turn",
+"in_fight_with_investigators"]` and exactly one rung, tense (+1, not +2); a turn after that punch, the fight still running
+(table D's turn 4), `["attacked_last_turn", "in_fight_with_investigators"]` and tense; the next turn he swings back and is
+punched again -- all three violence facts -- and is still tense; the punch, the fight ended (`combat:end`), the turn
+committed -- the next turn, no fight running, `["attacked_last_turn"]` and tense, and the turn after that calm with no
+shift; nothing done and no fight, calm as before. Six more malformed tables refused before a roll: a parameter on
+`in_fight_with_investigators`, a step of 0.5 on `attacked_last_turn`, a shift naming an undeclared group, a group left
+with one shift, a group whose steps move both ways (`stance_friendly`'s -1 put in `violence`), a group whose note is
+blank. The shipped table's test pins the group: `violence` holds the three facts and the other three shifts have none.
+Existing tests changed, no assertion loosened: the landed-blow acceptance test and the surprise test read the shifts
+`["attacked_this_turn", "in_fight_with_investigators"]` where they read `["attacked_this_turn"]` (the rung, one above the
+default, dangerous, and ticket 09's and ticket 20's seeds 3, 2, 1 and 3, 2, 7, 1 are unchanged); the once-per-turn test's
+next turn reads `["attacked_last_turn", "in_fight_with_investigators"]` and a rung one above the default where it read no
+shift and the default (the fight still runs and last turn's punch stands); the clamp test's shifts gain
+`in_fight_with_investigators` (its rung and its precondition unchanged); the shipped table's shift set gains the two names;
+the test's `moved` helper reads the groups from the table. Mutation record (copy and restore): `in_fight_with_investigators`
+removed from the table fails the first-punch case (`[] == ["in_fight_with_investigators"]`); the kernel never reading
+`attacked_last_turn` fails the no-fight case, the turn-4 case, the three-facts case and the once-per-turn case; `shiftMove` summing a group's
+steps instead of taking its largest fails the +1 case (`(2 - 0) == 1`), the three-facts case, the turn-4 case, the
+acceptance and surprise cases and the once-per-turn case (11 failed). **Not verified live.**
 
 **139.27 A surprise is something no one knew: a thing already at the table is not brought out as one (2026-09-26, ticket
 28 of `docs/specs/npc-acts-first-tickets/`, `28-a-surprise-is-something-no-one-knew.md`; spec D10 and section 九, table D;

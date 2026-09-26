@@ -17,7 +17,9 @@
  *
  * Ticket 27 (§139.26): a person being fought is not calm between blows. Two more structural shifts -- a fight running
  * with them and an investigator among its participants, and last turn's attack or damage against them (the newest
- * committed turn, read by the same predicate as this turn's) -- stack with the others, as every shift does.
+ * committed turn, read by the same predicate as this turn's). With `attacked_this_turn` they are one dimension, violence
+ * toward this person: the table groups them (`shift_groups`, a shift's `group`), and a group moves the rung once, by the
+ * largest step among its shifts that hold -- the punch that opens a fight is one event, not two.
  *
  * Every number is the table's; this file knows only what each shift compares.
  */
@@ -67,6 +69,8 @@ const SHIFT_PARAMETERS: Readonly<Record<string, string | null>> = Object.freeze(
 
 const tableError = (message: string, details: Row = {}) => new RpcError('campaign_not_ready', `npc-stakes: ${message}`,
     {fix: `restore content/rulesets/coc7/rules-json/${FILE}`, details});
+/** §139.26: a group needs at least two shifts to mean anything; one alone is a malformed group. */
+const GROUP_MIN_SHIFTS = 2;
 /** A number from 0 to 1 as the table's JSON reads it (a decimal arrives as the kernel's Python float). */
 const fraction = (value: unknown): boolean => numeric(value) && Number(value) >= 0 && Number(value) <= 1;
 
@@ -117,18 +121,29 @@ export async function stakesTable(context: KernelContext): Promise<Row> {
     const shifts = table.shifts;
     if (!isJsonObject(shifts))
         throw tableError('shifts is an object of the shifts the kernel reads', {options: Object.keys(SHIFT_PARAMETERS)});
+    // §139.26: the groups a shift may name, each with its English note; a group is declared before it is named.
+    const groups = table.shift_groups ?? {};
+    if (!isJsonObject(groups) || Object.entries(groups).some(([name, note]) => !name.trim() || typeof note !== 'string' || !note.trim()))
+        throw tableError('shift_groups maps a group name to its note', {shift_groups: table.shift_groups ?? null});
     const stances = array((await stanceTable(context)).levels).map(level => string(row(level).value));
     for (const [name, value] of Object.entries(shifts)) {
         const shift = row(value), parameter = Object.hasOwn(SHIFT_PARAMETERS, name) ? SHIFT_PARAMETERS[name] : undefined;
-        const allowed = ['step', 'note', ...(parameter ? [parameter] : [])];
+        const allowed = ['step', 'note', 'group', ...(parameter ? [parameter] : [])];
         const bad = parameter === undefined || !isJsonObject(value) || !Number.isInteger(shift.step)
             || Object.keys(shift).some(key => !allowed.includes(key))
+            || Object.hasOwn(shift, 'group') && (typeof shift.group !== 'string' || !Object.hasOwn(groups, shift.group))
             || parameter === 'hp_fraction_at_most' && !fraction(shift[parameter])
             || parameter === 'clock_fraction_above' && !fraction(shift[parameter])
             || parameter === 'stance_in' && (!array(shift[parameter]).length || !array(shift[parameter]).every(word => stances.includes(word)));
         if (bad)
-            throw tableError(`shift ${name} is {step: <integer>${parameter ? `, ${parameter}` : ''}} and a shift the kernel reads`,
-                {shift: name, options: Object.keys(SHIFT_PARAMETERS), ...(parameter === 'stance_in' ? {stances} : {})});
+            throw tableError(`shift ${name} is {step: <integer>${parameter ? `, ${parameter}` : ''}, group?: <a declared group>} and a shift the kernel reads`,
+                {shift: name, options: Object.keys(SHIFT_PARAMETERS), groups: Object.keys(groups), ...(parameter === 'stance_in' ? {stances} : {})});
+    }
+    // A group moves the rung once, by its largest step: its shifts all move the same way, and there are at least two.
+    for (const group of Object.keys(groups)) {
+        const steps = Object.values(shifts).map(row).filter(shift => shift.group === group).map(shift => number(shift.step));
+        if (steps.length < GROUP_MIN_SHIFTS || steps.some(step => step > 0) && steps.some(step => step < 0))
+            throw tableError('a shift group has at least two shifts, all of whose steps move the same way', {group, steps});
     }
     return table;
 }
@@ -203,11 +218,30 @@ function shiftHolds(name: string, shift: Row, facts: StakesFacts): boolean {
     return false;
 }
 
-/** The rung this person stands on now: base plus every shift that holds, clamped to the table's first and last rung. */
+/**
+ * The move of the shifts that hold (§139.26): a shift of no group adds its step; the shifts of one group add once, the
+ * largest step among those that hold (the table's check keeps a group's steps all one way, so it is the largest in size).
+ */
+export function shiftMove(table: Row, holding: string[]): number {
+    const byGroup = new Map<string, number>();
+    let move = 0;
+    for (const name of holding) {
+        const shift = row(row(table.shifts)[name]), step = number(shift.step);
+        if (typeof shift.group !== 'string') { move += step; continue; }
+        const kept = byGroup.get(shift.group);
+        if (kept === undefined || Math.abs(step) > Math.abs(kept)) byGroup.set(shift.group, step);
+    }
+    return move + [...byGroup.values()].reduce((sum, step) => sum + step, 0);
+}
+
+/**
+ * The rung this person stands on now: base plus the move of every shift that holds (a group once), clamped to the
+ * table's first and last rung. `shifts` names every shift that held, in the table's order.
+ */
 export function stakesRung(table: Row, base: Row, facts: StakesFacts): {rung: Row; shifts: string[]} {
     const rungs = array(table.rungs).map(row), names = rungs.map(rung => string(rung.name));
     const shifts = Object.entries(row(table.shifts)).filter(([name, shift]) => shiftHolds(name, row(shift), facts)).map(([name]) => name);
-    const moved = names.indexOf(string(base.rung)) + shifts.reduce((sum, name) => sum + number(row(row(table.shifts)[name]).step), 0);
+    const moved = names.indexOf(string(base.rung)) + shiftMove(table, shifts);
     return {rung: rungs[Math.max(0, Math.min(rungs.length - 1, moved))], shifts};
 }
 
