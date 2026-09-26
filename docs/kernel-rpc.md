@@ -23655,3 +23655,76 @@ prescreen still delivered; the legacy message dropped), `tests/extension/npc-int
 ledger only; `by: "table"` through a rebuild and a later Keeper result), `tests/extension/npc-character-rpc.test.mjs`
 (unknown methods; an older bank file neither read nor deleted), `tests/extension/npc-character-lane.test.mjs` (the
 lane authors personalities only).
+
+### 139.10 Player-facing prose carries no markup (2026-09-26, ticket 11; the spec's section 七)
+
+**Evidence.** Table `npc-actor-gate-a2` (KP `opencode-go/deepseek-v4.1-flash`, `hybrid-v1`). Turn 6, an explicit `narrate`,
+ended in a literal `</text>` in `text`, `rendered_text` and the driver's `final_text`. Turn 7, an implicit close, carried
+two markdown list lines (`- 钥匙还躺在……`, `- 桌上那幅……`).
+
+**Where `</text>` came from: the model's own tool-call argument.** The turn record's `calls` holds only the call ids,
+so the arguments were read from the retained driver event stream (`.coc/playtests/npc-actor-gate-a2-20260926T070927Z/
+events.jsonl`): the assistant message's `toolCall` for `narrate` (`message_end`, provider `opencode-go`, model
+`deepseek-v4.1-flash`, `stopReason: toolUse`) already has `arguments.text` ending in `</text>\n`, and
+`tool_execution_start` passes the same `args` on. The tag was in the text before any host code ran; the kernel and the
+host rendered it verbatim. Nothing in the product shows the model a `<text>` wrapper: `git grep` for `<text>`/`</text>`
+over `prompts`, `mods` (including `narration-craft`'s `agent.md` and `brief.md`), `content`, `extensions`, `runtime`,
+`kernel-ts`, `pipicoc`, `Electron/packages` and `Electron/apps` finds nothing, and `vendor/pi` has it only as CLI help
+(`--system-prompt <text>` in its README and `args.ts`), which no model reads; the installed `@mariozechner/pi-*`
+packages have none. Inference, not verified: the provider's native tool-call encoding names each parameter in an
+XML-like tag and the parameter is called `text`, so a closing tag leaked into the string. Either way it is the model's
+output, and the fix is a check on the delivery, not a change to a wrapper that does not exist.
+
+**The check.** `table.narrate` runs it on the rendered text, after `deliveryText` has taken out the host's own say
+tokens and mechanics markers (§40.4's `stripMarkers`; nothing new parses markers). Two syntax classes, never words
+(`kernel-ts/write/markup.ts`):
+
+- a tag with no attributes, `</?[A-Za-z_][\w-]*\s*/?>` (`<text>`, `</text>`, `<br/>`);
+- a line that opens, after optional spaces or tabs, with a markdown bullet (`-`, `*` or `+` then whitespace), an
+  ordered item (digits, `.`, whitespace) or an ATX heading (one to six `#` then whitespace or the line's end).
+
+A dash, an em-dash opening a line, quotation marks, an ellipsis, a lone hyphen or `#` or `*` inside a sentence, and
+`3 < 5` are neither class. The check runs after §113 D's repeated-line refusal and §138.7's owed-result gate, so a turn
+pays at most one refusal of each kind.
+
+**Refused once per turn.** The first delivery of a turn whose rendered text has either shape is refused `needs`; the
+message begins with the steer, `player-facing prose carries no markup; write it as prose`, followed by what was found;
+`fix` says to deliver the same turn again as plain prose, keeping the say tokens, markers and settled facts;
+`details = {reason: "markup_in_prose", tags: [...], lines: [...]}` (at most eight distinct tags and eight lines, 120
+characters each). `turn.json` remembers the refusal as `markup_gate: {call_id}`; a new turn starts without it. A later
+delivery in the same turn that still carries markup is delivered as written, and its turn record carries one
+`warnings` row `{lane: "delivery", kind: "markup_in_prose", quote, why, fix, at}` (`quote` is the first tag, else the
+first line), which the next capsule's warnings show the Keeper (§12.5).
+
+**Counted.** The kernel appends a telemetry row for each: `{lane: "delivery", ok: false, reason: "markup_in_prose",
+outcome: "refused", turn, call_id, implicit, tags: <count>, lines: <count>}` on the refusal, and the same with `ok: true,
+outcome: "delivered"` after a delivery that carried markup has committed. The extension's own `tool: "narrate"` row
+still carries `reason: "markup_in_prose"` on the refusal, as for every kernel reason.
+
+**How the refusal reaches the Keeper (§135.11's budget, no new steer).** An explicit `narrate` gets it as the tool's
+refusal. An implicit close drops the draft (`implicit_narrate_refused`, `kernel_reason: "markup_in_prose"`) and the
+kernel's fix rides the host's existing refused-delivery repair steer (`audit-repair`), once per turn, and the refused
+draft is held like a floor or speech steer's dropped draft (never shown): a steered leg that brings nothing, or one the
+kernel refuses, falls back to it, and the spent gate lets it go with its finding. When the turn's one steer is
+already spent that repair could never be handed back, so the host sends the same draft again, once, in
+the same `message_end` (a new `call_id`, the attribution it already had, a `lane: "delivery"` row `reason:
+"markup_resent"` with `kernel_reason` and `call_id`); the kernel's gate is spent, so it is delivered with its finding.
+It is tried before §135.11's dropped-draft fallback: the steered leg's own words, refused only for their form, win over
+the earlier draft. §135.11.3's refusal-budget fallback does the same, once. A check on form never costs the player the
+turn, and it spends no model step beyond an explicit call's own refusal or the turn's one steer. In the `pre` continuity gate mode (`PI_COC_CONTINUITY_GATE=pre`, not the default) the
+review runs before the kernel sees the text, so each refusal also costs that review and the resend is reviewed again.
+
+**Not covered.** `ask`'s `text` (the ticket names `narrate`); a tag with attributes (`<p class="x">`); inline emphasis
+and code fences. No style is judged and no word is read.
+
+**Known boundary.** Dash dialogue typed with a hyphen at a line's start (`- Hola.`) has the bullet's shape, so it costs
+one refusal a turn and the same draft then goes out with the finding (a real dash, `—`, passes); this is a documented
+cost, not an exemption, and "real kernel, known boundary: dash dialogue typed with a hyphen at a line's start is refused
+once, and the same draft is delivered with the finding" in `tests/extension/markup-in-prose.test.mjs` holds it.
+
+Tests: `tests/extension/markup-in-prose.test.mjs` (real kernel, legacy engine: the `</text>` refusal and rewrite; the
+ordinary-prose guard; an implicit close with list lines refused and steered; two tagged deliveries, the second
+delivered with the finding and both counted; the spent-steer resend; the held draft delivered after an empty repair
+leg; the dash-dialogue boundary), `tests/kernel/test_markup_in_prose.py` (the refusal's details and `markup_gate`, the
+finding and both telemetry rows, a fresh gate on the next turn, lines named, ordinary prose and the host's markers
+passing).

@@ -4639,7 +4639,8 @@ export default function (pi: ExtensionAPI) {
 	 * (`floorDraft`, the same draft a floor or speech steer would otherwise fall back to) when there is one, or an
 	 * honest service line when there is none -- never a fabricated fictional consequence. Tried at most once; a
 	 * refusal here is not retried, and the ordinary undelivered/stranding path stands exactly as before it: the
-	 * notice `agent_settled` already sends is this fallback's own fallback, never the whole delivery.
+	 * notice `agent_settled` already sends is this fallback's own fallback, never the whole delivery. The one
+	 * exception is §139.10's markup refusal, which the kernel makes once per turn: the same text goes again, once.
 	 */
 	async function deliverRefusalBudgetFallback(state: TableState): Promise<boolean> {
 		let text = state.floorDraft;
@@ -4648,26 +4649,29 @@ export default function (pi: ExtensionAPI) {
 			try { text = (await surface.words()).line("refusal_budget_fallback_notice"); }
 			catch { /* an unreadable content root still owes the player the English line */ }
 		}
-		const callId = mintCallId(state);
-		const payload: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text };
-		if (state.preparationWait) payload.preparation_wait = { kind: state.preparationWait.kind, ...(state.preparationWait.name ? { name: state.preparationWait.name } : {}) };
-		else if (state.sourceWait) payload.preparation_wait = { kind: "source", ...(state.sourceWait.focus ? { name: state.sourceWait.focus } : {}) };
-		if (state.rebindingRefused) payload.rebinding_refused = { ...state.rebindingRefused };
-		try {
-			if (mods) await mods.prepare("narrate", payload, state.lanes.signal);
-			const result = await state.kernel.call<Record<string, unknown>>("table.narrate", payload);
-			if (mods?.after) await mods.after("narrate", payload, state.lanes.signal);
-			state.floorDraft = undefined;
-			state.renderedText = asString(result.rendered_text) ?? text;
-			state.state = (typeof result.state === "string" ? result.state : "awaiting_player") as TurnState;
-			state.turn = typeof result.turn === "number" ? result.turn : state.turn + 1;
-			state.closedThisRun = true;
-			void record({ tool: "narrate", call_id: callId, ok: true, lane: "delivery", reason: "refusal_budget_fallback" });
-			return true;
-		} catch (error) {
-			void record({ tool: "narrate", call_id: callId, ok: false, lane: "delivery", reason: "refusal_budget_fallback_refused",
-				code: isKernelError(error) ? error.code : "internal" });
-			return false;
+		for (let attempt = 0; ; attempt += 1) {
+			const callId = mintCallId(state);
+			const payload: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text };
+			if (state.preparationWait) payload.preparation_wait = { kind: state.preparationWait.kind, ...(state.preparationWait.name ? { name: state.preparationWait.name } : {}) };
+			else if (state.sourceWait) payload.preparation_wait = { kind: "source", ...(state.sourceWait.focus ? { name: state.sourceWait.focus } : {}) };
+			if (state.rebindingRefused) payload.rebinding_refused = { ...state.rebindingRefused };
+			try {
+				if (mods) await mods.prepare("narrate", payload, state.lanes.signal);
+				const result = await state.kernel.call<Record<string, unknown>>("table.narrate", payload);
+				if (mods?.after) await mods.after("narrate", payload, state.lanes.signal);
+				state.floorDraft = undefined;
+				state.renderedText = asString(result.rendered_text) ?? text;
+				state.state = (typeof result.state === "string" ? result.state : "awaiting_player") as TurnState;
+				state.turn = typeof result.turn === "number" ? result.turn : state.turn + 1;
+				state.closedThisRun = true;
+				void record({ tool: "narrate", call_id: callId, ok: true, lane: "delivery", reason: "refusal_budget_fallback" });
+				return true;
+			} catch (error) {
+				const markup = attempt === 0 && isKernelError(error) && error.details?.reason === "markup_in_prose";
+				void record({ tool: "narrate", call_id: callId, ok: false, lane: "delivery", reason: markup ? "markup_resent" : "refusal_budget_fallback_refused",
+					code: isKernelError(error) ? error.code : "internal" });
+				if (!markup) return false;
+			}
 		}
 	}
 
@@ -5479,8 +5483,15 @@ export default function (pi: ExtensionAPI) {
 			// (§135.11 addendum 2026-09-24); at most two implicit narrates, and the second only on that path.
 			let draft = prose;
 			let fallback = state.steeredThisTurn && state.floorDraft && state.floorDraft !== prose ? state.floorDraft : undefined;
+			// §139.10: a markup refusal the spent steer could never hand back re-sends the same draft once (below).
+			let markupResent = false;
+			let attributed: { text: string; hostAttributed?: number[] } | undefined, attributedDraft: string | undefined;
 			for (;;) {
-				const attributed = await attributeUnwrappedSpeech(state, draft, state.lanes.signal, foregroundProviderBudget?.());
+				// The same draft sent again keeps the attribution it already has: no second Jev batch for the same words.
+				if (attributed === undefined || attributedDraft !== draft) {
+					attributed = await attributeUnwrappedSpeech(state, draft, state.lanes.signal, foregroundProviderBudget?.());
+					attributedDraft = draft;
+				}
 				const tool = "narrate";
 				const callId = mintCallId(state);
 				const startedAt = new Date().toISOString();
@@ -5537,6 +5548,14 @@ export default function (pi: ExtensionAPI) {
 						pauseReview(state, error);
 						return dropText("review_paused", refusal);
 					}
+					// §139.10: the kernel refuses markup once per turn, and with the turn's one steer spent that refusal's
+					// repair could never reach the Keeper. The same draft goes again, once, and the kernel delivers it with
+					// its finding: a check on form never costs the player the turn, and it costs no model step.
+					if (reason === "markup_in_prose" && state.steeredThisTurn && !markupResent) {
+						markupResent = true;
+						void record({ lane: "delivery", turn: state.turn, ok: false, reason: "markup_resent", ...refusal });
+						continue;
+					}
 					// §135.11 addendum (2026-09-24, live gate #4): the turn's one steer is spent, so the repair set
 					// below could never be handed back, and the draft that steer dropped is still held. It is the
 					// Keeper's finished prose: close the turn on it, once, rather than strand a turn written twice.
@@ -5547,6 +5566,9 @@ export default function (pi: ExtensionAPI) {
 						fallback = undefined;
 						continue;
 					}
+					// §139.10: a draft refused only for its form is held like a floor or speech steer's dropped draft (never shown),
+					// so a steered leg that brings nothing, or one the kernel refuses, falls back to it and the spent gate lets it go.
+					if (reason === "markup_in_prose" && !state.steeredThisTurn) state.floorDraft = draft;
 					state.deliveryFix = {kind: "audit-repair", text: `This draft was not delivered. ${isKernelError(error) ? error.message : "Delivery preparation failed"}. ` +
 						`${isKernelError(error) ? error.fix ?? "" : ""} ${isKernelError(error) ? JSON.stringify(error.details ?? {}).slice(0, 8000) : detail ?? ""} Keep settled actions; repair with narrate, without rerolling or inventing a reconciliation.`};
 					return dropText("implicit_narrate_refused", refusal);
