@@ -47,8 +47,9 @@ const outbound = table => {
 };
 
 test('campaign length never reaches the provider: the branch outgrows the ceiling while every request stays under it', async t => {
-    // Pi 0.87's transcript includes the ~83 KiB system/tool checkpoint. Keep this test's
-    // ceiling above the measured incompressible floor, while the stored branch still exceeds it.
+    // Pi 0.87's transcript includes the ~75 KiB system/tool checkpoint (the earlier ~83 KiB counted
+    // the repository's Agents.md, which a macOS run picked up; the harness no longer loads it). Keep this
+    // test's ceiling above the measured incompressible floor, while the stored branch still exceeds it.
     const ceiling = 192 * 1024, turns = 6;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-ceiling', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},

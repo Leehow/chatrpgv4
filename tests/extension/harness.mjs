@@ -340,6 +340,10 @@ export async function openTable({
 	const resourceLoader = new DefaultResourceLoader({
 		cwd: workspace,
 		agentDir: join(workspace, "agent"),
+		// retainAt 把工作区放进仓库的 .coc/playtests；Pi 会从 cwd 往上找 AGENTS.md，在不分大小写的
+		// macOS 上找到仓库的 Agents.md，把开发规则塞进 KP 的 system 提示（约 11.5 KB，Linux 上找不到）。
+		// 产品的桌子与 tmpdir 工作区都读不到它：这里关掉，保留证据的桌子与临时桌子才量得一样。
+		noContextFiles: true,
 		settingsManager,
 		...(systemPrompt !== undefined ? { systemPrompt } : {}),
 		additionalExtensionPaths: [
