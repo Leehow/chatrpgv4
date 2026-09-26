@@ -2,7 +2,12 @@ import { computeMove, renderBrief, type SetupSlot, type SetupNotes } from './bri
 /** Setup ordering comes from setup.steps; source preparation uses the shared visual reader. */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from 'node:crypto';
-import {buildSetupInputCatalog,setupUserTextFields,materializeSetupInputs,type SetupInputCatalog,type SetupInputField} from '../../runtime/jev/setup-input-references.ts';
+import {buildSetupInputCatalog,setupUserTextFields,materializeSetupInputs,type SetupInputCatalog,type SetupInputField,type NameBoundaryCheckInput,type NameBoundaryDecision} from '../../runtime/jev/setup-input-references.ts';
+import {nameBoundaryBindings,checkNameBoundary,NAME_BOUNDARY_FAMILY} from '../../runtime/jev/setup-name-boundary-domain.ts';
+import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
+import {preparationBudget} from '../../runtime/jev/preparation-budget.ts';
+import {TaskLease} from '../../runtime/jev/task-context.ts';
+import {readJevApiKey} from '../jev/agent/config.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { prepareCharacterGuidance, acceptedGuidance, type Guidance } from '../module/character-guidance.ts';
@@ -480,12 +485,41 @@ export default function (pi: ExtensionAPI) {
     inputCatalog=buildSetupInputCatalog({epoch:inputKey,generation:inputOrdinal,branch:`${branch.at(-1)?.id??'root'}:${branch.length}`,fields,
       unavailable:unavailable||(draftRevision!==undefined&&!branch.some(entry=>entry.type==='message'&&entry.message?.role==='user'))});
   }
-  function bindInputParams(params:Record<string,unknown>):Record<string,unknown> {
+  /** §98 addendum 7 continuation (SL-68): a per-row Jev question, timed and budgeted like the table's other
+   * optional preparation lanes, asked only for a `profile.name` range selection and only when a boundary token
+   * survives SL-66's punctuation/space trim. Unconfigured Jev, no time left, or any failure keeps the token
+   * (the fail-safe `materializeSetupInputs` already applies when this returns nothing extra) -- this never blocks
+   * setup on the check. */
+  const DEFAULT_NAME_BOUNDARY_TIMEOUT_MS=2_500;
+  function nameBoundaryTimeoutMs(env:NodeJS.ProcessEnv):number {
+    const value=Number(env.PI_COC_NAME_BOUNDARY_TIMEOUT_MS?.trim()||NaN);
+    return Number.isFinite(value)&&value>0?value:DEFAULT_NAME_BOUNDARY_TIMEOUT_MS;
+  }
+  async function checkNameBoundaryFor(campaign:string,epoch:string,input:NameBoundaryCheckInput):Promise<NameBoundaryDecision> {
+    const env=process.env;
+    if(!readJevApiKey(env)) return {leading:true,trailing:true};
+    let lease:TaskLease|undefined,accounting:ReturnType<typeof preparationBudget>|undefined;
+    try {
+      const deadlineAt=Date.now()+nameBoundaryTimeoutMs(env),bindings=nameBoundaryBindings(campaign,epoch,input);
+      accounting=preparationBudget({decision:createDecisionAdapter({env,maxConcurrency:4,retryPolicies:{
+        [NAME_BOUNDARY_FAMILY]:{maxRetries:0,backoffInitialMs:100,backoffMaxMs:1_000}}}),
+        campaign,deadlineAt,signal:new AbortController().signal,owner:NAME_BOUNDARY_FAMILY,
+        goal:'Check whether a selected name range\'s boundary token belongs to the name'});
+      lease=new TaskLease({owner:NAME_BOUNDARY_FAMILY,goal:'Check whether a selected name range\'s boundary token belongs to the name',
+        scope:bindings.scope,capabilities:['decision'],readSet:bindings.readSet,
+        budget:{deadlineAt,remainingInputTokens:100_000,remainingOutputTokens:10_000,remainingCostUsd:0.01,remainingActions:1}});
+      return await checkNameBoundary(campaign,epoch,input,accounting.decision,lease);
+    } catch { return {leading:true,trailing:true}; }
+    finally { lease?.close(); accounting?.close(); }
+  }
+  async function bindInputParams(params:Record<string,unknown>):Promise<Record<string,unknown>> {
     if(!inputCatalog) throw new Error('Current setup input sources are unavailable; omit unchanged names and wait for the current player input');
     const profile=asRecord(params.profile),values:Partial<Record<SetupInputField,unknown>>={};
     if(Object.hasOwn(profile,'name')) values['profile.name']=profile.name;
     if(Object.hasOwn(params,'pending_action')) values.pending_action=params.pending_action;
-    const bound=materializeSetupInputs(inputCatalog,{campaign:String(params.campaign??context.campaign??''),inputKey,values});
+    const campaign=String(params.campaign??context.campaign??'');
+    const bound=await materializeSetupInputs(inputCatalog,{campaign,inputKey,values},
+      (input)=>checkNameBoundaryFor(campaign,inputKey,input));
     return {...params,input_key:inputKey,setup_input:bound.envelope,
       ...(Object.hasOwn(profile,'name')?{profile:{...profile,name:bound.values['profile.name']}}:{}),
       ...(Object.hasOwn(params,'pending_action')?{pending_action:bound.values.pending_action}:{})};
@@ -546,7 +580,7 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 			try {
-                if(op.method==='setup.draft'||op.method==='setup.confirm')filled.params=bindInputParams(filled.params);
+                if(op.method==='setup.draft'||op.method==='setup.confirm')filled.params=await bindInputParams(filled.params);
 				const result =
 					op.method === "module.prepare"
 						? await (reading ? reading.prepare(filled.params) : Promise.reject(new Error("the reading service is unavailable")))
@@ -640,8 +674,8 @@ export default function (pi: ExtensionAPI) {
 			const args = mergeArgs(raw);
 			try {
 				const result = id === 'reroll'
-					? asRecord(await bridge.call('setup.reroll', bindInputParams({campaign: context.campaign, revision: draftRevision, keep_pins: args.keep_pins !== false, input_key: inputKey})))
-					: asRecord(await bridge.call('setup.revise', bindInputParams({campaign: context.campaign, revision: draftRevision, input_key: inputKey, by: 'model',
+					? asRecord(await bridge.call('setup.reroll', await bindInputParams({campaign: context.campaign, revision: draftRevision, keep_pins: args.keep_pins !== false, input_key: inputKey})))
+					: asRecord(await bridge.call('setup.revise', await bindInputParams({campaign: context.campaign, revision: draftRevision, input_key: inputKey, by: 'model',
 						...(args.profile !== undefined ? {profile: args.profile} : {}),
 						...(id === 'adjust' ? (args.edits !== undefined ? {numbers: args.edits} : {}) : (args.numbers !== undefined ? {numbers: args.numbers} : {})),
 						...(args.limits !== undefined ? {limits: args.limits} : args.limits_override !== undefined ? {limits: args.limits_override} : {}),

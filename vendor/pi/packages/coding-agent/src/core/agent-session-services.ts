@@ -64,6 +64,10 @@ export interface CreateAgentSessionFromServicesOptions {
 	customTools?: ToolDefinition[];
 	/** Forwarded to {@link createAgentSession}: drive runs through the RunDriver. */
 	runDriver?: CreateAgentSessionOptions["runDriver"];
+	/** Forwarded to {@link createAgentSession}: contract §135.29's SL-69 addendum, the per-call cap. */
+	keeperCallCapMs?: CreateAgentSessionOptions["keeperCallCapMs"];
+	/** Forwarded to {@link createAgentSession}: told when the cap above ends an attempt. */
+	onKeeperCallCap?: CreateAgentSessionOptions["onKeeperCallCap"];
 }
 
 /**
@@ -220,5 +224,7 @@ export async function createAgentSessionFromServices(
 		customTools: options.customTools,
 		sessionStartEvent: options.sessionStartEvent,
 		runDriver: options.runDriver,
+		keeperCallCapMs: options.keeperCallCapMs,
+		onKeeperCallCap: options.onKeeperCallCap,
 	});
 }

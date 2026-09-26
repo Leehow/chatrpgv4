@@ -1078,6 +1078,51 @@ Mutation: reverting `personOfEffect`'s gating call to `graph.candidates(name, ['
 included) reproduces the batch-9 refusal and is caught by the two-distinct-mints test. The batch-9 t11
 replay (recorded Keeper, live Jev) is in the SL-64 ticket's Comments.
 
+#### 11.5.7 addendum — minting is per effect within a batch; a person this batch just minted is not yet another reason to refuse (2026-09-25, SL-70; amends this section)
+
+**Evidence** (ticket 29's batch-11 entry, campaign `sl29ab11-xuese-2205`, 血色公路, turn 17). One `apply`
+batch placed three names the campaign had never seen -- 柜台前的老男人, 穿工装的年轻人, 饭馆柜台后面的女人,
+none of them a book name and none of them a candidate of each other by any *authored* similarity -- and
+refused the third, `unknown_entity`, with `details.candidates` naming six people, one of them 柜台前的老男人:
+the very same batch's own first effect, minted two effects earlier in the identical call. SL-64 was verified
+one new name at a time and against an already-*established* roster; a name this batch itself had just minted,
+moments before the next effect in the same call was checked, still stopped it.
+
+**The cause.** `personOfEffect`'s gating check (§11.5.7 above) asks `graph.candidates(name, ['npc'], 6,
+{roster: false})`, and `{roster: false}` skipped only the *appended* roster list `candidates()` adds last.
+`ModuleGraph.addTablePerson` indexes a newly minted person into `this.names` -- the same pool `rankedCandidateIds`
+searches by name overlap and by similarity -- at the moment it is established, whether that moment is an earlier
+turn or an earlier effect of the batch being processed right now. `{roster: false}` never touched that pool, so
+a table person minted a moment ago is found there exactly as a book name would be: `similarity('饭馆柜台后面的女人',
+'柜台前的老男人')` is 0.5, the ranked pool's own clearing threshold, and 柜台前的老男人 is not the book's word for
+anyone.
+
+**The ruling (owner, 2026-09-25).** Minting is evaluated per effect, and a person this table has established --
+on any earlier turn, or two effects earlier in the batch being processed right now -- is never counted toward
+whether the graph is "silent" on a different, later name. `{roster: false}` means what §11.5.7 above already
+says it means: this table's own established people play no part in the decision to mint, full stop, regardless
+of when within the campaign's history they were established.
+
+**The fix.** `rankedCandidateIds` (`kernel-ts/read/module-graph.ts`) takes the same `{roster?: boolean}` options
+`candidates()` already threads to it, and excludes every id in `this.tableNames` from its search pool -- not only
+from the appended list -- when `roster: false`. `personOfEffect`'s call is unchanged; the exclusion now reaches
+everywhere that check searches, not only the append step. The exact-match path (`graph.npc`/`resolve`, unaffected
+by `rankedCandidateIds`) still resolves a repeated name -- this batch's own or an earlier turn's -- to the same
+person before `personOfEffect`'s gating check is ever reached, so a name the batch or the campaign already used
+is never minted twice by this change.
+
+**Three ends (§31).** *Writer:* the kernel (`establishPerson`, `world.table_people[]`, unchanged). *Reader:*
+`personOfEffect`'s gating check, on every effect of a batch, including one an earlier effect of the same batch
+just minted. *Actor:* the Keeper, whose batch introducing several brand-new people mints every one of them,
+independent of what order the batch names them in.
+
+*Tests.* `tests/extension/a-person-this-table-has.test.mjs`: the batch-11 t17 fixture verbatim (三个 brand-new
+names, one pair at exactly the 0.5 similarity threshold) mints all three and lands three `npc-ledger.json`
+entries; a batch mixing one already-established name with two new ones resolves the established one to its
+existing person and mints the other two; the b11 t17 batch replay lands whole. Mutation: reverting
+`rankedCandidateIds` to ignore its `opts` parameter (searching the full pool regardless of `roster`) reproduces
+the batch-11 t17 refusal and is caught by all three tests.
+
 ### 11.6 结果与收据
 
 `outcome.kind` 取 `check`、`opposed`、`combined`、`social`、`psychology`、`healing`、`push`、`luck`、`magic`、`development`、`combat`、`chase`、`sanity`、`none`。每种至少有 `level` 或 `status`、涉及的骰面与目标值、`effects`。`effects` 每条 `{kind: hp|san|mp|luck|condition|ammo|position, subject, before, after}`。
@@ -16049,6 +16094,59 @@ letter is unchanged; a range with leading punctuation is trimmed from the front 
 `u:30`–`u:34` range yields exactly `雷·卡特`; a whole-field selection and a `pending_action` selection keep their exact
 leading/trailing whitespace (T14 unamended for both). Mutations in the SL-66 ticket's Comments.
 
+### §98 addendum 8 — a boundary token the punctuation trim cannot remove is checked, one row per side, before it stands as part of the name (2026-09-25, SL-68; amends addendum 7)
+
+**Evidence** (ticket 29's batch-11 entry, campaign `sl29ab11-xuese-2205`, 血色公路, setup turn 4). Addendum 7's
+punctuation/space trim stopped the trailing comma SL-66 was filed for, but the *stored* card's own `name` was
+`叫雷·卡特`: the range the setup lane selected began on `叫` ("called"), one grapheme before the name itself. `叫`
+is a word, not punctuation or whitespace, so the category test addendum 7 added leaves it exactly where the
+range put it. The range itself -- chosen upstream, from the player's sentence -- is the fault, and no
+punctuation-class test can catch it: distinguishing "a word that is the name" from "a word beside the name" is
+an open semantic judgement addendum 7 was never meant to make.
+
+**The ruling (owner, 2026-09-25).** The name is the name the player gave, not one grapheme more or less of it. A
+`profile.name` range selection, after addendum 7's trim, is checked one more time: if its first or last surviving
+grapheme unit is not part of any candidate form of the name -- which is not a question a list of verbs or
+particles can answer, so it is never hard-coded -- a per-row Jev question asks, given the whole sentence and the
+candidate name, whether that one boundary token belongs to the name. A row that clears `no` drops that unit and
+the punctuation/space trim runs once more (dropping a verb can expose a comma or a space that stood between it
+and the name); every other outcome -- `yes`, `unclear`, an incomplete result, an unconfigured or unreachable Jev,
+or any other failure -- keeps the token exactly as addendum 7 left it. The card records the trimmed range, the
+same way addendum 7's own trim is recorded: nothing downstream re-trims a second time.
+
+**Where.** `runtime/jev/setup-input-references.ts`: `boundaryTokens` reads a trimmed range's own first and last
+grapheme unit (nothing, when the range is one unit wide -- there is nothing left to shrink without emptying it);
+`dropBoundaryTokens` removes the unit(s) a decision says to drop and re-runs `trimToWordBoundary`; `selected()`
+calls both, and an injected `checkBoundary` (a `NameBoundaryChecker`, the setup lane's own Jev wiring) between
+them, only for a `profile.name` range selection and only when there is a boundary to ask about. `runtime/jev/
+setup-name-boundary-domain.ts` is the typed family (`setup-name-boundary`, one row per boundary in question,
+`choice` type, `yes`/`no`/`unclear`, `rowClears`'s own margin deciding a drop) -- the same shape §11.5.6/SL-62's
+person-name resolution and §135.30.9's `ask` fan-out already use, never a new one. `extensions/onboarding/
+index.ts`'s `bindInputParams` wires the check (`readJevApiKey`, `createDecisionAdapter`, `preparationBudget`,
+a bounded `TaskLease`, timeout `PI_COC_NAME_BOUNDARY_TIMEOUT_MS`, default 2 500 ms) exactly as `extensions/
+kernel/index.ts`'s `resolveScenePerson` wires SL-62's; an unconfigured Jev or an expired budget is the same
+fail-safe "keep the token" default as any other failure, never a blocked setup turn.
+
+**Not changed.** `pending_action` selections and every whole-field `profile.name` selection are untouched (T14's
+byte-exact contract, unamended); addendum 7's own punctuation/space trim is unamended and always runs first;
+`validateSetupInputs`'s grapheme-boundary check is unaffected, since a boundary-checked range is still a unit
+boundary.
+
+**Three ends (§31).** *Writer:* Jev (one answer per boundary row), the setup lane (the trimmed range it issues
+the ref for). *Reader:* `issueSourceRef`, the stamped card's `name` and `name_source`. *Actor:* the player, whose
+selected name is exactly the name they gave, never a leading or trailing word the sentence put beside it.
+
+*Tests* (`tests/extension/jev-setup-input-references.test.mjs`, `tests/extension/jev-name-boundary-domain.test.mjs`):
+the b11 setup turn-4 fixture (`名字叫雷·卡特`, a range starting on `叫`) yields `雷·卡特` when an injected checker
+answers the leading row `no`; the same range is unchanged when the checker answers `yes`, `unclear`, returns an
+incomplete result, or is omitted entirely (the default, fail-safe "keep" behavior); a range that already starts
+and ends on the name (addendum 7's own clean case) asks no question at all (`boundaryTokens` returns nothing for
+a one-unit range) and is never asked to opine on a name it already has right; a `pending_action` selection and a
+whole-field `profile.name` selection are never checked. The domain file's own tests cover the batch's one-or-two-row
+shape, `interpretNameBoundary`'s per-row fail-safe default, and `checkNameBoundary`'s named fallbacks (no boundary
+to ask about, a foreign lease, a throwing port, an incomplete result), mirroring `tests/extension/
+jev-person-resolution-domain.test.mjs`. Mutations in the SL-68 ticket's Comments.
+
 ## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
 
 §97 was built from M-MAIN turn 109 but its fixture omitted the one property the live object had:
@@ -20593,6 +20691,73 @@ the same way; a byte-silent stream still ends through the transport half. Mutati
 (`watchStreamProgress` passing the stream through) and both keep-alive cases hang past the bound, exactly as on the
 parent `cebffa0e1`; the error worded outside pi-ai's retry patterns and the wording assertion fails.
 `tests/extension/vendored-pi.test.mjs` pins the series.
+
+#### 135.29 addendum — a Keeper call that outlives its own cap is abandoned and retried once; a second overrun ends the step (2026-09-25, SL-69; amends this section)
+
+**Evidence.** Long gate #10 t20 (`longgate10-haunting-1345/telemetry.jsonl`): one call of 155 s, response 200
+with text and a tool call; the rest of the table's calls were 2–7 s. Batch-11 血色公路: one call of 187 s, no
+error; 91 other calls p50 ~3.5 s. Both outliers set their table's max wall time; nothing in the product waited
+on anything but the provider. §135.29's stream-progress watchdog above covers a stream that *stops*
+producing events; these calls were slow to start (no first byte for minutes) or slow throughout, and had no
+per-call cap on the Keeper's own call at all.
+
+**The ruling (owner, 2026-09-25).** A Keeper call has a cap: a named default derived from the table's own
+turn budget, never below a floor (`keeperCallCapMs`, `runtime/jev/hybrid-engine.ts`: `Math.max(20 000 ms,
+turnBudgetMs / 2)`, both env-overridable, `PI_COC_KEEPER_CALL_CAP_FLOOR_MS` and the existing
+`PI_COC_TURN_BUDGET_MS`). Past it the call is abandoned and re-sent once with the same context; a second
+overrun of the *same* infer step ends it through the existing no-delivered-evidence fallback (§135.29's own
+terminal path), never a third automatic attempt. The cap is recorded on the run's telemetry
+(`keeper_call_cap`) with the call's phase: `first_byte` (no event of the attempt had arrived yet -- the
+transport timeouts alone would otherwise govern this gap, exactly as §135.29 already draws that line for the
+idle-progress watchdog) or `streaming` (at least one had).
+
+**The mechanism (`watchCallCap`, vendored patch `0004`, beside `watchStreamProgress` in the same file).**
+Composed *outside* the idle-progress watchdog in `sdk.ts`'s stream function (`watchCallCap(underIdleWatchdog,
+...)`), so both apply to every attempt: the idle watchdog restarts on every event within the attempt; the
+call cap is one ceiling on the attempt's whole duration, set once and never restarted. Past it, the attempt
+ends exactly as an idle timeout does -- a provider `error` with `stopReason: "error"`, carrying whatever
+partial message had arrived (none, for `first_byte`) -- except that `watchCallCap` never decides retryability
+itself: the caller's `onCap(phase)` returns the error's exact wording, and pi-ai's own retry patterns
+(`"timed? out"`, `"timeout"`, …) key on that wording alone. `sdk.ts` supplies a message that matches those
+patterns on a step's *first* cap overrun (so the session's existing auto-retry resends the step once, under
+the same context, precisely as an idle-progress timeout already does) and a message that matches none of them
+on a *second* overrun of the same step (so the session's own retry check declines, and the step ends there --
+never a third attempt, independent of the session's own, larger `retry.maxRetries`). The count is a
+`WeakMap<AbortSignal, number>` keyed on the infer step's own outer cancellation signal (stable across that
+step's internal retries, since a retry resends under the same step and therefore the same caller-owned
+signal; a step's signal is never reused by a later step, so entries need no clearing -- they are simply
+unreachable, and collected, once the step ends). `CreateAgentSessionOptions.keeperCallCapMs`/`onKeeperCallCap`
+(and the same fields threaded through `MainOptions`/`createAgentSessionFromServices`) carry the cap value and
+the telemetry callback from the product into the session; `runtime/pi-hybrid.ts` supplies both from
+`createHybridEngine`'s own `keeperCallCapMs`/`onKeeperCallCap`, computed once per process from the turn
+budget. `0 or absent disables the cap, exactly like `httpIdleTimeoutMs`'s own `0` convention.
+
+**Why not the idle-progress watchdog itself.** Extending `watchStreamProgress`'s own idle allowance to also
+cover the gap *before* the first event would conflate two different questions (is the provider making
+progress once it has started, and has this call gone on too long at all) behind one number, and would still
+need its own attempt-counting to distinguish "abandon and resend once" from the session's ordinary retry
+budget. A second, independent watchdog composed alongside it keeps each question's own single named default,
+exactly as this section already separates the idle allowance from the transport's own timeouts.
+
+**Three ends (§31).** *Writer:* `runtime/jev/hybrid-engine.ts` (the cap value, the `keeper_call_cap`
+telemetry row), the vendored session (the synthetic error message, the one retry). *Reader:* pi-ai's own
+retry-pattern matcher (`_isRetryableError`), the run's telemetry. *Actor:* the Keeper, whose one persistently
+slow or hung call never again holds a whole turn hostage; the player, who gets the ordinary §38.7 terminal
+notice within two capped attempts instead of the wall clock the provider chose.
+
+*Tests.* `tests/extension/keeper-call-cap.test.mjs`: `watchCallCap` exercised directly against a fake `start`
+function (a hand-built event stream, no real socket) -- a fast call under the cap is untouched; a stall before
+the first byte is cut at the cap with phase `first_byte` and a synthetic error carrying no content; a stall
+mid-stream is cut with phase `streaming`, copying the last partial message that did arrive; `capMs <= 0`
+disables it; a caller's own outer abort never asks `onCap` and is never retried; `onCap`'s returned wording is
+used verbatim, attempt for attempt, pinning the retryable/non-retryable seam the rest of the mechanism is
+built on. `tests/extension/keeper-call-cap-integration.test.mjs`: a driven Keeper call to a provider that
+never answers at all is capped, retried exactly once under the same context, and a second overrun ends the
+step (`run_end undelivered`, the §38.7 notice) without exhausting the session's own larger `retry.maxRetries`
+-- exactly two provider requests, one `auto_retry_start`, two `keeper_call_cap` telemetry rows (phase
+`first_byte`, since no header ever arrived); `keeperCallCapMs(env)`'s own floor-vs-half-budget arithmetic,
+including an explicit-floor override. `tests/extension/vendored-pi.test.mjs` pins the series (patch `0004`
+alongside `0001`–`0003`).
 
 ### 135.30 Routing asks what the player does: one compile per run reads the declaration into typed features, and predicates select the clerk's candidates (2026-09-24, SL-13; amends §135.1, §135.6, §135.7, §135.26)
 

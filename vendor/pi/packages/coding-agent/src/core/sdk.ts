@@ -17,7 +17,7 @@ import type { ResourceLoader } from "./resource-loader.ts";
 import { DefaultResourceLoader } from "./resource-loader.ts";
 import { getDefaultSessionDir, SessionManager } from "./session-manager.ts";
 import { SettingsManager } from "./settings-manager.ts";
-import { watchStreamProgress } from "./stream-progress.ts";
+import { watchCallCap, watchStreamProgress } from "./stream-progress.ts";
 import { time } from "./timings.ts";
 import {
 	createBashTool,
@@ -90,6 +90,13 @@ export interface CreateAgentSessionOptions {
 	sessionStartEvent?: SessionStartEvent;
 	/** Drive runs through the RunDriver with the host's policy and ports instead of the model-first loop. */
 	runDriver?: SessionRunDriver;
+	/** Contract §135.29's SL-69 addendum: a per-call total-duration cap composed around the idle-progress
+	 * watchdog (`watchStreamProgress`) in every provider attempt this session makes. 0 or absent disables it. */
+	keeperCallCapMs?: number;
+	/** Told once per attempt the cap above ends, with the phase ("first_byte" before any event of the
+	 * attempt arrived, "streaming" after) it fired in. Never told anything else; a session without one set
+	 * simply is not told. */
+	onKeeperCallCap?: (phase: "first_byte" | "streaming", capMs: number) => void;
 }
 
 /** Result from createAgentSession */
@@ -366,6 +373,17 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		});
 	};
 
+	// Contract §135.29's SL-69 addendum. `options` below is captured here under a distinct name because
+	// `streamFn`'s own parameter is also (confusingly, but matching the callback's established shape)
+	// named `options` -- reading `options.keeperCallCapMs` inside `streamFn` would read the wrong one.
+	const keeperCallCapMs = options.keeperCallCapMs ?? 0;
+	const onKeeperCallCap = options.onKeeperCallCap;
+	// Keyed by each infer step's own outer signal (stable across that step's internal retries, since a
+	// retry resends under the same step and thus the same caller-owned cancellation signal): how many
+	// times this step's cap has already fired. A step's signal is never reused by a later step, so this
+	// never needs clearing -- the entry is simply unreachable, and collected, once the step ends.
+	const keeperCallCapOverruns = new WeakMap<AbortSignal, number>();
+
 	const agent = new Agent({
 		initialState: {
 			systemPrompt: "",
@@ -387,11 +405,29 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			}
 			// The same idle allowance, measured on the events the agent consumes rather than on bytes: a
 			// stream that answers and then produces no event ends as a retryable error (stream-progress.ts).
-			return watchStreamProgress(
-				(signal) => modelRuntime.streamSimple(model, context, { ...requestOptions, signal }),
-				requestOptions.signal,
-				settingsManager.getHttpIdleTimeoutMs(),
-			);
+			const underIdleWatchdog = (signal: AbortSignal | undefined) =>
+				watchStreamProgress(
+					(innerSignal) => modelRuntime.streamSimple(model, context, { ...requestOptions, signal: innerSignal }),
+					signal,
+					settingsManager.getHttpIdleTimeoutMs(),
+				);
+			if (!(keeperCallCapMs > 0)) return underIdleWatchdog(requestOptions.signal);
+			const stepSignal = options?.signal;
+			return watchCallCap(underIdleWatchdog, requestOptions.signal, keeperCallCapMs,
+				{ api: model.api, provider: model.provider, id: model.id }, (phase) => {
+					const attempt = (stepSignal ? keeperCallCapOverruns.get(stepSignal) : undefined) ?? 0;
+					const next = attempt + 1;
+					if (stepSignal) keeperCallCapOverruns.set(stepSignal, next);
+					onKeeperCallCap?.(phase, keeperCallCapMs);
+					// First overrun: worded to match pi-ai's own retry patterns ("timed? out"), so the
+					// session's existing auto-retry resends this step once, under the same context, exactly
+					// as an idle-progress timeout already does. Second overrun of the *same* step: worded to
+					// match none of them, so the session's own retry check declines and the step ends through
+					// its existing no-delivered-evidence fallback -- never a second automatic resend.
+					return next <= 1
+						? `Keeper call timed out: exceeded its per-call cap of ${keeperCallCapMs} ms (phase: ${phase})`
+						: `Keeper call exceeded its per-call cap of ${keeperCallCapMs} ms a second time (phase: ${phase}); this step ends now.`;
+				});
 		},
 		onPayload: transformProviderPayload,
 		onResponse: handleProviderResponse,

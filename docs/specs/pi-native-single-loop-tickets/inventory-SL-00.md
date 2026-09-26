@@ -208,6 +208,7 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `extensions/onboarding/index.ts` | `presentDraft` | 444 | `pi.sendMessage{steer-when-streaming}` | onboarding ext | app-setup | n/a (setup) | Card preview sent from inside the setup tool; rides the live setup run as a steering message (no triggerTurn:false). Skipped under PI_COC_SETUP_AUTOSTART=1. |
 | `extensions/onboarding/index.ts` | `on(session_start)` | 867 | `pi.sendMessage{steer-when-streaming}` | onboarding ext | app-setup | observed: coc-setup-opening | Setup opening message at session start; appended while idle, no run. |
+| `extensions/onboarding/index.ts` | `checkNameBoundaryFor` | 504 | `createDecisionAdapter` | onboarding ext: setup name boundary check (§98 addendum 8, SL-68) | app-setup | not observed yet (unit tests only, injected fake checker; see the SL-68 ticket's Comments) | Gate: a Jev key and a `profile.name` range selection whose SL-66-trimmed boundary token survives (not punctuation/space). One bounded fan-out (maxRetries 0, `PI_COC_NAME_BOUNDARY_TIMEOUT_MS`) asked per boundary in question, before the ref is issued; a no-answer row drops that one unit, every other outcome keeps it (fail-safe). Never blocks setup on failure or a missing key. |
 | `pipicoc/onboarding-worker.ts` | `main` | 102 | `presentDocument` | pipicoc onboarding worker | app-setup | n/a (setup) | Guidance presenter child. |
 
 #### Leaves (model-involving) — app-ui (14 sites)
