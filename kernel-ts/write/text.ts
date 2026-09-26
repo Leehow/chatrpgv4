@@ -105,7 +105,10 @@ export function droppedMarkers(binding: MarkerBinding, receipts: Row[]): Row | n
         note: 'dropped from the delivery: a marker names a receipt this turn landed, and stands at one point in the text. What was dropped named nothing this turn, or repeated one already placed; the prose went out without it.'
     };
 }
-export const stripMarkers = (text: string): string => text.replace(SAY_TOKENS, '').replace(MARKER, '').replace(/[ \t]{2,}/g, ' ').trim();
+/** Player-visible text: say tokens and mechanics markers gone (§40.4), and a marker that stood alone on its line
+ *  takes its blank paragraph with it, so the reader never sees an empty paragraph where a card was placed. */
+export const stripMarkers = (text: string): string => text.replace(SAY_TOKENS, '').replace(MARKER, '').replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
 export function committedFacts(receipts: Row[], snapshot: Row, label: (id: any) => string, player: any): string[] {
     const committed: string[] = [];
     if (typeof player === 'string' && player.trim())

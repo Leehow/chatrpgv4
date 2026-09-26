@@ -170,3 +170,14 @@ def test_the_commit_subject_is_minted_from_the_rendered_text(kernel):
     subjects = git_log(kernel.workspace)
     assert subjects[0].startswith("turn 1: 你翻过桌上的纸，十分钟很快耗尽。")
     assert "{{" not in subjects[0]
+
+
+def test_a_marker_alone_on_its_line_leaves_no_blank_paragraph(kernel):
+    """A model that sets {{time}} on a line of its own must not hand the reader an empty paragraph: the record's
+    rendered_text (what the driver and the history card show) closes the gap the marker left."""
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 10}])
+    text = "你翻过桌上的纸。\n\n{{time}}\n\n窗外的光挪到了另一面墙上。"
+    result = kernel.table("narrate", call_id="t1-c2", text=text)
+    assert result["rendered_text"] == "你翻过桌上的纸。\n\n窗外的光挪到了另一面墙上。"
+    assert "\n\n\n" not in result["rendered_text"]

@@ -45,7 +45,7 @@ export function generationOf(owner: VoiceOwner): Row | null {
 /** The fallback when `content/setup/npc-voice.md` cannot be read; the file is the instruction (§40.7). */
 /** The last lines this person spoke at this table that ride in the packet (§113 D). */
 const SAID_LINES = 8;
-const INSTRUCTION = 'Write how this person is heard, in the play language. First a mask, one line describing register and flexible ' +
+const INSTRUCTION = 'Write how this person is heard, in the play language and in the writing system its tag names. First a mask, one line describing register and flexible ' +
     'habits of address, wording or sentence endings, distinct from taken_masks without a dialect caricature. Do not require a ' +
     'catchphrase, topic, refusal, abruptness or a marker in every sentence. Then three varied exchanges, each one line: what ' +
     'someone says, an arrow, and this person answering those actual words in natural connected speech. The first is ordinary ' +
