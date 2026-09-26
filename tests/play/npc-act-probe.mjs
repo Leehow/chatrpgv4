@@ -28,8 +28,13 @@
  * throwaway copy for the session, and the Jev key is read from the same App's encrypted vault exactly as
  * `docs/../gate-start.sh` reads it. Nothing here prints, logs or commits a key or token.
  *
+ * Ticket 20 (§139.19, spec D10): on a turn whose stakes die allowed a surprise, the lane's answer may name what the act
+ * brings out (`produces`); the bind then asks the price-list record of it (its part first, the 1920s list being longer
+ * than one question) and the record reads as `produced` (the book's, or the table's own). Report only: how often
+ * `produces` appears on surprise turns, and what it names. Nothing is executed, as before.
+ *
  * Usage:
- *   node tests/play/npc-act-probe.mjs [--rounds 3] [--seed 20260926] [--out <dir>]
+ *   node tests/play/npc-act-probe.mjs [--rounds 3] [--seed 20260926] [--out <dir>] [--table npc-actor-gate-a]
  *
  * Output: .coc/playtests/npc-act-probe-<timestamp>/round-<n>/records.jsonl (kind: probe|refusal|turn),
  * round-<n>/judge.jsonl, and summary.md at the top.
@@ -64,11 +69,12 @@ const JUDGE_MODEL_ID = 'deepseek-v4.1-flash';
 
 function args() {
   const argv = process.argv.slice(2);
-  const out = { rounds: 3, seed: '20260926', out: undefined };
+  const out = { rounds: 3, seed: '20260926', out: undefined, table: undefined };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--rounds') out.rounds = Number(argv[++i]);
     else if (argv[i] === '--seed') out.seed = String(argv[++i]);
     else if (argv[i] === '--out') out.out = argv[++i];
+    else if (argv[i] === '--table') out.table = argv[++i];
   }
   return out;
 }
@@ -275,7 +281,7 @@ function sameActPrompt(priorActs, act) {
 // The probe: stakes -> situation -> generate -> bind. Read-only and Jev-only; no write reaches the kernel.
 // --------------------------------------------------------------------------------------------------
 
-async function runProbe({ kernel, lane, decisionAdapter, TaskLease, npcActBatch, interpretNpcAct, npcActBudgetValue, gate, campaign, round, turn, table }) {
+async function runProbe({ kernel, lane, decisionAdapter, TaskLease, npcActBatch, interpretNpcAct, npcProduceBatch, producePart, npcActBudgetValue, gate, campaign, round, turn, table }) {
   const record = { kind: 'probe', table, round, turn, campaign };
   let stakes = null;
   try { stakes = await kernel.okTop('npc.stakes', { campaign, name: KNOTT_NAME }); }
@@ -293,24 +299,40 @@ async function runProbe({ kernel, lane, decisionAdapter, TaskLease, npcActBatch,
   if (!('act' in generated)) return { ...record, status: 'unavailable', reason: generated.unavailable, detail: generated.detail ?? null };
   const act = generated.act;
   record.act = act;
-  const severe = stakes?.stakes?.outcome === 'severe';
+  // §139.19: the lane takes `produces` only on a surprise (and drops it, saying so, otherwise).
+  record.surprise = stakes?.stakes?.surprise === true;
+  const produces = typeof generated.produces === 'string' ? generated.produces : null;
+  record.produces = produces;
+  record.produces_dropped = generated.producesDropped === true;
   let options;
-  try { options = await kernel.okTop('npc.act.options', { campaign, name: KNOTT_NAME, act, ...(severe ? { draw: true } : {}) }); }
+  try { options = await kernel.okTop('npc.act.options', { campaign, name: KNOTT_NAME, act, ...(produces ? { produce: true } : {}) }); }
   catch (error) { return { ...record, status: 'failed', reason: `options_failed: ${error.message ?? error}` }; }
   const rows = options.act?.continues ? [] : (Array.isArray(packet.done) ? packet.done.filter(row => row?.ref).slice(0, npcActBudgetValue.sameActRows) : []);
   const scope = { owner: 'npc-act-probe', campaign, audience: 'system' };
   const readSet = [{ kind: 'world', resource: campaign, revision: `probe-r${round}-t${turn}` }];
   const bindBegan = Date.now();
-  const { batch, plan } = npcActBatch({ runId: `npc-act-probe-r${round}-${table}`, person: options.npc?.name ?? KNOTT_NAME, act, packet, options, rows, severe }, scope, readSet);
-  const lease = new TaskLease({
-    owner: 'npc-act-probe', goal: `probe bind turn ${turn}`, scope, capabilities: ['decision'], readSet,
-    signal: new AbortController().signal,
-    budget: { deadlineAt: Date.now() + 15000, remainingInputTokens: 400000, remainingOutputTokens: 40000, remainingCostUsd: 2, remainingActions: 60 },
-  });
-  let decision;
-  try { decision = await decisionAdapter.decide(batch, lease); } finally { lease.close(); }
+  const person = options.npc?.name ?? KNOTT_NAME, runId = `npc-act-probe-r${round}-${table}`;
+  const { batch, plan } = npcActBatch({ runId, person, act, packet, options, rows, produces }, scope, readSet);
+  const decide = async (asked, goal) => {
+    const lease = new TaskLease({
+      owner: 'npc-act-probe', goal, scope, capabilities: ['decision'], readSet,
+      signal: new AbortController().signal,
+      budget: { deadlineAt: Date.now() + 15000, remainingInputTokens: 400000, remainingOutputTokens: 40000, remainingCostUsd: 2, remainingActions: 60 },
+    });
+    try { return await decisionAdapter.decide(asked, lease); } finally { lease.close(); }
+  };
+  const decision = await decide(batch, `probe bind turn ${turn}`);
+  // §139.19: a price list too long for one question was asked by its part; the record within it is a second batch.
+  let follow;
+  const part = produces ? producePart(plan, decision, gate) : null;
+  if (part) {
+    const second = npcProduceBatch({ runId, person, act, produces, part: part.part, records: part.records }, scope, readSet);
+    follow = { records: second.records, result: await decide(second.batch, `probe produce turn ${turn}`) };
+    record.produce_part = part.part;
+  }
   record.bind_ms = Date.now() - bindBegan;
-  const bound = interpretNpcAct(plan, decision, gate);
+  const bound = interpretNpcAct(plan, decision, gate, follow);
+  record.produced = bound.produced ? { name: bound.produced.name, source: bound.produced.source, ...(bound.produced.record ? { record: bound.produced.record.value } : {}) } : null;
   record.way = bound.way;
   record.params = Object.fromEntries(Object.entries(bound.params).map(([key, option]) => [key, option.value]));
   record.bind_reason = bound.reason;
@@ -368,7 +390,7 @@ async function replayTurn(ctx, turnRecord) {
 // --------------------------------------------------------------------------------------------------
 
 async function main() {
-  const { rounds, seed, out } = args();
+  const { rounds, seed, out, table: only } = args();
   const ts = timestamp();
   const outDir = out ?? join(REPO, '.coc', 'playtests', `npc-act-probe-${ts}`);
   mkdirSync(outDir, { recursive: true });
@@ -383,7 +405,7 @@ async function main() {
   const { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } =
     await import(join(REPO, 'build/node_modules/@earendil-works/pi-coding-agent/dist/index.js'));
   const { createNpcActLane } = await import(join(REPO, 'runtime/jev/npc-act.ts'));
-  const { npcActBatch, interpretNpcAct } = await import(join(REPO, 'runtime/jev/npc-act-step.ts'));
+  const { npcActBatch, interpretNpcAct, npcProduceBatch, producePart } = await import(join(REPO, 'runtime/jev/npc-act-step.ts'));
   const { createDecisionAdapter } = await import(join(REPO, 'runtime/jev/decision-adapter.ts'));
   const { TaskLease } = await import(join(REPO, 'runtime/jev/task-context.ts'));
   const { npcActBudget } = await import(join(REPO, 'runtime/jev/host-budgets.ts'));
@@ -420,7 +442,8 @@ async function main() {
   for (const name of ['auth.json', 'models.json']) symlinkSync(join(agentHome, name), join(judgeHome, name));
   writeFileSync(join(judgeHome, 'settings.json'), JSON.stringify({ quietStartup: true }) + '\n');
 
-  const tables = RETAINED_TABLES.map(entry => ({ ...entry, turns: loadTable(entry.dir) }));
+  const tables = RETAINED_TABLES.filter(entry => !only || entry.table === only).map(entry => ({ ...entry, turns: loadTable(entry.dir) }));
+  if (!tables.length) throw new Error(`no retained table named ${only}`);
   for (const entry of tables) if (entry.turns.length === 0) throw new Error(`no turn-*.json under ${entry.dir}`);
 
   const kernelWorkspaces = [];
@@ -445,7 +468,7 @@ async function main() {
           await kernel.okTop('campaign.create', { id: CAMPAIGN, module: MODULE, pregen: PREGEN, play_language: PLAY_LANGUAGE });
           await kernel.ok('narrate', { call_id: 't0-c1', text: OPENING_TEXT });
           const ctx = {
-            kernel, lane, decisionAdapter, TaskLease, npcActBatch, interpretNpcAct, npcActBudgetValue,
+            kernel, lane, decisionAdapter, TaskLease, npcActBatch, interpretNpcAct, npcProduceBatch, producePart, npcActBudgetValue,
             gate: DEFAULT_CONFIDENCE_GATE, campaign: CAMPAIGN, round, table: entry.table,
           };
           const priorActs = [];
@@ -540,6 +563,17 @@ export function writeSummary(outDir, { rounds, seed, tables, allRecords, allJudg
 
   const lines = [];
   lines.push('# npc-act-probe summary');
+  lines.push('');
+  // §139.19 (ticket 20): report only -- how often a surprise turn's act brings something out, and what.
+  const surprised = probes.filter(row => row.surprise === true);
+  const producing = surprised.filter(row => row.produces);
+  lines.push('## Surprise turns (ticket 20, report only)');
+  lines.push('');
+  lines.push(`- turns whose stakes die allowed a surprise: ${surprised.length} of ${probes.length} probed; \`produces\` on ${producing.length} of them`
+    + (surprised.length ? ` (${(producing.length / surprised.length * 100).toFixed(0)}%)` : '') + `; dropped without a surprise: ${probes.filter(row => row.produces_dropped).length}.`);
+  for (const row of producing)
+    lines.push(`- ${row.table} r${row.round} t${row.turn}: produces "${row.produces}" -> ${row.produced ? `${row.produced.source}${row.produced.record ? ` ${row.produced.record}` : ''} "${row.produced.name}"` : 'not bound'}`
+      + `${row.produce_part ? ` (part ${row.produce_part})` : ''}; way ${row.way ?? '-'}; act: ${row.act}`);
   lines.push('');
   lines.push(`Rounds: ${rounds}. Kernel seed (fixed across rounds): ${seed}. Model: ${NPC_ACT_MODEL}. Judge model: ${JUDGE_MODEL_PROVIDER}/${JUDGE_MODEL_ID}.`);
   lines.push('');

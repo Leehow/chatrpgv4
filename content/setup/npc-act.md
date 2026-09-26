@@ -27,6 +27,11 @@ These facts are everything you know. Do not add people, objects, places,
 injuries or knowledge that are not in them. Refer to people and things by the
 names the situation gives them.
 
+When `stakes.surprise` is true, this person may bring out one thing the table
+did not know they had: name it in play_language, in at most 60 characters, as
+`produces` beside `act` in your JSON object, and let the act use it or show it.
+It fits who they are and this moment; with no surprise, leave `produces` out.
+
 ## What you answer
 
 The one thing this person does right now, as a person in their situation would.

@@ -4,7 +4,11 @@
 from `content/rulesets/coc7/rules-json/npc-stakes.json` (base from the person's combat disposition, else the archetype the
 table pinned, else the table's default; moved by the table's shifts), one d100 on the kernel's seeded die, and one
 keeper-visible `roll` receipt of family `stakes` in the open turn -- once per person per turn. `npc.situation` carries
-`{rung, outcome, line}` read from that receipt and never rolls.
+`{rung, outcome, line, surprise, surprise_line}` read from that receipt and never rolls.
+
+§139.19 (ticket 20, spec D10): the same roll at most the rung's `surprise_at_most` is a surprise -- this person may bring
+out something no one at the table knew they had; the table's permission line rides with it (`severe_surprise` on a severe
+roll). The three columns rise with the rung, or the table is refused.
 
 Corbitt is the person. As the starter ships, the natural-npc Mod's first-impression check against him is still to come:
 a row of his `constraints` for the generator, and no prepared reaction -- only the book's preordained reaction is one
@@ -27,7 +31,11 @@ CORBITT = "walter-corbitt"
 INVESTIGATOR = "thomas-hayes"
 TABLE = CONTENT_DIR / "rulesets" / "coc7" / "rules-json" / "npc-stakes.json"
 # Seeds whose landed blow is followed by each outcome of the die (chosen by running them; the die is the kernel's).
+# Re-read for ticket 20's thresholds (dangerous 15/45): seed 3 rolls 5, seed 2 rolls 30, seed 1 rolls 56.
 LANDED = {3: "severe", 2: "escalates", 1: "nothing"}
+# §139.19: seeds whose die, after the punch (landed or not, the rung is dangerous), falls on each side of the rung's
+# surprise column (30): 5 and 30 (the boundary) allow a surprise, 39 and 56 do not. Chosen by running them, as above.
+SURPRISE_SEEDS = {3: True, 2: True, 7: False, 1: False}
 
 
 def rules():
@@ -51,6 +59,14 @@ def moved(base, shifts):
 
 def outcome_of(rung, roll):
     return "severe" if roll <= rung["severe_at_most"] else "escalates" if roll <= rung["escalates_at_most"] else "nothing"
+
+
+def view_of(rung, roll):
+    """The `{rung, outcome, line, surprise, surprise_line}` the shipped table gives this roll on this rung (§139.19)."""
+    outcome = outcome_of(rung, roll)
+    surprise = roll <= rung["surprise_at_most"]
+    permission = rung["lines"]["severe_surprise" if outcome == "severe" else "surprise"] if surprise else None
+    return {"rung": rung["name"], "outcome": outcome, "line": rung["lines"].get(outcome), "surprise": surprise, "surprise_line": permission}
 
 
 def stakes(client, name="Walter Corbitt"):
@@ -119,7 +135,9 @@ def test_after_a_landed_blow_the_rung_is_one_above_his_base_and_only_the_keeper_
         assert isinstance(receipt["roll"], int) and 1 <= receipt["roll"] <= 100
         assert receipt["outcome"] == outcome_of(rung, receipt["roll"]) == outcome, f"seed {seed} rolls {receipt['roll']}"
         line = rung["lines"].get(outcome)
-        assert result == {"stakes": {"rung": receipt["rung"], "outcome": outcome, "line": line}}
+        # §139.19: the view carries the surprise the same roll allows on this rung, and its permission line.
+        assert result == {"stakes": view_of(rung, receipt["roll"])}
+        assert result["stakes"]["line"] == line
         assert (line is None) == (outcome == "nothing")
         assert receipt["kind"] == "roll" and receipt["family"] == "stakes" and receipt["actor"] == CORBITT
         assert receipt["actor_is_investigator"] is False
@@ -131,8 +149,44 @@ def test_after_a_landed_blow_the_rung_is_one_above_his_base_and_only_the_keeper_
         assert row["visibility"] == "keeper" and row["family"] == "stakes" and receipt["visibility"] == "keeper"
 
         after = situation(client)
-        assert after["stakes"] == result["stakes"], "the packet reads the same {rung, outcome, line} from the receipt"
+        assert after["stakes"] == result["stakes"], "the packet reads the same {rung, outcome, line, surprise, surprise_line} from the receipt"
         assert after["happened"] == before["happened"], "the die is not something that happened to him"
+    finally:
+        client.close()
+
+
+# ---- §139.19: the same roll allows a surprise, at most the rung's own column ----------------------------------------
+
+@pytest.mark.parametrize("seed,expected", SURPRISE_SEEDS.items(), ids=[f"seed{seed}-{'surprise' if e else 'none'}" for seed, e in SURPRISE_SEEDS.items()])
+def test_on_the_dangerous_rung_a_roll_at_most_its_surprise_column_allows_a_surprise(tmp_path, seed, expected):
+    client = client_for(tmp_path, seed)
+    try:
+        hit_corbitt(client)
+        result = stakes(client)
+        [receipt] = stakes_receipts(client)
+        assert receipt["rung"] == "dangerous" == moved(rules()["default_rung"], ["attacked_this_turn"]), "the punch moves him to dangerous"
+        rung = rung_row(receipt["rung"])
+        assert receipt["surprise_at_most"] == rung["surprise_at_most"] == 30, "the ticket's dangerous surprise column"
+        assert receipt["surprise"] is (receipt["roll"] <= rung["surprise_at_most"]) is expected, f"seed {seed} rolls {receipt['roll']}"
+        expected_line = rung["lines"]["severe_surprise" if receipt["outcome"] == "severe" else "surprise"] if expected else None
+        assert receipt["surprise_line"] == expected_line, "the table's permission, the severe one on a severe roll"
+        assert result == {"stakes": view_of(rung, receipt["roll"])}
+        packet = situation(client)["stakes"]
+        assert packet["surprise"] is receipt["surprise"] and packet["surprise_line"] == receipt["surprise_line"], \
+            "the situation's stakes.surprise is the receipt's"
+        assert packet == result["stakes"]
+    finally:
+        client.close()
+
+
+def test_a_severe_roll_that_surprises_carries_the_severe_permission(tmp_path):
+    client = client_for(tmp_path, 3)
+    try:
+        hit_corbitt(client)
+        view = stakes(client)["stakes"]
+        rung = rung_row(view["rung"])
+        assert view["outcome"] == "severe" and view["surprise"] is True
+        assert view["surprise_line"] == rung["lines"]["severe_surprise"] != rung["lines"]["surprise"]
     finally:
         client.close()
 
@@ -375,6 +429,81 @@ def test_a_table_the_kernel_cannot_read_is_refused_and_nothing_is_rolled(tmp_pat
         assert stakes_receipts(client) == []
     finally:
         client.close()
+
+
+# §139.19: the surprise column is read the same way; each of the three columns rises (or stays) with the rung.
+def falling_surprise(table):
+    table["rungs"][1]["surprise_at_most"] = table["rungs"][0]["surprise_at_most"] - 1
+
+
+def falling_escalates(table):
+    table["rungs"][-1]["escalates_at_most"] = table["rungs"][-2]["escalates_at_most"] - 1
+
+
+def surprise_off_the_die(table):
+    table["rungs"][-1]["surprise_at_most"] = 101
+
+
+def no_surprise_column(table):
+    del table["rungs"][0]["surprise_at_most"]
+
+
+def no_permission_line(table):
+    del table["rungs"][0]["lines"]["surprise"]
+
+
+def no_severe_permission_line(table):
+    del table["rungs"][2]["lines"]["severe_surprise"]
+
+
+SURPRISE_BROKEN = [falling_surprise, falling_escalates, surprise_off_the_die, no_surprise_column, no_permission_line, no_severe_permission_line]
+
+
+def with_table(tmp_path, change):
+    content = tmp_path / "content"
+    shutil.copytree(CONTENT_DIR, content)
+    path = content / "rulesets" / "coc7" / "rules-json" / "npc-stakes.json"
+    table = json.loads(path.read_text(encoding="utf-8"))
+    change(table)
+    path.write_text(json.dumps(table), encoding="utf-8")
+    return content
+
+
+@pytest.mark.parametrize("breaking", SURPRISE_BROKEN, ids=[f.__name__ for f in SURPRISE_BROKEN])
+def test_a_column_that_falls_or_a_missing_surprise_is_refused_before_a_roll(tmp_path, breaking):
+    client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "7"}, content=with_table(tmp_path, breaking))
+    try:
+        open_turn(client, "I ask around the neighbourhood.")
+        error = client.err("npc.stakes", {"campaign": "c1", "name": "Mr. Dooley"})
+        assert error["code"] == "campaign_not_ready" and "npc-stakes.json" in error["fix"], error
+        assert stakes_receipts(client) == []
+    finally:
+        client.close()
+
+
+def test_a_table_whose_columns_rise_or_stay_is_read(tmp_path):
+    """Monotone, not strictly rising: a surprise column that stays level across every rung is a table the kernel reads."""
+    def level(table):
+        for rung in table["rungs"]:
+            rung["surprise_at_most"] = 25
+    client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "7"}, content=with_table(tmp_path, level))
+    try:
+        open_turn(client, "I ask around the neighbourhood.")
+        view = stakes(client, "Mr. Dooley")["stakes"]
+        [receipt] = stakes_receipts(client)
+        assert receipt["surprise_at_most"] == 25 and view["surprise"] is (receipt["roll"] <= 25)
+    finally:
+        client.close()
+
+
+def test_the_shipped_columns_are_the_tickets_and_rise_with_the_rung():
+    columns = {rung["name"]: (rung["severe_at_most"], rung["escalates_at_most"], rung["surprise_at_most"]) for rung in rules()["rungs"]}
+    assert columns == {"calm": (3, 15, 10), "tense": (8, 30, 20), "dangerous": (15, 45, 30), "lethal": (30, 65, 45)}, "ticket 20's table"
+    values = list(columns.values())
+    for column in range(3):
+        assert all(a[column] <= b[column] for a, b in zip(values, values[1:])), f"column {column} rises with the rung"
+    for rung in rules()["rungs"]:
+        assert set(rung["lines"]) == {"severe", "escalates", "surprise", "severe_surprise"}
 
 
 def test_the_shipped_table_names_every_disposition_and_archetype_and_no_certain_rung():
