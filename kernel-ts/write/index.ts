@@ -35,6 +35,7 @@ import { asciiSlug, facts, publicContext, directorAdoption, offerLedger } from '
 import { obligationByHandle, obligationState } from '../read/obligations.js';
 import { statedHandleOf } from '../read/stated.js';
 import { deliveryText, deliveryRecord, keeperReads } from './delivery.js';
+import { markupInProse, describeMarkup, MARKUP_STEER } from './markup.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
@@ -1004,6 +1005,19 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 details: { reason: 'intent_result_owed', owed },
             });
         }
+        // Contract §139.10: player-facing prose carries no markup. A syntax check over the rendered text (the host's own
+        // tokens already stripped), refused once per turn; a later delivery this turn that still carries it is delivered,
+        // with a finding. Checked after §138.7, so a turn pays at most one refusal of each kind.
+        const markup = markupInProse(typeof rendered === 'string' ? rendered : '');
+        if (markup && !truth(turn.markup_gate)) {
+            await campaign.writeTurn({ ...turn, markup_gate: { call_id: started.callId } });
+            await campaign.telemetry({ lane: 'delivery', turn: number(turn.turn), ok: false, reason: 'markup_in_prose', outcome: 'refused',
+                call_id: started.callId, implicit: truth(params.implicit), tags: markup.tags.length, lines: markup.lines.length }).catch(() => undefined);
+            throw new RpcError('needs', `${MARKUP_STEER} (found: ${describeMarkup(markup)})`, {
+                fix: 'Deliver the same turn again as plain prose: drop the tags, and write each list or heading line as sentences of the paragraph it belongs to. Keep the say tokens and mechanics markers where they stand and every settled fact; nothing else needs to change.',
+                details: { reason: 'markup_in_prose', tags: markup.tags, lines: markup.lines },
+            });
+        }
         const language = await playLanguageOf(context, snapshot.meta);
         // Nothing is read out of the prose. Figures travel as the mechanics projection and the
         // frontend draws them (2026-09-09 user decision, contract section 16.3); whether the words
@@ -1048,7 +1062,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...(reads.length ? { reads } : {}),
             // §128.3: a repeat inside a line the host wrapped is a finding on the delivery, the same
             // `warnings` rows the verifier's `unmarked_speech` lands in, never a refusal.
-            ...(hostRepeats.length || owed.length ? { warnings: [...hostRepeats.map(repeat => ({ lane: 'speech', kind: 'repeated_line',
+            ...(hostRepeats.length || owed.length || markup ? { warnings: [...hostRepeats.map(repeat => ({ lane: 'speech', kind: 'repeated_line',
                 quote: chars(string(repeat.line), 120),
                 why: chars(`${string(repeat.name)} already said this at turn ${string(repeat.earlier_turn)}; the host wrapped the line, so it was delivered, not refused`, 200),
                 fix: 'Already delivered: do not rewrite it. Next time the same point comes back, say it in fresh words; the position need not move.',
@@ -1057,7 +1071,12 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 ...owed.map(item => ({ lane: 'intents', kind: 'intent_result_owed', quote: null,
                     why: chars(`${string(item.who)} set out on turn ${string(item.since_turn)} to ${string(item.intent)}, and this delivery reported no result`, 200),
                     fix: 'Settle it this turn: a roll or effect with its intent_ref, or apply npc with intent_ref and outcome done, failed or abandoned.',
-                    ref: item.ref, at: nowIso() }))] } : {})
+                    ref: item.ref, at: nowIso() })),
+                // §139.10: delivered on the second try with markup still in it -- a finding for the next turn, not a second refusal.
+                ...(markup ? [{ lane: 'delivery', kind: 'markup_in_prose', quote: chars(markup.tags[0] ?? markup.lines[0] ?? '', 120),
+                    why: chars(`the delivery still carried markup after one refusal this turn (${describeMarkup(markup)}), so it went out as written`, 200),
+                    fix: `Already delivered: do not rewrite it. ${MARKUP_STEER}: no tags, no list or heading lines.`,
+                    at: nowIso() }] : [])] } : {})
         };
         await campaign.writeTurnRecord(record);
         await updateNpcLedger(campaign, module.graph, record);
@@ -1113,6 +1132,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         record.commit = sha;
         record.calls[started.callId].result.commit = sha;
         await campaign.writeTurnRecord(record);
+        // §139.10: the markup this delivery went out with is counted on the same lane as its refusal.
+        if (markup) await campaign.telemetry({ lane: 'delivery', turn: n, ok: true, reason: 'markup_in_prose', outcome: 'delivered',
+            call_id: started.callId, implicit: truth(params.implicit), tags: markup.tags.length, lines: markup.lines.length }).catch(() => undefined);
         const postStep=async(step:string,action:()=>Promise<unknown>)=>{try{await action();}catch(error){await campaign.telemetry({lane:'kernel',step,turn:n,ok:false,error:internalError(error).message});}};
         const moves=isJsonObject(record.worldline)&&truth(record.worldline.operation);
         let checkpointRecord=record,checkpointWorld=world,moved:Row|null=null;
