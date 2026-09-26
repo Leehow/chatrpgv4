@@ -8,7 +8,10 @@
     "row_min": 0.5,
     "row_ratio": 2,
     "shadow": true,
-    "execute": ["clue_follow_up"]
+    "execute": ["clue_follow_up"],
+    "classes": {
+      "clue_follow_up": {"row_min": 0.35}
+    }
   },
   "first_step_thinking": {
     "call_cap_ms": 60000

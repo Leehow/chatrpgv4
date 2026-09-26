@@ -93,6 +93,39 @@ test("clue_follow_up: an unguarded clue row issues one candidate with its own No
 	assert.ok(out[0].noul);
 });
 
+test("clue_follow_up (SL-86, §135.32 addendum 3): a row whose description carries the book's own cues puts them on `detail.cues` and the Noul's `criteria.true.examples`, never on `bound`", () => {
+	const reads = { ...emptyReads, applyOptions: { candidates: [
+		{ effect: { kind: "clue", clue: "nailed-windows" }, description: { summary: "the windows are nailed shut",
+			cues: ["Examine the side door's multiple bolts and the nailed-shut ground-floor windows"] } },
+	] } };
+	const out = clueFollowUpCandidates(reads);
+	assert.equal(out.length, 1);
+	assert.deepEqual(out[0].detail, { cues: ["Examine the side door's multiple bolts and the nailed-shut ground-floor windows"] });
+	assert.deepEqual(out[0].noul.criteria.true.examples, ["Examine the side door's multiple bolts and the nailed-shut ground-floor windows"]);
+	assert.ok(out[0].noul.criteria.false.not_for, "the false side names what does not count, per the skill's Noul rubric");
+	assert.equal(out[0].bound.cues, undefined, "cues never reach `bound`: they must never become an apply write argument");
+	assert.deepEqual(Object.keys(out[0].bound).sort(), ["clue", "how", "kind"].sort(), "bound stays exactly {kind, clue, how}, byte for byte");
+});
+
+test("clue_follow_up (SL-86): a row with no cues carries no `detail` and no `examples` -- the mutation-killable case: drop the cues, lose them from both", () => {
+	const reads = { ...emptyReads, applyOptions: { candidates: [
+		{ effect: { kind: "clue", clue: "globe-unpublished-story" }, description: { summary: "a spiked story about the tragedy" } },
+	] } };
+	const out = clueFollowUpCandidates(reads);
+	assert.equal(out.length, 1);
+	assert.equal(out[0].detail, undefined);
+	assert.equal(out[0].noul.criteria.true.examples, undefined);
+});
+
+test("clue_follow_up (SL-86): a non-string or blank cue entry is dropped, never carried through as `examples`/`detail`", () => {
+	const reads = { ...emptyReads, applyOptions: { candidates: [
+		{ effect: { kind: "clue", clue: "x" }, description: { summary: "y", cues: ["a real cue", "", 7, null, "  "] } },
+	] } };
+	const out = clueFollowUpCandidates(reads);
+	assert.deepEqual(out[0].detail, { cues: ["a real cue"] });
+	assert.deepEqual(out[0].noul.criteria.true.examples, ["a real cue"]);
+});
+
 test("clue_follow_up: a row the kernel withholds (`guarded_by`) issues none -- the gate is data, never asked", () => {
 	const reads = { ...emptyReads, applyOptions: { candidates: [
 		{ effect: { kind: "clue", clue: "globe-unpublished-story" }, description: { summary: "x" }, guarded_by: "globe-clippings-access" },
