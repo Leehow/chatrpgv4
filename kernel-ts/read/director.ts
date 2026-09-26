@@ -4,6 +4,7 @@ import { DirectorGraph, Ontology } from "./content.js";
 import { semanticName } from "./rule-facts.js";
 import { ModuleGraph, recordOf, moduleDeclaration, conditionMet, describeCondition } from "./module-graph.js";
 import { array, row, truth, number, integer, normalize, string, float, round, type Row } from "./values.js";
+import { isStakesRoll } from "../npc/stakes-receipt.js";
 const SIGNALS = ["structure_type", "intent", "undiscovered_here", "agenda_npc_present", "dramatic_question", "exit_condition_met", "main_line_complete", "stalled_turns", "blocked_attempts", "empty_turns", "repeat_input", "previous_close", "turns_in_scene", "hp_state", "sanity_state", "session", "last_roll", "pushed_fail_pending", "pending_choice", "clock_near_full", "loop_count", "echoes_here", "loop_available"];
 export const HP_STATES = ["healthy", "wounded", "major_wound", "dying", "dead"];
 export const SAN_STATES = ["stable", "shaken", "bout_active", "indefinite"];
@@ -63,7 +64,8 @@ export function intentOfRecord(record?: Row | null): string {
 }
 export function lastRollOf(record?: Row | null): string {
     for (const receipt of [...array(record?.receipts)].reverse())
-        if (receipt.kind === "roll" && receipt.form !== "dice")
+        // §139.8: the stakes die passes and fails nothing, so it is never the last roll.
+        if (receipt.kind === "roll" && receipt.form !== "dice" && !isStakesRoll(receipt))
             return ["critical", "fumble"].includes(receipt.level) ? receipt.level : truth(receipt.passed) ? "passed" : "failed";
     return "none";
 }

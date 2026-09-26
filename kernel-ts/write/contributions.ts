@@ -10,6 +10,7 @@ import { readModCatalog, activeMods } from '../read/mods.js';
 import { array, entries, values, clone, row, string, number, integer, truth, sorted, type Row } from '../read/values.js';
 import { CampaignWriter, missingContribution, nowIso } from './store.js';
 import { foldIntent, receiptGenerated } from '../npc/intents.js';
+import { isStakesRoll } from '../npc/stakes-receipt.js';
 function topological(preferred: string[], active: Row[]): string[] {
     const todo = [...preferred], done: string[] = [];
     while (todo.length) {
@@ -187,7 +188,8 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
             if (id)
                 foldIntent(entry(ledger, id), intent, turn, receipt.id, receiptGenerated(receipt));
         }
-        if (kind === 'roll') {
+        // §139.8: the stakes die names its person as `actor` but is no interaction with anyone.
+        if (kind === 'roll' && !isStakesRoll(receipt)) {
             const against = npcId(graph, receipt.npc), actor = npcId(graph, receipt.actor);
             const family = ['social', 'combat', 'chase', 'psychology'].includes(receipt.family || receipt.roll_kind) ? receipt.family || receipt.roll_kind : null;
             for (const [id, target] of [[against, true], [actor, false]] as const) {

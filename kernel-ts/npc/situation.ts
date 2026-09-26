@@ -4,12 +4,15 @@
  *
  * Facts only. Who they are is `npcPerspective`'s rows; what just happened to them is composed by code from the receipts
  * of this turn and the last; their body, their stance, what is at hand, what they already set out to do and how it went,
- * and what the book and the active Mods require of them. Nothing here reads what a line means, chooses a verb from
- * content or advises: each clause is worded by its receipt's kind and fields, and the engine's closed words (a level, a
- * combat action, a resource, a condition, a stance) are quoted as they are. Nothing is written.
+ * and what the book and the active Mods require of them; and, when `npc.stakes` rolled for them this turn, that die's
+ * rung, outcome and degree line (§139.8: read from its receipt, never rolled here). Nothing here reads what a line
+ * means, chooses a verb from content or advises: each clause is worded by its receipt's kind and fields, and the
+ * engine's closed words (a level, a combat action, a resource, a condition, a stance) are quoted as they are. Nothing is
+ * written.
  */
 import {join} from 'node:path';
 import type {KernelContext} from '../context.js';
+import type {CampaignSnapshot} from '../read/campaign.js';
 import type {HandlerGroup} from '../handlers.js';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
@@ -26,6 +29,7 @@ import {npcProfileOf} from '../resolve/context.js';
 import {emptyLedgerEntry, foldNpcTurn, stanceTable} from '../write/contributions.js';
 import {intentsOf, isSettled} from './intents.js';
 import {npcPerspective} from './perspective.js';
+import {isStakesRoll, stakesView} from './stakes-receipt.js';
 
 /** The packet's size bound when `host-budgets.json` names none (`npc_situation.max_bytes`). */
 export const SITUATION_MAX_BYTES = 6144;
@@ -57,8 +61,8 @@ function onLine(value: Row, scope: Row): boolean {
 }
 
 /** Who a receipt field may name this person by: handle, node id, the book's names, the table's label (§79). */
-interface Person { node: Row; handle: string; label: string; is(value: unknown): boolean }
-function personOf(graph: ModuleGraph, world: Row, node: Row): Person {
+export interface Person { node: Row; handle: string; label: string; is(value: unknown): boolean }
+export function personOf(graph: ModuleGraph, world: Row, node: Row): Person {
     const handle = graph.handle(node), label = personLabel(world, handle, graph.displayName(node));
     const keys = new Set([handle, string(node.node_id), graph.displayName(node), label, ...graph.nameKeys(node)].filter(Boolean).map(normalize));
     return {node, handle, label, is: value => typeof value === 'string' && keys.has(normalize(value))};
@@ -67,6 +71,8 @@ function personOf(graph: ModuleGraph, world: Row, node: Row): Person {
 /** The one clause a receipt of this person's contributes, or null when the receipt is not about them. */
 function clause(receipt: Row, me: Person, world: Row): string | null {
     const kind = receipt.kind;
+    // The stakes die (§139.8) is not something done to or by this person; the packet carries it as `stakes`.
+    if (isStakesRoll(receipt)) return null;
     if (kind === 'roll') {
         const own = me.is(receipt.actor);
         if (!own && !me.is(receipt.npc)) return null;
@@ -168,7 +174,7 @@ export function intentHistory(entry: Row): Row[] {
         .map(item => ({ref: item.ref, intent: item.text, status: item.status, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null}));
 }
 
-function stateOf(graph: ModuleGraph, world: Row, me: Person, session: Row | null, stance: string | null): Row {
+export function stateOf(graph: ModuleGraph, world: Row, me: Person, session: Row | null, stance: string | null): Row {
     const participant = session?.status === 'active' ? array(session.participants).map(row).find(value => value.name === me.handle) : undefined;
     const profile = npcProfileOf(graph, world, me.handle), derived = row(profile?.derived);
     const hpOf = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -242,6 +248,25 @@ export function fitSituation(packet: Row, maxBytes: number, declared: boolean): 
         while (over() && Array.isArray(packet.who[key]) && packet.who[key].length) { packet.who[key].pop(); cut('who'); }
 }
 
+/**
+ * Where this person is placed, and the rows the book and the active Mods hold for them now (the packet's
+ * `constraints`). One computation for the packet and for the stakes die (§139.8), which rolls only for a person with
+ * none -- the structural meaning of "no prepared reaction".
+ */
+export async function placedConstraints(context: KernelContext, campaign: CampaignSnapshot, graph: ModuleGraph, me: Person): Promise<{place: Row | null; constraints: string[]}> {
+    const {world, party} = campaign;
+    const at = row(world.npc_presence)[me.handle], place = typeof at === 'string' ? graph.find(at, ['scene']) : null;
+    const active = await activeMods(context, world);
+    const allReceipts = [...campaign.records.flatMap(record => array(record.receipts)), ...array(campaign.turn.receipts)].map(row);
+    return {place, constraints: constraintsOf(graph, world, party, me, place, allReceipts, active)};
+}
+
+/** This turn's stakes receipt for this person, as the generation step reads it (§139.8); null when none was rolled. */
+export function stakesOf(turn: Row, me: Person): Row | null {
+    const receipt = array(turn.receipts).map(row).find(value => isStakesRoll(value) && me.is(value.actor));
+    return receipt ? stakesView(receipt) : null;
+}
+
 async function situationBudget(context: KernelContext): Promise<number> {
     try {
         const budgets = row(await context.snapshots.readJson(join(context.content, 'rulesets', 'coc7', 'host-budgets.json')));
@@ -271,9 +296,7 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
                 {campaign: campaign.id, world, receipts: canonicalMemoryReceipts(records, array(turn.receipts))});
             const view = row(npcPerspective(graph, world, node, memory, records, scope).view);
             const session = new SessionView(campaign, graph, party, world).activeSession();
-            const at = row(world.npc_presence)[me.handle], place = typeof at === 'string' ? graph.find(at, ['scene']) : null;
-            const active = await activeMods(context, world);
-            const allReceipts = [...campaign.records.flatMap(record => array(record.receipts)), ...array(turn.receipts)].map(row);
+            const {place, constraints} = await placedConstraints(context, campaign, graph, me);
             const happened = happenedSentences(me, world, party, turn, previous);
             const packet: Row = {
                 npc: {handle: me.handle, name: graph.displayName(node)},
@@ -284,7 +307,8 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
                 at_hand: atHand(graph, world, party, me, place),
                 done: intentHistory(entryNow(graph, ledger, table, turn, node)),
                 recent_speech: array(view.recent_speech).map(line => `turn ${string(row(line).turn)}: ${flat(row(line).statement)}`),
-                constraints: constraintsOf(graph, world, party, me, place, allReceipts, active),
+                constraints,
+                stakes: stakesOf(turn, me),
                 truncated: [],
             };
             fitSituation(packet, await situationBudget(context), Boolean(flat(turn.player_text)));
