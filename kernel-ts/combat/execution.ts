@@ -19,6 +19,14 @@ import { archetypeIds } from '../apply/archetype.js';
 const SELF_RESOLVING = ['aim', 'reload', 'maneuver', 'flee'];
 export { presentOpponents } from '../resolve/context.js';
 const turnState = (message: string, fix?: string, details?: Row): never => { throw new RpcError('turn_state', message, { ...(fix ? { fix } : {}), ...(details && Object.keys(details).length ? { details } : {}) }); };
+/**
+ * Contract §139.18 (ticket 19 of docs/specs/npc-acts-first-tickets/, live table C4 turn 8): a refusal's `fix` is executed
+ * literally, so a refusal of a fight action never proposes a different fight action in its place. What the investigator
+ * does in a fight is what the player declared (§34 D2); the fix points back to that declaration, never to another decision.
+ */
+export const MANEUVER_ONLY_WHEN_DECLARED = 'a manoeuvre is one of the rulebook\'s four (details.needs.options): when the player declared one of them, set action.goal to it and put the sentence in action.method. If the player\'s words are not one of the four, this is not a manoeuvre -- settle what the player declared, as it is; a blow is resolved only when the player declared one';
+export const NOTHING_TO_ANSWER = 'a defence answers a blow already struck at the one defending, and none is pending: settle what was declared as it is (for the investigator, what the player declared), and strike no blow just to have something to answer';
+const NO_FIGHT_TURN = 'no fight is running, so there is no fight turn to take: settle what was declared as it is (for the investigator, what the player declared). A fight opens only on a blow someone declared, never to make room for this call';
 export const eligibleParticipant = (participant: Row): boolean => number(participant.hp_current || 0) > 0 && ![...OUT_OF_FIGHT_CONDITIONS].some(value => array(participant.conditions).includes(value));
 const cursorActor = (session: CombatSession): string | null => session.initiativeCursor >= 0 && session.initiativeCursor < session.currentInitiative.length ? string(session.currentInitiative[session.initiativeCursor].actor_id) : null;
 function normalizeCursor(session: CombatSession): void {
@@ -277,7 +285,7 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
             return npcFirstBlow(context, args, actor);
         if (actor !== context.actorId)
             return turnState(`no combat is underway for ${actor} to act in`,
-                'a fight opens on someone\'s attack: resolve with intent combat, the attacker as actor (an investigator or a person present), a target and a weapon; a manoeuvre comes once the fight is running');
+                'a fight opens on someone\'s attack: resolve with intent combat, the attacker as actor (a person present, on their own initiative; the investigator only when the player declared the blow), a target and a weapon; a manoeuvre comes once the fight is running');
         [session, started] = await startCombat(context, args);
         operation = { ...row(started.operation) };
         await context.writeSave('combat-operation.json', { combat_id: session.combatId, affordance_id: started.affordance_id, operation });
@@ -299,7 +307,7 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         }
     }
     else
-        return turnState('no combat is underway', 'start one: intent combat with a present target and a weapon');
+        return turnState('no combat is underway', NO_FIGHT_TURN);
     if (!Object.hasOwn(session.participants, actor))
         throw new RpcError('unknown_entity', `${actor} is not in this combat`, { details: { query: actor, candidates: sorted(Object.keys(session.participants)) } });
     if (kind === 'attack') await bindUsageSkill(context,session,actor,args.weapon_id);
@@ -325,7 +333,7 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
     }
     if (kind === 'defend') {
         if (!pending)
-            return turnState('no attack awaits a defense', 'declare an attack first');
+            return turnState('no attack awaits a defense', NOTHING_TO_ANSWER);
         const defender = string(pending.target_actor_id);
         if (actor !== defender)
             return turnState(`the pending defense belongs to ${defender}`, `resolve with actor: ${defender}`);
@@ -371,7 +379,11 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         if (holder !== actor)
             return turnState(`it is ${string(holder)}'s turn, not ${actor}'s (DEX order: ${session.currentInitiative.map(value => `${value.actor_id} (DEX ${value.dex})`).join(', ')})`,
                 // §138.5: a person whose turn it is may spend it on something that is not a fight action; that is a lawful way on.
-                `settle ${string(holder)}'s turn first: resolve with actor: ${string(holder)} for a fight action, or -- when ${string(holder)} spends the turn on something else -- apply npc with name ${string(holder)}, intends (what they try) or intent_ref, outcome and spend_turn: true (action: hold when they only hold back); or combat:end`, { turn_of: holder });
+                // §139.18: the fix names no other fight decision (it used to end "or combat:end"; the session still issues the
+                // ending), and an investigator's turn is never filled from here: what they do is what the player declares.
+                row(session.participants[string(holder)]).side === 'investigator'
+                    ? `it is ${string(holder)}'s turn, and what ${string(holder)} does is the player's to declare: settle what the player declared, as it is; ${actor}'s own action waits for their turn`
+                    : `settle ${string(holder)}'s turn first: resolve with actor: ${string(holder)} for a fight action, or -- when ${string(holder)} spends the turn on something else -- apply npc with name ${string(holder)}, intends (what they try) or intent_ref, outcome and spend_turn: true (action: hold when they only hold back); ${actor}'s own action waits for their turn, as it was declared`, { turn_of: holder });
         if (kind === 'attack') {
             const target = string(args.target_npc_id || '');
             if (!Object.hasOwn(session.participants, target))
@@ -402,7 +414,7 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
                     throw error;
                 throw new RpcError('invalid_params', `combat ${kind} refused: ${(error as Error).message}`, {
                     fix: kind === 'maneuver'
-                        ? 'a maneuver is one of the rulebook\'s four: set action.goal to disarm, ongoing_disadvantage, escape or push, and put the sentence in action.method'
+                        ? 'a manoeuvre is one of the rulebook\'s four: when the player declared one, set action.goal to disarm, ongoing_disadvantage, escape or push and put the sentence in action.method; otherwise this is not a manoeuvre -- settle what the player declared, as it is'
                         : 'correct the named field and call again; the rest of the action is unchanged',
                 });
             }
