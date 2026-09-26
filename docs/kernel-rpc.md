@@ -812,6 +812,13 @@ from a rule-default one, the table's section refused when malformed), `tests/ext
 (the default taken when Jev answers `unknown` and below the gate, Jev's word when it clears, no default → the Keeper),
 `tests/extension/single-loop-domain-policy.test.mjs` (the clerk's write at the seam on the emitted kernel).
 
+*Note, 2026-09-26 (§139.4, docs/specs/npc-acts-first.md D4).* The standing action no longer decides what the clerk does
+on an NPC's own turn of a fight: that turn is the person's own act, generated from their situation and bound to what
+the kernel settles (§139.3). The kernel still issues `standing_action` exactly as above -- a fact about the person,
+carried on the act's candidate and in the Keeper's note -- and the disposition is still inferred once (it is the stakes
+table's base rung, §139.8); what is gone is the clerk running a standing `attack` by default and returning the turn
+unbound on `hold` or `flee`. The Keeper's `apply npc action: hold` on the person's own turn still spends it (§138.5).
+
 #### 11.5.4 A person the carried source text names is known to the run (2026-09-24, SL-51; amends §87.2, §22.4.7 and §32.10)
 
 The owner's ruling (2026-09-24): what the carried source text names is not invented. A `person`/`npc` write whose name
@@ -23128,6 +23135,14 @@ starters, each in a fresh seeded campaign) against the parent `566dca9da`, and a
 
 **The rule.** A consequence whose candidate the graph, the roster, the rules data (§136) or the session view can issue is the clerk's to route through Jev (§135.30's fan-out: one Noul per candidate, an `exists` Noul per family, the exits); only a consequence with no issuable candidate remains the Keeper's. Three classes are added to §135.2's candidates with the new clerk authority `consequence_bookkeeping` (§135.3): `npc_reaction` (a present, authored, not-yet-met NPC; bound actor/target/decision), `clue_follow_up` (a scene clue whose gate — data, evaluated in code — the run's receipts satisfy), `time_cost` (a settled action whose §136 shape states a cost: direct; `_unstated` with a rules default: one Noul). Questions carry no kernel-internal tags and only the state they need; optional parameters take a "stated?" Noul; a candidate's confidence is its weakest judgment; thresholds live in `content/rulesets/coc7/host-budgets.json`; the model is pinned `jev-1.13.0`; an outage degrades to the Keeper choosing, never to a guess.
 
+*Note, 2026-09-26 (§139.3, docs/specs/npc-acts-first.md section 二): `npc_reaction` is not a person's act.* The class stays
+in shadow as ruled the same morning: it is the clerk executing, on Jev's judgement, a Mod's first-impression check
+between an investigator and a person not yet met -- a roll the rules owe, chosen by a closed question. A person's act
+(§139) is different in kind: a model writes what they do from their situation (§139.2), and the clerk only binds that
+sentence to a way the kernel settles and executes the binding (§139.3, authority `npc_act`); the clerk never decides a
+reaction. The owner confirmed the clerk executes the act before compose (spec section 四, ruling 2); nothing in
+`npc_reaction`'s stages changes.
+
 **Stages.** `COC_JEV_STEPS=shadow` (default from SL-76): the classes are routed and logged with `shadow: true` and paired at turn close with what the Keeper did (`keeper_did`), never executed. `on` (SL-78, opened by SL-77's agreement report meeting the spec's D6 2a): cleared candidates execute as clerk steps through the one gateway (§135.4, §32.12), the loop re-routes after each, the projection lists them under "clerk did" (§135.8), and a `residual` row per turn counts the Keeper's own `apply/resolve/look/lookup/recall`. Stage 3 (SL-79, opened by two tables meeting D6 2b): the compose step's catalog narrows to `narrate`, `ask`, `say` and a typed `propose {key}` over the run's offered candidates; free handles cannot be written by construction. Jev never writes prose and never `ask`s (§135.11 unchanged).
 
 ## 137. context.style.v1: a package contributes the capsule's craft lines (2026-09-25, W3 of docs/specs/prose-mod.md)
@@ -23444,6 +23459,11 @@ resolve the blow or spend the turn on that intention (§138.5). A standing `flee
 are unchanged. Also from the gate: the `intends` description no longer asks for an English sentence -- the one turn the
 Keeper wrote a long English intention line, its prose for the player slid into English on a zh-Hans table.
 
+*Superseded, 2026-09-26 (§139.4).* The forced blow this subsection released is gone: an NPC's own turn of a fight is now
+their generated act, bound after (§139.3), so no standing attack is run by the clerk and there is nothing for an
+intention under way to release. The intentions under way reach the act through the situation packet's `done`
+(§139.1), and a repeat of one is §139.5's to catch. The `intends` description note above stands.
+
 **138.15 Live gate A2 and what it changed (2026-09-26, after 138.14).** Ten turns on the same shape, pre-registered:
 delivery 10/10; Knott spent two fight turns on something other than a blow with a receipt (`spend_turn` on "ring the
 brass bell for the porter, then call the constable from the door", then `hold`), and one on a disarm manoeuvre -- the
@@ -23595,6 +23615,156 @@ whether an act repeats one already made is §139.4.
 - **The three ends (§31).** Writes: this lane. Reads: §139.3's binding step -- not wired by this ticket, which is why
   the SL-00 inventory lists `runtime/jev/npc-act.ts` `createNpcActLane.generate` as a `no-caller` leaf until §139.3 gives
   it one. Acts: the bound receipt (§139.3).
+
+**139.3 The binding: `npc.act.options`, one closed Jev batch, the clerk's writes, the stamp (ticket 03, spec D3 and D9).**
+The second half of the owner's ruling. A generated act (§139.2) is bound to a way the kernel already settles, by closed
+choices over the kernel's own options; nothing reads what the act means and no parameter is written by a model
+(§135.28 stands). Where §139.2 points at "§139.3" for when the step runs and "§139.4" for repeats, read §139.4
+(triggers) and §139.5 (the two no-repeat gates).
+
+- **The read.** `npc.act.options {campaign, name, act?, draw?}` (host-only, read-only; `kernel-ts/npc/act-options.ts`;
+  `name` as `look focus=npc` takes it, errors as `npc.situation`'s; `act` one line of at most 400 characters; `draw`
+  `true`, `false` or absent). Result: `{npc: {handle, name}, play_language, place, in_session, my_turn, acted_on,
+  ways, act?, draw?}`. `in_session` is true when a running combat or chase has them as a participant; `my_turn` when it
+  is their turn of the running combat with no attack awaiting a defence. `ways` is `[{way, params: {<param>: [{value,
+  label, ...}]}}]` in this order, each way present only when its condition holds:
+
+  | way | when | parameters (closed options, all existing kernel data) | written as |
+  |---|---|---|---|
+  | `attack` | in a combat, their turn, an opponent can still fight | `target`: the fight's `combatTargets` (opponents only); `weapon`: the weapons in their hands in the fight (`unarmed` when none) | `resolve {actor, intent: combat, decision: combat:attack, target, weapon}` |
+  | `flee` | in a combat, their turn | -- | `resolve {actor, intent: flee, decision: combat:flee}` (§138.10) |
+  | `first_blow` | in no session, placed in the active scene, a stat block | `target`: the investigators present; `weapon`: the stat block's weapons and `unarmed` | `resolve {actor, intent: combat, target, weapon}` (§138.11; no `surprise`: that is the Keeper's ruling) |
+  | `pursue` | in no session, placed in the active scene, a stat block, no chase running, an investigator gained `fled` this turn | `target`: those investigators | `resolve {actor, intent: flee, decision: chase:start, target}` |
+  | `check` | they have a skill value (the stat block, the ledger's pins, the pins on `npc` receipts) | `skill`: those skills, highest first, label `<skill> <value>` | `resolve {actor, intent: investigate, skill}` (§138.6; difficulty the rule's default) |
+  | `coercion` | an investigator present | `skill`: the rule's four (`COERCION_SKILLS`); `investigator` | `resolve {actor, intent: social, skill, target}` (§138.13; the rule sets the difficulty) |
+  | `clock` | placed somewhere, a clock not full | `clock`: the table's and the book's threat clocks of that scene's pacing (`threatSymptoms` rows with a `next`); each option carries `write: {name, clock?}` | `apply threat {name, clock?}` (one segment, §138.9) |
+  | `walk_on` | in no session, placed somewhere | `name`: people placed in a scene their place opens onto, and people this table established who stand nowhere | `apply npc {name: <them>, to: <their place>}` (§87) |
+  | `stance` | a word other than their stance now | `stance`: the stance ledger's other words | `apply npc {name, stance}` |
+  | `leave` | in no session, placed somewhere | -- | `apply npc {name, to: away}` |
+  | `intention_only` | always | -- | the row alone (below) |
+
+  `acted_on` is `[{receipt, kind}]`: this turn's receipts done to them -- `roll_against` (a roll whose `npc` is them),
+  `delta` / `condition` (their resources or conditions), `item` (a thing from them or to them), `cash` (an exchange
+  `with` them), and `fled_from` (an investigator gained `fled` while they stood in the active scene) -- never a receipt
+  of their own act (its `intent.npc` is them) nor their own roll; names match as `npc.situation`'s do (§139.1).
+  `act` (when asked) is the act's identity as one of their intentions (§138.1): `{line, ref, continues}`; the same
+  line as a row under way is that row (`continues: {ref, status, since_turn, turn}`, §139.5's structural gate); the
+  same line as a settled row is a new attempt, so its line is `<act> (turn <n>)` with its own ref (a settled intention
+  is not tried again, §138.2; nothing reads the words). `draw` (when asked) is `equipment.json`'s `records` whose
+  `entity_ref` is a `weapons.json` profile, of the module's era, one option per profile (`value` the profile id,
+  `label` the priced name, `price_id`).
+- **The batch.** One Jev batch per act, family `npc-act-bind` v1 (`runtime/jev/npc-act-step.ts`): `way` (criteria: a
+  one-line descriptor per offered way, the closed vocabulary above, plus `unknown`); `<way>.<param>` for every
+  parameter with more than one option (criteria: the option labels, plus `unknown`); `draw` when the stakes roll came
+  out severe (below); `same` (§139.5). State: the person, the act, the packet's `state` and `at_hand`. §135.2's gates
+  (`clears`): a way, a parameter or a draw that does not clear is not bound -- `unknown`, `none`, below the gates, or a
+  parameter left unbound all bind `intention_only` (`reason` names which); a parameter with one option is bound
+  without a question. With no Jev, or no answer, the act is still recorded as `intention_only`, but not as judged:
+  on their turn of a fight it does not spend the turn (the Keeper is told, §139.4). Every answer's distribution is on
+  the `lane: "route"`, `purpose: "npc-act"` row.
+- **Severe stakes (D9).** When the situation packet carries `stakes.outcome === "severe"` (§139.8, ticket 09; read
+  defensively -- no `stakes`, no allowance; `npc.stakes` is called before `npc.situation`, and an unknown method on a
+  line without it is no stakes), the read is asked with `draw: true` and the batch asks `draw` (the weapon the act has
+  them draw, or `none`); every `weapon` question gains the option "the weapon this act has them draw", which binds the
+  drawn weapon (and binds nothing when `draw` is `none`). A drawn weapon is written in the same act, before the
+  attack: its own npc effect with the host-only `_draws: {weapon: <weapons.json id>, price_id?}`
+  (`kernel-ts/apply/draw.ts`), which appends `{weapon_id, name, turn, price_id?}` to `world.npc_weapons[<handle>]`
+  (read by `npcProfileOf` after the stat block's and the owned objects' weapons, so a fight opened later, the first
+  blow and `npc.situation`'s `holdings` see it) and, when a combat is running with them in it, to their participant's
+  weapons in the saved fight (the fight's catalog already holds every rulebook profile). Receipt: `kind: "npc"`,
+  `draws: {weapon_id, name, price_id?}`, `visibility: "keeper"`. `_draws` stands alone in its effect (`details.conflicts`
+  otherwise). Hitting, harm and death stay the combat engine's dice; without a severe roll the allowance never applies.
+- **The writes.** The clerk executes the bound act `direct` (authority `npc_act`, §135.3's closed enum extended)
+  through the one operation gateway (§135.4: the same Keeper verbs, `tool_call` gates, Mod hooks, kernel and
+  `tool_result` hooks; an NPC-actor `resolve` and `npc`/`threat` effects are not reviewed, §32.1), in order:
+  1. a new act opens its row: `apply npc {name, intends: <line>, outcome: attempted}` -- with `spend_turn: true` on
+     their turn of a fight when the way is not a fight action (§138.5) -- and a drawn weapon's effect beside it (stamped
+     `attempted`);
+  2. the way's write (the table above) naming the row: a roll carries `action.intent_ref` (done or failed by the roll,
+     §138.2 addendum), an effect `intent_ref` with `intent_outcome: done` and `why: <line>`.
+  A continued row (§139.5) is named from the first write, with no opener; on their turn of a fight a non-fight way on a
+  continued row passes the turn by `apply npc {action: hold, why: <line>}` after the result (the row is settled by
+  then, so no stamp can name it again). A refused write stops the act there; what landed stands.
+- **The stamp.** Every receipt of the bound act carries `intent: {ref, npc, text, outcome, generated: true}`. The
+  kernel writes `generated` only from the host's `_generated: true` beside the intention -- on the npc intention variant,
+  on any effect's `intent_ref`, on a roll's `action.intent_ref` (`generatedOf`, `kernel-ts/apply/intent.ts`; `true` or
+  absent, else `invalid_params` on `<field>._generated`). The kernel extension sets it (and `_draws`, from the call's
+  basis) only on the clerk's `npc_act` calls and strips both from every other call (`extensions/kernel/npc-act-marks.ts`,
+  called by `runTool` after the tool schema validated the call). The fold reads it (§139.6: the row, `by: "table"`).
+- **An attack that waits for its defence.** An attack on an investigator rolls in the defence call, so the attack call
+  has no graded roll to carry the stamp (§138.2's addendum put `attempted` on its first receipt, and a call with none
+  carried nothing). The stamp now waits beside the pending attack, keyed by `attack_command_id`, in
+  `save/attack-intents.json` (the fight snapshot's contract admits no extra key); the defence call stamps the attacker's
+  graded roll `done` (hit) or `failed` and removes it. This holds for any `resolve` with `action.intent_ref`, the
+  Keeper's included.
+- **Receipts, as the table writes them** (Knott's turn of the fight spent on a shout, bound to his own check):
+  `{id: "npc:steven-knott-t3-c1", kind: "npc", call_id: "t3-c1", npc: "npc-steven-knott", handle: "steven-knott",
+  intent: {ref: "intent:steven-knott:4e694a1322f5", npc: "steven-knott", text: "<the act>", outcome: "attempted",
+  generated: true}, previous: null, passes_turn: {combat_id, round, turn_of: "thomas-hayes"}, visibility: "keeper", ...}`
+  then `{id: "roll:psychology-steven-knott-t3-c2", kind: "roll", call_id: "t3-c2", actor: "steven-knott", skill, level,
+  passed, visibility: "keeper", ..., intent: {ref: <same>, npc, text: <the act>, outcome: "failed", generated: true}}`.
+- **Telemetry.** One `lane: "run"`, `event: "npc_act"` row per act: `{npc, trigger: turn | acted_on, status: bound |
+  unavailable | refused | failed | skipped_cap | skipped_budget, reason?, act?, way?, params?, ref?, opened, continued,
+  abandoned, reask, draw, receipts, calls: [{tool, call_id, status, refusal?}], passed_turn?}`; one `lane: "route"`,
+  `purpose: "npc-act"` row per Jev batch (`status, ms, way, reason, answers, offered, rows`). The generation writes its
+  own `lane: "npc-act"` row (§139.2).
+- **The Keeper.** Each act is a `clerk_did` row of the run's note (`operation: "npc_act"`, the act, the way, the
+  parameters, the receipts). On an NPC's turn of a fight whose act did not pass the turn (no act, not judged, refused),
+  the next note carries `npc_turn: {npc, round, standing_action?, act: {status, reason, text}}` once, and the turn is
+  the Keeper's (D7: the Keeper may also settle or abandon a table-set row by its `ref`).
+- **Premise (pursuit).** `resolve chase:start` with an NPC `actor` works today: the investigator named by `target` is
+  the quarry, and the chase takes every opponent with a stat block placed in the scene as a pursuer -- the acting NPC
+  among them, but not only them when several are present. Nothing here narrows it.
+- **Three ends (§31).** Writers: this step (the act's receipts). Readers: the ledger fold, the card and the offer
+  (§138.3), the situation packet's `done` (§139.1). Actor: the Keeper, who narrates what the person did and may
+  overrule it with a real write (D7).
+
+**139.4 When a person acts: their turn of a fight, or being acted on (ticket 03, spec D4).**
+- **In a fight.** An NPC's own turn of a running combat (their turn, no attack awaiting its defence) is the forced
+  candidate `npc_act:<handle>:r<round>` (`clerk: npc_act`, `bound: {npc, trigger: turn}`; `runtime/jev/candidates.ts`).
+  It replaces SL-08's standing action as the clerk's step: `attack` is no longer run by default, `hold` and `flee` no
+  longer return the turn unbound, and §138.14's release goes with it; the standing the kernel still issues rides on the
+  candidate's basis as a fact about the person. A missing combat disposition is still inferred first (§11.5.3: it is a
+  description, which the stakes table's base rung reads). The pending defence (§11.5.2) is untouched, and so is an
+  NPC's turn of a chase (a closed bind over its issued actions). A person's act needs a model, so it is not a forced
+  step the time budget lets run past the compose (§135.25): past the budget it is `skipped_budget`.
+- **Outside a fight.** Once a step of the declaration has landed -- a clerk step the compile or the route selected
+  (not a forced one, not a person's own act) that the kernel took -- the policy issues one scan (`npc_act:scan:<n>`,
+  `bound: {trigger: acted_on, addressees}`) before the run's next model step, whatever that step is (`next`,
+  `npcScanDue`; the scan is never taken from `pending`). The scan reads `npc.act.options` for every person present
+  (the capsule's order) and runs the act of each one who is in no session and was acted on this turn (`acted_on`
+  non-empty) or is an addressee the run's compile cleared (§135.30's `addressee`), once per run each, at most
+  `npc_act.max_per_turn` (named default 2, `content/rulesets/coc7/host-budgets.json`) a turn; the rest are recorded
+  `skipped_cap` with their `acted_on`. A person nobody acted on is never run. Past the run's time budget the scan is
+  not run and one `skipped_budget` row says so. A later landed step owes another scan (people already seen are not
+  run twice).
+- **Unavailable.** A generation that answers `unavailable` writes nothing: the row says why, and the turn goes on
+  (outside a fight to the route and the compose; in a fight to the Keeper, told by `npc_turn`).
+- The step always succeeds for the policy (an act's refusal is its row, not the declaration's refusal).
+
+**139.5 Not the same thing twice: the two gates (ticket 04, spec D2 and D6).**
+- **Structural.** The act's line is the line of a row still under way (`npc.act.options`' `act.continues`): the act is
+  that row continued -- no opener, every write names the row (`intent_ref`), its result as §138.2's addendum settles it;
+  no semantic question is asked. Bound `intention_only` with the row under way since an earlier turn, it is two
+  consecutive acts with no result: the row is settled `abandoned`, `why: "repeated"` (the owed linkage, D6).
+- **Semantic.** Otherwise the batch asks `same`: which of the person's latest `npc_act.same_act_rows` rows (named
+  default 5; the packet's `done`, under way first) the act is the same thing as, or `none` (criteria: each row's line
+  and status). Cleared on a row still `attempted`: the generator is asked once more with one more `happened` line --
+  `<name> already set out to "<line>" on turn <n> and it has no result: this time give it a result, or do something
+  else.` -- and the new act is bound (the batch asked again). If that act is again the same as a row under way (or the
+  re-ask is unavailable), it is bound as that row continued; with nothing to settle it (`intention_only`) the row is
+  abandoned (`why: "repeated"`), and a way that settles it gives it that result instead. Cleared on a settled row: a
+  new row (done again in a new situation is lawful), no re-ask. `none`, unknown or below the gates: a new row.
+- The act's row records `reask`, `continued` and `abandoned`; the fixture port's `calls` count the re-ask in tests.
+- No word list, no text similarity, no prose read anywhere: identity is the line's digest (§138.1), sameness is Jev's
+  closed choice over the rows' own lines.
+
+*Tests.* `tests/kernel/test_npc_act_options.py` (no attack or flight outside a fight; only opponents as targets on
+their turn; `acted_on`; the act's identity; the era's draw list; a stamp waiting for its defence; refusals),
+`tests/extension/single-loop-npc-act.test.mjs` (the batch and its gates; the writes; the scan; the forced turn; the host
+marks; at the table: a fight turn spent on a shout, the same act unsettled, the severe and the non-severe draw, the
+person acted on and the one who was not; on the emitted kernel: the cap, pursuit and none, the two gates across turns),
+`tests/extension/npc-intents.test.mjs` (the mark through the real writer, `by: "table"`).
 
 **139.6 The response bank and the per-turn advice are retired; the card says whose act a row was (ticket 05, spec D5).**
 *Why.* The bank was a set of "if the player does X, try Y" rows written ahead of time, and the advice lane asked Jev

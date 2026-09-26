@@ -602,11 +602,12 @@ test("§139.5 semantic gate: the same thing again with no result is re-asked onc
 	assert.equal(reasked.packet.happened.length, asked.packet.happened.length + 1, "the re-ask's packet names the row with no result");
 	assert.ok(reasked.packet.happened.at(-1).includes(CALL));
 	const second = knottActs(game).at(-1);
-	assert.deepEqual([second.reask, second.opened, second.continued, second.abandoned], [true, false, first.ref, first.ref]);
+	assert.deepEqual([second.reask, second.opened, second.continued], [true, false, first.ref], "bound as that row continued");
 	await spokenTo(game, "我把抽屉关上。");
 	const rows = doneOf(npcAct.calls[3]);
 	assert.deepEqual(rows.find(([intent]) => intent === CALL), [CALL, "abandoned"], "the next turn's packet: no longer under way");
 	assert.ok(!rows.some(([intent]) => intent === AGAIN || intent === STILL), "the repeats opened no rows of their own");
+	assert.equal(second.abandoned, first.ref, "the act's row names the row it abandoned");
 });
 
 test("§139.5 semantic gate: Jev reads the act as none of the rows -- each act is its own row, and nothing is asked twice", async (t) => {
