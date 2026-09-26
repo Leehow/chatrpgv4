@@ -22,6 +22,14 @@ compile_calls, clerk_calls, consequence_calls}` rows, written once per turn at t
 has none). `keeper_calls` is the design's own residual: the Keeper's free tool calls among the five bookkeeping
 verbs, whatever SL-78's execute list did not already cover.
 
+The "recall/precision" section (SL-86, ticket 86) reads the same candidate rows the per-class table above does,
+per class: precision (`tp/(tp+fp)`, the same false positives the "cleared-but-false/other" detail already lists)
+and recall (`tp/(tp+fn)`), where a false negative is a row Jev did NOT clear (`cleared` false or an unresolved
+Noul) whose entity the Keeper's own receipts say it filed the same turn anyway (`keeper_did: true`) -- printed
+with the Noul's own `yes` probability (`confidence`). This is the number ticket 86's per-class gate
+(`jev_steps.classes.clue_follow_up.row_min`) is meant to move; the section is a read of already-recorded
+telemetry, never a live re-ask.
+
 Usage:
     python3 tests/play/jev-steps-report.py <root> <glob> [<glob> ...]
 
@@ -201,6 +209,37 @@ def residual_section(telemetry, turn_files):
     return rows
 
 
+def recall_precision_section(candidate_rows, stranded):
+    """SL-86 (ticket 86, §135.32 addendum 3): per class, precision (`tp/(tp+fp)`) and recall (`tp/(tp+fn)`) over
+    the paired candidate rows -- a false positive is a cleared row the Keeper's own receipts say it did not act
+    on (`keeper_did` false/other, the same rows the "cleared-but-false/other" section above lists in detail); a
+    false negative is a row the shadow route did NOT clear (`cleared` falsy: `false` or an unresolved `null`
+    Noul) whose entity the Keeper's own receipts say it filed the same turn anyway (`keeper_did: true`) -- read
+    off the row's own `confidence` (the Noul's `yes` probability), never re-derived. A turn the run never
+    delivered (`stranded`) is excluded, the same pairing rule the per-class table above already applies. This is
+    a read of already-recorded telemetry: it reports what a table's `cleared`/`keeper_did` values were under
+    whatever gate was live when it was played, never a live Jev re-ask."""
+    print('\n-- recall/precision (SL-86, ticket 86): false negatives are offered rows the Keeper filed but Jev did not clear --')
+    print(f'{"class":<16} {"tp":>4} {"fp":>4} {"fn":>4} {"precision":>10} {"recall":>8}')
+    fn_by_class = collections.defaultdict(list)
+    for cls in CLASSES:
+        rows = [r for r in candidate_rows if r.get('class') == cls and r.get('turn') not in stranded]
+        tp = sum(1 for r in rows if r.get('cleared') and r.get('keeper_did') is True)
+        fp = sum(1 for r in rows if r.get('cleared') and str(r.get('keeper_did')).lower() in ('false', 'other'))
+        fn_rows = [r for r in rows if not r.get('cleared') and r.get('keeper_did') is True]
+        precision = f'{tp / (tp + fp):.2f}' if (tp + fp) else 'n/a'
+        recall = f'{tp / (tp + len(fn_rows)):.2f}' if (tp + len(fn_rows)) else 'n/a'
+        print(f'{cls:<16} {tp:>4} {fp:>4} {len(fn_rows):>4} {precision:>10} {recall:>8}')
+        fn_by_class[cls] = fn_rows
+    any_fn = False
+    for cls in CLASSES:
+        for row in fn_by_class.get(cls, []):
+            any_fn = True
+            print(f'  [{cls}] turn {row.get("turn")} key={row.get("key")!r} yes_probability={row.get("confidence")}')
+    if not any_fn:
+        print('  (no false negatives: every row the Keeper filed this turn, Jev also cleared)')
+
+
 def report_campaign(campaign_dir):
     cid = os.path.basename(campaign_dir)
     telemetry = load_jsonl(os.path.join(campaign_dir, 'telemetry.jsonl'))
@@ -235,6 +274,8 @@ def report_campaign(campaign_dir):
         for row in paired:
             if row.get('cleared') and str(row.get('keeper_did')).lower() in ('false', 'other'):
                 false_other_detail[cls].append(row)
+
+    recall_precision_section(candidate_rows, stranded)
 
     print('\n-- exists rows (does the family apply at all; no keeper_did) --')
     print(f'{"class":<16} {"offered":>7} {"cleared=true":>13} {"cleared=false":>14} {"unresolved(null)":>17}')
