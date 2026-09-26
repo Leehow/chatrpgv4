@@ -31,6 +31,20 @@ function ensureRound(session: ChaseSession): void {
     if (!session.rounds.length || session.initiativeCursor >= order.length)
         session.beginRound();
 }
+/** Whether the world has this person in the current scene (a quarry the Keeper wrote away is not, §139.13). */
+function presentHere(context: SettleContext, id: string): boolean {
+    return row(context.world.npc_presence)[id] === context.activeScene;
+}
+/**
+ * The hint of a grab (§11.5's end rule, §139.12). A caught person the world has off the scene -- the Keeper wrote them
+ * away in their flight's turn and the chase still ran after them (§139.13) -- is written back here before the fight,
+ * which only opens against someone present.
+ */
+function caughtHint(context: SettleContext, id: string): string {
+    return !context.sheetById(id) && !presentHere(context, id)
+        ? `${id} is caught; settle chase:end (captured). The table still has ${id} off this scene (apply npc to), so write them back with apply npc to: here, then fight it out with intent combat`
+        : `${id} is caught; settle chase:end (captured), then fight it out with intent combat`;
+}
 async function finish(context: SettleContext, session: ChaseSession, before: Row, data: Row, hints: string[]): Promise<ExecutionResult> {
     const pending = session.drainPending();
     session.drainEvents();
@@ -74,10 +88,13 @@ async function finish(context: SettleContext, session: ChaseSession, before: Row
         hints.push(`the chase has reached its outcome (${reached}); settle chase:end`);
     // Contract §139.12: the engine moves no quarry who got away -- an investigator's `apply move` is the Keeper's, and so
     // is where a person the investigators chased went. That person is still present in the world until it is written.
+    // §139.13: a quarry the Keeper already wrote off the scene in their flight's turn is not present, and is not told so.
     if (session.status !== 'active' && session.outcome === 'escaped')
         for (const [id, participant] of entries(session.participants))
             if (participant.side === 'quarry' && !context.sheetById(id))
-                hints.push(`${id} got away from the investigators: say where they went with apply npc to: away (or the scene they reached); until then they are still present here`);
+                hints.push(presentHere(context, id)
+                    ? `${id} got away from the investigators: say where they went with apply npc to: away (or the scene they reached); until then they are still present here`
+                    : `${id} got away from the investigators and is already written off this scene (apply npc to): nothing more is needed, unless they reached a scene you name with apply npc to`);
     return {
         data,
         warnings: [],
@@ -215,7 +232,7 @@ export const executeChase: SettlementExecutor = async (context, args) => {
                 }]);
             const grabbed = array(turn.actions_taken).filter(action => action.type === 'conflict' && action.result === 'grabbed');
             if (grabbed.length)
-                hints.push(`${string(grabbed[0].target)} is caught; settle chase:end (captured), then fight it out with intent combat`);
+                hints.push(caughtHint(context, string(grabbed[0].target)));
         }
         else if (kind === 'chase_hazard')
             turn = session.moveParticipant(actorId, [{
@@ -256,7 +273,7 @@ export const executeChase: SettlementExecutor = async (context, args) => {
             const grab = array(turn.actions_taken)[0] || {};
             data.grab = grab.result ?? null;
             if (grab.result === 'grabbed')
-                hints.push(`${targetId} is caught; settle chase:end (captured), then fight it out with intent combat`);
+                hints.push(caughtHint(context, string(targetId)));
         }
         else
             return unsupportedValue('command.kind', kind, COMMANDS, `unknown chase command ${repr(kind)}`);

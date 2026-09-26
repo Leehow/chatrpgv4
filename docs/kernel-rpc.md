@@ -24385,3 +24385,123 @@ and a nameless `move` is told to name whom. `tests/kernel/test_npc_round_operati
 restored hint. Mutations (copy and restore): `chaseRoles` returning "the investigator is the quarry" always fails the
 four first cases, the `flee` one with exactly ticket 10's measured sides; the MOV requirement removed, the three-intent
 admission removed, the escape hint removed and the standing flight ignored each fail their cases.
+
+*Note (2026-09-26, ticket 14, §139.13).* The standing flight of item 1 above no longer ends at an `npc` receipt moving
+the person (`to`): the hint below asks the Keeper to write that move in the flight's own turn, so the pursuit the
+player declares on the next turn was always refused. A flight now stands through its own turn and the next one, ends
+earlier only at a fight or chase starting after it or at the acting investigator's own flight, and has lapsed from the
+turn after that; a person who ran from here is chased though the world has them away. The exact window, the refusals
+of a chase start that names no one, and the ends of a chase whose quarry the world has away are §139.13.
+
+**139.13 A flight stands until the player has answered it (2026-09-26, ticket 14 of `docs/specs/npc-acts-first-tickets/`,
+spec section 九, table C; amends §139.12's standing flight, its chase-start refusals, its NPC-flight hint and its chase
+ends).**
+
+**Evidence.** Table `npc-acts-c` (`.coc/playtests/npc-acts-c-20260926T125610Z`, campaign `npc-acts-c`). Turn 4:
+Knott's generated act bound as a flight; the engine gained him `fled` (`condition:steven-knott-t4-c6`) and ended the
+fight, and the Keeper, as the flight hint says, wrote `apply npc to: away` in the same turn (`npc:steven-knott-t4-c7`).
+Turn 5: the player ran out of the door and down the stairs after him. The Keeper resolved `chase:start` three times:
+with `target: Steven Knott` (intent `flee`) → `unknown_entity: Steven Knott is not in the current scene`; twice with no
+target → `needs: a chase needs a pursuer with a stat block present in the scene`, the old refusal, and misleading. To
+get past it the Keeper moved Knott into the Corbitt house (`npc:steven-knott-t5-c5`, `to: corbitt-house-ground`); he
+was never present again, no act of his was generated, turn 6 has no receipts and turn 7 only prose. The cause:
+§139.12's standing flight ended at any `to` written after it (ticket 13's handoff: "the NPC is moved (`to`)" ends the
+window), while its own hint asks for that `to` in the flight's turn. The pursuer was always one turn late.
+
+**The window, exactly.** A person's flight is the last receipt that gained them `fled` -- a combat flight (§138.10) or
+the Keeper's `apply npc` condition -- written in turn N. It stands for the rest of turn N and the whole of turn N+1, the
+turn in which the player's declaration answers it, whatever `apply npc to` wrote about where they went in either turn
+(`away`, a scene, `here`): a `to` never ends it. It closes at the first of:
+
+1. the close of turn N+1 -- from turn N+2 on it has lapsed unused, and a resolve on turn N+2 reads no standing flight;
+2. a fight or a chase starting after it (a `session` start receipt, family `combat` or `chase`). A chase that runs
+   after them consumes it: while that chase runs they are where the chase is, and when it ends `escaped` they are
+   gone, `captured` they are caught here;
+3. a flight of the acting investigator after it (§139.12, unchanged).
+
+A party `apply move` does not close it (the pursuit may move the investigators first; the chase opens where they
+stand). The window is the same for a person still present and one written away: a person who fled, was never moved and
+is still here on turn N+2 has no standing flight, so an investigator's `flee` at them runs from them (§139.12's
+no-flight shape). Implementation: `standingFlights` (`kernel-ts/chase/bindings.ts`) reads the committed turn records
+(each with its `turn`), then the open turn, then the call, so every flight knows the turn it was written in;
+`standingFlight` (§139.12's reader) and `fledFromHere` read it.
+
+**Who can be chased from here** (`fledFromHere`): a person, not an investigator, whose flight stands and who ran from
+where the investigators are -- still present in the current scene, or written somewhere by `apply npc to` since they
+fled. A person the Keeper stamped `fled` somewhere else and never moved is not one.
+
+**What reads it.**
+
+- *The target check* (`npcTarget`, `kernel-ts/resolve/pipeline.ts`). A person named in `action.target` who is not in
+  the current scene is not refused `unknown_entity` when (a) they are a participant of the running chase -- they are
+  where the chase is, so the pursuer's `chase:conflict target: <them>` grabs a quarry the world has away -- or (b) they
+  can be chased from here. For (b) only the chase start reaches them: the call is routed as usual, and when the route is
+  not `chase:start` the refusal is `needs`, message `<name> is not in the current scene: they ran from here and can
+  still be chased, and only a chase reaches them`, `details: {reason: "fled_from_here", npc, flight, needs: {field:
+  "decision", options: ["chase:start"]}, candidates}` (`candidates` the people here, as `unknown_entity` gives them),
+  fix `to run after them, resolve chase:start (intent move) with actor: <the investigator> and target: <name>, and
+  <name> is the chase's quarry; otherwise act on someone who is here (details.candidates)`. Once the window has closed
+  the refusal is `unknown_entity` "not in the current scene", as before.
+- *Who runs* (`chaseRoles`, §139.12) reads the standing flight as before, so the chase opens with `[<investigator>
+  pursuer, <them> quarry]`, `chase_id` and the location chain from the current scene (they ran from here). Any of the
+  three chase intents reads as the pursuit (§139.12): the table's Keeper wrote `flee`. The start moves nobody: the world
+  keeps the Keeper's `to`.
+- *The rule graph's readiness.* `chase.start.ready` (`SessionView.facts`) counts people present with a stat block. For a
+  quarry named in the window who is not present, the pipeline sets it when their stat block exists (`chaseFacts`); with
+  no stat block the start is still withheld and the quarry's own refusal answers (`quarry_has_no_stat_block`, §139.12),
+  never the pursuer message.
+- *A chase start that names no one*, by an investigator (`askWhomTheChaseIsAfter`, called from `chaseSlots` and from the
+  pipeline's no-candidate refusal). `move` or `combat`: `quarry_does_not_flee` (§139.12), its `needs.options` the people
+  here with a stat block and those who ran from here, and when someone ran from here the fix names them -- `to run after
+  <name>, resolve chase:start again with target: <name> (they are the chase's quarry); ...`. This now also answers a
+  nameless `move` or `combat` when nobody here has a stat block (before: the pursuer message). `flee`, when someone ran
+  from here: `needs`, message `chase:start names no one, and <names> ran from here and can still be chased: whom does
+  <investigator> run after, or from?`, `details: {reason: "chase_names_no_one", needs: {field: "target", options:
+  [<their handles>]}, fled: [{npc, flight}]}`, fix: target them (flee, move or combat all read as the pursuit), or name
+  whom the investigator runs from with intent `flee`. `quarry_does_not_flee` carries the same `fled` rows when someone
+  ran. `flee` with no one who ran from here is unchanged: the investigator flees whoever with a stat block is here
+  (corpus case `chase-start-090232bd`), else the pursuer message -- which a chase start now meets only when an
+  investigator runs and nobody here has a stat block to pursue them.
+
+**The hints.**
+
+- *The NPC-flight hint* (`combat/execution.ts`) keeps §139.12's text and adds: `Writing where they went does not end the
+  pursuit: until the player's next turn is settled, that chase:start still runs after <npc> from here`.
+- *The chase's ends* (`kernel-ts/chase/index.ts`). A quarry who got away and is still present keeps §139.12's hint; one
+  the world already has off this scene gets `<handle> got away from the investigators and is already written off this
+  scene (apply npc to): nothing more is needed, unless they reached a scene you name with apply npc to`. A caught
+  quarry the world has off this scene gets `<handle> is caught; settle chase:end (captured). The table still has
+  <handle> off this scene (apply npc to), so write them back with apply npc to: here, then fight it out with intent
+  combat` -- the fight only opens against someone present, and the chase consumed the window, so without that write
+  `intent: combat` at them is `unknown_entity`. Where a person is stays the Keeper's `apply npc to`; no resolve writes
+  presence.
+
+**Three ends (§31).** Writers: the flight's condition receipt (the engine, or `apply npc`), `apply npc to`, the session
+start receipts, the turn's close (its record carries `turn`). Reader: `standingFlights`, through `standingFlight`
+(`chaseRoles`) and `fledFromHere` (`npcTarget`, `askWhomTheChaseIsAfter`, the readiness fact); `npc_presence` for the
+end hints. Who acts: the Keeper, through the flight hint, the refusals' `fix` and `needs.options`, and the end hints.
+
+**Not covered.** Places the book does not have (the stairs, the street): the ticket's not-in-scope, the flat locus
+model. The capsule does not list who can still be chased; the flight hint and the refusals carry it. A whole party's
+pursuit (§139.12). The flight receipt records no scene, so a person who ran from scene A and was written away can be
+chased from scene B if the investigators moved there within the window -- the Keeper's call, left open.
+
+Tests: `tests/kernel/test_pursuit_after_flight.py` (emitted kernel, Corbitt fixtures, seed 7): Corbitt flees and is
+written `to: away` in turn 1, the turn closes, and on turn 2 `chase:start target: Walter Corbitt` under `flee` and
+`move` opens the chase in `corbitt-confrontation` with `[thomas-hayes pursuer, walter-corbitt quarry]`, both speed rolls
+in that call, the world still without him; the same inside the flight's own turn; with no pursuit on turn 2, turn 3's
+chase start is `unknown_entity`; a Corbitt never moved is, on turn 3, fled from (`[thomas-hayes quarry, walter-corbitt
+pursuer]`); a nameless `flee` (`chase_names_no_one`) and `move` (`quarry_does_not_flee`) on turn 2 name `walter-corbitt`
+and the flight, never the pursuer message, and the named call then opens the chase; `intent: combat` at him on turn 2 is
+`fled_from_here`; he escapes with the already-away hint and the world unchanged; with MOV 4 he is caught in the
+pursuer's move, the caught hint says to write him back, `intent: combat` at him is `unknown_entity` until `apply npc to:
+here`, and then the fight opens; with the saved chase edited to put the pursuer on his location, the explicit
+`chase:conflict target: Walter Corbitt` grabs him; on turn 3 a nameless `move` is `quarry_does_not_flee` with no options
+and no `fled`. `test_chase_npc_quarry.py`, `test_flee_footing_and_pursuit.py`, `test_sessions.py` and
+`test_npc_round_operation.py` unchanged and green. Mutations (copy and restore): a `to` ending the window again fails
+the two next-turn cases, the same-turn case, both nameless cases, `fled_from_here`, both played chases and the grab (9
+of 11); the lapse removed fails the two turn-3 cases; the readiness fact removed fails the next-turn and same-turn
+cases, the nameless cases, both played chases and the grab with the pursuer message; the running-chase exemption removed
+fails the explicit grab (`unknown_entity`); the `fled_from_here` check removed fails its case; the nameless ask removed
+from the no-candidate refusal fails both nameless cases and turn 3's nameless pursuit; the caught hint's branch removed
+fails the capture and the grab.
