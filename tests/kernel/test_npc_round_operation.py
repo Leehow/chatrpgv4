@@ -127,7 +127,14 @@ def test_an_npc_who_flees_flees_and_the_pursuit_is_the_investigators_choice(figh
     assert {"decision": "combat:flee", "actor": CORBITT} in actions
     fled = resolve(fight, f"t1-c{n}", actor="Walter Corbitt", intent="flee", goal="get away", method="run for the stairs")
     assert fled["decision"].endswith("combat:flee")
-    assert any("chase:start" in hint and CORBITT in hint for hint in fled["hints"]), fled["hints"]
+    # §139.9 (2026-09-26): the hint no longer promises the investigators a chase:start against him -- the engine's chase
+    # always makes the investigators the quarry, so that call ran a chase with Corbitt as the pursuer. It says where
+    # he went is an `apply npc to`, that a pursuit is narrated, and why (who the chase's quarry is).
+    named = [hint for hint in fled["hints"] if CORBITT in hint]
+    assert len(named) == 1, fled["hints"]
+    hint = named[0]
+    assert "apply npc to: away" in hint and "narrate" in hint and "quarry" in hint, hint
+    assert "resolve chase:start" not in hint and f"target {CORBITT}" not in hint, "no call the engine cannot run"
     assert fight.table("look", focus="session")["session"] is None, "he was the only one fighting them: the fight is over"
     assert not [c for c in fled.get("continuations", []) if "chase" in str(c.get("decision", "")) and c.get("executed")], \
         "a pursuit is the investigators' choice, never started for them"

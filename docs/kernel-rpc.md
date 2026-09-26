@@ -23474,28 +23474,31 @@ engine's flight, both found reviewing the gate tables (spec section 七):
   pursuer never decided to pursue. An NPC's flight already only hinted the pursuit (§138.10).
 
 **Who cannot flee is rules data.** `content/rulesets/coc7/rules-json/combat.json` gains a top-level block
-`flee: {rule_ref: "rule:coc7:combat:escape-close-combat", flee_blocked_by: [...], source_note}`. The kernel keeps no
-list; `CombatSession.create` reads `flee.flee_blocked_by` beside the tables it already loads, and `resolveFlee` matches
-it against the participant's `conditions` **and** the names of their `active_effects`. The list and its basis:
+`flee: {rule_ref: "rule:coc7:combat:escape-close-combat", flee_blocked_by: [...], flee_clears: [...], source_note}`.
+The kernel keeps no list. One leaf, `kernel-ts/combat/flee-footing.ts`, reads the block (`fleeRules`) and matches
+`flee_blocked_by` against a participant's `conditions` **and** the names of their `active_effects` (`fleeBlockers`);
+the engine (`CombatSession.create`, `resolveFlee`) and the session view (the paragraph on it below, loaded with the
+standing tables) both call it, so the view never offers a flight the engine refuses. The lists and their basis:
 
 | state | basis |
 |---|---|
 | `grappled` | Keeper Rulebook, Fleeing (source page 119, printed p.107; summary source page 420): a character flees on their own action "providing they have an escape route and are not physically restrained". `grappled` is that restraint as a condition (`rule-index.json` `core.combat.maneuver.grapple`). |
 | `restrained` | The same hold as the engine records it: the active effect the `ongoing_disadvantage` manoeuvre writes (`applyEffect`), which the engine never mirrored into a `grappled` condition. Not in `VALID_CONDITIONS`; listed because a list of conditions alone would miss the rulebook's own case on the engine's own path. |
 | `unconscious`, `dying`, `dead` | Flight is the person's action, and these take no action (`healing/conditions.ts` `INCAPACITATING_CONDITIONS`; 0 HP is unconscious, 0 HP with the Major Wound box ticked is dying, source page 131, printed p.119). The initiative already skips them, so in play they reach this check only when the cursor still stands on them; they are listed so the flight rule is whole on its own. |
+| `prone` (in `flee_clears`, not `flee_blocked_by`) | Keeper Rulebook, Prone (an optional rule, source page 139, printed p.127): "when it comes to their turn in the round, they may stand up and then take their action". A prone person who flees stands up and runs: the flight ends `prone` in the same write that adds `fled`, so the condition receipt reads `lost ["prone"]`, `gained ["fled"]`. The fight ends as before. Owner's ruling on the contradiction below (2026-09-26, option b). |
 
-`prone` is **not** on the list, although the ticket named it. The rulebook contradicts it: "A character that is prone
+`prone` is **not** on the block list, although the ticket named it. The rulebook contradicts it: "A character that is prone
 may stand up when they successfully dodge or fight back against an opponent. Alternatively, when it comes to their
 turn in the round, they may stand up and then take their action" (Prone, an optional rule, source page 139, printed
 p.127), and the core Fleeing rule names only an escape route and physical restraint. The kernel's own rules layer says
 the same (`healing/conditions.ts`: `prone` costs dice or position, never the action). There is also no write anywhere
 in the engine that removes `prone` during a fight (it is cleared only at the fight's end, `TRANSIENT_COMBAT_CONDITIONS`),
 so a refusal whose fix said "spend a turn getting up" would loop: the Keeper would `hold` or `spend_turn`, retry, and
-be refused again. The A2 turn-6 shape is therefore unchanged by this subsection: a prone person who flees is still
-stamped `fled` with `prone` still carried. Two rule-true ways to close it, for the owner (not decided here): (a) add
-`prone` to `flee_blocked_by` together with a write that stands a person up on a spent turn (a house rule, stricter
-than p.127); or (b) follow p.127 -- flight stands them up, so the receipt reads `lost ["prone"]`, `gained ["fled"]`,
-and the prose must follow the receipt (ticket 06/07's lane).
+be refused again. Two rule-true ways were put to the owner: (a) add `prone` to `flee_blocked_by` together with a
+write that stands a person up on a spent turn (a house rule, stricter than p.127); or (b) follow p.127 -- flight stands
+them up. **Ruling (2026-09-26): (b).** `flee_clears: ["prone"]`; `resolveFlee` drops every `flee_clears` state as it
+adds `fled`. The A2 turn-6 receipt `before ["prone"]`, `after ["prone","fled"]` now reads `after ["fled"]`,
+`lost ["prone"]`, `gained ["fled"]`; the prose must follow the receipt (tickets 06/07).
 
 **The refusal.** A person carrying any listed state is answered `needs` before anything is written: message
 `<actor> is <states> and cannot flee`; `details: {reason, blocked_by, actor, rule: "combat.json flee.flee_blocked_by"}`
@@ -23529,22 +23532,40 @@ investigator as `quarry` and the NPC as `pursuer`; the speed rolls and `session:
 pursuer -- `chaseSlots` makes every present opponent with a stat block a pursuer, and `action.target` narrows that set
 only when it names an NPC.
 
-**A defect found, not fixed here.** §138.10's hint for an NPC's flight -- "if the investigators give chase, resolve
-chase:start with target <npc>" -- opens a chase with the investigator as `quarry` and the fleeing NPC as `pursuer`
-(measured on the Corbitt fixture: `[("thomas-hayes","quarry"),("walter-corbitt","pursuer")]`). The `chase:start`
-binding has one shape, investigator = quarry; an investigator chasing an NPC has no binding. The ticket's "调查员追 NPC
-用 `chase:start`（现状）" rests on that hint and does not hold.
+**The NPC-flight hint no longer promises a chase the engine cannot run (amends §138.10).** §138.10's hint for an
+NPC's flight -- "if the investigators give chase, resolve chase:start with target <npc>" -- opened a chase with the
+investigator as `quarry` and the fleeing NPC as `pursuer` (measured on the Corbitt fixture:
+`[("thomas-hayes","quarry"),("walter-corbitt","pursuer")]`). The `chase:start` binding has one shape, investigator =
+quarry; an investigator chasing an NPC has no binding, and the ticket's "调查员追 NPC 用 `chase:start`（现状）" rested on
+that hint. The engine fix is ticket 13 (the chase admits an NPC quarry), whose contract is §139.12. Until it lands the
+hint reads: `<npc> fled the fight: say where they went with apply npc to: away (or the scene they reach). If the
+investigators run after <npc>, narrate that pursuit: the engine's chase today always has the investigators as its
+quarry, so it cannot run a chase of <npc>; §139.12 will give the pursuers a chase:start with the fleeing person as the
+quarry`. It names no call the engine cannot run (`resolve chase:start ... target <npc>` is gone).
 
-**Three ends.** Writer: the ruleset table (data), the escape manoeuvre (lifts the hold). Reader: `resolveFlee`, per
-flight. Who acts: the Keeper, through the refusal's `fix` and the pursuit hint. Not changed: the session view still
-issues `combat:flee` to a person the list blocks, and a standing `flee` (§11.5.3) for them binds and is refused; the
-view does not read the list.
+**The session view does not issue a flight the rules block (amends §138.10's "the view issues combat:flee on
+anyone's turn").** `SessionView.combatActions` omits `combat:flee` for the person whose turn it is when
+`fleeBlockers` finds a listed state on them; every other action is issued as before (the escape manoeuvre is how they
+get free). The flight rules ride `StandingTables.flee`, loaded where the standing tables already are (the campaign
+snapshot's preload of an active fight, `read/campaign.ts`); when those tables are not loaded, the view issues the
+flight as before and the engine's refusal remains the guard. A standing `flee` (§11.5.3) for a blocked person then
+finds no issued `combat:flee` to bind, so the clerk issues no step and the turn is the Keeper's
+(`runtime/jev/candidates.ts`, unchanged).
+
+**Three ends.** Writer: the ruleset table (data), the escape manoeuvre (lifts the hold), the flight (ends
+`flee_clears`). Reader: `resolveFlee` per flight, and the session view per read. Who acts: the Keeper, through the
+issued actions, the refusal's `fix` and the flight hints.
 
 **Evidence of the implementation.** `tests/kernel/test_flee_footing_and_pursuit.py` (Corbitt fixtures): a `grappled`
 Corbitt's flight is refused and the same flight settles once the hold is gone; every listed state blocks, the fix by
 kind; the escape the fix names frees him from either form of the hold and the flight then settles; an investigator's
 flight ends the fight with no chase and the pursuit hint; Corbitt then opens the chase as the pursuer.
-`tests/kernel/test_sessions.py`'s flee test now opens the chase as Corbitt and plays it to its end. Mutations: an empty
-`flee_blocked_by` (the grappled Corbitt is stamped `fled` and the fight ends `investigators_win`, the A2 shape), the
-continuation restored, and the escape change reverted each turn their tests red. `rule-graph-table-digests.json`
-carries the new bytes of `combat.json`.
+A prone Corbitt who flees gets one condition receipt `before ["prone"]`, `after ["fled"]`, `lost ["prone"]`,
+`gained ["fled"]`; a grappled Corbitt's turn issues no `combat:flee`, and freed, it does.
+`tests/kernel/test_sessions.py`'s flee test now opens the chase as Corbitt and plays it to its end;
+`tests/kernel/test_npc_round_operation.py`'s NPC-flight test asserts the new hint (where he went is `apply npc to`, a
+pursuit is narrated, the chase's quarry named) and that it names no `resolve chase:start ... target <npc>`. Mutations:
+an empty `flee_blocked_by` (the grappled Corbitt is stamped `fled` and the fight ends `investigators_win`, the A2
+shape), the continuation restored, the escape change reverted, `prone` kept on the fled person, the view's filter
+removed and the old NPC-flight hint restored each turn their tests red. `rule-graph-table-digests.json` carries the
+new bytes of `combat.json`.

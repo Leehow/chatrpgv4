@@ -8,6 +8,7 @@ import type { HealingSavePort } from '../healing/session.js';
 import { applyWoundConditions } from '../healing/resources.js';
 import { incapacitatedBy } from '../healing/conditions.js';
 import { RpcError } from '../errors.js';
+import { fleeBlockers, fleeRules, NO_FLEE_RULES, type FleeRules } from './flee-footing.js';
 import { fullAutoVolleySize, parseUsesPerRound, resolveModuleWeapons, UnknownWeaponError } from './catalog.js';
 import { canonicalSkipSourceReceipt, damageBindingsForTurn, damageEvidenceRows, damageTransactionReceipt } from './evidence.js';
 import { LEVELS, PERCENTILE_FIELDS, playerProjection, resolveOpposed, stampSkillOwnership } from './rolls.js';
@@ -119,16 +120,15 @@ export class CombatSession {
     revision = 0;
     pendingAttack: Row | null = null;
     /**
-     * Contract §139.9: the states that keep a person from fleeing, read from the ruleset (`combat.json`
-     * `flee.flee_blocked_by`), matched against a participant's conditions and the names of their active effects. The
-     * list is rules data; the engine keeps none of its own.
+     * Contract §139.9: the states that keep a person from fleeing and the states the flight ends, read from the ruleset
+     * (`combat.json` `flee`), matched by `./flee-footing.ts`. Rules data; the engine keeps no list of its own.
      */
-    fleeBlockedBy: string[] = [];
+    flee: FleeRules = NO_FLEE_RULES;
     constructor(readonly combatId: string, readonly sceneRef: string, readonly startedAtTurn: number, readonly rng: PythonRandom, readonly tables: RuleTables, readonly arithmetic: CheckArithmetic, public weaponCatalog: Row) { }
     static async create(combatId: string, sceneRef: string, startedAtTurn: number, rng: PythonRandom, tables: RuleTables, moduleWeapons: Row[] = []): Promise<CombatSession> {
         const [arithmetic, catalog, rules] = await Promise.all([CheckArithmetic.create(tables), resolveModuleWeapons(tables, moduleWeapons), tables.load('combat')]);
         const session = new CombatSession(combatId, sceneRef, startedAtTurn, rng, tables, arithmetic, catalog);
-        session.fleeBlockedBy = array(row(row(rules).flee).flee_blocked_by).map(string);
+        session.flee = fleeRules(rules);
         return session;
     }
     addParticipant(actorId: string, side: string, options: ParticipantOptions): void {
@@ -1042,9 +1042,7 @@ export class CombatSession {
         // Contract §139.9 (Keeper Rulebook, Fleeing): a person flees on their own action, with an escape route and not
         // physically restrained, so a person held, or with no action left to take, cannot. Before this a Keeper's
         // flee for anyone was stamped `fled` and the fight ended on it (table npc-actor-gate-a2, turn 6).
-        const participant = this.participants[actor];
-        const carried = [...array(participant.conditions).map(string), ...array(participant.active_effects).map(effect => string(row(effect).effect))];
-        const blocked = [...new Set(carried.filter(state => this.fleeBlockedBy.includes(state)))];
+        const blocked = fleeBlockers(this.participants[actor], this.flee);
         if (blocked.length) {
             const state = blocked[0], out = incapacitatedBy(blocked);
             throw new RpcError('needs', `${actor} is ${blocked.join(' and ')} and cannot flee`, {
@@ -1054,7 +1052,10 @@ export class CombatSession {
                 details: { reason: state, blocked_by: blocked, actor, rule: 'combat.json flee.flee_blocked_by' },
             });
         }
-        this.participants[actor].conditions = [...this.participants[actor].conditions.filter((value: string) => value !== 'fled'), 'fled'];
+        // §139.9, Keeper Rulebook p.127 (Prone): a prone person may stand up when their turn comes and then take their
+        // action, so the flight ends the states the table lists as `flee_clears` -- one receipt, prone lost and fled
+        // gained. Before this Knott was stamped `fled` still lying on the floor (table npc-actor-gate-a2, turn 6).
+        this.participants[actor].conditions = [...this.participants[actor].conditions.filter((value: string) => value !== 'fled' && !this.flee.clears.includes(value)), 'fled'];
         Object.assign(turn, { defense_kind: 'none', opposed_outcome: 'unopposed', outcome: 'fled' });
     }
     private resolveSkillCheck(turn: Row, actor: string, skill: string, target: number, difficulty: string, intent: string): void {

@@ -4,6 +4,7 @@ import { CampaignSnapshot } from "./campaign.js";
 import { entries, array, row, number, truth, string, integer, type Row } from "./values.js";
 import { OUT_OF_FIGHT_CONDITIONS } from "../healing/conditions.js";
 import { standingAction, standingDefense, stanceNow, type Standing, type StandingAction } from "../combat/standing.js";
+import { fleeBlockers } from "../combat/flee-footing.js";
 export const active = (snapshot: Row | null): boolean => snapshot?.status === "active";
 export const boutActive = (snapshot: Row | null): boolean => truth(snapshot?.bout_active);
 /** A participant who can still fight: hit points left and none of the rules layer's out-of-fight conditions (§42.1). */
@@ -82,11 +83,16 @@ export class SessionView {
             targets
         });
         // §138.10: anyone whose turn it is can try to get away -- an NPC's standing action can be `flee`, and before
-        // this the view issued no action it could bind to.
-        actions.push({
-            decision: "combat:flee",
-            actor
-        });
+        // this the view issued no action it could bind to. §139.9: except a person the ruleset's flight rules block
+        // (held, or with no action left): the engine refuses that flight, so the view does not offer it, and a standing
+        // `flee` for them binds nothing and leaves the turn to the Keeper. The rules are loaded with the standing
+        // tables; without them the view issues the flight and the engine's refusal stays the guard.
+        const flee = this.campaign.standingTables?.flee;
+        if (!flee || !fleeBlockers(me, flee).length)
+            actions.push({
+                decision: "combat:flee",
+                actor
+            });
         actions.push({
             decision: "combat:end",
             actor

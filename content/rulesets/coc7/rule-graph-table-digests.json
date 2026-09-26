@@ -17,7 +17,7 @@
       "node_ids": [
         "data-table:coc7:combat"
       ],
-      "sha256": "sha256:8f435634573eccc85390e105ddebe8717dcf5d87637627e6784ab799a60c69a0"
+      "sha256": "sha256:d0fdce7f0eb534579b70763b8e8f7c66bde6c1669186b2f710290a679a56d59a"
     },
     {
       "table_name": "development.json",

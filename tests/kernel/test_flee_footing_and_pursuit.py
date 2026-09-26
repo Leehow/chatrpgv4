@@ -6,12 +6,15 @@ Two defects of the combat engine's flight, both found reviewing the 2026-09-26 l
   ended the fight without asking whether he could move at all. Keeper Rulebook, Fleeing: a character flees on their
   own action, with an escape route and not physically restrained. The states that stop it are rules data,
   `combat.json` `flee.flee_blocked_by`; a person carrying one is answered `needs` naming it, nothing is stamped and
-  the fight goes on. (Knott was `prone`, and `prone` is not on the list: the rulebook's Prone rule lets a prone
-  character stand up when their turn comes and then act. §139.9 records why.)
+  the fight goes on. Knott was `prone`, and `prone` is not on the list: the rulebook's Prone rule (p.127) lets a prone
+  character stand up when their turn comes and then act, so the flight stands him up -- `flee.flee_clears` -- and the
+  receipt says so (`prone` lost, `fled` gained) instead of a man fleeing while still on the floor.
 - Table `npc-actor-gate-a`, turn 12: the player walked out of the office and one `resolve` produced the flight, the
   end of the fight, a chase start, both speed rolls and a pursuer's Fighting roll, while the prose had Knott stay in
   his chair. An investigator's flight no longer starts a chase: the result hints the pursuit as an NPC's flight
   already did (§138.10), and the pursuer opens the chase with their own `resolve chase:start`.
+
+The session view reads the same rules: a person the list blocks is not issued `combat:flee`.
 
 Corbitt's fight from the starter (`test_npc_standing_action.py`): after the investigator's swing and his dodge it is
 his turn in round 1. The saved fight is edited only to put a state on him, as `edit_fight` does for the table rows.
@@ -54,9 +57,17 @@ def corbitt_in(combat):
     return next(p for p in combat["participants"] if p["actor_id"] == CORBITT)
 
 
-def listed_states(client):
+def fight_rules(client):
     """The rules data the kernel reads (the fixture's copy of the shipped content)."""
-    return read_json(client.content / "rulesets" / "coc7" / "rules-json" / "combat.json")["flee"]["flee_blocked_by"]
+    return read_json(client.content / "rulesets" / "coc7" / "rules-json" / "combat.json")["flee"]
+
+
+def listed_states(client):
+    return fight_rules(client)["flee_blocked_by"]
+
+
+def issued_flights(client):
+    return [a for a in client.table("look", focus="session")["session"]["actions"] if a["decision"] == "combat:flee"]
 
 
 # ---- a person who cannot move cannot flee ------------------------------------------------------------------
@@ -83,6 +94,21 @@ def test_a_held_person_cannot_flee_and_the_fight_goes_on(fight):
     fled = resolve(fight, f"t1-c{n}", **FLEE)
     assert fled["decision"] == "combat:flee" and fled["outcome"]["turn_outcome"] == "fled"
     assert "fled" in corbitt_in(saved_fight(fight))["conditions"]
+
+
+def test_a_prone_person_who_flees_stands_up_and_runs(fight):
+    """Knott's shape on A2 turn 6, the rulebook's way (Prone, p.127): standing up comes with the flight, in the same
+    receipt. Before this the condition receipt read `before ["prone"]`, `after ["prone", "fled"]`."""
+    assert "prone" not in listed_states(fight) and "prone" in fight_rules(fight)["flee_clears"]
+    n = corbitts_turn(fight)
+    edit_fight(fight, corbitt={"conditions": ["prone"]})
+    fled = resolve(fight, f"t1-c{n}", **FLEE)
+    assert fled["decision"] == "combat:flee" and fled["outcome"]["turn_outcome"] == "fled"
+    [receipt] = [r for r in fight.table("status")["receipts"] if r["kind"] == "condition" and r["id"] in fled["receipts"]]
+    assert receipt["subject"] == CORBITT
+    assert receipt["before"] == ["prone"] and receipt["after"] == ["fled"], receipt
+    assert receipt["lost"] == ["prone"] and receipt["gained"] == ["fled"], receipt
+    assert fight.table("look", focus="session")["session"] is None, "the fight ends on his flight, as before"
 
 
 @pytest.mark.parametrize("state", list(STATES))
@@ -123,6 +149,20 @@ def test_the_escape_the_fix_names_frees_them_and_the_flight_then_settles(fight, 
     assert fight.table("look", focus="session")["session"]["turn_of"] == CORBITT
     fled = resolve(fight, f"t1-c{n + 3}", **FLEE)
     assert fled["decision"] == "combat:flee" and fled["outcome"]["turn_outcome"] == "fled"
+
+
+def test_the_session_view_does_not_issue_a_flight_the_rules_block(fight):
+    """The view reads the same rules as the engine: a grappled Corbitt's turn carries no `combat:flee`, so a standing
+    flee binds nothing and the turn is the Keeper's; free, he is issued it again."""
+    corbitts_turn(fight)
+    assert issued_flights(fight) == [{"decision": "combat:flee", "actor": CORBITT}]
+    edit_fight(fight, corbitt={"conditions": ["grappled"]})
+    session = fight.table("look", focus="session")["session"]
+    assert session["turn_of"] == CORBITT and not issued_flights(fight), session["actions"]
+    assert {a["decision"] for a in session["actions"]} >= {"combat:attack", "combat:maneuver", "combat:end"}, \
+        "only the flight is withheld; his way free (the manoeuvre) is still issued"
+    edit_fight(fight, corbitt={"conditions": []})
+    assert issued_flights(fight) == [{"decision": "combat:flee", "actor": CORBITT}]
 
 
 # ---- an investigator's flight starts no chase; the pursuer opens it ----------------------------------------
