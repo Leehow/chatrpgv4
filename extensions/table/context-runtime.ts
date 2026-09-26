@@ -3,7 +3,6 @@ import {readJevApiKey,readJevPreselectAllowanceMs} from '../jev/agent/config.js'
 import {preparationBudget,preparationProviderBudget} from '../../runtime/jev/preparation-budget.ts';
 import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
-import type {NpcPreparationBridge,PreparedNpcAdvice} from '../npc/index.ts';
 /** Request and persistence adapters for the one bounded play-context policy. */
 import {createHash} from 'node:crypto';
 import {dirname, join} from 'node:path';
@@ -18,7 +17,7 @@ import {preparePrescreen,prescreenEnabled,reusePrescreen} from './prescreen.ts';
 import type {PrescreenSourceRuntime} from '../../runtime/jev/prescreen-source-provider.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
-    capsuleUpdate, CAPSULE_UPDATE_TYPE,
+    capsuleUpdate, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE,
     type ContextBinding, type Quote, type Row} from './context-policy.ts';
 
 type KernelCall = (method: string, params: Row) => Promise<unknown>;
@@ -41,14 +40,6 @@ function payloadContains(value:unknown,content:string,seen=new Set<object>()):bo
     return (Array.isArray(value)?value:Object.values(value as Row)).some(child=>payloadContains(child,content,seen));
 }
 
-async function withinPreparation<T>(work:Promise<T>,parent:AbortSignal,deadlineAt:number):Promise<T>{
-    const remaining=deadlineAt-Date.now();if(remaining<=0)throw new Error('preparation_expired');
-    const signal=AbortSignal.any([parent,AbortSignal.timeout(Math.max(1,remaining))]);signal.throwIfAborted();
-    let abort:()=>void=()=>{};
-    try{return await Promise.race([work,new Promise<never>((_,reject)=>{abort=()=>reject(signal.reason);signal.addEventListener('abort',abort,{once:true});})]);}
-    finally{signal.removeEventListener('abort',abort);}
-}
-
 export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row) => void,
     workpadRoot?: () => string | undefined): void {
     let observedTurn: number | undefined;
@@ -62,7 +53,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let lastReason = 'context_unavailable';
     let prescreenDeadlineAt=0,prescreenMemo:{key:string;message?:Row}|undefined,reusablePrescreen:Row|undefined;
     let prescreenProviderBudget=preparationProviderBudget();
-    let providerSequence=0,pendingProvider:{requestId:string;prepared?:Row;npc?:Row;outgoingDigest:string}|undefined;
+    let providerSequence=0,pendingProvider:{requestId:string;prepared?:Row;outgoingDigest:string}|undefined;
     // Contract §135.6: on the single-loop engine the run's own read step is the prescreen. It announces itself, and
     // hands over the packet it prepared for the current turn; this hook then injects that packet and runs none of its own.
     let runOwnsPrescreen=false,runPrescreen:{campaign:string;turn:number;message:Row}|undefined;
@@ -71,7 +62,6 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     pi.events.on('coc:loop-engine',value=>{runOwnsPrescreen=object(value).prescreen==='run';});
     pi.events.on('coc:run-prescreen',value=>{const packet=object(value);
         runPrescreen=typeof packet.campaign==='string'&&Number.isSafeInteger(packet.turn)&&packet.message?{campaign:packet.campaign,turn:packet.turn,message:object(packet.message)}:undefined;});
-    let npcBridge:NpcPreparationBridge|undefined,npcMemo:{key:string;prepared:PreparedNpcAdvice}|undefined;
     let sessionEnv={...process.env},sharedAdapter:DecisionPort|undefined,sharedBudget:ReturnType<typeof preparationBudget>|undefined;
     let inputLifetime=new AbortController(),foregroundBudget:(()=>TaskProviderBudget|undefined)|undefined;
     const decision=()=>{
@@ -79,10 +69,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const capacity=Number(sessionEnv.PI_COC_JEV_CONCURRENCY??16);
         return sharedAdapter??=createDecisionAdapter({env:sessionEnv,maxConcurrency:Number.isInteger(capacity)&&capacity>0?Math.min(capacity,16):16});
     };
-    const resetPreparation=()=>{inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;npcMemo=undefined;};
-    pi.events.on('coc:npc-bridge',value=>{npcBridge=value&&typeof (value as any).prepare==='function'?value as NpcPreparationBridge:undefined;npcMemo=undefined;});
+    const resetPreparation=()=>{inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;};
     pi.events.on('coc:task-provider-budget',value=>{foregroundBudget=typeof value==='function'?value as typeof foregroundBudget:undefined;});
-    pi.events.emit?.('coc:npc-preparation-owner',{decision});
     let optionalWork = new AbortController();
     // Invalidating a snapshot must not disable its event subscriptions while rehydration waits.
     let observedWorkspaceMode: WorkspaceMode = 'off';
@@ -173,7 +161,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     pi.on('session_start', async () => {resetPreparation();turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
         lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();prescreenDeadlineAt=0;prescreenMemo=undefined;reusablePrescreen=undefined;
         prescreenProviderBudget=preparationProviderBudget();});
-    pi.on('session_shutdown', async () => {resetPreparation();sharedAdapter=undefined;pi.events.emit?.('coc:npc-preparation-owner',undefined);call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
+    pi.on('session_shutdown', async () => {resetPreparation();sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
         prescreenMemo=undefined;reusablePrescreen=undefined;pendingProvider=undefined;prescreenDeadlineAt=0;
         prescreenProviderBudget={actions:0,inputTokens:0,outputTokens:0,costUsd:0};invalidate();});
 
@@ -391,7 +379,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     });
     pi.on('context', async (event, ctx) => {
         const ticket = generation;
-        const requestMessages=event.messages.filter(message=>message.role!=='custom'||message.customType!=='coc-npc-advice');
+        // §139.6: NPC advice is retired; a copy a session recorded before that never reaches the model.
+        const requestMessages=event.messages.filter(message=>message.role!=='custom'||message.customType!==NPC_ADVICE_TYPE);
         let snapshot = await prepare();
         // A concurrent input may replace a generation while its optional work is awaiting I/O.
         // Try the current accepted binding once; an unaccepted input uses the normal fallback.
@@ -479,32 +468,14 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 brief:briefSent,answering:snapshot.answering,budget:messageBudget});
         }
         const supplementBudget=Math.max(0,messageBudget-requestSize(baseline.messages));
-        const preparationSignal=optionalWork.signal,preparationCall=call,preparationCampaign=campaign,npcOwner=npcBridge;
-        const npcWait=npcBridge?.automaticWaitMs()??0,materialEnabled=!runOwnsPrescreen&&prescreenEnabled()&&supplementBudget>=512;
-        const port=decision();let npcWork:Promise<PreparedNpcAdvice|undefined>|undefined,npcMessage:Row|undefined;
-        const npcKey=fingerprint([generation,snapshot.key,snapshot.binding]);
-        let sharedSnapshot:Promise<Row|undefined>|undefined;
-        if((materialEnabled||npcWait>0)&&port&&preparationCall&&preparationCampaign&&inputEpoch){
-            if(!prescreenDeadlineAt){
-                const parent=foregroundBudget?.();prescreenDeadlineAt=Math.min(Date.now()+(materialEnabled?readJevPreselectAllowanceMs(sessionEnv):npcWait),parent?.deadlineAt??Infinity);
-                sharedBudget=preparationBudget({decision:port,campaign:preparationCampaign,deadlineAt:prescreenDeadlineAt,signal:inputLifetime.signal,parent});
-                record({lane:materialEnabled?'prescreen':'preparation',owner:'keeper-preparation',event:'allowance_started',allowance_ms:materialEnabled?readJevPreselectAllowanceMs(sessionEnv):npcWait,
-                    effective_ms:Math.max(0,prescreenDeadlineAt-Date.now())});
-            }
-            if(materialEnabled&&npcWait>0&&Date.now()<prescreenDeadlineAt){
-                sharedSnapshot=withinPreparation(preparationCall('table.workspace.read',{campaign:preparationCampaign,preselect:{version:2,mode:'catalog',cursor:0,limit:48},
-                    query:String(object(snapshot.capsule.turn).player_text??''),names:[...evidenceNames],rules:[...ruleNames],candidate_limit:48,npc_perspectives:true}),
-                    preparationSignal,prescreenDeadlineAt).then(object).catch(()=>undefined);
-            }
-            if(npcWait>0&&npcBridge&&Date.now()<prescreenDeadlineAt){
-                const npcDeadline=Math.min(prescreenDeadlineAt,Date.now()+npcWait),owner=npcBridge,ownerCampaign=preparationCampaign,ownerDecision=sharedBudget?.decision;
-                npcWork=npcMemo?.key===npcKey?Promise.resolve(npcMemo.prepared):(async()=>{
-                    const seed=await sharedSnapshot;
-                    if(preparationSignal.aborted||ticket!==generation||!ownerDecision)return undefined;
-                    return owner.prepare({campaign:ownerCampaign,automatic:true,decision:ownerDecision,signal:preparationSignal,
-                        deadlineAt:npcDeadline,...(Array.isArray(seed?.npc_perspectives)?{snapshots:seed.npc_perspectives}:{})});
-                })().catch(()=>undefined);
-            }
+        const preparationSignal=optionalWork.signal,preparationCall=call,preparationCampaign=campaign;
+        const materialEnabled=!runOwnsPrescreen&&prescreenEnabled()&&supplementBudget>=512;
+        const port=decision();
+        if(materialEnabled&&port&&preparationCall&&preparationCampaign&&inputEpoch&&!prescreenDeadlineAt){
+            const parent=foregroundBudget?.();prescreenDeadlineAt=Math.min(Date.now()+readJevPreselectAllowanceMs(sessionEnv),parent?.deadlineAt??Infinity);
+            sharedBudget=preparationBudget({decision:port,campaign:preparationCampaign,deadlineAt:prescreenDeadlineAt,signal:inputLifetime.signal,parent});
+            record({lane:'prescreen',owner:'keeper-preparation',event:'allowance_started',allowance_ms:readJevPreselectAllowanceMs(sessionEnv),
+                effective_ms:Math.max(0,prescreenDeadlineAt-Date.now())});
         }
 
         if(runOwnsPrescreen){
@@ -521,13 +492,12 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             const reused=prescreen,needsReassessment=object(object(reused?.details).prescreen).needs_reassessment===true;
             if(!prescreen||needsReassessment&&prescreenProviderBudget.actions>0&&Date.now()<prescreenDeadlineAt){
                 let refreshOutcome='unknown';
-                const initialSnapshot=await sharedSnapshot;
                 if(preparationSignal.aborted||ticket!==generation)return {messages:baseline.messages as typeof requestMessages};
-                const refreshed=await preparePrescreen({call:preparationCall,campaign:preparationCampaign,binding:snapshot.binding,capsule:snapshot.capsule,initialSnapshot,
+                const refreshed=await preparePrescreen({call:preparationCall,campaign:preparationCampaign,binding:snapshot.binding,capsule:snapshot.capsule,
                     signal:preparationSignal,record:event=>{record(event);if(event.event==='prepared')refreshOutcome='prepared';
                         else if(event.event==='fallback')refreshOutcome='fallback';else if(event.event==='skipped')refreshOutcome=String(event.reason??'skipped');},
                     suppliedMessages:baseline.messages,byteBudget:supplementBudget,
-                    deadlineAt:prescreenDeadlineAt-(npcWork?500:0),decision:sharedBudget?.decision,names:[...evidenceNames],rules:[...ruleNames],
+                    deadlineAt:prescreenDeadlineAt,decision:sharedBudget?.decision,names:[...evidenceNames],rules:[...ruleNames],
                     providerBudget:prescreenProviderBudget,...(sourceRuntime&&moduleId?{source:{moduleId,runtime:sourceRuntime}}:{})});
                 prescreen=refreshed??(needsReassessment&&['prepared','empty_catalog'].includes(refreshOutcome)?undefined:reused);
             }
@@ -535,35 +505,20 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             prescreenMemo={key:memoKey,message:prescreen};
             if(prescreen)reusablePrescreen=prescreen;
         }
-        if(npcWork&&npcOwner&&preparationCampaign){
-            const preparedNpc=await npcWork;
-            if(preparedNpc&&ticket===generation&&!preparationSignal.aborted){
-                npcMemo={key:npcKey,prepared:preparedNpc};
-                const currentNpc=await npcOwner.finalize(preparedNpc,{campaign:preparationCampaign,signal:preparationSignal,deadlineAt:prescreenDeadlineAt});
-                const ready=(Array.isArray(currentNpc.advice)?currentNpc.advice:[]).filter((row:Row)=>row.status==='ready');
-                const content={kind:'npc_response_advice',advice:[] as Row[],omitted:0,
-                    note:'Optional intentions, not facts or executed actions. Preserve player choices and ordinary effect receipts. Direct answers and natural closure remain valid.'};
-                for(const row of ready){const value={npc:row.npc,selected:row.selected};
-                    if(sizeOf({...content,advice:[...content.advice,value]})<=4096)content.advice.push(value);else content.omitted++;}
-                if(content.advice.length)npcMessage=customMessage('coc-npc-advice',content);
-                record({lane:'npc',event:'finalized',ready:content.advice.length,omitted:content.omitted,
-                    outcomes:(Array.isArray(currentNpc.advice)?currentNpc.advice:[]).map((row:Row)=>({npc:row.npc,status:row.status,reason:row.reason}))});
-            }
-        }
         if(ticket!==generation||preparationSignal.aborted)return {messages:baseline.messages as typeof requestMessages};
-        let result=(prescreen||npcMessage)?projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-            brief:briefSent,answering:snapshot.answering,budget:messageBudget,workspace,prescreen,npc:npcMessage}):baseline;
+        let result=prescreen?projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
+            brief:briefSent,answering:snapshot.answering,budget:messageBudget,workspace,prescreen}):baseline;
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
         const reason = result.degraded ?? (Math.ceil((requestSize(result.messages) + systemBytes) / BYTES_PER_TOKEN) > available ? 'request_window_estimate' : undefined);
         // Reserve a diagnostic only when one is needed. An optional workspace must not be
         // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
         if (reason) result = projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
             brief:briefSent,answering:snapshot.answering,
-            budget:Math.max(0,messageBudget-requestSize([diagnostic(reason)])),workspace,prescreen,npc:npcMessage});
+            budget:Math.max(0,messageBudget-requestSize([diagnostic(reason)])),workspace,prescreen});
         const outgoing = [...(reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages), ...turnTail];
         const bytes = requestSize(outgoing) + systemBytes, estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
         const requestId=`prescreen:${snapshot.binding.turn}:${++providerSequence}`;
-        pendingProvider=prescreen||npcMessage?{requestId,prepared:prescreen,npc:npcMessage,outgoingDigest:fingerprint(outgoing)}:undefined;
+        pendingProvider=prescreen?{requestId,prepared:prescreen,outgoingDigest:fingerprint(outgoing)}:undefined;
         record({lane: 'context', event: 'request', version: POLICY_VERSION, turn: snapshot.binding.turn,request_id:requestId,
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
             request_bytes: bytes, system_bytes: systemBytes, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
@@ -582,8 +537,6 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // survived serialization; never record headers, secrets or the private payload.
     pi.on('before_provider_request', event => {
         const pending=pendingProvider;pendingProvider=undefined;if(!pending)return;
-        if(pending.npc){let delivered=false;try{delivered=payloadContains((event as unknown as Row).payload,String(pending.npc.content));}catch{}
-            record({lane:'npc',event:'delivered',request_id:pending.requestId,delivered,content_digest:fingerprint(pending.npc.content)});}
         if(!pending.prepared)return;
         const prepared=object(pending.prepared),meta=object(object(prepared.details).prescreen);
         if(!prepared.content){record({lane:'prescreen',event:'delivered',request_id:pending.requestId,delivered:false,reason:'not_prepared'});return;}
