@@ -51,7 +51,7 @@ import { actGated, interpretCompile, interpretReask, unlockedRow, type FeatureRo
 import { CONSEQUENCE_FAMILY, consequenceBatch, interpretConsequenceResult, type ConsequenceExistsRow, type ConsequenceRow, type ConsequenceView } from './consequence-route.ts';
 import { jevStepsBudget, npcActBudget } from './host-budgets.ts';
 import { createNpcActLane, type NpcActPort } from './npc-act.ts';
-import { isNpcAct, runNpcAct, runNpcScan, type NpcActDeps, type NpcActOutcome } from './npc-act-step.ts';
+import { isNpcAct, runNpcAct, runNpcScan, struckReceipts, type NpcActDeps, type NpcActOutcome } from './npc-act-step.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import { CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
@@ -466,6 +466,12 @@ interface RunState {
   npcTurnLeft?: {key: string; npc: string; status: string; reason: string | null; act: string | null};
   /** §139.4: a scan the time budget skipped was recorded (`skipped_budget`), once per run. */
   npcBudgetSkipped?: boolean;
+  /**
+   * §139.28 (NAF-29): the fight hold the latest scan put (§139.25) -- the handles it held back, and the ids of this turn's
+   * receipts on the table when it was put. While it stands, every fresh read asks whether a blow has struck one of them since
+   * (`struckHeld`); the first that has ends it.
+   */
+  npcHeld?: {names: string[]; before: string[]};
 }
 
 /**
@@ -538,11 +544,37 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       // SL-76: the three consequence classes, from the same reads (never merged into `candidates()`'s own list).
       consequences: () => jevStepsMode(options.env as NodeJS.ProcessEnv) === 'off' ? [] : buildConsequenceCandidates({capsule, applyOptions, resolveOptions}, run.rawInput)};
   }
-  const freshOf = (run: RunState) => tableReads(run).then(read => {
+  const freshOf = (run: RunState, stepId?: string) => tableReads(run).then(async read => {
     const candidates = read.candidates();
     run.issued = candidates;
-    return {context: read.table.context, candidates, rows: read.rows()};
+    // §139.28: a blow that struck a person the fight hold held back rides on the fresh read (the policy owes them the scan).
+    const struck = await struckHeld(run, stepId);
+    return {context: read.table.context, candidates, rows: read.rows(), ...(struck.length ? {struck} : {})};
   }, () => undefined);
+
+  /**
+   * §139.28 (NAF-29, live table D2 turns 5, 10, 12, 13): while the fight hold holds someone back (§139.25), the receipts of
+   * this turn that struck them since it was put -- done to them by the kernel's own reading (`npc.act.options`' `acted_on`)
+   * and a blow (a fight wrote it, or they lost hit points: `struckReceipts`). The Keeper settled the punch the clerk did not
+   * (its own resolve or damage, or the pending defence the kernel forced after it): the first such receipt ends the hold
+   * for the run, and the fresh read carries them so the policy owes the scan before the Keeper's next turn-writing model
+   * step. One `npc.act.options` read per held person after each write, only while someone is held; a read that fails
+   * reads as not struck.
+   */
+  async function struckHeld(run: RunState, stepId?: string): Promise<string[]> {
+    const hold = run.npcHeld;
+    if (!hold?.names.length) return [];
+    const struck: string[] = [];
+    for (const name of hold.names) {
+      let options: Row;
+      try { options = await call('npc.act.options', {name}); } catch { continue; }
+      for (const id of struckReceipts(options.acted_on, run.turnReceipts, hold.before)) if (!struck.includes(id)) struck.push(id);
+    }
+    if (!struck.length) return [];
+    run.npcHeld = undefined;
+    record({lane: 'run', event: 'npc_released', run: run.runId, ...(stepId ? {step: stepId} : {}), npc: [...hold.names], reason: 'struck', receipts: struck});
+    return struck;
+  }
 
   /**
    * SL-76 (§135.32, §135.3.1, D1-D4): the shadow route, over the run's latest read's D1 candidates (`run.consequenceCandidates`,
@@ -713,7 +745,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const delivery = !toolResult.isError ? DELIVERY_VERBS[proposal.operation] : undefined;
     const fell = toolResult.isError ? `${proposal.operation}_refused` : proposal.operation === 'resolve' && failedCheck(toolResult.details) ? 'check_failed' : undefined;
     if (fell) { batch.fell = fell; batch.fellAt = proposal.toolCall?.id; }
-    const fresh = !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? await freshOf(run) : undefined;
+    const fresh = !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? await freshOf(run, stepId) : undefined;
     return {status: toolResult.isError ? 'refused' as const : 'ok' as const, toolResult, ...(delivery ? {delivery} : {}),
       artifact: {kind: 'execute', executed: {ok: !toolResult.isError, summary: {tool: proposal.operation}}, ...(fresh ? {fresh} : {}), ...(fell ? {fell} : {})}};
   }
@@ -798,7 +830,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       receipts: packet.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
       result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null, ...(result.obligation ? {obligation: result.obligation} : {})} : {effects: args.effects}) as Json,
       ...(obligation ? {obligation} : {}), ...(crossed ? {obligation_open: crossed} : {}), ...(binding ? {binding} : {})});
-    const read = await freshOf(run);
+    const read = await freshOf(run, invocation.stepId);
     return {status: ok ? 'ok' as const : 'refused' as const, ...(ok ? {} : {reason: String(refusal)}),
       artifact: {kind: 'execute', executed: {ok, summary: {origin: 'policy', tool, call_id: callId, status: packet.status, receipts: packet.receipts,
         clerk: candidate.clerk ?? null, basis: candidate.basis ?? null, ...(ok ? checkOf(tool, result) : {}), ...(ok ? {} : {refusal: String(refusal)})} as Json},
@@ -861,7 +893,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         result: {npc: outcome.handle ?? outcome.npc, trigger: outcome.trigger, act: outcome.act ?? null, way: outcome.way ?? null, params: (outcome.params ?? {}) as Json,
           ref: outcome.ref ?? null, continued: outcome.continued ?? null, abandoned: outcome.abandoned ?? null, reason: outcome.reason ?? null} as Json});
     // §139.20: a scan that ran nobody wrote nothing (the scan now runs every turn), so there is nothing to read again.
-    const read = outcomes.length ? await freshOf(run) : undefined;
+    const read = outcomes.length ? await freshOf(run, invocation.stepId) : undefined;
+    // §139.28: the hold this scan put is the run's hold now (a scan that held no one ends any earlier one), with the receipts
+    // already on the table: a blow after it -- whoever settles the punch the clerk did not -- lets them act once.
+    if (trigger !== 'turn') run.npcHeld = held.length
+      ? {names: held.map(value => text(object(value).npc)).filter(Boolean), before: run.turnReceipts.map(receipt => text(receipt.id)).filter(Boolean)} : undefined;
     return {status: 'ok' as const, artifact: {kind: 'execute', executed: {ok: true, summary: {origin: 'policy', clerk: 'npc_act', trigger,
       acts: outcomes.map(outcome => ({npc: outcome.handle ?? outcome.npc, status: outcome.status, way: outcome.way ?? null, receipts: outcome.receipts})),
       ...(held.length ? {held} : {})} as Json},

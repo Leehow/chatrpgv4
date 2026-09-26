@@ -263,7 +263,8 @@ export interface RunView {
    * `npc_act` scan already followed. A landed step not yet followed owes one scan before the next turn-writing model step.
    * §139.20: `npcScanned` is absent until the run's first scan, which is owed before the Keeper's first turn-writing model
    * step (§139.25: an `adjudicate` or a `compose`, never a clerk's `bind`) whether or not a step landed (a person in the
-   * conversation acts on a turn of pure talk).
+   * conversation acts on a turn of pure talk). §139.28 (NAF-29): `landed` also takes the receipts of a blow that struck a
+   * person the fight hold held back (`Fresh.struck`), whoever wrote them: the scan they owe runs that person after it.
    */
   landed?: string[];
   npcScanned?: string[];
@@ -278,7 +279,8 @@ export interface RunView {
    * §139.25 (NAF-26): a compile of the run cleared `act` on a fight action (`fightAct`), and whether a clerk step that settles
    * one has landed since (`FIGHT_FAMILIES`). Declared and not landed, the person the declaration is aimed at does not act in
    * a scan (`npcScanItem` carries `fight_pending`). `targets`: the compile's cleared `target` rows, the people a declared
-   * attack is aimed at (the addressees are the other half).
+   * attack is aimed at (the addressees are the other half). §139.28 (NAF-29): a blow that struck a held person lands the
+   * declared action too (`settleStruck`), when the Keeper or a forced step settled it instead of the clerk.
    */
   fightDeclared?: boolean;
   fightLanded?: boolean;
@@ -1011,8 +1013,12 @@ function applyFresh(view: RunView, fresh: Fresh): void {
  * `calls`/`ms`: what the read's prescreen spent, reported only (§135.6, SL-22 addendum: not the decision budget's).
  */
 export interface ReadResult {materials: Material[]; located?: unknown; summary: Json; calls?: number; ms?: number; bodies?: import('./candidate-bodies.ts').CandidateBody[]}
-/** `rows`: the compile's feature rows from the same reads (§135.30); absent when the reader builds none. */
-export interface Fresh {context: TurnContext; candidates: Candidate[]; rows?: FeatureRows}
+/**
+ * `rows`: the compile's feature rows from the same reads (§135.30); absent when the reader builds none. `struck` (§139.28,
+ * NAF-29): the receipts of this turn that struck a person the fight hold held back since it was put (the engine reads them
+ * off the kernel's `acted_on` and the receipts' own fields, `struckReceipts`); absent when no one is held or nothing struck.
+ */
+export interface Fresh {context: TurnContext; candidates: Candidate[]; rows?: FeatureRows; struck?: string[]}
 export function settleRead(view: RunView, step: number, read: ReadResult, fresh: Fresh, ms: number): TelemetryRow {
   // The read's prescreen has its own allowance and spends none of the decision budget (§135.6, SL-22 addendum): its calls
   // and time are reported on the read's own row and summary, never added to `jevCalls`/`jevMs`.
@@ -1072,6 +1078,19 @@ function settleUnlocks(view: RunView, key: string, landed: boolean): void {
 export function missedUnlocks(view: Pick<RunView, 'unlocks' | 'unlockMissed' | 'consumed'>): GuardedDestination[] {
   return [...(view.unlockMissed ?? []), ...(view.unlocks ?? []).filter(entry => view.consumed.includes(entry.after)).map(entry => entry.guarded)];
 }
+/**
+ * §139.28 (NAF-29, live table D2): the fresh read after a step found a blow that struck a person the fight hold held back
+ * (`Fresh.struck`) -- the Keeper's own resolve or damage, or the pending defence the kernel forced after it; no clerk step
+ * settled the punch. The declared fight action has landed: the hold ends as a landed clerk fight step ends it (§139.25), and the
+ * receipts join `landed`, so the scan is owed before the Keeper's next turn-writing model step and runs that person once
+ * (they were never `seen`). Any step's fresh read may carry them: a model call, a clerk or forced step, a scan's acts.
+ */
+function settleStruck(view: RunView, fresh: Fresh | undefined): void {
+  const struck = fresh?.struck ?? [];
+  if (!struck.length || view.fightDeclared !== true || view.fightLanded === true) return;
+  view.fightLanded = true;
+  view.landed = [...new Set([...(view.landed ?? []), ...struck])];
+}
 export function settleExecute(view: RunView, step: number, item: PendingItem, executed: {ok: boolean; summary: Json}, fresh: Fresh | undefined, ms: number): TelemetryRow {
   if (item.call) {
     if (item.candidate) view.consumed.push(item.candidate.key);
@@ -1105,6 +1124,8 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     // (§135.26): the clerk does not route around its own refusal.
     if (!executed.ok) view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'clerk_refused'});
   }
+  // §139.28: a blow the Keeper (or the kernel's forced defence) landed on a held person ends the hold and owes them the scan.
+  settleStruck(view, fresh);
   if (fresh) {
     const before = view.context.scene;
     applyFresh(view, fresh);

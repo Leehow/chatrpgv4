@@ -33,6 +33,7 @@ import type {NpcActBudget} from './host-budgets.ts';
 import {mayProduce, type NpcActInput, type NpcActResult, type NpcSituation} from './npc-act.ts';
 import type {Candidate} from './step-policy.ts';
 import type {TaskProviderBudget} from './provider-budget.ts';
+import {FIGHT_FAMILIES} from './route-compile.ts';
 
 type Row = Record<string, any>;
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
@@ -125,6 +126,27 @@ export function npcScanCandidate(ordinal: number, landed: readonly string[], add
     clerk: NPC_ACT_CLERK, basis: {read: 'run', path: 'landed', row: {landed: [...landed]}}};
 }
 export const isNpcAct = (candidate: Pick<Candidate, 'clerk'> | undefined): boolean => candidate?.clerk === NPC_ACT_CLERK;
+/**
+ * §139.28 (ticket 29, live table D2): the receipts that end the fight hold (§139.25) on a person it held back -- those of
+ * this turn done to them, by the kernel's own reading of who they are (`npc.act.options`' `acted_on`: an attack made
+ * against them, hit points they lost, a condition put on them, an investigator's flight from them), that are a blow (a
+ * fight wrote them: the receipt's closed `family` is `combat` or `chase`, the kernel's resolve families `FIGHT_FAMILIES`
+ * names; or they are hit points this person lost, an `hp` delta whose `after` is below its `before`, which the Keeper's
+ * `damage` effect writes with no family -- §139.26's `attacked_this_turn` reads the same), and that were not on the table
+ * yet when the hold was put (`before`). Whoever wrote them -- the Keeper's own resolve or damage, the pending defence the
+ * kernel forced after it -- the declared blow has landed. Receipt fields only; nothing reads what anyone said.
+ */
+export function struckReceipts(actedOn: unknown, receipts: readonly Row[], before: readonly string[] = []): string[] {
+  const byId = new Map(receipts.map(receipt => [text(object(receipt).id), object(receipt)]));
+  const blow = (receipt: Row | undefined): boolean => !!receipt && (FIGHT_FAMILIES.includes(text(receipt.family))
+    || (receipt.kind === 'delta' && receipt.resource === 'hp' && typeof receipt.before === 'number' && typeof receipt.after === 'number' && receipt.after < receipt.before));
+  const out: string[] = [];
+  for (const entry of array(actedOn).map(object)) {
+    const id = text(entry.receipt);
+    if (id && !before.includes(id) && blow(byId.get(id)) && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------------------------------
 // The binding batch (§139.3) and the semantic gate (§139.5), one Jev call.

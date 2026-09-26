@@ -32,7 +32,7 @@ import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { createHybridEngine, readTable } from "../../runtime/jev/hybrid-engine.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { createFixtureNpcActPort, npcActLaneInput } from "../../runtime/jev/npc-act.ts";
-import { KNOWN_QUESTION, NPC_ACT_BIND_FAMILY, SAME_QUESTION, interpretNpcAct, npcActBatch, npcActWrites, npcProduceBatch, npcScanCandidate, producePart, runNpcAct } from "../../runtime/jev/npc-act-step.ts";
+import { KNOWN_QUESTION, NPC_ACT_BIND_FAMILY, SAME_QUESTION, interpretNpcAct, npcActBatch, npcActWrites, npcProduceBatch, npcScanCandidate, producePart, runNpcAct, struckReceipts } from "../../runtime/jev/npc-act-step.ts";
 import { COMPILE_FAMILY, compileBatch } from "../../runtime/jev/route-compile.ts";
 import { initialView, next, npcScanDue, npcScanItem, settleCompile, settleExecute, startStep } from "../../runtime/jev/step-policy.ts";
 import { markNpcAct } from "../../extensions/kernel/npc-act-marks.ts";
@@ -994,11 +994,11 @@ const talkJev = ({ act = () => ({ way: "intention_only" }), addressee } = {}) =>
 		choice(question.key === "addressee" ? aliasWhere(question, (value) => JSON.stringify(value).includes(addressee)) ?? "unclear" : "unclear")])));
 	return otherAnswer(batch);
 };
-async function talkTable(t, { prepareWorkspace, npcAct, jev }) {
+async function talkTable(t, { prepareWorkspace, npcAct, jev, responses }) {
 	const engine = createHybridEngine({ env: {}, npcAct, decision: { decide: async (batch) => jev(batch) } });
 	const table = await openTable({ realKernel: true, prepareWorkspace, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: "1" },
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特没有马上回答。" })], { stopReason: "toolUse" })] });
+		responses: responses ?? [fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特没有马上回答。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	return table;
 }
@@ -1259,6 +1259,175 @@ test("§139.25 on the emitted kernel: the punch named Knott and has not landed -
 	// A fight step landed: the next scan carries no hold, and he acts as the conversation has it.
 	await game.run(scan());
 	assert.ok(acts(game).some((row) => row.npc === "steven-knott" && row.status === "bound"), JSON.stringify(acts(game).map((row) => [row.npc, row.status])));
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Ticket 29 (§139.28): a held person acts after the blow. Live table D2, turns 5, 10, 12 and 13: the punch was left to the
+// Keeper, §139.25 held Knott (`npc_held`, fight_pending), and the Keeper settled it itself -- its own `resolve`, then the
+// pending defence the kernel forced. The scan followed only clerk-landed steps, so he never acted on those turns: no stakes
+// die, no act, his reaction all the Keeper's prose. The blow that struck him now ends the hold and he acts once, before the
+// Keeper's next turn-writing model step.
+// ---------------------------------------------------------------------------------------------------
+
+/**
+ * Turn 1 closed at the office: Knott's numbers and how he fights pinned (a fight can be had with him, and his turn of it
+ * needs no disposition inferred first; table D2's Keeper gave him `avoids_fighting`) and a line the markers gave him.
+ */
+const knottSpokeArmed = (workspace) => kernelSteps(workspace, [
+	["table.open", {}], ["table.player_input", { text: ASKED }],
+	["table.apply", { call_id: "t1-c1", effects: [{ kind: "npc", name: "Steven Knott", archetype: "ordinary_adult", why: "test fixture" }] }],
+	["table.apply", { call_id: "t1-c2", effects: [{ kind: "npc", name: "Steven Knott", disposition: "avoids_fighting", why: "test fixture" }] }],
+	["table.narrate", { call_id: "t1-c3", text: `诺特靠回椅背。{{say:Steven Knott}}${KNOTT_LINE}{{/say}}` }],
+]);
+/** The punch as table D2 had it: the compile reads `combat` and names no one, no clerk step takes it, the route asks the Keeper. */
+const punchLeftToKeeper = (batch) => {
+	if (batch.family === NPC_ACT_BIND_FAMILY) return actAnswer(batch, { way: "intention_only" });
+	const answer = punchJev(batch);
+	if (batch.questions.some((question) => question.key === "exit")) answer.answers.exit = choice("ask_llm");
+	return answer;
+};
+const HIT = { intent: "combat", goal: "hit him", method: "fists", target: "Steven Knott", weapon: "unarmed" };
+const DODGE = { intent: "combat", goal: "combat:defend", method: "combat:defend", actor: "Steven Knott", defense: "dodge" };
+const PART = { intent: "combat", goal: "both back off", method: "", decision: "combat:end", outcome: "stalemate" };
+const keeperSays = (...calls) => fauxAssistantMessage(calls.map(([tool, args]) => fauxToolCall(tool, args)), { stopReason: "toolUse" });
+const stepOf = (id) => Number(String(id).split(":s").at(-1));
+const modelSteps = (telemetry) => telemetry.filter((row) => row.lane === "run" && row.type === "step_start" && row.kind === "infer").map((row) => stepOf(row.stepId));
+const releasedRows = (telemetry) => telemetry.filter((row) => row.lane === "run" && row.event === "npc_released");
+
+test("§139.28 at the table (table D2 turn 5): the punch left to the Keeper holds him; the Keeper's own resolve lands the blow -- before its next model step he acts once, acted on", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "steven-knott": "他捂着脸撞开椅子，朝门口喊人。" });
+	const table = await talkTable(t, { prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
+		responses: [keeperSays(["resolve", { action: HIT }], ["resolve", { action: DODGE }], ["resolve", { action: PART }]),
+			keeperSays(["narrate", { text: "诺特捂着脸退到墙边。" }])] });
+	await table.session.prompt(PUNCH);
+	const telemetry = table.telemetry(CAMPAIGN);
+	assert.deepEqual(landedClerkSteps(telemetry).filter((row) => !/defend/.test(row.candidate)), [], "no clerk step of the declaration took the punch");
+	assert.deepEqual(heldRows(telemetry).map((row) => [row.npc, row.trigger, row.reason]), [["steven-knott", "engaged", "fight_pending"]], "held before the Keeper's step, as §139.25 has it");
+	const blow = turnRecord(table, 2).receipts.find((receipt) => receipt.kind === "roll" && receipt.family === "combat" && receipt.combat_action === "attack" && receipt.npc === "steven-knott");
+	assert.ok(blow, "the Keeper's resolve made the attack against him");
+	const [released] = releasedRows(telemetry);
+	assert.deepEqual([released?.npc, released?.reason, released?.receipts.includes(blow.id)], [["steven-knott"], "struck", true], "the blow ended the hold");
+	const rows = npcActRows(table);
+	assert.deepEqual(rows.map((row) => [row.npc, row.trigger, row.status]), [["steven-knott", "acted_on", "bound"]], "one act, his, as the person the blow was done to");
+	assert.equal(npcAct.calls.length, 1, "one generation");
+	assert.equal(npcAct.calls[0].packet.state.in_session, false, "the Keeper ended the brawl: he acts outside a fight");
+	const [first, second] = modelSteps(telemetry);
+	assert.ok(stepOf(heldRows(telemetry)[0].step) < first, "held before the Keeper's first model step");
+	assert.ok(second !== undefined && first < stepOf(rows[0].step) && stepOf(rows[0].step) < second, `he acts after the blow and before the Keeper's next model step: ${first} < ${rows[0].step} < ${second}`);
+	assert.ok(turnRecord(table, 2).receipts.some((receipt) => receipt.intent?.generated === true && receipt.intent.npc === "steven-knott"), "his act is on the turn");
+	assert.ok(turnRecord(table, 2).receipts.some((receipt) => receipt.family === "stakes" && receipt.actor === "steven-knott"), "the stakes die was rolled for him");
+});
+
+test("§139.28 at the table: the Keeper does something else to him and never settles the punch -- a roll made against him that no fight wrote -- he stays held, nothing acts", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "steven-knott": "他往后缩了一下。" });
+	const table = await talkTable(t, { prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
+		responses: [keeperSays(["resolve", { action: { intent: "social", goal: "逼他交出钥匙", method: "揪住衣领威吓", skill: "Intimidate", target: "Steven Knott" } }]),
+			keeperSays(["narrate", { text: "诺特僵在原地。" }])] });
+	await table.session.prompt(PUNCH);
+	const telemetry = table.telemetry(CAMPAIGN);
+	const receipts = turnRecord(table, 2).receipts;
+	assert.ok(receipts.some((receipt) => receipt.kind === "roll" && receipt.npc === "steven-knott" && receipt.family === "social"), "the Keeper's roll against him landed");
+	assert.ok(!receipts.some((receipt) => receipt.family === "combat"), "no blow landed");
+	assert.deepEqual(heldRows(telemetry).map((row) => [row.npc, row.reason]), [["steven-knott", "fight_pending"]], "still only the hold");
+	assert.deepEqual(releasedRows(telemetry), []);
+	assert.deepEqual(npcActRows(table), [], "no npc_act row");
+	assert.equal(npcAct.calls.length, 0, "nothing generated for him");
+});
+
+test("§139.28 at the table: the Keeper writes the punch as damage with no roll (its damage effect) -- the hit points he lost end the hold, and he acts once", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "steven-knott": "他捂着脸往门口退。" });
+	const table = await talkTable(t, { prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
+		responses: [keeperSays(["apply", { effects: [{ kind: "damage", subject: "Steven Knott", dice: "1D3", why: "the punch lands" }] }]),
+			keeperSays(["narrate", { text: "诺特捂着脸退到墙边。" }])] });
+	await table.session.prompt(PUNCH);
+	const telemetry = table.telemetry(CAMPAIGN);
+	const lost = turnRecord(table, 2).receipts.find((receipt) => receipt.kind === "delta" && receipt.resource === "hp" && receipt.subject === "steven-knott");
+	assert.ok(lost && lost.after < lost.before && !lost.family, "the Keeper's damage effect: hit points lost, no fight's family");
+	assert.deepEqual(releasedRows(telemetry).map((row) => row.receipts), [[lost.id]], "the hit points he lost ended the hold");
+	assert.deepEqual(npcActRows(table).map((row) => [row.npc, row.trigger, row.status]), [["steven-knott", "acted_on", "bound"]]);
+	assert.equal(npcAct.calls.length, 1);
+});
+
+test("§139.28 at the table: the blow lands through the kernel's forced defence and the fight goes on -- his reaction is his own turn of it, once; the scan the blow owes does not run him again", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "steven-knott": "他抓起桌上的烟灰缸砸过来。" });
+	const table = await talkTable(t, { prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
+		responses: [keeperSays(["resolve", { action: HIT }]), keeperSays(["narrate", { text: "两人扭打在一起。" }])] });
+	await table.session.prompt(PUNCH);
+	const telemetry = table.telemetry(CAMPAIGN);
+	assert.ok(landedClerkSteps(telemetry).some((row) => /defend/.test(row.candidate)), "the clerk took the pending defence the kernel forced");
+	assert.equal(releasedRows(telemetry).length, 1, "the blow the forced defence settled ended the hold");
+	const rows = npcActRows(table);
+	assert.deepEqual(rows.map((row) => [row.npc, row.trigger]), [["steven-knott", "turn"]], "one act: his own turn of the fight (§139.4), unchanged");
+	assert.equal(npcAct.calls.length, 1);
+	const scans = telemetry.filter((row) => row.lane === "run" && row.type === "operation_prepared" && String(row.label).startsWith("The people present who were acted on"));
+	assert.equal(scans.length, 2, "the scan that held him, and the one the blow owed -- which ran no one: he is in the fight and has acted");
+	assert.ok(stepOf(rows[0].step) < stepOf(scans[1].stepId) && stepOf(scans[1].stepId) < modelSteps(telemetry)[1], "his turn, then the owed scan, then the Keeper's next step");
+});
+
+test("§139.28 policy: a blow that struck the held person ends the hold and owes the scan before the Keeper's next turn-writing step, whoever wrote it; no blow, or no declared fight, owes nothing", () => {
+	const context = { scene: "office", clock: null, present: ["Steven Knott"], receipts: [] };
+	const rows = { act: [{ id: "social", describe: "social" }, { id: "combat", describe: "combat" }], addressee: [{ id: "Steven Knott", describe: { name: "Steven Knott" } }] };
+	const compiled = (act) => {
+		const view = initialView({ runId: "r", rawInput: PUNCH, context, candidates: [], rows, readFirst: false });
+		const batch = compileBatch(view, scope, [], []);
+		settleCompile(view, 1, batch, complete(batch, { act: choice(act, 1), addressee: choice("unclear", 0.4) }), 0, 0.6);
+		// The first scan ran (and held him): the Keeper's adjudication is next.
+		view.pending = [{ kind: "infer", purpose: "adjudicate", reason: "ask_llm" }];
+		const first = next(view);
+		assert.ok(first.item?.scan);
+		startStep(view, first);
+		settleExecute(view, 2, first.item, { ok: true, summary: {} }, undefined, 0);
+		assert.equal(next(view).kind, "infer", "then the Keeper's step");
+		return view;
+	};
+	const keeper = (method) => ({ kind: "direct", purpose: "execute", call: { method, params: {}, label: method } });
+	const BLOW = ["roll:fighting-brawl-t2-c2", "delta:hp-t2-c2"];
+	const punch = compiled("act_2");
+	assert.deepEqual(npcScanItem(punch).candidate.bound.fight_pending, { named: [] });
+	// The Keeper's write that struck nobody held: nothing owed, still held.
+	settleExecute(punch, 3, keeper("apply"), { ok: true, summary: {} }, { context, candidates: [] }, 0);
+	assert.ok(!npcScanDue(punch));
+	assert.deepEqual(npcScanItem(punch).candidate.bound.fight_pending, { named: [] });
+	// The Keeper's resolve whose fresh read found the blow on him: the hold ends and the scan is owed first.
+	settleExecute(punch, 4, keeper("resolve"), { ok: true, summary: {} }, { context, candidates: [], struck: BLOW }, 0);
+	assert.ok(npcScanDue(punch));
+	const scanned = next(punch);
+	assert.deepEqual([scanned.kind, scanned.item.scan, scanned.item.candidate.bound.fight_pending], ["direct", true, undefined], "the scan comes before the step, with no hold");
+	assert.deepEqual(scanned.item.candidate.basis.row.landed, BLOW, "it follows the blow's receipts");
+	startStep(punch, scanned);
+	settleExecute(punch, 5, scanned.item, { ok: true, summary: {} }, undefined, 0);
+	assert.equal(next(punch).kind, "infer", "once: then the Keeper's step");
+	// A forced step's fresh read (the kernel's pending defence) counts the same.
+	const forced = compiled("act_2");
+	settleExecute(forced, 3, { kind: "direct", purpose: "execute", candidate: { key: "resolve:combat:defend:steven-knott", verb: "resolve", family: "combat", label: "defend",
+		source: "t", bound: {}, unbound: [], clerk: "forced_step", forced: true, basis: {} } }, { ok: true, summary: {} }, { context, candidates: [], struck: BLOW }, 0);
+	assert.ok(npcScanDue(forced), "the defence the kernel forced landed the blow");
+	// Talk holds no one: a struck read changes nothing when no fight action was declared.
+	const talk = compiled("act_1");
+	settleExecute(talk, 3, keeper("resolve"), { ok: true, summary: {} }, { context, candidates: [], struck: BLOW }, 0);
+	assert.ok(!npcScanDue(talk));
+	assert.deepEqual([talk.fightLanded, talk.landed ?? []], [undefined, []]);
+});
+
+test("§139.28 struck: the receipts done to him (the kernel's acted_on) that are a blow -- a fight wrote them, or he lost hit points -- and came after the hold; never a social roll, never one already there", () => {
+	const receipts = [
+		{ id: "roll:fighting-brawl-t2-c2", kind: "roll", family: "combat", npc: "steven-knott", combat_action: "attack" },
+		{ id: "delta:hp-t2-c2", kind: "delta", family: "combat", subject: "steven-knott", resource: "hp", before: 11, after: 8 },
+		{ id: "roll:intimidate-t2-c1", kind: "roll", family: "social", npc: "steven-knott" },
+		{ id: "condition:thomas-hayes-t2-c5", kind: "condition", family: "chase", subject: "thomas-hayes", gained: ["fled"] },
+		// The Keeper's `damage` effect: hit points lost, no family.
+		{ id: "delta:hp-t2-c6", kind: "delta", subject: "steven-knott", resource: "hp", before: 8, after: 7 },
+		{ id: "delta:san-t2-c7", kind: "delta", subject: "steven-knott", resource: "san", before: 50, after: 47 },
+		{ id: "delta:hp-t2-c8", kind: "delta", subject: "steven-knott", resource: "hp", before: 7, after: 9 },
+	];
+	const actedOn = [{ receipt: "roll:intimidate-t2-c1", kind: "roll_against" }, { receipt: "roll:fighting-brawl-t2-c2", kind: "roll_against" },
+		{ receipt: "delta:hp-t2-c2", kind: "delta" }, { receipt: "condition:thomas-hayes-t2-c5", kind: "fled_from" }, { receipt: "roll:unknown-t2-c9", kind: "roll_against" },
+		{ receipt: "delta:hp-t2-c6", kind: "delta" }, { receipt: "delta:san-t2-c7", kind: "delta" }, { receipt: "delta:hp-t2-c8", kind: "delta" }];
+	assert.deepEqual(struckReceipts(actedOn, receipts), ["roll:fighting-brawl-t2-c2", "delta:hp-t2-c2", "condition:thomas-hayes-t2-c5", "delta:hp-t2-c6"],
+		"a fight's receipts and the hit points he lost; not a sanity loss, not hit points regained, not an id no receipt has");
+	assert.deepEqual(struckReceipts(actedOn, receipts, ["roll:fighting-brawl-t2-c2", "delta:hp-t2-c2", "delta:hp-t2-c6"]), ["condition:thomas-hayes-t2-c5"], "a blow already on the table when the hold was put");
+	assert.deepEqual(struckReceipts([{ receipt: "roll:intimidate-t2-c1", kind: "roll_against" }], receipts), [], "a roll against him no fight wrote");
+	assert.deepEqual(struckReceipts(undefined, receipts), []);
 });
 
 // ---------------------------------------------------------------------------------------------------

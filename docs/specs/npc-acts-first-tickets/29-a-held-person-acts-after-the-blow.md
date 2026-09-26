@@ -19,3 +19,12 @@ T5、T10、T12、T13：玩家出拳，书记员没接（路由/绑定没定下�
 - loop（重放 D2 T5 形状）：一拳留给 KP、诺特被扣；KP 的 `resolve` 落地一条打他的收据 → compose 之前有一条他的 `npc_act`（trigger acted_on），且只有一条。
 - loop：KP 没结算那一拳 → 仍只有 `npc_held`。
 - 变异：扣住后的补扫去掉 → 第一条逮住。
+
+## 落地记录（2026-09-26，worker）
+
+- **结构判据：** 扣住期间，这回合、扣住之后落地的、做在被扣者身上的一击——内核的 `npc.act.options` `acted_on`（名字匹配归内核）里，收据 `family` 为 `combat`/`chase`（`FIGHT_FAMILIES`），或他掉了 HP（`hp` delta 的 `after < before`；KP 用 `damage` 效果直接写伤害时收据没有 family，§139.26 的 `attacked_this_turn` 读的是同一个谓词）。谁写的都算：KP 自己的 `resolve`/`damage`、内核强制的防御步、书记员。只读收据字段与扣住记录，不读散文。
+- **引擎：** 扫描扣住人时把扣住记录挂在 run 上（被扣的 handle + 当时已有的收据 id）；此后每次写后的 fresh read 对每个被扣者读一次 `npc.act.options`，命中即解除并把收据 id 放进 `Fresh.struck`，记一行 `npc_released`。
+- **策略：** `settleStruck`：声明了战斗动作且尚未落地时，`struck` 置 `fightLanded` 并把收据 id 并入 `landed` → 在 KP 下一次写回合的模型步之前补扫一次（无 `fight_pending`）；被扣者从未 seen，照常掷威胁骰、生成、绑定、执行，只一次，照常占上限。
+- **战斗里他自己的回合照旧：** 一击把他拉进仍在进行的战斗时，他的反应是他自己的回合（trigger turn），补扫跳过他（在会话中/已 seen）。
+- **超出工单原文（worker 的决定）：** 工单写「战斗收据（攻击/伤害/闪避）」。KP 不掷骰、直接用 `damage` 效果写伤害时，HP 收据没有 family；按「声明的战斗动作以任何方式落地」把 HP 损失也算作一击（另有用例与变异）。两人都因对话兜底被扣、一击只打中其一时，扣住按 run 解除，两人都在补扫里行动（与书记员战斗步落地的语义一致）。
+- **没覆盖：** KP 同一批里落地一击又 `narrate`（批不可切，回合已交付）；KP 用非战斗族、不掉 HP 的检定结算那一拳；超时 `skipped_budget` 照旧。D2 的 `fled` 残留条件让每场新战斗第一次交换就结束——那是战斗引擎的事，另记。
