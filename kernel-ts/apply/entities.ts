@@ -21,7 +21,7 @@ import type {ApplyContext} from './index.js';
 import {CampaignSnapshot} from '../read/campaign.js';
 import {acceptReunion} from '../npc/reunion.js';
 import {INTENT_OUTCOMES} from '../npc/intents.js';
-import {generatedOf,intentStamp,refuseRepeat,refuseSettled,resolveIntent} from './intent.js';
+import {generatedOf,intentStamp,refuseRepeat,refuseSaidDone,refuseSettled,resolveIntent} from './intent.js';
 import {stageDraw} from './draw.js';
 import {fightTurn} from '../combat/execution.js';
 /** §135.30.7 (SL-42): the scenes the party left during this turn, latest departure first, from the turn's own move receipts. */
@@ -176,7 +176,10 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         await refuseSettled(context,node,resolved,'npc');
         refuseRepeat(context,node,resolved,outcome as string,'npc');
         // §139.3: the host's `_generated` marks the table's own act of this person (host-only; `true` or absent).
-        const intent=intentStamp(handle,resolved,outcome as string,generatedOf(effect._generated,'npc._generated'));
+        const generated=generatedOf(effect._generated,'npc._generated');
+        // §139.14: the intention variant settles nothing by itself -- a table act is not made done or failed by saying so.
+        refuseSaidDone(context,node,resolved,outcome as string,'npc.outcome',{generated,settles:false});
+        const intent=intentStamp(handle,resolved,outcome as string,generated);
         // §138.5: in a fight, on this person's own turn, the thing they try is what they spend the turn on.
         let passes:Row|null=null;
         if(effect.spend_turn!=null){

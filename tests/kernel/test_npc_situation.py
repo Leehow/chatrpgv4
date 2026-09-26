@@ -118,6 +118,24 @@ def test_an_intention_under_way_is_in_done_and_not_in_happened(knott):
         "an intention-only receipt is in done, not in happened"
 
 
+def test_an_intention_given_up_is_said_in_happened_the_next_turn(knott):
+    """§139.14: a receipt that settles one of theirs `abandoned` is a sentence -- the table's repeat given up (why:
+    repeated, §139.5) or the Keeper's overrule -- so the next act is generated knowing the thread was put down."""
+    open_turn(knott, "I tell Knott I will not take the job.")
+    line = "Lift the telephone receiver and threaten to ring the police."
+    knott.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Steven Knott", "intends": line, "outcome": "attempted", "_generated": True}])
+    ref = next(r for r in receipts(knott) if r["kind"] == "npc" and r["intent"]["text"] == line)["intent"]["ref"]
+    knott.table("apply", call_id="t1-c2", effects=[{"kind": "npc", "name": "Steven Knott", "intent_ref": ref, "outcome": "abandoned", "why": "repeated",
+                                                    "_generated": True}])
+    narrate(knott, "t1-c3", "Knott sets the receiver down.")
+    knott.table("player_input", text="I wait.")
+    packet = situation(knott)
+    gave_up, declared = packet["happened"]
+    assert gave_up == f'turn 1: Steven Knott gave up "{line}" without doing it (why: repeated)', gave_up
+    assert declared.endswith('declared: "I wait."')
+    assert [(row["ref"], row["status"]) for row in packet["done"]] == [(ref, "abandoned")]
+
+
 def test_thirty_settled_intentions_fit_the_budget_and_the_newest_survives(knott):
     open_turn(knott, "I keep Knott talking all afternoon.")
     lines = [f"Intention {n:02d}: steer the visitor back to the job, remind him of the deadline, the wages, the keys on the desk, "

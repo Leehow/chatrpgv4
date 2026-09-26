@@ -23373,6 +23373,11 @@ only with `outcome` (or `intends`); beside `to`, `stance` and the rest it is thi
 rolled) and stamped on the call's last graded roll -- `done` when it passed, `failed` when it did not -- or on its first
 receipt as `attempted` when nothing was rolled yet (an attack waiting for its defence). Admission (§32) is unchanged: an
 NPC-actor `resolve` and an `npc` effect are not reviewed.
+*Note, 2026-09-26 (§139.14):* on an intention the table's own act set out (a `generated` row), an effect's `intent_ref`
+makes it `done` or `failed` only when the effect is a threat clock or a person's arrival or departure (`npc` with `to`),
+and a `resolve`'s `action.intent_outcome` of `done` or `failed` is refused before any die: the dice decide. Any other
+effect -- a clue, a note, the intention variant -- is refused `table_act_unsettled`; `abandoned` and `attempted` are
+unchanged, and so is everything here for a row the Keeper set out.
 
 **138.7 What was set out on gets a result by the next turn.** The owner's ruling, as two structural checks; neither reads
 prose, and neither compares wording (a rephrased announcement is a new intention, and the card, the offer and the
@@ -23779,6 +23784,12 @@ marks; at the table: a fight turn spent on a shout, the same act unsettled, the 
 person acted on and the one who was not; on the emitted kernel: the cap, pursuit and none, the two gates across turns),
 `tests/extension/npc-intents.test.mjs` (the mark through the real writer, `by: "table"`).
 
+*Note, 2026-09-26 (§139.14, live table C3):* the semantic question asks for the same thing **for the same purpose,
+whatever the hands do**, not the same act; a repeat of a row still under way whose way settles it is that row, given
+its result, with no re-ask; the re-ask's line is §139.14's ("twice without doing it: this time do it or drop it"); a
+second repeat given up is said in the next packet's `happened`; and the same thing held up again right after it was
+given up opens no row (`status: "dropped"`). The structural gate is unchanged.
+
 **139.6 The response bank and the per-turn advice are retired; the card says whose act a row was (ticket 05, spec D5).**
 *Why.* The bank was a set of "if the player does X, try Y" rows written ahead of time, and the advice lane asked Jev
 every turn which row fit. That treats an open set as a closed one: what a player may do cannot be listed, so neither
@@ -23894,6 +23905,12 @@ time, both rows on the next card; a settled table act refused with "its result s
 `details.options`, the placeholder included; gate A T12's batch through the extension, the options line in the tool
 result; the ten intent-field descriptions one short line each with the explanation in `apply`; the prompt sentence),
 `tests/kernel/test_npc_round_operation.py` (the refusals over the emitted kernel).
+
+*Note, 2026-09-26 (§139.14, live table C3):* the overrule is `abandoned` only. On a row the table's act set out, the
+Keeper's `done` or `failed` by the intention variant, or by an effect that is not a clock, an arrival or a departure
+carrying its `intent_ref` (C3 T6: a clue), is refused `invalid_params` (`reason: "table_act_unsettled"`, fix: "a table
+act that rolled nothing is not done by saying so: abandon it (intent_outcome: abandoned), or let the dice settle it").
+A row the table's binding already settled still keeps its result (`intent_settled`, above).
 
 **139.8 The stakes die: where nothing is prepared, a person may go further (ticket 09, spec D9).** The owner's addition of
 2026-09-26: *where the story has nothing prepared, the table can roll for it -- a high roll, and the person may pull a gun.*
@@ -24385,3 +24402,116 @@ and a nameless `move` is told to name whom. `tests/kernel/test_npc_round_operati
 restored hint. Mutations (copy and restore): `chaseRoles` returning "the investigator is the quarry" always fails the
 four first cases, the `flee` one with exactly ticket 10's measured sides; the MOV requirement removed, the three-intent
 admission removed, the escape hint removed and the standing flight ignored each fail their cases.
+
+**139.14 A threat is one thread: the same purpose in other hands is the same thing, and only a result settles what the
+table set out (2026-09-26, ticket 15 of `docs/specs/npc-acts-first-tickets/`, spec section 九's table C3, D2, D6, D7;
+amends §139.5, §139.7, §139.1's `happened` and §138.2's addendum).** Live table `npc-acts-c3` (ten turns, the door
+locked, four punches): all four of Knott's generated acts were the telephone -- T5 "lift the receiver, thumb on the
+hook" and "press the receiver down, say nothing", T7 "lift the receiver and shout: touch me again and this rings the
+constable", T10 "hold the receiver up between them, the other hand on the telephone" -- and the prose threatened the
+police on T3, T5, T7 and T10. The telephone never rang. Both gates ran as designed and neither held: §139.5's question
+asked whether the act was the same *act* ("the same thing, whatever the words"), and four different hand movements are
+four acts (Jev cleared a repeat once, on T7, and the re-asked line passed as new); §138.7 wants *a* result, and the
+Keeper supplied one each time by saying so -- T5a `done` through a clue's `intent_ref` (`clue:knott-commission-t6`),
+T7's shout `done` through the intention variant -- so the situation packet's `done` told the generator every turn that
+the telephone was dealt with. The owner's criterion (spec section 二): repetition is judged by content, not by the
+hands; what is announced gets a result. Two roots, two changes, plus what the generator reads.
+
+*The semantic gate asks the purpose* (`runtime/jev/npc-act-step.ts`, `SAME_QUESTION`). The `same` question's options
+are unchanged -- each of the person's latest `npc_act.same_act_rows` rows as `{intent, status}`, plus `none` -- and its
+instruction now reads: the one this act is the same thing as, *the same thing this person is trying to bring about,
+for the same purpose, whatever the hands do and whatever the words*; a threat or a demand made again with another
+object, another gesture or other words is the same thing; `none` when the act is aimed at something none of them is
+aimed at. Target: "whether the act is something this person already set out to do, for the same purpose". The gates
+of §135.2 are unchanged. Nothing reads the words: sameness is still Jev's closed choice over the rows' own lines.
+
+*A thread is a row never carried out* -- the row Jev cleared the act as the same thing as, when it is still under way
+(`attempted`), or given up (`abandoned`) with nothing of theirs set out or settled since (its `turn` is the newest in
+the packet's `done`). A row settled by a result (`done`, `failed`) is not a thread: doing it again in a new situation
+stays lawful, a new row, no re-ask, as §139.5 had it. "Settled without dice" is `abandoned`: after the refusal below,
+a table act cannot be settled `done` or `failed` except by the dice, a clock, an arrival, a departure or the binding's
+own stance write, and a row the Keeper set out and settled by saying so is the Keeper's account, not second-guessed.
+The structural gate (the very line of a row under way) is unchanged and answers first.
+
+| the act is the same thing as | its binding | what happens |
+|---|---|---|
+| a row under way | a way that settles (a roll, a clock, an arrival, a departure, a stance) | that row continued: no opener, the way's write names it and gives it its result -- announcing it and doing it are one row; no re-ask |
+| a row under way | `intention_only` | re-asked once; the packet gains one `happened` line: `<name> set out to "<line>" on turn <n> and has not done it, and this act is the same thing again: that is twice without doing it. This time <name> either does it, or drops it and does something else.` |
+| (after the re-ask) a thread again | a way that settles | the row continued with that result (when the second hit is the row just given up, the row under way is the one continued) |
+| (after the re-ask) a thread again, or the re-ask unavailable | `intention_only` | the row continued and abandoned, `why: "repeated"` (§139.5); nothing opened |
+| (after the re-ask) nothing | any | its own act, as ever |
+| a row given up, nothing of theirs since | `intention_only` | **dropped**: no row opened, nothing written, no re-ask; in a fight the turn stays the Keeper's (`npc_turn.act.status: "dropped"`) |
+| a row given up, nothing of theirs since | a way that settles | a new row with that result (they do it now) |
+| a settled row, or `none` | any | a new row, as §139.5 |
+
+So two consecutive `intention_only` acts judged the same purpose never open a third row: the first opens it, the
+second gives it up, a third is dropped until they do it or do something else. The act's telemetry row
+(`lane: "run"`, `event: "npc_act"`) gains `status: "dropped"`, `dropped: <ref>` and `reason: "repeats_given_up"`, and
+keeps the line as `act`. The Keeper's `clerk_did` row (and, in a fight, `npc_turn.act`) carries the status, the
+thread's `ref` and the reason but no line: the act was not done, and those rows read `act` as what the table did.
+
+*The packet says it was given up* (`kernel-ts/npc/situation.ts`, amends §139.1's `happened`). A receipt whose `intent`
+stamp settles one of this person's intentions `abandoned` contributes the clause `<them> gave up "<line>" without doing
+it` (the line at most 200 code points), with the writer's `why` after it when the receipt has no clause of its own:
+`turn 3: Steven Knott gave up "<line>" without doing it (why: repeated)`. Worded by the stamp's outcome, never by the
+line's words; the Keeper's overrule (D7) reads the same way with its own `why`. Other intention-only receipts stay in
+`done` only, as before. With the window of §139.1 (the newest committed turn and this one), the next act's generation
+sees it.
+
+*Only the dice, a clock, an arrival or a departure settle a table act* (`refuseSaidDone`, `effectSettlesAct`,
+`kernel-ts/apply/intent.ts`; the intention variant in `kernel-ts/apply/entities.ts`). On a row the table's own act
+set out (`generated`, §139.6), a write that would make it `done` or `failed` is refused `invalid_params` before
+anything lands, message `<name>'s "<line>" was the table's own act and nothing has settled it; saying so does not make
+it <outcome>`, `fix: "a table act that rolled nothing is not done by saying so: abandon it (intent_outcome: abandoned),
+or let the dice settle it"`, `details: {field, reason: "table_act_unsettled", ref, status, outcome}` -- when the write
+is
+- the intention variant of `apply npc` (`intent_ref` + `outcome`/`intent_outcome`, or `intends` naming the same line;
+  `details.field: "npc.outcome"`);
+- any other effect carrying its `intent_ref` (default outcome `done`) that is not a threat clock (`kind: "threat"`) and
+  not a person's arrival or departure (`kind: "npc"` with `to`): a clue, a note, a flag, an item, cash, damage, a
+  stance, a person record ... (`details.field: "effects[<i>].intent_outcome"`); the refused batch writes nothing, as
+  every refused batch;
+- a `resolve` whose `action.intent_outcome` is `done` or `failed` (the dice decide; refused before any die, `fix`: leave
+  `action.intent_outcome` out and the roll makes it done or failed, or abandon it).
+
+Not refused: a write that is the table's own (`_generated`, the clerk's `npc_act` calls, §139.3 -- so the binding's
+`stance` way still settles its row); a roll with `action.intent_ref` and no outcome (the dice: `done` when it passed,
+`failed` when it did not), and the defence roll that settles an attack's carried stamp; a clock, an arrival or a
+departure carrying the ref, whoever writes it (the §138.2 addendum's porter); `abandoned` (the Keeper's overrule, D7)
+and `attempted`; and every write about a row the Keeper set out, which keeps §138.2's rules. A settled row is refused
+`intent_settled` first, as before. The set of effect kinds that settle is closed and structural; nothing reads what an
+effect is about.
+
+*The instruction* (`content/setup/npc-act.md`, "What they already tried") gains one sentence and nothing else changes
+byte for byte: "Something held up as a threat and not used is, the next time, used or put down, never held up again,
+whatever the hands do with it." No list items (`tests/extension/npc-act-generation.test.mjs`).
+
+*Decisions the owner should see.* (1) The Keeper's `item`, `cash`, `damage`, `move` or `stance` carrying a table act's
+ref as `done` is refused like a clue: the ticket names only the dice, a clock, an arrival and a departure, and any
+wider closed set of "real" effects would let an unrelated effect settle the act again. The Keeper writes the effect
+without the ref and abandons the act, or rolls it. (2) "A thread just given up" is by structure (nothing of theirs
+since), not by a turn count, so it holds until the person does something else; a genuinely new wish of the same
+purpose many turns later is still dropped if nothing else was set out between. (3) Rows settled before this change
+by the Keeper's word (C3's T5a, T7) read as settled, not as threads; a new table starts clean (campaigns are compile
+snapshots).
+
+*Three ends (§31).* Writers: the clerk's continued, abandoned and dropped acts (`runNpcAct`); the kernel's refusal.
+Readers: the generation step, through the packet's `done` (statuses the Keeper can no longer fake) and the new
+`happened` clause; Jev, through the purpose question. Actor: the person, whose next act either does it or is
+something else; the Keeper, who can still give an act up and write their own (D7).
+
+Tests: `tests/kernel/test_npc_intents_done.py` (emitted kernel: a table act refused `done`/`failed` by the intention
+variant, by the same line and across a committed turn, then `abandoned` allowed; a clue's and a note's ref refused with
+nothing written, a clue with `attempted` allowed; the Keeper's roll settles it and an explicit outcome beside the roll
+is refused before any die; the clerk's `_generated` roll settles it; a clock, an arrival and a departure settle it; the
+Keeper's stance refused and the table's own stance settles it; a Keeper-written row still `done` by the variant and by a
+clue), `tests/kernel/test_npc_situation.py` (an abandonment is a `happened` sentence the next turn),
+`tests/extension/single-loop-npc-act.test.mjs` (the purpose question's text; on the emitted kernel: four telephone acts
+in other hands over four turns -- re-asked once with the line, given up, the next packet's `done` and `happened` say
+so, the fourth dropped with no row and no re-ask, a different purpose opens normally; the step itself: a dropped act
+writes nothing and its outcome carries no `act`, and a row given up before something newer is no thread; a repeat bound to a roll is that
+row settled by the dice; the Keeper's `done` refused and `abandoned` said in `happened`; the two §139.5 tests that
+settled a table act by the Keeper's word now settle it by a roll and by an arrival), `tests/extension/npc-intents.test.mjs`
+(the Keeper's later result on a table act is `abandoned`). Mutations (copy and restore): the refusal removed fails four
+of the six kernel cases; the second-hit abandonment removed, the drop removed, and the settling continuation removed
+each fail their loop case; the `happened` clause removed fails the situation case and two loop cases.
