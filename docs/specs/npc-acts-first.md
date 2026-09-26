@@ -89,7 +89,7 @@ Evidence: 两桌真桌 `npc-actor-gate-a`（12 回合）、`npc-actor-gate-a2`�
 | `stance {word}` / `leave` | 任何时候 | `apply npc stance / to: away` |
 | `intention_only` | 总在 | `apply npc intends`（§138 兜底，`outcome: attempted`） |
 
-Jev 一个闭合问题：「这句行动由上面哪一种结算」+ 各方式的闭合参数问题（目标、技能）；置信闸同 §135.2；`unknown` 或 `none` → `intention_only`。数值（难度、伤害）由规则缺省（§135.28）——本线没有 band-then-roll（它在 `0.9.5a`），合并后再接。**所有绑出的收据带 `intent: {ref, text: act, outcome}`**，`basis.generated: true`。
+Jev 一个闭合问题：「这句行动由上面哪一种结算」+ 各方式的闭合参数问题（目标、技能）；置信闸同 §135.2；`unknown` 或 `none` → `intention_only`。数值（难度、伤害）由规则缺省（§135.28）——本线没有 band-then-roll（它在 `0.9.5a`），合并后再接。**所有绑出的收据带 `intent: {ref, text: act, outcome}`**，`intent.generated: true`。
 
 书记员以 `direct` 执行（§135.28 的 clerk bind 例外：参数绑定不过 LLM，Jev 预算耗尽也照绑）。结果收据进当回合，KP 在 compose 前看到「他做了什么、结果如何」。
 

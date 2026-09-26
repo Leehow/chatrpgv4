@@ -48,7 +48,7 @@ export function intentOf(entry: Row, ref: string): Row | null {
  * `"stated"` / `"keeper"` of §136.22) is not.
  */
 export function receiptGenerated(receipt: unknown): boolean {
-    return row(row(receipt).basis).generated === true;
+    return row(row(receipt).intent).generated === true;
 }
 
 /**

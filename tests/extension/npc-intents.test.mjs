@@ -131,7 +131,7 @@ test('the row the table\'s own act set out carries by: table on the card, throug
  const path=join(home,'.coc','campaigns',campaign,'turns','0001.json'),turn1=JSON.parse(await readFile(path,'utf8'));
  const receipt=turn1.receipts.find(value=>value.intent?.text===SHOUT);
  assert.equal(receipt.basis,undefined,'an npc receipt has no basis of its own to collide with');
- receipt.basis={generated:true};
+ receipt.intent.generated=true;
  await writeFile(path,JSON.stringify(turn1,null,2));
  await client.close();
  await rm(join(home,'.coc','campaigns',campaign,'npc-ledger.json'));

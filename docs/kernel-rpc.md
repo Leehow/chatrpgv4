@@ -23633,9 +23633,9 @@ its writers, the owed-result gate (§138.7), `director.offer`'s `npc.intents` ro
 older session recorded is dropped from every request by the table's context policy, never sent.
 
 *`by: "table"`: three ends (§31).*
-- *Writer.* The receipt of an act the table generated and bound (§139.3) carries `basis: {generated: true, ...}`.
+- *Writer.* The receipt of an act the table generated and bound (§139.3) carries `generated: true` inside its `intent` stamp (`intent: {ref, npc, text, outcome, generated: true}`) -- not on `basis`, which is a string (`stated` / `keeper`, §136.22) on damage, time, threat, flag and cash receipts.
   The ledger fold (`foldNpcTurn` via `foldIntent`, `kernel-ts/npc/intents.ts`) reads exactly
-  `receipt.basis.generated === true` and marks the ledger row the receipt opens `generated: true`. The mark records who
+  `receipt.intent.generated === true` and marks the ledger row the receipt opens `generated: true`. The mark records who
   set the intention out, so it is written when the row is opened and a later result -- the Keeper settling it,
   abandoning it (spec D7), or the table continuing it -- never changes it; a row the Keeper opened stays unmarked even
   if a generated receipt later continues it. The ledger stays rebuildable from `turns/`.
@@ -23644,10 +23644,10 @@ older session recorded is dropped from every request by the table's context poli
   no `by` on the Keeper's.
 - *Actor.* The Keeper, who sees in the same place what a person already did and whose act it was, and may settle or
   abandon it by its `ref` (spec D7). No new panel: the rows were already on the card.
-- *Open for §139.3.* `basis` is an object only on receipts that do not already have one. §136.22 stamps
-  `basis: "stated" | "keeper"` (a string) on every damage, time, threat, flag and cash receipt, and a string basis
-  reads as not generated; an act bound to a clock (`apply threat`) therefore needs §139.3 to decide where its receipt
-  carries the mark before that binding lands.
+- *Where the mark lives (lead, 2026-09-26, closing the question this ticket raised).* `basis` is a string
+  (`"stated" | "keeper"`, §136.22) on every damage, time, threat, flag and cash receipt, so the mark cannot ride on
+  `basis`. It rides on the `intent` stamp every bound act already carries (§138.2): `intent.generated === true`. The
+  fold reads that field and nothing else; §139.3 writes it on every receipt of a bound act, whatever the kind.
 
 Tests: `tests/extension/npc-preparation-integration.test.mjs` (a table played three turns through the real kernel,
 the NPC extension and the context policy: no `coc-npc-advice`, no Jev batch about a person, no advice telemetry, the
