@@ -1,6 +1,6 @@
 import json
 
-from conftest import OPENING_SCENE, campaign_dir, narrate, open_turn, read_json, read_jsonl
+from conftest import CONTENT_DIR, OPENING_SCENE, campaign_dir, narrate, open_turn, read_json, read_jsonl
 
 
 def world(client):
@@ -33,10 +33,13 @@ def test_move_reachable_and_unreachable(kernel):
     assert moved_event["data"] == {"from": OPENING_SCENE, "to": "hall-of-records", "minutes": 30}
     assert moved_event["receipt"] == "move:hall-of-records-t1-c1"
 
-    # Default travel time: the graph has none on this edge, so 0.
+    # Default travel time: the edge's own minutes (§138.9: the shipped graph carries a banded local trip here).
+    edge = next(r["properties"]["travel_minutes"] for r in read_json(CONTENT_DIR / "starters" / "the-haunting" / "module-graph.json")["relations"]
+                if r["relation_kind"] == "route-to" and (r["from_node_id"], r["to_node_id"]) == ("scene-hall-of-records", "scene-newspaper-morgue"))
+    assert edge > 0
     back = kernel.table("apply", call_id="t1-c2", effects=[{"kind": "move", "to": "scene-newspaper-morgue"}])
-    assert back["world"]["clock"] == {"minutes": 30}
-    assert kernel.table("status")["receipts"][-1]["minutes"] == 0
+    assert back["world"]["clock"] == {"minutes": 30 + edge}
+    assert kernel.table("status")["receipts"][-1]["minutes"] == edge
 
 
 def test_a_route_the_keeper_made_lands_and_says_it_was_off_the_graph(kernel):

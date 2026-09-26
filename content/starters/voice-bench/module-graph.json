@@ -2086,7 +2086,14 @@
    "from_node_id": "scene-sanyi-teahouse",
    "to_node_id": "scene-haihe-dock",
    "claim_id": "claim-route-to-4",
-   "properties": {}
+   "properties": {
+    "travel_minutes": 0,
+    "travel": {
+     "basis": "banded",
+     "band": "adjacent",
+     "confidence": 0.75
+    }
+   }
   },
   {
    "relation_id": "relation-route-to-5",
@@ -2094,7 +2101,14 @@
    "from_node_id": "scene-haihe-dock",
    "to_node_id": "scene-sanyi-teahouse",
    "claim_id": "claim-route-to-5",
-   "properties": {}
+   "properties": {
+    "travel_minutes": 0,
+    "travel": {
+     "basis": "banded",
+     "band": "adjacent",
+     "confidence": 0.75
+    }
+   }
   },
   {
    "relation_id": "relation-contains-6",
