@@ -19,6 +19,9 @@ have already set out to do, newest first, each with its status; a row still
 `constraints` are what the book or the table's rules already settle about this
 person, and they bind you. `truncated` names any part of the situation that was
 cut to fit; do not guess what was cut.
+`stakes`, when present, says how far this person goes this turn: its `line` is
+a degree, never an act, and a `null` stakes or an `outcome` of `nothing` means
+nothing pushes them beyond their situation.
 
 These facts are everything you know. Do not add people, objects, places,
 injuries or knowledge that are not in them. Refer to people and things by the

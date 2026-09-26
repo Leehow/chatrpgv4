@@ -3,8 +3,8 @@
  * host-only write the act step calls once per person per turn, before it generates what that person does (§139.2).
  *
  * The owner's words: where nothing is prepared, the table may roll for how far a person goes; a high roll can make
- * him do something far more dangerous than before. "Nothing prepared" is structural: the situation packet's
- * `constraints` (§139.1 -- the book's obligations and the active Mods' contact checks naming him) are empty. Then a
+ * him do something far more dangerous than before. "Nothing prepared" is structural: no stated obligation of his scene
+ * preordains his reaction (`preordainedReaction`, from the same rows as the packet's `constraints`, §139.1). Then a
  * rung is read from the ruleset table `npc-stakes.json` (base from his combat disposition, else the archetype the
  * table pinned for him, else the table's default; moved by the table's shifts; clamped to its ends), 1d100 is rolled
  * on the kernel's seeded die, and a keeper-visible `roll` receipt of family `stakes` goes into the open turn. The
@@ -202,7 +202,8 @@ export function createStakesHandlers(context: KernelContext, writer: ReturnType<
             const existing = array(turn.receipts).map(row).find(receipt => isStakesRoll(receipt) && me.is(receipt.actor));
             if (existing)
                 return {stakes: stakesView(existing)};
-            if ((await placedConstraints(context, campaign, graph, me)).constraints.length)
+            // Prepared means the book preordains this person's reaction (§139.8), not any row of `constraints`.
+            if ((await placedConstraints(context, campaign, graph, me)).prepared)
                 return {stakes: null, reason: 'prepared'};
             const table = await stakesTable(context), base = baseRung(graph, world, me.handle, table);
             const {rung, shifts} = stakesRung(table, base, await factsOf(context, campaign, graph, me));

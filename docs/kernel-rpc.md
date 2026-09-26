@@ -23669,14 +23669,25 @@ spent and recovered; this die is the Keeper's, per situation).
   1. **Once per person per turn.** When the open turn already holds this person's stakes receipt (kind `roll`, family
      `stakes`, `actor` naming them), the answer is that receipt's `{stakes: {rung, outcome, line}}` and nothing is
      written -- the same answer as the call that wrote it.
-  2. **Prepared.** When the person's §139.1 `constraints` are not empty -- a stated obligation of their scene naming
-     them (a preordained reaction among them) or an active Mod's contact check still to come with them -- the answer is
-     `{stakes: null, reason: "prepared"}` and nothing is written. It is the same computation as the packet's
-     (`placedConstraints`, `kernel-ts/npc/situation.ts`), not a second one: "nothing prepared" is structural.
+  2. **Prepared.** When the book preordains this person's reaction -- a stated obligation of their scene with
+     `reaction: "preordained"` (§134.5, the owner's Q2 shape), whose `who` is them and whose state is `open` or
+     `blocked` -- the answer is `{stakes: null, reason: "prepared"}` and nothing is written. It is read from the same
+     issued obligations as the packet's `constraints` (`placedConstraints` → `preordainedReaction`,
+     `kernel-ts/npc/situation.ts`), not a second computation: "nothing prepared" is structural.
   3. **Otherwise** the rung is read, 1d100 is rolled on the kernel's seeded die (`context.rng.randint(1, 100)`: seeded per
      turn at `player_input` from the line's seed, locked for the process by `COC_KERNEL_SEED`, as every die of the
      engine), one receipt is appended to the open turn, and the answer is `{stakes: {rung, outcome, line}}`.
   The turn's state is not changed (a receipt in an `open` turn is legal, as the late-map receipts of `player_input`).
+- **What counts as prepared, and why only that (coordinator, 2026-09-26, after the first build of this ticket).** The owner
+  asked for the die "when the story has nothing prepared", so the test is whether the book has already written how this
+  person reacts -- a preordained reaction, which the book states in place of the reaction roll -- and nothing else. A
+  Mod's first-contact row (`pending_contacts`, e.g. `natural-npc:first-impression`) is a generic mechanic every first
+  meeting carries, and an open obligation that names the person (Knott's commission) is plot the book wants to happen,
+  not a reaction to what was just done to them; counted as "prepared", the two made nearly everyone at a shipped table
+  read as prepared (every person not yet met, and Knott for as long as his commission stands), which defeats the owner's
+  intent. Both stay in the packet's `constraints`, so the generator still honours them; they do not suppress the die. A
+  preordained reaction whose obligation is settled or waived has been played; the book has nothing more prepared for the
+  person, and the die rolls.
 - **The table** is data: `content/rulesets/coc7/rules-json/npc-stakes.json`, `contract_id: "coc.npc-stakes.v1"`, the
   convention of `npc-combat-disposition.json` (§11.5.3): every number is in the table and the kernel writes no threshold.
   `rungs` are ordered from the least dangerous to the most, each `{name, severe_at_most, escalates_at_most, lines:
@@ -23742,20 +23753,23 @@ spent and recovered; this die is the Keeper's, per situation).
   `packet.stakes?.outcome === "severe"` (absent is not severe) to allow the weapon of spec D9's binding (§139.3).
 - **Three ends (§31).** Writer: `npc.stakes`, called by the act step (§139.3) once per person it generates for. Reader:
   the §139.1 packet's `stakes`, sent whole to the generator (§139.2); the Keeper through the receipt. Actor: the act the
-  generator writes to that degree, bound by §139.3 -- and on `severe`, the one weapon §139.3 may add. Until §139.3 lands
-  the method has no product caller; it is exercised by `tests/kernel/test_npc_stakes.py` over the emitted kernel.
+  generator writes to that degree (`content/setup/npc-act.md` says what `stakes` means), bound by §139.3 -- and on
+  `severe`, the one weapon §139.3 may add. Until §139.3 lands the method has no product caller; it is exercised by
+  `tests/kernel/test_npc_stakes.py` over the emitted kernel.
 - **Not here.** No die for a scene without a person (a Director-level random event is another spec); no Jev choice of
   the rung (band-then-roll is on `0.9.5a`; after the merge `default_rung` becomes Jev's choice among the rungs, the same
   shape); the lines stay English data and are never shown to the player.
 
-Tests: `tests/kernel/test_npc_stakes.py` -- Corbitt after the first-impression check (so nothing is prepared) and a
-landed punch: a rung one above the table's default, `shifts: ["attacked_this_turn"]`, with seeds 8, 6 and 4 giving
-`severe`, `escalates` and `nothing` exactly as the rung's thresholds read the roll; the receipt in `table.status` with
+Tests: `tests/kernel/test_npc_stakes.py` -- Corbitt with the Mod's first-contact row still to come and a landed punch:
+a rung one above the table's default, `shifts: ["attacked_this_turn"]`, with seeds 3, 2 and 1 giving `severe`,
+`escalates` and `nothing` exactly as the rung's thresholds read the roll; the receipt in `table.status` with
 `visibility: keeper`, absent from the player-facing rows, the same `{rung, outcome, line}` in `npc.situation` and no
-new `happened` sentence; Corbitt with the Mod's contact check still to come and Arty Wilmot whose reaction the book
-skips answer `prepared` and write nothing; a second call answers the same and writes nothing, a closed turn is
+new `happened` sentence; Knott with an open commission obligation and a pending first-impression row rolls, both rows
+kept in his `constraints`; Arty Wilmot, whose reaction the book preordains, answers `prepared` and writes nothing until
+that obligation is waived, then rolls; a second call answers the same and writes nothing, a closed turn is
 `turn_state`, the next turn rolls anew; the ledger, the committed facts, the Director's `last_roll` and the journal do
 not read the die; the base from an authored disposition and from a pinned archetype; each shift, a clock at exactly
 half not past it, and the clamp at the last rung; four malformed tables refused before a roll. Mutation record (copy
 and restore): the table without `attacked_this_turn`, the kernel not reading it, the receipt without `visibility:
-keeper`, each reader's guard removed, the once-per-turn and the prepared checks removed -- each fails its case.
+keeper`, each reader's guard removed, the once-per-turn and the prepared checks removed, and contact rows and
+obligations counted as prepared again -- each fails its case.

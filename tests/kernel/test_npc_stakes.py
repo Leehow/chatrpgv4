@@ -1,16 +1,17 @@
 """Contract §139.8 (docs/specs/npc-acts-first.md D9, ticket 09), over the emitted kernel.
 
-`npc.stakes {campaign, name}` is the Keeper's stakes die for a person with no prepared reaction this turn: a rung read
+`npc.stakes {campaign, name}` is the Keeper's stakes die for a person whose reaction the book does not preordain: a rung read
 from `content/rulesets/coc7/rules-json/npc-stakes.json` (base from the person's combat disposition, else the archetype the
 table pinned, else the table's default; moved by the table's shifts), one d100 on the kernel's seeded die, and one
 keeper-visible `roll` receipt of family `stakes` in the open turn -- once per person per turn. `npc.situation` carries
 `{rung, outcome, line}` read from that receipt and never rolls.
 
-Corbitt is the person. As the starter ships, the natural-npc Mod's first-impression check against him is still to come,
-which is a prepared reaction (§139.1 `constraints`); the fights below make that check first, so nothing is prepared for
-him any more. His book gives him no combat disposition, so his base is the table's default. With seeds 8, 6 and 4 the
-investigator's punch lands (its damage die is rolled; his Flesh Ward armour takes it, so his hit points stay whole) and
-the die then says severe, escalates and nothing. Every expected number is read from the shipped table, never restated.
+Corbitt is the person. As the starter ships, the natural-npc Mod's first-impression check against him is still to come:
+a row of his `constraints` for the generator, and no prepared reaction -- only the book's preordained reaction is one
+(Arty Wilmot's, below). His book gives him no combat disposition, so his base is the table's default. With seeds 3, 2
+and 1 the investigator's punch lands (its damage die is rolled; his Flesh Ward armour takes it, so his hit points stay
+whole) and the die then says severe, escalates and nothing. Every expected number is read from the shipped table, never
+restated.
 """
 
 import json
@@ -26,7 +27,7 @@ CORBITT = "walter-corbitt"
 INVESTIGATOR = "thomas-hayes"
 TABLE = CONTENT_DIR / "rulesets" / "coc7" / "rules-json" / "npc-stakes.json"
 # Seeds whose landed blow is followed by each outcome of the die (chosen by running them; the die is the kernel's).
-LANDED = {8: "severe", 6: "escalates", 4: "nothing"}
+LANDED = {3: "severe", 2: "escalates", 1: "nothing"}
 
 
 def rules():
@@ -75,22 +76,15 @@ def client_for(tmp_path, seed, combat=None):
     return RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": str(seed)}, content=content)
 
 
-def met_corbitt(client):
-    """Turn 1: walk down to Corbitt and make the Mod's first-impression check against him, so no prepared reaction is
-    left for him. A content copy carries no Mod (the packages sit beside the shipped content, not inside it), so there
-    is no check to make there. Returns the next call number."""
+def at_corbitt(client):
+    """Turn 1: walk down to Corbitt. Returns the next call number."""
     open_turn(client, "I hit him.")
-    n = walk_to_confrontation(client)
-    if situation(client)["constraints"]:
-        resolve(client, f"t1-c{n}", intent="social", decision="natural-npc:first-impression", target="Walter Corbitt", goal="size him up")
-        n += 1
-    assert situation(client)["constraints"] == [], "nothing is prepared for him now"
-    return n
+    return walk_to_confrontation(client)
 
 
 def hit_corbitt(client):
-    """`met_corbitt`, then the investigator's punch and Corbitt's dodge. Returns the next call number."""
-    n = met_corbitt(client)
+    """`at_corbitt`, then the investigator's punch and Corbitt's dodge. Returns the next call number."""
+    n = at_corbitt(client)
     resolve(client, f"t1-c{n}", intent="combat", goal="hit him", method="fists", target="Walter Corbitt", weapon="unarmed")
     resolve(client, f"t1-c{n + 1}", intent="combat", goal="combat:defend", method="combat:defend", actor="Walter Corbitt", defense="dodge")
     return n + 2
@@ -103,6 +97,8 @@ def test_after_a_landed_blow_the_rung_is_one_above_his_base_and_only_the_keeper_
     client = client_for(tmp_path, seed)
     try:
         hit_corbitt(client)
+        contact = [line for line in situation(client)["constraints"] if line.startswith("Mod check natural-npc:first-impression")]
+        assert contact, "the Mod's first contact with him is still to come: a row for the generator, not a prepared reaction"
         receipts = client.table("status")["receipts"]
         attack = next(r for r in receipts if r["kind"] == "roll" and r.get("combat_action") == "attack")
         assert attack["actor"] == INVESTIGATOR and attack["npc"] == CORBITT
@@ -141,21 +137,50 @@ def test_after_a_landed_blow_the_rung_is_one_above_his_base_and_only_the_keeper_
         client.close()
 
 
-# ---- prepared: no die ------------------------------------------------------------------------------------------------
+# ---- prepared: only a reaction the book preordains keeps the die in the cup ------------------------------------------
 
-def test_a_person_with_a_prepared_reaction_gets_no_die(tmp_path):
+def test_a_first_contact_row_and_an_open_obligation_do_not_prepare_him(tmp_path):
+    """Knott in his office: the book's commission obligation is open and names him, and the Mod's first-impression
+    check with him is still to come. Both stay in his `constraints` for the generator; neither is a reaction the book
+    prepared, so the die rolls."""
     client = client_for(tmp_path, 7)
     try:
-        open_turn(client, "I creep into the cellar.")
-        walk_to_confrontation(client)
-        # The Mod's contact check with Corbitt is still to come.
-        assert any(line.startswith("Mod check natural-npc:first-impression") for line in situation(client)["constraints"])
-        assert stakes(client) == {"stakes": None, "reason": "prepared"}
-        # The book skips Arty Wilmot's reaction roll: a preordained reaction of a scene obligation.
-        assert any("Arty Wilmot" in line for line in situation(client, "Arty Wilmot")["constraints"])
+        open_turn(client, "I tell Knott I will not take the job.")
+        constraints = situation(client, "Steven Knott")["constraints"]
+        obligation = [line for line in constraints if line.startswith("scene obligation knott-accept-commission (open)")]
+        contact = [line for line in constraints if line.startswith("Mod check natural-npc:first-impression")]
+        assert obligation and contact and len(constraints) == 2, constraints
+        assert not any("reaction roll" in line for line in constraints), "the commission is plot, not a preordained reaction"
+        result = stakes(client, "Steven Knott")
+        assert result.get("reason") != "prepared" and result["stakes"] is not None, \
+            f"a first-contact row and an open obligation prepare nothing: {result}"
+        [receipt] = stakes_receipts(client)
+        assert receipt["actor"] == "steven-knott" and result["stakes"]["rung"] == receipt["rung"]
+        assert situation(client, "Steven Knott")["constraints"] == constraints, "the rows stay in the packet"
+    finally:
+        client.close()
+
+
+def test_a_reaction_the_book_preordains_is_prepared_until_its_obligation_is_done(tmp_path):
+    """Arty Wilmot: the book skips his reaction roll (`requirement-globe-clippings-access`, `reaction: preordained`).
+    While that obligation is open the die stays in its cup and nothing is written; once it is waived the book has
+    nothing more prepared for him, and the die rolls."""
+    client = client_for(tmp_path, 7)
+    try:
+        open_turn(client, "I ask at the Globe for the old clippings.")
+        preordained = [line for line in situation(client, "Arty Wilmot")["constraints"]
+                       if line.startswith("scene obligation globe-clippings-access (open)")]
+        assert preordained and "the book skips Arty Wilmot's reaction roll" in preordained[0]
         assert stakes(client, "Arty Wilmot") == {"stakes": None, "reason": "prepared"}
-        assert stakes_receipts(client) == []
-        assert situation(client)["stakes"] is None and situation(client, "Arty Wilmot")["stakes"] is None
+        assert stakes_receipts(client) == [] and situation(client, "Arty Wilmot")["stakes"] is None
+
+        client.table("apply", call_id="t1-c1", effects=[{"kind": "flag", "name": "newspaper-morgue-clippings-access",
+                                                         "value": True, "why": "he let us into the morgue"}])
+        assert any(line.startswith("scene obligation globe-clippings-access (waived)")
+                   for line in situation(client, "Arty Wilmot")["constraints"])
+        result = stakes(client, "Arty Wilmot")
+        [receipt] = stakes_receipts(client)
+        assert receipt["actor"] == "arty-wilmot" and result["stakes"]["rung"] == receipt["rung"]
     finally:
         client.close()
 
@@ -163,7 +188,7 @@ def test_a_person_with_a_prepared_reaction_gets_no_die(tmp_path):
 # ---- once per person per turn ----------------------------------------------------------------------------------------
 
 def test_the_die_is_rolled_once_per_person_per_turn_and_only_in_an_open_turn(tmp_path):
-    client = client_for(tmp_path, 6)
+    client = client_for(tmp_path, 2)
     try:
         n = hit_corbitt(client)
         first = stakes(client)
@@ -191,7 +216,7 @@ def test_the_die_is_rolled_once_per_person_per_turn_and_only_in_an_open_turn(tmp
 # ---- the die is no check: the readers that take a roll for one skip it -----------------------------------------------
 
 def test_the_die_is_no_interaction_no_fact_and_not_the_last_roll(tmp_path):
-    client = client_for(tmp_path, 8)
+    client = client_for(tmp_path, 2)
     try:
         n = hit_corbitt(client)
         stakes(client)
@@ -236,7 +261,7 @@ def test_a_die_rolled_for_someone_elsewhere_names_no_one_into_the_journal(tmp_pa
 def test_the_base_is_the_disposition_word_first(tmp_path):
     client = client_for(tmp_path, 7, combat={"disposition": "fights_to_the_end"})
     try:
-        met_corbitt(client)
+        at_corbitt(client)
         stakes(client)
         [receipt] = stakes_receipts(client)
         base = rules()["base_by_disposition"]["fights_to_the_end"]
@@ -273,7 +298,7 @@ def set_stance(word):
         {"kind": "npc", "name": "Walter Corbitt", "stance": word, "why": "test"}])
 
 
-# (id, setup after the first impression, expected shifts). The awareness clock has four segments: three is past half,
+# (id, setup once he is reached, expected shifts). The awareness clock has four segments: three is past half,
 # two is exactly half and not past it.
 SHIFT_CASES = [
     ("clock-past-half", advance_awareness(3), ["table_clock_past_half"]),
@@ -287,7 +312,7 @@ SHIFT_CASES = [
 def test_each_shift_is_the_tables(tmp_path, setup, expected):
     client = client_for(tmp_path, 7)
     try:
-        n = met_corbitt(client)
+        n = at_corbitt(client)
         setup(client, n)
         stakes(client)
         [receipt] = stakes_receipts(client)

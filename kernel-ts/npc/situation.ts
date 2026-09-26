@@ -210,18 +210,21 @@ function atHand(graph: ModuleGraph, world: Row, party: Row[], me: Person, place:
     return {holdings, objects, exits, present};
 }
 
-function constraintsOf(graph: ModuleGraph, world: Row, party: Row[], me: Person, place: Row | null, receipts: Row[], active: Row[]): string[] {
+/** The stated obligations of their scene (§134.9), as issued, that name this person: as `who`, as the person of the
+ *  next step, or among the people the obligation guards. */
+function obligationsNaming(graph: ModuleGraph, world: Row, me: Person, place: Row | null, receipts: Row[], active: Row[]): Row[] {
+    if (!place || !obligationNodes(graph, place).length) return [];
+    return sceneObligations(graph, world, place, {
+        receipts, modChecks: active.flatMap(mod => array(row(mod.contributes).checks).map(check => ({mod: string(mod.id), check})))})
+        .filter(obligation => [obligation.who, row(obligation.next).person, ...array(row(row(obligation.trigger).guards).people)].some(name => me.is(name)));
+}
+
+function constraintsOf(graph: ModuleGraph, world: Row, party: Row[], me: Person, place: Row | null, named: Row[], active: Row[]): string[] {
     if (!place) return [];
     const result: string[] = [];
-    if (obligationNodes(graph, place).length) {
-        const issued = sceneObligations(graph, world, place, {
-            receipts, modChecks: active.flatMap(mod => array(row(mod.contributes).checks).map(check => ({mod: string(mod.id), check})))});
-        for (const obligation of issued) {
-            const names = [obligation.who, row(obligation.next).person, ...array(row(row(obligation.trigger).guards).people)];
-            if (!names.some(name => me.is(name))) continue;
-            const capsule = capsuleRow(obligation);
-            result.push(`scene obligation ${string(capsule.name)} (${string(capsule.state)}): ${string(capsule.cue)}`);
-        }
+    for (const obligation of named) {
+        const capsule = capsuleRow(obligation);
+        result.push(`scene obligation ${string(capsule.name)} (${string(capsule.state)}): ${string(capsule.cue)}`);
     }
     if (graph.handle(place) === world.active_scene)
         for (const contact of contactRows(graph, world, party, active, [me.node]).contacts)
@@ -249,16 +252,27 @@ export function fitSituation(packet: Row, maxBytes: number, declared: boolean): 
 }
 
 /**
- * Where this person is placed, and the rows the book and the active Mods hold for them now (the packet's
- * `constraints`). One computation for the packet and for the stakes die (§139.8), which rolls only for a person with
- * none -- the structural meaning of "no prepared reaction".
+ * §139.8: whether the book prepared this person's reaction -- a stated obligation of their scene, not yet settled or
+ * waived, whose `who` is this person and whose reaction the book preordains (`reaction: "preordained"`, §134.5). The
+ * only thing that keeps the stakes die from rolling. A Mod's first-contact row and an obligation that is plot rather
+ * than a reaction stay in `constraints` for the generator and prepare nothing.
  */
-export async function placedConstraints(context: KernelContext, campaign: CampaignSnapshot, graph: ModuleGraph, me: Person): Promise<{place: Row | null; constraints: string[]}> {
+export function preordainedReaction(named: Row[], me: Person): boolean {
+    return named.some(obligation => obligation.reaction === 'preordained' && me.is(obligation.who) && ['open', 'blocked'].includes(string(obligation.state)));
+}
+
+/**
+ * Where this person is placed, the rows the book and the active Mods hold for them now (the packet's `constraints`),
+ * and whether one of them is a reaction the book preordains (`prepared`, §139.8). One computation for the packet and
+ * for the stakes die.
+ */
+export async function placedConstraints(context: KernelContext, campaign: CampaignSnapshot, graph: ModuleGraph, me: Person): Promise<{place: Row | null; constraints: string[]; prepared: boolean}> {
     const {world, party} = campaign;
     const at = row(world.npc_presence)[me.handle], place = typeof at === 'string' ? graph.find(at, ['scene']) : null;
     const active = await activeMods(context, world);
     const allReceipts = [...campaign.records.flatMap(record => array(record.receipts)), ...array(campaign.turn.receipts)].map(row);
-    return {place, constraints: constraintsOf(graph, world, party, me, place, allReceipts, active)};
+    const named = obligationsNaming(graph, world, me, place, allReceipts, active);
+    return {place, constraints: constraintsOf(graph, world, party, me, place, named, active), prepared: preordainedReaction(named, me)};
 }
 
 /** This turn's stakes receipt for this person, as the generation step reads it (§139.8); null when none was rolled. */
