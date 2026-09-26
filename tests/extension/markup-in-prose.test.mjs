@@ -175,3 +175,31 @@ test("real kernel: a draft refused for markup is held, so a repair leg that brin
 	assert.deepEqual(markupRows(table).map((row) => [row.ok, row.outcome]), [[false, "refused"], [true, "delivered"]]);
 	assert.equal(shownText(table), record.rendered_text, "the player reads the Keeper's draft");
 });
+
+/**
+ * A known boundary of §139.10, not a bug: the line class is syntax, so dash dialogue typed with a hyphen at a line's
+ * start has the shape of a markdown bullet. It costs one refusal a turn, and the same draft sent again goes out as
+ * written with the finding. No language-based exemption narrows the class (owner's rule); a real dash (`—`) passes.
+ */
+const DASHED = `Knott levantó la vista del escritorio.\n\n{{say:${KNOTT}}}- Siéntese, señor Hayes.{{/say}}\n{{say:${KNOTT}}}- No tengo toda la tarde.{{/say}}`;
+
+test("real kernel, known boundary: dash dialogue typed with a hyphen at a line's start is refused once, and the same draft is delivered with the finding", async (t) => {
+	const campaign = "markup-dash-dialogue";
+	const table = await playTurn(t, campaign, [
+		fauxAssistantMessage([fauxToolCall("narrate", { text: DASHED })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: DASHED })], { stopReason: "toolUse" }),
+	]);
+	assert.deepEqual(narrateRows(table).map((row) => [row.ok, row.reason ?? null]), [[true, null], [false, "markup_in_prose"], [true, null]],
+		"refused once, then the same draft delivered");
+	const [refusal] = refusedNarrates(table);
+	assert.equal(refusal.details.reason, "markup_in_prose");
+	assert.deepEqual(refusal.details.lines, ["- Siéntese, señor Hayes.", "- No tengo toda la tarde."]);
+	const record = turnRecord(table, campaign, 1);
+	assert.equal(record.closed_by, "narrate");
+	assert.equal(record.text, DASHED, "the same draft, as written");
+	assert.equal(record.speech.length, 2);
+	const finding = (record.warnings ?? []).find((row) => row.kind === "markup_in_prose");
+	assert.equal(finding?.lane, "delivery");
+	assert.equal(finding?.quote, "- Siéntese, señor Hayes.");
+	assert.deepEqual(markupRows(table).map((row) => [row.ok, row.outcome, row.lines]), [[false, "refused", 2], [true, "delivered", 2]]);
+});

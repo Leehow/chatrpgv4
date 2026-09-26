@@ -23513,11 +23513,16 @@ turn, and it spends no model step beyond an explicit call's own refusal or the t
 review runs before the kernel sees the text, so each refusal also costs that review and the resend is reviewed again.
 
 **Not covered.** `ask`'s `text` (the ticket names `narrate`); a tag with attributes (`<p class="x">`); inline emphasis
-and code fences. A table that types dash dialogue with a hyphen at the start of a line (`- Hola.`) meets one refusal a
-turn and then goes out with the finding; with a real dash (`—`) it passes. No style is judged and no word is read.
+and code fences. No style is judged and no word is read.
+
+**Known boundary.** Dash dialogue typed with a hyphen at a line's start (`- Hola.`) has the bullet's shape, so it costs
+one refusal a turn and the same draft then goes out with the finding (a real dash, `—`, passes); this is a documented
+cost, not an exemption, and "real kernel, known boundary: dash dialogue typed with a hyphen at a line's start is refused
+once, and the same draft is delivered with the finding" in `tests/extension/markup-in-prose.test.mjs` holds it.
 
 Tests: `tests/extension/markup-in-prose.test.mjs` (real kernel, legacy engine: the `</text>` refusal and rewrite; the
 ordinary-prose guard; an implicit close with list lines refused and steered; two tagged deliveries, the second
 delivered with the finding and both counted; the spent-steer resend; the held draft delivered after an empty repair
-leg), `tests/kernel/test_markup_in_prose.py` (the refusal's details and `markup_gate`, the finding and both telemetry
-rows, a fresh gate on the next turn, lines named, ordinary prose and the host's markers passing).
+leg; the dash-dialogue boundary), `tests/kernel/test_markup_in_prose.py` (the refusal's details and `markup_gate`, the
+finding and both telemetry rows, a fresh gate on the next turn, lines named, ordinary prose and the host's markers
+passing).
