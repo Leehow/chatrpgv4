@@ -178,7 +178,7 @@ export interface PendingItem {
   call?: {method: string; params: Record<string, Json>; label: string};
   /** §135.28: how each parameter the bind step settled got its value (`jev` or `rule-default`), carried to the clerk's row. */
   bindings?: BindRecord[];
-  /** §139.4: the step `next` puts before a model step when people were acted on; never in `pending` (see `npcScanDue`). */
+  /** §139.4/§139.20: the step `next` puts before the run's first model step and after a landed step; never in `pending` (see `npcScanDue`). */
   scan?: true;
 }
 export interface Observation {
@@ -256,7 +256,9 @@ export interface RunView {
   settledClues?: StagedClue[];
   /**
    * §139.4: the declaration's clerk steps the kernel took this run (not forced, not a person's own act), and those an
-   * `npc_act` scan already followed. A landed step not yet followed owes one scan before the next model step.
+   * `npc_act` scan already followed. A landed step not yet followed owes one scan before the next model step. §139.20:
+   * `npcScanned` is absent until the run's first scan, which is owed before its first model step whether or not a step
+   * landed (a person in the conversation acts on a turn of pure talk).
    */
   landed?: string[];
   npcScanned?: string[];
@@ -313,12 +315,16 @@ export function routeDigest(view: Pick<RunView, 'rawInput' | 'candidates' | 'mat
 }
 
 /**
- * §139.4: people present were acted on by the declaration the clerk carried out (a landed step no scan followed yet), so
- * before the run's next model step they act (`npc_act` scan). Past the run's time budget it is not run (the engine
- * records `skipped_budget`).
+ * §139.4 as §139.20 (ticket 21) amended it: before the run's first model step the people present are scanned once
+ * (`npc_act` scan) -- every turn, not only after a landed step, because a turn of pure talk lands nothing and the person
+ * in the conversation must still act -- and a step of the declaration that landed after it owes another scan before the
+ * next model step. With nobody present and nothing landed there is no one to scan. Past the run's time budget it is not
+ * run (the engine records `skipped_budget`).
  */
-export function npcScanDue(view: Pick<RunView, 'landed' | 'npcScanned'>): boolean {
-  return (view.landed ?? []).some(key => !(view.npcScanned ?? []).includes(key));
+export function npcScanDue(view: Pick<RunView, 'landed' | 'npcScanned'> & {context?: Pick<TurnContext, 'present'>}): boolean {
+  const landed = view.landed ?? [];
+  if (view.npcScanned === undefined) return landed.length > 0 || (view.context?.present?.length ?? 0) > 0;
+  return landed.some(key => !view.npcScanned!.includes(key));
 }
 /** The scan step `next` issues when one is due: a clerk candidate of its own, never taken from `pending`. */
 export function npcScanItem(view: Pick<RunView, 'landed' | 'addressees'>): PendingItem {
@@ -327,8 +333,9 @@ export function npcScanItem(view: Pick<RunView, 'landed' | 'addressees'>): Pendi
 }
 
 /**
- * The policy. Pure: it reads the view and returns one step request. §139.4: a model step the declaration's landed clerk
- * steps precede is preceded by the people it acted on acting (`npcScanDue`), within the run's time budget.
+ * The policy. Pure: it reads the view and returns one step request. §139.4/§139.20: the run's first model step, and a
+ * model step a landed clerk step precedes, is preceded by the scan of the people present (`npcScanDue`), within the
+ * run's time budget.
  */
 export function next(view: RunView): StepRequest {
   const request = routeNext(view);

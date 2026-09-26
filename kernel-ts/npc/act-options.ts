@@ -13,7 +13,9 @@
  * `acted_on` is structure, not meaning: this turn's receipts that were done to this person (a roll made against them,
  * their resources or conditions changed, a thing taken from or given to them, money exchanged with them), and an
  * investigator who fled while they stood in the same scene. A receipt of their own act (its `intent` names them) or
- * their own roll is not something done to them.
+ * their own roll is not something done to them. `conversation` (§139.20) is structure too: whether they took part, on
+ * the newest committed turn in the scene the investigators are still in, or earlier in this one, by an act or an
+ * intention of theirs or a line the speech markers attributed to them (`conversationOf`, `situation.ts`).
  *
  * With `draw: true` (the host asks only when the stakes roll of §139.8 came out `severe`, spec D9) the result also
  * lists `draw`: the rulebook's priced weapons (`equipment.json` records whose `entity_ref` is a weapon profile) of the
@@ -36,7 +38,7 @@ import {stanceNow} from '../combat/standing.js';
 import {npcProfileOf} from '../resolve/context.js';
 import {COERCION_SKILLS} from '../resolve/coercion.js';
 import {stanceTable} from '../write/contributions.js';
-import {entryNow, intentHistory, personOf, type Person} from './situation.js';
+import {committedOnLine, conversationOf, entryNow, intentHistory, personOf, type Person} from './situation.js';
 import {INTENT_TEXT_LIMIT, intentRef, isSettled} from './intents.js';
 
 /** The ways, in the order the result lists them (contract §139.3's closed vocabulary). */
@@ -204,6 +206,8 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
                 play_language: await playLanguageOf(context, campaign.meta),
                 place, in_session: inSession, my_turn: myTurn,
                 acted_on: actedOn(me, turn, party, here),
+                // §139.20: whether they are in the conversation where the investigators stand (the host's third trigger).
+                conversation: conversationOf(graph, world, me, turn, committedOnLine(campaign).previous),
                 ...(act ? {act} : {}),
                 ways: ways as unknown as Row[],
                 ...(params.draw === true ? {draw: await drawCatalog(context, graph) as unknown as Row[]} : {}),

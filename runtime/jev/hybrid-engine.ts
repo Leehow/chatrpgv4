@@ -450,6 +450,11 @@ interface RunState {
   consequenceContext?: TurnContext;
   /** §139.4: the people present in the latest read (the capsule's order), whom an `npc_act` scan asks about. */
   present: string[];
+  /**
+   * §139.21: the people present at the run's first read -- when the declaration was put. A person the scan runs who was
+   * not among them, after a move landed this turn, heard the declaration nowhere (`declared_before_move`).
+   */
+  firstPresent?: string[];
   /** §139.4: who already acted (or was skipped) this run, and how many acted outside a fight (the per-turn cap). */
   npcSeen: Set<string>;
   npcCount: {acted: number};
@@ -511,6 +516,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       : active(object(capsule.where).session) ? 'read' : undefined;
     // §139.4: who is present, in the capsule's order (an `npc_act` scan reads each of them).
     run.present = array(capsule.present).map(person => text(object(person).name)).filter(Boolean);
+    run.firstPresent ??= [...run.present];
     const party = object(capsule.known).investigator;
     run.investigators = (Array.isArray(party) ? party : [party]).flatMap(value => [text(object(value).id), text(object(value).name)])
       .concat(array(run.fight.participants).filter(value => object(value).side === 'investigator').map(value => text(object(value).name))).filter(Boolean);
@@ -834,14 +840,17 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       // An NPC's turn the act did not pass is the Keeper's; the next note says so once (§139.4).
       const [outcome] = outcomes, round = object(object(candidate.basis).row).round;
       if (outcome.passedTurn !== true) run.npcTurnLeft = {key: `${npc}:r${String(round ?? '')}`, npc, status: outcome.status, reason: outcome.reason ?? null, act: outcome.act ?? null};
-    } else outcomes = await runNpcScan(deps, {present: run.present, addressees: array(candidate.bound.addressees).map(text).filter(Boolean), seen: run.npcSeen, count: run.npcCount});
+    } else outcomes = await runNpcScan(deps, {present: run.present, addressees: array(candidate.bound.addressees).map(text).filter(Boolean), seen: run.npcSeen, count: run.npcCount,
+      // §139.21: a move this turn (the declaration precedes every write of its turn) and who was here when it was put.
+      firstPresent: run.firstPresent ?? [], moved: run.turnReceipts.some(receipt => receipt.kind === 'move')});
     // What the table's acts did this turn reaches the Keeper beside the clerk's other steps (§135.11's clerk_did).
     for (const outcome of outcomes) if (outcome.status !== 'failed')
       run.clerkDid.push({step: invocation.stepId, operation: 'npc_act', label: `${outcome.handle ?? outcome.npc}: ${outcome.act ?? '(no act)'}`, clerk: 'npc_act',
         call_id: outcome.calls[0]?.call_id ?? null, status: outcome.status, receipts: outcome.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
         result: {npc: outcome.handle ?? outcome.npc, trigger: outcome.trigger, act: outcome.act ?? null, way: outcome.way ?? null, params: (outcome.params ?? {}) as Json,
           ref: outcome.ref ?? null, continued: outcome.continued ?? null, abandoned: outcome.abandoned ?? null, reason: outcome.reason ?? null} as Json});
-    const read = await freshOf(run);
+    // §139.20: a scan that ran nobody wrote nothing (the scan now runs every turn), so there is nothing to read again.
+    const read = outcomes.length ? await freshOf(run) : undefined;
     return {status: 'ok' as const, artifact: {kind: 'execute', executed: {ok: true, summary: {origin: 'policy', clerk: 'npc_act', trigger,
       acts: outcomes.map(outcome => ({npc: outcome.handle ?? outcome.npc, status: outcome.status, way: outcome.way ?? null, receipts: outcome.receipts}))} as Json},
     ...(read ? {fresh: read} : {})}};

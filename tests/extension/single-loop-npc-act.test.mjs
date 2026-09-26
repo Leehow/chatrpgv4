@@ -28,7 +28,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { createRealCampaign, openTable } from "./harness.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
-import { createFixtureNpcActPort } from "../../runtime/jev/npc-act.ts";
+import { createFixtureNpcActPort, npcActLaneInput } from "../../runtime/jev/npc-act.ts";
 import { NPC_ACT_BIND_FAMILY, SAME_QUESTION, interpretNpcAct, npcActBatch, npcActWrites, npcScanCandidate, runNpcAct } from "../../runtime/jev/npc-act-step.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { initialView, next, npcScanDue, settleExecute, startStep } from "../../runtime/jev/step-policy.ts";
@@ -782,4 +782,111 @@ test("§139.14 step: a dropped act writes nothing and hands the Keeper no line -
 		? { ...(await deps.call(method, params)), done: [{ ref: "intent:steven-knott:eeeeeeeeeeee", intent: DOOR, status: "attempted", since_turn: 4, turn: 4 }, given] }
 		: deps.call(method, params) }, "Steven Knott", "acted_on");
 	assert.deepEqual([later.status, later.opened], ["bound", true]);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Ticket 21 (§139.20): a person in the conversation acts every turn -- the scan runs before the Keeper's first model
+// step whether or not a clerk step landed, and a person who took part last turn in the room the investigators are still
+// in acts even when the compile did not name them. Live table B: ten turns of talk at the counter, three acts.
+// Ticket 22 (§139.21): the player's words reach only the person they were said to, and the act is written in the
+// campaign's play language from the opening on.
+// ---------------------------------------------------------------------------------------------------
+
+const TALK = "那你为什么急着把它租出去？";
+/** Turn 1 closed at the office with one line the speech markers gave Knott (`{{say:...}}`, §40): he is in the conversation. */
+const knottSpoke = (workspace) => kernelSteps(workspace, [
+	["table.open", {}], ["table.player_input", { text: "我问诺特那栋房子的事。" }],
+	["table.narrate", { call_id: "t1-c1", text: "诺特靠回椅背。{{say:Steven Knott}}「那房子空了好些年。」{{/say}}" }],
+]);
+/** Turn 1 closed at the office: Edna Hale walked in and both she and Knott said a line. */
+const bothSpoke = (workspace) => kernelSteps(workspace, [
+	["table.open", {}], ["table.player_input", { text: "我问诺特那栋房子的事。" }],
+	["table.apply", { call_id: "t1-c1", effects: [{ kind: "npc", name: "Edna Hale", to: "here", why: "test fixture: the landlord's clerk" }] }],
+	["table.narrate", { call_id: "t1-c2", text: "诺特靠回椅背。{{say:Steven Knott}}「那房子空了好些年。」{{/say}}埃德娜抬起头。{{say:Edna Hale}}「钥匙在我这儿。」{{/say}}" }],
+]);
+/** The npc-act batch answers `act`; the compile clears `addressee` on the row `addressee` matches (else unclear); the rest as `otherAnswer`. */
+const talkJev = ({ act = () => ({ way: "intention_only" }), addressee } = {}) => (batch) => {
+	if (batch.family === NPC_ACT_BIND_FAMILY) return actAnswer(batch, act(batch));
+	if (batch.family === COMPILE_FAMILY && addressee) return complete(batch, Object.fromEntries(batch.questions.map((question) => [question.key,
+		choice(question.key === "addressee" ? aliasWhere(question, (value) => JSON.stringify(value).includes(addressee)) ?? "unclear" : "unclear")])));
+	return otherAnswer(batch);
+};
+async function talkTable(t, { prepareWorkspace, npcAct, jev }) {
+	const engine = createHybridEngine({ env: {}, npcAct, decision: { decide: async (batch) => jev(batch) } });
+	const table = await openTable({ realKernel: true, prepareWorkspace, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: "1" },
+		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特没有马上回答。" })], { stopReason: "toolUse" })] });
+	t.after(() => table.dispose());
+	return table;
+}
+const landedClerkSteps = (telemetry) => telemetry.filter((row) => row.lane === "run" && row.event === "bind" && row.status === "succeeded");
+
+test("§139.20 at the table: he spoke last turn, the player talks on and the compile names no one, nothing lands -- he acts (trigger engaged), and the line is his", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "steven-knott": "他把烟灰弹进烟灰缸，说那房子的事他只知道这么多。" });
+	const table = await talkTable(t, { prepareWorkspace: knottSpoke, npcAct, jev: talkJev() });
+	await table.session.prompt(TALK);
+	const telemetry = table.telemetry(CAMPAIGN);
+	assert.ok(!telemetry.some((row) => row.lane === "route" && row.purpose === "compile" && row.features?.addressee?.cleared === true), "the compile named no one");
+	assert.deepEqual(landedClerkSteps(telemetry), [], "no clerk step of the declaration landed");
+	const rows = npcActRows(table);
+	assert.deepEqual(rows.map((row) => [row.npc, row.trigger, row.status, row.addressed, row.declared_before_move]),
+		[["steven-knott", "engaged", "bound", true, false]], "one act, by the conversation");
+	assert.equal(npcAct.calls.length, 1);
+	assert.equal(npcAct.calls[0].packet.happened.at(-1), `${npcAct.calls[0].packet.at_hand.present[0]} (investigator) declared: "${TALK}"`,
+		"§139.21: said to the person in the conversation, the line is his");
+	const receipts = turnRecord(table, 2).receipts;
+	assert.ok(receipts.some((receipt) => receipt.kind === "npc" && receipt.intent?.generated === true && receipt.intent.npc === "steven-knott"), "his act is on the turn");
+	const scan = telemetry.findIndex((row) => row.lane === "run" && row.event === "npc_act");
+	const model = telemetry.findIndex((row) => row.lane === "run" && row.type === "step_start" && row.kind === "infer");
+	assert.ok(scan >= 0 && model >= 0 && scan < model, "before the Keeper's first model step");
+});
+
+test("§139.20 at the table: both spoke last turn, the compile names Edna -- only she acts; Knott's conversation gives way to the person named", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "*": "她把钥匙往柜台上一放。" });
+	const table = await talkTable(t, { prepareWorkspace: bothSpoke, npcAct, jev: talkJev({ addressee: "Edna" }) });
+	await table.session.prompt("埃德娜，钥匙给我。");
+	const telemetry = table.telemetry(CAMPAIGN);
+	assert.ok(telemetry.some((row) => row.lane === "route" && row.purpose === "compile" && row.features?.addressee?.cleared === true), "the compile named Edna");
+	assert.deepEqual(npcAct.calls.map((call) => call.packet.npc.name), ["Edna Hale"], "the person named acts; Knott, in the conversation, does not");
+	const rows = npcActRows(table);
+	assert.deepEqual(rows.map((row) => [row.trigger, row.status, row.addressed]), [["acted_on", "bound", true]]);
+	assert.ok(!rows.some((row) => row.npc === "steven-knott"), "not even a skipped row: the declaration was said to someone else");
+});
+
+test("§139.20 on the emitted kernel: the party left the room where he spoke -- he came along, stands beside them, and is not in a conversation there", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "*": "他跟在后面，一句话也不说。" });
+	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
+	await game.call("table.open");
+	await game.say("我问诺特那栋房子的事。");
+	await game.close("诺特靠回椅背。{{say:Steven Knott}}「那房子空了好些年。」{{/say}}");
+	await game.say("我去《环球报》报馆翻旧报纸。");
+	await game.write("table.apply", { effects: [{ kind: "move", to: MORGUE }] });
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "Steven Knott", to: "here", why: "test fixture: he came along" }] });
+	assert.equal((await game.call("npc.act.options", { name: "Steven Knott" })).place, MORGUE, "he stands in the morgue with the party");
+	await game.run(scan());
+	assert.deepEqual(acts(game), [], "leaving the room ended the conversation; nothing was done to him here");
+	assert.equal(npcAct.calls.length, 0);
+});
+
+/**
+ * Live table B's opening (turn 0): the Keeper made the Mod's first-impression check against Crane, a clerk step landed,
+ * the scan followed, and Crane acted -- in English at a zh-Hans table. The campaign's tag was on that request
+ * (`npc.act.options` reads `campaign.json`, which held zh-Hans from its creation, four minutes before); what the model had
+ * besides the bare tag was a packet of host English with no player words, and it followed the packet. The request now
+ * names the language beside its tag (`npcActLaneInput`, the product lane's own serializer, is what this port records).
+ */
+test("§139.21 at the opening: the table's first generation -- no player words, the packet all the host's English -- carries the campaign's play language and its name", async (t) => {
+	const ACT = "诺特抬头看了你一眼，问你是来办什么事的。", bodies = [];
+	const npcAct = { generate: async (input) => { bodies.push(JSON.parse(npcActLaneInput(input))); return { act: ACT }; } };
+	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
+	await game.call("table.open");
+	assert.equal((await game.call("table.status")).turn, 0, "the opening turn");
+	// As the Keeper did at table B's opening: the Mod's first-impression check, made against the person met.
+	await game.write("table.resolve", { action: { intent: "social", decision: "natural-npc:first-impression", target: "Steven Knott", goal: "Introduce myself" } });
+	await game.run(scan());
+	assert.deepEqual(acts(game).map((row) => [row.npc, row.trigger, row.status]), [["steven-knott", "acted_on", "bound"]]);
+	assert.equal(bodies.length, 1);
+	assert.deepEqual([bodies[0].play_language, bodies[0].play_language_name], ["zh-Hans", "Simplified Chinese"], "the campaign's tag, read from the campaign, and its name");
+	assert.ok(!bodies[0].situation.happened.some((line) => line.includes("declared:")), "the opening has no player words");
+	assert.ok((await game.receipts()).some((receipt) => receipt.kind === "npc" && receipt.intent?.text === ACT && receipt.intent.generated === true), "the act landed on the opening turn");
 });

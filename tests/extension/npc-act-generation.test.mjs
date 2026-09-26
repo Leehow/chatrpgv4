@@ -13,7 +13,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createFixtureNpcActPort, createNpcActLane, NPC_ACT_MAX_CHARS } from "../../runtime/jev/npc-act.ts";
+import { createFixtureNpcActPort, createNpcActLane, NPC_ACT_MAX_CHARS, playLanguageName } from "../../runtime/jev/npc-act.ts";
 import { NPC_ACT_FALLBACK, npcActBudget } from "../../runtime/jev/host-budgets.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
 import { createTaskProviderBudget } from "../../runtime/jev/provider-budget.ts";
@@ -112,7 +112,9 @@ test("a good answer flows through: the authored instruction, the whole packet be
 	assert.deepEqual(result.usage, { inputTokens: 15, outputTokens: 5, costUsd: 0.00004, actions: 1 }, "usage is returned for the run budget");
 	assert.equal(table.calls.length, 1);
 	assert.equal(table.calls[0].systemPrompt, await readFile(INSTRUCTION, "utf8"), "the system prompt is content/setup/npc-act.md, whole");
-	assert.deepEqual(JSON.parse(table.calls[0].input), { play_language: "zh-Hans", situation }, "the input is the packet, whole, and the play language");
+	// §139.21: the play language's English name rides beside its tag (the runtime's `Intl.DisplayNames`, no table).
+	assert.deepEqual(JSON.parse(table.calls[0].input), { play_language: "zh-Hans", play_language_name: "Simplified Chinese", situation },
+		"the input is the packet, whole, and the play language");
 
 	const row = await onlyRow(table);
 	assert.equal(row.npc, "steven-knott");
@@ -385,4 +387,11 @@ test("the fixture port answers from its table, by handle, then name, then *, in 
 	const stop = new AbortController();
 	stop.abort();
 	assert.deepEqual(await bare.generate({ packet: packet(), play_language: "en" }, stop.signal), { unavailable: "cancelled" });
+});
+
+test("§139.21: the play language's name is the runtime's (Intl.DisplayNames), for any tag; a tag it cannot name adds nothing", () => {
+	assert.equal(playLanguageName("zh-Hans"), "Simplified Chinese");
+	assert.equal(playLanguageName("pt-BR"), "Brazilian Portuguese", "an open set: no tag is listed anywhere");
+	assert.equal(playLanguageName("xx"), undefined, "named only by repeating the tag");
+	assert.equal(playLanguageName("not a tag"), undefined, "not a tag at all");
 });

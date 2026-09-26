@@ -131,6 +131,28 @@ export interface NpcActLaneOptions {
 
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value : undefined);
 
+/**
+ * §139.21 (ticket 22): the play language's English name, beside its tag in the lane's input. The runtime names it
+ * (`Intl.DisplayNames`, the one source of language names Agents.md allows -- no table, no branch on a tag); a tag the
+ * runtime cannot name, or names only by repeating it, adds nothing. Why: the situation is the host's English, so a packet
+ * with no player words in it (the opening; a person the declaration was not said to) gave the model nothing but a bare
+ * tag to write in -- live table B's opening act came back in English at a zh-Hans table.
+ */
+export function playLanguageName(tag: string): string | undefined {
+  try {
+    const name = new Intl.DisplayNames(['en'], {type: 'language'}).of(tag);
+    return name && name !== tag ? name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The lane's input: the play language (tag, and its name when the runtime has one) and the packet, whole (§139.2). */
+export function npcActLaneInput(input: Pick<NpcActInput, 'packet' | 'play_language'>): string {
+  const name = typeof input.play_language === 'string' ? playLanguageName(input.play_language) : undefined;
+  return JSON.stringify({play_language: input.play_language, ...(name ? {play_language_name: name} : {}), situation: input.packet});
+}
+
 /** The product port: one zero-tool completion per attempt, through the session's model registry. */
 export function createNpcActLane(pi: ExtensionAPI, options: NpcActLaneOptions): NpcActPort {
   const safeCtx = (): ExtensionContext | undefined => {
@@ -167,7 +189,7 @@ export function createNpcActLane(pi: ExtensionAPI, options: NpcActLaneOptions): 
         try {
           if (!input.packet || typeof input.packet !== 'object') throw new Error('there is no situation packet');
           systemPrompt = await npcActInstruction(options.contentRoot);
-          situation = JSON.stringify({play_language: input.play_language, situation: input.packet});
+          situation = npcActLaneInput(input);
         } catch (error) {
           return await failed('lane_error', `the generation could not be prepared: ${error instanceof Error ? error.message : String(error)}`);
         }

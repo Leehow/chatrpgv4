@@ -74,6 +74,11 @@ export interface ActOptions {
   in_session: boolean;
   my_turn: boolean;
   acted_on: Array<{receipt: string | null; kind: string}>;
+  /**
+   * §139.20: whether they took part in the conversation where the investigators stand, on the newest committed turn or
+   * earlier in this one (`turn`, `order` of their latest part, `by`: `act`, `intention`, `speech`); null when not.
+   */
+  conversation?: {turn: number; order: number; by: string[]} | null;
   ways: ActWay[];
   act?: {line: string; ref: string; continues: {ref: string; status: string; since_turn: number | null; turn: number | null} | null};
   draw?: ActOption[];
@@ -94,13 +99,14 @@ export function npcTurnCandidate(actor: string, label: string, round: number, de
     basis: {read: 'table.resolve.options', path: 'context.session', row: {turn_of: actor, round, ...(standing !== undefined ? {standing_action: standing} : {})}}};
 }
 /**
- * §139.4, outside a fight: after the clerk carried out the player's declaration, before the Keeper's model step, the
- * people present who were acted on this turn act (the step reads who). `addressees` are the people the compile read the
- * declaration as aimed at (§135.30's `addressee`), which count as acted on.
+ * §139.4, outside a fight, as §139.20 (ticket 21) widened it: before the Keeper's model step (and again after any later
+ * landed clerk step), the people present who were acted on this turn, were addressed, or are in the conversation act (the
+ * step reads who). `addressees` are the people the compile read the declaration as aimed at (§135.30's `addressee`), which
+ * count as acted on; an addressee who is someone else ends another person's conversation for the turn.
  */
 export function npcScanCandidate(ordinal: number, landed: readonly string[], addressees: readonly string[]): Candidate {
   return {key: `npc_act:scan:${ordinal}`, verb: 'apply', family: 'npc_act', source: 'run',
-    label: 'The people present who were acted on this turn act', bound: {trigger: 'acted_on', addressees: [...addressees]}, unbound: [],
+    label: 'The people present who were acted on, addressed or are in the conversation act', bound: {trigger: 'acted_on', addressees: [...addressees]}, unbound: [],
     clerk: NPC_ACT_CLERK, basis: {read: 'run', path: 'landed', row: {landed: [...landed]}}};
 }
 export const isNpcAct = (candidate: Pick<Candidate, 'clerk'> | undefined): boolean => candidate?.clerk === NPC_ACT_CLERK;
@@ -307,8 +313,16 @@ export interface NpcActDeps {
   providerBudget?: TaskProviderBudget;
   signal: AbortSignal;
 }
+/** Why a person acts (§139.4, §139.20): their turn of a fight, something done to them or said to them, or the conversation. */
+export type NpcActTrigger = 'turn' | 'acted_on' | 'engaged';
+/**
+ * §139.21: what the host read about the player's words and this person, passed to `npc.situation` as they are: the
+ * declaration was said to them (`addressed`), or it was put before a move brought the investigator to them
+ * (`declared_before_move`). Absent on a person's turn of a fight: §139.1's reading stands there.
+ */
+export interface HeardInput {addressed?: boolean; declared_before_move?: boolean}
 export interface NpcActOutcome {
-  npc: string; handle: string | null; trigger: 'turn' | 'acted_on';
+  npc: string; handle: string | null; trigger: NpcActTrigger;
   /** `dropped` (§139.14): the act repeats a thread they just gave up, with nothing to settle it; nothing is written. */
   status: 'bound' | 'unavailable' | 'refused' | 'failed' | 'dropped';
   act?: string; way?: string; params?: Record<string, string>; ref?: string;
@@ -356,10 +370,11 @@ export const reaskLine = (who: string, row: Row): string => `${who} set out to "
  * One person's act, from the stakes roll to the receipts. Never throws: a failed read, an unavailable generation or a
  * refused write is an outcome the caller records and the turn goes on (spec D2).
  */
-export async function runNpcAct(deps: NpcActDeps, name: string, trigger: 'turn' | 'acted_on'): Promise<NpcActOutcome> {
+export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActTrigger, heard: HeardInput = {}): Promise<NpcActOutcome> {
   const base = {npc: name, handle: null as string | null, trigger, receipts: [] as string[], calls: [] as NpcActOutcome['calls']};
   const done = (outcome: NpcActOutcome): NpcActOutcome => {
     deps.record({lane: 'run', event: 'npc_act', run: deps.runId, step: deps.stepId, npc: outcome.handle ?? outcome.npc, trigger, status: outcome.status,
+      ...heard,
       ...(outcome.reason ? {reason: outcome.reason} : {}), ...(outcome.act !== undefined ? {act: outcome.act} : outcome.droppedAct !== undefined ? {act: outcome.droppedAct} : {}),
       ...(outcome.way ? {way: outcome.way, params: outcome.params ?? {}} : {}), ...(outcome.ref ? {ref: outcome.ref} : {}),
       opened: outcome.opened ?? false, continued: outcome.continued ?? null, abandoned: outcome.abandoned ?? null,
@@ -370,7 +385,7 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: 'turn' 
   let packet: Row, first: ActOptions;
   try {
     await stakesOf(deps, name);
-    [packet, first] = await Promise.all([deps.call('npc.situation', {name}), deps.call('npc.act.options', {name}) as Promise<unknown> as Promise<ActOptions>]);
+    [packet, first] = await Promise.all([deps.call('npc.situation', {name, ...heard}), deps.call('npc.act.options', {name}) as Promise<unknown> as Promise<ActOptions>]);
   } catch (error) {
     return done({...base, status: 'failed', reason: `read_failed: ${String((error as Error)?.message ?? error).slice(0, 160)}`});
   }
@@ -462,28 +477,56 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: 'turn' 
 }
 
 /**
- * §139.4 outside a fight: every person present who was acted on this turn (a receipt done to them, or the compile's
- * addressee) and is in no session acts once, in the capsule's order, at most `npc_act.max_per_turn` a turn; the rest are
- * recorded `skipped_cap`. `seen` carries who already acted (or was skipped) this turn, across scans.
+ * §139.4 outside a fight, as §139.20 (ticket 21) widened it. Every person present who is in no session acts once a turn
+ * when any of three structural facts holds:
+ *
+ *   - `acted_on`: a receipt this turn was done to them (`npc.act.options`' `acted_on`), or the compile's addressee cleared
+ *     on them (§135.30) -- the trigger §139.4 always had;
+ *   - `engaged`: they are in the conversation -- `npc.act.options`' `conversation` (they took part, on the newest
+ *     committed turn in the scene the investigators are still in, or earlier in this one) -- and the compile's addressee
+ *     named no one else. `unclear`, `none` and an answer below the gate clear on no one, so they name no one else.
+ *
+ * Order: those acted on or addressed in the capsule's order, then those only in the conversation, their latest part
+ * first. At most `npc_act.max_per_turn` act a turn; the rest are recorded `skipped_cap` with their trigger. `seen`
+ * carries who already acted (or was skipped) this turn, across scans.
+ *
+ * §139.21 (ticket 22): each read of the situation says whether the declaration was said to this person (`addressed`:
+ * addressed, or in the conversation) and whether it was put before a move brought the investigator to them
+ * (`declared_before_move`: a move landed this turn, `moved`, and they were not among the people present when the run
+ * began, `firstPresent`).
  */
-export async function runNpcScan(deps: NpcActDeps, input: {present: readonly string[]; addressees: readonly string[]; seen: Set<string>; count: {acted: number}}):
-  Promise<NpcActOutcome[]> {
+export async function runNpcScan(deps: NpcActDeps, input: {present: readonly string[]; addressees: readonly string[]; seen: Set<string>; count: {acted: number};
+  firstPresent?: readonly string[]; moved?: boolean}): Promise<NpcActOutcome[]> {
   const out: NpcActOutcome[] = [];
+  type Due = {name: string; handle: string; names: string[]; options: ActOptions; addressed: boolean; engaged: boolean; trigger: NpcActTrigger;
+    conversation: {turn: number; order: number} | null};
+  const due: Due[] = [];
   for (const name of input.present) {
     let options: ActOptions;
     try { options = await deps.call('npc.act.options', {name}) as unknown as ActOptions; } catch { continue; }
-    const handle = text(options.npc?.handle) || name;
+    const handle = text(options.npc?.handle) || name, names = [name, handle, text(options.npc?.name)].filter(Boolean);
     if (input.seen.has(handle) || options.in_session) continue;
-    const addressed = input.addressees.some(value => value === name || value === handle || value === text(options.npc?.name));
-    if (!array(options.acted_on).length && !addressed) continue;
-    input.seen.add(handle);
+    const addressed = input.addressees.some(value => names.includes(value));
+    // The compile named someone, and not them: the declaration was said to another person present.
+    const elsewhere = !addressed && input.addressees.length > 0;
+    const conversation = options.conversation ? {turn: Number(options.conversation.turn), order: Number(options.conversation.order)} : null;
+    const engaged = conversation !== null && !elsewhere;
+    const actedOn = array(options.acted_on).length > 0;
+    if (!actedOn && !addressed && !engaged) continue;
+    due.push({name, handle, names, options, addressed, engaged, trigger: actedOn || addressed ? 'acted_on' : 'engaged', conversation});
+  }
+  const latest = (a: Due, b: Due) => (b.conversation?.turn ?? -1) - (a.conversation?.turn ?? -1) || (b.conversation?.order ?? -1) - (a.conversation?.order ?? -1);
+  const ranked = [...due.filter(entry => entry.trigger === 'acted_on'), ...due.filter(entry => entry.trigger === 'engaged').sort(latest)];
+  for (const entry of ranked) {
+    input.seen.add(entry.handle);
     if (input.count.acted >= deps.budget.maxPerTurn) {
-      deps.record({lane: 'run', event: 'npc_act', run: deps.runId, step: deps.stepId, npc: handle, trigger: 'acted_on', status: 'skipped_cap',
-        max_per_turn: deps.budget.maxPerTurn, acted_on: options.acted_on, addressed});
+      deps.record({lane: 'run', event: 'npc_act', run: deps.runId, step: deps.stepId, npc: entry.handle, trigger: entry.trigger, status: 'skipped_cap',
+        max_per_turn: deps.budget.maxPerTurn, acted_on: entry.options.acted_on, addressed: entry.addressed, ...(entry.engaged ? {conversation: entry.options.conversation} : {})});
       continue;
     }
     input.count.acted++;
-    out.push(await runNpcAct(deps, name, 'acted_on'));
+    const arrived = input.moved === true && input.firstPresent !== undefined && !input.firstPresent.some(value => entry.names.includes(value));
+    out.push(await runNpcAct(deps, entry.name, entry.trigger, {addressed: entry.addressed || entry.engaged, declared_before_move: arrived}));
   }
   return out;
 }
