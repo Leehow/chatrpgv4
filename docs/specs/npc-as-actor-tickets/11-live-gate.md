@@ -7,7 +7,7 @@ Spec: docs/specs/npc-as-actor.md（第五节）
 
 ## Depends on
 
-- 01–06、08–10 合入并重打包（记忆 `campaigns-are-compile-snapshots`：改完必须新开战役；`app-must-be-real-bundle-in-applications`）。07 可缺席，缺席时「邻居进门」那一格记 `blocked: no walk-on`。
+- 01–10 合入并重打包（记忆 `campaigns-are-compile-snapshots`：改完必须新开战役；`app-must-be-real-bundle-in-applications`）。07 未合入时「邻居进门」那一格记 `blocked: no walk-on`，不算失败。
 
 ## 预注册（发出前写死，记忆 `pre-register-the-outcomes-before-the-probe`）
 
