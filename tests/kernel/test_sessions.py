@@ -290,7 +290,10 @@ def test_combat_end_by_the_keeper(seeded_kernel):
 
 # ---- flee and chase ---------------------------------------------------------------------------
 
-def test_flee_continues_into_a_chase_that_runs_to_its_end(tmp_path):
+def test_flee_ends_the_fight_and_the_pursuers_chase_runs_to_its_end(tmp_path):
+    """§139.9 (2026-09-26): the flight ends the fight and starts nothing; the chase is Corbitt's own `chase:start` as
+    the pursuer. Before, the flight executed `chase:start` as its continuation in the same call, so a pursuit nobody
+    had decided on was rolled (table npc-actor-gate-a, turn 12)."""
     client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "9"})
     try:
         open_turn(client, "我转身就跑。")
@@ -305,19 +308,26 @@ def test_flee_continues_into_a_chase_that_runs_to_its_end(tmp_path):
         fled = resolve(client, f"t1-c{n}", intent="flee", goal="我冲上楼梯", method="拔腿就跑")
         assert fled["decision"] == "combat:flee"
         assert fled["outcome"]["kind"] == "combat" and fled["outcome"]["status"] == "ended"
-        assert fled["outcome"]["combat_outcome"] == "fled" and fled["outcome"]["continued"] == "chase:start"
-        continuation = [c for c in fled["continuations"] if c["decision"] == "chase:start"][0]
-        assert continuation["executed"] is True and continuation["outcome"]["kind"] == "chase"
-        assert continuation["outcome"]["status"] in ("started", "ended")
-        session = fled["session"]
+        assert fled["outcome"]["combat_outcome"] == "fled" and "continued" not in fled["outcome"]
+        assert not [c for c in fled["continuations"] if c.get("executed")], "nothing ran as the flight's continuation"
+        assert f"session:combat-end-t1-c{n}" in fled["receipts"] and f"session:chase-start-t1-c{n}" not in fled["receipts"]
+        assert any("chase:start" in hint and CORBITT in hint for hint in fled["hints"]), fled["hints"]
+        assert events_after(client.workspace, before)[-1] == "decision-settled"
+        assert read_json(save_path(client, "combat.json"))["status"] == "concluded"
+        n += 1
+
+        # Corbitt gives chase: the pursuer opens it, as the flight's hint says.
+        chased = resolve(client, f"t1-c{n}", intent="flee", decision="chase:start", actor="Walter Corbitt", target=INVESTIGATOR,
+                         goal="科比特追上楼梯", method="")
+        assert chased["decision"] == "chase:start" and chased["outcome"]["kind"] == "chase"
+        assert chased["outcome"]["status"] in ("started", "ended")
+        session = chased["session"]
         assert session["kind"] == "chase" and session["status"] in ("active", "ended")
         assert [p["name"] for p in session["participants"]] == [INVESTIGATOR, CORBITT]
         assert [p["side"] for p in session["participants"]] == ["quarry", "pursuer"]
         assert session["locations"][0]["label"] == "corbitt-confrontation" and session["locations"][-1]["label"] == "escape"
-        assert f"session:combat-end-t1-c{n}" in fled["receipts"] and f"session:chase-start-t1-c{n}" in fled["receipts"]
-        assert f"roll:con-t1-c{n}" in fled["receipts"] and f"roll:con-{CORBITT}-t1-c{n}" in fled["receipts"]
-        assert events_after(client.workspace, before)[-1] == "decision-settled"
-        assert read_json(save_path(client, "combat.json"))["status"] == "concluded"
+        assert f"session:chase-start-t1-c{n}" in chased["receipts"]
+        assert f"roll:con-t1-c{n}" in chased["receipts"] and f"roll:con-{CORBITT}-t1-c{n}" in chased["receipts"]
         n += 1
         if session["status"] == "ended":
             assert session["outcome"] == "escaped"

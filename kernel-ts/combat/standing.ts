@@ -20,6 +20,7 @@ import { array, clone, number, row, string, type Row } from '../read/values.js';
 import { emptyLedgerEntry, foldNpcTurn, stanceTable } from '../write/contributions.js';
 import { defaultDefense, npcDefenceSkills } from './profiles.js';
 import { ACTION_WORDS, AUTHORED_ACTION_WORDS, DISPOSITION_WORDS } from './standing-words.js';
+import { fleeRules, type FleeRules } from './flee-footing.js';
 export { ACTION_WORDS, AUTHORED_ACTION_WORDS, DISPOSITION_WORDS, OVERRIDE_ACTION_WORDS } from './standing-words.js';
 
 /** The §11.9 defence words: the closed enum a tactic is written in. */
@@ -80,8 +81,11 @@ export type ActionBasis = 'authored' | 'rule-default' | 'keeper';
 export interface StandingAction { action: string; basis: ActionBasis; disposition?: Disposition; read?: Row }
 /** The fight's state for one NPC, as the table reads it. */
 export interface FightState { hp_fraction: number; outnumbered: boolean; stance: string | null }  // stance null: unreadable
-/** The two tables a standing action reads: the stance ledger's (§17.3) and the combat disposition table. */
-export interface StandingTables { stance: Row; disposition: Row }
+/**
+ * The tables a standing action reads: the stance ledger's (§17.3) and the combat disposition table; and, for the
+ * session view's issued actions, the ruleset's flight rules (§139.9: who is not issued `combat:flee`).
+ */
+export interface StandingTables { stance: Row; disposition: Row; flee: FleeRules }
 
 const tableError = (message: string, file: string, details: Row = {}) => new RpcError('campaign_not_ready', message,
     { fix: `restore content/rulesets/coc7/rules-json/${file}`, details });
@@ -109,9 +113,10 @@ export async function dispositionTable(context: KernelContext): Promise<Row> {
     }
     return table;
 }
-/** Both tables a standing action reads. */
+/** The tables the fight's session view reads. */
 export async function standingTables(context: KernelContext): Promise<StandingTables> {
-    return { stance: await stanceTable(context), disposition: await dispositionTable(context) };
+    const combat = await context.snapshots.readJson(join(context.content, 'rulesets', 'coc7', 'rules-json', 'combat.json'));
+    return { stance: await stanceTable(context), disposition: await dispositionTable(context), flee: fleeRules(combat) };
 }
 
 /**

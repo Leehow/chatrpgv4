@@ -531,6 +531,12 @@ Only a live `combat.pending_attack` whose defender is an investigator permits au
 
 The three ends are explicit: the sidebar writes a campaign-scoped value; the host/extension reads it at every live investigator-defense boundary; the resulting `resolve` produces the ordinary combat receipt. The combat choice buttons are retired for new player defenses, while other mechanics choices (push/Luck/etc.) and historical entries remain readable; an obsolete defense control cannot submit a fresh action.
 - 追逐：开始、移动、障碍、危险、冲突、结束六个决策由意图与会话事实选出；每回合的可用动作放在 `session.actions`。
+  *Note (2026-09-26, §139.9):* a successful `combat:flee` no longer enters `chase:start` through `continues-as`; the
+  combat line's "`combat:flee` 成功即按 `continues-as` 直接进入 `chase:start`" is void. The flight ends the fight
+  (`session:combat-end` with outcome `fled`, unchanged) and hints who may give chase; the pursuer opens the chase with
+  their own `resolve` (for an NPC pursuer: `actor: <npc>`, `target: <investigator>`, `intent: "flee"`,
+  `decision: "chase:start"`). A person the ruleset's `flee.flee_blocked_by` names (held, or with no action left)
+  cannot flee at all.
 - 理智：`sanity:check` 由守秘人在 `intent: investigate` 加 `stakes` 提到理智或 `action.decision: "sanity:check"` 时触发，`goal` 是来源；失败进入发作时结果带 `pending_choice`（守秘人的发作动作选择）与 `session.kind: "sanity_bout"`。
 - 推骰与幸运：失败的可推检定在结果 `continuations` 里列出 `pushed-roll` 与 `luck-spend` 及其需要的 `action` 字段；守秘人先 `ask` 玩家，再以 `push: true` 或 `luck` 调 `resolve`。
 
@@ -23784,3 +23790,113 @@ delivered with the finding and both counted; the spent-steer resend; the held dr
 leg; the dash-dialogue boundary), `tests/kernel/test_markup_in_prose.py` (the refusal's details and `markup_gate`, the
 finding and both telemetry rows, a fresh gate on the next turn, lines named, ordinary prose and the host's markers
 passing).
+
+**139.9 Flight needs footing, and a pursuit is the pursuer's own call (2026-09-26, ticket 10 of
+`docs/specs/npc-acts-first-tickets/`; amends §11.5's combat and chase lines and §138.10).** Two defects of the combat
+engine's flight, both found reviewing the gate tables (spec section 七):
+
+- *Table `npc-actor-gate-a2`, turn 6.* Knott lay `prone`; the Keeper resolved `combat:flee` for him and the engine
+  stamped `fled` (`condition:steven-knott-t6-c3`: `before ["prone"]`, `after ["prone","fled"]`) and ended the fight
+  `investigators_win`, while the prose had him lying on the floor. Nothing asked whether the person could move.
+- *Table `npc-actor-gate-a`, turn 12.* The player turned and walked downstairs. The one call `t12-c3` produced the
+  investigator's `fled`, `session:combat-end` `fled`, **`session:chase-start`**, both CON speed rolls and then Knott's
+  chase Fighting roll, and the prose said Knott never got up. `resolve/pipeline.ts` executed `chase:start` as the
+  continuation of every successful investigator `combat:flee` whenever an opponent with a stat block was present; the
+  pursuer never decided to pursue. An NPC's flight already only hinted the pursuit (§138.10).
+
+**Who cannot flee is rules data.** `content/rulesets/coc7/rules-json/combat.json` gains a top-level block
+`flee: {rule_ref: "rule:coc7:combat:escape-close-combat", flee_blocked_by: [...], flee_clears: [...], source_note}`.
+The kernel keeps no list. One leaf, `kernel-ts/combat/flee-footing.ts`, reads the block (`fleeRules`) and matches
+`flee_blocked_by` against a participant's `conditions` **and** the names of their `active_effects` (`fleeBlockers`);
+the engine (`CombatSession.create`, `resolveFlee`) and the session view (the paragraph on it below, loaded with the
+standing tables) both call it, so the view never offers a flight the engine refuses. The lists and their basis:
+
+| state | basis |
+|---|---|
+| `grappled` | Keeper Rulebook, Fleeing (source page 119, printed p.107; summary source page 420): a character flees on their own action "providing they have an escape route and are not physically restrained". `grappled` is that restraint as a condition (`rule-index.json` `core.combat.maneuver.grapple`). |
+| `restrained` | The same hold as the engine records it: the active effect the `ongoing_disadvantage` manoeuvre writes (`applyEffect`), which the engine never mirrored into a `grappled` condition. Not in `VALID_CONDITIONS`; listed because a list of conditions alone would miss the rulebook's own case on the engine's own path. |
+| `unconscious`, `dying`, `dead` | Flight is the person's action, and these take no action (`healing/conditions.ts` `INCAPACITATING_CONDITIONS`; 0 HP is unconscious, 0 HP with the Major Wound box ticked is dying, source page 131, printed p.119). The initiative already skips them, so in play they reach this check only when the cursor still stands on them; they are listed so the flight rule is whole on its own. |
+| `prone` (in `flee_clears`, not `flee_blocked_by`) | Keeper Rulebook, Prone (an optional rule, source page 139, printed p.127): "when it comes to their turn in the round, they may stand up and then take their action". A prone person who flees stands up and runs: the flight ends `prone` in the same write that adds `fled`, so the condition receipt reads `lost ["prone"]`, `gained ["fled"]`. The fight ends as before. Owner's ruling on the contradiction below (2026-09-26, option b). |
+
+`prone` is **not** on the block list, although the ticket named it. The rulebook contradicts it: "A character that is prone
+may stand up when they successfully dodge or fight back against an opponent. Alternatively, when it comes to their
+turn in the round, they may stand up and then take their action" (Prone, an optional rule, source page 139, printed
+p.127), and the core Fleeing rule names only an escape route and physical restraint. The kernel's own rules layer says
+the same (`healing/conditions.ts`: `prone` costs dice or position, never the action). There is also no write anywhere
+in the engine that removes `prone` during a fight (it is cleared only at the fight's end, `TRANSIENT_COMBAT_CONDITIONS`),
+so a refusal whose fix said "spend a turn getting up" would loop: the Keeper would `hold` or `spend_turn`, retry, and
+be refused again. Two rule-true ways were put to the owner: (a) add `prone` to `flee_blocked_by` together with a
+write that stands a person up on a spent turn (a house rule, stricter than p.127); or (b) follow p.127 -- flight stands
+them up. **Ruling (2026-09-26): (b).** `flee_clears: ["prone"]`; `resolveFlee` drops every `flee_clears` state as it
+adds `fled`. The A2 turn-6 receipt `before ["prone"]`, `after ["prone","fled"]` now reads `after ["fled"]`,
+`lost ["prone"]`, `gained ["fled"]`; the prose must follow the receipt (tickets 06/07).
+
+**The refusal.** A person carrying any listed state is answered `needs` before anything is written: message
+`<actor> is <states> and cannot flee`; `details: {reason, blocked_by, actor, rule: "combat.json flee.flee_blocked_by"}`
+where `blocked_by` is every listed state they carry, in the order they carry them (conditions first, then effects),
+and `reason` is its first. No `fled`, no receipt, the turn is not spent, the fight does not end. The `fix` has two
+forms, chosen by the rules layer's own line (`incapacitatedBy`), not by a second list: for a person who takes no
+action, that nothing flees on their behalf and the initiative skips them; for a hold, that getting free is a turn of
+its own -- on their turn, `combat:maneuver` with `goal: "escape"` against whoever holds them -- and flight a later
+turn's action. So that this fix is true, the escape manoeuvre now breaks either form of the hold: it removes the
+`restrained` effect as before **and** a `grappled` condition (before, a `grappled` person's escape answered
+`escape_nothing_to_escape` and they could never get free inside the fight). The ticket's "spend a turn getting up
+(`hold` / §138.5 `spend_turn`)" is not offered: neither write frees anyone.
+
+**An investigator's flight starts no chase.** The pipeline no longer executes `chase:start` after a successful
+investigator `combat:flee`: `outcome.continued` is gone, no `continuations` row is `executed`, no `session:chase-*`
+receipt and no speed roll belongs to the flight's call, and no `save/chase.json` is filed. `session:combat-end` with
+outcome `fled` is unchanged, and `continuations` still lists the rule graph's unexecuted `chase:start` card exactly as
+an NPC's flight does. The result carries a hint of the NPC-flight hint's shape (`combat/execution.ts`), naming who may
+pursue (the non-investigator participants still able to fight) and that the pursuer opens the chase:
+`<inv> fled the fight: a pursuit is the pursuer's choice and the pursuer opens it -- if <npc> gives chase, resolve
+chase:start (intent flee) with actor: <that pursuer> and target <inv>; otherwise say where <inv> went with apply move
+to: <the scene they ran to>`; with no one able left, only the second half.
+
+**The NPC as pursuer, as the engine stands (premise for ticket 03's `pursue` binding).** `resolve {actor: <npc name or
+handle>, target: <investigator>, intent: "flee", decision: "chase:start"}` after the fight opens the chase with the
+investigator as `quarry` and the NPC as `pursuer`; the speed rolls and `session:chase-start` belong to that call
+(`decision` may be omitted: `intent: "flee"` alone selects `chase:start` outside a fight). Measured limits:
+`intent` is required and must be `flee` -- `intent: "move"` or `"combat"` with `decision: "chase:start"` is refused
+`needs` "a chase needs a pursuer with a stat block present in the scene" with the pursuer listed in its own options
+(the rule graph applies `chase:start` only under `flee`), a misleading refusal; and `actor` does not choose the
+pursuer -- `chaseSlots` makes every present opponent with a stat block a pursuer, and `action.target` narrows that set
+only when it names an NPC.
+
+**The NPC-flight hint no longer promises a chase the engine cannot run (amends §138.10).** §138.10's hint for an
+NPC's flight -- "if the investigators give chase, resolve chase:start with target <npc>" -- opened a chase with the
+investigator as `quarry` and the fleeing NPC as `pursuer` (measured on the Corbitt fixture:
+`[("thomas-hayes","quarry"),("walter-corbitt","pursuer")]`). The `chase:start` binding has one shape, investigator =
+quarry; an investigator chasing an NPC has no binding, and the ticket's "调查员追 NPC 用 `chase:start`（现状）" rested on
+that hint. The engine fix is ticket 13 (the chase admits an NPC quarry), whose contract is §139.12. Until it lands the
+hint reads: `<npc> fled the fight: say where they went with apply npc to: away (or the scene they reach). If the
+investigators run after <npc>, narrate that pursuit: the engine's chase today always has the investigators as its
+quarry, so it cannot run a chase of <npc>; §139.12 will give the pursuers a chase:start with the fleeing person as the
+quarry`. It names no call the engine cannot run (`resolve chase:start ... target <npc>` is gone).
+
+**The session view does not issue a flight the rules block (amends §138.10's "the view issues combat:flee on
+anyone's turn").** `SessionView.combatActions` omits `combat:flee` for the person whose turn it is when
+`fleeBlockers` finds a listed state on them; every other action is issued as before (the escape manoeuvre is how they
+get free). The flight rules ride `StandingTables.flee`, loaded where the standing tables already are (the campaign
+snapshot's preload of an active fight, `read/campaign.ts`); when those tables are not loaded, the view issues the
+flight as before and the engine's refusal remains the guard. A standing `flee` (§11.5.3) for a blocked person then
+finds no issued `combat:flee` to bind, so the clerk issues no step and the turn is the Keeper's
+(`runtime/jev/candidates.ts`, unchanged).
+
+**Three ends.** Writer: the ruleset table (data), the escape manoeuvre (lifts the hold), the flight (ends
+`flee_clears`). Reader: `resolveFlee` per flight, and the session view per read. Who acts: the Keeper, through the
+issued actions, the refusal's `fix` and the flight hints.
+
+**Evidence of the implementation.** `tests/kernel/test_flee_footing_and_pursuit.py` (Corbitt fixtures): a `grappled`
+Corbitt's flight is refused and the same flight settles once the hold is gone; every listed state blocks, the fix by
+kind; the escape the fix names frees him from either form of the hold and the flight then settles; an investigator's
+flight ends the fight with no chase and the pursuit hint; Corbitt then opens the chase as the pursuer.
+A prone Corbitt who flees gets one condition receipt `before ["prone"]`, `after ["fled"]`, `lost ["prone"]`,
+`gained ["fled"]`; a grappled Corbitt's turn issues no `combat:flee`, and freed, it does.
+`tests/kernel/test_sessions.py`'s flee test now opens the chase as Corbitt and plays it to its end;
+`tests/kernel/test_npc_round_operation.py`'s NPC-flight test asserts the new hint (where he went is `apply npc to`, a
+pursuit is narrated, the chase's quarry named) and that it names no `resolve chase:start ... target <npc>`. Mutations:
+an empty `flee_blocked_by` (the grappled Corbitt is stamped `fled` and the fight ends `investigators_win`, the A2
+shape), the continuation restored, the escape change reverted, `prone` kept on the fled person, the view's filter
+removed and the old NPC-flight hint restored each turn their tests red. `rule-graph-table-digests.json` carries the
+new bytes of `combat.json`.
