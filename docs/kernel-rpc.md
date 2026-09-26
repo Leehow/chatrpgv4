@@ -23706,6 +23706,14 @@ choices over the kernel's own options; nothing reads what the act means and no p
   weapons in the saved fight (the fight's catalog already holds every rulebook profile). Receipt: `kind: "npc"`,
   `draws: {weapon_id, name, price_id?}`, `visibility: "keeper"`. `_draws` stands alone in its effect (`details.conflicts`
   otherwise). Hitting, harm and death stay the combat engine's dice; without a severe roll the allowance never applies.
+
+  *Note, 2026-09-26 (§139.19, ticket 20, spec D10):* this allowance is folded into §139.19 and no longer reads
+  `outcome === "severe"`. The draw is asked when the generated act brings something out (`produces`, which the stakes
+  die's `surprise` allows), whatever the outcome: `npc.act.options` takes `produce: true` in place of `draw: true` and
+  lists the era's whole price list in place of its weapons; the batch's `draw` question is `produce` (or `produce_part`
+  then `produce`, §139.19), family version 2; the `weapon` option reads "the thing this act has them bring out, as a
+  weapon" and binds only a weapon record. A weapon record is still written by `_draws` exactly as above, its receipt now
+  also carrying `produced`, and `_draws.price_id` must be that weapon's record; anything else is `_produces`.
 - **The writes.** The clerk executes the bound act `direct` (authority `npc_act`, §135.3's closed enum extended)
   through the one operation gateway (§135.4: the same Keeper verbs, `tool_call` gates, Mod hooks, kernel and
   `tool_result` hooks; an NPC-actor `resolve` and `npc`/`threat` effects are not reviewed, §32.1), in order:
@@ -24043,6 +24051,17 @@ half not past it, and the clamp at the last rung; four malformed tables refused 
 and restore): the table without `attacked_this_turn`, the kernel not reading it, the receipt without `visibility:
 keeper`, each reader's guard removed, the once-per-turn and the prepared checks removed, and contact rows and
 obligations counted as prepared again -- each fails its case.
+
+*Note, 2026-09-26 (§139.19, ticket 20, spec D10):* the table has a third column and two more lines. Each rung is `{name,
+severe_at_most, escalates_at_most, surprise_at_most, lines: {severe, escalates, surprise, severe_surprise}, note?}`;
+`surprise_at_most` is an integer 0..100 read off the same roll (at most it is a surprise), independent of the other two;
+none of the three columns may fall from one rung to the next (`details.columns` names the ones that do); the two new
+lines are English permissions (never an object or an example of one). The shipped numbers moved up (calm 3/15/10, tense
+8/30/20, dangerous 15/45/30, lethal 30/65/45 for severe/escalates/surprise). The receipt adds `surprise_at_most`,
+`surprise: boolean` and `surprise_line` (the rung's `severe_surprise` line on a severe roll, else its `surprise` line; null
+without a surprise); `npc.stakes`' answer and the situation's `stakes` are `{rung, outcome, line, surprise,
+surprise_line}` (`stakesView`; a receipt written before this reads `surprise: false`). Ticket 09's seeds were re-read under
+the new thresholds: 3, 2 and 1 still roll 5, 30 and 56 on the dangerous rung, so severe, escalates and nothing stand.
 
 **139.9 Flight needs footing, and a pursuit is the pursuer's own call (2026-09-26, ticket 10 of
 `docs/specs/npc-acts-first-tickets/`; amends §11.5's combat and chase lines and §138.10).** Two defects of the combat
@@ -24858,3 +24877,123 @@ a closing tag with a host marker beyond it in the Keeper's text; a tag inside th
 list line; different names at the two ends, a self-closing tag last, and a tag first beside one inside -- the last five
 delivered as written with no `stripped`. Mutation (copy and restore): the strip removed from the handler fails the
 trailing-`</text>` cases in both files.
+
+**139.19 A person under pressure may bring out something no one knew they had (2026-09-26, ticket 20 of
+`docs/specs/npc-acts-first-tickets/`, `20-produce-the-unexpected.md`; spec D10; amends §139.2, §139.3's D9 allowance and
+§139.8).**
+**Evidence.** Table `npc-acts-c4`, turn 10: the stakes die said dangerous/severe (12 against 12), the generator wrote
+"grabs the envelope, throws it and runs for the door", and the bind's `draw` question answered `none` at 1.0 over 65
+weapons (`telemetry.jsonl`, `purpose: "npc-act"`) -- rightly: the act named nothing. The packet had given a degree and a
+closed list of what he held (nothing), so the generator could only pick the most dangerous thing it already knew of. The
+gap was before the bind: no permission to bring out anything the table did not know of, and only weapons considered.
+The owner (2026-09-26): NPCs should pull out unexpected things, and the higher the threat, the likelier.
+
+**The die (§139.8's table, data).** Each rung gains `surprise_at_most`: the same d100, at most it, is a surprise. Shipped
+(severe / escalates / surprise): calm 3/15/10, tense 8/30/20, dangerous 15/45/30, lethal 30/65/45. A low roll is often
+both severe and a surprise (what comes out tends to be dangerous); a middling one may be a surprise and nothing worse.
+Each rung carries two English permission lines, `lines.surprise` and `lines.severe_surprise`: that this person may have
+something on them or within reach no one at the table knew of, and (severe) that it may be as dangerous as the moment
+allows -- a permission and a degree, never an object or an example. `stakesTable` refuses (`campaign_not_ready`, as
+§139.8) a rung without the column or the two lines, a column value off the die, and a table where any of the three
+columns falls from one rung to the next.
+
+**The packet.** The receipt and the view are §139.8's note: `stakes: {rung, outcome, line, surprise, surprise_line}`.
+Nothing else in the packet changes; no list of possible things is ever offered.
+
+**The generation (§139.2).** The answer is `{act, produces?}`. `produces` is the one thing the act brings out, a short
+phrase in play_language, checked for structure only: a string, non-empty after trimming, on one line, at most
+`NPC_PRODUCES_MAX_CHARS` (60) code points. Absent, `null` or blank is no `produces`. It is taken only when the packet's
+`stakes.surprise` is `true` (`mayProduce`, `runtime/jev/npc-act.ts`, structure only); present otherwise, it is dropped
+whatever its shape -- the act stands, nothing is asked again, and the lane's row says `produces_dropped: true`. With a
+surprise, a `produces` of the wrong shape is a wrong answer, asked once more like a bad `act` (§139.2's one retry). The
+lane's row carries `produces` when taken. The instruction (`content/setup/npc-act.md`) gains two sentences and nothing
+else: when `stakes.surprise` is true this person may bring out one thing the table did not know they had, named as
+`produces` beside `act` (play_language, at most 60 characters), and the act uses or shows it; it fits who they are and
+this moment, and with no surprise `produces` is left out. `createFixtureNpcActPort` answers `{act, produces?}` verbatim;
+the act step holds any port's answer to `mayProduce` again, so a verbatim `produces` without a surprise is dropped there
+(the step's `npc_act` row says `produces_dropped: true`).
+
+**The bind (§139.3).** With a `produces`, `npc.act.options` is asked with `produce: true` and lists `produce`: every
+record of `equipment.json` of the module's era (as the weapons-only list was filtered), one option per record -- `value`
+its `price_id`, `label` the book's name, `category`, and `weapon` (the `weapons.json` profile) when its `entity_ref` is a
+weapon. The batch (family `npc-act-bind`, version 2) adds `state.produces` and one closed question over it:
+
+- when the list and `none` fit one choice question (`PROVIDER_CHOICE_LIMIT`, 255), `produce` over the records' names,
+  or `none`;
+- otherwise (the 1920s list has 396 records) `produce_part` over the list's parts (`category`), each criterion listing
+  the book's names of its records, or `none`; a part that clears is followed by a second batch of the same family with
+  one question, `produce` over that part's records, or `none` (`npcProduceBatch`; `producePart` reads the first answer).
+
+A record that clears is the thing (`produced: {name: <the book's name>, source: "catalog", record}`). `none`, below the
+gates, unknown or no answer at either step -- and no Jev at all -- is the table's own thing (`produced: {name:
+<produces>, source: "table"}`): what exists is the generator's word under the die's permission; the catalog only decides
+whether the book's name and numbers apply. The `weapon` options of `attack` and `first_blow` gain "the thing this act
+has them bring out, as a weapon" when the list prices a weapon; it binds the record's profile when the thing is a
+weapon record, and nothing (`param_unbound:weapon`, the act `intention_only`) otherwise.
+
+**The writes.** What is brought out is one bare npc effect beside the opener, before the way's write (so the same
+batch's attack can use it), stamped `intent_ref` + `intent_outcome: "attempted"` as the draw was. The host marks it from
+the call's basis (`extensions/kernel/npc-act-marks.ts`; only on the clerk's `npc_act` calls, stripped from every other):
+
+- a weapon record: `basis.draw` → `_draws: {weapon, price_id}`, §139.3's path unchanged (`world.npc_weapons`, the saved
+  fight's participant); the receipt adds `produced`, and the kernel refuses a `price_id` that is not that weapon's record;
+- anything else: `basis.produce` → `_produces: {price_id} | {name}, description` (`description` the act; each one line,
+  the name at most 120 characters, the description at most 400). The kernel (`stageProduce`, `kernel-ts/apply/draw.ts`)
+  resolves a `price_id` against the price list (unknown → `invalid_params`; a weapon record → `invalid_params`: it is
+  drawn), takes the book's name for it, and places one object instance in the ADR-0005 registry (`world.objects`, the
+  same definitions and instances the Keeper's `define`/`object` write, through `defineObject`/`moveObject`), owned
+  `{kind: "npc", id: <handle>, name}`, of the definition of that name if one is registered, else a new one `{category:
+  "item", description: <the act>, basis: <the price-list record, or "the table's own thing, with no rule and no
+  number">, parameters: {effects: []}, traits: [], player_view: {description: <the act>, fields: []}}` -- no number
+  anywhere. An instance of that name they already hold is the same thing shown again (no second one); a name someone
+  else holds stays theirs, and this one is `<name> (<their label>)`. `_produces` stands alone in its effect.
+
+Receipt (both): `kind: "npc"`, `produced: {name, source: "catalog" | "table", record?}` (and `draws` for a weapon;
+`instance`, `definition` for an object), `visibility: "keeper"`, and the act's stamp `intent: {ref, npc, text, outcome,
+generated: true}`. The step's `npc_act` row adds `produces`, `produced` and `produces_dropped`; `draw` stays the drawn
+weapon's profile; the second batch writes its own `lane: "route"`, `purpose: "npc-act"`, `stage: "produce"` row.
+
+**Why not the Keeper's `define` effect.** The Keeper defines an object through a Mod materializer: `define` needs an
+active definition-generating package and a tool-enabled creator child (`_definition` from an accepted job, or `_queued`
+beside the turn), which generates parameters. That is a model writing numbers for a thing the book gives no rule, and a
+child run inside the act step; the ticket asks for no numbers and the act step has no room for a child. So the kernel
+composes the numberless definition itself and uses the registry's own `defineObject`/`moveObject` -- the object is
+afterwards exactly what a Keeper-made one is: `object {from, to}` moves it, `look` reads it.
+
+**Holdings (§139.1).** `at_hand.holdings` already listed the managed instances an NPC owns; it now also lists
+`world.npc_weapons` for a person with no stat block (with one, `npcProfileOf` already laid them over the profile), so a
+thing brought out is in their packet from then on either way.
+
+**Not covered.** An act with no NPC present (a Director-level surprise, another spec); a thing changing the fight by
+itself (using it is still a roll); more than one thing per act; a table object's later use as a weapon (ADR-0005's
+usage path, when the Keeper asks for it). The kernel does not check that a surprise allowed a `_draws`/`_produces`: the
+host is the gate, as §139.3's `_draws` always was.
+
+**Three ends (§31).** *Writer:* the act step's clerk write (`_draws` / `_produces`), on the generator's `produces` under
+the die's `surprise`. *Reader:* the next packet's `at_hand.holdings` (the generator), the Keeper through the receipt and
+the object registry (`look`, the sheet when it changes hands). *Actor:* the generator, whose act uses or shows it, and the
+Keeper, who narrates it.
+
+Tests: `tests/kernel/test_npc_stakes.py` (the ticket's thresholds; seeds 3, 2, 7, 1 roll 5, 30, 39, 56 on the dangerous
+rung -- surprise at most 30, so true, true, false, false, with `surprise_line` the severe permission on the severe roll;
+the situation's `stakes.surprise` equals the receipt's; a level column read, six broken tables refused before a roll --
+a falling surprise or escalates column, a surprise off the die, a missing column, a missing permission line of either
+kind; the acceptance test's expected view gains `surprise` and `surprise_line`, one existing test changed),
+`tests/kernel/test_npc_produce.py` (new: a table object, a book record and a drawn weapon for Knott with no stat block,
+all in the next turn's holdings; definitions with no number; taken by the investigator with `object`; the same name
+again is not a second thing, a name the investigator holds is told apart; seven malformed `_produces`, a combined
+effect and a wrong `_draws.price_id` refused, nothing landed), `tests/kernel/test_npc_act_options.py` (the `draw` test
+is now the `produce` catalog: every 1920s record in the book's order, names, parts, weapon profiles; the refusal case
+names `produce`; two existing tests changed), `tests/extension/npc-act-generation.test.mjs` (`mayProduce`; `produces`
+taken, trimmed and bounded at 60 code points; wrong shapes asked once more, twice is `bad_output`; absent, null and blank;
+dropped without a surprise with `produces_dropped` and no retry; the instruction states the permission; the fixture
+answers `{act, produces}`; two existing tests gained assertions), `tests/extension/single-loop-npc-act.test.mjs` (the
+batch, its reading and the writes over `produce`; the long list by part then record; the host marks for `_produces`; at
+the table, the pocket pistol -- `produces` "袖珍手枪" matched to the book's .25 Derringer through the part and record
+batches, drawn, and the same act's attack rolls Firearms with it, `produced.source: "catalog"`; at the table, a
+`produces` with no surprise dropped -- one batch, nothing drawn or placed, `produces_dropped`, the attack his fists; on
+the emitted kernel, the family photograph Jev answers `none` for -- one object of his, no number, `source: "table"`, in
+the next turn's packet's holdings; six existing tests changed, the two D9 table tests replaced by the two D10 ones).
+Mutation record (copy and restore): the step always allowing `produces` fails the no-surprise table case (two bind
+batches where one was expected); `mayProduce` always true fails it and five generation cases; the table object never
+written fails the photograph case and the writes seam.
