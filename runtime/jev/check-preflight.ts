@@ -2,7 +2,7 @@
 import {createHash} from 'node:crypto';
 import {isPlainRecord,type DecisionBatch,type DecisionResult,type Json,type ReadSet,type ScopeBinding} from './contracts.ts';
 import type {DecisionPort} from './decision-port.ts';
-import type {TaskLease} from './task-context.ts';
+import type {TaskClock,TaskLease} from './task-context.ts';
 import {packDecisionBatch} from './question-packing.ts';
 import {interpretOrdinaryRoute,ordinaryActionTemplate,ordinaryProfileBatch,ordinaryRouteBatch,pickOrdinaryProfile,
   validateOrdinaryResolveOptions,type OrdinaryActionTemplate,type OrdinaryDisposition,type OrdinaryParameterPath,type OrdinaryResolveOptions} from './ordinary-resolve-domain.ts';
@@ -41,7 +41,9 @@ export interface CheckPreflightInput {campaign:string;turn:number;rawInput:strin
    * SL-31 (§135.28): the single-loop clerk's binder. The difficulty and the dice take Jev's answer only when it clears the
    * policy's `gate`, else their rules default; a single issued investigator is the actor. Absent: the advisory binder as before.
    */
-  defaults?:{gate:number}}
+  defaults?:{gate:number};
+  /** SL-87: the clock the binder's own reads and decisions are bounded by (the lease's deadline is on it). Absent: the host's real clock and timers, as before. */
+  clock?:TaskClock}
 
 function unknown(reason:string,calls=0):CheckPreflightResult {
   return{advice:{kind:'check_preflight',disposition:'unknown',unresolved:[reason],authorization:'advisory_only',settled:false},decisionCalls:calls,
@@ -61,24 +63,25 @@ function batch(value:Omit<DecisionBatch,'id'|'scope'|'readSet'>,scope:ScopeBindi
 function failure(result:DecisionResult):string {
   return result.failure?.code??(result.status==='incomplete'?'decision_incomplete':'decision_unavailable');
 }
-async function bounded<T>(work:()=>Promise<T>,signal:AbortSignal,deadlineAt:number):Promise<T> {
-  signal.throwIfAborted();const remaining=deadlineAt-Date.now();if(remaining<=0)throw new Error('check_preflight_deadline');
-  let abort=()=>{},timer:ReturnType<typeof setTimeout>|undefined;
+async function bounded<T>(work:()=>Promise<T>,signal:AbortSignal,deadlineAt:number,clock?:TaskClock):Promise<T> {
+  signal.throwIfAborted();const remaining=deadlineAt-(clock?clock.now():Date.now());if(remaining<=0)throw new Error('check_preflight_deadline');
+  let abort=()=>{},timer:ReturnType<typeof setTimeout>|undefined,unschedule:(()=>void)|undefined;
   try{return await Promise.race([work(),new Promise<never>((_,reject)=>{
     abort=()=>reject(signal.reason);signal.addEventListener('abort',abort,{once:true});
-    timer=setTimeout(()=>reject(new Error('check_preflight_deadline')),remaining);if(signal.aborted)abort();
-  })]);}finally{if(timer)clearTimeout(timer);signal.removeEventListener('abort',abort);}
+    const expire=()=>reject(new Error('check_preflight_deadline'));
+    if(clock)unschedule=clock.schedule(expire,remaining);else timer=setTimeout(expire,remaining);if(signal.aborted)abort();
+  })]);}finally{if(timer)clearTimeout(timer);unschedule?.();signal.removeEventListener('abort',abort);}
 }
 function boundOptions(input:Pick<CheckPreflightInput,'campaign'|'turn'|'scope'|'rawInput'>,value:unknown):OrdinaryResolveOptions|undefined {
   const options=validateOrdinaryResolveOptions(value),binding=options?.context._binding;
   return options&&isPlainRecord(binding)&&binding.campaign===input.campaign&&binding.turn===input.turn
     &&binding.worldline===input.scope.worldline&&binding.loop===input.scope.loop&&options.context.declared_action===input.rawInput?options:undefined;
 }
-export async function recheckPreflight(input:Pick<CheckPreflightInput,'campaign'|'turn'|'scope'|'rawInput'|'publicContext'|'call'>
+export async function recheckPreflight(input:Pick<CheckPreflightInput,'campaign'|'turn'|'scope'|'rawInput'|'publicContext'|'call'|'clock'>
   &{checkpoint:CheckPreflightCheckpoint;signal:AbortSignal;deadlineAt:number}):Promise<{status:'current'}|{status:'stale'|'unavailable';reason:string}> {
   try{
     if(input.checkpoint.version!==2||input.campaign!==input.scope.campaign)return{status:'stale',reason:'check_preflight_scope_changed'};
-    const raw=await bounded(()=>input.call('table.resolve.options',{campaign:input.campaign}),input.signal,input.deadlineAt);
+    const raw=await bounded(()=>input.call('table.resolve.options',{campaign:input.campaign}),input.signal,input.deadlineAt,input.clock);
     const current=boundOptions(input,raw);if(!current)return{status:'stale',reason:'resolve_options_changed'};
     return same(input.checkpoint,checkpoint(input,current))?{status:'current'}:{status:'stale',reason:'resolve_options_changed'};
   }catch(error){return{status:'unavailable',reason:input.signal.aborted?'cancelled':error instanceof Error?error.message:'resolve_options_unavailable'};}
@@ -119,7 +122,7 @@ export async function prepareCheckPreflight(input:CheckPreflightInput):Promise<C
     signal?.throwIfAborted();lease.assertActive();
     const shared=lease.context;
     if(digest(shared.scope)!==digest(input.scope)||digest(shared.readSet)!==digest(input.readSet))return unknown('check_preflight_lease_binding_mismatch');
-    const raw=await bounded(()=>input.call('table.resolve.options',{campaign:input.campaign}),signal,lease.context.budget.deadlineAt);signal.throwIfAborted();lease.assertActive();
+    const raw=await bounded(()=>input.call('table.resolve.options',{campaign:input.campaign}),signal,lease.context.budget.deadlineAt,input.clock);signal.throwIfAborted();lease.assertActive();
     const options=boundOptions(input,raw);if(!options)return unknown('resolve_options_unavailable');
     const captured=checkpoint(input,options),decisionOptions={...options,context:{...options.context,public_context:input.publicContext??[]}};
     const make=(advice:CheckPreflightAdvice):CheckPreflightResult=>({advice:{...advice,basis:[{role:'player',text:input.rawInput},...(input.publicContext??[])]},
@@ -128,7 +131,7 @@ export async function prepareCheckPreflight(input:CheckPreflightInput):Promise<C
     if(options.context.pending_choice)return make({kind:'check_preflight',disposition:'needs_player',unresolved:['The existing pending mechanical choice must be resolved by its owner.'],authorization:'advisory_only',settled:false});
     if(options.context.session)return make({kind:'check_preflight',disposition:'incumbent',unresolved:['The active subsystem requires its existing resolution owner.'],authorization:'advisory_only',settled:false});
     const routeRequest=batch(ordinaryRouteBatch({rawInput:input.rawInput,goal,options:decisionOptions}),input.scope,input.readSet,0);calls++;
-    const routeResult=await bounded(()=>input.decision.decide(routeRequest,lease),signal,lease.context.budget.deadlineAt);signal.throwIfAborted();lease.assertActive();
+    const routeResult=await bounded(()=>input.decision.decide(routeRequest,lease),signal,lease.context.budget.deadlineAt,input.clock);signal.throwIfAborted();lease.assertActive();
     if(routeResult.status!=='complete')return make({kind:'check_preflight',disposition:'unknown',unresolved:[failure(routeResult)],authorization:'advisory_only',settled:false});
     const route=interpretOrdinaryRoute(options,routeResult,input.compiled,input.defaults),
       routed={...routeEvidence(routeResult),...(route.paths?{paths:route.paths}:{})};
@@ -137,7 +140,7 @@ export async function prepareCheckPreflight(input:CheckPreflightInput):Promise<C
     const profileSpec=ordinaryProfileBatch({rawInput:input.rawInput,goal,options:decisionOptions,route,held:!!input.defaults});if(!profileSpec)
       return make({kind:'check_preflight',disposition:'unknown',unresolved:['ordinary_profile_unavailable'],authorization:'advisory_only',settled:false});
     const profileRequest=batch(profileSpec,input.scope,input.readSet,1);calls++;
-    const profileResult=await bounded(()=>input.decision.decide(profileRequest,lease),signal,lease.context.budget.deadlineAt);signal.throwIfAborted();lease.assertActive();
+    const profileResult=await bounded(()=>input.decision.decide(profileRequest,lease),signal,lease.context.budget.deadlineAt,input.clock);signal.throwIfAborted();lease.assertActive();
     if(profileResult.status!=='complete')return make({kind:'check_preflight',disposition:'unknown',unresolved:[failure(profileResult)],authorization:'advisory_only',settled:false});
     const picked=pickOrdinaryProfile(options,route,profileResult,input.defaults),profile=picked.profile,
       action=profile&&ordinaryActionTemplate({rawInput:input.rawInput,goal,options,route,profile});

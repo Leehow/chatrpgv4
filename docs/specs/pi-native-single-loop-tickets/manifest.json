@@ -434,6 +434,11 @@
       "id": "SL-86",
       "file": "86-the-clue-question-under-recalls.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-87",
+      "file": "87-wall-clock-budget-tests-must-not-time-the-box.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [

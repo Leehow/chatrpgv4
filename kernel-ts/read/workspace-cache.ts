@@ -11,7 +11,9 @@ export function workspaceCacheRoot(storeRoot: string): string {
     return ['evidence', 'workpad'].includes(basename(root)) && basename(dirname(root)) === 'workspace-cache' ? dirname(root) : root;
 }
 
-export async function withWorkspaceCacheLock<T>(storeRoot: string, action: () => Promise<T>): Promise<T> {
+/** `now` (SL-87): the clock the 500 ms wait for the lock is measured on. Defaults to `Date.now`; a test whose subject is not
+ * that wait passes one that moves per poll, so a loaded machine's slow holder does not time it out. */
+export async function withWorkspaceCacheLock<T>(storeRoot: string, action: () => Promise<T>, now: () => number = Date.now): Promise<T> {
     // The same fs-ext descriptor backend as the kernel. Keep this shared source adapter free
     // of kernel .js imports: the host also loads it directly through Node's TypeScript loader.
     const native = createRequire(import.meta.url)('fs-ext') as {flockSync(fd: number, operation: string): void};
@@ -20,11 +22,11 @@ export async function withWorkspaceCacheLock<T>(storeRoot: string, action: () =>
     const handle = await open(join(root, '.write.lock'), 'a+', 0o600);
     let held = false;
     try {
-        const deadline = Date.now() + 500;
+        const deadline = now() + 500;
         for (;;) {
             try {native.flockSync(handle.fd, 'exnb'); held = true; break;}
             catch (error) {
-                if (!['EAGAIN', 'EWOULDBLOCK'].includes((error as NodeJS.ErrnoException).code ?? '') || Date.now() >= deadline) throw error;
+                if (!['EAGAIN', 'EWOULDBLOCK'].includes((error as NodeJS.ErrnoException).code ?? '') || now() >= deadline) throw error;
                 await new Promise(resolve => setTimeout(resolve, 10));
             }
         }

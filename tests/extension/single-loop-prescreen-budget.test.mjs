@@ -10,7 +10,8 @@
  *   read that reports gate #7's prescreen spends none of the decision budget. A spent decision budget composes once, and
  *   after that the Keeper's own batches carry the run.
  * - Extension seam: the hybrid engine over the emitted kernel on the Haunting, with a controlled decision port whose
- *   prescreen batches are slow. The route is still asked after a prescreen that spent the allowance. The read after the
+ *   prescreen batches are slow. The route is still asked after a prescreen that spent the allowance (gate #7's shape runs on
+ *   a manual clock, SL-87: the allowance is its subject, so no kernel read on a loaded box spends any of it). The read after the
  *   move runs its prescreen on the named allowance, from its own start (SL-44, §135.6.1: gate #4's t19 read had been given
  *   the turn's remainder, 138 ms), and sends nothing past its own deadline. A `read_more` on the same scene reuses the first
  *   read's prescreen. The ordinary binder's lease is its own.
@@ -164,21 +165,61 @@ const toldWhereToDig = (workspace) => kernelSteps(workspace, "test-camp", [
 ]);
 
 /**
+ * SL-87: a manual clock (the `TaskClock` shape: `now` and `schedule`) for a test whose subject is a wall-clock budget. Time moves
+ * only when the test moves it, so the kernel's reads on a loaded box spend none of the allowance; a timer scheduled on it (a
+ * lease's deadline, the prescreen's timeouts) fires when an advance reaches it.
+ */
+function manualClock(start = 1_000_000) {
+	let t = start;
+	const timers = new Set();
+	const clock = {
+		now: () => t,
+		schedule(callback, delayMs) {
+			const timer = { at: t + Math.max(0, delayMs), callback };
+			timers.add(timer);
+			return () => { timers.delete(timer); };
+		},
+		advanceTo(target) {
+			for (;;) {
+				let due;
+				for (const timer of timers) if (timer.at <= target && (!due || timer.at < due.at)) due = timer;
+				if (!due) break;
+				timers.delete(due);
+				t = Math.max(t, due.at);
+				due.callback();
+			}
+			t = Math.max(t, target);
+		},
+		advance(ms) { clock.advanceTo(t + ms); },
+	};
+	return clock;
+}
+
+/**
  * A decision port: `route(batch, n)` answers the n-th route; the compile answers `unknown` (the first after `compileMs`); every
  * other batch is the prescreen's or the ordinary binder's. `slowPrescreen` holds each prescreen batch until its lease
- * ends, so the prescreen spends the whole allowance.
+ * ends, so the prescreen spends the whole allowance. With a manual `clock` nothing sleeps: the compile advances it by
+ * `compileMs`, and a slow prescreen batch advances it to its lease's deadline, which ends the lease.
  */
-function decisionPort({ route: routeAnswer, compileMs = 0, slowPrescreen = false }) {
+function decisionPort({ route: routeAnswer, compileMs = 0, slowPrescreen = false, clock }) {
 	const log = [];
 	let routes = 0, compiles = 0;
 	return { log, port: { async decide(batch, lease) {
-		const at = Date.now(), deadline = lease?.context?.budget?.deadlineAt ?? null;
+		const at = clock ? clock.now() : Date.now(), deadline = lease?.context?.budget?.deadlineAt ?? null;
 		if (batch.family === ROUTE_FAMILY) { log.push({ kind: "route", at }); return routeAnswer(batch, ++routes); }
-		if (batch.family === COMPILE_FAMILY) { log.push({ kind: "compile", at }); if (compileMs && ++compiles === 1) await sleep(compileMs); return answered(batch); }
+		if (batch.family === COMPILE_FAMILY) {
+			log.push({ kind: "compile", at });
+			if (compileMs && ++compiles === 1) { if (clock) clock.advance(compileMs); else await sleep(compileMs); }
+			return answered(batch);
+		}
 		if (batch.family === BIND_FAMILY) { log.push({ kind: "bind", at }); return answered(batch); }
 		if (batch.family === "ordinary-resolve") { log.push({ kind: "binder", at, deadline }); return supported(batch); }
 		log.push({ kind: "prescreen", family: batch.family, at, deadline });
 		if (!slowPrescreen) return supported(batch);
+		if (clock) {
+			if (deadline !== null) clock.advanceTo(deadline);
+			return unavailable(batch, "timeout");
+		}
 		await new Promise((resolve) => {
 			const timer = setTimeout(resolve, 8_000);
 			lease?.signal?.addEventListener?.("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
@@ -187,12 +228,12 @@ function decisionPort({ route: routeAnswer, compileMs = 0, slowPrescreen = false
 	} } };
 }
 
-/** `allowanceMs: null`: the allowance is not configured, so it is the named default. */
-async function hybridTable({ port, responses, prepareWorkspace = toldWhereToDig, allowanceMs = "2000" }) {
+/** `allowanceMs: null`: the allowance is not configured, so it is the named default. `clock`: the run's manual clock (SL-87). */
+async function hybridTable({ port, responses, prepareWorkspace = toldWhereToDig, allowanceMs = "2000", clock }) {
 	const events = [], rows = [];
 	const env = { ...process.env, PI_COC_JEV_PRESELECT: "1", EXT_JEV_APIKEY: "mechanical-test-key" };
 	if (allowanceMs === null) delete env.PI_COC_JEV_PRESELECT_ALLOWANCE_MS; else env.PI_COC_JEV_PRESELECT_ALLOWANCE_MS = allowanceMs;
-	const engine = createHybridEngine({ env, decision: port });
+	const engine = createHybridEngine({ env, decision: port, ...(clock ? { clock } : {}) });
 	const table = await openTable({
 		realKernel: true, prepareWorkspace, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
 		runDriver: engine.runDriver,
@@ -208,11 +249,14 @@ const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text }
 test("gate #7's shape: a prescreen that spends the whole allowance leaves the decisions theirs -- compile and route asked, the clerk moves, no jev_budget", async (t) => {
 	// The allowance is 3 s and the prescreen holds every batch to its deadline (at least 1 s, asserted below); the first
 	// compile takes 2 s. Charged to the decision budget (maxJevMs = the allowance), read + compile would pass 3 s before the
-	// route was asked; the decisions alone stay under it.
-	const { log, port } = decisionPort({ slowPrescreen: true, compileMs: 2_000,
+	// route was asked; the decisions alone stay under it. SL-87: all of it on the run's manual clock, which only the port
+	// moves (the compile's 2 s, each slow batch to its lease's deadline): a loaded box's kernel reads spend none of the
+	// allowance, and nothing here sleeps.
+	const clock = manualClock();
+	const { log, port } = decisionPort({ clock, slowPrescreen: true, compileMs: 2_000,
 		route: (batch, n) => n === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target) ? "now" : undefined)
 			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined) });
-	const table = await hybridTable({ port, allowanceMs: "3000", responses: [narrate("You reach the Globe's morgue.")] });
+	const table = await hybridTable({ port, clock, allowanceMs: "3000", responses: [narrate("You reach the Globe's morgue.")] });
 	t.after(() => table.dispose());
 	await table.table.session.prompt("I go to the Boston Globe offices.");
 
