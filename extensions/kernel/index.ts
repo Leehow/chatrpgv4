@@ -3947,11 +3947,13 @@ export default function (pi: ExtensionAPI) {
 			delete payload.keeper_reads;
 			if (spec.name === "ask") state.speechAttribution = undefined;
 			if (spec.name === "narrate" && typeof payload.text === "string") {
-				const attributed = await attributeUnwrappedSpeech(state, payload.text, signal, providerBudget);
+				// §142.2: the time skip the delivery makes, read beside attribution and at the same time (attribution only adds
+				// say tokens, which the reading strips); it rides on the call after the Mod hooks.
+				const [attributed, read] = await Promise.all([attributeUnwrappedSpeech(state, payload.text, signal, providerBudget),
+					closesOpening ? undefined : readTimeSkip(state, payload.text as string, narratePath, !state.steeredThisTurn, signal, providerBudget)]);
 				payload.text = attributed.text;
 				if (attributed.hostAttributed?.length) payload.host_attributed = attributed.hostAttributed;
-				// §142.2: the time skip the delivery makes, read beside attribution; it rides on the call after the Mod hooks.
-				if (!closesOpening) timeReading = await readTimeSkip(state, attributed.text, narratePath, !state.steeredThisTurn, signal, providerBudget);
+				timeReading = read;
 			}
       if (mods) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
@@ -5747,10 +5749,11 @@ export default function (pi: ExtensionAPI) {
 			let draft = prose;
 			let fallback = state.steeredThisTurn && state.floorDraft && state.floorDraft !== prose ? state.floorDraft : undefined;
 			for (;;) {
-				const attributed = await attributeUnwrappedSpeech(state, draft, state.lanes.signal, foregroundProviderBudget?.());
-				// §142.2: refusable only while the turn's one steer can still hand the kernel's fix back (§135.11).
-				const timeReading = opening ? undefined
-					: await readTimeSkip(state, attributed.text, "implicit", !state.steeredThisTurn, state.lanes.signal, foregroundProviderBudget?.());
+				// §142.2: read at the same time as attribution; refusable only while the turn's one steer can still hand the
+				// kernel's fix back (§135.11).
+				const [attributed, timeReading] = await Promise.all([
+					attributeUnwrappedSpeech(state, draft, state.lanes.signal, foregroundProviderBudget?.()),
+					opening ? undefined : readTimeSkip(state, draft, "implicit", !state.steeredThisTurn, state.lanes.signal, foregroundProviderBudget?.())]);
 				const tool = "narrate";
 				const callId = mintCallId(state);
 				const startedAt = new Date().toISOString();

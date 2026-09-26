@@ -309,3 +309,23 @@ test("the apply schema offers until on time only (§142.1), and the narrate sche
 	assert.deepEqual(Object.keys(withUntil[0].properties.until.properties).sort(), ["days", "time"]);
 	assert.equal(COC_TOOLS.find((tool) => tool.name === "narrate").parameters.properties.time_reading, undefined);
 });
+
+test("an implicit close after the turn's one steer is spent is read, not refusable, and delivered (turn 8's position)", async (t) => {
+	const { table } = await play(t, {
+		env: { FAKE_KERNEL_TIME_REFUSE: "1" },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
+			// Someone is on stage and the draft carries no say token: the speech steer (§40) takes the turn's one steer.
+			fauxAssistantMessage(STAY),
+			fauxAssistantMessage(SKIP),
+		],
+		read: (text) => (text.includes("第二天早上") ? nextMorning() : noCut()),
+	});
+	assert.equal(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech").length, 1);
+	const sent = narrateParams(table);
+	assert.equal(sent.length, 1);
+	assert.equal(sent[0].implicit, true);
+	assert.equal(sent[0].time_reading.refusable, false, "a refusal here could never be handed back");
+	assert.equal(table.telemetry().filter((row) => row.tool === "narrate" && row.ok === false).length, 0);
+	assert.ok(table.telemetry().some((row) => row.event === "turn-closed" && row.ok === true));
+});

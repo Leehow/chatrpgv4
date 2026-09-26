@@ -24295,16 +24295,18 @@ of two questions, family `time-reading` version 1 (`runtime/jev/time-reading-dom
 
 State is the delivery text with say tokens and markers removed (the spoken words stay) and nothing else: not the clock
 (Jev does not compare times), not the Keeper's calls. The answer is each question's argmax and its confidence. It is
-taken after SL-93's floor and beside speech attribution (§128.3), capped by `time_reading.timeout_ms`
+taken at the same time as speech attribution (§128.3) -- attribution only adds say tokens, which the reading strips, so
+both read the same prose and neither waits on the other -- capped by `time_reading.timeout_ms`
 (`content/rulesets/coc7/host-budgets.json`), and is fail-open: no key, a timeout or an error delivers without a
-reading. The same text is read once per turn. The opening delivery is not read.
+reading. The same text is read once per turn (a resend's row says `cached: true`). The opening delivery is not read.
+`PI_COC_TIME_READING=0` switches the reading off for an experiment arm; the product default is on.
 
 A cut is **read** when `cut` is `later_today`, `next_day` or `days` with confidence ≥ `time_reading.min_confidence`
 (0.6). Only then does the reading ride on `table.narrate`, host-only and outside the call's digest (as `keeper_reads`,
 §135.31): `time_reading: {cut, confidence, floor, ends_at?, refusable}`, where `floor` is `time_reading.floors[cut]`
 (`later_today` 60, `next_day` 240, `days` 1440), `ends_at` is present only when shown with confidence ≥ the gate, and
-`refusable` is false when the turn's one steer is already spent (the condition SL-93's floor reads) or the delivery
-closes the opening.
+`refusable` is false when the turn's one steer (§135.11) is already spent -- a refusal could not be handed back, and an
+implicit close would be stranded -- or the delivery closes the opening.
 
 One telemetry row per reading: `{lane: "time-reading", turn, path: "explicit" | "embedded" | "implicit", ok, cut,
 cut_confidence, ends_at, ends_at_confidence, distribution, sent, ms, reason?, skipped?}` (`sent`: the reading rode on
@@ -24332,7 +24334,7 @@ night`. The kernel reads no prose; it compares the host's reading with its own b
 - No reading, or no gap: nothing changes.
 
 The host's side: an explicit or embedded refusal is an ordinary tool refusal; a refusal for `time_unrecorded` spends
-the turn's one steer as SL-93's floor does, so the next delivery that turn is not refusable. An implicit refusal takes
+the turn's one steer (§135.11), so the next delivery that turn is not refusable. An implicit refusal takes
 the existing `audit-repair` steer (§109.4), which spends it.
 
 ### 142.4 `unrecorded` gains the time kind (amends §51.4)
@@ -24359,4 +24361,6 @@ landed; refused once then delivered with the warning; `refusable: false` deliver
 `unrecorded` row next turn and its clearing; the reading is outside the digest); `tests/extension/time-reading-domain.test.mjs`
 (the questions, state = text only, argmax and confidence, the gate, every non-answer); `tests/extension/time-reading.test.mjs`
 (fake kernel: the reading rides on all three paths only when a cut is read, `refusable` follows the steer, the opening
-is not read, fail-open rows, one read per text, a refusal spends the steer).
+is not read, fail-open rows, one read per text, a refusal spends the steer, an implicit close after a spent steer is
+not refusable; and over the emitted kernel, the refusal answered with `until` and a skip delivered again with its
+finding).

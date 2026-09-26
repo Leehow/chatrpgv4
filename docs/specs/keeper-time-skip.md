@@ -103,15 +103,15 @@ One Jev request per delivery attempt, two questions (fan-out), family `time-read
   `midday`, `afternoon`, `evening`, `night`) and `not_shown`.
 
 State is the delivery text with markers and say tokens removed (the spoken words stay). Nothing else: not the clock
-(Jev does not compare times), not the Keeper's calls. The answer is the argmax level with its confidence; no gate is
-applied in the host. Taken on all three delivery paths (explicit `narrate`, `apply`'s embedded narrate, the implicit
-close), after SL-93's floor and before the Mod hooks, capped by `time_reading.timeout_ms`
+(Jev does not compare times), not the Keeper's calls. The answer is the argmax level with its confidence. Taken on all
+three delivery paths (explicit `narrate`, `apply`'s embedded narrate, the implicit close), at the same time as speech
+attribution and before the Mod hooks, capped by `time_reading.timeout_ms`
 (`content/rulesets/coc7/host-budgets.json`). No key, a timeout or an error sends the delivery without a reading
 (fail open; a telemetry row with `reason`). The same text is read once per turn. The opening delivery is exempt,
 as it is from the floor. When a cut is read (F3), it rides on `table.narrate` as host-only `time_reading: {cut,
 confidence, floor, ends_at?, refusable}` and, like `keeper_reads` (§135.31), is not part of the call's digest.
-`refusable` is false when the host could not hand a refusal back: the turn's one steer is already spent (the same
-condition SL-93's floor reads), or the delivery closes the opening.
+`refusable` is false when the host could not hand a refusal back: the turn's one steer (§135.11) is already spent, or
+the delivery closes the opening.
 
 ### F3 — the reconciliation (kernel, TS-03)
 
