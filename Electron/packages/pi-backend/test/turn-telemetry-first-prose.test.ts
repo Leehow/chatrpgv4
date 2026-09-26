@@ -94,7 +94,8 @@ describe("the stream-event classifier (§135.11.5)", () => {
   });
 });
 
-async function fixture() {
+/** A bound COC session unless `coc: false` (§135.11.6: the kept text's moment depends on the binding). */
+async function fixture({ coc = true }: { coc?: boolean } = {}) {
   root = await mkdtemp(join(tmpdir(), "pipi-first-prose-"));
   const agentDir = join(root, "agent");
   const sessionsRoot = join(root, "sessions");
@@ -104,7 +105,9 @@ async function fixture() {
   const sessionPath = join(directory, "s1.jsonl");
   await writeFile(sessionPath, [
     JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-09-26T00:00:00.000Z", cwd }),
-    JSON.stringify({ type: "custom", customType: "coc-session", data: { campaign: "campaign-1", home: root, play_language: "en", mode: "play" } }),
+    ...(coc
+      ? [JSON.stringify({ type: "custom", customType: "coc-session", data: { campaign: "campaign-1", home: root, play_language: "en", mode: "play" } })]
+      : []),
   ].join("\n") + "\n");
   const backend = createPiHostBackend({
     agentDir,
@@ -259,8 +262,10 @@ describe("PiHostBackend first-prose seam (§135.11.5)", () => {
     }
   });
 
-  it("counts assistant text the host keeps at message_end from its first delta", async () => {
-    const { backend, rpc, open, close } = await fixture();
+  it("counts assistant text a session without a COC binding keeps at message_end from its first delta", async () => {
+    // Unbound, the text is prose on screen from its first delta. A bound session folds it until its
+    // message ends (§135.11.6); that case is the next one. This test ran on a bound session before.
+    const { backend, rpc, open, close } = await fixture({ coc: false });
     try {
       await open("kept-turn");
       const first = await within(() => rpc({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "The rain has not " } }));
@@ -275,6 +280,28 @@ describe("PiHostBackend first-prose seam (§135.11.5)", () => {
       expect(phase(record, "first_prose")).toBeGreaterThanOrEqual(first.before);
       expect(phase(record, "first_prose")).toBeLessThanOrEqual(first.after);
       expect(phase(record, "first_prose")).toBeLessThan(ended);
+    } finally {
+      await backend.close();
+    }
+  });
+
+  it("counts a bound COC session's kept text at its message_end, when it leaves the folded card (§135.11.6)", async () => {
+    const { backend, rpc, open, close } = await fixture();
+    try {
+      await open("folded-turn");
+      const first = await within(() => rpc({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "The rain has not " } }));
+      await sleep(30);
+      rpc({ type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "stopped since noon." } });
+      await sleep(30);
+      // Unchanged at message_end, so the host sends nothing more: the settle itself is the moment.
+      const ended = await within(() => rpc({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "The rain has not stopped since noon." }], stopReason: "stop" } }));
+      const record = await close("folded-turn");
+
+      expect(record.firstProseVia).toBe("text");
+      expect(phase(record, "first_prose")).toBeGreaterThan(first.after);
+      expect(phase(record, "first_prose")).toBeGreaterThanOrEqual(ended.before);
+      expect(phase(record, "first_prose")).toBeLessThanOrEqual(ended.after);
+      expect(record.durations?.firstProseMs).toBe(phase(record, "first_prose")! - phase(record, "host_received")!);
     } finally {
       await backend.close();
     }

@@ -17,8 +17,11 @@ import { TranscriptMarkdown } from './TranscriptMarkdown'
 import { HostedCodeInterpreterCard } from './HostedCodeInterpreterCard'
 import type { ChatMessage, TranscriptActivity, TranscriptTool } from './transcript-model'
 import { displaySecretPlaceholders } from './secret-display'
-import { activitiesFromMessage, PENDING_THINKING_ID, planAssistantTranscript } from './transcript-model'
+import { activitiesFromMessage, PENDING_THINKING_ID, planAssistantTranscript, unsettledTextIds } from './transcript-model'
 import { useAssistantKeepsSecrets } from './assistant-secrets'
+import { transcriptWord, useTranscriptWords } from './transcript-words'
+
+const NO_UNSETTLED_TEXT: ReadonlySet<string> = new Set()
 
 export type { TranscriptActivity, TranscriptTool } from './transcript-model'
 export { TranscriptMarkdown } from './TranscriptMarkdown'
@@ -164,6 +167,7 @@ export const AssistantTranscriptContent = memo(function AssistantTranscriptConte
     setErrorDismissed(false)
   }
   const assistantKeepsSecrets = useAssistantKeepsSecrets()
+  const transcriptWords = useTranscriptWords()
   const activities = activitiesFromMessage(message)
   const stepActivities = activities.filter((activity): activity is Extract<TranscriptActivity, { type: 'thinking' | 'tool' }> => activity.type !== 'text')
   // Lost tool_result/settled: if the model generated text after the last
@@ -205,8 +209,17 @@ export const AssistantTranscriptContent = memo(function AssistantTranscriptConte
   // The illustration float mounts ahead of the first prose segment so the
   // narration wraps around it (§35 mock: top-right of the row).
   const firstTextIndex = segments.findIndex(segment => segment.type === 'text')
+  // §135.11.6, §93's rule applied to assistant text: where the assistant keeps secrets, a message's
+  // text is the Keeper's working until that message has ended, and the host may still drop it there
+  // (text beside a tool call, a steered or refused draft). It is available in a folded card, one
+  // click away like the Thinking body, never drawn as the story and never opened by the product.
+  const unsettled = assistantKeepsSecrets ? unsettledTextIds(message) : NO_UNSETTLED_TEXT
   return <div className="assistant-transcript-content" data-testid="assistant-transcript-content">
     {segments.map((segment, index) => {
+      if (segment.type === 'text' && unsettled.has(segment.id)) {
+        const working = transcriptWord(transcriptWords, 'keeper_working')
+        return <div key={`working:${segment.id}`} data-transcript-segment="working"><ActivityCard label={working} summary={working} meta={`${formatCompactTokens(estimateTokens(segment.content.length))} tokens`} running defaultExpanded={false}><TranscriptMarkdown content={displaySecretPlaceholders(segment.content)} streaming /></ActivityCard></div>
+      }
       if (segment.type === 'text') {
         return <div key={`text:${segment.id}`} data-transcript-segment="text">{index === firstTextIndex ? illustration : null}<TranscriptMarkdown content={displaySecretPlaceholders(segment.content)} streaming={message.streaming && index === segments.length - 1} />{!message.streaming && <DocumentReferenceCards content={displaySecretPlaceholders(segment.content)} basePath={documentBasePath} onOpenDocument={onOpenDocument} />}</div>
       }
