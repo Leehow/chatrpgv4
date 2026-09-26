@@ -147,6 +147,20 @@ export function isSpeechOnlyDraft(draft: string): boolean {
 	return text.replace(SPAN, "").replace(MARKER, "").trim().length === 0;
 }
 
+/**
+ * §135.11.4's SL-93 addendum ("one floor for every delivery path"): the draft's own prose, in Unicode code points,
+ * once every mechanics marker and every `{{say:name}}...{{/say}}` token is removed -- the token only, never the
+ * spoken words between them, exactly as the kernel's own rendering leaves them (`stripMarkers`,
+ * `kernel-ts/write/text.ts`: `SAY_TOKENS` matches the open and close tokens, never the words they wrap). A
+ * substantial line of dialogue counts toward the floor; a bare token does not. Structural only, the same class of
+ * check `isSpeechOnlyDraft` makes: span and marker syntax, read after the same §40.1 repair (`speechPass`), never a
+ * reading of the words.
+ */
+export function proseCharCount(draft: string): number {
+	const { text } = speechPass(draft, (name) => ({ label: name }));
+	return [...text.replace(MARKER, "").trim()].length;
+}
+
 /** The say token's name rule (§40.1): anything but `}}` and a line break, trimmed, 1–60 characters. */
 export function sayableName(name: string): boolean {
 	const trimmed = name.trim();

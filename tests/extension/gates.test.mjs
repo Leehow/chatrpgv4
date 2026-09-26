@@ -33,10 +33,12 @@ function deliveryTexts(session) {
  * `runaway` telemetry row, and nothing after the sixth reaches the hook.
  */
 test("回合关了还在连番调工具：第三次起回一句「停」，第六次切断这一轮", async (t) => {
+	// SL-93 (§135.11.4.1)：narrate 正文要够过新的字数下限，才不会在这条测试还没验的东西（回合关掉之后的
+	// 跑飞截断）之前先被下限打回来。
 	const look = () => fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" });
 	const table = await openTable({
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门在你身后合上。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "门在你身后合上，销栓落下的声响在寂静的走廊里回荡了很久，冷意顺着门缝钻了进来，让你打了个哆嗦。" })], { stopReason: "toolUse" }),
 			look(), look(), look(), look(), look(), look(), look(), look(),
 			fauxAssistantMessage("这条不该出现"),
 		],
@@ -75,6 +77,7 @@ test("回合关了还在连番调工具：第三次起回一句「停」，第�
  * what the turn already carries. `apply`, `resolve` and `narrate` are never counted or blocked by it.
  */
 test("look 预算：第九次 look 被主机截胡，不再到内核；apply/resolve 不算在这份预算里", async (t) => {
+	// SL-93：narrate 正文长度要过新下限（这条测试跟长度本身无关，查的是 look 预算）。
 	const look = () => fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" });
 	const table = await openTable({
 		responses: [
@@ -82,7 +85,7 @@ test("look 预算：第九次 look 被主机截胡，不再到内核；apply/res
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5 }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", skill: "Spot Hidden", goal: "search the desk" } })], { stopReason: "toolUse" }),
 			look(),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "写下去。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "你把刚才看到的东西记在本子上，字迹因为手抖有点歪斜，但好歹算是把每一个细节都记全了，不会漏掉。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -131,13 +134,14 @@ test("look 预算：第九次 look 被主机截胡，不再到内核；apply/res
  * with the next player input.
  */
 test("look 预算随下一次玩家输入清零", async (t) => {
+	// SL-93：两条 narrate 正文都要过新下限（这条测试跟长度本身无关，查的是预算清零）。
 	const look = () => fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" });
 	const table = await openTable({
 		responses: [
 			look(), look(), look(), look(), look(), look(), look(), look(),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "第一回合写完。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "第一回合写完了，桌上的灯还亮着，你把笔记本合上，准备起身离开这间安静又有些闷热的办公室。" })], { stopReason: "toolUse" }),
 			look(),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "第二回合写完。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "第二回合也写完了，窗外的天色已经暗下来，走廊里没有别的声音，只有钟摆走动的滴答声响。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -165,6 +169,7 @@ test("look 预算随下一次玩家输入清零", async (t) => {
  * repeats counted separately (3 + 7 = 10) the budget would already be spent partway through the seven.
  */
 test("look 预算：反复查阅同一个仍在读的来源只算一次", async (t) => {
+	// SL-93：narrate 正文长度要过新下限（这条测试跟长度本身无关，查的是 pending 来源只占一格预算）。
 	const lookupSource = () => fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "the sealed trunk" })], { stopReason: "toolUse" });
 	const look = () => fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" });
 	const table = await openTable({
@@ -173,7 +178,7 @@ test("look 预算：反复查阅同一个仍在读的来源只算一次", async 
 			lookupSource(), lookupSource(), lookupSource(),
 			look(), look(), look(), look(), look(), look(), look(),
 			look(),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "写下去。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "你把刚才查到的线索仔细记在本子上，纸角已经被反复摩挲得卷了起来，字迹也有些模糊难辨。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -198,11 +203,12 @@ test("look 预算：反复查阅同一个仍在读的来源只算一次", async 
 });
 
 test("narrate 之后，同一批次余下的调用被拒", async (t) => {
+	// SL-93：narrate 正文长度要过新下限（这条测试跟长度本身无关，查的是同批次余下调用被拒）。
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage(
 				[
-					fauxToolCall("narrate", { text: "门在你身后合上。" }),
+					fauxToolCall("narrate", { text: "门在你身后合上，销栓落下的声响在寂静的走廊里回荡了很久，冷意顺着门缝钻了进来，让你打了个哆嗦。" }),
 					fauxToolCall("look", { focus: "scene" }),
 				],
 				{ stopReason: "toolUse" },
@@ -230,7 +236,7 @@ test("narrate 之后，同一批次余下的调用被拒", async (t) => {
 	}
 
 	assert.ok(
-		deliveryTexts(table.session).includes("门在你身后合上。"),
+		deliveryTexts(table.session).includes("门在你身后合上，销栓落下的声响在寂静的走廊里回荡了很久，冷意顺着门缝钻了进来，让你打了个哆嗦。"),
 		"交付就是守秘人的正文原样；随后的§78 notice是另一条可见消息（契约 §16.1）",
 	);
 	// 机制不进正文，只作为语言中立的投影进会话条目与总线（契约 §16.2）；
@@ -287,6 +293,7 @@ test("开桌回合：awaiting_player 拒写，但 narrate 放行", async (t) => 
 
 
 test("同名同参连发：被内核拒过两次之后第三次拦下，改了参数的照常放行", async (t) => {
+	// SL-93：收尾的 narrate 正文长度要过新下限（这条测试跟长度本身无关，查的是同类拒绝计数）。
 	const same = { action: { intent: "social", goal: "压价", method: "摊牌", motive: { direction: "oppose" } } };
 	const table = await openTable({
 		env: {
@@ -299,7 +306,7 @@ test("同名同参连发：被内核拒过两次之后第三次拦下，改了�
 			fauxAssistantMessage([fauxToolCall("resolve", same)], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("resolve", same)], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "social", goal: "压价", method: "摊牌" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "他没有松口。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "他没有松口，双手依旧撑在桌面上，眼睛盯着你没有挪开过，屋里的空气因此有些凝滞压抑。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("收尾"),
 		],
 	});
@@ -332,6 +339,7 @@ test("同名同参连发：被内核拒过两次之后第三次拦下，改了�
  * and could no longer roll. Three NPCs, no mechanics. One message is one attempt, whoever it names.
  */
 test("一条消息里的三次同类拒绝只算一次：模型没看见回答之前不算它撞墙", async (t) => {
+	// SL-93：收尾的 narrate 正文长度要过新下限（这条测试跟长度本身无关，查的是一条消息只算一次撞墙）。
 	const impression = (target) => fauxToolCall("resolve", { action: { intent: "social", goal: "初见印象", method: "打招呼、握手", target, decision: "natural-npc:first-impression" } });
 	const table = await openTable({
 		env: {
@@ -343,7 +351,7 @@ test("一条消息里的三次同类拒绝只算一次：模型没看见回答�
 			fauxAssistantMessage([impression("Augustus Larkin"), impression("Luis de Mendoza"), impression("Jackson Elias")], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "npc", name: "Augustus Larkin", to: "here", why: "他起身迎过来" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([impression("Augustus Larkin")], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "拉金绕过桌角。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "拉金绕过桌角，脚步声在木地板上格外清晰，朝你伸出了手，脸上带着一副十分职业的笑容。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("收尾"),
 		],
 	});
@@ -369,6 +377,7 @@ test("一条消息里的三次同类拒绝只算一次：模型没看见回答�
  * narrate and ask remain, and the block says so.
  */
 test("同类拒绝三次：第四次换了措辞也拦下，只剩 narrate 收回合", async (t) => {
+	// SL-93：收尾的 narrate 正文长度要过新下限（这条测试跟长度本身无关，查的是同类拒绝预算）。
 	const attempt = (goal) => fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "combat", goal, method: "挥拳", target: "Steven Knott" } })], { stopReason: "toolUse" });
 	const table = await openTable({
 		env: {
@@ -381,7 +390,7 @@ test("同类拒绝三次：第四次换了措辞也拦下，只剩 narrate 收�
 			attempt("越过写字台打他"),
 			attempt("趁他后退追上去打"),
 			attempt("再来一拳"),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "拳头停在半空。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "拳头停在半空，你能感觉到诺特的呼吸就在耳边，谁都没有先动，时间仿佛因此静止了一样。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("收尾"),
 		],
 	});
