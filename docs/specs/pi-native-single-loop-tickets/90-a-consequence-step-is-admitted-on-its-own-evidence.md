@@ -76,3 +76,4 @@ A step executed by the consequence route carries `basis.consequence {class, key,
     a worker session (no live model calls). `EXT_JEV_APIKEY`/live-Jev-backed variants of the extension-seam
     tests were not added -- the stub `DecisionPort` the existing `consequence-*`/`single-loop-*` suite already
     uses throughout was judged sufficient and consistent with house style.
+- Live (gate #22): 6 consequence steps admitted on their own evidence, 0 on the lane.

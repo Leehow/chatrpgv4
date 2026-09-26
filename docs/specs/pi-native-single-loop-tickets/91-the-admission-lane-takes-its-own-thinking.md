@@ -66,3 +66,4 @@ When a lane's model comes from its own env override (`envName`, e.g. `PI_COC_ADM
     driver script, not this worktree's code, and out of scope for a worker session with no live model
     calls; the next gate's own measurement (admission lane latency/timeouts on `grok-4.3` at `off`) is
     likewise for the live table.
+- Live (gate #22): admission lane xai/grok-4.3 off (`thinking_source: lane-operator`), p50 1.2 s / p90 2.1 s / max 2.4 s; 2 not_authorized of 25 (one reads as a false refusal: t6 vittorio-bible-weapon).

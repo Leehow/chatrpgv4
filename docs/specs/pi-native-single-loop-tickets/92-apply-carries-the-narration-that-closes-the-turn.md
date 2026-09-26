@@ -101,3 +101,4 @@ refusal handling, `state.deliveryToolCallId` correction); `runtime/jev/hybrid-en
 `tests/extension/apply-narrate-combined.test.mjs`.
 
 Status: ready-for-human.
+- Live (gate #22): used 18×, Keeper calls 1.75/turn, median 30 s, 20/20 ≤ 60 s; but two embedded narrates were placeholders delivered to the player (SL-93, P0).
