@@ -768,6 +768,18 @@
     },
     {
       "file": "extensions/kernel/index.ts",
+      "symbol": "purposeRepeats",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel ext: the Keeper's lines against a person's rows never carried out (139.24, NAF-25)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "n/a (added at NAF-25)",
+      "note": "Gate: PI_COC_PURPOSE_GATE != 0 (default on), a Jev key, a say token in the delivery and npc.threads naming someone with a row never carried out. One bounded batch (maxRetries 0, PI_COC_PURPOSE_GATE_TIMEOUT_MS) beside speech attribution before an implicit/explicit narrate reaches the kernel; the kernel refuses once a turn on what it names, never the host."
+    },
+    {
+      "file": "extensions/kernel/index.ts",
       "symbol": "resolveScenePerson.resolve",
       "kind": "jev-adapter",
       "callee": "createDecisionAdapter",
