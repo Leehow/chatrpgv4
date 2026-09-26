@@ -49,7 +49,8 @@ import { buildCandidates, buildConsequenceCandidates, keeperCall, NPC_REACTION_D
 import { compileRows } from './compile-rows.ts';
 import { interpretCompile, interpretReask, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput } from './route-compile.ts';
 import { CONSEQUENCE_FAMILY, consequenceBatch, interpretConsequenceResult, type ConsequenceExistsRow, type ConsequenceRow, type ConsequenceView } from './consequence-route.ts';
-import { jevStepsBudget } from './host-budgets.ts';
+import { firstStepThinkingBudget, jevStepsBudget } from './host-budgets.ts';
+import { firstStepCallCapMs, firstStepThinkingEnabled } from '../../extensions/kernel/first-step-thinking.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import { CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
@@ -448,8 +449,12 @@ interface RunState {
  * bridge and the operation gateway (both go onto the bus at session_start, after the driver was created).
  */
 export function createHybridEngine(options: HybridEngineOptions): {runDriver: SessionRunDriver; extension: (pi: any) => void; bridge: () => KernelBridge | undefined;
-  /** §135.29's SL-69 addendum: the per-call cap Pi's session should enforce on every Keeper provider call, and the callback told when it fires. */
-  keeperCallCapMs: number; onKeeperCallCap: (phase: 'first_byte' | 'streaming', capMs: number) => void} {
+  /** §135.29's SL-69 addendum: the per-call cap Pi's session should enforce on every Keeper provider call, and
+   * the callback told when it fires. §135.29 addendum 2 (SL-82): with `COC_FIRST_STEP_THINKING=1` this is a
+   * per-call function instead of a fixed number, so the turn's first call can size its own cap (vendored patch
+   * `0004` resolves either shape fresh per attempt); the flag off returns the plain ordinary number, exactly
+   * as before this addendum. */
+  keeperCallCapMs: number | (() => Promise<number>); onKeeperCallCap: (phase: 'first_byte' | 'streaming', capMs: number) => void} {
   let bridge: KernelBridge | undefined, gateway: OperationGateway | undefined, closer: TurnClosePort | undefined, api: any;
   let consultations: SourceAnswersPort | undefined;
   const now = options.now ?? (() => Date.now());
@@ -1100,8 +1105,23 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    * writes -- `onKeeperCallCap` below has no run/step of its own to go on otherwise, since it is told by the
    * session's own provider-call wrapper, outside any one run's own event stream. */
   let currentRunId: string | undefined;
+  /** §135.29 addendum 2 (SL-82): this engine's own turn-start counter -- the same reset/increment contract
+   * `extensions/kernel/first-step-thinking.ts`'s `isFirstStepOfTurn` documents for the kernel extension's own
+   * `table.roundTrips` (both react to the same Pi bus events, so they always agree), kept independently so
+   * this engine never reaches into the kernel extension's private state for it. Read by `keeperCallCapMs`
+   * below and recorded on every `keeper_call_cap` row so a cap firing says which call of the turn it was. */
+  let step = 0;
   const onKeeperCallCap = (phase: 'first_byte' | 'streaming', capMs: number) => {
-    record({lane: 'run', event: 'keeper_call_cap', run: currentRunId ?? null, phase, cap_ms: capMs});
+    record({lane: 'run', event: 'keeper_call_cap', run: currentRunId ?? null, step, phase, cap_ms: capMs});
+  };
+  /** §135.29 addendum 2 (SL-82): the turn's first call's own cap, resolved fresh per attempt (the data-file
+   * read is cached after the first, so this is cheap). Only ever installed when the flag is on -- see the
+   * `keeperCallCapMs` return below -- so the flag-off path never reaches it and stays the plain ordinary
+   * number SL-69 already shipped, byte for byte. */
+  const resolveKeeperCallCapMs = async (): Promise<number> => {
+    const ordinary = keeperCallCapMs(options.env);
+    const {callCapMs: allowance} = await firstStepThinkingBudget();
+    return firstStepCallCapMs(true, step, ordinary, allowance);
   };
 
   const runDriver: SessionRunDriver = {
@@ -1140,7 +1160,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       } catch { /* No tool surface yet. */ }
     };
     pi.on('session_start', async () => { announce(); withoutPlanTool(); });
-    pi.on('before_agent_start', async () => { withoutPlanTool(); });
+    // §135.29 addendum 2 (SL-82): `step`'s own reset/increment, exactly matching the kernel extension's
+    // `table.roundTrips` contract (extensions/kernel/first-step-thinking.ts's isFirstStepOfTurn) so the two
+    // independent counters always agree: 0 on new player input, +1 on every turn_start thereafter.
+    pi.on('before_agent_start', async () => { withoutPlanTool(); step = 0; });
+    pi.on('turn_start', async () => { step += 1; });
   };
-  return {runDriver, extension, bridge: () => bridge, keeperCallCapMs: keeperCallCapMs(options.env), onKeeperCallCap};
+  return {runDriver, extension, bridge: () => bridge,
+    keeperCallCapMs: firstStepThinkingEnabled(options.env) ? resolveKeeperCallCapMs : keeperCallCapMs(options.env),
+    onKeeperCallCap};
 }

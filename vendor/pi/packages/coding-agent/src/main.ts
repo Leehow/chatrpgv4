@@ -565,8 +565,9 @@ export interface MainOptions {
 	/** Drive the session's runs through the RunDriver (forwarded to the session factory). */
 	runDriver?: SessionRunDriver;
 	/** Contract §135.29's SL-69 addendum: the per-call total-duration cap (forwarded to the session
-	 * factory). 0 or absent disables it, exactly like `httpIdleTimeoutMs`'s own 0 convention. */
-	keeperCallCapMs?: number;
+	 * factory). 0 or absent disables it, exactly like `httpIdleTimeoutMs`'s own 0 convention. §135.29
+	 * addendum 2 (SL-82): also accepts a zero-argument function, resolved fresh before every attempt. */
+	keeperCallCapMs?: number | (() => number | Promise<number>);
 	/** Told once per attempt the cap above ends, with the phase it fired in; never told anything else. */
 	onKeeperCallCap?: (phase: "first_byte" | "streaming", capMs: number) => void;
 }

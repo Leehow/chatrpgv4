@@ -8,5 +8,8 @@
     "row_min": 0.5,
     "row_ratio": 2,
     "shadow": true
+  },
+  "first_step_thinking": {
+    "call_cap_ms": 60000
   }
 }

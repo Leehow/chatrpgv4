@@ -21125,6 +21125,76 @@ step (`run_end undelivered`, the §38.7 notice) without exhausting the session's
 including an explicit-floor override. `tests/extension/vendored-pi.test.mjs` pins the series (patch `0004`
 alongside `0001`–`0003`).
 
+#### 135.29 addendum 2 -- with SL-74's flag on, the turn's first Keeper call sizes its own cap (2026-09-26, SL-82; amends this section's SL-69 addendum)
+
+**Evidence.** Long gate #14 (`longgate14-haunting-0509`, `docs/specs/pi-native-single-loop-tickets/
+82-first-step-thinking-sizes-its-own-cap.md`): `deepseek-v4.1-flash` with thinking pays roughly 35 s a call
+(gate #9); the turn budget's own SL-69 cap on that table was `max(20 000, 45 000/2) = 22 500` ms. Every
+stranded turn (t9/10/12/13/17/18/19/20) shows the same shape: four `200` responses about 25 s apart, "Keeper
+call timed out: exceeded its per-call cap of 22500 ms (phase: streaming)" ×11, then "… a second time" ×35,
+then `ask_llm unavailable` → `model_unavailable:no_delivered_evidence`. Delivered turns were the ones whose
+thinking call happened to finish under the cap. Gate #15, same build, with
+`PI_COC_KEEPER_CALL_CAP_FLOOR_MS=60000`: no cap stops on turns 1–2, both delivered (75 s / 65 s). SL-69's cap
+is sized from the table's ordinary turn budget; §38.7.1's flag (SL-74) deliberately buys the turn's first call
+a slower, thinking-on model at the cost of every later call in the same turn running faster with thinking
+off. SL-69's addendum did not know about that trade when it set one cap for every call of a table: the flag
+was creating a cost it did not also budget for.
+
+**The ruling (owner, 2026-09-25, filed as this ticket).** The flag owns the cost it creates. With
+`COC_FIRST_STEP_THINKING=1`, the first Keeper provider call of a turn (§38.7.1's `isFirstStepOfTurn`, `step
+<= 1`) is capped at `max(the ordinary SL-69 cap, a thinking-call allowance)` -- a named default,
+`content/rulesets/coc7/host-budgets.json`'s `first_step_thinking.call_cap_ms`, read by the same loader
+SL-76's `jev_steps` uses (`runtime/jev/host-budgets.ts`), shipped at `60000` from the measured ≈35 s call
+with headroom to spare (the same margin gate #15's floor override already proved sufficient). Every call
+from the turn's second onward keeps the ordinary SL-69 cap unchanged: by the time that call goes out,
+§38.7.1 has already turned its thinking off, so it runs at the pace the ordinary cap was sized for. The flag
+off leaves every call's cap exactly as SL-69 computed it -- this addendum changes nothing about a table that
+does not set `COC_FIRST_STEP_THINKING=1`. If the flag ever becomes a setting rather than an experiment, the
+run's own time budget (§135.25) must add the same allowance for its first call, so the compose step is not
+squeezed by a budget that never knew about the extra time thinking spends.
+
+**The mechanism.** SL-69 handed the vendored session one fixed `keeperCallCapMs` number at construction
+(`runtime/pi-hybrid.ts` → `createAgentSession`, vendored patch `0004`). Which call of the turn is about to go
+out is known only once the RunDriver's session has emitted that call's `turn_start` -- information the
+vendored `streamFn` seam does not have and must not be taught, since the whole point of the vendored patch is
+to add one narrow capability (a per-call cap) without teaching Pi's own code about the product's turn
+structure. So `CreateAgentSessionOptions.keeperCallCapMs` accepts a plain number (unchanged) or a zero-argument
+function returning a number or a `Promise<number>`; `sdk.ts`'s `streamFn` resolves whichever shape it was
+given fresh on every attempt, immediately before composing `watchCallCap` around that attempt -- a plain
+number behaves exactly as before this addendum, byte for byte. `runtime/jev/hybrid-engine.ts` supplies the
+function form only when the flag is on: it keeps its own `turn_start`/`before_agent_start` counter (the same
+events and the same reset/increment contract as `extensions/kernel/first-step-thinking.ts`'s
+`isFirstStepOfTurn` documents for the kernel extension's own `table.roundTrips`, tracked independently so this
+engine never reaches into the kernel extension's private state for it), and on each resolution reads the data
+file's allowance and returns `firstStepCallCapMs(true, step, keeperCallCapMs(env), allowance)`
+(`extensions/kernel/first-step-thinking.ts`'s new pure decision function, the natural home for it beside
+`disableStepThinking`/`isFirstStepOfTurn` since it answers the same "which call of the turn is this" question
+for the same flag). With the flag off, `createHybridEngine` returns the plain ordinary number exactly as
+before this addendum -- the per-call function is never built, so a table running without
+`COC_FIRST_STEP_THINKING=1` takes the identical code path SL-69 already shipped. The `keeper_call_cap`
+telemetry row (`onKeeperCallCap` in `hybrid-engine.ts`) gains a `step` field on every row, flag or no flag,
+since the engine already knows it and it costs nothing to record: which call of the turn a cap fired on was
+previously only inferable from row order.
+
+**Three ends (§31).** *Writer:* `runtime/jev/hybrid-engine.ts` (the per-call cap function, the `step` on the
+telemetry row), `extensions/kernel/first-step-thinking.ts` (the pure decision), `content/rulesets/coc7/
+host-budgets.json` (the allowance). *Reader:* the vendored `streamFn` seam, which resolves whichever shape it
+was handed without knowing why. *Actor:* the Keeper, whose one thinking-on first call is no longer measured
+against a budget sized for a thinking-off one; the player, who no longer strands on a turn whose only fault
+was the flag's own cost never being budgeted.
+
+*Tests.* `tests/extension/first-step-thinking.test.mjs`: `firstStepCallCapMs` unit-covered at the flag on/off
+and step 1/2/3 boundary (mirroring `isFirstStepOfTurn`'s own boundary tests). A host-budgets test proves the
+allowance is read from `content/rulesets/coc7/host-budgets.json`, not a literal (mutating the fixture file
+changes the resolved cap), with the shipped file's own default recorded. `tests/extension/
+keeper-call-cap-first-step.test.mjs`: `createHybridEngine`'s own `turn_start`/`before_agent_start` counter
+driven directly against a stub extension host proves the exposed `keeperCallCapMs` is the plain ordinary
+number (not a function) when the flag is off, and a function resolving to the allowance on step 1 and the
+ordinary cap on step 2 when it is on; a real-socket integration test (the `keeper-call-cap-integration.test.
+mjs` harness) proves the vendored seam itself accepts and freshly resolves a function value, including one
+that changes its answer between attempts, and that the `keeper_call_cap` telemetry row it writes carries
+`step`.
+
 ### 135.30 Routing asks what the player does: one compile per run reads the declaration into typed features, and predicates select the clerk's candidates (2026-09-24, SL-13; amends §135.1, §135.6, §135.7, §135.26)
 
 SL-13 takes §135.30 (§135.11–§135.29 are taken; §-numbers are stable ids). It applies to `PI_COC_LOOP_ENGINE=hybrid-v1`
