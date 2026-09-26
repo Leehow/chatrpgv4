@@ -12,6 +12,8 @@ const DIAGNOSTIC_NAMES = [
 export const DIAGNOSTIC_LIMIT_BYTES = 256 * 1024;
 const STOP_GRACE_MS = 2_000;
 const STOP_KILL_MS = 2_000;
+// SL-87: a command's timeout is scheduled through `run(..., {timer})` when one is given; this is the default.
+const realTimer = (callback, milliseconds) => { const handle = setTimeout(callback, milliseconds); return () => clearTimeout(handle); };
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 const within = (root, path) => path === root || path.startsWith(root + sep);
 export const assemblyStagingRoots = repo => [
@@ -90,7 +92,9 @@ function stopError(pid) {
 
 // Leases last only until this command's group and pipes settle, not until the whole
 // build ends. Once ESRCH is observed the pgid is retired and is never signalled again.
-function ownChild(child, signal, release) {
+// SL-87: `windows` overrides the two stop windows (SIGTERM grace, SIGKILL confirmation); absent, 2 s each, as before.
+function ownChild(child, signal, release, windows = {}) {
+  const graceMs = windows.graceMs ?? STOP_GRACE_MS, killMs = windows.killMs ?? STOP_KILL_MS;
   let groupOwned = Boolean(child.pid), stopping, spawnError, rejectStop;
   const closed = new Promise(accept => child.once('close', (code, exitSignal) => accept({ code, signal: exitSignal })));
   const exited = new Promise(accept => {
@@ -131,9 +135,9 @@ function ownChild(child, signal, release) {
     if (stopping) return stopping;
     stopping = (async () => {
       send('SIGTERM');
-      if (await wait(STOP_GRACE_MS)) return;
+      if (await wait(graceMs)) return;
       send('SIGKILL');
-      if (!await wait(STOP_KILL_MS)) throw stopError(child.pid);
+      if (!await wait(killMs)) throw stopError(child.pid);
     })();
     stopping.catch(error => { stopping = undefined; rejectStop(error); });
     return stopping;
@@ -158,8 +162,8 @@ function ownChild(child, signal, release) {
 }
 
 export class AssemblyWorkspace {
-  constructor({ output, outputFd, work, evidence, signal }) {
-    Object.assign(this, { output, outputFd, work, evidence, signal });
+  constructor({ output, outputFd, work, evidence, signal, stopWindows }) {
+    Object.assign(this, { output, outputFd, work, evidence, signal, stopWindows });
     this.resource = join(work, 'resources');
     this.cache = join(work, 'archives');
     this.children = new Set();
@@ -173,15 +177,16 @@ export class AssemblyWorkspace {
   }
 
   trackChild(child) {
-    const lease = ownChild(child, this.signal, lease => this.children.delete(lease));
+    const lease = ownChild(child, this.signal, lease => this.children.delete(lease), this.stopWindows);
     this.children.add(lease);
     return lease;
   }
 
-  async run(command, args, { cwd, env, log, timeout = 600_000 } = {}) {
+  /** `timer` (SL-87) schedules the timeout and returns its cancel; absent, `setTimeout`, as before. */
+  async run(command, args, { cwd, env, log, timeout = 600_000, timer = realTimer } = {}) {
     this.assertActive();
     let logFd = log ? openSync(log, 'w', 0o600) : undefined;
-    let lease, timer, timedOut = false, logError, collecting = true;
+    let lease, cancelTimer, timedOut = false, logError, collecting = true;
     const chunks = [], errors = [];
     try {
       const child = spawn(command, args, { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -195,7 +200,7 @@ export class AssemblyWorkspace {
       };
       child.stdout.on('data', collect(chunks));
       child.stderr.on('data', collect(errors));
-      timer = setTimeout(() => { timedOut = true; void lease.stop(); }, timeout);
+      cancelTimer = timer(() => { timedOut = true; void lease.stop(); }, timeout);
       const { code, signal } = await lease.settled;
       this.signal?.throwIfAborted();
       if (logError) throw logError;
@@ -207,7 +212,7 @@ export class AssemblyWorkspace {
       // buffering and log writes before the descriptor can be reused by a caller.
       collecting = false;
       chunks.length = errors.length = 0;
-      clearTimeout(timer);
+      cancelTimer?.();
       const fd = logFd;
       logFd = undefined;
       if (fd !== undefined) closeSync(fd);
@@ -280,7 +285,8 @@ export class AssemblyWorkspace {
   }
 }
 
-export async function createAssemblyWorkspace({ repo, output, signal } = {}) {
+/** `stopWindows` (SL-87): `{graceMs, killMs}` for every child's stop windows; absent, 2 s each, as before. */
+export async function createAssemblyWorkspace({ repo, output, signal, stopWindows } = {}) {
   if (typeof repo !== 'string' || !repo) throw new Error('Assembly workspace requires a repository path');
   if (typeof output !== 'string' || !output) throw new Error('Assembly workspace requires an output path');
   repo = await realpath(resolve(repo));
@@ -307,7 +313,7 @@ export async function createAssemblyWorkspace({ repo, output, signal } = {}) {
     outputFd = openSync(output, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     work = await mkdtemp(join(outputParent, '.package-runtime-'));
     evidence = await mkdtemp(join(diagnosticsParent, 'assembly-'));
-    workspace = new AssemblyWorkspace({ output, outputFd, work, evidence, signal });
+    workspace = new AssemblyWorkspace({ output, outputFd, work, evidence, signal, stopWindows });
     await mkdir(workspace.resource);
     await mkdir(workspace.cache);
     return workspace;
