@@ -101,7 +101,8 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
         assert logged[f"delta:armor-t1-c{n + 1}"]["resource"] == "armor"
         assert defend["session"]["turn_of"] == CORBITT and defend["session"]["pending_defense"] is None
         assert defend["pending_choice"] is None
-        assert [a["decision"] for a in defend["session"]["actions"]] == ["combat:attack", "combat:maneuver", "combat:end"]
+        # §138.10: an NPC's own turn issues flee too.
+        assert [a["decision"] for a in defend["session"]["actions"]] == ["combat:attack", "combat:maneuver", "combat:flee", "combat:end"]
         events = read_jsonl(campaign_dir(client.workspace) / "events.jsonl")
         settled = [e for e in events if e["type"] == "decision-settled"][-1]
         assert settled["data"]["session_kind"] == "combat" and settled["data"]["session_status"] == "active"
