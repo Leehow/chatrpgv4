@@ -104,6 +104,36 @@ export function actor(party: Row[], name?: any): Row {
             }))
         } });
 }
+/**
+ * SL-71 (§11.5.9): `actor()` widened with this table's known people -- an authored NPC, an
+ * established table/`from_passage` person, anything `graph.candidates` ranks -- alongside the
+ * investigators it already lists. `actor()` itself stays investigator-only (several unrelated callers
+ * -- `table.look focus=investigator`, staging, jobs, documents -- mean exactly that); this is for a
+ * caller that means "someone this table knows", so its refusal names both kinds of candidate instead of
+ * narrowing to a roster with a gap in it.
+ */
+export function actorKnown(party: Row[], name: any, graph: { candidates(name: string, kinds?: string[], limit?: number): Row[] }): Row {
+    try {
+        return actor(party, name);
+    }
+    catch (error) {
+        throw enrichActorRefusal(error, name, graph);
+    }
+}
+/** The same widening as `actorKnown`, for a caller that already has its own `unknown_entity` in hand. */
+export function enrichActorRefusal(error: unknown, name: any, graph: { candidates(name: string, kinds?: string[], limit?: number): Row[] }): unknown {
+    if (error instanceof RpcError && error.code === "unknown_entity" && typeof name === "string") {
+        const known = graph.candidates(name, ["npc"], 6);
+        return new RpcError("unknown_entity", error.message, {
+            fix: error.fix,
+            details: {
+                query: name,
+                candidates: [...array((error.details as Row | undefined)?.candidates), ...known]
+            }
+        });
+    }
+    return error;
+}
 export function tableSnapshot(campaign: CampaignSnapshot, graph: ModuleGraph): Row {
     const scene = graph.scene(campaign.world.active_scene),
         view = new SessionView(campaign, graph, campaign.party, campaign.world),

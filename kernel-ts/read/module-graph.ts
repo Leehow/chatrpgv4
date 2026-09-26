@@ -148,6 +148,47 @@ const phraseWithin = (phrase: string[], key: string[]): boolean => {
         closes = phrase.every((word, i) => key[key.length - phrase.length + i] === word);
     return opens || closes;
 };
+/**
+ * SL-73 (§11.5.7 addendum, gate #12): `resolve()`'s own `unknown_entity` (`no ${what} named … in the
+ * module graph`, `fix: "pick a name from details.candidates or look first"`) is a real answer when
+ * `details.candidates` has entries, and a dead end when it does not -- "pick from an empty list" is not
+ * a fix. This is that error, re-shaped for a caller resolving a *person* (an npc effect, a check's actor
+ * or target): when the ranked candidates are empty, it says what the query actually is when the kernel
+ * can tell, instead of repeating advice with nothing to act on.
+ *
+ * No hard-coded name or kind list: `is_investigator` comes from a match against the party the caller
+ * hands in (the campaign's own sheets), and `matched_kind` from the graph's own `node_kind` on whatever
+ * `graph.candidates` turns up as an exact name match once the person-only search has already failed --
+ * both closed, structural facts the kernel already has, never a semantic guess about the name's text.
+ */
+export function personRefusal(error: unknown, name: string, graph: ModuleGraph, party: readonly Row[]): unknown {
+    if (!(error instanceof RpcError) || error.code !== "unknown_entity" || typeof name !== "string")
+        return error;
+    if (array((error.details as Row | undefined)?.candidates).length)
+        return error; // today's answer already has something to act on.
+    const key = normalize(name);
+    const investigator = party.find(sheet => [normalize(string(sheet.id)), normalize(string(sheet.name))].includes(key));
+    if (investigator)
+        return new RpcError("unknown_entity", error.message, {
+            fix: `${repr(name)} is the investigator at this table (${repr(string(investigator.name || investigator.id))}), not an npc; write the investigator's own sheet or effect instead of an npc one`,
+            details: { query: name, is_investigator: true }
+        });
+    // `graph.find` (unrestricted kinds) throws -- and is swallowed to null -- on the common case of a
+    // scene sharing its exact name with the graph's own paired "beat" bookkeeping node; `candidates`
+    // ranks instead of resolving, so it survives that and everything else `resolve` would call
+    // ambiguous. A "beat" is the graph's own internal pacing record, never a thing an effect names, so
+    // it is skipped here the same way `graph.actor` already looks past a scene to find an npc.
+    const other = graph.candidates(name, undefined, 6).find(candidate => string(candidate.kind) !== "beat" && normalize(string(candidate.name)) === key);
+    if (other)
+        return new RpcError("unknown_entity", error.message, {
+            fix: `${repr(name)} is a ${other.kind} in the module graph, not a person; use the effect or lookup for a ${other.kind} instead of an npc one`,
+            details: { query: name, matched_kind: other.kind }
+        });
+    return new RpcError("unknown_entity", error.message, {
+        fix: `${repr(name)} is not in the module graph or this table's roster; establish them first (an npc effect with why, or the carried text's own person) or look npc to check the name before trying again`,
+        details: { query: name }
+    });
+}
 export class ModuleGraph {
     /** Source queue/asset routing only; never authored graph data. */
     sourceCampaign?: string;
