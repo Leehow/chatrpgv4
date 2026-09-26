@@ -19,7 +19,8 @@ export type TranscriptTool = {
 
 export type TranscriptActivity =
   | { type: 'thinking'; id: string; contentIndex: number; segment?: number; content: string; charCount?: number }
-  | { type: 'text'; id: string; contentIndex: number; segment?: number; content: string }
+  /** `final`: the host's `message_end` answer (`replace`) for this message's text (§135.11.6). */
+  | { type: 'text'; id: string; contentIndex: number; segment?: number; content: string; final?: boolean }
   | { type: 'tool'; contentIndex: number; segment?: number; tool: TranscriptTool }
 
 /** Placeholder thinking activity opened after the last in-flight tool finishes.
@@ -179,6 +180,41 @@ export function planAssistantTranscript(message: Pick<ChatMessage, 'content' | '
     segments.push({ type: 'text', id: 'content', content: message.content })
   }
   return segments
+}
+
+const NO_TEXT_IDS: ReadonlySet<string> = new Set()
+
+/**
+ * §135.11.6: the text segments of an assistant row whose message has not ended yet, by the id
+ * `planAssistantTranscript` gives them.
+ *
+ * The host streams each message's text as it is written and decides at that message's `message_end`
+ * whether it stays; until then it is the Keeper's working. A message's text has ended when any of
+ * three things the stream carries says so, and nothing about the words is read:
+ * - the row is no longer streaming (the turn settled, stopped or failed, or it came from history);
+ * - the host answered its `message_end` with a replacement (`final`), which is also how a removed
+ *   draft leaves (a replacement with no text removes the segment altogether);
+ * - a later message of the same row has begun: its activities carry a higher `segment`, and the host
+ *   advances the segment only at a `message_end`.
+ * A `message_end` that changed nothing sends nothing, so such a text ends at whichever of the other
+ * two comes first. Text with no segment (a row built without the stream) ends with the row.
+ */
+export function unsettledTextIds(message: Pick<ChatMessage, 'streaming' | 'content' | 'thinking' | 'tools' | 'activities'>): ReadonlySet<string> {
+  if (!message.streaming) return NO_TEXT_IDS
+  const activities = activitiesFromMessage(message)
+  const texts = activities.filter((activity): activity is Extract<TranscriptActivity, { type: 'text' }> => activity.type === 'text')
+  if (!texts.length) return message.content ? new Set(['content']) : NO_TEXT_IDS
+  let latest: number | undefined
+  for (const activity of activities) {
+    if (typeof activity.segment === 'number' && (latest === undefined || activity.segment > latest)) latest = activity.segment
+  }
+  const ids = new Set<string>()
+  for (const text of texts) {
+    if (!text.content || text.final) continue
+    if (typeof text.segment === 'number' && latest !== undefined && latest > text.segment) continue
+    ids.add(text.id)
+  }
+  return ids
 }
 
 /**
@@ -650,9 +686,21 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
   const matchingToolAssistantIndex = eventToolId
     ? previous.findLastIndex(item => item.role === 'assistant' && item.tools?.some(tool => tool.id === eventToolId))
     : -1
+  // §135.11.6: the host's `message_end` answer for a message's text (`replace`) belongs to the
+  // streaming row that holds that message's segment, not to whatever row is last. An implicit
+  // narrate's `coc-mechanics` card is appended inside that same `message_end` hook, before the
+  // answer arrives, so the last assistant row is then the card: the rewrite landed on the card and
+  // the streamed draft stayed where it was.
+  const replacedSegment = event.type === 'text' && event.replace === true ? event.segment ?? 0 : undefined
+  const matchingSegmentAssistantIndex = replacedSegment === undefined ? -1
+    : previous.findLastIndex(item => item.role === 'assistant' && item.streaming === true && !item.presentation
+      && Boolean(item.activities?.some(activity => activity.type === 'text' && activity.segment === replacedSegment)))
   const lastAssistantIndex = previous.findLastIndex(item => item.role === 'assistant')
-  const index = matchingToolAssistantIndex >= 0 ? matchingToolAssistantIndex : lastAssistantIndex
+  const index = matchingToolAssistantIndex >= 0 ? matchingToolAssistantIndex
+    : matchingSegmentAssistantIndex >= 0 ? matchingSegmentAssistantIndex
+      : lastAssistantIndex
   const mayCrossUserBoundary = matchingToolAssistantIndex >= 0
+    || matchingSegmentAssistantIndex >= 0
     || event.type === 'citations'
     || event.type === 'input_file_sources'
     || event.type === 'server_side_usage'
@@ -696,7 +744,7 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     for (let i = target.length - 1; i >= 0; i--) {
       if (target[i].type === 'text' && target[i].segment === segment) target.splice(i, 1)
     }
-    if (event.delta) target.splice(first < 0 ? target.length : first, 0, {type:'text',id:`text:${segment}:${event.contentIndex}`,contentIndex:event.contentIndex,segment,content:event.delta})
+    if (event.delta) target.splice(first < 0 ? target.length : first, 0, {type:'text',id:`text:${segment}:${event.contentIndex}`,contentIndex:event.contentIndex,segment,content:event.delta,final:true})
     updated.content = target.filter(activity => activity.type === 'text').map(activity => activity.content).join('')
     changed = true
   } else if (event.type === 'text') {
