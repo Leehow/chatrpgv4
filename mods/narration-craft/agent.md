@@ -36,4 +36,4 @@ The first turn orients before it evokes: where and when this is, who the investi
 
 ## Settings
 
-`coarse_language` on: profanity where the person and the moment call for it, never as a requirement; off: the same register without it. `density_guide` on: expect about 300–600 characters for a routine or CHARACTER turn, 400–750 for a costly result, 500–900 for a REVEAL or CUT, 700–1500 for a PAYOFF or an ending; an expectation for the hand, never a rule, and a strong turn may be shorter.
+`coarse_language` on: a person whose voice swears (their mask, their description in the book) swears when crossed, pushed or mocked, in their own words, and a rough one tells an outrageous asker to get lost in so many words; nobody else swears; off: the same edge without the words. `density_guide` on: expect about 300–600 characters for a routine or CHARACTER turn, 400–750 for a costly result, 500–900 for a REVEAL or CUT, 700–1500 for a PAYOFF or an ending; an expectation for the hand, never a rule, and a strong turn may be shorter.
