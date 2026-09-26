@@ -45,7 +45,7 @@ TaskRuntime, S0, `keeper-support`, `map-words`, `workspace-rerank` or reading ro
 
 ## 2. Counts
 
-127 call sites under 121 inventory keys (at SL-00; SL-01 adds one app-play-gated leaf, `runtime/jev/hybrid-engine.ts` `createDecisionAdapter`, listed below; NAF-02 adds one no-caller leaf, `runtime/jev/npc-act.ts` `runLane`, listed below).
+127 call sites under 121 inventory keys (at SL-00; SL-01 adds one app-play-gated leaf, `runtime/jev/hybrid-engine.ts` `createDecisionAdapter`, listed below; NAF-02 adds one leaf, `runtime/jev/npc-act.ts` `runLane`, listed below -- no caller until NAF-03 wired the loop's `npc_act` step, app-play-gated since; NAF-05 retired the NPC advice, so `extensions/npc/index.ts` `createDecisionAdapter` is gone from this list, and NAF-03 removed its stale row).
 
 | role \ path | app-play | app-play-gated | child-process | app-setup | app-ui | settings-ui | source-only | no-caller | host-infra | total |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -249,7 +249,7 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 
 | file | symbol | line(s) | call | owner | path | trace | note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `runtime/jev/npc-act.ts` | `createNpcActLane.generate` | – | `runLane` | npc-act lane: the NPC's act, generated before it is bound (contract 139.2) | no-caller | n/a (added at NAF-02) | One zero-tool completion per NPC act, fast model (`PI_COC_NPC_ACT_MODEL`); a structurally bad answer is asked once more, one deadline (`npc_act.timeout_ms`) for both. No caller until NAF-03 wires the loop's `npc_act` step; reclassify then. |
+| `runtime/jev/npc-act.ts` | `createNpcActLane.generate` | – | `runLane` | npc-act lane: the NPC's act, generated before it is bound (contract 139.2) | app-play-gated | n/a (added at NAF-02; caller wired at NAF-03) | Gate: `PI_COC_LOOP_ENGINE=hybrid-v1` (play). Called by the single loop's `npc_act` step (`runtime/jev/npc-act-step.ts` `runNpcAct`, through the hybrid engine's `npcActStep`): on an NPC's own turn of a fight, and outside one for the people present a clerk-carried declaration acted on (at most `npc_act.max_per_turn` a turn), plus at most one re-ask when the act repeats a row with no result (contract 139.3–139.5). One zero-tool completion per act, fast model (`PI_COC_NPC_ACT_MODEL`); a structurally bad answer is asked once more, one deadline (`npc_act.timeout_ms`) for both. |
 
 #### Infrastructure (no model) — app-play (16 sites)
 

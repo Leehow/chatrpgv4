@@ -288,6 +288,11 @@ export async function openTable({
 		// unavailable, so every table here gets a provider of its own that admits by default;
 		// a test about admission scripts its verdicts through `table.lanes.admission`.
 		PI_COC_ADMISSION_MODEL: "admission/a1",
+		// The NPC act generation (contract §139.2) runs on the hybrid engine for a person's own turn of a fight and for the
+		// people a declaration acts on (§139.4). It gets a provider of its own whose unscripted answer is not an act, so a
+		// table whose subject is something else sees `bad_output` (the turn goes on to the Keeper) and never takes the
+		// Keeper's scripted replies; a test about the act scripts it through `table.lanes.npcAct` or a fixture port.
+		PI_COC_NPC_ACT_MODEL: "npcact/n1",
 		...env,
 	});
 
@@ -306,6 +311,11 @@ export async function openTable({
 	if (laneResponses.memory) memoryFaux.setResponses(laneResponses.memory);
 	if (laneResponses.verifier) verifierFaux.setResponses(laneResponses.verifier);
 	if (laneResponses.admission) admissionFaux.setResponses(laneResponses.admission);
+	const npcActFaux = withDefaultResponse(
+		withProviderCallbacks(fauxProvider({ api: "openai-completions", provider: "npcact", models: [{ id: "n1" }] })),
+		() => fauxAssistantMessage("no act scripted for this table"),
+	);
+	if (laneResponses.npcAct) npcActFaux.setResponses(laneResponses.npcAct);
 	const modelRuntime = await ModelRuntime.create({
 		authPath: join(workspace, "auth.json"),
 		modelsPath: null,
@@ -316,6 +326,7 @@ export async function openTable({
 	modelRuntime.registerNativeProvider(verifierFaux.provider);
 	modelRuntime.registerNativeProvider(memoryFaux.provider);
 	modelRuntime.registerNativeProvider(admissionFaux.provider);
+	modelRuntime.registerNativeProvider(npcActFaux.provider);
 	const model = faux.getModel();
 
 	let api;
@@ -411,7 +422,7 @@ export async function openTable({
 		 * 三条车道的假模型：各自 setResponses，跟守秘人的队列互不干扰。准入车道（契约 §32）
 		 * 脚本用完后回落到「authorized」，`lanes.admission.requests()` 是它收到的每一份输入原文。
 		 */
-		lanes: { verifier: verifierFaux, memory: memoryFaux, admission: admissionFaux },
+		lanes: { verifier: verifierFaux, memory: memoryFaux, admission: admissionFaux, npcAct: npcActFaux },
 		ui,
 		/** 扩展加载与事件里出的错，测试里当断言用。 */
 		extensionErrors,

@@ -89,7 +89,19 @@ function routeWith(view, exit, now = []) {
 	const needs = Object.fromEntries(offered.map((candidate, index) => [`need_${index + 1}`, now.includes(candidate.key) ? ["now", 0.9] : ["later", 0.9]]));
 	return settleRoute(view, startStep(view, request), batch, offered, answer({ ...needs, exit }), 5, 0.6);
 }
-const head = (view) => { const request = next(view); return [request.kind, request.purpose, request.reason]; };
+/**
+ * The next request after the people the settled declaration acted on had their act (§139.4: a landed clerk step owes one
+ * `npc_act` scan before the model step; it is run through the policy's own transitions here, as the driver would).
+ */
+const pastScan = (view) => {
+	let request = next(view);
+	if (request.kind === "direct" && request.item.scan) {
+		settleExecute(view, startStep(view, request), request.item, { ok: true, summary: { origin: "policy", clerk: "npc_act" } }, undefined, 0);
+		request = next(view);
+	}
+	return request;
+};
+const head = (view) => { const request = pastScan(view); return [request.kind, request.purpose, request.reason]; };
 
 test("§135.11 SL-20: after the declaration's own step succeeded, gate #6's unclear exit is the compose, reason settled", () => {
 	const view = afterClerk();
@@ -132,7 +144,7 @@ test("§135.11 SL-20: continue or ask_llm that clears the gates on its own still
 test("§135.11 SL-20: the lean ends at the run's next model step -- once the Keeper is asked it carries the run, and a later unclear exit is its as before", () => {
 	const view = afterClerk();
 	routeWith(view, ["ask_llm", 0.93, { ask_llm: 0.93, continue: 0.04, finish: 0.03 }]);
-	const adjudicate = next(view);
+	const adjudicate = pastScan(view);
 	assert.deepEqual([adjudicate.kind, adjudicate.purpose, adjudicate.reason], ["infer", "adjudicate", "ask_llm"]);
 	settleInfer(view, startStep(view, adjudicate), adjudicate, { items: [], detail: { proposals: ["resolve"] } }, 0, 0);
 	assert.deepEqual(view.settled, [], "the Keeper was asked: the settlement no longer leans");
@@ -185,8 +197,9 @@ test("§135.11 SL-20 on the driver: a forced session step issued after the settl
 		async closeTurn() { return { continueRequested: false }; },
 	};
 	await runDriver({ input: { runId: "r1", inputRevision: "rev", rawInput: INPUT, scopeId: "root" }, policy, ports, engine, emit: () => {}, signal: new AbortController().signal, maxSteps: 30 });
-	assert.deepEqual(log, ["read", "decide:compile", "decide:bind", "clerk:resolve:obligation:access", "clerk:resolve:combat:defend:arty", "decide:route", "infer:compose", "turn_close"],
-		"the forced defence runs after the settlement and before the route and the compose");
+	// §139.4: before the compose, the people the settled declaration acted on act (the `npc_act` scan, after the route).
+	assert.deepEqual(log, ["read", "decide:compile", "decide:bind", "clerk:resolve:obligation:access", "clerk:resolve:combat:defend:arty", "decide:route",
+		"clerk:npc_act:scan:1", "infer:compose", "turn_close"], "the forced defence runs after the settlement and before the route and the compose");
 	const infer = events.find((event) => event.type === "step_end" && event.kind === "infer");
 	assert.equal(infer.reason, "settled");
 });

@@ -23,6 +23,7 @@ import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts'
 import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
 import {answerOf, clears} from './decision-gate.ts';
+import {npcScanCandidate} from './npc-act-step.ts';
 import {askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, interpretReask, ORDINARY_CHECK,
   reachable, REASK_FAMILY, reaskBatch, reaskOf, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput} from './route-compile.ts';
 
@@ -89,10 +90,13 @@ export interface CandidateVariant {label: string; bound: Record<string, Json>; u
  *   `npc_reaction`, `clue_follow_up`, `time_cost` (`runtime/jev/consequence-candidates.ts`) -- routed by Jev in
  *   shadow (`COC_JEV_STEPS=shadow`, the default) and never executed there; `on` (SL-78) runs a cleared one through
  *   the same gateway as any other clerk candidate.
+ * - `npc_act` (§139.3/§139.4; docs/specs/npc-acts-first.md): a person's own act, generated from their situation and
+ *   bound to a way the kernel settles it (`runtime/jev/npc-act-step.ts`) -- on their turn of a fight (forced), and outside
+ *   one for the people present the declaration acted on, after the clerk carried it out and before the Keeper's step.
  * Fetching data (d) is the read step itself, not a candidate. Everything else is the Keeper's.
  */
 export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step', 'disposition_inference', 'stated_obligation', 'first_blow',
-  'consequence_bookkeeping'] as const;
+  'consequence_bookkeeping', 'npc_act'] as const;
 export type ClerkAuthority = typeof CLERK_AUTHORITY[number];
 /** A host-issued step candidate (design §5.1): what the host can perform now, and what it still needs. */
 export interface Candidate {
@@ -174,6 +178,8 @@ export interface PendingItem {
   call?: {method: string; params: Record<string, Json>; label: string};
   /** §135.28: how each parameter the bind step settled got its value (`jev` or `rule-default`), carried to the clerk's row. */
   bindings?: BindRecord[];
+  /** §139.4: the step `next` puts before a model step when people were acted on; never in `pending` (see `npcScanDue`). */
+  scan?: true;
 }
 export interface Observation {
   step: number;
@@ -248,6 +254,14 @@ export interface RunView {
   reasked?: boolean;
   /** §135.30.9.2: the clues the re-ask filed, staged after the last settling step (`after`), with their compile record. */
   settledClues?: StagedClue[];
+  /**
+   * §139.4: the declaration's clerk steps the kernel took this run (not forced, not a person's own act), and those an
+   * `npc_act` scan already followed. A landed step not yet followed owes one scan before the next model step.
+   */
+  landed?: string[];
+  npcScanned?: string[];
+  /** §139.4: the people the run's compiles read the declaration as aimed at (§135.30's cleared `addressee` rows). */
+  addressees?: string[];
 }
 export interface StagedClue {after: string; key: string; compile: Json}
 export interface StagedUnlock {after: string; to: string; compile: Json; guarded: GuardedDestination}
@@ -274,7 +288,9 @@ export const overRun = (budget: Budget): boolean => budget.runMs >= budget.maxRu
  * it is structure, needs no model, and runs directly; the check it hands on to is judged against the budget as usual.
  */
 const forcedWithoutModel = (item: PendingItem | undefined): boolean =>
-  (item?.candidate?.forced === true || (item?.kind === 'direct' && !!item.candidate?.then)) && item.kind !== 'infer';
+  (item?.candidate?.forced === true || (item?.kind === 'direct' && !!item.candidate?.then)) && item.kind !== 'infer'
+  // §139.4: a person's own act needs the generation (a model): past the budget it is skipped (`skipped_budget`), not run.
+  && item.candidate?.clerk !== 'npc_act';
 /** The clerk steps the budget leaves unexecuted: every pending item carrying a host candidate, once per candidate. */
 export function deferredByBudget(view: Pick<RunView, 'pending'>): DeferredStep[] {
   const out: DeferredStep[] = [];
@@ -291,8 +307,30 @@ export function routeDigest(view: Pick<RunView, 'rawInput' | 'candidates' | 'mat
   return digest([view.rawInput, view.candidates.map(value => value.key), view.materials.map(value => value.key), view.context.receipts]);
 }
 
-/** The policy. Pure: it reads the view and returns one step request. */
+/**
+ * §139.4: people present were acted on by the declaration the clerk carried out (a landed step no scan followed yet), so
+ * before the run's next model step they act (`npc_act` scan). Past the run's time budget it is not run (the engine
+ * records `skipped_budget`).
+ */
+export function npcScanDue(view: Pick<RunView, 'landed' | 'npcScanned'>): boolean {
+  return (view.landed ?? []).some(key => !(view.npcScanned ?? []).includes(key));
+}
+/** The scan step `next` issues when one is due: a clerk candidate of its own, never taken from `pending`. */
+export function npcScanItem(view: Pick<RunView, 'landed' | 'addressees'>): PendingItem {
+  const landed = view.landed ?? [];
+  return {kind: 'direct', purpose: 'execute', scan: true, candidate: npcScanCandidate(landed.length, landed, view.addressees ?? [])};
+}
+
+/**
+ * The policy. Pure: it reads the view and returns one step request. §139.4: a model step the declaration's landed clerk
+ * steps precede is preceded by the people it acted on acting (`npcScanDue`), within the run's time budget.
+ */
 export function next(view: RunView): StepRequest {
+  const request = routeNext(view);
+  if (request.kind === 'infer' && npcScanDue(view) && !overRun(view.budget)) return {kind: 'direct', item: npcScanItem(view)};
+  return request;
+}
+function routeNext(view: RunView): StepRequest {
   if (view.stopped) return {kind: 'finish', reason: view.stopped.reason};
   const last = view.observations.at(-1), head = view.pending[0];
   // Guard 2: an LLM result is followed by direct execution or completion, never a Jev re-review.
@@ -615,6 +653,8 @@ const observe = (view: RunView, value: Omit<Observation, 'step'>) => view.observ
 /** Count the step and take what it consumes off the view. Returns the step number. */
 export function startStep(view: RunView, request: Exclude<StepRequest, {kind: 'finish'}>): number {
   view.budget.steps++;
+  // §139.4: the scan is issued by `next`, never taken from `pending`: nothing is shifted for it.
+  if (request.kind === 'direct' && request.item.scan) return view.budget.steps;
   if (request.kind === 'decide' && request.purpose === 'route') view.asked.push(request.digest);
   else if (request.kind === 'decide' && request.purpose === 'compile')
     view.compiledOver = [...new Set([...(view.compiledOver ?? []), ...reachable(view.candidates, view.rows).map(candidate => candidate.key)])];
@@ -678,6 +718,10 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
     guarded: {to: entry.to, place: entry.place, guard: entry.guard}}))];
   const declared = [...keys, ...unlocked.map(entry => `apply:move:${entry.to}`)];
   if (declared.length) view.compileSelected = [...new Set([...(view.compileSelected ?? []), ...declared])];
+  // §139.4: the person the declaration is aimed at counts as acted on when the clerk carries it out.
+  const addressee = outcome.features?.addressee;
+  if (addressee?.cleared && typeof addressee.row === 'string' && addressee.row && !(view.addressees ?? []).includes(addressee.row))
+    view.addressees = [...(view.addressees ?? []), addressee.row];
   // §135.30.8 (SL-43): the act an obligation check fired on is settled for the rest of the run.
   settleActs(view, outcome.actsSettled ?? []);
   // §135.30.9.2 (SL-52 stage 2): a compile that settles a step of the book re-asks the scene's clue rows once, before the batch.
@@ -984,8 +1028,17 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     if (executed.ok) for (const key of [...consumedByEffects(item.call.params.effects as Row[] | undefined), ...consumedByClaim(item.call.params.action as Row | undefined),
       ...consumedByResolve(item.call.method)])
       if (!view.consumed.includes(key)) view.consumed.push(key);
+  } else if (item.scan) {
+    // §139.4: the scan followed every step that had landed; the acts it ran are the people's own, never a refusal of the
+    // declaration, so nothing is handed to the Keeper for it.
+    view.consumed.push(item.candidate!.key);
+    view.npcScanned = [...(view.landed ?? [])];
   } else {
     view.consumed.push(item.candidate!.key);
+    // §139.4: a step of the declaration the kernel took (not a forced one, not a person's own act) owes the people it acted
+    // on their act before the next model step.
+    if (executed.ok && !item.candidate!.forced && item.candidate!.clerk !== 'npc_act' && !(view.landed ?? []).includes(item.candidate!.key))
+      view.landed = [...(view.landed ?? []), item.candidate!.key];
     // §135.30.8 (SL-43): the act an obligation check was executed with is settled for the run, taken or refused.
     const act = obligationAct(item);
     if (act) settleActs(view, [act]);

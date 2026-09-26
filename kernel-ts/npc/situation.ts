@@ -154,7 +154,7 @@ export function happenedSentences(me: Person, world: Row, party: Row[], turn: Ro
 }
 
 /** The person's ledger entry as it folds now: the committed ledger with an open turn's receipts folded onto a copy. */
-function entryNow(graph: ModuleGraph, ledger: Row, table: Row, turn: Row, node: Row): Row {
+export function entryNow(graph: ModuleGraph, ledger: Row, table: Row, turn: Row, node: Row): Row {
     const entry = row(ledger[node.node_id]);
     if (!OPEN_STATES.includes(string(turn.state)) || !array(turn.receipts).length) return entry;
     const scratch: Row = Object.keys(entry).length ? {[node.node_id]: {...emptyLedgerEntry(), ...clone(entry)}} : {};

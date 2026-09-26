@@ -17,6 +17,8 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { createRealCampaign, openTable } from "./harness.mjs";
+import { createFixtureNpcActPort } from "../../runtime/jev/npc-act.ts";
+import { NPC_ACT_BIND_FAMILY } from "../../runtime/jev/npc-act-step.ts";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { CARD_FIELD_ORDER, CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, CARRIED_VIEWS_HEAD, carriedSection, fitView, namedPeople, PRESENT_FIELDS, readCarriedViews } from "../../runtime/jev/carried-views.ts";
@@ -60,9 +62,10 @@ const knottFight = (extra = []) => (workspace) => kernelSteps(workspace, [
 	["table.narrate", { call_id: `t1-c${3 + extra.length}`, text: "你挥出一拳。" }],
 ]);
 
-async function hybridTable({ decide, responses, prepareWorkspace }) {
+async function hybridTable({ decide, responses, prepareWorkspace, npcAct }) {
 	const decisions = [], events = [], requests = [];
-	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch, lease) => { decisions.push(batch); return decide(batch, decisions.length, lease); } } });
+	const engine = createHybridEngine({ env: process.env, ...(npcAct !== undefined ? { npcAct } : {}),
+		decision: { decide: async (batch, lease) => { decisions.push(batch); return decide(batch, decisions.length, lease); } } });
 	const table = await openTable({
 		// The kernel's dice are seeded, so the fight's rounds are the same on every run.
 		realKernel: true, prepareWorkspace, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: "7" },
@@ -199,7 +202,10 @@ test("§135.31 at a pending defence: the defender's card and the session view, b
 test("§135.31 with a session active: carried before every model step it changed for, never repeated unchanged; a Keeper look is recorded with its arguments and step, and the turn record keeps them beside the digest", async (t) => {
 	const table = await hybridTable({
 		prepareWorkspace: knottFight(),
-		decide: (batch) => batch.family === BIND_FAMILY
+		// §139.4: his own turn is his act -- he hits back (the fixture generation), bound to the fight's attack.
+		npcAct: createFixtureNpcActPort({ "steven-knott": "他反手一拳砸过来。" }),
+		decide: (batch) => batch.family === NPC_ACT_BIND_FAMILY ? answered(batch, (question) => question.key === "way" ? "attack" : undefined)
+			: batch.family === BIND_FAMILY
 			? answered(batch, (question) => question.key === "disposition" ? "fights_to_the_end" : "unknown")
 			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
 		responses: [

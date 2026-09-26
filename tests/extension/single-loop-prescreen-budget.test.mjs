@@ -108,7 +108,8 @@ test("a read that reports gate #7's prescreen (7 calls, 10.1 s, then 4 calls) sp
 		advance: { read: 10_166, "decide:route": 2_000 },
 		decide: (batch, count) => count === 1 ? route(batch, ["Go to the Globe"]) : route(batch, [], "finish"),
 		infer: () => prose("You arrive at the Globe.") });
-	assert.deepEqual(log, ["read", "decide:route", "clerk:apply:move:globe", "decide:route", "infer:compose", "turn_close"]);
+	// §139.4: the clerk's move landed, so the people it acted on act before the compose (the `npc_act` scan, no Jev call).
+	assert.deepEqual(log, ["read", "decide:route", "clerk:apply:move:globe", "decide:route", "clerk:npc_act:scan:1", "infer:compose", "turn_close"]);
 	assert.deepEqual(inferSteps.map((step) => step.reason), ["finish"], "no compose for a spent Jev budget");
 });
 

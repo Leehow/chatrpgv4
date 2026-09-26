@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdir,mkdtemp,readFile,rm,symlink,writeFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,rm,symlink} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {build} from 'esbuild';
@@ -127,16 +127,16 @@ test('the row the table\'s own act set out carries by: table on the card, throug
  const {client,connect,home}=await opened(t);
  const OTHER='Offer the key back if the visitor steps away from the desk.';
  await begin(client);
- await apply(client,'t1-c1',{intends:SHOUT,outcome:'attempted'});
+ // §139.3: the clerk's npc_act calls carry the host's `_generated` (the kernel extension sets it on them alone); the
+ // writer puts the mark in the intent stamp, and the committed turn record is the fold's only input.
+ await apply(client,'t1-c1',{intends:SHOUT,outcome:'attempted',_generated:true});
  await apply(client,'t1-c2',{intends:OTHER,outcome:'attempted'});
  await nextTurn(client,1);
- // Ticket 03's binding writes this stamp on the receipts of an act the table generated; the committed turn record is
- // the fold's only input, so the stamp is put where that writer will put it.
- const path=join(home,'.coc','campaigns',campaign,'turns','0001.json'),turn1=JSON.parse(await readFile(path,'utf8'));
+ const turn1=JSON.parse(await readFile(join(home,'.coc','campaigns',campaign,'turns','0001.json'),'utf8'));
  const receipt=turn1.receipts.find(value=>value.intent?.text===SHOUT);
  assert.equal(receipt.basis,undefined,'an npc receipt has no basis of its own to collide with');
- receipt.intent.generated=true;
- await writeFile(path,JSON.stringify(turn1,null,2));
+ assert.equal(receipt.intent.generated,true,'the writer stamped the mark');
+ assert.equal(turn1.receipts.find(value=>value.intent?.text===OTHER).intent.generated,undefined,'and only on the table\'s own act');
  await client.close();
  await rm(join(home,'.coc','campaigns',campaign,'npc-ledger.json'));
  const fresh=connect();t.after(()=>fresh.close());

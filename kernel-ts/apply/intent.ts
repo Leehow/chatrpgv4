@@ -132,10 +132,23 @@ export function refuseRepeat(scope: IntentScope, node: Row, resolved: ResolvedIn
         details: {field, reason: 'intent_unresolved', ref: resolved.ref, since_turn: resolved.turn, options: resolved.options}});
 }
 
-/** The `intent` a receipt carries (§138.2). */
-export function intentStamp(handle: string, resolved: ResolvedIntent, outcome: string): Row {
+/**
+ * The `intent` a receipt carries (§138.2). `generated` (§139.3) marks a receipt of an act the table generated and bound
+ * (`intent.generated: true`), which the ledger fold reads (§139.6).
+ */
+export function intentStamp(handle: string, resolved: ResolvedIntent, outcome: string, generated = false): Row {
     if (!INTENT_OUTCOMES.includes(outcome)) throw new Error(`unknown intent outcome ${outcome}`);
-    return {ref: resolved.ref, npc: handle, text: resolved.text, outcome};
+    return {ref: resolved.ref, npc: handle, text: resolved.text, outcome, ...(generated ? {generated: true} : {})};
+}
+/**
+ * §139.3: the host's `_generated` beside an intention on an effect or a roll's action -- the call is the table's own act of
+ * that person, bound by the clerk from the generated line. Host-only (the kernel extension sets it on the clerk's
+ * `npc_act` calls and strips it from every other call); `true` or absent, never read from anything else.
+ */
+export function generatedOf(value: unknown, field: string): boolean {
+    if (value == null) return false;
+    if (value !== true) throw new RpcError('invalid_params', `${field} is true or absent`, {details: {field}});
+    return true;
 }
 
 /**
@@ -153,19 +166,28 @@ export async function effectIntent(scope: IntentScope, effect: Row, field: strin
     if (typeof outcome !== 'string' || !INTENT_OUTCOMES.includes(outcome))
         throw new RpcError('invalid_params', `${field}.intent_outcome ${JSON.stringify(outcome)} is not where an intention can stand`, {
             fix: 'one of details.options; leave it out when the effect is the intention done', details: {field: `${field}.intent_outcome`, options: [...INTENT_OUTCOMES]}});
+    const generated = generatedOf(effect._generated, `${field}._generated`);
     const resolved = await resolveIntent(scope, node, {intent_ref: effect.intent_ref}, field);
     await refuseSettled(scope, node, resolved, field);
     refuseRepeat(scope, node, resolved, outcome, field);
-    return intentStamp(scope.graph.handle(node), resolved, outcome);
+    return intentStamp(scope.graph.handle(node), resolved, outcome, generated);
 }
 
+/**
+ * What a roll's intention stamp does (§138.2 addendum). `stamp` writes it on the call's receipts and says where it
+ * landed: on a graded roll (`roll`, settled done or failed), on the call's first receipt (`first`, still `attempted`), or
+ * nowhere (`none`). `carried` is the stamp without its outcome, for a call whose roll is still to come (§139.3: an attack
+ * waiting for its defence rolls in the defence call).
+ */
+export interface RollIntentPlan { stamp(receipts: Row[]): 'roll' | 'first' | 'none'; carried: Row }
 /**
  * §138.2: a `resolve` whose roll is the result of what someone set out to do (`action.intent_ref`). Checked before the
  * dice are thrown -- an unknown or settled intention refuses without a roll -- and stamped after: the check that passed
  * did it, the one that failed did not, unless `action.intent_outcome` says otherwise (a first step that leaves it under
- * way). A call that rolls nothing yet (an attack waiting for its defence) leaves it `attempted`.
+ * way). A call that rolls nothing yet leaves it `attempted` on its first receipt; an attack waiting for its defence has
+ * its stamp wait for the defence call (§139.3, `carryAttackIntent`).
  */
-export async function planRollIntent(scope: IntentScope, action: Row): Promise<((receipts: Row[]) => void) | null> {
+export async function planRollIntent(scope: IntentScope, action: Row): Promise<RollIntentPlan | null> {
     if (action.intent_ref == null) return null;
     const outcome = action.intent_outcome;
     if (outcome != null && (typeof outcome !== 'string' || !INTENT_OUTCOMES.includes(outcome)))
@@ -175,15 +197,45 @@ export async function planRollIntent(scope: IntentScope, action: Row): Promise<(
     if (!node)
         throw new RpcError('invalid_params', `action.intent_ref ${JSON.stringify(action.intent_ref)} names no person's intention`, {
             fix: `${REFS_ARE} (director.offer carries them too); or leave intent_ref out`, details: {field: 'action.intent_ref', options: await tableIntentOptions(scope)}});
+    const generated = generatedOf(action._generated, 'action._generated');
     const resolved = await resolveIntent(scope, node, {intent_ref: action.intent_ref}, 'action');
     await refuseSettled(scope, node, resolved, 'action');
     if (typeof outcome === 'string') refuseRepeat(scope, node, resolved, outcome, 'action');
     const handle = scope.graph.handle(node);
-    return receipts => {
+    const {outcome: _outcome, ...carried} = intentStamp(handle, resolved, 'attempted', generated);
+    return {carried, stamp: receipts => {
         const roll = [...receipts].reverse().find(value => value.kind === 'roll' && value.form !== 'dice' && typeof value.passed === 'boolean');
         const target = roll ?? receipts[0];
-        if (!target) return;
+        if (!target) return 'none';
         const settled = typeof outcome === 'string' ? outcome : roll ? (roll.passed ? 'done' : 'failed') : 'attempted';
-        target.intent = intentStamp(handle, resolved, settled);
-    };
+        target.intent = intentStamp(handle, resolved, settled, generated);
+        return roll ? 'roll' : 'first';
+    }};
+}
+
+/**
+ * §139.3: an attack on an investigator waits for their defence and rolls in the defence call, so the attack call has no
+ * receipt for its intention's stamp. The stamp waits beside the pending attack, keyed by its command id, in
+ * `save/attack-intents.json` (the fight snapshot's contract admits no extra key); the defence call stamps the
+ * attacker's graded roll with it -- done when it hit, failed when it did not -- and removes it.
+ */
+const CARRIED = 'attack-intents.json';
+export interface CarryStore { readSave(name: string): Promise<any>; writeSave(name: string, value: Row): Promise<void> }
+export async function carryAttackIntent(store: CarryStore, attackCommandId: string, carried: Row): Promise<void> {
+    let held: Row = {};
+    try { held = row(await store.readSave(CARRIED)); } catch { held = {}; }
+    await store.writeSave(CARRIED, {...held, [attackCommandId]: carried});
+}
+export async function settleCarriedIntent(store: CarryStore, pending: Row, receipts: Row[]): Promise<void> {
+    const id = string(pending.attack_command_id);
+    if (!id) return;
+    let held: Row = {};
+    try { held = row(await store.readSave(CARRIED)); } catch { return; }
+    const carried = row(held[id]);
+    if (typeof carried.ref !== 'string') return;
+    const roll = receipts.find(value => value.kind === 'roll' && value.actor === pending.actor_id && value.form !== 'dice' && typeof value.passed === 'boolean' && value.intent == null);
+    if (!roll) return;
+    roll.intent = {...carried, outcome: roll.passed ? 'done' : 'failed'};
+    const {[id]: _taken, ...rest} = held;
+    await store.writeSave(CARRIED, rest);
 }

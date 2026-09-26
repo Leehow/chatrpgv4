@@ -30,7 +30,7 @@ import { ambiguityNote } from '../read/obligations.js';
 import { bindRule, continuedRule, settleRule, type RuleClaim } from './rule.js';
 import { statedEndingReward } from '../read/stated.js';
 import { latestCheckReceipt as latestCheck } from './context.js';
-import { planRollIntent } from '../apply/intent.js';
+import { carryAttackIntent, planRollIntent, settleCarriedIntent } from '../apply/intent.js';
 import { coercionDifficulty, coercionShape, coercionStamp, spendCoercion } from './coercion.js';
 export { CheckArithmetic, rollExpression, resourceDelta } from './arithmetic.js';
 export { SettleContext, continuableCheck, latestCheckReceipt, recordSkillTicks, skillTickEligible } from './context.js';
@@ -344,6 +344,8 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             refuseIncapacitated(actor, action);
             // Contract §138.2: the roll is the result of what someone set out to do. Checked before any die is thrown.
             const stampIntent = await planRollIntent({ kernel, campaign: transaction.campaign, graph, world: transaction.world, turn: transaction.turn }, action);
+            // §139.3: a defence settles the attack it answers; that attack's intention stamp waited for this call.
+            const answering = action.defense != null && sessions.combat?.status === 'active' ? row(sessions.combat.pending_attack) : null;
             // Contract §134.17: an investigator's ordinary check that fits one open obligation's check is its attempt.
             // Found here, before the roll; applied only if the decision the pipeline settles is the ordinary check.
             let fold: Fold | null = null;
@@ -418,7 +420,13 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                     result.note = ambiguityNote(fold.handles);
                 }
             }
-            stampIntent?.(context.receipts);
+            if (stampIntent && stampIntent.stamp(context.receipts) !== 'roll') {
+                // Nothing graded yet: an attack waiting for its defence rolls in that call, and its stamp waits with it (§139.3).
+                const combat = row(await context.readSave('combat.json').catch(() => null)), pending = row(combat.pending_attack);
+                if (combat.status === 'active' && pending.actor_id === actor.actingId && typeof pending.attack_command_id === 'string')
+                    await carryAttackIntent(context, pending.attack_command_id, stampIntent.carried);
+            }
+            if (answering && Object.keys(answering).length) await settleCarriedIntent(context, answering, context.receipts);
             if (pressure || spent) {
                 const roll = [...context.receipts].reverse().find(value => value.kind === 'roll' && value.form !== 'dice' && typeof value.passed === 'boolean');
                 if (roll && pressure) result.coercion = roll.coercion = coercionStamp(pressure, pressureDifficulty, roll.passed === true);

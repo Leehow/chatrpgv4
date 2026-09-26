@@ -203,7 +203,8 @@ test("one deadline covers the retry: the second attempt gets only what is left o
 });
 
 test("the deadline is npc_act.timeout_ms in host-budgets.json, read from the file, with the shipped default 8000", async (t) => {
-	assert.deepEqual(await npcActBudget(), { timeoutMs: 8000 }, "the shipped file");
+	// §139.4 / §139.5 (ticket 03/04) grew the section by two named defaults beside the deadline.
+	assert.deepEqual(await npcActBudget(), { timeoutMs: 8000, maxPerTurn: 2, sameActRows: 5 }, "the shipped file");
 	assert.equal(NPC_ACT_FALLBACK.timeoutMs, 8000);
 	const content = await mkdtemp(join(tmpdir(), "npc-act-content-"));
 	t.after(() => rm(content, { recursive: true, force: true }));
@@ -211,7 +212,7 @@ test("the deadline is npc_act.timeout_ms in host-budgets.json, read from the fil
 	await mkdir(join(content, "setup"), { recursive: true });
 	await writeFile(join(content, "setup", "npc-act.md"), await readFile(INSTRUCTION, "utf8"));
 	await writeFile(join(content, "rulesets", "coc7", "host-budgets.json"), JSON.stringify({ schema_version: 1, npc_act: { timeout_ms: 30 } }));
-	assert.deepEqual(await npcActBudget(content), { timeoutMs: 30 });
+	assert.deepEqual(await npcActBudget(content), { timeoutMs: 30, maxPerTurn: 2, sameActRows: 5 }, "the two counts fall back to their defaults");
 
 	// No timeoutMs handed to the port: the 30 in the file is the only thing that can end this round early.
 	const table = await lane(t, { answers: [hang], contentRoot: content });

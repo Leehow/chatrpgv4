@@ -1586,10 +1586,10 @@
       "callee": "runLane",
       "count": 1,
       "owner": "npc-act lane: the NPC's act, generated before it is bound (contract 139.2)",
-      "path": "no-caller",
+      "path": "app-play-gated",
       "role": "leaf",
-      "trace": "n/a (added at NAF-02)",
-      "note": "One zero-tool completion per NPC act, fast model (PI_COC_NPC_ACT_MODEL); a structurally bad answer is asked once more, one deadline (npc_act.timeout_ms) for both. No caller until NAF-03 wires the loop's npc_act step; reclassify then.",
+      "trace": "n/a (added at NAF-02; caller wired at NAF-03)",
+      "note": "Gate: PI_COC_LOOP_ENGINE=hybrid-v1 (play). Called by the single loop's npc_act step (runtime/jev/npc-act-step.ts runNpcAct, through the hybrid engine's npcActStep): on an NPC's own turn of a fight, and outside one for the people present a clerk-carried declaration acted on (at most npc_act.max_per_turn a turn), plus at most one re-ask when the act repeats a row with no result (contract 139.3-139.5). One zero-tool completion per act, fast model (PI_COC_NPC_ACT_MODEL); a structurally bad answer is asked once more, one deadline (npc_act.timeout_ms) for both. The step's Jev bind is the engine's own DecisionPort (createDecisionAdapter above) under a lease of its own.",
       "lines_at_0b729e8fb": []
     },
     {
