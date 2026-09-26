@@ -23300,6 +23300,9 @@ first in `present[]`, as a promise does. The Director's offer reads the intentio
 the ledger (not from the budget-fitted `present[]`) and puts each in the consequence pool ahead of a failed check:
 `{kind: "consequence", who, ref, line, from: "npc.intents"}`; `director_adoption.offer_taken` counts it as
 `consequence:<ref>` when a receipt of the turn carries that ref.
+*Note, 2026-09-26 (§139.6):* the ledger no longer feeds any advice lane's candidate set -- the response bank and the
+per-turn advice are retired, so the card, the offer and the situation packet (§139.1) are what read these rows. A row
+the table's own act of a person set out carries `generated: true` in the ledger and `by: "table"` on the card.
 
 **138.4 The response bank.** A bank row is `{intent, when}` as before; every read attaches its `ref`. `npc.perspective(s)`
 hands the advice lane only the rows whose intention is not settled, plus `tried` (the card's view of the ledger), and a
@@ -23310,6 +23313,10 @@ accepted (`settled_seen`, stored at acceptance), and fewer than `npc_responses.m
 re-offers what was already tried cannot loop the lane. The renewal's packet carries `npc.tried` and
 `npc.previous_responses` (with each row's status), and the instruction says a settled intention is never offered again,
 in any words. While the renewal is pending the replaced bank's rows stay readable (`carried_responses`).
+*Retired, 2026-09-26 (§139.6):* all of 138.4. There is no bank, no open row, no advice `selected`, no
+`response_options` and no renewal (`settled_seen`, `carried_responses`, `previous_responses`,
+`npc_responses.min_open_rows` are gone); `npc.responses.job` / `npc.responses.submit` are unknown methods. What a
+person does next is generated from their situation (§139), not chosen from rows written in advance.
 
 **138.5 A fight turn can be spent on something that is not a blow (amends §11.5.3).** Before this nothing could pass an
 NPC's own turn but an attack, a manoeuvre, aim, reload or flight: a Keeper `action: hold` wrote the override and left
@@ -23451,3 +23458,65 @@ line gate A failed; the player prose stayed in zh-Hans throughout. Two lines fai
   will hire you" came back on turns 2, 4, 5 and 8 in different words and never became a receipt, so no structural
   check here could see it (§113 D's repeated-line refusal caught one literal repeat). This is the open-semantics half
   of the owner's ruling that 138.7 does not cover; it is reported, not changed here.
+
+## 139. NPC acts first, parameters after (2026-09-26, `docs/specs/npc-acts-first.md`; amends §138, §123.3, §125)
+
+**139.6 The response bank and the per-turn advice are retired; the card says whose act a row was (ticket 05, spec D5).**
+*Why.* The bank was a set of "if the player does X, try Y" rows written ahead of time, and the advice lane asked Jev
+every turn which row fit. That treats an open set as a closed one: what a player may do cannot be listed, so neither
+can a person's answer to it (the owner's ruling of 2026-09-26; the same error as a hard-coded word list). Two live
+tables (`npc-actor-gate-a`, `npc-actor-gate-a2`, 22 turns) measured it: 5 ready advices in 22 turns, the same row
+offered on two turns running, six turns without one, and a bank of ten rows none of which was "he is being hit" -- the
+bank's author never saw a receipt, a hit point or a stance. Under §139 a person's act is generated from the situation
+packet (§139.1) and bound to receipts (§139.3); the bank has nothing left to do, so it is removed rather than kept as
+a second, weaker source.
+
+*Removed.*
+- Kernel: `npc.responses.job` and `npc.responses.submit` are no longer in the method vocabulary (`unknown_method`).
+  Nothing reads or writes `npc/responses/*.json`; an older campaign's bank files and response jobs stay on disk
+  untouched, neither read nor deleted. `content/rulesets/coc7/host-budgets.json` has no `npc_responses`.
+- §138.4 in full (see its note). §138.2's writer knows an intention only from the ledger: `intent_ref` names one of
+  the person's ledger rows or is refused `unknown_intent`, and every refusal's `details.options` is the person's
+  intentions under way, nothing else. Wherever §138 says "the NPC advice" or "their bank", read "the ledger"; the
+  Keeper-facing `intent_ref` descriptions and fixes name the card and `director.offer` only.
+- The capsule: `present[].response_options` and the instruction sentence that pointed at it.
+- §123.3 in full: `look {focus: "npc", evaluate_responses}` (gone from the tool schema; the kernel never read it and
+  ignores a stale one), `response_advice` on that read, the automatic supplement (`coc-npc-advice`, `kind:
+  "npc_response_advice"`, the `before_agent_start` wait), and `PI_COC_NPC_ADVICE_AUTO` / `PI_COC_NPC_ADVICE_WAIT_MS`.
+- §125's NPC half: the preparation-owner and NPC-bridge host events (`coc:npc-preparation-owner`, `coc:npc-bridge`),
+  the NPC branch beside the material prescreen and its NPC-only allowance (`lane: "preparation"`), the `npc` slot of
+  the request projection, and `table.workspace.read`'s `npc_perspectives`. With no shared snapshot to reuse, the
+  legacy engine's prescreen always runs its own semantic locate and catalog read (§124.10), as it already did when
+  the advice was off; the single-loop engine's run-owned prescreen is unchanged.
+- Telemetry: `lane: "npc"` rows with `kind` `advice`, `decision` or `responses`, and `event` `finalized` or
+  `delivered`, are no longer written. The lane's `kind: "personality"` rows stay; the act lane reports under
+  `lane: "npc-act"` (§139.2).
+
+*Kept.* The personality author (`npc.job` / `npc.submit` / `npc.fail`, `kind: "personality"`), the whole §138 ledger,
+its writers, the owed-result gate (§138.7), `director.offer`'s `npc.intents` rows (§138.3), and `npc.perspective(s)`
+(availability, relationships, speech, and `tried` from the ledger; no `responses`). A `coc-npc-advice` message an
+older session recorded is dropped from every request by the table's context policy, never sent.
+
+*`by: "table"`: three ends (§31).*
+- *Writer.* The receipt of an act the table generated and bound (§139.3) carries `basis: {generated: true, ...}`.
+  The ledger fold (`foldNpcTurn` via `foldIntent`, `kernel-ts/npc/intents.ts`) reads exactly
+  `receipt.basis.generated === true` and marks the ledger row the receipt opens `generated: true`. The mark records who
+  set the intention out, so it is written when the row is opened and a later result -- the Keeper settling it,
+  abandoning it (spec D7), or the table continuing it -- never changes it; a row the Keeper opened stays unmarked even
+  if a generated receipt later continues it. The ledger stays rebuildable from `turns/`.
+- *Reader.* The card's view (`intentsView`: `present[].history.intents`, and the same rows wherever that view is
+  projected -- `npc.perspective(s)`' `tried`, the situation packet's `done`) carries `by: "table"` on a marked row and
+  no `by` on the Keeper's.
+- *Actor.* The Keeper, who sees in the same place what a person already did and whose act it was, and may settle or
+  abandon it by its `ref` (spec D7). No new panel: the rows were already on the card.
+- *Open for §139.3.* `basis` is an object only on receipts that do not already have one. §136.22 stamps
+  `basis: "stated" | "keeper"` (a string) on every damage, time, threat, flag and cash receipt, and a string basis
+  reads as not generated; an act bound to a clock (`apply threat`) therefore needs §139.3 to decide where its receipt
+  carries the mark before that binding lands.
+
+Tests: `tests/extension/npc-preparation-integration.test.mjs` (a table played three turns through the real kernel,
+the NPC extension and the context policy: no `coc-npc-advice`, no Jev batch about a person, no advice telemetry, the
+prescreen still delivered; the legacy message dropped), `tests/extension/npc-intents.test.mjs` (options from the
+ledger only; `by: "table"` through a rebuild and a later Keeper result), `tests/extension/npc-character-rpc.test.mjs`
+(unknown methods; an older bank file neither read nor deleted), `tests/extension/npc-character-lane.test.mjs` (the
+lane authors personalities only).
