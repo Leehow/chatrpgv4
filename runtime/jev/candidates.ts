@@ -260,6 +260,9 @@ function firstBlowCandidate(row: Row, rawInput: string): Candidate | undefined {
 
 /** Scene obligations (SO-04, contract §135.26): their candidates, what they guard, and the Mod checks they preordain. */
 export {obligationCandidates} from './obligation-candidates.ts';
+/** SL-76 (§135.32, §135.3.1): the three consequence candidate classes, shadow-routed by `consequence-route.ts`. */
+export {buildConsequenceCandidates, clueFollowUpCandidates, NPC_REACTION_DECISION, npcReactionCandidates, timeCostCandidates,
+  type ConsequenceCandidate, type ConsequenceClass, type ConsequenceNoul, type ConsequenceReads} from './consequence-candidates.ts';
 
 /**
  * candidates(view): apply.options (moves and scene clues the kernel issues), the scene's handout assets, the
@@ -344,7 +347,10 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
       unbound: [], composed: ['why'],
       clerk: 'declared_bookkeeping', basis: {read: 'table.capsule', path: `present[${index}]`, row: {name: text(person.name), role: text(person.role) || null, untold: person.untold ?? null} as Json}});
   }
-  // Mod checks the active packages declare for the people present and not yet settled.
+  // Mod checks the active packages declare for the people present and not yet settled. SL-76: the natural-npc
+  // first-impression row is also read as a `npc_reaction` candidate (`consequence-candidates.ts`), in the wholly
+  // separate shadow list `buildConsequenceCandidates` returns -- never merged here, so this live `mod_contact`
+  // candidate (SL-02, already accepted and tested: `single-loop-candidates.test.mjs`) is unchanged.
   for (const [index, contact] of array(object(capsule.mods).pending_contacts).map(object).entries()) {
     const decision = text(contact.decision), target = text(contact.target), actor = text(contact.actor);
     if (!decision || !target) continue;
