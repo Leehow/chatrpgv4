@@ -23389,3 +23389,22 @@ the NPC's own flee action as it binds `attack` (`hold` still hands the turn to t
 marks them `fled` and moves the initiative on; a fight with no one left standing on their side concludes as before.
 The result hints the two lawful next steps -- a chase the investigators choose (`chase:start` against them), or where
 they went (`apply npc to`) -- and nothing starts a pursuit for the investigators.
+
+**138.11 A person present strikes the first blow (amends §11.5 and the §32.9 / §34.11 note that an NPC could not open a
+fight).** Rulebook, "Striking the First Blow (Surprise)": whoever makes a sudden attack acts first, out of DEX order; a
+target who saw it coming may dodge or fight back; one who did not neither dodges nor fights back, and the attacker may
+gain a bonus die (the Harvey example: one bonus die, no opposing roll); then the Keeper switches to combat rounds.
+`resolve {actor: <a person present>, intent: "combat", target: <an investigator>, weapon?, surprise?: true}` with no
+fight running now opens one on that blow (`npcFirstBlow`, `kernel-ts/combat/execution.ts`): the session is built as for
+an investigator's opening, and
+- with `surprise: true` (the Keeper's ruling that the target did not anticipate it, usually after their Listen, Spot
+  Hidden or Psychology) the engine's surprise attack is rolled at once with one bonus die beside any declared, no
+  defence, and damage applied on a hit;
+- without it a pending attack marked `first_blow: true` awaits the investigator's defence (the standing-defence path of
+  §11.5 settles it like any other).
+The blow spends nobody's turn: round 1 then runs in DEX order from the top (the defence of a first blow does not advance
+the cursor, and the snapshot contract admits `first_blow` and exempts that one pending attack from "at the initiative
+cursor"). The result's `action` is `first_blow` with `first_blow: {attacker, target, surprise}`. A named target that is
+not an investigator is refused `needs`; a manoeuvre still needs a running fight. `surprise` is read beside `defense`
+as a fact about the action, not a compiled slot. The engine's surprise attack now honours declared bonus and penalty
+dice (it read none before; it had no caller).

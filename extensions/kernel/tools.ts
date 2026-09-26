@@ -426,6 +426,7 @@ const MapEffect = Type.Object({
 });
 
 const ResolveAction = Type.Object({
+	surprise: Type.Optional(Type.Literal(true, { description: "with a person present as actor, intent combat and an investigator as target, when no fight is running: they strike the first blow, and the investigator did not see it coming (your ruling, usually after their Listen, Spot Hidden or Psychology). No dodge, no fighting back, one bonus die. Without it the investigator saw it coming and answers with a defence. The rounds then run in DEX order" })),
 	intent_ref: Type.Optional(Type.String({ description: "when this roll is the result of what an NPC set out to do: the ref of that intention (present[].history.intents, director.offer, the NPC advice). A passed check makes it done and a failed one failed, unless intent_outcome says otherwise; a settled intention is refused before any die is thrown" })),
 	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "with intent_ref: where the intention stands after this roll, when the pass or failure alone does not say (a first step that leaves it under way)" })),
 	actor: Type.Optional(

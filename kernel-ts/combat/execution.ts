@@ -272,9 +272,12 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         operation = await storedOperation(context);
     }
     else if (['attack', 'maneuver'].includes(kind)) {
+        // §138.11: an NPC strikes the first blow.
+        if (actor !== context.actorId && kind === 'attack' && context.npcNode(actor) !== null)
+            return npcFirstBlow(context, args, actor);
         if (actor !== context.actorId)
             return turnState(`no combat is underway for ${actor} to act in`,
-                'a fight opens on the investigator\'s own action: resolve what they do about it (strike, parry, dodge, flee) with intent combat, a target and a weapon, and the exchange settles from there. Harm that contests nothing -- a blow they never saw -- is apply damage with the rulebook\'s dice. An NPC cannot open the round itself: initiative here is strict DEX order and a surprise round is not yet a decision the rules layer carries');
+                'a fight opens on someone\'s attack: resolve with intent combat, the attacker as actor (an investigator or a person present), a target and a weapon; a manoeuvre comes once the fight is running');
         [session, started] = await startCombat(context, args);
         operation = { ...row(started.operation) };
         await context.writeSave('combat-operation.json', { combat_id: session.combatId, affordance_id: started.affordance_id, operation });
@@ -345,8 +348,11 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         }
         [rolls] = session.drainPending();
         session.pendingAttack = null;
-        session.markCurrentInitiativeActed();
-        session.initiativeCursor++;
+        // §138.11: the first blow is struck outside the rounds; it spends nobody's turn, and round 1 runs in DEX order.
+        if (!truth(pending.first_blow)) {
+            session.markCurrentInitiativeActed();
+            session.initiativeCursor++;
+        }
         const success = pending.on_success;
         if (isJsonObject(success) && success.kind === 'destroy_target' && ['hit', 'hit_after_cover'].includes(turn.outcome)) {
             const target = session.participants[defender];
@@ -473,6 +479,63 @@ export async function passNpcTurn(context: SettleContext, handle: string): Promi
     session.revision++;
     await session.save(context);
     return { combat_id: session.combatId, round, passed: handle, turn_of: cursorActor(session), revision: session.revision };
+}
+/**
+ * Contract §138.11: a person present strikes the first blow at an investigator -- the knee to the groin, the chair
+ * swung without warning. Rulebook, "Striking the First Blow (Surprise)": whoever makes a sudden attack acts first, out
+ * of DEX order, so the fight opens on their blow; the target who saw it coming may dodge or fight back, and one who did
+ * not neither dodges nor fights back while the attacker gains one bonus die (the Harvey example: no opposing roll).
+ * Whether the target saw it coming is the Keeper's ruling (`action.surprise: true` when they did not), usually after the
+ * target's Listen, Spot Hidden or Psychology. After the blow the rounds run in DEX order; the blow spends no one's turn.
+ */
+async function npcFirstBlow(context: SettleContext, args: Row, attacker: string): Promise<ExecutionResult> {
+    const target = string(args.target_npc_id || '') || context.actorId, hints: string[] = [], warnings: string[] = [];
+    // The binding falls back to the investigator when the named target is not one; a first blow names its target.
+    const named = context.action.target;
+    if (context.sheetById(target) === null || typeof named === 'string' && named.trim() && context.sheetById(named) === null)
+        throw new RpcError('needs', 'the first blow needs an investigator as action.target', { details: { needs: { field: 'target', options: context.party().map(sheet => string(sheet.name)) } } });
+    const [session, started] = await startCombat(context, { ...args, target_npc_id: attacker, weapon_id: undefined });
+    const operation: Row = { ...row(started.operation) };
+    await context.writeSave('combat-operation.json', { combat_id: session.combatId, affordance_id: started.affordance_id, operation });
+    let weapon = args.weapon_id ?? null;
+    if (weapon === null && session.participants[attacker].weapons.length) {
+        const first = session.participants[attacker].weapons[0];
+        weapon = isJsonObject(first) ? first.weapon_id : string(first);
+    }
+    const before = hpState(session), surprise = truth(args.surprise);
+    let turn: Row | null = null, rolls: Row[] = [];
+    const intent = intentText(args, `${attacker} strikes ${target}${surprise ? ' without warning' : ''}`);
+    if (surprise) {
+        try {
+            turn = session.declareAndResolveTurn(attacker, intent, { targetActorId: target, resolutionHint: 'surprise_attack', weaponId: weapon, resolutionCommandId: context.callId,
+                ...declaredDice({ ...args, bonus_dice: Math.max(0, Math.trunc(number(args.bonus_dice ?? 0))) + 1 }, 'attacker') });
+        }
+        catch (error) {
+            if (!(error instanceof UnknownWeaponError)) throw error;
+            throw new RpcError('needs', error.message, { details: { needs: { field: 'weapon', options: session.participants[attacker].weapons.map((value: Row | string) => isJsonObject(value) ? string(value.weapon_id) : string(value)) } } });
+        }
+        [rolls] = session.drainPending();
+        hints.push(`${attacker} struck first and ${target} never saw it coming: no dodge, no fighting back, one bonus die; the rounds now run in DEX order`);
+    }
+    else {
+        session.pendingAttack = { ...pendingAttack(session, context, attacker, target, weapon, operation, intent, args), first_blow: true };
+        hints.push(`${attacker} strikes the first blow and ${target} sees it coming: ${target} answers with a defence; the rounds run in DEX order after it`);
+    }
+    session.revision++;
+    const damageReceipts = recordCombatRolls(context, turn, rolls, session.damageChain, session.currentRound);
+    await session.save(context);
+    await emitDeltas(context, session, before, damageReceipts);
+    if (session.status !== 'active') {
+        context.addSessionReceipt('combat', 'end', { outcome: session.outcome });
+        hints.push('combat is mechanically concluded; narrate the aftermath (no combat:end needed)');
+    }
+    const view = context.sessions();
+    const data: Row = { combat_id: session.combatId, revision: session.revision, round: session.currentRound, action: 'first_blow', actor_id: attacker, turn: turn ? { ...turn } : null,
+        pending_attack: session.pendingAttack ? { ...session.pendingAttack } : null, status: session.status, outcome: session.outcome,
+        session: view.combatView(), pending_choice: view.pendingChoice(), started: true, initiative: started.initiative, preparations: started.preparations,
+        first_blow: { attacker, target, surprise } };
+    if (turn && truth(turn.outcome)) data.turn_outcome = turn.outcome;
+    return { data, warnings, hints };
 }
 export async function executeCombatEnd(context: SettleContext, args: Row): Promise<ExecutionResult> {
     if (context.sessions().combat === null)

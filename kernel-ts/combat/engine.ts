@@ -596,7 +596,7 @@ export class CombatSession {
         else if (['opposed_melee', 'firearm_attack'].includes(hint))
             this.resolveAttack(turn, actorId, target, defense, weaponId, { ...options, outnumberedPenalty: outnumbered, defenderGoal });
         else if (hint === 'surprise_attack')
-            this.resolveSurpriseAttack(turn, actorId, target, weaponId);
+            this.resolveSurpriseAttack(turn, actorId, target, weaponId, options);
         else if (hint === 'maneuver')
             this.resolveManeuver(turn, actorId, target, defense, goal || 'ongoing_disadvantage', options.targetWeaponId ?? null, outnumbered, defenderGoal, options);
         else if (hint === 'flee')
@@ -1040,8 +1040,11 @@ export class CombatSession {
         const [, id] = this.damageRoll(weapon.damage, actor, target, weaponId || 'environmental', turn.turn_id, exception !== null, exception, this.weaponDbExpression(attacker, weapon));
         Object.assign(turn, { roll_id: id, damage_roll_id: id, defense_kind: 'none', opposed_outcome: 'unopposed', outcome: 'damage_applied' });
     }
-    private resolveSurpriseAttack(turn: Row, actor: string, target: string | null, weaponId: string | null): void {
-        const attacker = this.participants[actor], weapon = this.weapon(actor, weaponId), [, rolled] = this.percentile(actor, weapon.skill, attacker.combat_skill, `surprise attack ${string(target)}`);
+    private resolveSurpriseAttack(turn: Row, actor: string, target: string | null, weaponId: string | null, options: CombatTurnOptions = {}): void {
+        // Rulebook, "Striking the First Blow (Surprise)": a target who did not see it coming neither dodges nor fights back,
+        // and the attacker may be awarded a bonus die -- the caller states it (§138.11); nothing is added here.
+        const bonus = Math.max(0, Math.trunc(number(options.attackerBonus ?? 0))), penalty = Math.max(0, Math.trunc(number(options.attackerPenalty ?? 0)));
+        const attacker = this.participants[actor], weapon = this.weapon(actor, weaponId), [, rolled] = this.percentile(actor, weapon.skill, attacker.combat_skill, `surprise attack ${string(target)}`, 'regular', bonus, penalty);
         Object.assign(turn, { roll_id: rolled.roll_id, defense_kind: 'none', opposed_outcome: 'unopposed', outcome: truth(rolled.passed) ? 'hit' : 'miss' });
         if (truth(rolled.passed))
             turn.damage_roll_id = this.damageRoll(weapon.damage, actor, target!, weaponId, turn.turn_id, false, null, this.weaponDbExpression(attacker, weapon))[1];

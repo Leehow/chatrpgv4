@@ -342,8 +342,10 @@ export function restoreCombatSnapshot(session: CombatSession, input: Row, option
         // The attacker's declared dice ride on the pending attack because the attack is declared one
         // call before it is rolled (§95). They are optional and carry their own range check, so they
         // are held out of the key-set comparison rather than multiplying its accepted combinations.
-        const declared = ['bonus_dice', 'penalty_dice'], original = Object.keys(pending).filter(key => !declared.includes(key));
-        const declaredValid = declared.every(field => !Object.hasOwn(pending, field) || [0, 1, 2].some(value => equal(value, pending[field])));
+        // §138.11: `first_blow` marks a blow struck outside the rounds; optional, and only ever `true`.
+        const declared = ['bonus_dice', 'penalty_dice', 'first_blow'], original = Object.keys(pending).filter(key => !declared.includes(key));
+        const declaredValid = ['bonus_dice', 'penalty_dice'].every(field => !Object.hasOwn(pending, field) || [0, 1, 2].some(value => equal(value, pending[field])))
+            && (!Object.hasOwn(pending, 'first_blow') || pending.first_blow === true);
         for (const key of extras)
             if (!Object.hasOwn(pending, key))
                 pending[key] = null;
@@ -353,7 +355,8 @@ export function restoreCombatSnapshot(session: CombatSession, input: Row, option
         if (!equal(sorted(original), sorted(legacy)) && !equal(sorted(original), sorted([...legacy, ...extras])) && !equal(sorted(original), sorted([...legacy, ...extras, ...usage])) || !text(pending.attack_command_id) || !Object.hasOwn(session.participants, pending.actor_id) || !Object.hasOwn(session.participants, pending.target_actor_id) ||
             pending.actor_id === pending.target_actor_id || typeof pending.declared_intent !== 'string' || !pending.declared_intent.trim() || !equal(pending.allowed_defenses, defenses) || pending.rulebook_exception !== null && typeof pending.rulebook_exception !== 'string' || !successValid || !outcomesValid || !declaredValid)
             valueError('combat pending attack contract is invalid');
-        if (session.status !== 'active' || session.initiativeCursor >= session.currentInitiative.length || session.currentInitiative[session.initiativeCursor].actor_id !== pending.actor_id)
+        // A first blow is struck out of DEX order by rule, so its attacker need not hold the cursor (§138.11).
+        if (session.status !== 'active' || pending.first_blow !== true && (session.initiativeCursor >= session.currentInitiative.length || session.currentInitiative[session.initiativeCursor].actor_id !== pending.actor_id))
             valueError('combat pending attack is not at the initiative cursor');
     }
 }

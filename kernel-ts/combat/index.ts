@@ -191,6 +191,10 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                     result[key] = payload[key];
             if (action === 'attack' && context.action.defense === 'none')
                 result.unopposed = true;
+            // §138.11: the Keeper's ruling that the target did not see the first blow coming. Read beside `defense` for
+            // the same reason: a fact about the action, not a compiled slot; only the first blow reads it.
+            if (action === 'attack' && context.action.surprise === true)
+                result.surprise = true;
             // The dice the keeper declared for this call. They are a fact about the action, not a
             // slot the combat decisions declare, so they are read here beside `action.defense`
             // rather than through the compiled payload -- which is where they used to be dropped
