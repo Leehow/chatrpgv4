@@ -72,6 +72,12 @@ async function finish(context: SettleContext, session: ChaseSession, before: Row
     const reached = session.checkOutcome();
     if (reached && session.status === 'active')
         hints.push(`the chase has reached its outcome (${reached}); settle chase:end`);
+    // Contract §139.12: the engine moves no quarry who got away -- an investigator's `apply move` is the Keeper's, and so
+    // is where a person the investigators chased went. That person is still present in the world until it is written.
+    if (session.status !== 'active' && session.outcome === 'escaped')
+        for (const [id, participant] of entries(session.participants))
+            if (participant.side === 'quarry' && !context.sheetById(id))
+                hints.push(`${id} got away from the investigators: say where they went with apply npc to: away (or the scene they reached); until then they are still present here`);
     return {
         data,
         warnings: [],

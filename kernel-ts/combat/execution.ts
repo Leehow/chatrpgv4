@@ -412,12 +412,16 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
             if (conclusion(session, context, operation) === null)
                 normalizeCursor(session);
             // §138.10: an NPC who got away is out of the fight but still where the fight was; where they went is a move
-            // the fiction decides. §139.9 (2026-09-26): this hint used to send the investigators after them with
-            // chase:start, but the chase binding has one shape -- the investigator is the quarry -- so that call opened a
-            // chase with the fleeing NPC as the pursuer. Until a chase admits an NPC quarry (§139.12, ticket 13) the hint
-            // says so and a pursuit of them is narrated, not rolled.
-            if (kind === 'flee' && session.participants[actor].side !== 'investigator')
-                hints.push(`${actor} fled the fight: say where they went with apply npc to: away (or the scene they reach). If the investigators run after ${actor}, narrate that pursuit: the engine's chase today always has the investigators as its quarry, so it cannot run a chase of ${actor}; §139.12 will give the pursuers a chase:start with the fleeing person as the quarry`);
+            // the fiction decides. §139.12 (2026-09-26): a chase now admits them as its quarry, so the hint is the mirror
+            // of an investigator's flight below -- the investigators still able to run after them, and that the pursuer
+            // opens the chase with actor: <investigator> and target: <them>. (§139.9 had withdrawn the call while the
+            // chase binding knew only one shape, the investigator as quarry.)
+            if (kind === 'flee' && session.participants[actor].side !== 'investigator') {
+                const pursuers = values(session.participants).filter(value => value.side === 'investigator' && eligibleParticipant(value)).map(value => string(value.actor_id));
+                hints.push(pursuers.length
+                    ? `${actor} fled the fight: a pursuit is the investigators' choice and the pursuer opens it -- if ${pursuers.join(' or ')} gives chase, resolve chase:start (intent move) with actor: <that investigator> and target ${actor}, and ${actor} is the chase's quarry; otherwise say where ${actor} went with apply npc to: away (or the scene they reach)`
+                    : `${actor} fled the fight and no investigator able is left to give chase; say where ${actor} went with apply npc to: away (or the scene they reach)`);
+            }
             // §139.9: an investigator's flight is the mirror. Whether anyone runs after them is the pursuer's own decision,
             // so nothing starts a chase here (the pipeline used to execute chase:start as the flight's continuation); the
             // hint names who is still able to give chase and how the pursuer opens it.

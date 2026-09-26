@@ -18,7 +18,7 @@ import { familyBinding, type FixedFamilies } from './families.js';
 import {parseSanLoss} from '../sanity/expression.js';
 import {knownSpells,readMagicState} from '../magic/state.js';
 import {magicLearningSources} from '../magic/facts.js';
-import {presentOpponents} from '../chase/bindings.js';
+import {CHASE_INTENTS, chaseRoles, presentOpponents, quarryParticipant} from '../chase/bindings.js';
 import { shapeSettlement, tagNpcReceipts } from './projection.js';
 /**
  * The decisions whose roll carries `action.modifiers.bonus_dice` / `penalty_dice` (§95).
@@ -41,6 +41,7 @@ const MODIFIER_INSTEAD: Readonly<Record<string, string>> = Object.freeze({
 const COMBAT_DEFEND = 'decision:coc7:combat:defend';
 const SANITY_CHECK = 'decision:coc7:sanity:check';
 const BOUT = ['decision:coc7:sanity:bout-tick', 'decision:coc7:sanity:bout-end'];
+const CHASE_START = 'decision:coc7:chase:start';
 export const fullDecisionRef = (name: string): string => name.trim().startsWith('decision:') ? name.trim() : `decision:coc7:${name.trim()}`;
 export function unsupportedDecision(runtime: RuleGraph, ref: string): never {
     const family = runtime.familyOf(ref);
@@ -279,7 +280,7 @@ export class ResolvePipeline {
         if (this.intent === 'combat' || this.npcInSession && this.intent !== 'flee')
             return this.withSanityOffer(['decision:coc7:combat:attack']);
         if (this.intent === 'flee')
-            return [active(this.sessions.combat) ? 'decision:coc7:combat:flee' : 'decision:coc7:chase:start'];
+            return [active(this.sessions.combat) ? 'decision:coc7:combat:flee' : CHASE_START];
         if (this.intent === 'move')
             return this.withSanityOffer(matches.length ? [ORDINARY] : []);
         if (this.intent === 'montage')
@@ -347,7 +348,7 @@ export class ResolvePipeline {
             return candidates;
         const admitted = candidates.filter(ref => allowed!.has(ref));
         const explicit = this.action.decision != null || this.action.defense != null;
-        const implicit = details.session === 'chase' && ['flee', 'move', 'combat'].includes(this.intent);
+        const implicit = details.session === 'chase' && CHASE_INTENTS.includes(this.intent);
         if (!admitted.length || !(explicit || implicit))
             throw new RpcError('turn_state', message, {
                 fix: string(details.fix),
@@ -602,11 +603,17 @@ export class ResolvePipeline {
     private async noCandidates(candidates: string[], withheld: Row[], source: [
         string,
         Row
-    ] | null): Promise<never> {
+    ] | null, offIntent: string[] = []): Promise<never> {
         const unmet=Object.fromEntries(withheld.map(value=>[value.decision_ref,array(value.unmet)]));
         if(candidates.length===1&&candidates[0]==='decision:coc7:magic:cast-spell')throw new RpcError('needs',`${repr(this.action.spell)} is not a spell this investigator knows`,{fix:'set action.spell to a known spell (details.needs.options), or learn it first',details:{needs:{field:'spell',options:knownSpells(await readMagicState(this.context,this.context.actorId),this.context.clockMinutes)},unmet}});
         if(candidates.length===1&&candidates[0]==='decision:coc7:magic:learn-spell')throw new RpcError('needs',`no authored source teaches ${repr(this.action.spell)} here`,{fix:'target a tome, teacher or entity that carries the spell (details.needs.options)',details:{needs:{field:'target',options:Object.keys(magicLearningSources(this.context)).sort()},unmet}});
-        if(candidates.length===1&&candidates[0]==='decision:coc7:chase:start'){
+        if(candidates.length===1&&candidates[0]===CHASE_START){
+            // Contract §139.12: each refusal of a chase start says what is missing. Before, a pursuer's `move` or `combat`
+            // was answered "a chase needs a pursuer with a stat block" while listing that very pursuer as the option.
+            if(offIntent.includes(CHASE_START))throw new RpcError('needs',`chase:start answers a flight or a pursuit, not intent ${repr(this.intent)}`,{fix:'set action.intent to flee when the actor runs, or to move or combat when the actor gives chase (and name whom in action.target)',details:{reason:'chase_intent',needs:{field:'intent',options:[...CHASE_INTENTS]},unmet}});
+            if(array(unmet[CHASE_START]).some(value=>value.path==='chase.session.inactive'))throw new RpcError('turn_state','a chase is already underway',{fix:'continue it with chase decisions (see session.actions)',details:{unmet}});
+            const roles=chaseRoles(this.context);
+            if(roles.quarry==='npc')await quarryParticipant(this.context,roles.handle,roles.node);
             const present=presentOpponents(this.context);throw new RpcError('needs','a chase needs a pursuer with a stat block present in the scene',{fix:'establish the pursuer here first (an NPC whose module record carries mechanics.profile), or narrate the flight without dice',details:{needs:{field:'target',options:present.filter(([, ,profile])=>truth(profile)).map(([name])=>name).sort()},present:present.map(([name])=>name).sort(),unmet}});
         }
         if (truth(this.action.push) || this.action.luck != null) {
@@ -682,18 +689,26 @@ export class ResolvePipeline {
             });
         const cards: Row[] = [];
         const withheld: Row[] = [];
+        const offIntent: string[] = [];
+        // Contract §139.12: the rule graph's chase:start answers `flee` only, while every other chase decision answers
+        // the three chase intents (§11.5). A pursuer's `move` or `combat` answers the same flight, so the start card is
+        // admitted under any of the three; which side the actor then takes is the binding's (`chaseRoles`).
+        const answers = (card: Row): boolean => card.answers_declared_intent !== false
+            || card.decision_ref === CHASE_START && CHASE_INTENTS.includes(this.intent);
         for (const family of [...new Set(candidates.map(ref => runtime.familyOf(ref)))].sort()) {
             const answer = runtime.context({
                 ...question,
                 family
             });
-            cards.push(...array(answer.cards).filter(card => candidates.includes(card.decision_ref) && card.answers_declared_intent !== false));
+            const offered = array(answer.cards).filter(card => candidates.includes(card.decision_ref));
+            cards.push(...offered.filter(answers));
+            offIntent.push(...offered.filter(card => !answers(card)).map(card => string(card.decision_ref)));
             withheld.push(...array(answer.withheld).filter(value => candidates.includes(value.decision_ref)));
         }
         if (!cards.length) {
             if (candidates.every(ref => !BASIC_DECISIONS.has(ref) && !familyBinding(this.families, ref, runtime.capabilityOf(ref))))
                 unsupportedDecision(runtime, candidates[0]);
-            await this.noCandidates(candidates, withheld, source);
+            await this.noCandidates(candidates, withheld, source, offIntent);
         }
         const director = row(row(context.turn.capsule).director);
         const selectedCard = selectAvailableDecision(cards, candidates, {

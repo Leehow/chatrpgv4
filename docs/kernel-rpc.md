@@ -537,6 +537,11 @@ The three ends are explicit: the sidebar writes a campaign-scoped value; the hos
   their own `resolve` (for an NPC pursuer: `actor: <npc>`, `target: <investigator>`, `intent: "flee"`,
   `decision: "chase:start"`). A person the ruleset's `flee.flee_blocked_by` names (held, or with no action left)
   cannot flee at all.
+  *Note (2026-09-26, §139.12):* a chase also runs the other way. `chase:start` with an investigator acting and a person
+  named in `target` makes that person the quarry and the acting investigator the pursuer when the person's flight
+  still stands or the investigator's intent is `move` or `combat`; `chase:start` answers `flee`, `move` and `combat`,
+  and a quarry flees. The quarry's MOV and characteristics come from their stat block or the call is `needs`. The
+  engine moves no quarry who got away: where an escaped person went is the Keeper's `apply npc to`.
 - 理智：`sanity:check` 由守秘人在 `intent: investigate` 加 `stakes` 提到理智或 `action.decision: "sanity:check"` 时触发，`goal` 是来源；失败进入发作时结果带 `pending_choice`（守秘人的发作动作选择）与 `session.kind: "sanity_bout"`。
 - 推骰与幸运：失败的可推检定在结果 `continuations` 里列出 `pushed-roll` 与 `luck-spend` 及其需要的 `action` 字段；守秘人先 `ask` 玩家，再以 `push: true` 或 `luck` 调 `resolve`。
 
@@ -24018,3 +24023,115 @@ half not past it, and the clamp at the last rung; four malformed tables refused 
 and restore): the table without `attacked_this_turn`, the kernel not reading it, the receipt without `visibility:
 keeper`, each reader's guard removed, the once-per-turn and the prepared checks removed, and contact rows and
 obligations counted as prepared again -- each fails its case.
+
+**139.12 A chase admits a person as its quarry (2026-09-26, ticket 13 of `docs/specs/npc-acts-first-tickets/`, spec
+section 七; amends §11.5's chase line, the NPC-flight hint of §138.10 and §139.9, and §139.9's measured limits of the
+chase start).** Ticket 10 measured the one shape the chase binding had (§139.9, "The NPC as pursuer, as the engine
+stands"): `chaseSlots` made every present opponent with a stat block a pursuer and the acting investigator the quarry,
+`action.target` only narrowed the pursuers, and `chase:start` answered `intent: flee` alone. §138.10's hint for an NPC
+who fled -- "if the investigators give chase, resolve chase:start with target <npc>" -- therefore opened a chase in
+which the investigator ran from the man who had just run from him (Corbitt fixture:
+`[("thomas-hayes","quarry"),("walter-corbitt","pursuer")]`), and an investigator could never chase anyone. §139.9
+withdrew the hint; this subsection gives the engine the other direction and puts the hint back.
+
+**Who runs** (`chaseRoles`, `kernel-ts/chase/bindings.ts`), decided when `chase:start` binds:
+
+- A person who is not an investigator acting (`actor: <npc>`) is the pursuer and the investigator the quarry, every
+  present opponent with a stat block pursuing as before (§139.9's pursuer shape, unchanged).
+- An investigator acting (named in `actor`, or the table's only investigator when `actor` is absent -- `resolveActor`'s
+  existing rule; several investigators and no `actor` is still `needs_choice`) with a person named in `target` runs
+  **after** that person, who is the quarry, when either
+  1. the person's **flight still stands**: the last receipt that gained them `fled` -- a combat flight (§138.10), or a
+     Keeper's `apply npc` condition -- with no `session` receipt of a fight or a chase starting after it, no `npc`
+     receipt moving them (`to`) after it, and no flight of the acting investigator after it (`standingFlight`: a scan
+     of the committed turns, the open turn and the call, in order). Any of the three chase intents then reads as the
+     pursuit, so a Keeper who writes `intent: flee` for it, as the old hint had them do, gets the chase they meant; or
+  2. no flight of theirs stands and the investigator's own intent is not a flight (`move` or `combat`): the Keeper's
+     word that the person is running.
+- An investigator who declares `flee` at a person with no standing flight runs **from** them (the old shape, with the
+  person named as the only pursuer); with no person named, the investigator flees whoever with a stat block is here
+  (unchanged, the corpus case `chase-start-090232bd`). The investigator who fled the fight is therefore still the
+  quarry when the Keeper omits `actor` and names the man they fled (`test_an_investigator_who_fled_is_the_quarry...`).
+
+Whether someone is running is read from receipts and the closed intent word, never from the action's prose.
+
+**The pursuer is one investigator**, the acting one, mirroring the one investigator the quarry shape has always had; a
+whole party's pursuit is not in this ticket. The binding for a person's quarry: `participants` = the investigator's
+participant (`investigatorCombatParticipant`, side `pursuer`) then the person's (side `quarry`), `pursuer_refs:
+["investigator:<id>"]`, `quarry_refs: ["npc:<handle>"]`, `chase_id: "chase:<scene>:<quarry>-vs-<pursuer>-t<turn>"`
+(the existing quarry-first order), the location chain as before. Nothing of the chase rules changes: the speed roll,
+the cut to the chase (the quarry two locations ahead), movement actions, hazards, barriers, the grab conflict and the
+end conditions were already written per side, not per kind of person. (The engine's delegated melee and firearm
+conflicts label the quarry's combat side `investigator`; no `resolve` path issues them, and they are untouched.)
+
+**The quarry's numbers** come from their stat block (`npcProfile`: the book's, else a pinned archetype, §34.10)
+through the same readers a pursuer's do (`npcCombatParticipant`, `participantFromCombatSpec`). What the chase reads
+and a reader would otherwise assume is required (`quarryParticipant`): `characteristics.STR`, `CON` (the speed roll),
+`SIZ`, `DEX` (the order) -- the builder needs all four -- and `derived.MOV`, which the reader would set to 8. Dodge and
+Fighting fall to their rulebook base chances and HP and Build are derived by the rulebook, as for any stat block. MOV is
+read, not derived: the rulebook's MOV also depends on age, which a stat block need not carry. Refusals, both before
+anything is rolled or filed:
+
+- no stat block: `needs`, `details: {reason: "quarry_has_no_stat_block", npc, needs: {field: "archetype", options:
+  <the archetype ids>}}`, fix: pin one with `apply npc archetype`, or read the book with `lookup kind=source`, or narrate
+  the pursuit without dice. Also given when nobody present has numbers and the chase would run after the person named
+  (the rule graph's `chase.start.ready` fails first), instead of the pursuer message;
+- a number missing: `needs`, message `<name>'s stat block has no <paths>: a chase of <name> reads them, and none is
+  assumed`, `details: {reason: "quarry_numbers_missing", npc, missing: [<paths in that order>], needs: {field:
+  <the first>, options: []}}`, fix: `lookup kind=source` when the module has a book, otherwise narrate the pursuit
+  without dice (a book-printed stat block cannot be replaced by an archetype, §34.10).
+
+A person pursuing still gets the reader's MOV 8 when their stat block omits it; that is the existing pursuer shape and
+this ticket does not change it (reported to the lead, not fixed here).
+
+**Intents.** The rule graph's `chase:start` carries one intent condition, `flee`, while every other chase decision
+answers `flee`, `move` and `combat`, the three `restrict` admits while a chase runs (§11.5, `CHASE_INTENTS`). The
+pipeline now admits the `chase:start` card under any of the three (`kernel-ts/resolve/pipeline.ts`; the rule graph data
+and its digest are unchanged, and the rule graph is still asked with the declared intent); which side the actor then
+takes is the binding's, above. What is refused, each saying what is missing:
+
+- an investigator who would be the quarry (no person named) declaring `move` or `combat`: `needs`, `details: {reason:
+  "quarry_does_not_flee", needs: {field: "target", options: <present people with a stat block>}}` -- a pursuit names
+  whom, a quarry flees;
+- another intent with `decision: "chase:start"`: `needs`, message `chase:start answers a flight or a pursuit, not
+  intent <x>`, `details: {reason: "chase_intent", needs: {field: "intent", options: ["flee","move","combat"]}}`. Before,
+  `move` and `combat` got "a chase needs a pursuer with a stat block present in the scene" listing the very pursuer;
+- `decision: "chase:start"` while a chase runs: `turn_state` "a chase is already underway" (the rule graph's
+  `chase.session.inactive`), instead of the same pursuer message.
+
+The pursuer message stays for what it says: nobody with a stat block to pursue a fleeing investigator.
+
+**The ends.** Mirroring an investigator quarry, for whom the engine writes no move and whose whereabouts are the
+Keeper's `apply move`, the engine moves no quarry who got away. A person the investigators chased is still present in
+the world until the Keeper writes where they went, so the result that concludes a chase `escaped` (at `chase:end`, or
+at the speed roll when the quarry outruns every pursuer) carries, per person who got away: `<handle> got away from the
+investigators: say where they went with apply npc to: away (or the scene they reached); until then they are still
+present here` (`kernel-ts/chase/index.ts`). A caught quarry (`captured`, the engine's word for the ticket's "caught":
+the pursuer's Fighting grab) gets the existing hint, `<handle> is caught; settle chase:end (captured), then fight it out
+with intent combat` -- the §11.5 end rule, with the investigator's `intent: combat, target: <person>` opening the fight.
+
+**The NPC-flight hint** (`combat/execution.ts`, the §138.10 hint §139.9 had withdrawn) is again a call the engine runs,
+the mirror of the investigator-flight hint: `<npc> fled the fight: a pursuit is the investigators' choice and the pursuer
+opens it -- if <investigators still able> gives chase, resolve chase:start (intent move) with actor: <that
+investigator> and target <npc>, and <npc> is the chase's quarry; otherwise say where <npc> went with apply npc to: away
+(or the scene they reach)`; with no investigator able, only the second half. This supersedes the hint text quoted in
+§139.9's paragraph "The NPC-flight hint no longer promises a chase the engine cannot run".
+
+**Three ends (§31).** Writer: the pursuer's `resolve chase:start` (the chase snapshot, its start receipt, both speed
+rolls), the grab and the chase's end as before; the Keeper's `apply npc to` for where the person went. Reader:
+`chaseRoles` reads the flight receipts and the declared intent, `quarryParticipant` the stat block; the session view
+reads the snapshot as for any chase. Who acts: the Keeper, through the flight hint, the refusals' `fix` and the end
+hints.
+
+Tests: `tests/kernel/test_chase_npc_quarry.py` (emitted kernel, Corbitt fixtures): after Corbitt's flight the
+investigator's `chase:start target: Walter Corbitt` under `move`, `combat`, `flee` and with `actor` absent gives
+`[thomas-hayes pursuer, walter-corbitt quarry]` with both speed rolls in that call and his printed MOV 8 and DEX 35 in
+the snapshot; with no flight, `move` runs after him and `flee` runs from him; the investigator who fled is the quarry
+when the Keeper names Corbitt; on seed 7 the book's Corbitt keeps his lead and escapes (a second `chase:start` while
+it runs is `turn_state`; the end hint, still present, then `apply npc to: away` removes him), and with MOV 4 he is grabbed and `captured`, after which `intent: combat` opens
+the fight; a stat block without `derived.MOV` or without `characteristics.CON` is `needs` naming it with nothing
+rolled or filed; Knott with no stat block is asked for an archetype; `intent: investigate` is told the three intents
+and a nameless `move` is told to name whom. `tests/kernel/test_npc_round_operation.py`'s NPC-flight test asserts the
+restored hint. Mutations (copy and restore): `chaseRoles` returning "the investigator is the quarry" always fails the
+four first cases, the `flee` one with exactly ticket 10's measured sides; the MOV requirement removed, the three-intent
+admission removed, the escape hint removed and the standing flight ignored each fail their cases.
