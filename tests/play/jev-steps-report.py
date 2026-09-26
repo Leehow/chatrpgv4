@@ -1,4 +1,5 @@
-"""SL-77 (D4/D6): per-class shadow agreement over `lane:"route", purpose:"consequence"` telemetry rows.
+"""SL-77/SL-78 (D4/D6, §135.32 addendum 2): per-class shadow agreement over `lane:"route", purpose:"consequence"`
+telemetry rows, plus (SL-78) the `lane:"residual"` row `COC_JEV_STEPS=on` writes once per turn.
 
 Read-only, a sibling of the long-gate triage scripts (`docs/specs/pi-native-single-loop-tickets/29-book-a/triage.py`):
 reads `.coc/campaigns/<cid>/telemetry.jsonl` and `turns/*.json` only, never writes under that tree. No live model
@@ -14,6 +15,12 @@ whether the candidate's own key resolves to the same entity through a label/hand
 (`npc_reaction`) keys itself on the pending-contact's display label (`bound.target`), while the first-impression
 `roll` receipt the Keeper's own `resolve` call produces stores a normalized handle, so a real agreement can read
 as `keeper_did: "other"` on the label/handle mismatch alone.
+
+The "residual" section (SL-78) reads `{lane:"residual", turn, keeper_calls:{apply,resolve,look,lookup,recall},
+compile_calls, clerk_calls, consequence_calls}` rows, written once per turn at turn close by
+`runtime/jev/hybrid-engine.ts`'s `recordResidual`, `COC_JEV_STEPS=on` only (a campaign run under `shadow`/`off`
+has none). `keeper_calls` is the design's own residual: the Keeper's free tool calls among the five bookkeeping
+verbs, whatever SL-78's execute list did not already cover.
 
 Usage:
     python3 tests/play/jev-steps-report.py <root> <glob> [<glob> ...]
@@ -154,6 +161,39 @@ def corrected_npc_reaction(rows, turn_records, label_map):
     return out
 
 
+KEEPER_CALL_KEYS = ('apply', 'resolve', 'look', 'lookup', 'recall')
+
+
+def residual_section(telemetry, turn_files):
+    """SL-78: the `lane:"residual"` rows, one per turn under `COC_JEV_STEPS=on`. Prints each turn's row and a
+    per-verb summary (median/mean/max), the same shape as the "added Jev ms" section below reports the shadow
+    route's own cost. A campaign run under `shadow`/`off` writes none of these rows -- reported as such, never
+    inferred from their absence elsewhere."""
+    rows = [r for r in telemetry if r.get('lane') == 'residual']
+    print('\n-- residual (SL-78, `lane:"residual"`; `COC_JEV_STEPS=on` only) --')
+    if not rows:
+        print('  no residual rows in this campaign\'s telemetry -- this table ran `shadow`/`off`, or SL-78 is not deployed')
+        return rows
+    print(f'{"turn":>5} {"apply":>6} {"resolve":>8} {"look":>5} {"lookup":>7} {"recall":>7} {"compile":>8} {"clerk":>6} {"consequence":>12}')
+    for row in sorted(rows, key=lambda r: (r.get('turn') is None, r.get('turn'))):
+        kc = row.get('keeper_calls') or {}
+        print(f'{str(row.get("turn")):>5} {kc.get("apply", 0):>6} {kc.get("resolve", 0):>8} {kc.get("look", 0):>5} '
+              f'{kc.get("lookup", 0):>7} {kc.get("recall", 0):>7} {row.get("compile_calls", 0):>8} {row.get("clerk_calls", 0):>6} '
+              f'{row.get("consequence_calls", 0):>12}')
+    totals = {key: sum((r.get('keeper_calls') or {}).get(key, 0) for r in rows) for key in KEEPER_CALL_KEYS}
+    keeper_per_turn = [sum((r.get('keeper_calls') or {}).values()) for r in rows]
+    print(f'  keeper_calls totals over {len(rows)} turns: {totals} (sum {sum(totals.values())})')
+    print(f'  keeper_calls per turn: median {statistics.median(keeper_per_turn):.1f}; mean {statistics.mean(keeper_per_turn):.2f}; max {max(keeper_per_turn)}')
+    for label, key in (('compile_calls', 'compile_calls'), ('clerk_calls', 'clerk_calls'), ('consequence_calls', 'consequence_calls')):
+        values = [r.get(key, 0) for r in rows]
+        print(f'  {label} per turn: median {statistics.median(values):.1f}; mean {statistics.mean(values):.2f}; max {max(values)}; sum {sum(values)}')
+    turns_with_row = {r.get('turn') for r in rows}
+    missing = sorted(t for t in turn_files if t not in turns_with_row)
+    if missing:
+        print(f'  turns with a turn file but no residual row: {missing} (a run that never reached turn close, or ran before SL-78)')
+    return rows
+
+
 def report_campaign(campaign_dir):
     cid = os.path.basename(campaign_dir)
     telemetry = load_jsonl(os.path.join(campaign_dir, 'telemetry.jsonl'))
@@ -253,9 +293,11 @@ def report_campaign(campaign_dir):
         if ms:
             print(f'  turns with a shadow call: {len(ms)}/{len(turn_files)}; median {statistics.median(ms):.0f} ms; mean {statistics.mean(ms):.1f} ms; max {max(ms)} ms')
 
+    residual_rows = residual_section(telemetry, turn_files)
+
     return {'cid': cid, 'candidate_rows': candidate_rows, 'exists_rows': exists_rows, 'stranded': stranded,
             'budget_rows': budget_rows, 'turn_files': turn_files,
-            'jev_attempt_failed': attempt_failed, 'jev_batch_failed': batch_failed}
+            'jev_attempt_failed': attempt_failed, 'jev_batch_failed': batch_failed, 'residual_rows': residual_rows}
 
 
 def main(argv):

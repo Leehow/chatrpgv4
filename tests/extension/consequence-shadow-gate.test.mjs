@@ -1,14 +1,15 @@
 /**
- * SL-76 (contract §135.32, §135.3.1; design D4): the pure gate over `COC_JEV_STEPS` and the turn-close pairing,
- * pulled out of `hybrid-engine.ts`'s `routeConsequences`/`turnCloseStep` so "shadow never executes" and "the
- * pairing row is written for the three outcomes" can be proven by a table of inputs rather than by reading (or
- * trusting) the engine's control flow. No Jev, no kernel, no Pi session.
+ * SL-76/SL-78 (contract §135.32, §135.3.1, §135.32 addendum 2; design D4): the pure gate over `COC_JEV_STEPS`
+ * and the turn-close pairing, pulled out of `hybrid-engine.ts`'s `routeConsequences`/`turnCloseStep` so "shadow
+ * never executes", "on executes only a listed class" and "the pairing row is written for the three outcomes" can
+ * be proven by a table of inputs rather than by reading (or trusting) the engine's control flow. No Jev, no
+ * kernel, no Pi session.
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { consequenceKeysToExecute, jevStepsMode, keeperDidFor } from "../../runtime/jev/hybrid-engine.ts";
 
-const ROW = (key, cleared) => ({ class: "npc_reaction", key, cleared, confidence: 0.9, distribution: { true: 0.9, false: 0.1 } });
+const ROW = (key, cleared, cls = "npc_reaction") => ({ class: cls, key, cleared, confidence: 0.9, distribution: { true: 0.9, false: 0.1 } });
 
 test("jevStepsMode: shadow is the default for anything but the two named values", () => {
 	assert.equal(jevStepsMode({}), "shadow");
@@ -19,16 +20,23 @@ test("jevStepsMode: shadow is the default for anything but the two named values"
 });
 
 test("consequenceKeysToExecute: shadow never executes a cleared row -- the whole of D4's 'shadow' rule in one table", () => {
-	const rows = [ROW("k1", true), ROW("k2", true), ROW("k3", false)];
-	assert.deepEqual(consequenceKeysToExecute("shadow", rows, new Set()), []);
-	assert.deepEqual(consequenceKeysToExecute("off", rows, new Set()), []);
+	const rows = [ROW("k1", true, "clue_follow_up"), ROW("k2", true, "clue_follow_up"), ROW("k3", false, "clue_follow_up")];
+	assert.deepEqual(consequenceKeysToExecute("shadow", rows, new Set(), ["clue_follow_up"]), [], "listed, cleared, still shadow: shadow never executes anything");
+	assert.deepEqual(consequenceKeysToExecute("off", rows, new Set(), ["clue_follow_up"]), []);
 });
 
-test("consequenceKeysToExecute: `on` executes every cleared row once, skipping an uncleared row and one already executed", () => {
-	const rows = [ROW("k1", true), ROW("k2", true), ROW("k3", false)];
-	assert.deepEqual(consequenceKeysToExecute("on", rows, new Set()).sort(), ["k1", "k2"]);
-	assert.deepEqual(consequenceKeysToExecute("on", rows, new Set(["k1"])), ["k2"]);
-	assert.deepEqual(consequenceKeysToExecute("on", rows, new Set(["k1", "k2"])), []);
+test("consequenceKeysToExecute: `on` executes every cleared row of a listed class once, skipping an uncleared row and one already executed", () => {
+	const rows = [ROW("k1", true, "clue_follow_up"), ROW("k2", true, "clue_follow_up"), ROW("k3", false, "clue_follow_up")];
+	assert.deepEqual(consequenceKeysToExecute("on", rows, new Set(), ["clue_follow_up"]).sort(), ["k1", "k2"]);
+	assert.deepEqual(consequenceKeysToExecute("on", rows, new Set(["k1"]), ["clue_follow_up"]), ["k2"]);
+	assert.deepEqual(consequenceKeysToExecute("on", rows, new Set(["k1", "k2"]), ["clue_follow_up"]), []);
+});
+
+test("consequenceKeysToExecute (SL-78, §135.32 addendum 2): `on` never executes a cleared row whose class is not listed -- it keeps the shadow path exactly as today", () => {
+	const rows = [ROW("k1", true, "npc_reaction"), ROW("k2", true, "clue_follow_up")];
+	assert.deepEqual(consequenceKeysToExecute("on", rows, new Set(), ["clue_follow_up"]), ["k2"], "npc_reaction is cleared too, but it is not on the list");
+	assert.deepEqual(consequenceKeysToExecute("on", rows, new Set(), []), [], "an empty execute list -- the data file's own safe default -- executes nothing at all");
+	assert.deepEqual(consequenceKeysToExecute("on", rows, new Set()), [], "the execute-classes argument defaults to empty, never to 'everything', when a caller omits it");
 });
 
 test("keeperDidFor: npc_reaction -- true on the same NPC, other on a different one, false on none", () => {

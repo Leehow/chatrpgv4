@@ -3,6 +3,10 @@
  * rules-data directory `extensions/kernel/index.ts`'s `lookBudget()` reads `look_budget` from (SL-72). Read once
  * per process and cached: the file does not change while a table is open. Thresholds live here, never as a
  * literal in `consequence-candidates.ts` or `hybrid-engine.ts`.
+ *
+ * SL-78 (§135.32 addendum 2) adds `execute`: the consequence classes `COC_JEV_STEPS=on` actually executes. A
+ * class not in this list keeps the shadow path even when the env switch is `on` (routed, paired at turn close,
+ * never executed) -- the per-class ruling is data, never a literal `if (class === 'clue_follow_up')` anywhere.
  */
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -15,10 +19,12 @@ export interface JevStepsBudget {
   rowRatio: number;
   /** The data file's own default for `COC_JEV_STEPS` when the environment does not set one. */
   shadow: boolean;
+  /** SL-78: the consequence classes `COC_JEV_STEPS=on` executes; every other class stays shadow-only under `on`. */
+  execute: readonly string[];
 }
 
 /** Used only if `content/rulesets/coc7/host-budgets.json` cannot be read; the shipped file carries the real default. */
-export const JEV_STEPS_FALLBACK: JevStepsBudget = Object.freeze({rowMin: 0.5, rowRatio: 2, shadow: true});
+export const JEV_STEPS_FALLBACK: JevStepsBudget = Object.freeze({rowMin: 0.5, rowRatio: 2, shadow: true, execute: Object.freeze([])});
 
 let cached: Promise<JevStepsBudget> | undefined;
 
@@ -37,13 +43,14 @@ export function jevStepsBudget(contentRoot?: string): Promise<JevStepsBudget> {
 async function readJevStepsBudget(contentRoot?: string): Promise<JevStepsBudget> {
   try {
     const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
-      jev_steps?: {row_min?: unknown; row_ratio?: unknown; shadow?: unknown};
+      jev_steps?: {row_min?: unknown; row_ratio?: unknown; shadow?: unknown; execute?: unknown};
     };
-    const rowMin = raw.jev_steps?.row_min, rowRatio = raw.jev_steps?.row_ratio, shadow = raw.jev_steps?.shadow;
+    const rowMin = raw.jev_steps?.row_min, rowRatio = raw.jev_steps?.row_ratio, shadow = raw.jev_steps?.shadow, execute = raw.jev_steps?.execute;
     return {
       rowMin: finite(rowMin) && rowMin > 0 && rowMin < 1 ? rowMin : JEV_STEPS_FALLBACK.rowMin,
       rowRatio: finite(rowRatio) && rowRatio > 1 ? rowRatio : JEV_STEPS_FALLBACK.rowRatio,
       shadow: typeof shadow === 'boolean' ? shadow : JEV_STEPS_FALLBACK.shadow,
+      execute: Array.isArray(execute) ? Object.freeze(execute.filter((value): value is string => typeof value === 'string')) : JEV_STEPS_FALLBACK.execute,
     };
   } catch {
     return JEV_STEPS_FALLBACK;
