@@ -5,7 +5,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { learnSpeechMarks, marksOf, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "../../extensions/kernel/unwrapped-speech.ts";
+import { isSpeechOnlyDraft, learnSpeechMarks, marksOf, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "../../extensions/kernel/unwrapped-speech.ts";
 
 test("the real turn: the investigator's line was wrapped, Knott's two replies were not", () => {
 	// game-21ac44b7-5f91-41a5-8ea7-9faf5b801a29 turn 1, abridged; the quoted word 「接」 is reported
@@ -84,4 +84,35 @@ test("§128.3: a wrap's ordinal is its row in the kernel's speech[], counting th
 	// Rows in text order: 甲-wrap 0, Keeper 1, 乙-wrap 2, Keeper 3, 丙-wrap 4.
 	assert.deepEqual(wrappedOrdinals(text, wraps), [0, 2, 4]);
 	assert.deepEqual(wrappedOrdinals(text, [{ ...wraps[1], name: "a}}b" }]), [], "a wrap that is never written has no row");
+});
+
+// §135.11's SL-80 addendum: a delivery that is one say block and nothing else is not a delivery on the
+// implicit path. Structural only -- span and marker syntax, never the words inside or outside them.
+test("§135.11 SL-80: a draft that is one say span and nothing else is speech-only", () => {
+	// Long gate #13 t1's own draft (`longgate13-haunting-0400`, turn 1), 66 characters, the whole reply.
+	assert.equal(isSpeechOnlyDraft('{{say:阿蒂·威尔莫特}}"钥匙拍在桌上也没用，先生。剪报室不对外……"{{/say}}'), true);
+	assert.equal(isSpeechOnlyDraft("{{say:甲}}「是。」{{/say}}"), true, "one span, nothing beside it");
+	assert.equal(isSpeechOnlyDraft("  {{say:甲}}「是。」{{/say}}  \n"), true, "whitespace beside the span is still blank");
+	assert.equal(isSpeechOnlyDraft("{{say:甲}}「是。」{{/say}}{{say:乙}}「也是。」{{/say}}"), true, "two spans and nothing else");
+	assert.equal(isSpeechOnlyDraft("{{say:甲}}「是。」{{/say}}{{clue:x}}"), true, "a mechanics marker beside the span is not prose");
+});
+
+test("§135.11 SL-80: any character outside every span or marker is prose, and delivers", () => {
+	assert.equal(isSpeechOnlyDraft("他点了点头。{{say:甲}}「是。」{{/say}}"), false, "narration before the span");
+	assert.equal(isSpeechOnlyDraft("{{say:甲}}「是。」{{/say}}他转身走了。"), false, "narration after the span");
+	assert.equal(isSpeechOnlyDraft("{{say:甲}}「是。」{{/say}}{{clue:x}}一句旁白。"), false, "prose beside the marker still counts");
+});
+
+test("§135.11 SL-80: a draft with no say span at all is not this shape (the bare-of-tokens speech steer's)", () => {
+	assert.equal(isSpeechOnlyDraft("他点了点头，什么也没说。"), false);
+	assert.equal(isSpeechOnlyDraft(""), false);
+	assert.equal(isSpeechOnlyDraft("{{clue:x}}"), false, "a marker alone carries no say span either");
+});
+
+test("§135.11 SL-80: an unclosed or emptied span is read through the same §40.1 repair", () => {
+	// An open with no close closes at the end of the text; nothing else is written, so this is speech-only.
+	assert.equal(isSpeechOnlyDraft("{{say:甲}}「是。」"), true);
+	// A span with no words is withdrawn by the repair itself, so the draft becomes plain, unwrapped prose --
+	// never mistaken for speech-only.
+	assert.equal(isSpeechOnlyDraft("{{say:甲}}{{/say}}他说了算。"), false);
 });
