@@ -36,8 +36,12 @@ function toolResultTexts(session, tool) {
 }
 
 test("a reading timeout shows the Keeper the focus and question its fix tells it to reuse", async (t) => {
+	// SL-87: the wait must run out for this test to exist, but only after the kernel has named the reading's job (the row
+	// below names it): at 50 ms the job's request had not answered on a loaded box, and the row carried no `job_id`. The wait
+	// is 5 s: it is spent whole on every run, so it is not the usual minute, and it is a hundred times the 50 ms a loaded
+	// box's kernel round trip outlasted.
 	const table = await openTable({
-		env: { FAKE_KERNEL_MATERIAL_PENDING: "1", FAKE_KERNEL_READING: "1", PI_COC_READ_WAIT_MS: "50" },
+		env: { FAKE_KERNEL_MATERIAL_PENDING: "1", FAKE_KERNEL_READING: "1", PI_COC_READ_WAIT_MS: "5000" },
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "farm", travel_minutes: 10 }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "The road to the farm is still being prepared." })], { stopReason: "toolUse" }),

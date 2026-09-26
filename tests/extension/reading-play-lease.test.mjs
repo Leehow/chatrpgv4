@@ -51,7 +51,9 @@ process.disconnect();`);
   const base = composeRuntimeContext({owner: 'preparation', home}, {resourceRoot: ROOT, env: {...process.env, PI_COC_HOME: home, PI_CODING_AGENT_DIR: agent}});
   const context = {...base, entrypoints: {...base.entrypoints, pi: cli}};
   const dispatched = async () => (await readFile(marker, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
-  const run = request => runtimeCapabilities.runTask(context, {kind: 'reader', request: {cwd, brief: 'Play lease conformance only', model: 'test/vision', timeoutMs: 10_000, ...request}},
+  // SL-87: the reader's time is not this file's subject; its token lease is. On a loaded box the child outlasted a 10 s
+  // lease deadline and the refusal read `budget_deadline`: the fixed lease's deadline is a minute here.
+  const run = request => runtimeCapabilities.runTask(context, {kind: 'reader', request: {cwd, brief: 'Play lease conformance only', model: 'test/vision', timeoutMs: 60_000, ...request}},
     new AbortController().signal);
   return {run, dispatched};
 }
