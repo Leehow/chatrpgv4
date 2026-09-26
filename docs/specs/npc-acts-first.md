@@ -57,11 +57,13 @@ Evidence: 两桌真桌 `npc-actor-gate-a`（12 回合）、`npc-actor-gate-a2`�
 - **他的状态**：HP 分数、conditions、立场（§17.3）、在不在会话里、轮到他没有。
 - **手边有什么**：§138.8 的 holdings、场景 view 的 objects/exits、在场的人（含调查员）。
 - **他已经做过什么**：`intentsView(entry)`（§138.1，最近 N 行带结果）+ 最近六句自己的话（`recent_speech`，已有）。这一段是「不重复」的依据。
-- **他的常备计划**：应对库的 open 行（§138.4 `openResponseRows`），标为「他早先打算」，只作参考。
+- **他在局中形成的打算**不是单独一段：那就是 §138 的意图行，已在「做过什么」里带着状态（一条 `attempted` 的行就是他还想做的事）。
 - **书和 Mod 的约束**：书上预定的反应（`preordained`）、Mod 的接触检定行（`pending_contacts`）、场景义务对他的要求。
 - **不放进去的**：其他 NPC 的秘密、调查员的卡、KP 视角的导演信号。
 
 字节预算 6 KB，按上表从下往上裁，`truncated` 记裁了什么。
+
+**开的生成，闭的枚举（2026-09-26，用户）。** 应对库那种「提前猜玩家会做什么、每种写一条应对、每回合在表里挑」是把开集当闭集，和 `Agents.md` 禁止的词表是同一种错；玩家的行动枚举不完，NPC 的交互也枚举不完。本 spec 里只有两处枚举，都是闭合的：内核能结算的方式（D3，契约 §12.1 封死的收据种类，留 `intention_only` 兜底所以任何一句都有去处），和书与 Mod 明写的数据（义务、守卫、接触检定）。NPC 做什么永远由生成给，不由表给。
 
 ### D2 生成步骤：一次补全，一句行动
 
@@ -97,10 +99,11 @@ Jev 一个闭合问题：「这句行动由上面哪一种结算」+ 各方式�
 - **会话外**：玩家的声明结算之后（书记员 `settled` 之后、compose 之前），对**本回合被作用的在场 NPC**各跑一次：被作用 = 本回合有收据以他为对象，或 compile 的 addressee 特征命中他（§135.30）。没被作用的人不跑（成本）。一回合最多 N 个（命名默认值 2，`host-budgets.json`）。
 - **不在 run 里跑的情形**：预算已过（§135.25 `overRun`）→ 跳过并记 `skipped_budget`；legacy 引擎 → 不跑（本 spec 只做 hybrid）。
 
-### D5 应对库退为常备计划；每回合的 advice 选择退役
+### D5 应对库与每回合的 advice 选择整体退役
 
-- `evaluateNpcResponses` 的每回合 13 问选行、`coc-npc-advice` 消息、`before_agent_start` 的 1250 ms 等待（`extensions/npc/index.ts:69–88`）全部退役：它每回合花一次 Jev 换来 5/22 的建议，且送重复行。
-- 应对库保留为**常备计划**：作者照旧生成（加上 D1 同一份「刚发生在他身上的事」进 packet，让计划不再只写剧情条件），open 行进 D1 的包；§138.4 的续期规则不变。`no_suitable_candidate` 触发重算的那条（`index.ts:173`）随选择退役。
+- 每回合选择退役：`evaluateNpcResponses` 的 13 问选行、`coc-npc-advice` 消息、`before_agent_start` 的 1250 ms 等待（`extensions/npc/index.ts:69–88`）、`no_suitable_candidate` 触发的重算（`:173`）。它每回合花一次 Jev 换来 5/22 的建议，且送重复行。
+- 应对库退役（不是降级）：`npc.responses.job` / `npc.responses.submit`、`npc/responses/<digest>.json`、`extensions/npc` 里 `kind: 'responses'` 的作者任务、§138.4 的续期与 `host-budgets.json` 的 `npc_responses.min_open_rows`、`openResponseRows` / `bankRows` 及其投影。理由见 D1 末段：它是提前猜的条件表，处境包里有的它没有，它有的处境包不需要。**人格任务（`npc.job` / `personality`）保留**：那是「他是谁」的描述，不是条件。
+- 旧战役：已存在的库文件不读、不删；契约在 §138.3、§138.4 加带日期的退役注。
 - 投影：KP 在胶囊 `present[].history.intents`（§138.2）和当回合收据里看到**已经发生的**行动；`director.offer` 的 `npc.intents` 行（§138.3）照旧。不再有「他可能会」的面板（记忆 `give-the-kp-a-chain-not-more-panels`）。
 
 ### D6 欠账与结果
@@ -126,7 +129,7 @@ Jev 一个闭合问题：「这句行动由上面哪一种结算」+ 各方式�
 
 1. **生成器用哪个模型。** 推荐：快模型设置（`PI_COC_NPC_ACT_MODEL` → fast-model → 本桌模型），和准入、口吻车道一致；一回合多一次 2–5 s 的调用（A2 桌中位 32 s）。备选：固定本桌 KP 模型（更慢，但「老板自己写」）。
 2. **书记员在 compose 前执行 NPC 的行动。** 这改变 09-26 上午「`npc_reaction` 继续影子」的边界：影子的是 Jev 判 Mod 检定，这里执行的是 LLM 写的行动的绑定。推荐：执行；否则又回到「参数在前」。
-3. **每回合 advice 选择退役**（D5）。推荐：退役；证据是 5/22 与重复行。保留只多一次 Jev 和一个面板。
+3. **应对库与每回合 advice 选择整体退役**（D5）。推荐：退役；证据是 5/22 与重复行，理由是它枚举的是开集（用户 09-26 的判断）。保留只多一次 Jev、一个作者任务和一个面板。
 
 ## 五、验收
 
@@ -145,7 +148,7 @@ Jev 一个闭合问题：「这句行动由上面哪一种结算」+ 各方式�
 | 02 | 生成步骤：指令文件、端口、模型解析 | 同上 | 01 |
 | 03 | `npc.act.options` 与绑定执行（会话内外两个触发） | 同上 | 01、02 |
 | 04 | 不重复的两道与欠账衔接 | 同上 | 02、03 |
-| 05 | advice 选择退役；应对库退为常备计划；投影 | 同上 | 03 |
+| 05 | 应对库与 advice 选择整体退役；投影 | 同上 | 03 |
 | 06 | KP 侧：keeper.md、工具说明、否决面 | 同上 | 03 |
 | 07 | 造景探针与裁判 | 同上 | 01–04 |
 | 08 | 真桌 C、B | ready-for-human | 01–07 合入并重打包 |
