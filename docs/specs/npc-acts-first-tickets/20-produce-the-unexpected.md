@@ -1,4 +1,4 @@
-Status: ready-for-agent（2026-09-26，用户：「按你的推荐做，概率调高一点，威胁度越高越容易出现出乎意料的情况」）
+Status: landed @ bd10daa13 + 33787ac36（合并 3bbbad722，2026-09-26；用户：「按你的推荐做，概率调高一点，威胁度越高越容易出现出乎意料的情况」）
 Spec: docs/specs/npc-acts-first.md（D10）
 
 # 20 — NPC 掏出出乎意料的东西
@@ -28,3 +28,12 @@ C4 T10（`.coc/campaigns/npc-acts-c4/turns/0010.json` 的 stakes 收据，teleme
   - surprise 为假却给了 `produces` → 丢弃、遥测 `produces_dropped`、不落任何物件。
 - 变异：去掉 surprise 判断（总允许掏）→ 第三条逮住；去掉「都不是」的铸造 → 第二条逮住。
 - 造景（可选，Mac、真模型）：用 07 的探针对 C4 的处境跑一轮，报告 surprise 回合里 `produces` 的出现率与内容（只报告，不设线）。
+
+## 落地记录（2026-09-26）
+
+- 威胁表加 surprise 列（calm 10 / tense 20 / dangerous 30 / lethal 45），severe/escalates 按工单上调；任何一列逐档下降，表就被拒。
+- 生成器输出 `{act, produces?}`；没有 surprise 时 `produces` 被丢弃并记 `produces_dropped`，不重试。D9 的 severe 拔武器并进了 produce（severe 总在 surprise 之内）。
+- 1920s 价目表 396 条，超过一道 Jev 问题的上限（255），先问部分再问部分内的记录（第二批）。武器记录走既有 `_draws`，其余走 `_produces`，在对象登记簿里放一件没有数值的东西。
+- 桌上物件没走 KP 的 `define`：那条路要生成 mod 和写数值的子进程，与「没有数值」冲突，所以内核自己拼定义、用登记簿的 `defineObject`/`moveObject` 放。
+- 实机探针（gate-a 一轮 6 回合）：2 回合允许 surprise，2/2 出了 `produces`；T6「.32 左轮」对上书里的记录；**T3「短管左轮」没有一条记录过闸，被铸成没有数值的枪 → 工单 23（已修，§139.22）**。
+- worker 把集成分支合进自己分支那一步被权限拦了，由我在集成分支上合（冲突只在契约结尾和 spec 表）。
