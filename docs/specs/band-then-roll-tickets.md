@@ -84,7 +84,7 @@ upstream); the guard removed; each caught.
 
 ## BR-03 — The item creator copies a host-chosen preset
 
-Status: ready-for-agent
+Status: ready-for-human (implemented 2026-09-26 on `claude/br03-creator-preset-20260926` at `4759ca090`; awaiting review and merge, see Comments)
 Depends on: BR-01 merged (the registry and the weapon band question shape); independent of BR-02.
 
 **What.** Spec D7. The kernel's definition and usage job packet gains `request.preset` (the weapon profile the
@@ -250,6 +250,99 @@ follow-up commit and green; the other, `workspace-lifecycle`'s one-lock case, a 
 timed out waiting 30 s for a JSON line under `-n 12` (`test_table_branch` dormant line, `test_transactions`
 idempotent replay) and pass 2 / 2 on the Mac, and the two `test_driver.py` cases the box always fails (63 / 63 on
 the Mac, where the driver runs). Nothing red touches the recovery.
+
+### 2026-09-26 — BR-03 implemented (`claude/br03-creator-preset-20260926`, `4759ca090`)
+
+Contract: `docs/kernel-rpc.md` §138.7, plus one pointer line in the Enhanced Items "Packages, activation and upgrade"
+paragraph. Code: `kernel-ts/mods/preset.ts` (new: the row projected onto the definition's parameters, the offer, the
+packet block, the gate), `kernel-ts/mods/jobs.ts` (`jobPreset`: offer, choice, a queued registration's retained preset;
+the preset block's digest in `identity.request`; the gate and the provenance in `acceptJob`), `kernel-ts/check.ts` (the
+definition and usage checker runs the same gate from the draft's sibling `request.json`), `kernel-ts/rules/bands.ts`
+(`weaponBandOptions` / `weaponRowNamed`, now shared by the kernel's `needs weapon` refusal and the offer),
+`kernel-ts/apply/inventory.ts` (uses them), `kernel-ts/read/mods.ts` (capability `weapons.preset.v1`),
+`extensions/mods/creator-preset.ts` (new: offer parsing, `askBand`, the rows), `extensions/mods/index.ts` (`mintJob` in
+`task` and `defer`), `mods/enhanced-items` 1.3.0 (`mod.json`, `creator.md`, `CHANGELOG.md`),
+`tests/fixtures/mods/enhanced-items-v122/` (the 1.2.2 package bytes; its digest equals the frozen copy retained under
+the pi-coc-v2 checkout's `.coc/mods/packages/enhanced-items/1.2.2`).
+
+Decisions taken inside the ticket's scope:
+- **Where the question runs and how the preset reaches the packet.** The kernel mints `request.json` and the job id in
+  one call, so the host could not add a field afterwards without breaking the retained-job key. `mods.job` takes an
+  opt-in `offer_preset: true`: for a job that takes a preset the kernel answers `preset_offer` (the era's rows, the
+  thing, the declaration) and mints nothing; the host asks and calls again with `preset` or without it. The kernel,
+  not the host, knows the package capability, the era, a reuse, a queued marker and the object's recorded facts, so no
+  extra host read exists. With neither parameter every job is minted exactly as before, so every direct `mods.job`
+  caller and test is untouched; the host sends `offer_preset` only for a weapon `create` or an action `usage`.
+- **Identity.** `identity.request.preset` is a digest of the whole `request.preset` block, not the id: the child can
+  write its own directory, and an id-only key let an edited `preset.parameters` pass the key check and redefine what the
+  gate compares against (caught by the forged-packet case below). Consequence: the same row with a different confidence
+  is a different job; the host's per-process memo keeps one answer per offered job identity.
+- **A queued registration keeps its preset (§129).** A later `create` whose input equals the marker's `define` reads the
+  preset back from the marker's retained packet, otherwise the resume would mint a job the marker never looks at.
+- **`deviations` is a structured result field**, as the lead's brief asked, rather than the spec D7 wording "saying so in
+  `basis`": the gate counts statements and cannot read prose. It lives in the accepted provenance (`preset: {table, id,
+  confidence}`, `deviations`), never in the definition, so `validateDefinition` and its 148-case fixture are unchanged.
+- **Projection.** `uses_per_round` is the combat engine's own `parseUsesPerRound` shots when the row allows a positive
+  number every round; a full-auto-only row or one use every few rounds (the Molotov's `1/2`) states none, and the creator
+  decides it as before. A field the preset does not state cannot be listed as a deviation.
+- **Who is offered nothing:** items, spells, audits, prefetched proposals, a reused definition or usage, a campaign
+  locked to 1.2.2, and a `create` whose `template` names a weapons row (the Keeper named its evidence; it stays evidence
+  as in 1.2.2). Whether a Keeper-named template should itself become the gated preset is left to the owner.
+- **Era** is the first party sheet's `era`, else the module's (the inventory refusal reads one sheet; a definition has
+  no owner).
+- **Cost on the deferral path.** A deferred weapon definition now waits in the foreground for one band question before
+  its marker lands (median about 0.3 s, capped by `PI_COC_BAND_JEV_TIMEOUT_MS`); items are unaffected.
+- **`mintJob` is not async on the non-offerable path**, so every other job keeps the exact promise it had.
+  `tests/extension/mods.test.mjs` "a definition child gets no shell" asserts background work immediately after
+  `prepare` returns, and one extra `await` level made it read before the child ran; it is a timing-sensitive test
+  (it does not wait on the condition it asserts, contrary to `tests/extension/wait.mjs`) and is left as it was.
+
+Tests (single files, on the Mac, this worktree; the full suites are the integrator's):
+- `tests/extension/creator-preset.test.mjs`: 12 / 12 (9 tests, one with three subtests) — the offer mints nothing and
+  names the era's rows, the thing and the declaration; no preset without one; the projected row with one, the whole
+  block as identity, `uses_per_round` unstated for `1/2`, `preset_unknown`; a queued registration keeps its preset a
+  turn later; items, spells and a weapons-row template are not offered; the gate refuses an unstated departure at
+  acceptance and in the checker, a forged packet, an unfounded and a malformed statement, accepts a copied and a stated
+  one with provenance, and gates nothing without a preset; a usage is offered the object and gated; 1.3.0 at
+  `681d03dd…` and 1.2.2 at `7714ce10…`, a 1.2.2 campaign offered nothing and a stray preset ignored; the real Mods
+  extension over the kernel with a stub typed endpoint: above the gate one question (two requests) for the deferral and
+  the generation beside it, bind and `band-recovery` rows naming the job; below the gate, `none` and no key minted
+  without a preset with the rows saying why; a usage batch waits for its preset.
+- `tests/extension/object-usages-host.test.mjs` 34 / 34 (the usage job's expected params now include
+  `offer_preset: true`), `mods` 14 / 14, `mods-prefetch` 25 / 25, `mods-progress` 5 / 5, `apply-defer-any-batch`
+  4 / 4, `foreground-item-core` 2 / 2, `object-usages-rpc` 2 / 2, `-stateful` 5 / 5, `-public` 1 / 1, `-scene` 4 / 4,
+  `-compat` 4 / 4, `band-recovery` 8 / 8, `jev-band-recovery-domain` 5 / 5, `band-operations` 2 / 2,
+  `mod-package-boundary` 4 / 4, `ts-kernel-mods` 1 / 1, `ts-kernel-mod-catalog` 5 / 5, `mod-build-skew` 6 / 6,
+  `control-flow-inventory` 4 / 4 (no new Jev call site: `askBand` is reused), `system-language` 5 / 5,
+  `world-state-seams` 3 / 3, `mechanics-shape` 52 / 52, `continuity-adaptation` 43 / 43, `runtime-host` 8 / 8,
+  `runtime-reader` 22 / 22.
+- pytest over the rebuilt emitted kernel, one file at a time: `test_mods` 42, `test_mod_checker` 1,
+  `test_apply_item_cash` 11, `test_mod_order` 4, `test_mod_documents` 11, `test_band_operations` 12,
+  `test_mod_director_text` 13 — all passed. `npm run check:kernel` clean.
+- Golden walk (the-haunting, mystery-house, voice-bench, the-haunting-rulebook; capsule, `table.apply.options`,
+  `table.resolve.options` at the start scene and after one move; frozen clock, seed 5; parent `da64930f5`): with the
+  package held at 1.2.2 the branch's 24 reads are byte-identical to the parent's; as shipped, the only differences are
+  the enhanced-items version (`1.2.2` → `1.3.0`) in the capsule's `mods.active` and `mods.instructions` and the
+  world/source revision digests that hash the package lock. The `needs weapon` refusal is byte-identical for an exact
+  id, a near name and a non-weapon name.
+
+Mutation record (each run over `tests/extension/creator-preset.test.mjs`, restored by copy afterwards):
+
+| mutation | caught by |
+| --- | --- |
+| the gate removed (no findings refused) | the gate case; the usage case |
+| the preset dropped from the packet | six cases: the offer, the queued, the gate, the usage, and both host cases that copy it |
+| the stated deviations ignored | the gate case (a stated departure refused) |
+| identity ignores the preset | the offer case (same key for different presets); the gate case (forged packet) |
+| identity binds only the preset id | the offer case (confidence); the gate case (forged packet accepted) |
+| a queued registration does not keep its preset | the queued case |
+| the capability check removed | the versions case (1.2.2 offered a preset) |
+| the host asks again for the same job | the above-gate case and all three below-gate subtests |
+| the checker ignores the packet's preset | the gate case; the usage case |
+
+Not covered: a live Jev and a live creator child (the child here copies whatever its packet names); `kpi.py` does not
+count `creator_preset` rows; a usage over a preview-staged object with a preset is exercised only by the preview
+parameter reaching the same `mintJob`; the heavy suites (`npm run test:ext`, full pytest) were not run here.
 
 ### 2026-09-26 — BR-04 implemented (`claude/br04-band-shadow-20260926`, `b21497dbf`)
 
