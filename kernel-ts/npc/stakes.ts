@@ -15,6 +15,10 @@
  * bring out something no one at the table knew they had. The table gives the permission as a line (`lines.surprise`, or
  * `lines.severe_surprise` on a severe roll): a permission and its degree, never an object.
  *
+ * Ticket 27 (§139.26): a person being fought is not calm between blows. Two more structural shifts -- a fight running
+ * with them and an investigator among its participants, and last turn's attack or damage against them (the newest
+ * committed turn, read by the same predicate as this turn's) -- stack with the others, as every shift does.
+ *
  * Every number is the table's; this file knows only what each shift compares.
  */
 import {join} from 'node:path';
@@ -34,7 +38,7 @@ import {npcProfileOf} from '../resolve/context.js';
 import {stanceTable} from '../write/contributions.js';
 import type {createWriteRuntime} from '../write/index.js';
 import {nowIso, turnStateError} from '../write/store.js';
-import {personOf, placedConstraints, stateOf, type Person} from './situation.js';
+import {committedOnLine, personOf, placedConstraints, stateOf, type Person} from './situation.js';
 import {STAKES_FAMILY, isStakesRoll, stakesView} from './stakes-receipt.js';
 
 const FILE = 'npc-stakes.json', CONTRACT = 'coc.npc-stakes.v1';
@@ -54,6 +58,8 @@ const COLUMNS = ['severe_at_most', 'escalates_at_most', 'surprise_at_most'] as c
  */
 const SHIFT_PARAMETERS: Readonly<Record<string, string | null>> = Object.freeze({
     attacked_this_turn: null,
+    attacked_last_turn: null,
+    in_fight_with_investigators: null,
     hp_at_most_half: 'hp_fraction_at_most',
     table_clock_past_half: 'clock_fraction_above',
     stance_friendly: 'stance_in',
@@ -141,9 +147,9 @@ function baseRung(graph: ModuleGraph, world: Row, handle: string, table: Row): R
 }
 
 /**
- * Whether this turn an attack roll was made against this person (a combat roll whose `combat_action` is `attack` and
- * whose `npc`, the person it was made against, is them) or they lost hit points (an `hp` delta whose `after` is below
- * its `before`). Structure only.
+ * Whether among these receipts (this turn's; §139.26 also last turn's) an attack roll was made against this person (a
+ * combat roll whose `combat_action` is `attack` and whose `npc`, the person it was made against, is them) or they lost
+ * hit points (an `hp` delta whose `after` is below its `before`). Structure only.
  */
 export function attackedThisTurn(receipts: Row[], me: Person): boolean {
     return receipts.some(value => {
@@ -165,11 +171,29 @@ function tableClocks(graph: ModuleGraph, world: Row): Array<[number, number]> {
     return [...book, ...minted];
 }
 
+/**
+ * §139.26: whether a fight is running with this person and an investigator among its participants -- the active session
+ * is a combat, they are a participant (by handle, as the packet's `state.in_session` reads it) and so is someone of the
+ * party. Their side, their turn and whether anyone struck them do not matter: being in the fight is the fact.
+ */
+export function inFightWithInvestigators(view: SessionView, session: Row | null, me: Person): boolean {
+    if (session?.kind !== 'combat' || session.status !== 'active') return false;
+    const names = array(session.participants).map(value => string(row(value).name));
+    return names.includes(me.handle) && names.some(name => view.isInvestigator(name));
+}
+
 /** The facts the shifts compare, as the situation packet reads them. */
-interface StakesFacts { attacked: boolean; hp: number | null; hpMax: number | null; stance: string | null; clocks: Array<[number, number]> }
+interface StakesFacts {
+    attacked: boolean; attackedLast: boolean; inFight: boolean;
+    hp: number | null; hpMax: number | null; stance: string | null; clocks: Array<[number, number]>;
+}
 function shiftHolds(name: string, shift: Row, facts: StakesFacts): boolean {
     if (name === 'attacked_this_turn')
         return facts.attacked;
+    if (name === 'attacked_last_turn')
+        return facts.attackedLast;
+    if (name === 'in_fight_with_investigators')
+        return facts.inFight;
     if (name === 'hp_at_most_half')
         return facts.hp !== null && facts.hpMax !== null && facts.hpMax > 0 && facts.hp / facts.hpMax <= number(shift.hp_fraction_at_most);
     if (name === 'table_clock_past_half')
@@ -207,9 +231,14 @@ async function factsOf(context: KernelContext, campaign: CampaignSnapshot, graph
     let ledger: Row = {};
     try { ledger = row(await campaign.optional('npc-ledger.json')); } catch { /* An unreadable ledger is an empty one, as for the situation read. */ }
     const stance = stanceNow(graph, ledger, await stanceTable(context), turn, me.handle);
-    const state = stateOf(graph, world, me, new SessionView(campaign, graph, party, world).activeSession(), stance);
+    const view = new SessionView(campaign, graph, party, world), session = view.activeSession();
+    const state = stateOf(graph, world, me, session, stance);
     const hp = typeof state.hp === 'number' ? state.hp : null, hpMax = typeof state.hp_max === 'number' ? state.hp_max : null;
-    return {attacked: attackedThisTurn(array(turn.receipts), me), hp, hpMax, stance, clocks: tableClocks(graph, world)};
+    // §139.26: last turn is the newest committed turn before this one on the campaign's line, the record the situation's
+    // `happened` reads its earlier sentences from.
+    const {previous} = committedOnLine(campaign);
+    return {attacked: attackedThisTurn(array(turn.receipts), me), attackedLast: previous !== null && attackedThisTurn(array(previous.receipts), me),
+        inFight: inFightWithInvestigators(view, session, me), hp, hpMax, stance, clocks: tableClocks(graph, world)};
 }
 
 export function createStakesHandlers(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {

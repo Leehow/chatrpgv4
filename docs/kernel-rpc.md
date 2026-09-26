@@ -24100,6 +24100,15 @@ without a surprise); `npc.stakes`' answer and the situation's `stakes` are `{run
 surprise_line}` (`stakesView`; a receipt written before this reads `surprise: false`). Ticket 09's seeds were re-read under
 the new thresholds: 3, 2 and 1 still roll 5, 30 and 56 on the dangerous rung, so severe, escalates and nothing stand.
 
+*Note, 2026-09-26 (§139.26, ticket 27, the table `npc-acts-d`):* `shifts` gains two structural shifts,
+`attacked_last_turn` (`attacked_this_turn`'s predicate over the newest committed turn before this one) and
+`in_fight_with_investigators` (a fight is running with this person and an investigator among its participants), each
+`{step: <integer>}` with no parameter; the shipped table gives each `step: 1`, in the order `attacked_this_turn`,
+`attacked_last_turn`, `in_fight_with_investigators`, `hp_at_most_half`, `table_clock_past_half`, `stance_friendly`. They
+stack with the others, as every shift here does. `stakesTable` reads six shift names now; an unknown one, or a parameter
+on either new one, is still refused. The Tests paragraph above describes ticket 09's first build: the landed punch now
+also opens a fight, so the rung is two above the base, and the seeds were re-picked (§139.26).
+
 **139.9 Flight needs footing, and a pursuit is the pursuer's own call (2026-09-26, ticket 10 of
 `docs/specs/npc-acts-first-tickets/`; amends §11.5's combat and chase lines and §138.10).** Two defects of the combat
 engine's flight, both found reviewing the gate tables (spec section 七):
@@ -25303,3 +25312,56 @@ revolvers at 0.45/0.40 with `none` 0.15 bind the leading one and the attack fire
 0.9 is taken on its own gate with no mark; `none` leading, and 0.59 on records under a 0.6 gate, stay the table's own
 with no weapon; the one-question list reads the same. One existing assertion changed (the `none` criterion's words).
 Mutation (copy and restore): the kind reading disabled fails the near-kin case. **Not verified live.**
+
+**139.26 A person being fought is not calm between blows: the fight and last turn's blow are shifts of the stakes die
+(2026-09-26, ticket 27 of `docs/specs/npc-acts-first-tickets/`, `27-stakes-hold-in-a-fight.md`; spec D9, D10 and section
+九, table D; amends §139.8's shifts).**
+**Evidence.** Table `npc-acts-d` (the-haunting): the Keeper gave Knott `avoids_fighting`, so his base rung was calm
+(`base_by_disposition`), and the only shifts that could move him up were `attacked_this_turn`, `hp_at_most_half` and
+`table_clock_past_half`. Turn 4 was his own turn of the fight a turn after a punch, turn 7 came right after he was chased
+and struck (the scan acted before the punch landed, ticket 26): both rolled on calm, a surprise at most 10. The owner's
+D10 is that the higher the threat, the likelier a surprise; a man being fought is not calm.
+**Two shifts, both structure** (data in `npc-stakes.json`, the kernel writes no step):
+- `in_fight_with_investigators`: the active session of the campaign (`SessionView.activeSession()`, the one the §139.1
+  packet reads) is a combat with `status: "active"`, this person is among its participants (by handle, the test the
+  packet's `state.in_session` makes) and so is an investigator (a participant whose name is a party sheet's id). Their
+  side, whose turn it is and whether anyone struck them do not matter. A chase or a sanity bout is not a fight, as the
+  ticket scoped it.
+- `attacked_last_turn`: the predicate of `attacked_this_turn` (an attack roll made against them by someone else, or an
+  `hp` delta of theirs whose `after` is below its `before`) over the receipts of the newest committed turn before this one
+  on the campaign's line (`committedOnLine(campaign).previous`, the record the situation's `happened` reads its earlier
+  sentences from). Only that turn: a blow two committed turns back moves nothing.
+
+Each is `{step: <integer>}` with no parameter (and an optional `note`); the shipped table gives each `step: 1`. The
+receipt's `shifts` name them in the table's order (`attacked_this_turn`, `attacked_last_turn`,
+`in_fight_with_investigators`, `hp_at_most_half`, `table_clock_past_half`, `stance_friendly`).
+**Stacking.** The ticket left it to the table's existing rule, and that rule (§139.8) sums the step of every shift whose
+condition holds and clamps the index to the first and last rung. So the new shifts stack with each other and with the
+rest: a calm person in a running fight is tense; on their own turn of it a turn after a punch (table D's turn 4),
+dangerous; struck again this turn, lethal. A person on the default rung (tense) whom an investigator punches is lethal at
+once -- the blow and the fight it opened. Conditions that usually come together (a blow and a fight) are each counted:
+each is a fact about how dangerous the moment is, and the owner asked that danger make a surprise likelier. The steps
+are data; a step of 0 turns a shift off without a code change.
+**The check.** `stakesTable` (§139.8) reads the two names as shifts the kernel compares; an unknown shift is still
+refused, and so is a parameter on either new one (`campaign_not_ready`, the offending shift in `details`). Nothing else
+of the table's check changes.
+**Three ends (§31).** *Writer:* nothing new -- the combat engine's session (`save/combat.json`) and the committed turn
+records' receipts, as they already are. *Reader:* `npc.stakes` (`factsOf` → `stakesRung`, `kernel-ts/npc/stakes.ts`).
+*Actor:* the rung the die rolls on, which reaches the generator as `stakes` with its degree line and surprise permission
+(§139.8, §139.19), and the Keeper through the receipt's `shifts`.
+**Tests.** `tests/kernel/test_npc_stakes.py`: Corbitt with `avoids_fighting` (calm) throws the first punch -- a fight with
+him and the investigator in it, no attack made against him and no hit point lost -- is on tense with `shifts:
+["in_fight_with_investigators"]`; a turn after the investigator's punch, the fight still running, `["attacked_last_turn",
+"in_fight_with_investigators"]` and dangerous; the punch, the fight ended (`combat:end`), the turn committed -- the next
+turn, no fight running, `["attacked_last_turn"]` and tense, and the turn after that calm with no shift; nothing done and
+no fight, calm as before; two more malformed tables refused before a roll (a parameter on `in_fight_with_investigators`, a
+step of 0.5 on `attacked_last_turn`). Existing tests changed (five, no assertion loosened): the acceptance test after a landed
+punch now reads both shifts and a rung two above the base, lethal, and its seeds were re-picked because the new shift
+moved which rung they land on -- the rolls did not change (3, 1 and 21 roll 5, 56 and 78: severe, escalates, nothing on
+lethal 30/65, each after a landed punch; seed 2's 30 is severe there); the surprise test is on lethal (column 45), seeds
+re-picked to 3, 14, 22 and 1 (5 and 42 allow a surprise, 46 and 56 do not); the once-per-turn test's next turn now reads
+`["attacked_last_turn", "in_fight_with_investigators"]` where it read no shift (the fight still runs and last turn's
+punch stands); the clamp test's shifts gain `in_fight_with_investigators`; the shipped table's shift set gains the two
+names. Mutation record (copy and restore): `in_fight_with_investigators` removed from the table fails the first-punch
+case (`[] == ["in_fight_with_investigators"]`); the kernel never reading `attacked_last_turn` fails the no-fight case,
+the turn-4 case and the once-per-turn case. **Not verified live.**

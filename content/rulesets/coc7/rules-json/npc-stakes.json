@@ -1,7 +1,7 @@
 {
   "contract_id": "coc.npc-stakes.v1",
   "schema_version": 1,
-  "note": "Contract §139.8 and §139.19 (docs/specs/npc-acts-first.md D9, D10): the Keeper's stakes die for a person who has no prepared reaction this turn. It is the table's die, not the CoC 7e Luck roll: Luck is the player's, per investigator, spent and recovered; this die is the Keeper's, per situation. Once per person per turn, before the table generates what that person does, the kernel takes a base rung (base_by_disposition over the person's combat disposition, else base_by_archetype over the rulebook archetype the table pinned for them, else default_rung), moves it by the step of every shift whose condition holds, clamps it to the first and last rung, and rolls 1d100: at most severe_at_most is `severe`, else at most escalates_at_most is `escalates`, else `nothing`. The same roll, at most surprise_at_most, is a `surprise`: this person may bring out something no one at the table knew they had. Rungs are listed from the least dangerous to the most, and none of the three numbers falls from one rung to the next. No rung makes `severe` certain. The lines of a rung are what the generator is told: `severe` and `escalates` a degree, `surprise` and `severe_surprise` (a surprise on a severe roll) a permission and its degree -- never an action, never an object, never an example of either. Every number lives here; the kernel writes no threshold of its own. Shift conditions: attacked_this_turn (this turn an attack roll was made against the person, or they lost hit points), hp_at_most_half (hit points at most hp_fraction_at_most of their maximum), table_clock_past_half (a threat clock of this table stands above clock_fraction_above of its segments), stance_friendly (the person's stance word from the ledger, §17.3, is one of stance_in). A shift absent from this table moves nothing.",
+  "note": "Contract §139.8 and §139.19 (docs/specs/npc-acts-first.md D9, D10): the Keeper's stakes die for a person who has no prepared reaction this turn. It is the table's die, not the CoC 7e Luck roll: Luck is the player's, per investigator, spent and recovered; this die is the Keeper's, per situation. Once per person per turn, before the table generates what that person does, the kernel takes a base rung (base_by_disposition over the person's combat disposition, else base_by_archetype over the rulebook archetype the table pinned for them, else default_rung), moves it by the step of every shift whose condition holds, clamps it to the first and last rung, and rolls 1d100: at most severe_at_most is `severe`, else at most escalates_at_most is `escalates`, else `nothing`. The same roll, at most surprise_at_most, is a `surprise`: this person may bring out something no one at the table knew they had. Rungs are listed from the least dangerous to the most, and none of the three numbers falls from one rung to the next. No rung makes `severe` certain. The lines of a rung are what the generator is told: `severe` and `escalates` a degree, `surprise` and `severe_surprise` (a surprise on a severe roll) a permission and its degree -- never an action, never an object, never an example of either. Every number lives here; the kernel writes no threshold of its own. Shift conditions: attacked_this_turn (this turn an attack roll was made against the person, or they lost hit points), attacked_last_turn (the same, in the newest committed turn before this one), in_fight_with_investigators (a fight is running with the person and an investigator among its participants), hp_at_most_half (hit points at most hp_fraction_at_most of their maximum), table_clock_past_half (a threat clock of this table stands above clock_fraction_above of its segments), stance_friendly (the person's stance word from the ledger, §17.3, is one of stance_in). Every shift whose condition holds moves the rung by its step, summed (contract §139.26: the fight and last turn's blow stack with this turn's). A shift absent from this table moves nothing.",
   "rungs": [
     {
       "name": "calm",
@@ -66,6 +66,12 @@
   "default_rung": "tense",
   "shifts": {
     "attacked_this_turn": {
+      "step": 1
+    },
+    "attacked_last_turn": {
+      "step": 1
+    },
+    "in_fight_with_investigators": {
       "step": 1
     },
     "hp_at_most_half": {
