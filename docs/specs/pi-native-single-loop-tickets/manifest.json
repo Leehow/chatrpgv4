@@ -414,6 +414,11 @@
       "id": "SL-82",
       "file": "82-first-step-thinking-sizes-its-own-cap.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-83",
+      "file": "83-shadow-pairing-compares-a-label-to-a-handle.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
