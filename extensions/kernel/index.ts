@@ -16,7 +16,7 @@ export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
 import { automaticDefense, isDefenseChoice, readDefensePreference } from '../../runtime/combat-defense.ts';
 import { agentHomeOf, openingHelp } from "../ui/hints.ts";
-import { extensionSurface } from "../ui/words.ts";
+import { extensionContentRoot, extensionSurface } from "../ui/words.ts";
 import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError } from "./client.ts";
 import { progressPartial } from "./progress.ts";
 import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view.ts';
@@ -466,6 +466,22 @@ interface TableState {
 	callRounds: Map<string, number | string>;
 	/** Tools shut for the rest of the turn by the refusal budget, with the reason read back to the Keeper. */
 	exhausted: Map<string, string>;
+	/**
+	 * Contract §34.12's look budget addendum (SL-72): successful `look`/`lookup`/`recall` calls this
+	 * turn. A `lookup kind=source` answered `pending` counts once here too (see `pendingSourceCounted`,
+	 * below), since nothing else stops a repeat of the identical still-pending focus/question.
+	 */
+	looksThisTurn: number;
+	/** The one-time `{lane:"looks", reason:"look_budget", ...}` telemetry row has already been sent this turn. */
+	lookBudgetNotified: boolean;
+	/**
+	 * `lookup kind=source` focus/question pairs already counted toward `looksThisTurn` while their
+	 * consultation is still `pending` (§22.4.3, SL-36): the pending answer's own note tells the Keeper
+	 * not to resend the same lookup this turn, but nothing stops it from doing so, so a repeat of the
+	 * exact same still-pending question is not charged twice. A different focus, or the same focus once
+	 * it has landed, is an ordinary look and counts every time.
+	 */
+	pendingSourceCounted: Set<string>;
 	/** The turn narrate has committed but the verifier lane has not yet started on (contract §12.5: it runs after the delivery replacement). */
 	pendingCommit?: CommitPayload;
 	/**
@@ -647,6 +663,31 @@ function strikeRefusalClass(
 }
 /** Refusals of any class a turn tolerates before every write but narrate and ask is shut. */
 const REFUSAL_BUDGET = 8;
+/** Contract §34.12's look budget addendum (SL-72): the tools it counts. */
+const LOOK_BUDGET_TOOLS: ReadonlySet<string> = new Set(["look", "lookup", "recall"]);
+/** Used only if `content/rulesets/coc7/host-budgets.json` cannot be read; the shipped file carries the real default. */
+const LOOK_BUDGET_FALLBACK = 8;
+let lookBudgetValue: Promise<number> | undefined;
+/**
+ * Contract §34.12's look budget addendum (SL-72): how many `look`/`lookup`/`recall` calls a turn
+ * gets before the host answers the rest itself. A named default in `content/rulesets/coc7/`'s own
+ * rules data, the same directory the kernel's other numeric rules live under, and not a literal
+ * here -- so tuning it is a data change, not a code change. Read once per process and cached: the
+ * file does not change while a table is open.
+ */
+function lookBudget(): Promise<number> {
+	return (lookBudgetValue ??= (async () => {
+		try {
+			const raw = JSON.parse(await readFile(join(extensionContentRoot(), "rulesets", "coc7", "host-budgets.json"), "utf8")) as {
+				look_budget?: { per_turn?: unknown };
+			};
+			const value = Number(raw.look_budget?.per_turn);
+			return Number.isInteger(value) && value > 0 ? value : LOOK_BUDGET_FALLBACK;
+		} catch {
+			return LOOK_BUDGET_FALLBACK;
+		}
+	})());
+}
 /**
  * How long a provider call must have hung, before dying with nothing, for the player to be owed a
  * word about it (contract §38.7). Below this a failed-and-retried call is a blip the player never
@@ -1489,6 +1530,9 @@ export default function (pi: ExtensionAPI) {
 		table.callKeys.clear();
 		table.refusalClasses.clear();
 		table.refusalsThisTurn = 0;
+		table.looksThisTurn = 0;
+		table.lookBudgetNotified = false;
+		table.pendingSourceCounted.clear();
 		table.callTools.clear();
 		table.callRounds.clear();
 		table.exhausted.clear();
@@ -3897,6 +3941,20 @@ export default function (pi: ExtensionAPI) {
 				...(spec.name === "recall" ? {response_bytes: Buffer.byteLength(JSON.stringify(result), "utf8")} : {}),
 			});
 			keepRead(true);
+			// Contract §34.12's look budget addendum (SL-72): a successful look/lookup/recall counts once here.
+			// A `lookup kind=source` still `pending` (§22.4.3, SL-36) counts once too, keyed on its own focus and
+			// question: the pending note tells the Keeper not to resend it this turn, but nothing stops a resend,
+			// so a repeat of the exact same still-pending question is not charged a second time. A different
+			// focus, or the same one once it has landed, is an ordinary look.
+			if (LOOK_BUDGET_TOOLS.has(spec.name)) {
+				const pendingKey = spec.name === "lookup" && (sourceAnswer as { status?: unknown } | undefined)?.status === "pending"
+					? `${asString(params.query) ?? ""}\u0000${asString(params.question) ?? ""}`
+					: undefined;
+				if (!pendingKey || !state.pendingSourceCounted.has(pendingKey)) {
+					if (pendingKey) state.pendingSourceCounted.add(pendingKey);
+					state.looksThisTurn += 1;
+				}
+			}
 			const besideNote = takeBesideSteer(toolCallId, spec.name);
 			if (besideNote) result = { ...result, prose_dropped: besideNote };
 			await noteBesideOutcome(toolCallId, { outcome: "landed", ...(admissionVerdict ? { admission: admissionVerdict } : {}) });
@@ -4257,6 +4315,9 @@ export default function (pi: ExtensionAPI) {
 				callKeys: new Map(),
 				refusalClasses: new Map(),
 				refusalsThisTurn: 0,
+				looksThisTurn: 0,
+				lookBudgetNotified: false,
+				pendingSourceCounted: new Set(),
 				callTools: new Map(),
 				callRounds: new Map(),
 				exhausted: new Map(),
@@ -4729,6 +4790,9 @@ export default function (pi: ExtensionAPI) {
 			state.callKeys.clear();
 			state.refusalClasses.clear();
 			state.refusalsThisTurn = 0;
+			state.looksThisTurn = 0;
+			state.lookBudgetNotified = false;
+			state.pendingSourceCounted.clear();
 			state.callTools.clear();
 			state.callRounds.clear();
 			state.exhausted.clear();
@@ -5095,6 +5159,25 @@ export default function (pi: ExtensionAPI) {
 				try { ctx?.abort(); } catch { /* an abort that cannot be delivered leaves the driver's timeout as the last resort */ }
 			}
 			return { block: true, reason: blocked >= RUNAWAY_STOP_AT ? `${shut} Call no further tool and write nothing more.` : shut };
+		}
+		// Contract §34.12's look budget addendum (SL-72): past the per-turn budget, `look`/`lookup`/`recall`
+		// are answered by the host, without a kernel read, naming what the run already carries. `narrate`,
+		// `apply`, `resolve` and `ask` are never counted or blocked here.
+		if (LOOK_BUDGET_TOOLS.has(name) && state.looksThisTurn >= await lookBudget()) {
+			const carried = [...new Set(readsOfTurn(state).filter((read) => read.ok).map((read) => {
+				const args = read.args as Record<string, unknown>;
+				const focus = typeof args.focus === "string" ? args.focus : undefined;
+				const about = typeof args.name === "string" ? args.name : typeof args.query === "string" ? args.query : undefined;
+				return `${read.tool}${focus ? ` ${focus}` : ""}${about ? ` ${about}` : ""}`;
+			}))].slice(0, 8);
+			const words = await surface.words();
+			const reason = words.line("look_budget_notice", { carried: carried.length ? carried.join(", ") : "the turn's open capsule" });
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "look_budget" });
+			if (!state.lookBudgetNotified) {
+				state.lookBudgetNotified = true;
+				await record({ lane: "looks", reason: "look_budget", count: state.looksThisTurn, carried });
+			}
+			return { block: true, reason };
 		}
 		const key = `${name}\u0000${JSON.stringify(input)}`;
 		state.callKeys.set(event.toolCallId, key);

@@ -10,6 +10,7 @@
   "handout_written": "讲义 {name}：{path}",
   "kernel_table_failed": "内核无法开桌：{detail}",
   "kernel_table_open": "COC 开桌：{title} | 第 {turn} 回合（{state}） | {scene}",
+  "look_budget_notice": "这一回合的查看/查阅/回忆额度已经用完。已经拿到手的有：{carried}。用已有的内容把这回合写出来；真缺什么就直接问玩家。",
   "mechanics_turn": "回{turn}",
   "parse_done": "解析   完成  {module}",
   "parse_failed": "解析   失败  {reason}",

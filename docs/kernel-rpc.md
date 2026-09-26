@@ -9070,6 +9070,34 @@ Spec: `docs/specs/turn-floor.md`. Two live tables (medians 167 and 37 characters
 
 **A strike is an attempt, not a call (2026-09-12).** A class takes at most one strike per model round trip: calls the Keeper wrote in one message are answered after it wrote them, so the second and third of a batch are not it ignoring the first refusal — it never saw one. The host records the round that issued each call (`turn_start` is the round counter) and skips the increment when a class is refused again inside the same round; the refusal is still recorded, still read back, and still counts toward the eight-refusal turn budget, which is a cost valve and keeps counting calls. A Keeper that reads a refusal and tries the same class again in its next message is still shut on the third such round. Masks, Bar Cordano: three first impressions — Larkin, Mendoza, Elias — in one message, all refused `not_here` because an imported book's people are staged in the turn they are met, and the third answer shut `resolve` for the turn; the Keeper staged all three correctly one call later and could no longer roll, delivering three NPCs and no mechanics. Test: `gates.test.mjs` "一条消息里的三次同类拒绝只算一次".
 
+**34.12.1 A per-turn look budget (2026-09-26, SL-72 of `docs/specs/pi-native-single-loop-tickets/72-a-look-budget-per-turn.md`; amends §34.12).** Long gate #11 t6 (eleven `recall` calls in one turn, 71 s) and gate
+#12 (22 `look`s over a table whose carried views, §135.31, already held the scene and its people) share
+one cause the refusal budget above does not reach: with thinking off a deepseek Keeper re-reads instead of
+writing, and every extra read succeeds, so §34.12 -- which counts only refusals -- never fires. Beside
+that class-and-turn refusal budget the host now keeps a second, plain count of this turn's *successful*
+`look`, `lookup` and `recall` calls (`TableState.looksThisTurn`, reset with the next player input exactly
+where `refusalsThisTurn` resets). A `lookup kind=source` answered `pending` (§22.4.3, SL-36) counts once,
+keyed on its own focus and question (`TableState.pendingSourceCounted`, same reset): the pending answer's
+own note (`PENDING_ANSWER_NOTE`/`PENDING_PREPARE_NOTE`, `extensions/kernel/source-answers.ts`) tells the
+Keeper not to resend the exact same lookup this turn, but nothing in the host stops it from doing so --
+`PendingAnswers.register` tracks the consultation for the engine's own carried view, not as a call gate --
+so a repeat of the identical still-pending focus/question is not charged a second time; a different focus,
+or the same one once it has landed with a real answer, is an ordinary look and counts every time. Once the
+count reaches a named default -- `look_budget.per_turn` in `content/rulesets/coc7/host-budgets.json`
+(shipped at 8), read once per process and cached, never a literal in the extension -- every further
+`look`/`lookup`/`recall` call this turn is answered by the host itself, without a kernel read: a telemetry
+row `{tool, ok: false, code: "blocked", reason: "look_budget"}` per call, and once per turn, the first time
+it fires, `{lane: "looks", reason: "look_budget", count, carried}` naming the turn's own carried views
+(the tool/focus/name of each successful `look`/`lookup` this turn, from the same `readsOfTurn` §135.31
+already carries to the turn record; `recall` contributes to the count but not to `carried`, since a memory
+search names no view). The steer text itself is the campaign's own `look_budget_notice` caption
+(`content/ui/<tag>/extension.json`), read through the same words/surface lane `refusal_budget_fallback_notice`
+uses, filled with the carried list; no Chinese or English sentence is hand-written into the gate.
+`narrate`, `apply`, `resolve` and `ask` are never counted and never blocked here -- they keep §34.12's own
+rules exactly as before. Test: `gates.test.mjs` "look 预算". Mutation: reverting the gate's budget
+comparison (or the increment in `runTool`'s success path) to a no-op reproduces gate #12's unbounded
+`look` loop and is caught by the budget test.
+
 **34.13 The inline marker is not out-of-game text (2026-09-12, regression from §34.1).** §34.1 folded "tool names, English enum values and field names" into the immersion principle as things that must not enter the story text. That sentence reads over the `{{marker}}` the narrate description asks for — a marker looks exactly like a field name written into the prose — and on the App's model (deepseek-flash) the Keeper stopped placing them, so every roll, clue and item card fell to the end of the turn instead of being drawn where it happened (§16.6's `marked_text` is empty when no marker is bound). Law 4 now names the marker as the one machine token that belongs in the text, says the kernel strips it before delivery, and points at the Writing paragraph; Writing states the rule affirmatively for the first time in the base prompt, which until now carried it only in the `narrate` tool description. Nothing about what the player may see changes: markers never reach them.
 
 **34.14 A marker is a rendering hint, not a reason to refuse (2026-09-12).** After §34.13 the Keeper placed markers again and the player read them as text: `{{scene:corbitt-house-ground}}你站在人行道上…{{clue:nailed-windows}}`, twice in one turn. Two faults met. The kernel's `bindMarkers` threw `unknown_marker` when a marker named no receipt of the turn — and the Keeper had narrated an `apply` that was refused, so every marker named nothing. The host, on a refused *implicit* delivery, returned without replacing the assistant message, so the raw draft stayed on screen, and the Keeper wrote it again. Both are repaired. `bindMarkers` now returns `{placed, unknown, duplicate, text}`: an unknown marker and every repeat after the first are removed from the text, the rest stand, `rendered_text` is always stripped so no brace can reach the player, `marked_text` carries only bound markers, and `narrate`/`ask` report `dropped_markers` `{unknown?, duplicate?, markers, note}` so the Keeper learns without spending the turn. `unknown_marker` and `duplicate_marker` are retired as refusals. The host drops the text blocks of a refused implicit delivery: a refused delivery is a turn that did not happen, and `agent_end` steers it closed. The `narrate` description and the base prompt now say the names come back in each tool result's `markers`, and that a dropped marker means that mechanic never landed. Tests: `test_markers.py` (dropped, first-placement-stands, all-miss-still-delivers), `turn.test.mjs` (no draft on screen).
