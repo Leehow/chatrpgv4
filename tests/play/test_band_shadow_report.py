@@ -33,7 +33,13 @@ def failed(kind, reason, ms, calls=1):
             "gate": 0.5, "ms": ms, "jev_calls": calls}
 
 
+def skipped(kind, why):
+    """A deliberate skip (no key, no declaration): the project's `ok: true, skipped` convention, not a failure."""
+    return {"lane": "band-shadow", "turn": 3, "call_id": "t3-c1", "index": 0, "kind": kind, "ok": True, "skipped": why}
+
+
 def unasked(kind, reason):
+    """A question that could not be asked (the kernel could not list the rows): a failure with its reason."""
     return {"lane": "band-shadow", "turn": 3, "call_id": "t3-c1", "index": 0, "kind": kind, "ok": False, "reason": reason}
 
 
@@ -44,21 +50,22 @@ CAMPAIGN_A = [
     answered("time", "library_research", True, 0.81, 350, keeper=90),
     answered("time", None, None, 0.6, 200, keeper=10),
     failed("time", "timeout", 4000),
-    unasked("time", "unconfigured"),
+    skipped("time", "unconfigured"),
     # Another lane's rows are not the shadow's.
     {"lane": "band-recovery", "turn": 1, "ok": False, "reason": "unconfigured"},
 ]
 CAMPAIGN_B = [
     answered("time", "quick_observation", True, 0.45, 100, keeper=1),
-    unasked("time", "no_declaration"),
+    skipped("time", "no_declaration"),
+    unasked("time", "rows_unavailable"),
     answered("damage", "moderate", True, 0.62, 150, keeper="1D6"),
     answered("damage", "severe", False, 0.3, 150, keeper="1D3"),
     failed("damage", "schema_error", 2, calls=0),
 ]
 TIME_EXPECTED = {
     "table": "time-costs",
-    "rows": 8,
-    "unasked": {"no_declaration": 1, "unconfigured": 1},
+    "rows": 9,
+    "unasked": {"no_declaration": 1, "rows_unavailable": 1, "unconfigured": 1},
     "failed": {"timeout": 1},
     "answered": 5,
     "banded": 4,
@@ -106,7 +113,7 @@ def workspace(tmp_path: Path) -> Path:
 
 def test_the_numbers_per_kind_over_two_campaigns(workspace: Path):
     rows = shadow.load_rows([shadow.telemetry_path(str(workspace), "a"), shadow.telemetry_path(str(workspace), "b")])
-    assert len(rows) == 11
+    assert len(rows) == 12
     result = shadow.report(rows)
     assert list(result) == ["time", "damage"]
     assert result["time"] == TIME_EXPECTED

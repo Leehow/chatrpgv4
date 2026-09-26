@@ -84,9 +84,21 @@ export function shadowRow(target: ShadowTarget, at: {turn: number; callId: strin
     gate, ms: result.elapsedMs, jev_calls: result.calls};
 }
 
-/** The row of an effect the shadow could not ask about (no key, no rows, no declaration): the reason and nothing else. */
+/**
+ * The row of an effect the shadow could not ask about because the kernel could not list the rows: a failure, with its
+ * reason and nothing else.
+ */
 export function unaskedRow(target: ShadowTarget, at: {turn: number; callId: string}, reason: string): Record<string, unknown> {
   return {lane: 'band-shadow', turn: at.turn, call_id: at.callId, index: target.index, kind: target.kind, ok: false, reason};
+}
+
+/**
+ * The row of an effect the shadow deliberately did not ask about -- no Jev key (`unconfigured`), no player text
+ * (`no_declaration`). Not a failure: the project's skip convention (`ok: true, skipped`, as the admission lane writes),
+ * so a table without a key does not read as a failing lane in the kpi.
+ */
+export function skippedRow(target: ShadowTarget, at: {turn: number; callId: string}, skipped: string): Record<string, unknown> {
+  return {lane: 'band-shadow', turn: at.turn, call_id: at.callId, index: target.index, kind: target.kind, ok: true, skipped};
 }
 
 /** The rows `rules.bands` answered, in the shape the question reads; anything malformed is dropped rather than guessed. */

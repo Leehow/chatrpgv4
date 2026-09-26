@@ -7,8 +7,9 @@ script reads those rows from one or several campaigns' `telemetry.jsonl` and rep
 `time` -> `time-costs`, `damage` -> `hazards`):
 
 - `rows`: every band-shadow row of the kind;
-- `unasked`: rows whose question was never asked (no Jev key, no declaration, the kernel could not list the rows),
-  by reason -- they carry no `jev_calls`;
+- `unasked`: rows whose question was never asked, by `skipped` (a deliberate skip, `ok: true`: `unconfigured` without a
+  Jev key, `no_declaration` without player text) or `reason` (a failure, `ok: false`: `rows_unavailable`, the kernel
+  could not list the rows; `lane_crashed`) -- they carry no `jev_calls`;
 - `failed`: rows asked whose answer never came (a timeout, a service or schema error), by reason;
 - `answered`: rows with a distribution; `banded`: answered rows whose argmax is a row, not the `unknown` exit;
 - `hit_rate`: of the banded rows, the share whose Keeper number fell inside the band (`inside`);
@@ -96,7 +97,7 @@ def summarize_kind(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "table": tables[0] if len(tables) == 1 else (tables or None),
         "rows": len(rows),
-        "unasked": dict(sorted(Counter(str(row.get("reason") or "unstated") for row in unasked).items())),
+        "unasked": dict(sorted(Counter(str(row.get("skipped") or row.get("reason") or "unstated") for row in unasked).items())),
         "failed": dict(sorted(Counter(str(row.get("reason") or "unstated") for row in failed).items())),
         "answered": len(answered),
         "banded": len(banded),

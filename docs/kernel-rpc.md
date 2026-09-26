@@ -19076,9 +19076,12 @@ its own, capped by `PI_COC_BAND_JEV_TIMEOUT_MS`, default 4000, one request):
 | `ms`, `jev_calls` | the question's Jev time and requests (0 when refused before sending) |
 | `reason` | with `ok: false`: the adapter's failure (`timeout`, `service_error`, `schema_error`, `budget_exhausted`, …), `answer_unknown`, `no_answer`, `shadow_owner_error` |
 
-A question never asked writes its reason and nothing else — `{lane, turn, call_id, index, kind, ok: false, reason}` —
-with `unconfigured` (no Jev key: nothing is read either), `no_declaration` (a turn without player text, such as the
-opening) or `rows_unavailable` (the kernel could not list the rows). Below-gate answers are written like every other.
+A question never asked writes one row and nothing else. A deliberate skip is not a failure and uses the project's skip
+convention (the admission lane's): `{lane, turn, call_id, index, kind, ok: true, skipped}` with `skipped:
+"unconfigured"` (no Jev key: nothing is read either) or `"no_declaration"` (a turn without player text, such as the
+opening), so a table without a key never reads as a failing lane in `kpi.py`. A question that could not be asked is a
+failure: `{lane, turn, call_id, index, kind, ok: false, reason: "rows_unavailable"}` (the kernel could not list the
+rows), like `lane_crashed`. Below-gate answers are written like every other.
 The row is telemetry only: no session entry, no bus event, nothing in the capsule, the Keeper's context or any later
 turn (§13.7's rule: a measurement never feeds back into what it measures).
 
@@ -19088,14 +19091,15 @@ consequence boundary moves here (BR-06 amends them).
 
 **The report.** `tests/play/band_shadow_report.py` (importable, with a `main`) over one or several campaigns'
 `telemetry.jsonl` (`--campaign` repeatable, `--all` under `--workspace`, or files; `--json`): per kind (and so per
-table) — rows; unasked and failed by reason; answered, banded, unknown; hits and hit rate (`inside` over the banded
+table) — rows; unasked (by `skipped` or `reason`) and failed (by `reason`); answered, banded, unknown; hits and hit rate (`inside` over the banded
 rows); for each candidate gate 0.5 / 0.6 / 0.7 / 0.8 the banded rows at or above it, their share of the answered rows
 (`rate`: how often a clerk would have bound) and their hit rate; the Jev seconds (calls, mean, total over the rows that
 sent a request); the argmax rows by count. It is the owner's evidence and BR-06's calibration; running it over real
 tables is the integrator's.
 
 *Writer:* the kernel extension (`shadowBands` in `extensions/kernel/index.ts`; the pure glue in
-`extensions/kernel/band-shadow.ts`). *Reader:* the report; `kpi.py`'s lanes section counts the rows by `ok`. *Actor:*
+`extensions/kernel/band-shadow.ts`). *Reader:* the report (its `unasked` counts both the `skipped` and the unasked
+`reason` rows); `kpi.py`'s lanes section counts the rows by `ok`. *Actor:*
 the owner and BR-06, away from the table; nothing at the table acts on a shadow row, by design.
 
 **Tests.** `tests/kernel/test_rules_bands.py` (the read over the emitted kernel: rows in the table's order with ranges,

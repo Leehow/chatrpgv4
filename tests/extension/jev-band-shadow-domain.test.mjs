@@ -8,7 +8,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
 import { BAND_SHADOW_FAMILY, ROUTE_TIME_BANDS, runBandShadow, shadowBindings } from "../../runtime/jev/band-shadow-domain.ts";
-import { bandShadowGate, insideBand, readBandRows, sameDice, shadowRow, shadowTargets, unaskedRow } from "../../extensions/kernel/band-shadow.ts";
+import { bandShadowGate, insideBand, readBandRows, sameDice, shadowRow, shadowTargets, skippedRow, unaskedRow } from "../../extensions/kernel/band-shadow.ts";
 
 const TIME = [
 	{ handle: "quick_observation", min: 0, max: 5, default: 1 },
@@ -161,7 +161,9 @@ test("the row: answered, answered with no band, failed, never asked", () => {
 	assert.deepEqual([none.ok, none.reason, none.band, none.range, none.inside, none.confidence], [true, "unknown", null, null, null, 0.61]);
 	const failed = shadowRow(target, at, rows, { status: "failed", kind: "time", reason: "timeout", calls: 1, elapsedMs: 4000, usage: {} }, 0.7);
 	assert.deepEqual([failed.ok, failed.reason, failed.band, failed.inside, failed.distribution, failed.gate, failed.ms], [false, "timeout", null, null, null, 0.7, 4000]);
-	assert.deepEqual(unaskedRow(target, at, "unconfigured"), { lane: "band-shadow", turn: 4, call_id: "t4-c2", index: 1, kind: "time", ok: false, reason: "unconfigured" });
+	// A deliberate skip is not a failure (the admission lane's convention); a question the kernel's rows could not feed is.
+	assert.deepEqual(skippedRow(target, at, "unconfigured"), { lane: "band-shadow", turn: 4, call_id: "t4-c2", index: 1, kind: "time", ok: true, skipped: "unconfigured" });
+	assert.deepEqual(unaskedRow(target, at, "rows_unavailable"), { lane: "band-shadow", turn: 4, call_id: "t4-c2", index: 1, kind: "time", ok: false, reason: "rows_unavailable" });
 	const damage = shadowRow({ index: 0, kind: "damage", keeperValue: "1d6" }, at, { kind: "damage", rows: LADDER },
 		{ status: "answered", kind: "damage", band: "moderate", confidence: 0.4, distribution: { minor: 0.3, moderate: 0.4, severe: 0.3 }, score: 1, calls: 1, elapsedMs: 5, usage: {} }, 0.5);
 	assert.deepEqual([damage.table, damage.range, damage.inside, damage.score], ["hazards", "1D6", true, 1]);

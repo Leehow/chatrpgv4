@@ -36,7 +36,7 @@ import { currentPromptHead } from "./prompt-checkpoint.ts";
 import { learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
 import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds, type ShadowQuestion } from "./band-recovery.ts";
-import { bandShadowGate, readBandRows, shadowRow, shadowTargets, unaskedRow } from "./band-shadow.ts";
+import { bandShadowGate, readBandRows, shadowRow, shadowTargets, skippedRow, unaskedRow } from "./band-shadow.ts";
 import { SHADOW_FIELDS, type ShadowKind } from "../../runtime/jev/band-shadow-domain.ts";
 import type { BandResult } from "../../runtime/jev/band-recovery-domain.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
@@ -2969,14 +2969,14 @@ export default function (pi: ExtensionAPI) {
 				for (const target of targets) {
 					if (signal.aborted) return;
 					// No key, no question: nothing is read for it either.
-					if (!readJevApiKey(env)) { await record(unaskedRow(target, at, "unconfigured")); continue; }
-					if (!declaration.trim()) { await record(unaskedRow(target, at, "no_declaration")); continue; }
+					if (!readJevApiKey(env)) { await record(skippedRow(target, at, "unconfigured")); continue; }
+					if (!declaration.trim()) { await record(skippedRow(target, at, "no_declaration")); continue; }
 					let rows: ReturnType<typeof readBandRows>;
 					try { rows = await shadowBandRows(kernel, target.kind); } catch { rows = undefined; }
 					if (!rows || rows.kind !== target.kind) { await record(unaskedRow(target, at, "rows_unavailable")); continue; }
 					const question = { field: target.kind, callId: at.callId, index: target.index, settled, rows: rows.rows } as ShadowQuestion;
 					const result = await askBand({ env, campaign, turn: at.turn, declaration, signal }, question);
-					if (!result) { await record(unaskedRow(target, at, "unconfigured")); continue; }
+					if (!result) { await record(skippedRow(target, at, "unconfigured")); continue; }
 					await record(shadowRow(target, at, rows, result, bandShadowGate(env)));
 				}
 			})().catch((error) => {

@@ -184,14 +184,14 @@ test("the turn never waits for the answer: the tool result and the delivery land
 	assert.ok(request.at >= Date.parse(request.applyRow.started_at) + request.applyRow.ms, "Jev was asked after the apply's result");
 });
 
-test("without a key each own-number effect leaves one unconfigured row, and nothing is read or asked", async (t) => {
+test("without a key each own-number effect leaves one skipped row, not a failure, and nothing is read or asked", async (t) => {
 	const { EXT_JEV_APIKEY: _key, ...env } = ENV;
 	const { table, requests } = await play(t, {
 		env,
 		keeper: [call("apply", { effects: [{ kind: "time", minutes: 15, why: WHY }] })],
 	});
-	const rows = await waitFor(() => shadowRows(table).length === 1 && shadowRows(table), { label: "the unconfigured row" });
-	assert.deepEqual(rows, [{ lane: "band-shadow", turn: 1, call_id: "t1-c1", index: 0, kind: "time", ok: false, reason: "unconfigured" }]);
+	const rows = await waitFor(() => shadowRows(table).length === 1 && shadowRows(table), { label: "the skipped row" });
+	assert.deepEqual(rows, [{ lane: "band-shadow", turn: 1, call_id: "t1-c1", index: 0, kind: "time", ok: true, skipped: "unconfigured" }]);
 	assert.equal(requests.length, 0);
 	assert.equal(table.kernelRequests().filter((entry) => entry.method === "rules.bands").length, 0);
 });
@@ -242,7 +242,7 @@ test("over the real kernel: the shadow reads the kernel's own rows, and the turn
 	assert.deepEqual(Object.keys(requests[0].body.questions.time_cost.criteria), [...TIME_ROWS, "unknown"]);
 	assert.equal(requests[0].body.questions.time_cost.criteria.careful_house_search, "careful house search: 60 to 360 minutes");
 	assert.deepEqual([asking.row.ok, asking.row.band, asking.row.range, asking.row.inside, asking.row.call_id], [true, "single_room_search", { min: 10, max: 45 }, true, "t1-c1"]);
-	assert.deepEqual([silent.row.ok, silent.row.reason], [false, "unconfigured"]);
+	assert.deepEqual([silent.row.ok, silent.row.skipped, silent.row.reason], [true, "unconfigured", undefined]);
 	// The Keeper's time landed as the Keeper's, and nothing in the turn differs because a question was asked beside it.
 	const time = asking.record.receipts.find((receipt) => receipt.kind === "time");
 	assert.deepEqual([time.minutes, time.basis ?? "keeper", time.band], [25, "keeper", undefined]);
