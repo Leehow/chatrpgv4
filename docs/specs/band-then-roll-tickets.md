@@ -59,7 +59,7 @@ say what the table is now (no row changes). `BindingPath` gains `'banded'` and t
 
 ## BR-02 — The dispatcher pins a tier or a profile on the kernel's `needs`
 
-Status: ready-for-agent
+Status: ready-for-human (implemented 2026-09-26 on `claude/br02-band-needs-recovery-20260926`; awaiting review and merge, see Comments)
 Depends on: BR-01 merged.
 
 **What.** Spec D5. In the kernel extension's canonical operation dispatcher: on a `needs` refusal whose `field`
@@ -201,3 +201,44 @@ preparation overlap, the TS RPC close) that pass 56 / 56 when their three files 
 tests/kernel tests/play` 1722 passed, 2 skipped, 2 failed, both `tests/play/test_driver.py` (status after stop on the
 loaded Linux box) and 63 / 63 on the Mac, where the driver runs. Nothing in either set touches a band.
 Merged into `0.9.5a` by fast-forward (the shared checkout was clean and its tip was still the branch point).
+
+### 2026-09-26 — BR-02 implemented (`claude/br02-band-needs-recovery-20260926`, `77210fc41`)
+
+Contract: `docs/kernel-rpc.md` §138.6. Where it lives: the recovery sits in the kernel extension's execute stage
+(`runTool`'s catch, beside the source-preparation retry), not in the dispatcher's `dispatch` — that is the one
+function every Keeper call and every clerk call passes through on both engines, and it already owns the retry of a
+refused identity. Code: `runtime/jev/band-recovery-domain.ts` (the two questions, pure), `extensions/kernel/band-recovery.ts`
+(needs detection, gates `PI_COC_BAND_MIN_CONFIDENCE` / `PI_COC_BAND_JEV_TIMEOUT_MS`, the dossier projection, the composed
+`why`, the note, the lease and budget), `extensions/kernel/index.ts` (`recoverBandNeeds`: look the person up, ask, pin
+under a minted call id through admission and the Mod gates, retry once; the note kept in front of the defence's),
+`kernel-ts/apply/inventory.ts` (the weapon refusal carries `needs.profiles` as host-only detail), `runtime/jev/hybrid-engine.ts`
+(the clerk note's band line), `tests/play/kpi.py` (`basis`: receipts by basis, pins by banded/keeper).
+
+Decisions taken inside the ticket's scope: a profile is set only on a model-origin apply (a tracked clerk request may
+not change after preparation, `operation_prepared_request_changed`); a tier is pinned for the `target` of a `resolve`
+only; the tier descriptors are the kernel's own refusal wording, held as descriptors of a closed enum in the domain
+(the `DEFENSE_OPTIONS` precedent), not read from prose; the gates default to 0.5 for both tables as placeholders.
+
+Tests: `tests/extension/jev-band-recovery-domain.test.mjs` (5), `tests/extension/band-recovery.test.mjs` (8, the
+extension over the fake kernel with a controlled typed endpoint, including a retry refused after a landed pin and a
+pin the kernel refuses), `tests/play/test_kpi.py` (+1); the kernel's `test_apply_item_cash.py` still green on the
+rebuilt kernel with `needs.profiles` added.
+
+Mutation record (each run over the extension test file, restored by copy afterwards):
+
+| mutation | caught by |
+| --- | --- |
+| the once-per-person guard removed | "the same person is not asked twice in a turn" |
+| the confidence gate removed from the tier question | "below the gate the refusal reaches the Keeper unchanged" |
+| the retry doubled | the pin case and the profile case (the write sequence) |
+| the note dropped from the retried result | the pin case and the profile case (the Keeper's text) |
+
+Not covered by a test here: a self-made call id on the pin (the fake kernel does not validate ids; the real kernel
+refuses one, §135.4), and a hybrid-v1 clerk call recovered through the same path (the recovery is in the one execute
+stage both engines use; the clerk note's band line is asserted by shape, not driven).
+
+Code review (high): seven findings, five fixed in the follow-up commit (the real provider budget passed as the band
+lease's parent; the catalog fallback capped at the kernel's 50; a retry refused after a landed pin carries the
+recovery note and `band_recovery` in its refusal; no kernel read before the key check; the pin-refused branch tested),
+one skipped (a third `clip`/`digest` copy), one recorded as a documented trace (the transcript keeps the Keeper's
+pre-correction profile; the note and the receipt carry the truth).

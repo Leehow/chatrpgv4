@@ -17,6 +17,7 @@ import type {Json} from '../../runtime/jev/contracts.ts';
 import {composeSentence} from '../../runtime/jev/composed-arguments.ts';
 import {BAND_DEFAULT_MIN_CONFIDENCE, BAND_RECOVERY_FAMILY, bindingsFor, runArchetypeBand, runWeaponBand,
   type ArchetypeBandInput, type BandField, type BandResult, type WeaponBandInput, type WeaponProfile} from '../../runtime/jev/band-recovery-domain.ts';
+import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {readJevApiKey} from '../jev/agent/config.js';
 
 export const BAND_TABLES: Readonly<Record<BandField, string>> = Object.freeze({archetype: 'npc-stat-archetypes', weapon: 'weapons'});
@@ -109,8 +110,8 @@ export interface BandAsk {
   turn: number;
   declaration: string;
   signal?: AbortSignal;
-  /** A parent budget's deadline and signal, when the call runs under one. */
-  parent?: {deadlineAt: number; signal: AbortSignal};
+  /** The provider budget the refused call runs under, when it has one: the band question is charged inside it. */
+  parent?: TaskProviderBudget;
 }
 
 /**
@@ -133,7 +134,7 @@ export async function askBand(ask: BandAsk, question:
   try {
     accounting = preparationBudget({
       decision: createDecisionAdapter({env: ask.env, maxConcurrency: 2, retryPolicies: {[BAND_RECOVERY_FAMILY]: {maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000}}}),
-      campaign: ask.campaign, deadlineAt, signal, ...(ask.parent ? {parent: ask.parent as never} : {}),
+      campaign: ask.campaign, deadlineAt, signal, ...(ask.parent ? {parent: ask.parent} : {}),
       owner: BAND_RECOVERY_FAMILY, goal: `Name the ${question.field} band the refused call needs`,
     });
     lease = new TaskLease({owner: BAND_RECOVERY_FAMILY, goal: `Name the ${question.field} band the refused call needs`,

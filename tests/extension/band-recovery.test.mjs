@@ -147,6 +147,37 @@ test("without a Jev key no question is asked and the refusal stands", async (t) 
 	assert.match(toolResultTexts(table.session).join("\n"), /has no stat block in the module/);
 });
 
+test("a retry refused for another reason still tells the Keeper the pin landed", async (t) => {
+	const { weapon: _weapon, ...unarmed } = ATTACK;
+	const { table } = await play(t, {
+		responses: [fauxAssistantMessage([fauxToolCall("resolve", { action: unarmed })], { stopReason: "toolUse" })],
+		answer: () => ({ choice: "capable_adult", confidence: 0.9 }),
+	});
+	assert.deepEqual(writes(table).map((entry) => entry.method), ["table.resolve", "table.apply", "table.resolve"]);
+	const refusal = toolResultTexts(table.session).find((text) => /这次攻击没说用什么打/.test(text));
+	assert.ok(refusal, "the retry's own refusal reaches the Keeper");
+	assert.match(refusal, /pinned Steven Knott's stat block as capable_adult/);
+	assert.match(refusal, /"band_recovery":\{"field":"archetype"/);
+	assert.equal(bindRows(table)[0].status, "succeeded");
+});
+
+test("a pin the kernel refuses leaves the original refusal with the Keeper and says why on the row", async (t) => {
+	const { table, requests } = await play(t, {
+		responses: [fauxAssistantMessage([fauxToolCall("resolve", { action: ATTACK })], { stopReason: "toolUse" })],
+		env: { ...ENV, FAKE_KERNEL_REFUSE_PIN: "1" },
+		answer: () => ({ choice: "capable_adult", confidence: 0.9 }),
+	});
+	assert.deepEqual(writes(table).map((entry) => entry.method), ["table.resolve", "table.apply"]);
+	assert.equal(requests.length, 1);
+	assert.match(toolResultTexts(table.session).join("\n"), /has no stat block in the module/);
+	assert.doesNotMatch(toolResultTexts(table.session).join("\n"), /pinned Steven Knott/);
+	const [row] = bindRows(table);
+	assert.equal(row.outcome, "keeper");
+	assert.equal(row.cause, "pin_refused:invalid_params");
+	assert.equal(row.call_id, "t1-c2");
+	assert.deepEqual(recoveryRows(table).map((r) => r.reason), ["pin_refused:invalid_params"]);
+});
+
 test("a wrong weapon profile is read in two levels and the Keeper's own item lands with it under the same call id", async (t) => {
 	const item = { kind: "item", name: "a brass-knuckled knife", weapon: "brass knife", why: "taken from the cellar tools" };
 	const { table, requests } = await play(t, {

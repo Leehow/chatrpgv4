@@ -18989,13 +18989,16 @@ retries a call after a source preparation), so the legacy loop and hybrid-v1 tak
 The Keeper sees the retried result with `band_recovery: {field, name, band, table, confidence, call_id?}` and a
 `note` (Keeper-only, system language): "The host pinned <name>'s stat block as <tier> before this call ran ...; to
 rule otherwise, settle it with your own apply npc" / "The host read <thing> as the rulebook profile <id> ... and this
-call ran with it". The standing-defence and replay notes follow it rather than replace it. On hybrid-v1 the
+call ran with it". The standing-defence and replay notes follow it rather than replace it. A retry the kernel refuses for another reason
+(the pin landed, the attack still lacks a weapon) reaches the Keeper as that refusal with the recovery's note in front
+of its `fix` and `band_recovery` in its details, so the Keeper never pins the same person twice. On hybrid-v1 the
 `coc-clerk` note's `clerk_did[].binding` gains the same line for a clerk write recovered this way.
 
 **Boundaries.** One question per person or thing per turn: the second refusal for the same name goes to the Keeper
 without a question (`reason: "already_asked"`). One retry, never a loop. Below the gate, on `unknown` or `none`, on
 a spent lease, with Jev unavailable or unconfigured, or when the pin itself is refused (`pin_refused:<code>`), the
-Keeper sees the original refusal byte for byte and the bind row says why. A profile is set only on a model-origin
+Keeper sees the original refusal byte for byte and the bind row says why. Without a key nothing is read for the
+question either. A profile is set only on a model-origin
 call: a tracked clerk request may not change after it was prepared (`operation_prepared_request_changed`), so a
 clerk item write with a wrong profile stays refused and is the Keeper's. A tier is pinned for the `target` of a
 `resolve` only; a `needs archetype` from any other shape is the Keeper's.

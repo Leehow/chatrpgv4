@@ -935,6 +935,10 @@ function handle(method, params) {
 				if (effect.kind === "item" && !effect.name) {
 					return { ok: false, error: { code: "invalid_params", message: "item 要物品名", details: { index } } };
 				}
+				// Contract §138.6: FAKE_KERNEL_REFUSE_PIN makes the kernel refuse a host's tier pin (as the real one does for a person with numbers).
+				if (effect.kind === "npc" && effect.archetype != null && process.env.FAKE_KERNEL_REFUSE_PIN === "1") {
+					return { ok: false, error: { code: "invalid_params", message: `the source prints ${effect.name}'s numbers; an archetype cannot replace them`, details: { index, field: "npc.archetype" } } };
+				}
 				// Contract §138.6: a weapon that is no rulebook profile is refused with the era's profile ids (the real
 				// kernel's `apply/inventory.ts`); FAKE_KERNEL_WEAPON_PROFILES names the fixture's table.
 				if (effect.kind === "item" && effect.weapon != null && WEAPON_PROFILES.length && !WEAPON_PROFILES.some((profile) => profile.id === effect.weapon)) {

@@ -2877,8 +2877,13 @@ export default function (pi: ExtensionAPI) {
 			return undefined;
 		}
 		asked.set(key, state.turn);
+		// No key, no question: nothing is read for it either.
+		if (!readJevApiKey(env)) {
+			await record({ lane: "band-recovery", ok: false, reason: "unconfigured", ...common });
+			return undefined;
+		}
 		const ask = { env, campaign: state.campaign, turn: state.turn, declaration: state.playerText ?? "", signal: options.signal,
-			...(options.providerBudget ? { parent: { deadlineAt: options.providerBudget.deadlineAt, signal: options.providerBudget.signal } } : {}) };
+			...(options.providerBudget ? { parent: options.providerBudget } : {}) };
 		let result: BandResult | undefined;
 		if (needs.field === "archetype") {
 			let view: unknown = {};
@@ -2887,7 +2892,8 @@ export default function (pi: ExtensionAPI) {
 		} else {
 			let profiles = needs.profiles ?? [];
 			if (!profiles.length) {
-				try { profiles = weaponProfilesOf(await state.kernel.call("table.lookup", { campaign: state.campaign, kind: "catalog", query: name, kinds: ["weapon"], limit: 256 })); } catch { profiles = []; }
+				// The catalog answers at most 50 records per query (its own cap); a kernel with `needs.profiles` never comes here.
+				try { profiles = weaponProfilesOf(await state.kernel.call("table.lookup", { campaign: state.campaign, kind: "catalog", query: name, kinds: ["weapon"], limit: 50 })); } catch { profiles = []; }
 			}
 			const why = asString(effect!.why);
 			result = await askBand(ask, { field: "weapon", thing: { name, ...(why ? { why } : {}) }, options: needs.options, close: needs.close, profiles });
@@ -3118,7 +3124,13 @@ export default function (pi: ExtensionAPI) {
 					// The same identity, retried once; admission and the Mod gates run again, as after a source preparation.
 					await admitAction(state, spec.name, payload, signal, providerBudget, origin);
 					if (mods) await mods.prepare(spec.name, payload, signal, providerBudget);
-					result = (await invokeOperation()) ?? {};
+					try { result = (await invokeOperation()) ?? {}; }
+					catch (again) {
+						// The pin landed; a retry refused for another reason says so in its fix, so the Keeper does not pin twice.
+						if (!isKernelError(again)) throw again;
+						throw new KernelError({ code: again.code, message: again.message, code_detail: again.codeDetail, retryable: again.retryable, next: again.next,
+							fix: [recovered.note, again.fix].filter(Boolean).join(" "), details: { ...(again.details ?? {}), band_recovery: recovered.summary } });
+					}
 					result.band_recovery = recovered.summary;
 					result.note = recovered.note;
 				} else {
