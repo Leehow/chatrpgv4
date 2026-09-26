@@ -444,6 +444,11 @@
       "id": "SL-89",
       "file": "89-the-keeper-context-is-rebuilt-every-turn.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-90",
+      "file": "90-a-consequence-step-is-admitted-on-its-own-evidence.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
