@@ -32,8 +32,9 @@ import { bindWorkpadPatch, publishWorkpadPatch, takeWorkpadPatch, type WorkpadBi
 import { workpadStoreRoot } from '../table/workspace/workpad-store.ts';
 import { randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
+import { disableStepThinking, isFirstStepOfTurn } from "./first-step-thinking.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
-import { learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
+import { isSpeechOnlyDraft, learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
@@ -5444,11 +5445,18 @@ export default function (pi: ExtensionAPI) {
 			// turn. Once, the host drops that draft and steers it back to the capsule; whatever the second leg
 			// brings is honoured, an explicit narrate or prose closed implicitly as before. The opening is
 			// exempt (it has its own instruction), and so is any turn in which a tool was tried, refused or not.
+			// §135.11's SL-80 addendum (2026-09-26): the same one steer also fires when the draft is nothing
+			// but a say span -- a voice with no world's answer, uptake or handoff around it (§34.2) -- even
+			// when the turn's clerk already settled a check or a move. Structural: `isSpeechOnlyDraft` reads
+			// span and marker syntax, never the words. Not a second floor: the same floorDraft/deliveryFix/
+			// steeredThisTurn machinery, the same FLOOR_STEER text, so the one-steer budget and the dropped-
+			// draft fallback of the gate #4 addendum apply exactly as they do to the no-tool-call case.
 			const opening = state.state === "awaiting_player" && state.openingPending;
-			if (state.toolCallsThisTurn === 0 && !opening && !state.steeredThisTurn) {
+			const speechOnly = !opening && !state.steeredThisTurn && isSpeechOnlyDraft(prose);
+			if ((state.toolCallsThisTurn === 0 || speechOnly) && !opening && !state.steeredThisTurn) {
 				state.floorDraft = prose;
 				state.deliveryFix = { kind: "floor", text: FLOOR_STEER };
-				await record({ lane: "floor", turn: state.turn, steered: true, round_trips: state.roundTrips });
+				await record({ lane: "floor", turn: state.turn, steered: true, round_trips: state.roundTrips, ...(speechOnly ? { reason: "speech_only" } : {}) });
 				return dropText("floor_steer");
 			}
 			// §40 (2026-09-15): people are on stage and the draft carries no say token. Once, the host drops
@@ -5597,8 +5605,33 @@ export default function (pi: ExtensionAPI) {
 		// only place the model and provider it was made against still exist is here (§38.7).
 		providerRequestModel = {...(payload?.model ? {model: payload.model} : {}),
 			...(ctx.model?.provider ? {provider: ctx.model.provider} : {})};
+
+		// SL-74 (§38.7.1): an experiment flag, not a setting. `table.roundTrips` is the only place a
+		// "which call of this turn is this" counter lives, so no table (a lane call, or anything
+		// before session_start opens one) leaves the request untouched and the row without these
+		// fields -- same as the flag being off.
+		let outgoing: unknown = event.payload;
+		let firstStepFields: { step: number; first_step_thinking: true | false | "unsupported_format" } | undefined;
+		if (table && process.env.COC_FIRST_STEP_THINKING === "1") {
+			const step = table.roundTrips;
+			if (isFirstStepOfTurn(step)) {
+				firstStepFields = { step, first_step_thinking: true };
+			} else {
+				const outcome = disableStepThinking(event.payload, ctx.model?.thinkingLevelMap);
+				firstStepFields = outcome.status === "disabled"
+					? { step, first_step_thinking: false }
+					: { step, first_step_thinking: "unsupported_format" };
+				if (outcome.status === "disabled") outgoing = outcome.payload;
+			}
+		}
+
 		await record({lane: "provider-request", at: new Date().toISOString(), model: payload?.model, provider: ctx.model?.provider,
-			reasoning_effort: payload?.reasoning?.effort ?? payload?.reasoning_effort ?? null});
+			reasoning_effort: payload?.reasoning?.effort ?? payload?.reasoning_effort ?? null,
+			...(firstStepFields ?? {})});
+		// pi's runner replaces the payload with whatever a handler returns and leaves it alone on
+		// `undefined` (`emitBeforeProviderRequest`, vendor/pi/packages/coding-agent/src/core/extensions/runner.ts) --
+		// so the untouched cases below fall off the end of this handler on purpose.
+		if (outgoing !== event.payload) return outgoing;
 	});
 	pi.on("after_provider_response", async (event, ctx) => {
 		const requestId = Object.entries(event.headers).find(([name]) => ["x-request-id", "request-id"].includes(name.toLowerCase()))?.[1];

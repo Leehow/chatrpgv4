@@ -340,10 +340,12 @@ class PiProcess:
 # --------------------------------------------------------------------------
 
 class Daemon:
-    def __init__(self, run_id: str, campaign: str, launcher: str | None, model: str | None, thinking: str | None = None):
+    def __init__(self, run_id: str, campaign: str, launcher: str | None, model: str | None, thinking: str | None = None,
+                 first_step_thinking: bool = False):
         self.run_id = run_id
         self.campaign = campaign
         self.thinking = thinking
+        self.first_step_thinking = first_step_thinking
         self.dir = run_dir(run_id)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.log = DriverLog(self.dir / "driver.log")
@@ -388,13 +390,20 @@ class Daemon:
                 raise DriverError(f"--model must be 'provider/modelId', got {model!r}")
             provider, model_id = model.split("/", 1)
             launch_args += ["--provider", provider, "--model", model_id]
-        self.log.write(f"spawning {launcher_path} {' '.join(launch_args)}")
+        self.log.write(f"spawning {launcher_path} {' '.join(launch_args)}"
+                       + (" (COC_FIRST_STEP_THINKING=1)" if self.first_step_thinking else ""))
+        # SL-74: an experiment flag, not a `pi` CLI concept -- the kernel extension reads it from
+        # its own process env, so it travels as an env var to the launcher subprocess rather than
+        # as a launch arg. `env=None` (the branch below) inherits this process's own environment,
+        # which is how every other var (PI_COC_*, provider keys) already reaches `pi` today.
+        pi_env = {**os.environ, "COC_FIRST_STEP_THINKING": "1"} if self.first_step_thinking else None
         self.pi = PiProcess(
             launcher_path,
             launch_args,
             self.dir / "pi-stderr.log",
             self.events_path,
             self.log,
+            env=pi_env,
         )
         write_json(self.daemon_json_path, {
             "run_id": self.run_id, "campaign": campaign, "launcher": str(launcher_path),
@@ -832,7 +841,8 @@ class Daemon:
 
 def _daemon_main(args: argparse.Namespace) -> int:
     try:
-        daemon = Daemon(run_id=args.run, campaign=args.campaign, launcher=args.launcher, model=args.model, thinking=getattr(args, "thinking", None))
+        daemon = Daemon(run_id=args.run, campaign=args.campaign, launcher=args.launcher, model=args.model, thinking=getattr(args, "thinking", None),
+                        first_step_thinking=getattr(args, "first_step_thinking", False))
     except DriverError:
         return 1
     except Exception as exc:  # noqa: BLE001 -- startup crash must still be diagnosable
@@ -988,6 +998,8 @@ def cmd_start(args: argparse.Namespace) -> int:
         cmd += ["--model", args.model]
     if getattr(args, "thinking", None):
         cmd += ["--thinking", args.thinking]
+    if getattr(args, "first_step_thinking", False):
+        cmd += ["--first-step-thinking"]
 
     env = dict(os.environ)
     for pair in args.env or []:
@@ -1121,6 +1133,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="provider/modelId selected before opening and confirmed via set_model (default %(default)s)")
     sp.add_argument("--thinking", default=DEFAULT_THINKING, choices=["off", "minimal", "low", "medium", "high"],
                      help="thinking level passed to the launcher (default %(default)s; a deepseek Keeper via opencode-go wants off)")
+    sp.add_argument("--first-step-thinking", action="store_true",
+                     help="SL-74 experiment: run at --thinking's level, but the kernel extension's "
+                          "before_provider_request hook disables thinking for every provider call after "
+                          "the first of a turn (measurement only; docs/kernel-rpc.md §38.7.1)")
     sp.add_argument("--launcher", default=None,
                      help="path to bin/pi-coc-compatible launcher (default: env PI_COC_LAUNCHER, then bin/pi-coc)")
     sp.add_argument("--pregen", default=None, metavar="PREGEN",
@@ -1159,6 +1175,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--campaign", required=True)
     sp.add_argument("--model", default=None)
     sp.add_argument("--thinking", default=None)
+    sp.add_argument("--first-step-thinking", action="store_true")
     sp.add_argument("--launcher", default=None)
 
     return p

@@ -3,5 +3,10 @@
   "look_budget": {
     "per_turn": 8,
     "tools": ["look", "lookup", "recall"]
+  },
+  "jev_steps": {
+    "row_min": 0.5,
+    "row_ratio": 2,
+    "shadow": true
   }
 }

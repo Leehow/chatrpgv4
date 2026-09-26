@@ -85,9 +85,14 @@ export interface CandidateVariant {label: string; bound: Record<string, Json>; u
  *   (`table.apply.options.obligations`; contract §135.26): its meeting, or its check with a closed approach binder.
  * - `first_blow`: the investigator's first attack outside a fight, as the kernel's first-blow row issues it
  *   (`table.resolve.options.context.first_blow`; contract §135.30.2), selected only by the compile's `first_blow` predicate.
+ * - `consequence_bookkeeping` (§135.3.1, SL-76; owner's ruling §135.32): the three consequence candidate classes --
+ *   `npc_reaction`, `clue_follow_up`, `time_cost` (`runtime/jev/consequence-candidates.ts`) -- routed by Jev in
+ *   shadow (`COC_JEV_STEPS=shadow`, the default) and never executed there; `on` (SL-78) runs a cleared one through
+ *   the same gateway as any other clerk candidate.
  * Fetching data (d) is the read step itself, not a candidate. Everything else is the Keeper's.
  */
-export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step', 'disposition_inference', 'stated_obligation', 'first_blow'] as const;
+export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step', 'disposition_inference', 'stated_obligation', 'first_blow',
+  'consequence_bookkeeping'] as const;
 export type ClerkAuthority = typeof CLERK_AUTHORITY[number];
 /** A host-issued step candidate (design §5.1): what the host can perform now, and what it still needs. */
 export interface Candidate {

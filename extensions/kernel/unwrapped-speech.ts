@@ -133,6 +133,20 @@ export function unwrappedQuotes(draft: string, known: Iterable<string> = []): st
 	});
 }
 
+/**
+ * §135.11's SL-80 addendum: true when `draft` is one or more say spans and nothing else -- every
+ * character outside every `{{say:name}}…{{/say}}` span (repaired per §40.1: an open before a close
+ * closes the previous span, an unclosed open closes at the end of its paragraph, an empty span is
+ * withdrawn) and outside a mechanics marker is blank. A draft with no say span at all answers `false`;
+ * that is the bare-of-tokens speech steer's shape, not this one's. Structural only -- span and marker
+ * syntax, never a reading of the words inside or outside them.
+ */
+export function isSpeechOnlyDraft(draft: string): boolean {
+	const { text } = speechPass(draft, (name) => ({ label: name }));
+	if (!/\{\{say:/.test(text)) return false;
+	return text.replace(SPAN, "").replace(MARKER, "").trim().length === 0;
+}
+
 /** The say token's name rule (§40.1): anything but `}}` and a line break, trimmed, 1–60 characters. */
 export function sayableName(name: string): boolean {
 	const trimmed = name.trim();

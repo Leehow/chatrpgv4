@@ -36,7 +36,7 @@ import type { SessionRunDriver } from '@earendil-works/pi-coding-agent';
 import { createHash } from 'node:crypto';
 import { createDecisionAdapter } from './decision-adapter.ts';
 import type { DecisionPort as JevDecisionPort } from './decision-port.ts';
-import { ContractError, type DecisionBatch, type IntentBinding, type Json, type ObservationPacket, type OperationProposal, type ReadSet, type ScopeBinding } from './contracts.ts';
+import { ContractError, type DecisionBatch, type DecisionResult, type IntentBinding, type Json, type ObservationPacket, type OperationProposal, type ReadSet, type ScopeBinding } from './contracts.ts';
 import { TaskLease } from './task-context.ts';
 import { JEV_MODEL } from './question-packing.ts';
 import { preparationProviderBudget } from './preparation-budget.ts';
@@ -45,9 +45,11 @@ import { bindingOf, CLERK_TYPE, customMessage, PRESCREEN_TYPE, type ContextBindi
 import { prepareKeeperSupport, prescreenEnabled } from '../../extensions/table/prescreen.ts';
 import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev/agent/config.js';
 import type { HostOperationContext, OperationIdentity } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
-import { buildCandidates, keeperCall } from './candidates.ts';
+import { buildCandidates, buildConsequenceCandidates, keeperCall, NPC_REACTION_DECISION, type ConsequenceCandidate, type ConsequenceClass } from './candidates.ts';
 import { compileRows } from './compile-rows.ts';
 import { interpretCompile, interpretReask, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput } from './route-compile.ts';
+import { CONSEQUENCE_FAMILY, consequenceBatch, interpretConsequenceResult, type ConsequenceExistsRow, type ConsequenceRow, type ConsequenceView } from './consequence-route.ts';
+import { jevStepsBudget } from './host-budgets.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import { CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
@@ -184,6 +186,56 @@ const DELIVERY_VERBS: Readonly<Record<string, 'accepted' | 'awaiting_player'>> =
 const WRITE_VERBS = new Set(['apply', 'resolve']);
 /** The prescreen packet's byte ceiling (the same cap the context hook's own prescreen used). */
 const PRESCREEN_BYTES = 16 * 1024;
+
+/**
+ * SL-76 (§135.32, §135.3.1): `COC_JEV_STEPS`, read once per process like every other engine env switch here.
+ * `shadow` (the default) routes and pairs but never executes; `on` (SL-78's acceptance) additionally executes a
+ * cleared candidate through `clerkStep`; `off` builds none of the three classes at all. Any other value is
+ * `shadow`: this is a schedule switch, not an open-ended classification, so a fixed default is not the
+ * hard-coded-semantic-list the project bans -- there is no text here for it to classify.
+ */
+export function jevStepsMode(env: Readonly<NodeJS.ProcessEnv>): 'shadow' | 'on' | 'off' {
+  const raw = String(env.COC_JEV_STEPS ?? '').trim();
+  return raw === 'on' || raw === 'off' ? raw : 'shadow';
+}
+/** One receipt's own words, for the consequence route's `settled_this_run` state (labels, never ids; D2.3). */
+export function receiptLabel(receipt: Row): string {
+  const kind = text(receipt.kind);
+  if (kind === 'clue') return `clue ${text(receipt.clue)}: ${text(receipt.label) || text(receipt.summary)}`.trim();
+  if (kind === 'time') return `${Number.isFinite(receipt.minutes) ? receipt.minutes : '?'} minutes: ${text(receipt.why)}`.trim();
+  if (kind === 'roll' && text(receipt.decision) === NPC_REACTION_DECISION) return `first impression: ${text(receipt.actor_label) || text(receipt.actor)} on ${text(receipt.npc)}`;
+  return text(receipt.decision) || kind;
+}
+/**
+ * SL-76's turn-close pairing (D4): what the Keeper did this turn, read off the turn's own receipts -- never off a
+ * model-origin call's arguments, which this engine does not otherwise retain. `true`: the same entity, the same
+ * kind of consequence; `other`: the same kind of consequence landed on a different entity this turn (npc_reaction,
+ * clue_follow_up only -- `time_cost` has no second entity to distinguish); `false`: neither.
+ */
+export function keeperDidFor(entry: {consequenceClass: ConsequenceClass; target?: string; clue?: string}, receipts: readonly Row[]): true | false | 'other' {
+  if (entry.consequenceClass === 'npc_reaction') {
+    const rolls = receipts.filter(receipt => text(receipt.kind) === 'roll' && text(receipt.decision) === NPC_REACTION_DECISION);
+    if (rolls.some(receipt => text(receipt.npc) === entry.target)) return true;
+    return rolls.length ? 'other' : false;
+  }
+  if (entry.consequenceClass === 'clue_follow_up') {
+    const clues = receipts.filter(receipt => text(receipt.kind) === 'clue');
+    if (clues.some(receipt => text(receipt.clue) === entry.clue)) return true;
+    return clues.length ? 'other' : false;
+  }
+  return receipts.some(receipt => text(receipt.kind) === 'time');
+}
+/**
+ * SL-76 (D4): the pure gate over whether shadow ever executes. `shadow` (the default) and `off` always return no
+ * keys, whatever `rows` clears -- this is the whole of "shadow never executes", pulled out of `routeConsequences`
+ * so it can be proven by a table of inputs rather than by reading the engine's control flow. `on` returns the
+ * cleared rows' keys, once each (a key already in `executed` is skipped: SL-78's "once per key", not this
+ * ticket's re-route loop).
+ */
+export function consequenceKeysToExecute(mode: 'shadow' | 'on' | 'off', rows: readonly ConsequenceRow[], executed: ReadonlySet<string>): string[] {
+  if (mode !== 'on') return [];
+  return rows.filter(row => row.cleared && !executed.has(row.key)).map(row => row.key);
+}
 
 export function emptyTurnContext(): TurnContext {
   return {scene: '', clock: null, present: [], receipts: []};
@@ -372,6 +424,23 @@ interface RunState {
   /** §107.1: the maps this turn presented because they were published after the arrival (the capsule's `turn.map_arrived`). */
   mapArrived?: Row[];
   mapArrivedShown?: boolean;
+  /**
+   * SL-76 (§135.32, §135.3.1): the shadow route's accumulated per-candidate rows, keyed by candidate key so a
+   * later read's answer over the same key replaces an earlier one. `target`/`clue` are read off the candidate's
+   * own `bound` when it is stored, for the turn-close pairing (`keeperDidFor`); never sent to Jev or the model.
+   */
+  consequenceRows: Map<string, ConsequenceRow & {label: string; target?: string; clue?: string}>;
+  /** SL-76: the `exists` row per class, the same accumulate-by-key rule. */
+  consequenceExists: Map<ConsequenceClass, ConsequenceExistsRow>;
+  /** SL-76: `COC_JEV_STEPS=on` executes a cleared candidate once; this is the "once" (never twice for the same key in one run). */
+  consequenceExecuted: Set<string>;
+  /** SL-76: the run's own added Jev time for the shadow route, reported in the budget summary. */
+  consequenceMs: number;
+  /** SL-76: every receipt this turn's reads have seen (`table.status.receipts`), deduped by id, for the turn-close pairing. */
+  turnReceipts: Row[];
+  /** SL-76: the latest read's D1 candidates and scene context, held for the turn-close route (never asked mid-read: see `routeConsequences`'s call site). */
+  consequenceCandidates: ConsequenceCandidate[];
+  consequenceContext?: TurnContext;
 }
 
 /**
@@ -400,9 +469,16 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   };
 
   /** The kernel reads a step needs and the candidates they issue. Read-only. */
-  async function tableReads(run: RunState): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]; rows: () => FeatureRows}> {
+  async function tableReads(run: RunState): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]; rows: () => FeatureRows;
+    consequences: () => ConsequenceCandidate[]}> {
     const [capsule, status, applyOptions, resolveOptions] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options')]);
     const table = readTable(capsule, status);
+    // SL-76 (D2.3, D4): every receipt this turn's reads have seen, deduped by id -- the consequence route's
+    // "settled this run" state and the turn-close pairing both read this, never the model-origin call's own args.
+    for (const receipt of array(status.receipts).map(object)) {
+      const id = text(receipt.id);
+      if (id && !run.turnReceipts.some(seen => text(seen.id) === id)) run.turnReceipts.push(receipt);
+    }
     run.fight = object(object(resolveOptions.context).session ?? object(capsule.where).session);
     // §135.31: what the projection carries is this read's: the scene, the session view `look focus=session` would return
     // (the resolve options' context holds the same two values), and who the investigators are.
@@ -426,13 +502,62 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     return {capsule, status, table,
       candidates: () => buildCandidates({capsule, applyOptions, resolveOptions, located: run.located, answering: run.answering, ...(fighter ? {fighter} : {})}, run.rawInput),
       // §135.30: the compile's feature rows, from the same reads.
-      rows: () => compileRows({capsule, applyOptions, resolveOptions})};
+      rows: () => compileRows({capsule, applyOptions, resolveOptions}),
+      // SL-76: the three consequence classes, from the same reads (never merged into `candidates()`'s own list).
+      consequences: () => jevStepsMode(options.env as NodeJS.ProcessEnv) === 'off' ? [] : buildConsequenceCandidates({capsule, applyOptions, resolveOptions}, run.rawInput)};
   }
   const freshOf = (run: RunState) => tableReads(run).then(read => {
     const candidates = read.candidates();
     run.issued = candidates;
     return {context: read.table.context, candidates, rows: read.rows()};
   }, () => undefined);
+
+  /**
+   * SL-76 (§135.32, §135.3.1, D1-D4): the shadow route, over the run's latest read's D1 candidates (`run.consequenceCandidates`,
+   * set by the read port, never asked there). Called once, from `turnCloseStep`, deliberately after the run's own
+   * route/compile/bind Jev calls are all finished: a mid-read call was found to make `single-loop-compile.test.mjs`'s
+   * "the compile is the run's first Jev question" false and to spend a Jev call on a `read_more` that §135.6 says must
+   * spend none. Pure orchestration over `consequence-route.ts`'s pure functions: builds the batch, asks Jev under a
+   * short lease (like the ordinary binder's, never the policy's own decision budget), folds the answer, and
+   * accumulates into `run.consequenceRows`/`run.consequenceExists` for `pairConsequences` to write. `off`, or no
+   * candidates, returns at once. `on` additionally executes a cleared candidate once, through `clerkStep` -- the same
+   * gateway any other clerk candidate uses (§135.4) -- gated entirely behind the flag, so the default (`shadow`)
+   * path this function otherwise takes is unchanged by that branch existing.
+   */
+  async function routeConsequences(run: RunState, candidates: ConsequenceCandidate[], context: TurnContext, signal: AbortSignal, stepId: string): Promise<void> {
+    const mode = jevStepsMode(options.env as NodeJS.ProcessEnv);
+    if (mode === 'off' || !candidates.length || !jev || !run.scope || !run.readSet) return;
+    const view: ConsequenceView = {runId: run.runId, rawInput: run.rawInput, context, observations: [],
+      candidates, settled: run.turnReceipts.map(receiptLabel), present: context.present.map(label => ({label, met: true}))};
+    const built = consequenceBatch(view, run.scope, run.readSet);
+    if (!built) return;
+    const thresholds = await jevStepsBudget();
+    const began = Date.now();
+    const lease = new TaskLease({owner: CONSEQUENCE_FAMILY, goal: `run ${run.runId} consequence`, scope: run.scope, capabilities: ['decision'],
+      readSet: run.readSet, signal, budget: {deadlineAt: Date.now() + 15_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
+    let result: DecisionResult | undefined;
+    try { result = await jev.decide(built.batch, lease); } catch { result = undefined; } finally { lease.close(); }
+    const ms = Date.now() - began;
+    run.consequenceMs += ms;
+    const outcome = interpretConsequenceResult(candidates, result, thresholds);
+    for (const row of outcome.rows) {
+      const candidate = candidates.find(value => value.key === row.key);
+      run.consequenceRows.set(row.key, {...row, label: candidate?.label ?? row.key,
+        ...(candidate?.consequenceClass === 'npc_reaction' ? {target: text(candidate.bound.target)} : {}),
+        ...(candidate?.consequenceClass === 'clue_follow_up' ? {clue: text(candidate.bound.clue)} : {})});
+    }
+    for (const row of outcome.exists) run.consequenceExists.set(row.class, row);
+    // Recorded now only when Jev could not answer (D2.7: an outage degrades to no D1 rows plus this reason); a
+    // complete answer's own telemetry is the turn-close pairing row below, carrying `keeper_did`.
+    if (result?.status !== 'complete') record({lane: 'route', purpose: 'consequence', shadow: mode !== 'on', run: run.runId, step: stepId,
+      status: result?.status ?? 'unavailable', reason: outcome.reason, ms, offered: candidates.length});
+    for (const key of consequenceKeysToExecute(mode, outcome.rows, run.consequenceExecuted)) {
+      run.consequenceExecuted.add(key);
+      const candidate = candidates.find(value => value.key === key);
+      if (!candidate) continue;
+      await clerkStep(run, {candidate}, {runId: run.runId, stepId, operationId: `consequence:${candidate.key}`, signal}).catch(() => undefined);
+    }
+  }
 
   function makePorts(run: RunState): RunDriverPorts {
     return {
@@ -441,7 +566,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       read: {
         async read(_proposal, invocation) {
           const began = Date.now();
-          const {capsule, table, candidates, rows} = await tableReads(run);
+          const {capsule, table, candidates, rows, consequences} = await tableReads(run);
           let bindingArtifact: Extract<StepArtifact, {kind: 'read'}>['binding'];
           if (table.scope && table.readSet && table.binding) {
             run.turn ??= table.turn; run.scope ??= table.scope; run.readSet ??= table.readSet;
@@ -513,6 +638,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             candidates: fresh.candidates.map(candidate => candidate.key), prescreen,
             ...(issued ? {bodies: {count: issued.bodies.length, bytes: issued.bytes, reads: issued.reads, ms: issued.ms,
               truncated: issued.bodies.filter(entry => entry.truncated).length, omitted: issued.omitted.map(entry => `${entry.key}:${entry.reason}`)}} : {})});
+          // SL-76 (§135.32, §135.3.1): this read's D1 candidates are kept for the turn-close route, never asked
+          // here. A read is not a decision (§135.6, SL-22), and the run's own route/compile/bind Jev calls stay
+          // exactly what they were before SL-76 -- a mid-read consequence call was found, live-gate style, to move
+          // `single-loop-compile.test.mjs`'s "the compile is the run's first Jev question" off true, and to make a
+          // `read_more` on an unchanged scene (which must spend no Jev call at all, §135.6's reuse) spend one.
+          run.consequenceCandidates = consequences();
+          run.consequenceContext = table.context;
           // `calls`/`ms` are the prescreen's own, reported; the policy charges no read to the decision budget (§135.6, SL-22).
           const artifact: StepArtifact = {kind: 'read',
             read: {materials, summary: prescreen as Json, bodies: issued?.bodies ?? [],
@@ -526,7 +658,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           if (proposal.origin === 'model' && invocation.executeModelTool) return modelStep(run, proposal, invocation.executeModelTool, invocation.stepId);
           if (proposal.operation === 'llm_proposal') return {status: 'ok', artifact: {kind: 'execute', executed: {ok: true, summary: {slot: 'llm_proposal'}}}};
           if (proposal.operation === 'execute') return clerkStep(run, object(proposal.params), invocation);
-          if (proposal.operation === 'turn_close') return turnCloseStep(run);
+          if (proposal.operation === 'turn_close') return turnCloseStep(run, invocation);
           return {status: 'refused', reason: 'unknown_policy_operation', artifact: {kind: 'execute', executed: {ok: false, summary: {refused: 'unknown_policy_operation'}}}};
         },
       },
@@ -626,7 +758,29 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    * §135.11: what the turn close did. The kernel extension's verdict is the evidence of a delivery this run committed
    * (the implicit narrate of a prose-only reply), or the steer the Keeper is owed, or why nothing is owed.
    */
-  async function turnCloseStep(run: RunState) {
+  /**
+   * SL-76 (D4): the shadow route's paired telemetry, written once, at turn close, over everything `routeConsequences`
+   * accumulated this run -- never during the read itself, so `keeper_did` (read off `run.turnReceipts`, which by
+   * then holds the whole turn's receipts) is always known when the row is written.
+   */
+  function pairConsequences(run: RunState) {
+    if (!run.consequenceRows.size && !run.consequenceExists.size) return;
+    const mode = jevStepsMode(options.env as NodeJS.ProcessEnv), shadow = mode !== 'on';
+    for (const [key, row] of run.consequenceRows) record({lane: 'route', purpose: 'consequence', shadow, run: run.runId, class: row.class, key,
+      cleared: row.cleared, confidence: row.confidence, distribution: row.distribution, ...(row.direct ? {direct: true} : {}),
+      keeper_did: keeperDidFor({consequenceClass: row.class, target: row.target, clue: row.clue}, run.turnReceipts)});
+    for (const [cls, row] of run.consequenceExists) record({lane: 'route', purpose: 'consequence', shadow, run: run.runId, class: cls, exists: true,
+      cleared: row.cleared, confidence: row.confidence, distribution: row.distribution});
+    if (run.consequenceMs) record({lane: 'run', event: 'consequence_budget', run: run.runId, ms: run.consequenceMs, rows: run.consequenceRows.size});
+  }
+
+  async function turnCloseStep(run: RunState, invocation: {stepId: string; signal: AbortSignal}) {
+    // SL-76: the shadow route's one Jev call per run, made here -- after the run's own route/compile/bind calls are
+    // long done, so it can never be mistaken for the run's first decision, and a `read_more` that must spend no
+    // Jev call (§135.6's same-scene reuse) still spends none. `routeConsequences` itself is the guard against
+    // asking twice: nothing here dedupes by digest, because a run has exactly one turn close.
+    await routeConsequences(run, run.consequenceCandidates, run.consequenceContext ?? emptyTurnContext(), invocation.signal, invocation.stepId);
+    pairConsequences(run);
     const done = (status: 'ok' | 'unavailable', verdict: Row, delivery?: 'accepted' | 'awaiting_player') =>
       ({status, ...(delivery ? {delivery} : {}), ...(status === 'unavailable' ? {reason: 'turn_close_unavailable'} : {}),
         artifact: {kind: 'turn_close', verdict} as StepArtifact});
@@ -961,7 +1115,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         startedAt, prescreenAllowanceMs: allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
         identities: new Map(), budgetMs, deferred: [], investigators: [], named: [], shown: {scenes: new Set(), people: new Set(), passages: new Set(), pending: new Set()}, passages: [],
         guarded: [], guardedShown: 0,
-        prescreenSpent: {reads: 0, jev_calls: 0, ms: 0}};
+        prescreenSpent: {reads: 0, jev_calls: 0, ms: 0},
+        consequenceRows: new Map(), consequenceExists: new Map(), consequenceExecuted: new Set(), consequenceMs: 0, turnReceipts: [], consequenceCandidates: []};
       const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
         ...(options.compile === false ? {compile: false} : {})});
       return {policy: budgetRows(run, policy), ports: makePorts(run), maxSteps: options.maxSteps ?? 48};
