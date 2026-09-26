@@ -15,6 +15,7 @@ import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
 import type {Candidate, Json, Unbound} from './step-policy.ts';
 import {DICE, guardsOf, obligationCandidates, preordainedContacts} from './obligation-candidates.ts';
 import {composeSentence} from './composed-arguments.ts';
+import {npcTurnCandidate} from './npc-act-step.ts';
 
 type Row = Record<string, any>;
 export {bindingOf, type Binding, type Candidate, type Json, type Unbound} from './step-policy.ts';
@@ -68,10 +69,6 @@ const DEFENSE_OPTIONS: Readonly<Record<string, string>> = Object.freeze({
   none: 'No defence: the attack is rolled unopposed.',
 });
 
-/** The standing action words and bases the kernel issues (§11.5.3): closed contract enums, never read from prose. */
-const STANDING_ACTIONS: readonly string[] = ['attack', 'hold', 'flee'];
-const STANDING_BASES: readonly string[] = ['authored', 'rule-default', 'keeper'];
-
 /**
  * Candidates of the active combat or chase session, from the kernel's own session view (`turn_of`, `actions[]`,
  * `pending_defense`; kernel-ts/read/session-view.ts). The "parameters-only steps never go to the LLM" ruling: a
@@ -82,14 +79,14 @@ const STANDING_BASES: readonly string[] = ['authored', 'rule-default', 'keeper']
  *
  * Three shapes. An NPC's pending defence is forced (the kernel accepts nothing else next) and its option is the
  * standing defence the kernel issues with it (§11.5.2), so it runs directly; only a pending defence without a
- * standing falls back to a Jev bind over the options. An NPC's own turn is forced too -- the initiative order says
- * it acts now -- and which of its issued actions it takes is its standing action when the kernel issues one (§11.5.3:
- * `attack` binds the attack, `hold`/`flee` leave the turn to the Keeper), otherwise a closed Jev bind over those
- * actions (`variants`); a Jev "unknown" hands the choice to the Keeper. The
- * investigator's turn offers each issued action to the route question, keyed without the round, so the action the
- * player declared is carried out once per turn.
+ * standing falls back to a Jev bind over the options. An NPC's own turn of a fight is forced too -- the initiative
+ * order says it acts now -- and it is the person's own act (§139.4, `npc_act`): generated from their situation, then
+ * bound to what the kernel settles (`runtime/jev/npc-act-step.ts`); the standing action of §11.5.3 no longer binds
+ * anything. An NPC's turn of a chase is a closed Jev bind over its issued actions (`variants`); a Jev "unknown" hands
+ * the choice to the Keeper. The investigator's turn offers each issued action to the route question, keyed without
+ * the round, so the action the player declared is carried out once per turn.
  */
-function sessionCandidates(session: Row, rawInput: string, answering: readonly string[], pendingChoice: Row, fighter: Row = {}, relationships: Row[] = [], underWay: readonly string[] = []): Candidate[] {
+function sessionCandidates(session: Row, rawInput: string, answering: readonly string[], pendingChoice: Row, fighter: Row = {}, relationships: Row[] = []): Candidate[] {
   const kind = text(session.kind);
   if ((kind !== 'combat' && kind !== 'chase') || session.status !== 'active') return [];
   const participants = array(session.participants).map(object);
@@ -173,39 +170,28 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
     }
   }
   if (investigator(actor) || !own.length) return own;
-  // SL-08 (§11.5.3): the NPC's standing action, issued by the kernel on its own turn. `attack` makes the attack the
-  // forced step, bound as far as the kernel's lists allow (one target and one weapon: direct; several: a closed Jev
-  // bind over the kernel's own `targets` / `weapons`); `hold` and `flee` issue nothing, so the turn is the Keeper's.
-  // A standing the builder cannot trust (an unknown word or basis, or an attack the kernel did not issue) keeps the
-  // previous route.
-  const standing = object(session.standing_action), word = text(standing.action), standingBasis = text(standing.basis);
-  if (STANDING_ACTIONS.includes(word) && STANDING_BASES.includes(standingBasis)) {
-    const named = {action: word, basis: standingBasis, ...(standing.disposition ? {disposition: standing.disposition as Json} : {})} as Json;
-    // §138.10: `flee` binds the NPC's own flee action now that the kernel issues one; `hold` still leaves the turn to the
-    // Keeper, who spends it on whatever the person does instead of a blow (§138.5).
-    const bound = word === 'attack' ? 'combat:attack' : word === 'flee' ? 'combat:flee' : null;
-    if (bound === null) return [];
-    // §138.14: someone who set out to do something and has no result yet (the card's intention under way) is not made
-    // to swing again by the clerk: the turn is the Keeper's, who may still attack or spend it on that intention. Live
-    // gate A (2026-09-26) had Knott's clerk-forced blow every round while he shouted, hurled the telephone and ran for
-    // the door in prose on top of it. Structural: the intention's ref names its owner.
-    if (word === 'attack' && underWay.some(ref => ref.startsWith(`intent:${actor}:`))) return [];
-    const step = own.find(candidate => candidate.bound.decision === bound);
-    if (step) return [{...step, forced: true, basis: {...object(step.basis), standing: named} as Json}];
-    if (word === 'flee') return [];
-  }
-  // No standing because the NPC has no combat disposition yet (§11.5.3 source 2): its card, read for this turn, carries
-  // the four closed words and its own parameters. Inferring one is a forced closed bind (Jev), written once for the
-  // campaign by the clerk; below the gate the Keeper completes the same write. The next read issues the standing.
+  // No combat disposition yet (§11.5.3 source 2): its card, read for this turn, carries the four closed words and the
+  // person's own parameters. Inferring one is a forced closed bind (Jev), written once for the campaign by the clerk;
+  // below the gate the Keeper completes the same write. The disposition is a description of the person (the stakes
+  // table's base rung reads it, §139.8), never what they do this turn.
   const inference = dispositionInference(actor, label(actor), fighter, relationships, situation);
   if (inference) return [inference];
-  // An NPC's turn: the initiative order says it acts now, so the step is forced. One issued action is direct; among
+  // §139.4 (docs/specs/npc-acts-first.md D4): the NPC's own turn of a fight is their own act -- generated first, then bound
+  // by the clerk to what the kernel settles (`npc_act`). This replaced SL-08's standing action as the clerk's step: an
+  // `attack` standing is no longer run by default, `hold` and `flee` no longer hand the turn over unbound, and §138.14's
+  // release (no forced blow while an intention is under way) went with it. The standing, when the kernel issues one,
+  // rides on the basis as a fact about the person; the pending defence above is untouched.
+  if (kind === 'combat') {
+    const standing = object(session.standing_action);
+    return [npcTurnCandidate(actor, label(actor), round, situation, Object.keys(standing).length ? standing as Json : undefined)];
+  }
+  // An NPC's turn of a chase: the initiative order says it acts now, so the step is forced. One issued action is direct; among
   // several, which one it takes is a closed Jev bind whose options are those actions (each variant keeps its own
   // parameters: a closed one is bound next, an open one goes to the LLM). Jev's "unknown" leaves it to the Keeper.
   if (own.length === 1) return [{...own[0], forced: true}];
   return [{key: `resolve:${kind}:turn:${actor}:r${round}`, verb: 'resolve', family: kind, source: 'table.resolve.options',
     label: `${label(actor)} acts on ${label(actor) === actor ? 'its' : 'their'} own initiative (${kind} round ${round})`,
-    bound: {intent: kind === 'combat' ? 'combat' : 'flee', actor, goal: `${kind}:turn`, method: `${kind}:turn`},
+    bound: {intent: 'flee', actor, goal: `${kind}:turn`, method: `${kind}:turn`},
     unbound: [{name: 'decision', required: true, vocabulary: 'closed', options: own.map(candidate => String(candidate.bound.decision)),
       descriptions: Object.fromEntries(own.map(candidate => [String(candidate.bound.decision), candidate.label]))}],
     variants: Object.fromEntries(own.map(candidate => [String(candidate.bound.decision), {label: candidate.label, bound: candidate.bound, unbound: candidate.unbound, basis: candidate.basis}])),
@@ -304,10 +290,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     : {bound: {}, unbound: [{name: 'actor', required: true, vocabulary: 'closed', options: actors}]};
   // A structurally determined step goes first: its candidate is the only thing the kernel accepts next.
   const relationships = array(object(capsule.mods).relationships).map(object);
-  // §138.14: the refs of the intentions under way of the people present, from their cards.
-  const underWay = array(capsule.present).flatMap(person => array(object(object(person).history).intents).map(object))
-    .filter(intent => intent.status === 'attempted').map(intent => text(intent.ref)).filter(Boolean);
-  for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice), object(reads.fighter), relationships, underWay))
+  for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice), object(reads.fighter), relationships))
     if (candidate.forced) push(candidate);
   // Effects the kernel issues for the current state.
   for (const [index, row] of array(object(reads.applyOptions).candidates).map(object).entries()) {

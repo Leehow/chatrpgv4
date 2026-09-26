@@ -24,6 +24,7 @@ import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOption
 import { argumentLimitRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
+import { markNpcAct } from "./npc-act-marks.ts";
 import { createCanonicalOperationDispatcher } from './canonical-operation-dispatcher.ts';
 import { RecallPages } from "./recall-pages.ts";
 import {lookupKeeperSupport} from '../table/keeper-support-lookup.ts';
@@ -3593,6 +3594,9 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 		}
+		// §139.3: the table's own act of a person -- the clerk's `npc_act` calls -- is marked by the host alone (`_generated`,
+		// `_draws`); every other call has the marks removed.
+		markNpcAct(spec.name, params, host);
 		takeSkillAnnotation(state?.skillRun, params);
 		if (!state) {
 			throw new Error(startupError ?? "the kernel is not up, so this table cannot open");

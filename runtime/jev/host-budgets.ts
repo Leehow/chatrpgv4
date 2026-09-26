@@ -56,13 +56,17 @@ export function resetJevStepsBudgetCache(): void { cached = undefined; }
 /**
  * §139.2 (docs/specs/npc-acts-first.md D2): the NPC act generation's named defaults, from the same file's `npc_act`
  * section. `timeoutMs` is the deadline of one whole generation, its one retry included (`runtime/jev/npc-act.ts`).
+ * §139.4: `maxPerTurn` is how many people acted on outside a fight act in one turn (the rest are `skipped_cap`).
+ * §139.5: `sameActRows` is how many of a person's latest rows the semantic no-repeat question offers.
  */
 export interface NpcActBudget {
   timeoutMs: number;
+  maxPerTurn: number;
+  sameActRows: number;
 }
 
 /** Used only if the file or its `npc_act` section cannot be read; the shipped file carries the real default. */
-export const NPC_ACT_FALLBACK: NpcActBudget = Object.freeze({timeoutMs: 8000});
+export const NPC_ACT_FALLBACK: NpcActBudget = Object.freeze({timeoutMs: 8000, maxPerTurn: 2, sameActRows: 5});
 
 let npcActCached: Promise<NpcActBudget> | undefined;
 
@@ -75,10 +79,12 @@ export function npcActBudget(contentRoot?: string): Promise<NpcActBudget> {
 async function readNpcActBudget(contentRoot?: string): Promise<NpcActBudget> {
   try {
     const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
-      npc_act?: {timeout_ms?: unknown};
+      npc_act?: {timeout_ms?: unknown; max_per_turn?: unknown; same_act_rows?: unknown};
     };
-    const timeoutMs = raw.npc_act?.timeout_ms;
-    return {timeoutMs: finite(timeoutMs) && timeoutMs > 0 ? timeoutMs : NPC_ACT_FALLBACK.timeoutMs};
+    const timeoutMs = raw.npc_act?.timeout_ms, maxPerTurn = raw.npc_act?.max_per_turn, sameActRows = raw.npc_act?.same_act_rows;
+    const count = (value: unknown, fallback: number): number => Number.isInteger(value) && (value as number) >= 0 ? value as number : fallback;
+    return {timeoutMs: finite(timeoutMs) && timeoutMs > 0 ? timeoutMs : NPC_ACT_FALLBACK.timeoutMs,
+      maxPerTurn: count(maxPerTurn, NPC_ACT_FALLBACK.maxPerTurn), sameActRows: count(sameActRows, NPC_ACT_FALLBACK.sameActRows)};
   } catch {
     return NPC_ACT_FALLBACK;
   }

@@ -49,12 +49,14 @@ import { buildCandidates, buildConsequenceCandidates, keeperCall, NPC_REACTION_D
 import { compileRows } from './compile-rows.ts';
 import { interpretCompile, interpretReask, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput } from './route-compile.ts';
 import { CONSEQUENCE_FAMILY, consequenceBatch, interpretConsequenceResult, type ConsequenceExistsRow, type ConsequenceRow, type ConsequenceView } from './consequence-route.ts';
-import { jevStepsBudget } from './host-budgets.ts';
+import { jevStepsBudget, npcActBudget } from './host-budgets.ts';
+import { createNpcActLane, type NpcActPort } from './npc-act.ts';
+import { isNpcAct, runNpcAct, runNpcScan, type NpcActDeps, type NpcActOutcome } from './npc-act-step.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import { CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
 import {
-  CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, interpretRoute, missedUnlocks, overRun, ROUTE_FAMILY,
+  CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, interpretRoute, missedUnlocks, npcScanDue, overRun, ROUTE_FAMILY,
   type BindRecord, type Budget, type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
 } from './step-policy.ts';
 
@@ -160,6 +162,11 @@ export interface HybridEngineOptions {
   now?: () => number;
   /** §135.30: the typed-feature compile before a route that has an uncompiled reachable candidate (default true). `false` is the SL-12 policy: the replays' control arm, and tests whose subject is the route. */
   compile?: boolean;
+  /**
+   * §139.3: the generation of a person's act (§139.2). Defaults to the product lane (`createNpcActLane` on the session's
+   * model registry); tests pass `createFixtureNpcActPort`; `null` generates nothing (every act is `model_unavailable`).
+   */
+  npcAct?: NpcActPort | null;
 }
 
 /** `PI_COC_TURN_BUDGET_MS` (contract §135.25), read per run: a positive number of milliseconds, else the default. */
@@ -441,6 +448,15 @@ interface RunState {
   /** SL-76: the latest read's D1 candidates and scene context, held for the turn-close route (never asked mid-read: see `routeConsequences`'s call site). */
   consequenceCandidates: ConsequenceCandidate[];
   consequenceContext?: TurnContext;
+  /** §139.4: the people present in the latest read (the capsule's order), whom an `npc_act` scan asks about. */
+  present: string[];
+  /** §139.4: who already acted (or was skipped) this run, and how many acted outside a fight (the per-turn cap). */
+  npcSeen: Set<string>;
+  npcCount: {acted: number};
+  /** §139.4: an NPC's turn of the fight the table's act did not settle (the Keeper is told once, in the next note). */
+  npcTurnLeft?: {key: string; npc: string; status: string; reason: string | null; act: string | null};
+  /** §139.4: a scan the time budget skipped was recorded (`skipped_budget`), once per run. */
+  npcBudgetSkipped?: boolean;
 }
 
 /**
@@ -451,6 +467,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   /** §135.29's SL-69 addendum: the per-call cap Pi's session should enforce on every Keeper provider call, and the callback told when it fires. */
   keeperCallCapMs: number; onKeeperCallCap: (phase: 'first_byte' | 'streaming', capMs: number) => void} {
   let bridge: KernelBridge | undefined, gateway: OperationGateway | undefined, closer: TurnClosePort | undefined, api: any;
+  /** §139.3: the product's npc-act lane, made when the extension loads, on the session context the latest event gave. */
+  let npcActLane: NpcActPort | undefined, sessionCtx: any;
+  const NO_ACT: NpcActPort = {generate: async () => ({unavailable: 'model_unavailable', detail: 'no npc-act generation on this engine'})};
+  const npcActPort = (): NpcActPort => options.npcAct === null ? NO_ACT : options.npcAct ?? npcActLane ?? NO_ACT;
   let consultations: SourceAnswersPort | undefined;
   const now = options.now ?? (() => Date.now());
   /** §135.25: the clerk steps the last run's budget deferred, for the next run's first note to the Keeper (session memory). */
@@ -489,6 +509,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     run.scene = table.context.scene;
     run.sessionView = Object.hasOwn(context, 'session') ? (active(context.session) ? {session: context.session, pending_choice: context.pending_choice ?? null} : undefined)
       : active(object(capsule.where).session) ? 'read' : undefined;
+    // §139.4: who is present, in the capsule's order (an `npc_act` scan reads each of them).
+    run.present = array(capsule.present).map(person => text(object(person).name)).filter(Boolean);
     const party = object(capsule.known).investigator;
     run.investigators = (Array.isArray(party) ? party : [party]).flatMap(value => [text(object(value).id), text(object(value).name)])
       .concat(array(run.fight.participants).filter(value => object(value).side === 'investigator').map(value => text(object(value).name))).filter(Boolean);
@@ -690,20 +712,16 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    * A clerk (policy-origin) write: the candidate's Keeper verb through the kernel extension's canonical gateway, so
    * the `tool_call` gates, admission, Mod hooks, the kernel and the `tool_result` hooks run exactly as for the model.
    */
-  async function clerkStep(run: RunState, params: Row, invocation: {runId: string; stepId: string; operationId: string; signal: AbortSignal}) {
-    const candidate = params.candidate as Candidate | undefined, extra = object(params.extra) as Record<string, Json>;
-    const refuse = (reason: string) => ({status: 'refused' as const, reason, artifact: {kind: 'execute', executed: {ok: false, summary: {origin: 'policy', refused: reason}}}});
-    if (!candidate) return refuse('no_candidate');
-    // The IntentBinding is required: no policy-origin write before a read has bound the run to this player input.
-    if (!run.intent || !run.scope || run.turn === undefined) return refuse('intent_unbound');
-    if (!candidate.clerk || !(CLERK_AUTHORITY as readonly string[]).includes(candidate.clerk)) return refuse('not_clerk_authority');
+  /**
+   * One policy-origin write through the kernel extension's canonical gateway, under the run's clerk lease: the same Keeper
+   * verb, the `tool_call` gates, admission (reading `bindings` off the host origin), Mod hooks, kernel and `tool_result`
+   * hooks. `unavailable` when there is no gateway to run it through.
+   */
+  async function dispatchClerk(run: RunState, write: {tool: 'apply' | 'resolve'; args: Row; clerk: string; basis?: Json; bindings: Json},
+    invocation: {stepId: string; operationId: string; signal: AbortSignal}): Promise<{unavailable: true} | {unavailable?: false; packet: ObservationPacket; callId: string | null}> {
     const session = run.session, dispatcher = gateway;
-    if (!session || !dispatcher || !bridge?.campaign) return {status: 'unavailable' as const, reason: 'operation_gateway_unavailable',
-      artifact: {kind: 'execute', executed: {ok: false, summary: {origin: 'policy', refused: 'operation_gateway_unavailable'}}}};
-    const {tool, args} = keeperCall(candidate, extra);
-    // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
-    // Computed before the dispatch (§32.12): admission reads it off the host origin to admit a compile selection.
-    const bindings = bindRecords(candidate, extra, array(params.bindings) as BindRecord[]);
+    if (!session || !dispatcher || !bridge?.campaign || !run.scope || run.turn === undefined) return {unavailable: true};
+    const {tool, args} = write;
     const readSet: ReadSet = [{kind: 'world', resource: run.scope.campaign!, revision: digest([run.turn, run.inputRevision])}];
     run.lease ??= new TaskLease({owner: 'single-loop-clerk', goal: run.rawInput.trim() || 'single-loop clerk step', scope: run.scope, capabilities: ['apply', 'resolve'],
       readSet, signal: invocation.signal,
@@ -729,11 +747,34 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         return {status: 'absent', activeTurn: result.active_turn as number};
       },
       trace: row => record({lane: 'run', event: 'operation_stage', run: run.runId, step: invocation.stepId, ...row}),
-      origin: {origin: 'policy', run: run.runId, step: invocation.stepId, clerk: candidate.clerk, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
-        bindings: admissionBindings(bindings, extra) as Json},
+      origin: {origin: 'policy', run: run.runId, step: invocation.stepId, clerk: write.clerk, ...(write.basis !== undefined ? {basis: write.basis} : {}),
+        bindings: write.bindings},
     };
     const packet = await dispatcher.dispatch(operation, context);
-    const ok = packet.status === 'succeeded', callId = run.identities.get(operation.id)?.callId ?? null;
+    return {packet, callId: run.identities.get(operation.id)?.callId ?? null};
+  }
+
+  async function clerkStep(run: RunState, params: Row, invocation: {runId: string; stepId: string; operationId: string; signal: AbortSignal}) {
+    const candidate = params.candidate as Candidate | undefined, extra = object(params.extra) as Record<string, Json>;
+    const refuse = (reason: string) => ({status: 'refused' as const, reason, artifact: {kind: 'execute', executed: {ok: false, summary: {origin: 'policy', refused: reason}}}});
+    if (!candidate) return refuse('no_candidate');
+    // The IntentBinding is required: no policy-origin write before a read has bound the run to this player input.
+    if (!run.intent || !run.scope || run.turn === undefined) return refuse('intent_unbound');
+    if (!candidate.clerk || !(CLERK_AUTHORITY as readonly string[]).includes(candidate.clerk)) return refuse('not_clerk_authority');
+    const unavailable = {status: 'unavailable' as const, reason: 'operation_gateway_unavailable',
+      artifact: {kind: 'execute', executed: {ok: false, summary: {origin: 'policy', refused: 'operation_gateway_unavailable'}}}};
+    if (!run.session || !gateway || !bridge?.campaign) return unavailable;
+    // §139.3/§139.4: a person's own act is its own step: generated, bound, then written through this same gateway.
+    if (isNpcAct(candidate)) return npcActStep(run, candidate, invocation);
+    const {tool, args} = keeperCall(candidate, extra);
+    // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
+    // Computed before the dispatch (§32.12): admission reads it off the host origin to admit a compile selection.
+    const bindings = bindRecords(candidate, extra, array(params.bindings) as BindRecord[]);
+    const dispatched = await dispatchClerk(run, {tool, args, clerk: candidate.clerk, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
+      bindings: admissionBindings(bindings, extra) as Json}, invocation);
+    if (dispatched.unavailable) return unavailable;
+    const {packet, callId} = dispatched;
+    const ok = packet.status === 'succeeded';
     const result = object(packet.result);
     const refusal = ok ? undefined : object(result.coc_error).code ?? result.code ?? packet.status;
     const {goal: _goal, method: _method, ...shown} = object(tool === 'resolve' ? args.action : {}) as Row;
@@ -752,6 +793,58 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       artifact: {kind: 'execute', executed: {ok, summary: {origin: 'policy', tool, call_id: callId, status: packet.status, receipts: packet.receipts,
         clerk: candidate.clerk ?? null, basis: candidate.basis ?? null, ...(ok ? checkOf(tool, result) : {}), ...(ok ? {} : {refusal: String(refusal)})} as Json},
       ...(read ? {fresh: read} : {})}};
+  }
+
+  /**
+   * §139.3/§139.4: a person's own act (`npc_act`) -- on their turn of a fight (`trigger: turn`), or for every person
+   * present the declaration acted on (`trigger: acted_on`, `runNpcScan`, at most `npc_act.max_per_turn` a turn). Each
+   * act is generated (the npc-act lane), bound by one closed Jev batch under its own lease (never the policy's decision
+   * budget: §135.28's clerk bind exception), and written through the same gateway as every clerk step with authority
+   * `npc_act`. The step always succeeds for the policy: an unavailable generation, an unbound act or a refused write is
+   * the act's outcome (a `lane: run`, `event: npc_act` row), and the turn goes on to the Keeper.
+   */
+  async function npcActStep(run: RunState, candidate: Candidate, invocation: {runId: string; stepId: string; operationId: string; signal: AbortSignal}) {
+    const trigger = candidate.bound.trigger === 'acted_on' ? 'acted_on' as const : 'turn' as const;
+    const budget = await npcActBudget();
+    let writes = 0;
+    const deps: NpcActDeps = {
+      call: (method, params) => call(method, params),
+      generate: (input, signal) => npcActPort().generate(input, signal),
+      ...(jev ? {decide: async (batch: DecisionBatch) => {
+        const lease = new TaskLease({owner: batch.family, goal: `run ${run.runId} npc act`, scope: batch.scope, capabilities: ['decision'], readSet: batch.readSet,
+          signal: invocation.signal, budget: {deadlineAt: Date.now() + 15_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
+        try { return await jev.decide(batch, lease); } finally { lease.close(); }
+      }} : {}),
+      write: async (planned, basis) => {
+        const dispatched = await dispatchClerk(run, {tool: planned.tool, args: planned.args, clerk: 'npc_act', basis, bindings: [] as Json},
+          {stepId: invocation.stepId, operationId: `${invocation.operationId}/w${++writes}`, signal: invocation.signal});
+        if (dispatched.unavailable) return {ok: false, callId: null, receipts: [], status: 'unavailable', refusal: 'operation_gateway_unavailable'};
+        const {packet, callId} = dispatched, ok = packet.status === 'succeeded', result = object(packet.result);
+        return {ok, callId, receipts: [...packet.receipts], status: packet.status, result,
+          ...(ok ? {} : {refusal: String(object(result.coc_error).code ?? result.code ?? packet.status)})};
+      },
+      record, ...(run.scope ? {scope: run.scope} : {}), ...(run.readSet ? {readSet: run.readSet} : {}),
+      runId: run.runId, stepId: invocation.stepId, turn: run.turn ?? 0, gate: DEFAULT_CONFIDENCE_GATE, budget, signal: invocation.signal,
+    };
+    let outcomes: NpcActOutcome[];
+    if (trigger === 'turn') {
+      const npc = text(candidate.bound.npc);
+      run.npcSeen.add(npc);
+      outcomes = [await runNpcAct(deps, npc, 'turn')];
+      // An NPC's turn the act did not pass is the Keeper's; the next note says so once (§139.4).
+      const [outcome] = outcomes, round = object(object(candidate.basis).row).round;
+      if (outcome.passedTurn !== true) run.npcTurnLeft = {key: `${npc}:r${String(round ?? '')}`, npc, status: outcome.status, reason: outcome.reason ?? null, act: outcome.act ?? null};
+    } else outcomes = await runNpcScan(deps, {present: run.present, addressees: array(candidate.bound.addressees).map(text).filter(Boolean), seen: run.npcSeen, count: run.npcCount});
+    // What the table's acts did this turn reaches the Keeper beside the clerk's other steps (§135.11's clerk_did).
+    for (const outcome of outcomes) if (outcome.status !== 'failed')
+      run.clerkDid.push({step: invocation.stepId, operation: 'npc_act', label: `${outcome.handle ?? outcome.npc}: ${outcome.act ?? '(no act)'}`, clerk: 'npc_act',
+        call_id: outcome.calls[0]?.call_id ?? null, status: outcome.status, receipts: outcome.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
+        result: {npc: outcome.handle ?? outcome.npc, trigger: outcome.trigger, act: outcome.act ?? null, way: outcome.way ?? null, params: (outcome.params ?? {}) as Json,
+          ref: outcome.ref ?? null, continued: outcome.continued ?? null, abandoned: outcome.abandoned ?? null, reason: outcome.reason ?? null} as Json});
+    const read = await freshOf(run);
+    return {status: 'ok' as const, artifact: {kind: 'execute', executed: {ok: true, summary: {origin: 'policy', clerk: 'npc_act', trigger,
+      acts: outcomes.map(outcome => ({npc: outcome.handle ?? outcome.npc, status: outcome.status, way: outcome.way ?? null, receipts: outcome.receipts}))} as Json},
+    ...(read ? {fresh: read} : {})}};
   }
 
   /**
@@ -1032,14 +1125,17 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §135.26 (owner ruling Q5): a clerk step that crossed an open obligation's guard, one line each, beside "clerk did".
     const crossings = fresh.map(value => value.obligation_open).filter((value): value is string => !!value);
     if (crossings.length) content.obligation_open = crossings;
-    // §11.5.3: an NPC whose standing action is `hold` or `flee` issued no step, so its turn is the Keeper's; the note
-    // says so with the standing and its disposition, once per NPC turn (the kernel's own view, never re-worded).
-    const fight = object(run.fight), held = object(fight.standing_action), turnKey = `${text(fight.turn_of)}:r${String(fight.round ?? '')}`;
-    if (fight.status === 'active' && ['hold', 'flee'].includes(text(held.action)) && run.noted !== turnKey) {
+    // §139.4: an NPC's turn of the fight whose own act the table did not settle (no act was generated, it was not bound,
+    // or a write was refused) is the Keeper's; the note says so once per NPC turn, with the standing the kernel issues
+    // (a fact about the person, §11.5.3) and what the table recorded.
+    const fight = object(run.fight), turnKey = `${text(fight.turn_of)}:r${String(fight.round ?? '')}`, left = run.npcTurnLeft;
+    if (fight.status === 'active' && left?.key === turnKey && run.noted !== turnKey) {
       run.noted = turnKey;
-      Object.assign(content, {npc_turn: {npc: text(fight.turn_of), round: fight.round ?? null, standing_action: held},
-        npc_turn_note: 'It is this NPC\'s turn and its standing action is not an attack, so the clerk did not act for it: '
-          + 'narrate the holding back, yielding or flight, or write apply npc action/disposition if the fiction says otherwise.'});
+      const held = object(fight.standing_action);
+      Object.assign(content, {npc_turn: {npc: text(fight.turn_of), round: fight.round ?? null, ...(Object.keys(held).length ? {standing_action: held} : {}),
+        act: {status: left.status, reason: left.reason, text: left.act}},
+        npc_turn_note: 'It is this NPC\'s turn and the table did not settle an act for them (npc_turn.act says what it recorded): the turn is '
+          + 'yours -- resolve what they do, or spend their turn with apply npc and spend_turn on what they set out to do.'});
     }
     const request = object(step.request), operation = request.operation;
     // The operation Jev chose and the LLM is asked to complete keeps its kernel row on record beside the model's call.
@@ -1082,6 +1178,20 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     return {...policy, next(driver) {
       const request = policy.next(driver), budget = driver.policyState.view.budget;
       run.decision = {...budget};
+      // §139.4: a person's own act the time budget left undone is recorded, never run past the budget.
+      if (overRun(budget) && request.kind === 'infer') {
+        const view = driver.policyState.view;
+        for (const item of view.pending) if (item.candidate?.clerk === 'npc_act' && !run.npcSeen.has(text(item.candidate.bound.npc))) {
+          run.npcSeen.add(text(item.candidate.bound.npc));
+          record({lane: 'run', event: 'npc_act', run: run.runId, step: `${run.runId}:s${driver.steps + 1}`, npc: text(item.candidate.bound.npc) || null,
+            trigger: text(item.candidate.bound.trigger) || 'turn', status: 'skipped_budget', budget_ms: budget.maxRunMs, elapsed_ms: budget.runMs});
+        }
+        if (npcScanDue(view) && !run.npcBudgetSkipped) {
+          run.npcBudgetSkipped = true;
+          record({lane: 'run', event: 'npc_act', run: run.runId, step: `${run.runId}:s${driver.steps + 1}`, npc: null, trigger: 'acted_on', status: 'skipped_budget',
+            budget_ms: budget.maxRunMs, elapsed_ms: budget.runMs});
+        }
+      }
       if (overRun(budget) && request.kind !== 'finish') {
         const deferred = object(object(request.kind === 'infer' ? request.request : undefined).budget).deferred_by_budget;
         // compose: the budget chose it; compose_owed: a compose already pending (the turn close's steer, the route's finish);
@@ -1116,7 +1226,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         identities: new Map(), budgetMs, deferred: [], investigators: [], named: [], shown: {scenes: new Set(), people: new Set(), passages: new Set(), pending: new Set()}, passages: [],
         guarded: [], guardedShown: 0,
         prescreenSpent: {reads: 0, jev_calls: 0, ms: 0},
-        consequenceRows: new Map(), consequenceExists: new Map(), consequenceExecuted: new Set(), consequenceMs: 0, turnReceipts: [], consequenceCandidates: []};
+        consequenceRows: new Map(), consequenceExists: new Map(), consequenceExecuted: new Set(), consequenceMs: 0, turnReceipts: [], consequenceCandidates: [],
+        present: [], npcSeen: new Set(), npcCount: {acted: 0}};
       const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
         ...(options.compile === false ? {compile: false} : {})});
       return {policy: budgetRows(run, policy), ports: makePorts(run), maxSteps: options.maxSteps ?? 48};
@@ -1139,8 +1250,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         if (active.includes('submit_plan_packet')) pi.setActiveTools(active.filter(name => name !== 'submit_plan_packet'));
       } catch { /* No tool surface yet. */ }
     };
-    pi.on('session_start', async () => { announce(); withoutPlanTool(); });
-    pi.on('before_agent_start', async () => { withoutPlanTool(); });
+    // §139.3: the npc-act lane runs on the session's own model registry; the context is the latest one an event gave.
+    if (options.npcAct === undefined && typeof pi.on === 'function')
+      npcActLane = createNpcActLane(pi, {ctx: () => sessionCtx, campaign: () => bridge?.campaign});
+    pi.on('session_start', async (_event: unknown, ctx: unknown) => { sessionCtx = ctx ?? sessionCtx; announce(); withoutPlanTool(); });
+    pi.on('before_agent_start', async (_event: unknown, ctx: unknown) => { sessionCtx = ctx ?? sessionCtx; withoutPlanTool(); });
   };
   return {runDriver, extension, bridge: () => bridge, keeperCallCapMs: keeperCallCapMs(options.env), onKeeperCallCap};
 }

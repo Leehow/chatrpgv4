@@ -10,7 +10,9 @@
     "shadow": true
   },
   "npc_act": {
-    "timeout_ms": 8000
+    "timeout_ms": 8000,
+    "max_per_turn": 2,
+    "same_act_rows": 5
   },
   "npc_situation": {
     "max_bytes": 6144

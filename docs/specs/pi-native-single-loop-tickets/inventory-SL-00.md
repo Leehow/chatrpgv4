@@ -45,7 +45,7 @@ TaskRuntime, S0, `keeper-support`, `map-words`, `workspace-rerank` or reading ro
 
 ## 2. Counts
 
-127 call sites under 121 inventory keys (at SL-00; SL-01 adds one app-play-gated leaf, `runtime/jev/hybrid-engine.ts` `createDecisionAdapter`, listed below; NAF-02 adds one no-caller leaf, `runtime/jev/npc-act.ts` `runLane`, listed below).
+127 call sites under 121 inventory keys (at SL-00; SL-01 adds one app-play-gated leaf, `runtime/jev/hybrid-engine.ts` `createDecisionAdapter`, listed below; NAF-02 adds one leaf, `runtime/jev/npc-act.ts` `runLane`, listed below -- no caller until NAF-03 wired the loop's `npc_act` step, app-play-gated since; NAF-05 retired the NPC advice, so `extensions/npc/index.ts` `createDecisionAdapter` is gone from this list, and NAF-03 removed its stale row).
 
 | role \ path | app-play | app-play-gated | child-process | app-setup | app-ui | settings-ui | source-only | no-caller | host-infra | total |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -194,7 +194,6 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 | `extensions/kernel/index.ts` | `attributeUnwrappedSpeech` | 1781 | `createDecisionAdapter` | kernel ext: speech attribution (128.3) | app-play-gated | observed: 5 speech rows | Gate: PI_COC_SPEECH_ATTRIBUTE != 0 (default on) and a Jev key. Bounded Jev fan-out before an implicit/explicit narrate commits; never refuses. |
 | `extensions/kernel/index.ts` | `resolveScenePerson.resolve` | 3349 | `createDecisionAdapter` | kernel ext: person-name resolution (11.5.6, SL-62) | app-play-gated | not observed yet (unit + fake-kernel seam tests only; see the SL-62 ticket's Comments for the gate #10 t4 replay) | Gate: a Jev key and at least one scene-present candidate. One bounded fan-out (maxRetries 0) asked after the kernel's own exact-match resolution already refused unknown_entity, before the call is retried once; never refuses on its own, and never runs for a name with no candidates. |
 | `extensions/kernel/verifier.ts` | `runVerifierLane` | 287 | `createDecisionAdapter` | kernel ext: post-delivery verifier | app-play-gated | not observed (route: incumbent) | Gate: PI_COC_JEV_VERIFIER=1. |
-| `extensions/npc/index.ts` | `npcExtension.on(session_start)` | 63 | `createDecisionAdapter` | npc ext: NPC advice | app-play-gated | observed: npc decision x3, advice x3, coc-npc-advice messages | Gate: Jev key, not the preparation owner, PI_COC_NPC_ADVICE_AUTO != 0. Bounded Jev fan-out prepared before the Keeper's first request. |
 | `extensions/rerank/agent/vendors.js` | `rerankDocuments` | 250 | `fetch` | rerank (table workspace) | app-play-gated | not observed (no workspace-rerank rows) | Rerank model host. Reached from extensions/table/workspace/reranker.ts rankWorkspaceCandidates when the workspace mode is on, the rerank setting is on and remote use is permitted. |
 | `extensions/table/context-runtime.ts` | `installContextPolicy.decision` | 61 | `createDecisionAdapter` | table ext: preparation (prescreen + NPC preparation owner) | app-play-gated | observed (prescreen rows) | Shared adapter factory for the per-input preparation. Gate: Jev key; the prescreen also needs ext.jev.preselectEnabled (true in the App). |
 | `extensions/table/prescreen.ts` | `prepareKeeperSupport` | 295 | `createDecisionAdapter` | table ext: prescreen | app-play-gated | observed | Adapter used when no shared one is passed. |
@@ -250,7 +249,7 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 
 | file | symbol | line(s) | call | owner | path | trace | note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `runtime/jev/npc-act.ts` | `createNpcActLane.generate` | – | `runLane` | npc-act lane: the NPC's act, generated before it is bound (contract 139.2) | no-caller | n/a (added at NAF-02) | One zero-tool completion per NPC act, fast model (`PI_COC_NPC_ACT_MODEL`); a structurally bad answer is asked once more, one deadline (`npc_act.timeout_ms`) for both. No caller until NAF-03 wires the loop's `npc_act` step; reclassify then. |
+| `runtime/jev/npc-act.ts` | `createNpcActLane.generate` | – | `runLane` | npc-act lane: the NPC's act, generated before it is bound (contract 139.2) | app-play-gated | n/a (added at NAF-02; caller wired at NAF-03) | Gate: `PI_COC_LOOP_ENGINE=hybrid-v1` (play). Called by the single loop's `npc_act` step (`runtime/jev/npc-act-step.ts` `runNpcAct`, through the hybrid engine's `npcActStep`): on an NPC's own turn of a fight, and outside one for the people present a clerk-carried declaration acted on (at most `npc_act.max_per_turn` a turn), plus at most one re-ask when the act repeats a row with no result (contract 139.3–139.5). One zero-tool completion per act, fast model (`PI_COC_NPC_ACT_MODEL`); a structurally bad answer is asked once more, one deadline (`npc_act.timeout_ms`) for both. |
 
 #### Infrastructure (no model) — app-play (16 sites)
 
