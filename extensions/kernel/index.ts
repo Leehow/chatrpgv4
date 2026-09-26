@@ -3781,7 +3781,8 @@ export default function (pi: ExtensionAPI) {
 			// (this same function, called recursively under narratePath "embedded"). That optional field is where a
 			// placeholder reached the player ("text", "text thriftily-placeholder": the Keeper meant to narrate
 			// separately and filled the field anyway); a narrate the Keeper calls itself may be legitimately short
-			// ("门厅很安静，你准备怎么做？"), so the explicit path and the implicit close keep their SL-80 rules.
+			// (turn.test.mjs's thirteen-code-point hall question), so the explicit path and the implicit close keep
+			// their SL-80 rules.
 			// Checked before admission, attribution or any Mod hook spends anything on a draft that is about to be
 			// refused; skipped once the turn's one steer is already spent (a second leg below the count still closes
 			// the turn, never stranding it) and while this call closes the opening (`closesOpening`), the same
