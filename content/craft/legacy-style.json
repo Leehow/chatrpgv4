@@ -1,0 +1,116 @@
+{
+  "contract_id": "coc.legacy-style.v1",
+  "note": "Frozen from content/craft/beat-directives.json and the style-axis and craft-directive nodes of content/craft/text-graph.json at ef8efdf97, in the old kernel's order (ordinal, then node id): the base table every campaign locked to narration-craft 1.x was played with. Contract §137.9: projected only for a campaign whose enabled narration-craft lock contributes no style (it predates context.style.v1), so a saved game keeps its craft lines. A campaign with narration-craft disabled gets none, like any table without a style provider. Never edited; new craft goes into the package.",
+  "axes": [
+    {
+      "line": "write natural, complete sentences",
+      "language": "zh-Hans"
+    },
+    {
+      "line": "avoid summary voice",
+      "language": "all"
+    },
+    {
+      "line": "avoid log-style summary",
+      "language": "all"
+    },
+    {
+      "line": "no stale repetition; an echo placed on purpose is not repetition",
+      "language": "all"
+    },
+    {
+      "line": "avoid abstract psychology",
+      "language": "all"
+    },
+    {
+      "line": "observable behaviour over asserted inner states",
+      "language": "all"
+    }
+  ],
+  "directives": {
+    "observable-before-interpretation": "visible behaviour first, interpretation after",
+    "player-action-uptake": "enact the declared action from the world's view",
+    "rewrite-abstract-explanation-to-action": "inner states become action, voice, posture, gaze, evidence",
+    "skill-interpretation-after-visible-evidence": "skill judgement after the visible evidence",
+    "final-prose-guard-before-output": "reread: complete natural sentences; context is facts, not phrasing",
+    "repetition-policy": "settled facts briefly, but as complete sentences; never fragments; enact this action",
+    "action-uptake-review": "check the draft enacts the action, not the player's phrasing",
+    "rewrite-ai-summary-voice": "information via scene detail or NPC speech, not report voice",
+    "rewrite-camera-direction-staging": "one natural sentence names the person and the focus",
+    "rewrite-passive-translation-ese": "active voice, clear subject, concrete action",
+    "rewrite-abstract-psychological-explanation": "visible behaviour first; explain after evidence or a skill result"
+  },
+  "beats": {
+    "REVEAL": [
+      "observable-before-interpretation",
+      "skill-interpretation-after-visible-evidence",
+      "rewrite-ai-summary-voice",
+      "player-action-uptake"
+    ],
+    "PRESSURE": [
+      "player-action-uptake",
+      "observable-before-interpretation",
+      "rewrite-camera-direction-staging",
+      "final-prose-guard-before-output"
+    ],
+    "CHOICE": [
+      "rewrite-ai-summary-voice",
+      "observable-before-interpretation",
+      "player-action-uptake"
+    ],
+    "SUBSYSTEM": [
+      "player-action-uptake",
+      "rewrite-camera-direction-staging",
+      "final-prose-guard-before-output",
+      "observable-before-interpretation"
+    ],
+    "CHARACTER": [
+      "observable-before-interpretation",
+      "rewrite-abstract-psychological-explanation",
+      "rewrite-abstract-explanation-to-action",
+      "skill-interpretation-after-visible-evidence"
+    ],
+    "RECOVER": [
+      "repetition-policy",
+      "rewrite-ai-summary-voice",
+      "player-action-uptake",
+      "action-uptake-review"
+    ],
+    "CUT": [
+      "repetition-policy",
+      "rewrite-camera-direction-staging",
+      "rewrite-passive-translation-ese",
+      "player-action-uptake"
+    ],
+    "ADVANCE": [
+      "player-action-uptake",
+      "action-uptake-review",
+      "repetition-policy",
+      "observable-before-interpretation"
+    ],
+    "MONTAGE": [
+      "repetition-policy",
+      "rewrite-ai-summary-voice",
+      "rewrite-passive-translation-ese",
+      "player-action-uptake"
+    ],
+    "DEEPEN": [
+      "rewrite-abstract-psychological-explanation",
+      "skill-interpretation-after-visible-evidence",
+      "observable-before-interpretation",
+      "rewrite-abstract-explanation-to-action"
+    ],
+    "PAYOFF": [
+      "repetition-policy",
+      "skill-interpretation-after-visible-evidence",
+      "rewrite-ai-summary-voice",
+      "observable-before-interpretation"
+    ]
+  },
+  "floor": [
+    "uptake: enact the player's declared action or words from the world's view; one word is still a declaration",
+    "answer: show settled outcomes; answer the chosen exchange or clarification; quiet play needs no new event; offers are advice",
+    "voice: anyone present the exchange touches speaks a line in their own voice",
+    "handoff: enough public context; return at a new unselected decision or completed goal; never repeat a chosen step or force a question; never a menu"
+  ]
+}

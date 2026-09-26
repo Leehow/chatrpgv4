@@ -228,12 +228,49 @@ export function styleProvider(active: readonly Row[]): Row | undefined {
     return active.find(mod => providesStyle(mod));
 }
 
-/** Contract §137.3: `capsule.style`. Without a provider it is only the language and register every table has. */
+/** Contract §137.3: `capsule.style`. Without a provider it is only the language and register every table has;
+ *  a campaign whose narration-craft lock predates this capability keeps the lines it was played with (§137.9). */
 export function styleSection(craft: TextGraph, language: string, register: string, provider: Row | undefined,
-    beats: readonly string[], beat: string, full: boolean): Row {
+    beats: readonly string[], beat: string, full: boolean, legacy?: StyleLines): Row {
     const base = craft.style(language, register);
-    return provider ? project(base, linesOf(provider, beats), beat, full) : base;
+    return provider ? project(base, linesOf(provider, beats), beat, full) : legacy ? project(base, legacy, beat, full) : base;
 }
+
+/** Contract §137.9: the frozen base table of the narration-craft 1.x era (`content/craft/legacy-style.json`).
+ *  Kernel content, not a package: its lines are fixed and its beat table is the Director's. A line whose
+ *  `language` is not `all` applies only to that play language, as the old text graph's axes did. */
+const LEGACY_STYLE = "legacy-style.json";
+const legacyCache = new WeakMap<object, Map<string, StyleLines>>();
+export async function legacyStyle(context: KernelContext, language: string): Promise<StyleLines | undefined> {
+    let raw: unknown;
+    try {
+        raw = await context.snapshots.readJson(join(context.content, "craft", LEGACY_STYLE));
+    }
+    catch {
+        return undefined; // a content tree without the legacy table gives legacy locks what any table without a provider gets
+    }
+    if (!plain(raw) || raw.contract_id !== "coc.legacy-style.v1")
+        return undefined;
+    const known = legacyCache.get(raw) ?? legacyCache.set(raw, new Map()).get(raw)!;
+    const cached = known.get(language);
+    if (cached)
+        return cached;
+    const directives = new Map<string, { full: string; brief: string }>(
+        Object.entries(row(raw.directives)).map(([id, line]) => [id, { full: string(line), brief: string(line) }]));
+    const lines: StyleLines = {
+        axes: array(raw.axes).map(row).filter(axis => ["all", language].includes(string(axis.language || "all"))).map(axis => string(axis.line)),
+        directives,
+        beats: Object.fromEntries(Object.entries(row(raw.beats)).map(([beat, ids]) => [beat, array(ids).map(string).filter(id => directives.has(id))])),
+        floor: array(raw.floor).map(string),
+    };
+    known.set(language, lines);
+    return lines;
+}
+
+/** The legacy table applies to a table whose enabled narration-craft contributes no style: a lock frozen before
+ *  context.style.v1 (§26 keeps its bytes; it never had the lines because the base carried them). */
+export const legacyStyleLock = (active: readonly Row[], provider: Row | undefined): boolean =>
+    !provider && active.some(mod => mod.id === "narration-craft" && !providesStyle(mod));
 
 /** Contract §137.4: the single-provider rule's refusal. `existing` is the provider already enabled. */
 export function secondProvider(candidate: Row, existing: Row): RpcError {

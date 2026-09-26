@@ -12,7 +12,7 @@ import { evidenceAcquired, evidenceDeliveryRecords } from "./continuity.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
 import { offerObligations } from "../mods/object-offer.js";
 import { modContext, activeMods } from "./mods.js";
-import { STYLE_BUDGET, styleProvider, styleSection } from "./style.js";
+import { STYLE_BUDGET, styleProvider, styleSection, legacyStyle, legacyStyleLock } from "./style.js";
 import { obligationNodes, sceneObligations, capsuleRow } from "./obligations.js";
 import { mechanicsOf } from "./mechanics.js";
 import { directorOffer } from "./offer.js";
@@ -394,6 +394,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         sanity: sheet => campaign.sanity(string(sheet.id)),
         worldline: worldlineSignals(worldlines)
     });
+    // Contract §137.9: a narration-craft lock frozen before context.style.v1 keeps the base lines it was played with.
+    const legacy = legacyStyleLock(active, styleProvider(active)) ? await legacyStyle(context, language) : undefined;
     const director = directorSection(dg, ontology, graph, world, scene, sig, memory, present),
         full = options.styleFull ?? true;
     const warningRecord = [...campaign.records].sort((a, b) => number(b.turn) - number(a.turn)).find(record => number(record.turn) < number(turn.turn) && record.closed_by === "narrate");
@@ -420,7 +422,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         rulings: rulingsForCapsule(campaign.logs.get("rulings.jsonl") ?? [], session?.kind ?? null, present.map(n => graph.handle(n)), graph.handle(scene), graph.moduleId, party.map(sheet => `investigator:${string(sheet.id)}`)),
         memory: capsuleMemory(memory, new EntityIndex(graph, party, row(world.scene_labels)), memoryAnchors),
         // Contract §137.3: language and register on every table; the craft lines only from the enabled provider.
-        style: styleSection(craft, language, string(meta.register || "purist"), styleProvider(active), dg.beats, director.beat, full),
+        style: styleSection(craft, language, string(meta.register || "purist"), styleProvider(active), dg.beats, director.beat, full, legacy),
         recent: campaign.records.filter(record => number(record.turn) < number(turn.turn) && (truth(record.player_text) || truth(record.rendered_text))).slice(-2).map(record => ({
             turn: record.turn,
             player: record.player_text ?? null,
