@@ -1949,6 +1949,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 `setup` 的 `step` 不在表里、前置未满足、或重复已完成的步 → 工具结果带该步的拒绝语与「下一步」（从表派生），不改状态。建卡进程没有胶囊、没有 Director；内核 `table.open` 只开 `ready_for_table` 或 `active` 的战役，其他状态报 `campaign_not_ready` 并给 `fix: bin/pi-coc setup --campaign <id>`。
 
+*(§14.17 amends this paragraph: with no capsule, the campaign's `play_language` reaches the setup model only through the line the onboarding extension appends to every setup request.)*
+
 ### 14.5 读者：一段 section 一个子 `pi` 进程
 
 模型侧的读书工作由 `module` 扩展驱动，不在内核里、也不是 `modelRegistry.complete`：每个 section 起一个子进程 `pi -p --no-session --no-context-files --tools read,write,edit,bash --system-prompt content/setup/reader.md`（工作目录 `work/<section_id>/`，模型 `PI_COC_BUILD_MODEL`，缺省与桌子同模型），标准命令由 `module.packet` 返回的 `brief` 给：读 `packet.json`，用 `bin/coc-evidence`（仓库脚本：`search <名字>` 在全节 span 里找、`verify <span-id>` 查 id 是否存在、`page <n>` 看整页）查证据，把 shard 写到 `shard.json`，跑 `bin/coc-review --module <id> --section <id>`（即 `module.review`）看 findings，改到 `accepted` 或放弃。每 section 至多 3 轮（子进程退出后 review 不过就带着 findings 原样重起一轮），超过记 `failed`；读者产出的一切只在 `work/` 里，进 `shards/` 的只有 review 通过并 `module.accept` 的。这是用户法则要求的形状：带工具的 agent 自己开包、自己分多次写、自己跑闸门。
@@ -2074,6 +2076,20 @@ Owner rulings of 2026-09-24 (`docs/specs/pi-native-single-loop.md`, "A built-in 
 **14.16.6 Campaigns.** A campaign that has not forked follows the library (§22.6) and reads the bound window; a fork copies `source.pdf` as every fork does. A fork made before its starter was bound keeps its own workspace: §22.6 forks do not follow later library publications, and a new campaign is how a table reads the book (a campaign is a compile snapshot).
 
 **14.16.7 The three ends (§31).** Producer: registration (built in) or the window bind (registered), both through `kernel-ts/modules/bound-source.ts` `bindStarterSource`. Reader: `Reading.source` and the two source snapshots, the capsule `reading` section. Adoption: `lookup kind=source`, the prescreen's `native_text` / `reviewed_source` candidates, the reading lane's jobs. Tests: `tests/extension/starter-source-binding.test.mjs` (real kernel runtime, a fixture book the suite writes, both modes, the refusal, replay, the capsule and the carried head's input), `tests/kernel/test_capsule.py` (the shipped Haunting reads its window; a starter without a declaration still answers `no_source_document`).
+
+### 14.17 The setup guide is told the table's language (2026-09-26; amends §14.4 and §16.1)
+
+**Evidence.** Live table `npc-acts-b` (2026-09-26; `mystery-house`, `play_language: zh-Hans`, setup mode through `tests/play/driver.py` with a setup launcher, `opencode-go/deepseek-v4.1-flash`, thinking off). The campaign existed before the setup process started, and the zh-Hans guidance pack was the one loaded: the committed prologue's `handoff` is that pack's, word for word. The first setup reply (no tool call) still opened with two English paragraphs -- the Chinese prologue retold in English, then the guided-creation package's frame line ("a couple of questions so the card carries this person's real strengths and weaknesses instead of whatever the dice say") close to its English wording -- and switched to Chinese only at the question. The same first request rebuilt on a real kernel (the test named in 14.17.4, before this fix) carries a 37.8K-character system prompt that says `play_language` ten times and never says which language that is: the setup process has no capsule (§14.4), and nothing else carried the value. §16.1's "the one sentence in the prompt is the only mechanism" had no value on setup turns, so the model took its language from the English around it.
+
+A second gap of the same shape: `campaign.create` answers with the campaign record, `play_language` nested in it, and the onboarding extension copied only top-level scalars into its context. A campaign the setup model created in-process therefore had no tag in the process, so its guidance was prepared, and its captions spoken, in `content/languages.json`'s `default`. An `en` campaign created from the terminal got the zh-Hans prologue (reproduced 2026-09-26); a zh-Hans one was right only because zh-Hans is the default.
+
+**14.17.1 The binding.** Once the campaign names a play language, every setup request's system prompt carries `play_language=<tag>` in one line the onboarding extension appends directly after the setup preamble, on every branch of `before_agent_start` -- the normal turn, guidance unavailable, package context unavailable, setup already complete -- because each of those replies is read by the player. The line says that every player-facing word is written in that language and that everything else in the request (the setup prompt, the module advice, the setup packages' instructions, tool results) is English for the model, to be carried in sense, never in its English words. `prompts/setup.md` states the rule and points at that line.
+
+**14.17.2 Where the tag comes from.** The kernel's record, as the process learns it: `setup.steps` `state.play_language` for a process opened on an existing campaign, and `campaign.play_language` in `campaign.create`'s answer for one this process created. The same bound tag is the one guidance is prepared in and the setup captions speak. Before a campaign exists there is no tag and none is guessed; the reply in which create-campaign itself runs keeps the prompt it started with.
+
+**14.17.3 What this is not.** Not a language check: nothing inspects what the model wrote (§23 forbids detection); the verifier lane's `play_language_mismatch` stays the only judgment of a delivery. No per-language branch: the tag is passed through as the kernel holds it. The guidance packs, the guided-creation package bytes and §23.4 are unchanged; a setup package's English instruction is covered by 14.17.1 rather than by each package restating the rule.
+
+**14.17.4 The three ends (§31).** Writer: the kernel (`campaign.create`, `setup.steps` `state`). Projection: `extensions/onboarding/index.ts` `tableLanguage()` into `before_agent_start`, and `noteResult` for the in-process campaign. Adoption: the setup model's replies. Tests: `tests/extension/setup.test.mjs`, the cases named "names its play_language" and "prepares its prologue in that language", read the provider request itself on a real kernel for every language the starter ships guidance in (the data default among them, so a fallback to it cannot pass); the three blocked-turn cases of §98 addendum 4 now expect the campaign's captions, not the default's.
 
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
@@ -2208,7 +2224,7 @@ submit the chosen dispositions without guessing IDs or repeating the failed call
 ### 16.1 系统语言
 
 - 代码、契约、提示词（守秘人、建卡、读者）、工具描述、宿主消息、胶囊里内核写的说明（`head`、压力/待办的状态词、Director 的 reason、检查点 one_line）、事实清单、抽取指令、校验车道的输入与发现、读者 brief、启动器帮助——全部英文。代码里不出现中文；守卫测试扫 `kernel/**`、`extensions/**`、`bin/**`、`prompts/**`、`content/setup/*.json`、`content/craft/beat-directives.json`，命中 CJK 即失败（模组内容与规则术语表是数据，不受限）。
-- 玩家看到的一切由守秘人按战役 `play_language` 写（提示里的那一句是唯一机制）；记忆候选的 `statement` 也按 `play_language` 写（守秘人之后要读它、玩家可能通过 recall 看到它）；校验发现的 `why` 与遥测用英文。
+- 玩家看到的一切由守秘人按战役 `play_language` 写（提示里的那一句是唯一机制；*§14.17：那一句必须带上值，建卡进程由宿主写入 `play_language=<tag>`*）；记忆候选的 `statement` 也按 `play_language` 写（守秘人之后要读它、玩家可能通过 recall 看到它）；校验发现的 `why` 与遥测用英文。
 - 规则术语表（技能、武器的各语言译名）留在规则数据里，不再被渲染路径消费；守秘人自己把 `Spot Hidden` 说成玩家语言里的词。
 
 ### 16.2 机制投影（`mechanics`）
