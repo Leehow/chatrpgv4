@@ -1,11 +1,13 @@
-Status: ready-for-human
+Status: ready-for-agent
 Spec: docs/specs/npc-as-actor.md（D4）；docs/specs/npc-acts-for-the-party.md L3 与其第 3 条拍板
 
 # 07 — 书上没有的人到场：轻路径
 
 邻居闻声进门、路人被喊过来、警察到场。今天 `apply person` 只给已有的人起名，陌生人走 adaptation 子进程（创作者加审稿，L7383 `persistent_npc`），不是一回合能到的路。
 
-## 要拍板的一处（所以是 ready-for-human）
+## 裁定（2026-09-26，用户：「按你的推荐来」）
+
+走 (a)：walk-on 不建图节点，是运行时人物；他的 slug 进入 §12.4 的名字解析与 §79 的桌上名表，否则 say 记号解析不到他。(b) 不做。下面保留两个方案的原文作为决策记录。
 
 身份边界（记忆 `pi-identity-boundary-fails-closed`：未声明的 id 让 `ok:true` 变成 `semantic_identity_unavailable`）。两个方案：
 
@@ -16,9 +18,9 @@ Spec: docs/specs/npc-as-actor.md（D4）；docs/specs/npc-acts-for-the-party.md 
 
 ## Depends on
 
-- 裁定；然后无代码依赖。
+- 无。02 之后做更顺（walk-on 当 actor 时走 02 的 `needs` 路径），不是硬依赖。
 
-## Scope（按 (a) 写，(b) 另议）
+## Scope（按 (a)）
 
 - `apply npc` 的 `walk_on: true` 变体；`world.walk_ons`；`npcsPresent` 与 `speakerResolver` 认 walk-on；`npcProfile` 从原型取数；账本条目按 slug；`apply npc to: away` 下场。
 - 契约：§17.3 加 walk-on 段；§12.4 解析加一层。
