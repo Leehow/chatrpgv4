@@ -536,11 +536,14 @@ function kernelProcess(t, workspace, env) {
  */
 async function seam(t, { npcAct, act, seed = "1", prepare, stakes }) {
 	const workspace = mkdtempSync(join(tmpdir(), "npc-act-seam-"));
-	t.after(() => rmSync(workspace, { recursive: true, force: true }));
 	createRealCampaign(workspace, CAMPAIGN);
 	// A state put in place by the kernel's own RPC in a process of its own, before the engine's kernel starts.
 	if (prepare) prepare(workspace);
 	const call = kernelProcess(t, workspace, { COC_KERNEL_SEED: seed });
+	// Registered after the kernel's own close hook, so it runs after the kernel has exited (hooks run in the order they
+	// were registered): removed first, a kernel still writing made it ENOTEMPTY, and the throw skipped the close hook,
+	// which left the kernel alive and the file hanging.
+	t.after(() => rmSync(workspace, { recursive: true, force: true, maxRetries: 3 }));
 	const rows = [], decisions = [];
 	const game = { call, rows, decisions, turn: 0, ordinal: 0, workspace };
 	if (prepare) { game.turn = (await call("table.status")).turn; game.ordinal = 40; }
