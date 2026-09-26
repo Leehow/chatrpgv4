@@ -18839,3 +18839,113 @@ builds the two-argument `TextGraph`.
 - **Never otherwise.** A table with narration-craft disabled gets `language` and `register` only, as §137.3 says of any table without a provider; a current narration-craft is its own provider. The file is never edited: new craft goes into the package, and an explicit upgrade (`mods.configure`) moves a campaign onto it.
 - **Size.** The table fit the old 2048/1536 budgets and still does; `tests/kernel/test_capsule_nine.py` asserts no `truncated: style` for a legacy lock in both forms.
 
+
+## 138. Band then roll: a rules row named instead of a number, rolled by the kernel (2026-09-26, BR-01 of `docs/specs/band-then-roll.md`; amends §135.28 and §136.22, extends §5's `table.apply` `time` and `damage`)
+
+§136.22 lets the Keeper name the book's amount instead of writing its own. Where the book prints only a scale — how
+long a search of one room takes, how hard a fall hurts — nothing let anyone name the rung, so the number was the
+Keeper's every time (2,199 `time` writes on the retained tables, 94 distinct values, the top twelve covering four
+fifths) and was filed `basis: "keeper"`, indistinguishable from a number the fiction demanded. This section adds the
+**band**: a row of a rules table, named by the Keeper or by a clerk, inside which the kernel rolls the number with its
+seeded dice and says so on the receipt. The design and its evidence are the spec's; this is the kernel half (BR-01).
+Who names a band for the clerk (Jev, above a gate) is BR-02 onward and is not here.
+
+### 138.1 The fifth binding path (amends §135.28)
+
+§135.28's four ways a clerk parameter is bound gain a fifth, `banded`: a closed parameter whose vocabulary is the rows
+of a band table (§138.2) and whose value is a number or a dice expression the row supplies as a range. The value the
+clerk writes is the **row's handle**, never a number; the kernel turns the handle into the number. Precedence:
+`stated` (the kernel issued the value, or the book states the amount) beats `banded`; `banded` beats `rule-default`;
+a parameter with neither an answer above the gate nor a default stays the Keeper's (`keeperOwns`). `BindingPath`
+(`runtime/jev/step-policy.ts`) carries `'banded'`, and a `BindRecord` of that path names `table`, `band` and, once the
+kernel answered, `roll`. Nothing here creates an `infer(bind)`. No policy transition binds `banded` in BR-01: the type
+and the row shape ship with the kernel half so that BR-02's bind rows and BR-04's shadow rows have one shape to write.
+
+### 138.2 The band registry (`kernel-ts/rules/bands.ts`)
+
+A **band table** is a rules-json table (or a block of one) whose rows each carry a range. The registry is the closed
+list of the tables and the field each binds; nothing scans rules-json for ranges, and a table is a band table only when
+it is written here. Four, none authored for this:
+
+| field | table · block | a row supplies | primitive a host asks with |
+| --- | --- | --- | --- |
+| `time.band` | `time-costs` · `categories` | `[min, max]` minutes and a `default` | Choice (kinds of activity) |
+| `damage.band` | `hazards` · `severity` | `damage_expr` | Score (the ladder's order: minor … splat) |
+| `npc.archetype` | `npc-stat-archetypes` · `archetypes` | per-characteristic and per-skill `[lo, hi]` | Choice |
+| `item.weapon` | `weapons` · `weapons` | the profile (damage die, range, uses, magazine, malfunction, impale, damage-bonus rule) | Choice in two levels: skill family, then profile |
+
+`bandRows(kernel, field)` lists a `range` or `dice` table's rows in the table's order as `{handle, min, max,
+default?}` or `{handle, dice, note?}`; a malformed row (no integer `min`/`max`, `min > max`, no dice string) or an
+empty block is `campaign_not_ready` naming the table and the row, with `fix` pointing at the file — a band never lands
+a number the table did not state. Archetype tiers and weapon profiles keep their existing fields and readers
+(`apply/archetype.ts` rolls inside the tier with `kernel.rng`; `apply/inventory.ts` resolves the profile and refuses
+`needs {field: "weapon", options}`); the registry names them so that one list says what a band is.
+
+`time-costs.json` was shipped for a Python-era clamp script and read by nothing (it sat in
+`tests/kernel/test_rules_tables_register.py`'s `UNREAD_TABLES`); it is read now, through the registry only, and its
+`source_note` says so. No row of any band table changes. The `local_travel` and `long_travel` categories exist for the
+build-time route fill (spec D6, BR-05): a road's time is the route edge's, and the host's per-turn question omits them;
+the kernel does not refuse them on `apply time`, because a refusal there would be the kernel judging the fiction.
+
+### 138.3 `apply time … {band}` and `apply damage … {band}` (extends §5; amends §136.22)
+
+`time` and `damage` accept `band: <handle>`, a row of their band table, in the slot the Keeper's own amount fills
+(`minutes`; `dice`). The kernel binds `stated` first (§136.22), then `band` (`kernel-ts/apply/band.ts`), then stages
+the effect as today:
+
+- **time:** one integer rolled uniformly in the row's `[min, max]` with `kernel.rng` — the same seeded dice as
+  `stated_roll` and the archetype roll — becomes `minutes`; the clock, the rest entry (≥ 360) and the magic-point
+  recovery (≥ 60) run on it exactly as on a Keeper's number.
+- **damage:** the row's `damage_expr` becomes `dice` and is rolled where `dice` is rolled today.
+
+The roll happens inside the apply transaction. A replayed call (same `call_id`, same params) returns the journaled
+result with `replayed: true` and never rolls again; a refused batch writes nothing, as every `apply` batch does.
+
+| reason | refused (`details.field: "band"`) |
+| --- | --- |
+| `band_none` (`invalid_params`) | `band` on an effect kind the registry does not bind (`fix` names the kinds that take one) |
+| `band_conflict` (`invalid_params`) | `band` beside the field it fills — `minutes`; `dice` — or beside `stated` (`details.fields` names them; with `stated`, `details.stated` names the node) |
+| `band_unknown` (`unknown_entity`) | the handle is not a row of the table (`details.table`; `details.options` lists the rows as `bandRows` returns them) |
+
+Every `fix` names the `details` key it points at, so the host projects it to the model (§8, "what a `fix` names in
+`details`, the model sees").
+
+**Whose number it was.** `stampBasis` writes the third word: every receipt an effect of these kinds mints carries
+`basis: "banded"` with `band: <handle>`; a time receipt also carries `band_roll: {min, max, total}`; a damage effect's
+`roll` and `delta` receipts both carry `basis` and `band`, and the roll receipt's own `expression`/`total` are the
+band's dice as rolled. `"stated"` and `"keeper"` are exactly what §136.22 made them. The mechanics projection changes
+nothing: a banded time is a time card, a banded damage a damage card, and numbers stay off the prose (§16.3).
+
+**What is never a band** (spec D10): money (§58, every amount names its source; a rolled price is a fabricated price with
+a receipt), a threat's advance (§30.9), quantities (default 1), and every open word — `why`, `how`, `label`, `via`, a
+note's text, a ruling's statement, a definition's description. A band never fills a value the kernel issues or the book
+states.
+
+### 138.4 The tools, the fake kernel, three ends
+
+The `apply` tool's `time` and `damage` effects offer `band` (`extensions/kernel/tools.ts`, beside `stated`; `minutes`
+and `dice` were already optional for `stated`). A field only the kernel reads is one the Keeper can never send (§88.5),
+and a schema field the kernel does not read is refused on every retry, so the two halves ship in one change and the
+kernel is restarted with the rebuild. The Keeper may therefore name a band in its own call today; whether the base
+prompt should say so is a prose-mod question (spec Further Notes). The fake kernel
+(`tests/extension/fixtures/fake-kernel.mjs`) accepts `band` on `time` and `damage`, refuses `band_none` and
+`band_conflict` the way the real one does, and rolls a fixed twenty minutes for a banded time.
+
+*Writer:* the Keeper's call, or (from BR-02) the clerk's, naming the handle; the kernel, rolling and stamping.
+*Reader:* the turn record's receipts, the kpi's basis count (BR-02), the bind row (BR-02). *Actor:* the kernel — the
+clock, the healing engine and the hit points move on the rolled number exactly as on the Keeper's.
+
+### 138.5 Tests (BR-01)
+
+`tests/kernel/test_band_operations.py`, over the emitted kernel on a derived haunting (the shipped graph plus one
+stated rule for the conflict case; the dice seeded, never stubbed): a banded time lands inside the category's range
+with `basis`, `band` and `band_roll`, and the same seed and call sequence give the same total; a banded damage rolls
+the rung's dice with `basis: "banded"` on both receipts and the hit points move by the total; `band` beside `minutes`,
+beside `dice` and beside `stated` is `band_conflict` naming the fields and writes nothing (clock and receipts unchanged);
+a wrong handle is `band_unknown` with the rows in `details.options`; `band` on `cash` is `band_none`; a replayed banded
+call returns the journaled total; a banded night's sleep after a banded minor injury returns the hit point (`recovered`)
+exactly as a Keeper's minutes would. `tests/extension/band-operations.test.mjs`: the schema offers `band` on `time` and
+`damage` and on no other effect, every old shape stays valid, the extension passes `band` through untouched, and the
+fake kernel's `band_conflict` and `band_none` reach the Keeper. `tests/kernel/test_rules_tables_register.py` drops
+`time-costs` from the unread list. Every starter's capsule, `table.apply.options` and `table.resolve.options` are
+byte-identical to the parent commit `dbc502675` (no read changes; checked in the ticket's Comments).

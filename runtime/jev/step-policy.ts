@@ -44,10 +44,14 @@ export interface Unbound {name: string; required: boolean; vocabulary: 'closed' 
   instruction?: string;
   /** §135.28: what the parameter is when Jev does not bind it. Absent: no default (a target, a weapon, an actor): the Keeper's. */
   ruleDefault?: RuleDefault}
-/** How one parameter of a clerk step got its value (contract §135.28): the four ways, none of them a model call. */
-export type BindingPath = 'jev' | 'rule-default' | 'stated' | 'composed';
-/** One bound parameter as the `lane: "run"`, `event: "bind"` row records it; Jev's carries its distribution. */
-export interface BindRecord {name: string; path: BindingPath; value: Json; confidence?: number | null; distribution?: Record<string, number> | null; rule?: string}
+/** How one parameter of a clerk step got its value (contract §135.28, §138): the five ways, none of them a model call. */
+export type BindingPath = 'jev' | 'rule-default' | 'stated' | 'composed' | 'banded';
+/**
+ * One bound parameter as the `lane: "run"`, `event: "bind"` row records it; Jev's carries its distribution. A `banded`
+ * record (§138) names the band table and the row Jev chose, and the kernel's roll once it answered.
+ */
+export interface BindRecord {name: string; path: BindingPath; value: Json; confidence?: number | null; distribution?: Record<string, number> | null; rule?: string;
+  table?: string; band?: string; roll?: Json}
 /** One shape a candidate takes once its `decision` is bound: the chosen action with its own parameters. */
 export interface CandidateVariant {label: string; bound: Record<string, Json>; unbound: Unbound[]; basis?: Json}
 /**

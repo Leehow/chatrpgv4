@@ -916,6 +916,19 @@ function handle(method, params) {
 						fix: "leave the amount out to use the book's, or stated out to use your own",
 						details: { index, field: "stated", reason: "stated_conflict", fields: amounts.filter((field) => effect[field] != null) } } };
 				}
+				// Contract §138: a band rolls the amount inside a rules row; never beside the amount, never beside stated.
+				if (effect.band != null) {
+					if (!["time", "damage"].includes(effect.kind)) {
+						return { ok: false, error: { code: "invalid_params", message: `a ${effect.kind} effect takes no band`,
+							fix: "leave band out; only time, damage take one", details: { index, field: "band", reason: "band_none" } } };
+					}
+					const fields = [...(effect.stated != null ? ["stated"] : []), ...amounts.filter((field) => effect[field] != null)];
+					if (fields.length) {
+						return { ok: false, error: { code: "invalid_params", message: `band rolls the ${effect.kind} amount inside ${effect.band}; give one`,
+							fix: "leave the amount out to let the kernel roll inside the band, or band out to use your own",
+							details: { index, field: "band", reason: "band_conflict", fields } } };
+					}
+				}
 				if (effect.kind === "cash" && effect.stated == null && typeof effect.delta !== "number") {
 					return { ok: false, error: { code: "invalid_params", message: "cash 要带正负号的 delta", details: { index } } };
 				}
@@ -955,7 +968,8 @@ function handle(method, params) {
 					mechanic({ kind: "clue", clue: effect.clue, ...(effect.label ? { label: effect.label } : {}) });
 				}
 				if (effect.kind === "time") {
-					mechanic({ kind: "time", minutes: effect.minutes });
+					// A band's minutes are the kernel's roll (§138); the fixture rolls a fixed twenty.
+					mechanic({ kind: "time", minutes: effect.band != null ? 20 : effect.minutes });
 				}
 				if (effect.kind === "map") {
 					mechanic({kind:'map',receipt:`map:${params.call_id}`,map:effect.name,name:effect.label??effect.name,

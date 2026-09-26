@@ -109,10 +109,15 @@ const ClueEffect = Type.Object({
 /** Contract §136.22: the book's amount, named instead of the Keeper's own. */
 const StatedAmount = Type.Optional(Type.String({ description: "instead of your own amount: the name of the stated rule whose book amount this is (a where.rules row with a mech line; for threat also the threat whose clock the book advances). The kernel takes the amount from what this turn's resolve with action.rule on it reached, else from the rule's own shape, and records basis stated. Never give an amount as well: that is refused. Without stated the amount is yours and is recorded as yours" }));
 
+/** Contract §138: a row of a band table, named instead of the Keeper's own amount; the kernel rolls inside it. */
+const TimeBand = Type.Optional(Type.String({ description: "instead of minutes: the time-cost category this took, by the handle of a row of the rules' time-costs table (a search of one room, library research, a night's sleep); the kernel rolls the minutes inside that row's range with its own dice and records basis banded, and a wrong handle is refused with the rows in details.options. Never give minutes or stated as well: that is refused. A road's time is the route's own and is never a band" }));
+const DamageBand = Type.Optional(Type.String({ description: "instead of dice: the severity of harm with no attacker, by the handle of a rung of the rulebook's other-forms-of-damage ladder (Keeper Rulebook p.124); the kernel rolls that rung's dice and records basis banded, and a wrong handle is refused with the rungs in details.options. Never give dice or stated as well: that is refused" }));
+
 const DamageEffect = Type.Object({
 	kind: StringEnum(["damage"] as const, { description: "damage with no attacker: a fall, fire, a falling object, suffocation, an overdose — and the failed check whose stated cost was that someone got hurt" }),
-	dice: Type.Optional(Type.String({ description: "the damage dice from the rulebook, such as 1D6; the kernel rolls them. Required unless stated names them" })),
+	dice: Type.Optional(Type.String({ description: "the damage dice from the rulebook, such as 1D6; the kernel rolls them. Required unless stated or band supplies them" })),
 	stated: StatedAmount,
+	band: DamageBand,
 	subject: Type.Optional(Type.String({ description: "who is hurt: an investigator or an NPC who is in the scene; defaults to the current investigator. An NPC whose numbers the book never printed needs an archetype pinned first (npc.archetype); until someone has hit points, nothing that happens to them can be settled, healed or clocked — it is only prose" })),
 	why: Type.Optional(Sentence("how they were hurt")),
 });
@@ -126,7 +131,8 @@ const ClockEffect = Type.Object({
 const TimeEffect = Type.Object({
 	kind: StringEnum(["time"] as const, { description: "the world clock moves forward" }),
 	stated: StatedAmount,
-	minutes: Type.Optional(Type.Integer({ description: "required unless stated gives them: minutes advanced. Six hours or more is a day of rest and the party heals for it (1 HP a day with no major wound), an hour or more regenerates magic points; the result lists what came back in recovered, and your narration owes those numbers like any other change" })),
+	band: TimeBand,
+	minutes: Type.Optional(Type.Integer({ description: "required unless stated or band gives them: minutes advanced. Six hours or more is a day of rest and the party heals for it (1 HP a day with no major wound), an hour or more regenerates magic points; the result lists what came back in recovered, and your narration owes those numbers like any other change" })),
 	why: Type.Optional(Sentence("where the time went")),
 });
 

@@ -32,6 +32,7 @@ import type {CampaignWriter} from '../write/store.js';
 import {prepareFulfillments, type FulfillmentSelection} from '../memory/fulfillment-receipt.js';
 import {activeScene, openGuards} from '../read/obligations.js';
 import {bindStated, stampBasis, type StatedEffect} from './stated.js';
+import {bindBand} from './band.js';
 const KINDS = ['ability', 'adaptation', 'cash', 'clock', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'map', 'merge', 'move', 'note', 'npc', 'object', 'person', 'ruling', 'switch', 'threat', 'time', 'usage'];
 export interface ApplyContext {
     readonly kernel: KernelContext;
@@ -167,8 +168,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     const kind = given.kind;
                     if (!KINDS.includes(kind))
                         unsupported('kind', kind, KINDS, `unknown effect kind ${repr(kind)}`);
-                    // Contract §136.22: `stated` takes the amount from the book; without it the amount is the Keeper's.
-                    const bound: StatedEffect = bindStated(context, given), effect = bound.effect, amounts = ['damage', 'time', 'threat', 'flag', 'cash'].includes(kind);
+                    // Contract §136.22: `stated` takes the amount from the book; §138: `band` rolls it inside a rules row;
+                    // without either the amount is the Keeper's.
+                    const bound: StatedEffect = await bindBand(context, bindStated(context, given)), effect = bound.effect, amounts = ['damage', 'time', 'threat', 'flag', 'cash'].includes(kind);
                     if(['fork','switch','merge'].includes(kind)){
                         const moved=await contributions.worldlines!.stage(campaign,graph,staged,effect,turn,index,effects.length,context.mint,started.callId);
                         receipts.push(moved.receipt);ids.push(moved.receipt.id);taken.add(moved.receipt.id);stagedWorldline=moved.plan;continue;
