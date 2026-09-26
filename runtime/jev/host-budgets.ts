@@ -52,3 +52,44 @@ async function readJevStepsBudget(contentRoot?: string): Promise<JevStepsBudget>
 
 /** Test-only: forgets the cached value, so a test that swaps the content root sees its own fixture. */
 export function resetJevStepsBudgetCache(): void { cached = undefined; }
+
+/**
+ * SL-82 (contract §135.29 addendum 2): the step-1 call's own allowance when `COC_FIRST_STEP_THINKING=1`
+ * (`extensions/kernel/first-step-thinking.ts`'s `firstStepCallCapMs`, `runtime/jev/hybrid-engine.ts`'s
+ * per-call `keeperCallCapMs`). A named default in the same rules-data file `jev_steps`/`look_budget` live
+ * in, not a literal in `hybrid-engine.ts` -- so raising it after a slower model is a data change.
+ */
+export interface FirstStepThinkingBudget {
+  /** `first_step_thinking.call_cap_ms`: `firstStepCallCapMs` takes the larger of this and the ordinary
+   * SL-69 cap for the turn's first Keeper call. From the ≈35 s thinking call measured in long gates #9/#14. */
+  callCapMs: number;
+}
+
+/** Used only if `content/rulesets/coc7/host-budgets.json` cannot be read; the shipped file carries the real default. */
+export const FIRST_STEP_THINKING_BUDGET_FALLBACK: FirstStepThinkingBudget = Object.freeze({callCapMs: 60_000});
+
+let firstStepThinkingCached: Promise<FirstStepThinkingBudget> | undefined;
+
+/**
+ * SL-82's allowance, read once per process and cached like `jevStepsBudget` above. `contentRoot` is for
+ * tests only; production code always calls this with no argument.
+ */
+export function firstStepThinkingBudget(contentRoot?: string): Promise<FirstStepThinkingBudget> {
+  if (contentRoot !== undefined) return readFirstStepThinkingBudget(contentRoot);
+  return firstStepThinkingCached ??= readFirstStepThinkingBudget();
+}
+
+async function readFirstStepThinkingBudget(contentRoot?: string): Promise<FirstStepThinkingBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      first_step_thinking?: {call_cap_ms?: unknown};
+    };
+    const callCapMs = raw.first_step_thinking?.call_cap_ms;
+    return {callCapMs: finite(callCapMs) && callCapMs > 0 ? callCapMs : FIRST_STEP_THINKING_BUDGET_FALLBACK.callCapMs};
+  } catch {
+    return FIRST_STEP_THINKING_BUDGET_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached value, so a test that swaps the content root sees its own fixture. */
+export function resetFirstStepThinkingBudgetCache(): void { firstStepThinkingCached = undefined; }
