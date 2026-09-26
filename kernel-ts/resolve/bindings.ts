@@ -6,6 +6,7 @@ import { array, clone, entries, integer, number, row, string, truth, values, typ
 import { recordOf } from '../read/module-graph.js';
 import { SettleContext } from './context.js';
 import { SOCIAL_APPROACH_SKILLS } from './arithmetic.js';
+import { CHARACTERISTICS } from '../rules/skills.js';
 export const ORDINARY = 'decision:coc7:core-check:ordinary-check';
 export const COMBINED = 'decision:coc7:core-check:combined-check';
 export const OPPOSED = 'decision:coc7:core-check:opposed-check';
@@ -47,6 +48,27 @@ export function npcCheck(context: SettleContext, ref: string): [
             return [`${parts[1]} ${label}`, number(value)];
     }
     return null;
+}
+/**
+ * SL-71 (§11.5.9): the skill family's own rulebook base chance, for an NPC actor's own roll with no
+ * authored or pinned value -- the same deterministic number `basic.ts`'s `resolveTarget` already
+ * falls back to for an investigator whose sheet does not carry a skill (`rulebook_base`). A
+ * characteristic has no such table-wide default (it is always sheet- or profile-specific), so this
+ * returns null for one and lets the caller ask instead.
+ */
+export async function rulebookSkillDefault(context: SettleContext, label: string): Promise<number | null> {
+    if (!label || Object.hasOwn(CHARACTERISTICS, label))
+        return null;
+    let spec: Row;
+    try {
+        spec = await context.tables.skillByName(label);
+    }
+    catch (error) {
+        if (['KeyError', 'ValueError'].includes((error as Error).name) || (error as NodeJS.ErrnoException).code)
+            return null;
+        throw error;
+    }
+    return integer(spec.base_chance) && number(spec.base_chance) >= 0 && number(spec.base_chance) <= 100 ? number(spec.base_chance) : null;
 }
 export function socialBinding(context: SettleContext, node: Row, approachSkill: string): Row {
     const handle = context.graph.handle(node);
@@ -128,6 +150,20 @@ export async function hostLocked(context: SettleContext, runtime: RuleGraph, sel
                                 }
                             }
                         });
+                    // SL-71 (§11.5.9): no in-flight pin, ledger pin or authored value for this skill --
+                    // before asking, try the skill's own rulebook base chance, the same deterministic
+                    // fallback an investigator's own unlisted skill already gets (basic.ts's
+                    // `rulebook_base`). It is not a guess that changes between calls: the same skill
+                    // name always answers the same number, so it is never "the kernel inventing a
+                    // number that will be different next time" -- the one thing §17.9 forbids. Only a
+                    // characteristic (no rulebook base to fall back to) or a skill absent from the
+                    // rules table still asks.
+                    const fallback = await rulebookSkillDefault(context, label);
+                    if (fallback !== null) {
+                        locked.investigator_id = context.actingId;
+                        locked.target = fallback;
+                        return locked;
+                    }
                     const who = context.graph.displayName(node);
                     throw new RpcError('needs', `the book gives ${who} no ${label}`, {
                         fix: `pin it once with apply npc {name: "${who}", skill: {name: "${label}", value: <0-100>}}, why: ...}} — it is theirs from then on`,

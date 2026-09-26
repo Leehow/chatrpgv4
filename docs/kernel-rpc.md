@@ -1123,6 +1123,128 @@ existing person and mints the other two; the b11 t17 batch replay lands whole. M
 `rankedCandidateIds` to ignore its `opts` parameter (searching the full pool regardless of `roster`) reproduces
 the batch-11 t17 refusal and is caught by all three tests.
 
+#### 11.5.9 An NPC the table knows can be the actor of an ordinary resolve: the NPC's own roll (2026-09-26, SL-71 of `docs/specs/pi-native-single-loop-tickets/71-an-npc-can-be-the-actor-of-a-resolve.md`; amends this section, §16.2 and §17.9)
+
+**Evidence** (long gate #11 `longgate11-haunting-1515`, ticket 02's entry). Five `resolve` calls with an
+NPC as `actor` ("no investigator 'Steven Knott' at the table", also Gabriela, Mr. Dooley) were refused
+`unknown_entity`; the Keeper repeated each to the class limit and the refusal budget (§34.12) cut two
+runs. §11.5 already lets an NPC be `actor` for a combat defence (§11.5.2) or standing action (§11.5.3),
+and §17.9 already lets one act with their own skill *for* the party (a rescuer, a locksmith, a guide);
+between the two there was no legal path for an NPC's own uncontested roll -- a guard's Spot Hidden, a
+suspect's Psychology read on the party -- so `read/handlers.ts`'s `actor(party, name)` (investigators
+only) refused it every time, and the Keeper could only narrate the outcome unrolled.
+
+**The ruling (owner, 2026-09-26).** A `resolve` whose `actor` is a person the table knows -- an authored
+NPC of the module graph, an established table person, or a `from_passage` person, in every case a name
+`graph.actor(name)` (`kernel-ts/read/module-graph.ts`) resolves -- is that NPC's own roll: the kernel
+rolls it against the NPC's authored skill/characteristic value where the graph or a pin already carries
+one, else (for a *skill*, never a characteristic) the skill's own rulebook base chance, the same
+deterministic fallback an investigator's own unlisted skill already gets. It settles as an ordinary roll
+receipt, Keeper-side by default (`visibility: "keeper"`; no name and no number reaches the player) unless
+an existing public rule says otherwise (§16.2's `public_combat` exception, unaffected -- a combat roll
+never reaches this executor at all), and it never writes the investigator's sheet. An actor the table does
+not know is still `unknown_entity`, now naming both investigators and this table's known people as
+candidates. Opposed checks and admission grounds are unchanged: the compile does not select an NPC's own
+roll, only the Keeper's `resolve` does.
+
+**What was already there.** `kernel-ts/resolve/pipeline.ts`'s `resolveActor` already set `actingId` to a
+graph-known NPC's handle for an *ordinary* check outside any combat/chase session (not only inside one --
+that reading of "only a combat defender" belonged to the refusal the Keeper actually met, not to this
+function), and `bindings.ts`'s `hostLocked` already read the NPC's authored value first through
+`SettleContext.actorSkillValue` (in-flight `apply npc` pin -> ledger pin -> the book) exactly as §17.9
+built it, stamping the roll receipt's existing `actor_is_investigator: this.sheetById(actor) !== null`
+(`resolve/context.ts`) `false` and hiding the actor's name under §16.2's existing rule. Two gaps remained,
+both closed here:
+
+1. **No value anywhere still asked instead of defaulting.** §17.9's L3 ("the book has none, ask once, never
+   invent") is right for a number the party will see and rely on again and again (the same doctor's
+   Medicine chance), but a rulebook base chance is not an invention that changes between calls -- the same
+   skill name answers the same number every time, exactly as an investigator's own unlisted skill already
+   falls back to it (`resolveTarget`'s `rulebook_base`, `basic.ts`). `hostLocked`'s `ref === ORDINARY`
+   branch now tries `rulebookSkillDefault` (`bindings.ts`, wraps `tables.skillByName(label).base_chance`)
+   before asking; a characteristic, which has no table-wide default, still asks.
+2. **The roll was public.** Nothing set `visibility` for this branch, so it defaulted to `"public"` --
+   the number reached the player even though the name did not. `basic.ts`'s `executeCheck` now defaults
+   `visibility` to `"keeper"` whenever the acting id resolves to a graph NPC (`context.npcNode(actor) !==
+   null`) rather than to `"public"`; a caller that declares `visibility` itself is untouched, and combat's
+   own roll and visibility rules never reach this executor.
+
+**Unknown actor's candidates.** `read/handlers.ts` adds `actorKnown`/`enrichActorRefusal`: when the name
+matches no investigator (`actor()`'s own `unknown_entity`) and `graph.actor` finds no person either, the
+refusal's `details.candidates` gets `graph.candidates(name, ['npc'], 6)` appended to the investigator
+candidates `actor()` already lists, so it names investigators (`kind: "investigator"`) and this table's
+known people (`kind` the graph's own node kind, usually `"npc"`) side by side; the message and refusal code
+are unchanged. `resolveActor` (`pipeline.ts`) calls `actorKnown` in place of its old investigator-only
+lookup; the 11.5.9 addendum below reuses the same pair for a different caller (`mods/resolve.ts`).
+
+**Three ends (§31).** *Writer:* `resolve/bindings.ts` (`hostLocked`'s new rulebook-default branch) and
+`resolve/basic.ts` (`executeCheck`'s new visibility default); neither touches `world.npc_resources` or an
+investigator sheet. *Reader:* the same roll receipt every consumer already reads (`actor_is_investigator`,
+`visibility`); §16.2's existing name/number gating needs no change. *Actor:* the Keeper, who can now name a
+known NPC as `actor` for an ordinary check outside combat/chase and get a settled roll instead of a
+refusal or a silent redirect to whichever investigator the party happens to have.
+
+*Tests* (mutation-killable, `tests/extension/`): an NPC actor with an authored skill rolls it and the
+roll receipt carries `actor_is_investigator: false`, `visibility: "keeper"` and no public name; an NPC
+actor with no authored or pinned skill rolls the skill's rulebook base chance instead of refusing; an NPC
+actor with neither an authored value nor a rulebook skill (a bare characteristic) still refuses `needs`
+naming the pin; an actor naming nobody the table or the book knows still refuses `unknown_entity`, with
+`details.candidates` carrying both investigator and NPC-kind entries; the investigator sheet is untouched
+(no `writeSheet` call, no `development-state` tick) by an NPC's own roll. Mutation: reverting
+`rulebookSkillDefault`'s callsite (falling straight to the `needs` refusal, as before this ticket)
+reproduces the gate #11 refusal shape and is caught by the fallback test; reverting `executeCheck`'s
+visibility default back to the literal `"public"` is caught by the keeper-visibility test.
+
+#### 11.5.9 addendum -- a decision whose roles are fixed by the rules is oriented, not refused, when the Keeper writes the pair backward (2026-09-26, SL-71 continued; amends this section)
+
+**Evidence.** The eight refusals long gate #11 actually threw at `unknown_entity` were not §11.5.9's own
+shape above: t0 and t19 (five calls) were `natural-npc:first-impression` with `actor` the NPC (Steven
+Knott, Gabriela Macario, Mr. Dooley) and `target` the investigator (Thomas Hayes) -- the Keeper's English
+sentence, "Steven Knott's first impression of Thomas Hayes", written in the order it reads, and this
+family's own fixed roles (the investigator rolls, the NPC is the target) reversed. `kernel-ts/mods/resolve.ts`'s
+`resolveBeforeMain` calls `input.settlement(action.actor)`, which only ever accepts an investigator
+(`read/handlers.ts`'s `actor()`), so the *pair* was right and the *order* was wrong, and the refusal read
+exactly like §11.5.9's "no investigator 'Steven Knott' at the table" -- not because this was an NPC's own
+roll (there is no such thing for a first impression; the family is always the investigator's check) but
+because the two names were transposed.
+
+**The ruling (owner, 2026-09-26).** For a mod-registered decision whose roles are fixed by the rules (this
+family, and any other whose recipe takes an `actor`/`target` pair the same way): when `action.actor` does
+not resolve to an investigator but `action.target` does, and the named `action.actor` resolves to a person
+the table knows (`graph.actor`), the kernel reorients rather than refuses -- the investigator (named by
+`target`) rolls, the person named by `actor` is the target -- and the receipt carries `oriented_from:
+{actor, target}` with the names exactly as the Keeper wrote them, so the correction is visible rather than
+silent. The swap is taken only when it is real: a `target` that is not an investigator either is still
+`unknown_entity`, now naming both investigators and this table's known people as candidates (§11.5.9's own
+widening, reused here). An ordinary check with an NPC `actor` and no `target` at all is unaffected --
+§11.5.9 above already settles that as the NPC's own roll, and nothing here changes it.
+
+**The fix.** `resolveBeforeMain` (`kernel-ts/mods/resolve.ts`) tries `input.settlement(action.actor)`
+first, exactly as before; only on that call's `unknown_entity` does it try `input.settlement(action.target)`
+as the true actor, and only takes it when that succeeds *and* `graph.actor(action.actor)` finds a person.
+Read/write and refusal candidates share `read/handlers.ts`'s new `actorKnown`/`enrichActorRefusal` (also
+used by §11.5.9's `resolveActor` above, replacing that section's inline duplicate of the same widening).
+The settled roll's `outcome` and receipt both carry `oriented_from` when the swap was taken; every other
+field (`actor`, `actor_label`, `npc`, `target_npc`, `actor_is_investigator`) already names the corrected
+pair, since `context`/`target` are simply the swapped values from there on -- nothing downstream needed to
+change. `checkPair`'s reuse cache keys on the resolved ids, so a repeat of the same (reversed) call still
+finds its own prior receipt regardless of which way the Keeper wrote it.
+
+**Three ends (§31).** *Writer:* `resolveBeforeMain`'s new orientation branch; it writes nothing beyond the
+existing mod-check receipt, with one added field. *Reader:* the same receipt and `outcome` every consumer
+of a mod check already reads; `oriented_from` is additive. *Actor:* the Keeper, who may now write a fixed-role
+decision's `actor`/`target` in either order and get the one legal settlement instead of a refusal that
+repeats until the class limit shuts `resolve` for the turn.
+
+*Tests* (mutation-killable, `tests/extension/npc-actor-own-roll.test.mjs`): a `natural-npc:first-impression`
+written `{actor: <npc>, target: <investigator>}` settles as the investigator's own roll, `oriented_from`
+present on both the outcome and the receipt, and the investigator's sheet untouched; the same decision with
+`target` naming a second NPC (neither side an investigator) still refuses `unknown_entity`, `details.candidates`
+carrying both an investigator and the first NPC by handle; an ordinary Charm check with an NPC actor and no
+target remains that NPC's own roll (§11.5.9's original shape, unaffected). Mutation: reverting
+`resolveBeforeMain`'s catch branch to its prior bare `await input.settlement(action.actor)` (no swap
+attempt) reproduces gate #11's t0/t19 refusal shape and is caught by the first of these tests.
+
 ### 11.6 结果与收据
 
 `outcome.kind` 取 `check`、`opposed`、`combined`、`social`、`psychology`、`healing`、`push`、`luck`、`magic`、`development`、`combat`、`chase`、`sanity`、`none`。每种至少有 `level` 或 `status`、涉及的骰面与目标值、`effects`。`effects` 每条 `{kind: hp|san|mp|luck|condition|ammo|position, subject, before, after}`。
