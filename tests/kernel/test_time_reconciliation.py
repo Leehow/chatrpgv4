@@ -70,6 +70,20 @@ def test_too_little_time_is_a_gap(kernel):
     assert error["details"]["landed_minutes"] == 15
 
 
+def test_the_suggestion_counts_from_the_day_the_turn_began(kernel):
+    """Turn 5's shape: 1050 minutes put the clock at 03:30 the next day; the prose is in the next morning. The
+    small hours are two parts from the morning, so it is a gap, and the suggestion is tomorrow as the turn began."""
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 1050}])
+    error = refuse(kernel, "t1-c2", time_reading=reading())
+    assert error["details"]["clock"]["day_part"] == "small_hours"
+    assert error["details"]["suggest"] == {"until": {"days": 1, "time": "08:00"}}
+    kernel.table("apply", call_id="t1-c3", effects=[{"kind": "time", "until": error["details"]["suggest"]["until"]}])
+    deliver(kernel, "t1-c4", time_reading=reading())
+    assert time_warnings(record(kernel)) == []
+    assert kernel.table("capsule")["where"]["clock"]["at"] == "1920-10-13T08:00"
+
+
 def test_enough_minutes_to_the_wrong_part_of_the_day_is_a_gap(kernel):
     """Six hours from 10:00 is 16:00, the afternoon; the prose is in the next morning: two parts away."""
     open_turn(kernel)
@@ -113,6 +127,16 @@ def test_later_today_suggests_today_when_the_part_is_still_ahead(kernel):
     open_turn(kernel)
     error = refuse(kernel, "t1-c1", time_reading=reading(cut="later_today", floor=60, ends_at="evening"))
     assert error["details"]["suggest"] == {"until": {"days": 0, "time": "18:00"}}
+
+
+def test_no_suggestion_behind_the_clock(kernel):
+    """Ten hours landed (20:00) and prose that ends at midday the same day: a gap, but the clock cannot go back to it,
+    so nothing is suggested; counted from the staged clock it would have offered tomorrow's midday."""
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 600}])
+    error = refuse(kernel, "t1-c2", time_reading=reading(cut="later_today", floor=60, ends_at="midday"))
+    assert error["details"]["clock"]["day_part"] == "evening"
+    assert "suggest" not in error["details"]
 
 
 def test_days_suggest_nothing(kernel):

@@ -51,12 +51,19 @@ function minuteOfDay(clock: Row): number {
     return number(clock.hh) * 60 + number(clock.mm);
 }
 
-/** `until` that lands the clock at the start of the day part the prose ends in, on the day the cut implies. */
-function suggest(reading: TimeReading, clock: Row): Row | null {
+/**
+ * `until` that lands the clock at the start of the day part the prose ends in, on the day the cut implies, with days
+ * counted from the day this turn began -- as `until` binds them (§142.1). `landed` is this turn's clock movement.
+ */
+function suggest(reading: TimeReading, clock: Row, landed: number): Row | null {
     const start = DAY_PARTS.find(([part]) => part === reading.ends_at)?.[1];
     if (start === undefined || reading.cut === 'days')
         return null;
-    const days = reading.cut === 'next_day' ? 1 : start * 60 > minuteOfDay(clock) ? 0 : 1;
+    const began = ((minuteOfDay(clock) - landed) % 1440 + 1440) % 1440;
+    const days = reading.cut === 'next_day' ? 1 : start * 60 > began ? 0 : 1;
+    // The clock already past that time: the books hold more than the prose told, and the clock never goes back.
+    if (days * 1440 + start * 60 < began + landed)
+        return null;
     return { until: { days, time: `${String(start).padStart(2, '0')}:00` } };
 }
 
@@ -68,7 +75,7 @@ export function timeGap(reading: TimeReading | null, receipts: readonly Row[], c
     const partGap = reading.ends_at !== null && !near(reading.ends_at, dayPart);
     if (landed >= reading.floor && !partGap)
         return null;
-    const suggested = suggest(reading, clock);
+    const suggested = suggest(reading, clock, landed);
     return { cut: reading.cut, ends_at: reading.ends_at, landed_minutes: landed, floor: reading.floor, day_part: dayPart,
         clock: (({ minutes: _m, elapsed: _e, ...shown }) => shown)(clock), ...(suggested ? { suggest: suggested } : {}) };
 }
@@ -88,7 +95,7 @@ function untilWords(gap: Row): string {
 }
 
 export const TIME_FIX = 'Land the time the prose skips with apply time -- until {days, time} names the local time it reaches, '
-    + 'details.suggest when present -- then deliver again; or keep the prose inside the time the books hold.';
+    + 'days counted from the day this turn began (details.suggest when present) -- then deliver again; or keep the prose inside the time the books hold.';
 
 /** The refusal for a gap on the turn's first check (§142.3). */
 export function timeRefusal(gap: Row): RpcError {

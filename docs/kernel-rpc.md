@@ -24262,12 +24262,18 @@ Keeper (fifteen minutes for a night).
 
 ### 142.1 `apply time {until}` (amends §5)
 
-`time` takes `until: {days, time}` in the slot `minutes` fills: `days` is an integer ≥ 0 (0 = later today, 1 =
-tomorrow), `time` a local `HH:MM` (00–23, 00–59). The kernel binds it against the **staged** clock (after the batch's
-earlier effects), where `stated` binds (§136.22): the current absolute minute is the clock's start minute of day
-(`clockStart`) plus `world.clock.minutes`; the target is the start of the current day plus `days` × 1440 plus the
-time's minute of day; `minutes` = target − current. A dated clock (`at`) and an undated one (`day`, `hh`, `mm`) bind
-alike; no calendar arithmetic reaches the Keeper. The receipt carries `until` beside the bound `minutes`; the clock,
+`time` takes `until: {days, time}` in the slot `minutes` fills: `days` is an integer ≥ 0 counted **from the day this
+turn began** (0 = that day, 1 = the day after), `time` a local `HH:MM` (00–23, 00–59). The kernel binds it where
+`stated` binds (§136.22), against the **staged** clock (after the batch's earlier effects): the current absolute
+minute is the clock's start minute of day (`clockStart`) plus `world.clock.minutes`; the turn began at that minute
+less this turn's clock movement (its `time` and `move` receipts, committed and staged); the target is the start of the
+day the turn began plus `days` × 1440 plus the time's minute of day; `minutes` = target − current, and a target equal
+to the clock lands 0 minutes. A dated clock (`at`) and an undated one (`day`, `hh`, `mm`) bind alike; no calendar
+arithmetic reaches the Keeper, and `until` names a time, not an amount: sent twice in a turn it lands once.
+
+*Why the turn's day (2026-09-26, live table `time-skip-a`, turn 5):* the Keeper landed `minutes: 1050` for a night
+(the clock then read 03:30 the next day) and "corrected" it with `until {days: 1, time: "10:30"}`. Counted from the
+staged clock that was a day past the prose; counted from the day the turn began it is the morning the prose told. The receipt carries `until` beside the bound `minutes`; the clock,
 the rest entry (≥ 360) and the magic-point recovery (≥ 60) run on the minutes exactly as on a Keeper's number, and
 admission reviews it as any `time` (§32). Refused (`invalid_params`, `details.field: "until"`, nothing written):
 
@@ -24276,7 +24282,7 @@ admission reviews it as any `time` (§32). Refused (`invalid_params`, `details.f
 | `until_none` | `until` on an effect other than `time` |
 | `until_conflict` | `until` beside `minutes` or `stated` (`details.fields`) |
 | `until_invalid` | not `{days: integer ≥ 0, time: "HH:MM"}` |
-| `until_not_forward` | the target is not after the current clock; `details.clock` is the current reading (`at` or `day`/`hh`/`mm`, and `day_part`); `fix` says a time earlier than now is `days` ≥ 1 |
+| `until_not_forward` | the target is before the current clock; `details.clock` is the current reading (`at` or `day`/`hh`/`mm`, and `day_part`); `fix` says a time already past is `days` ≥ 1 |
 
 The tool schema offers `until` on `time` only; the fake kernel accepts it and binds it the same way.
 
@@ -24325,8 +24331,10 @@ night`. The kernel reads no prose; it compares the host's reading with its own b
   floor, ends_at, day_part}` to telemetry, and refuses `needs`: `details = {reason: "time_unrecorded", cut, ends_at,
   clock, landed_minutes, floor, suggest?}`. `suggest: {until: {days, time}}` is present when `ends_at` is: the start of
   that day part (the kernel's own table: small_hours 00:00, dawn 05:00, morning 08:00, midday 12:00, afternoon 14:00,
-  evening 18:00, night 22:00) on the day the cut implies (`later_today`: today when that start is still ahead, else
-  tomorrow; `next_day`: tomorrow; `days`: none). The `fix`: land the skipped time with `apply time` (with `until`,
+  evening 18:00, night 22:00) on the day the cut implies, counted as `until` counts it, from the day the turn began
+  (`later_today`: that day when the part starts after the turn began, else the day after; `next_day`: the day after;
+  `days`: none), and absent when that time is already behind the clock (the books hold more than the prose told, and
+  the clock never goes back). The `fix`: land the skipped time with `apply time` (with `until`,
   naming `details.suggest` when present) and deliver again, or keep the prose inside the time the books hold.
 - **A gap with the gate spent, or not `refusable`:** delivered as written. The turn record carries one `warnings` row
   `{lane: "delivery", kind: "time_unrecorded", quote: null, why, fix, cut, ends_at, at}` and the kernel appends the

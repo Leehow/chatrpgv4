@@ -1,12 +1,13 @@
 /**
- * Contract §142.1: `apply time {until: {days, time}}`. The Keeper names the local time the fiction reaches (0 days =
- * later today, 1 = tomorrow); the kernel turns it into the minutes from the staged clock. A skip's length is the time
- * it reaches, not an activity's cost, and counting minutes across midnight is arithmetic the model gets wrong
- * (npc-acts-b2 turn 8 wrote fifteen minutes for a night).
+ * Contract §142.1: `apply time {until: {days, time}}`. The Keeper names the local time the fiction reaches (days
+ * counted from the day this turn began: 0 = that day, 1 = the day after); the kernel turns it into the minutes from
+ * the staged clock. A skip's length is the time it reaches, not an activity's cost, and counting minutes across
+ * midnight is arithmetic the model gets wrong (npc-acts-b2 turn 8 wrote fifteen minutes for a night).
  */
 import { RpcError } from '../errors.js';
 import { clockSection, clockStart } from '../read/capsule.js';
-import { integer, number, repr, row, string, type Row } from '../read/values.js';
+import { array, integer, number, repr, row, string, type Row } from '../read/values.js';
+import { landedMinutes } from '../read/time-reading.js';
 import type { ApplyContext } from './index.js';
 
 const refuse = (reason: string, message: string, extra: { fix?: string; details?: Row } = {}): never => {
@@ -35,12 +36,16 @@ export function bindUntil(context: ApplyContext, effect: Row): Row {
     if (!integer(days) || number(days) < 0 || !time || hour > 23 || minute > 59)
         refuse('until_invalid', `until must be {days: a whole number from 0, time: "HH:MM"}, not ${repr(effect.until)}`, {
             fix: 'days counts from today (0 today, 1 tomorrow); time is the local 24-hour time the fiction reaches, such as "08:00"' });
+    // Days count from the day this turn began, not from the staged clock: "tomorrow" is the day after the scene the
+    // prose left, however much of the night this turn already landed (live table time-skip-a, turn 5, where 1050
+    // minutes and then until {days: 1} put the clock a day past the prose). The same until twice is one time.
     const start = clockStart(context.graph, row(context.world.clock)).minutes;
     const now = start + Math.trunc(number(row(context.world.clock).minutes));
-    const target = Math.floor(now / 1440) * 1440 + number(days) * 1440 + hour * 60 + minute;
-    if (target <= now)
-        refuse('until_not_forward', `until ${number(days)} day(s), ${until.time} is not after the clock`, {
-            fix: 'the clock only moves forward: a time of day earlier than now is tomorrow or later (days 1 or more)',
+    const began = now - landedMinutes([...array(context.turn.receipts).map(row), ...(context.staged?.() ?? [])]);
+    const target = Math.floor(began / 1440) * 1440 + number(days) * 1440 + hour * 60 + minute;
+    if (target < now)
+        refuse('until_not_forward', `until ${number(days)} day(s), ${until.time} is before the clock`, {
+            fix: 'the clock only moves forward, and days count from the day this turn began: a time of day already past is days 1 or more',
             details: { clock: reading(context) } });
     const { until: _given, ...rest } = effect;
     return { ...rest, minutes: target - now, until: { days: number(days), time: until.time } };

@@ -71,8 +71,37 @@ def test_until_refusals_write_nothing(kernel):
     early = refused(kernel, [{"kind": "time", "until": {"days": 0, "time": "09:00"}}], "until_not_forward")
     assert early["details"]["clock"] == {"at": "1920-10-12T10:00", "day_part": "morning"}
     assert "days 1" in early["fix"]
-    refused(kernel, [{"kind": "time", "until": {"days": 0, "time": "10:00"}}], "until_not_forward")
     refused(kernel, [{"kind": "damage", "dice": "1D3", "until": {"days": 0, "time": "12:00"}}], "until_none")
+
+
+def test_days_count_from_the_day_the_turn_began(kernel):
+    """Live table time-skip-a, turn 5: the Keeper landed 1050 minutes for the night, then 'corrected' it with
+    until {days: 1, time: 10:30}. Counted from the staged clock (already day 2, 03:30) that was day 3; counted from
+    the day the turn began it is the next morning the prose told."""
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 1050}])
+    assert clock(kernel)["at"] == "1920-10-13T03:30"
+    time_until(kernel, "t1-c2", 1, "10:30")
+    assert clock(kernel)["at"] == "1920-10-13T10:30"
+    assert turn_receipts(kernel)[-1]["minutes"] == 7 * 60
+
+
+def test_the_same_until_again_lands_nothing(kernel):
+    """Within a turn `until` names a time, not an amount: saying it twice leaves the clock where it stands."""
+    open_turn(kernel)
+    time_until(kernel, "t1-c1", 1, "08:00")
+    time_until(kernel, "t1-c2", 1, "08:00")
+    assert clock(kernel)["at"] == "1920-10-13T08:00"
+    assert [r["minutes"] for r in turn_receipts(kernel) if r["kind"] == "time"] == [22 * 60, 0]
+
+
+def test_a_later_turn_counts_from_its_own_day(kernel):
+    open_turn(kernel)
+    time_until(kernel, "t1-c1", 1, "10:30")
+    kernel.table("narrate", call_id="t1-c2", text="第二天上午，你到了疗养院。")
+    kernel.table("player_input", text="我等到第二天早上再来。")
+    time_until(kernel, "t2-c1", 1, "08:00")
+    assert clock(kernel)["at"] == "1920-10-14T08:00"
 
 
 def test_until_replays_the_journaled_receipt(kernel):

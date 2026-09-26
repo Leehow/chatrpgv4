@@ -968,7 +968,7 @@ function handle(method, params) {
 					if (!Number.isInteger(effect.until.days) || effect.until.days < 0 || !match || Number(match[1]) > 23 || Number(match[2]) > 59)
 						return refuse("until_invalid", "until must be {days, time: HH:MM}");
 					const minutes = effect.until.days * 1440 + Number(match[1]) * 60 + Number(match[2]) - FAKE_CLOCK_MINUTES;
-					if (minutes <= 0) return refuse("until_not_forward", "until is not after the clock", { clock: { at: "1925-06-01T09:15", day_part: "morning" } });
+					if (minutes < 0) return refuse("until_not_forward", "until is before the clock", { clock: { at: "1925-06-01T09:15", day_part: "morning" } });
 				}
 				if (effect.kind === "cash" && effect.stated == null && typeof effect.delta !== "number") {
 					return { ok: false, error: { code: "invalid_params", message: "cash 要带正负号的 delta", details: { index } } };
