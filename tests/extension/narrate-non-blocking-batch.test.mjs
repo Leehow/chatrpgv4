@@ -45,11 +45,13 @@ const hybridTable = (options) => {
 };
 
 test("§135.5.1: a batch of non-blocking writes and their narrate settle both writes, resolve the effect-key marker, and deliver in one model step", async (t) => {
+	// SL-93 (§135.11.4.1): this narrate now needs to clear the new length floor too, unrelated to what this test
+	// is about (batching non-blocking writes with the narrate that describes them).
 	const table = await hybridTable({ responses: [
 		fauxAssistantMessage([
 			fauxToolCall("apply", { effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }] }),
 			fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }] }),
-			fauxToolCall("narrate", { text: "你翻了十分钟剪报，找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。" }),
+			fauxToolCall("narrate", { text: "你在剪报室里翻了十分钟，指尖沾了灰，纸页边缘已经发黄发脆，终于找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。" }),
 		], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
@@ -70,6 +72,9 @@ test("§135.5.1: a batch of non-blocking writes and their narrate settle both wr
 });
 
 test("§135.5: a refused first write leaves the narrate of the same message unexecuted, and the run returns to the Keeper", async (t) => {
+	// SL-93: the second message's narrate -- the one that actually reaches the kernel -- needs to clear the new
+	// length floor too; the first message's own narrate is never executed (the batch falls on the refused write
+	// ahead of it), so its length does not matter here.
 	const table = await hybridTable({ responses: [
 		fauxAssistantMessage([
 			// An unknown clue: the kernel refuses this write outright (unknown_entity), before admission even matters.
@@ -77,7 +82,7 @@ test("§135.5: a refused first write leaves the narrate of the same message unex
 			fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }] }),
 			fauxToolCall("narrate", { text: "你翻了十分钟剪报，找到了那篇被压下的旧闻。" }),
 		], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "你翻了半天，什么都没找到。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "你翻了大半天剪报，指尖都沾了灰，纸页边缘也磨得发毛，可翻来翻去，还是什么都没找到，一无所获。" })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
@@ -96,10 +101,11 @@ test("§135.5: a refused first write leaves the narrate of the same message unex
 });
 
 test("§135.5.1: a batch carrying a resolve before its narrate still runs to completion (guidance only, no host refusal)", async (t) => {
+	// SL-93: this narrate now needs to clear the new length floor too, unrelated to what this test is about.
 	const table = await hybridTable({ responses: [
 		fauxAssistantMessage([
 			fauxToolCall("resolve", { action: { intent: "investigate", skill: "Library Use", goal: "find the file", method: "search the clippings" } }),
-			fauxToolCall("narrate", { text: "你查了一下剪报索引。" }),
+			fauxToolCall("narrate", { text: "你查了一下剪报索引，指尖沾了灰，纸页边缘也磨得发毛，才把这条线索的年份和版面大致理出来。" }),
 		], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());

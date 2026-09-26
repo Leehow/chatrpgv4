@@ -24,5 +24,8 @@
   },
   "first_step_thinking": {
     "call_cap_ms": 60000
+  },
+  "delivery_floor": {
+    "min_prose_chars": 40
   }
 }
