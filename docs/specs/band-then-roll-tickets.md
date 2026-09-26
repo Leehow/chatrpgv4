@@ -103,7 +103,7 @@ removed; the preset dropped from the packet; each caught.
 
 ## BR-04 — The shadow lane for the Keeper's `time` and `damage`, and its report
 
-Status: ready-for-agent
+Status: ready-for-human (implemented 2026-09-26 on `claude/br04-band-shadow-20260926` at `b21497dbf`, review fix `c1966c729`; awaiting review and merge, see Comments)
 Depends on: BR-01 merged (the registry and question shapes). Worker model: `sonnet` (measurement).
 
 **What.** Spec D9. After a model-origin `apply time {minutes}` or `apply damage {dice}` succeeds, ask the band
@@ -250,3 +250,119 @@ follow-up commit and green; the other, `workspace-lifecycle`'s one-lock case, a 
 timed out waiting 30 s for a JSON line under `-n 12` (`test_table_branch` dormant line, `test_transactions`
 idempotent replay) and pass 2 / 2 on the Mac, and the two `test_driver.py` cases the box always fails (63 / 63 on
 the Mac, where the driver runs). Nothing red touches the recovery.
+
+### 2026-09-26 — BR-04 implemented (`claude/br04-band-shadow-20260926`, `b21497dbf`)
+
+Contract: `docs/kernel-rpc.md` §138.8 (§138.7 is left free for BR-03 or BR-05, whichever lands first; §-numbers are
+stable ids). Code: `runtime/jev/band-shadow-domain.ts` (the two questions over the kernel's rows, pure: the time Choice
+without the two road rows and with `unknown`, the damage Score over the ladder in the table's order, the state, the
+argmax); `extensions/kernel/band-shadow.ts` (the glue with no Pi types: which effects are shadowed, `inside`, the row,
+the gate read for the record, the defensive read of `rules.bands`); `extensions/kernel/band-recovery.ts` (`askBand`
+takes the two shadow question kinds under family `band-shadow` and its own lease, so the one inventoried
+`createDecisionAdapter` site stays the only one; typed by overload signatures); `extensions/kernel/index.ts`
+(`shadowBands`, scheduled in `runTool`'s success path after the tool's own telemetry row, right before the result
+returns; `settledBefore` taken before `applyToolSuccess` adds this call's line; `rules.bands` read once per session);
+`kernel-ts/read/handlers.ts` + `kernel-ts/handlers.ts` (`rules.bands`, registered among the read handlers and in
+`KNOWN_METHODS`); the fake kernel answers `rules.bands` from the shipped rules-json; `tests/play/band_shadow_report.py`
+(importable, `main`, `--campaign` repeatable / `--all` / files, `--json`). The SL-00 inventory's note for `askBand`
+(JSON and prose) now names the shadow's use of the same site; its key and count are unchanged.
+
+Decisions taken inside the ticket's scope:
+- **Where it fires**: in `runTool`'s success path, not in the dispatcher: a host-origin call is excluded by
+  `dispatcher.hostOrigin(toolCallId)`, and the verifier lane's `setTimeout(0)` + last-resort catch pattern means no
+  failure of the lane can reach the turn. A replayed call (`replayed: true`) is not asked again: it was asked when it
+  first landed.
+- **State**: `{declaration, settled_this_turn}` — `state.playerText` (clipped at 600 code points) and `state.landed`
+  (the admission review's "already settled this turn" lines, e.g. `apply landed: clue:t1-c1`, `resolve settled
+  (success)`), snapshotted before this call's own line, the last sixteen. Nothing of the measured call.
+- **Unasked rows** carry only `{lane, turn, call_id, index, kind}` plus, for a deliberate skip, `ok: true, skipped`
+  (`unconfigured`: no key, nothing is read either; `no_declaration`: a turn without player text, the opening, where a
+  question would be noise) and, for a failure, `ok: false, reason` (`rows_unavailable`: the kernel could not list the
+  rows, retried on the next effect; `lane_crashed`). Changed in review (`c1966c729`), see below.
+- **Answered rows** add `index`, `gate` and, for damage, `score` to the D9 fields; `ok` means a distribution exists.
+  The band is the argmax of the distribution (first row on a tie), not Jev's `choice`; an argmax on `unknown` is
+  `ok: true`, `band: null`, `reason: "unknown"`. `range` and `inside` are `null` without a band. Damage `inside`
+  compares dice with case and whitespace ignored (`1d6` = `1D6`, `1D6 + 1` = `1d6+1`).
+- **The damage Score has no exit**: the harm happened (the Keeper wrote it); only its severity is asked. A ladder over
+  ten rungs cannot be a Score and is recorded `schema_error` without a request.
+- **The road rows** (`local_travel`, `long_travel`) are left out by a closed constant in the domain,
+  `ROUTE_TIME_BANDS` (handles of the registry's own table, per §138.2's "the host's per-turn question omits them"),
+  not a vocabulary. If BR-05 gives the registry a marker for route rows, the constant should read it.
+- **`rules.bands`** answers only the two fields the kernel rolls from (`time.band`, `damage.band`); any other field is
+  `invalid_params` with `details.options`. No campaign, no lock, no write.
+- **Keyless tables** write one `skipped: "unconfigured"` row per own-number effect with `ok: true` (the admission lane's
+  skip convention), so `kpi.py`'s lanes section does not show `band-shadow` failing on every Keeper time write.
+
+Tests (single files, on the Mac, on the tree of `b21497dbf`, kernel rebuilt with `npm run build:runtime`;
+`npm run check:kernel` clean):
+- New: `tests/extension/band-shadow.test.mjs` 7/7 (six over the fake kernel with a controlled typed endpoint, one over
+  the real emitted kernel); `tests/extension/jev-band-shadow-domain.test.mjs` 9/9; `tests/kernel/test_rules_bands.py`
+  6 passed; `tests/play/test_band_shadow_report.py` 5 passed.
+- Neighbours: `band-recovery` 8/8, `jev-band-recovery-domain` 5/5, `band-operations` 2/2, `stated-operations` 2/2,
+  `control-flow-inventory` 4/4, `system-language` 5/5, `ts-kernel-foundation` 11/11 (lists `rules.bands` among the
+  current-only methods), `dead-proposal-retires` 5/5, `gates` 9/9, `admission` 15/15, `turn` 32/32, `real-kernel` 5/5,
+  `world-state-seams` 3/3, `canonical-operation-dispatcher` 12/12; pytest `test_band_operations.py` 12 passed,
+  `test_kpi.py` 47 passed 1 skipped, `test_system_language.py` 5 passed. The full `test:ext` and
+  `pytest tests/kernel tests/play` were not run here (the integrator's, on leehow-pc).
+
+The turn is untouched, shown two ways. Over the fake kernel, its request log: the shadow sends only `rules.bands` (a read,
+once per field per session) and the writes are exactly the Keeper's, as sent. Over the real kernel — the harness's
+`realKernel` mode runs the real extension on the emitted kernel, so this could be driven after all — the same Keeper
+turn (`apply time {minutes: 25}` then `narrate`) with the shadow asking and with no key produces the same
+`turns/0001.json` once the wall-clock stamps (`at`, `opened_at`, `closed_at`) and the `commit` are removed, and the time
+receipt stays `basis: "keeper"`. It is not a byte comparison against the parent commit: a turn record carries
+timestamps and a commit hash, so two runs are never byte-identical; the normalized comparison is the claim.
+
+Mutation record (each applied to the named file, the listed test files run, the file restored by copy; the two kernel
+mutations rebuilt before and after):
+
+| mutation | caught by |
+| --- | --- |
+| the row recording removed (`record(shadowRow(…))` dropped); re-run on `c1966c729` | `band-shadow.test.mjs`: 5 of 7 (every case that waits for an asked row) |
+| the Keeper's `why` leaked into the question's state (appended to `settled`) | `band-shadow.test.mjs`: the time case and the damage case (exact state, the sentinel `why`) |
+| the shadow firing for every `time`/`damage` effect, `stated` and `band` included (selected by kind only) | `band-shadow.test.mjs` "no row for a stated or a banded effect"; the domain test's own-numbers case |
+| the stated/band guard alone removed | **survives, equivalent**: a `stated` or `band` effect carries no own number, and one beside `minutes`/`dice` is refused by the kernel (`stated_conflict`, `band_conflict`) before the success path; the guard is defence in depth |
+| the shadow awaited inline before the tool result returns | `band-shadow.test.mjs` "the turn never waits for the answer" (the row exists when the turn returns) |
+| the host-origin exclusion removed | the domain test's own-numbers case (a clerk write is not driven end to end; see below) |
+| the rows re-read for every effect | `band-shadow.test.mjs` time and damage cases (`rules.bands` read once) |
+| the two road rows offered | the domain time-question case; `band-shadow.test.mjs` time case and real-kernel case |
+| `inside` excluding the row's max | the domain `inside` case |
+| `settled` taken after this call's own line | `band-shadow.test.mjs` time and damage cases |
+| the Score's levels read in reverse | the domain damage case; `band-shadow.test.mjs` damage case |
+| the band taken from `choice`, not the argmax | the domain argmax case |
+| `rules.bands` accepting every registry field | `test_rules_bands.py` refusal cases (3) |
+| `rules.bands` dropping `default` | `test_rules_bands.py` time-rows case |
+| report: hit rate over answered instead of banded | `test_band_shadow_report.py` (4 of 5) |
+| report: gate rate counting `unknown`-exit answers | `test_band_shadow_report.py` (4 of 5) |
+| report: Jev seconds counting a zero-call row | `test_band_shadow_report.py` (2 of 5) |
+| (`c1966c729`) a skip written as a failure (`ok: false, reason`) | the domain row case; `band-shadow.test.mjs` the no-key case and the real-kernel case |
+| (`c1966c729`) report: `unasked` reading only `reason` | `test_band_shadow_report.py` (2 of 5) |
+
+Not covered here:
+- A clerk (host-origin) `time`/`damage` write is excluded at the pure seam (`shadowTargets` given an origin) and not
+  driven through hybrid-v1: no clerk candidate writes either kind until BR-06.
+- Live Jev was never called: whether "single room search: 10 to 45 minutes" as a criterion carries enough for the
+  model (the skill's structured `what`/`examples` criteria are the alternative) is for the first real rows to show.
+- A lane still in flight when the session ends is cut by the table's lane signal and may leave no row.
+- **The report over real tables**: the script is ready for the integrator
+  (`uv run --frozen python tests/play/band_shadow_report.py --all --workspace <path to .coc> [--json]`, or
+  `--campaign <id>` repeated); its output over the next real tables is BR-06's evidence and belongs under this ticket.
+
+### 2026-09-26 — BR-04 review fix (`c1966c729`)
+
+- **Skipped is not failed.** `unconfigured` and `no_declaration` now write `{ok: true, skipped: <reason>}` with no
+  `reason` key (`skippedRow` in `extensions/kernel/band-shadow.ts`, the admission lane's convention in
+  `extensions/kernel/index.ts`); `rows_unavailable` and `lane_crashed` stay `ok: false` with `reason`. The report's
+  `unasked` counts `skipped` or `reason`; §138.8's row paragraph, its reader line and the report's docstring say so.
+  Tests on the fix: `band-shadow.test.mjs` 7/7, `jev-band-shadow-domain.test.mjs` 9/9, `band-recovery.test.mjs` 8/8,
+  `test_band_shadow_report.py` 5 passed (its fixture now carries two skips and one `rows_unavailable`),
+  `test_rules_bands.py` 6 passed, `test_kpi.py` 47 passed 1 skipped. Mutations re-run on this commit: the row
+  recording removed (caught, 5 of 7 as before), a skip written as a failure (caught), the report reading only
+  `reason` (caught); table above.
+- **A Score's `probabilities` are keyed by level index** (`"0"` … `"n-1"`, lowest level first), on the wire and in
+  `DecisionAnswer`: verified in `runtime/jev/contracts.ts` `bindDecisionAnswers` (the score branch builds
+  `keys = question.criteria.map((_, index) => String(index))` and rejects an answer whose `legend`/`probabilities` keys
+  differ — `invalid_answer`), in `runtime/jev/decision-adapter.ts` `answerSchemaDiagnostics` (the same index keys as
+  the expected set) and `runtime/jev/question-packing.ts` `responseUpperBound`; the skill's `reference/primitives.md`
+  says the same ("`probabilities` keyed "0","1",…"). So `readAnswer`'s `answer.probabilities[String(index)]` is right
+  and unchanged.

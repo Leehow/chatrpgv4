@@ -1544,7 +1544,7 @@
       "path": "app-play-gated",
       "role": "leaf",
       "trace": "n/a (added at BR-02)",
-      "note": "Gate: a Jev key. Inside runTool's catch, only on a kernel needs refusal for archetype or weapon; one question per person or thing per turn, at most two requests, under its own lease and the refused call's provider budget; never drives a model run, never refuses (the refusal stands on every non-answer).",
+      "note": "Gate: a Jev key. Inside runTool's catch, only on a kernel needs refusal for archetype or weapon; one question per person or thing per turn, at most two requests, under its own lease and the refused call's provider budget; never drives a model run, never refuses (the refusal stands on every non-answer). BR-04 (138.8) asks its shadow questions through the same site: after a model-origin apply time {minutes} / damage {dice} landed, one request per effect in the background (setTimeout after the tool result, the table's lane signal, its own lease), recorded as a band-shadow row and executed nowhere.",
       "lines_at_0b729e8fb": []
     },
     {

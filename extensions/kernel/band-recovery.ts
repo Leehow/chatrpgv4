@@ -9,6 +9,9 @@
  * the refused call is retried once. Below the gate, on a spent budget or with Jev unavailable, the Keeper sees the
  * original refusal unchanged. This file is the glue: needs detection, the gates, the state the questions read, the
  * Keeper's note; it holds no Pi types and no kernel client, so it is unit-testable.
+ *
+ * `askBand` is also the one place the shadow lane asks its questions (§138.8, BR-04): the band of the Keeper's own
+ * `time` or `damage` after it landed, under its own family and lease, recorded and never executed.
  */
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
 import {preparationBudget} from '../../runtime/jev/preparation-budget.ts';
@@ -18,6 +21,8 @@ import {composeSentence} from '../../runtime/jev/composed-arguments.ts';
 import {BAND_DEFAULT_MIN_CONFIDENCE, BAND_RECOVERY_FAMILY, bindingsFor, runArchetypeBand, runWeaponBand,
   type ArchetypeBandInput, type BandField, type BandResult, type WeaponBandInput, type WeaponProfile} from '../../runtime/jev/band-recovery-domain.ts';
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
+import {BAND_SHADOW_FAMILY, runBandShadow, shadowBindings, type DamageBandRow, type ShadowInput, type ShadowResult,
+  type TimeBandRow} from '../../runtime/jev/band-shadow-domain.ts';
 import {readJevApiKey} from '../jev/agent/config.js';
 
 export const BAND_TABLES: Readonly<Record<BandField, string>> = Object.freeze({archetype: 'npc-stat-archetypes', weapon: 'weapons'});
@@ -114,38 +119,60 @@ export interface BandAsk {
   parent?: TaskProviderBudget;
 }
 
+/** A recovery question (§138.6): the band a refused call needs. */
+export type RecoveryQuestion =
+  {field: 'archetype'; person: {name: string; dossier: Json}; options: string[]} |
+  {field: 'weapon'; thing: {name: string; why?: string; description?: string}; options: string[]; close: string[]; profiles: WeaponProfile[]};
+/**
+ * A shadow question (§138.8): the band of one effect of a landed model-origin call, asked from the declaration and
+ * what settled before the call. The Keeper's number is not part of it: it never reaches the question.
+ */
+export type ShadowQuestion = {callId: string; index: number; settled: string[]} &
+  ({field: 'time'; rows: TimeBandRow[]} | {field: 'damage'; rows: DamageBandRow[]});
+
 /**
  * Ask the band question under its own lease and budget. `undefined` when Jev is not configured (no key): the refusal
- * stands and no row says anything about a question that was never asked.
+ * stands and no row says anything about a question that was never asked. A recovery question answers a `BandResult`,
+ * a shadow question a `ShadowResult` (its `kind` names it).
  */
-export async function askBand(ask: BandAsk, question:
-  {field: 'archetype'; person: {name: string; dossier: Json}; options: string[]} |
-  {field: 'weapon'; thing: {name: string; why?: string; description?: string}; options: string[]; close: string[]; profiles: WeaponProfile[]}): Promise<BandResult | undefined> {
+export function askBand(ask: BandAsk, question: RecoveryQuestion): Promise<BandResult | undefined>;
+export function askBand(ask: BandAsk, question: ShadowQuestion): Promise<ShadowResult | undefined>;
+export async function askBand(ask: BandAsk, question: RecoveryQuestion | ShadowQuestion): Promise<BandResult | ShadowResult | undefined> {
   if (!readJevApiKey(ask.env)) return undefined;
   const began = Date.now(), deadlineAt = Math.min(began + bandJevTimeoutMs(ask.env), ask.parent?.deadlineAt ?? Infinity);
   const outer = ask.signal ?? new AbortController().signal;
   const signal = ask.parent ? AbortSignal.any([outer, ask.parent.signal]) : outer;
+  const shadow = question.field === 'time' || question.field === 'damage';
+  const family = shadow ? BAND_SHADOW_FAMILY : BAND_RECOVERY_FAMILY;
+  const goal = shadow ? `Name the ${question.field} band of the Keeper's landed effect, for the record only` : `Name the ${question.field} band the refused call needs`;
   // One input object serves the lease and the batches: the adapter refuses a batch bound differently from its lease.
-  const input: ArchetypeBandInput | WeaponBandInput = question.field === 'archetype'
+  const input: ArchetypeBandInput | WeaponBandInput | ShadowInput = question.field === 'archetype'
     ? {campaign: ask.campaign, turn: ask.turn, declaration: ask.declaration, person: question.person, options: question.options}
-    : {campaign: ask.campaign, turn: ask.turn, declaration: ask.declaration, thing: question.thing, options: question.options, close: question.close, profiles: question.profiles};
-  const bindings = bindingsFor(question.field, input);
+    : question.field === 'weapon'
+      ? {campaign: ask.campaign, turn: ask.turn, declaration: ask.declaration, thing: question.thing, options: question.options, close: question.close, profiles: question.profiles}
+      : {campaign: ask.campaign, turn: ask.turn, declaration: ask.declaration, callId: question.callId, index: question.index, settled: question.settled,
+        ...(question.field === 'time' ? {kind: 'time' as const, rows: question.rows} : {kind: 'damage' as const, rows: question.rows})};
+  const bindings = shadow ? shadowBindings(input as ShadowInput) : bindingsFor(question.field as BandField, input as ArchetypeBandInput | WeaponBandInput);
   let lease: TaskLease | undefined, accounting: ReturnType<typeof preparationBudget> | undefined;
   try {
     accounting = preparationBudget({
-      decision: createDecisionAdapter({env: ask.env, maxConcurrency: 2, retryPolicies: {[BAND_RECOVERY_FAMILY]: {maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000}}}),
+      decision: createDecisionAdapter({env: ask.env, maxConcurrency: 2, retryPolicies: {[family]: {maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000}}}),
       campaign: ask.campaign, deadlineAt, signal, ...(ask.parent ? {parent: ask.parent} : {}),
-      owner: BAND_RECOVERY_FAMILY, goal: `Name the ${question.field} band the refused call needs`,
+      owner: family, goal,
     });
-    lease = new TaskLease({owner: BAND_RECOVERY_FAMILY, goal: `Name the ${question.field} band the refused call needs`,
+    lease = new TaskLease({owner: family, goal,
       scope: bindings.scope, capabilities: ['decision'], readSet: bindings.readSet, signal,
       budget: {deadlineAt, remainingInputTokens: 100_000, remainingOutputTokens: 10_000, remainingCostUsd: 0.01, remainingActions: 3}});
-    const minConfidence = bandMinConfidence(ask.env, question.field);
+    if (shadow) return await runBandShadow(input as ShadowInput, accounting.decision, lease);
+    const minConfidence = bandMinConfidence(ask.env, question.field as BandField);
     return input.hasOwnProperty('person')
       ? await runArchetypeBand(input as ArchetypeBandInput, accounting.decision, lease, {minConfidence})
       : await runWeaponBand(input as WeaponBandInput, accounting.decision, lease, {minConfidence});
   } catch {
-    return {status: 'fallback', field: question.field, reason: 'band_owner_error', calls: 0, elapsedMs: Date.now() - began, usage: {inputTokens: 0, outputTokens: 0, costUsd: 0}};
+    const usage = {inputTokens: 0, outputTokens: 0, costUsd: 0};
+    return shadow
+      ? {status: 'failed', kind: question.field as 'time' | 'damage', reason: 'shadow_owner_error', calls: 0, elapsedMs: Date.now() - began, usage}
+      : {status: 'fallback', field: question.field as BandField, reason: 'band_owner_error', calls: 0, elapsedMs: Date.now() - began, usage};
   } finally {
     lease?.close();
     accounting?.close();

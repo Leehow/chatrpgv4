@@ -42,11 +42,12 @@
  *                          this map, so `speech`, `marked_text` and `rendered_text` follow the text sent
  */
 
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 // Loaded only when a test asks for the say pass, so every other table starts exactly as fast as before.
 const SAY = process.env.FAKE_KERNEL_SAY_PASS ? await import("../../../kernel-ts/write/speech-pass.ts") : null;
 import { createHash } from "node:crypto";
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from "node:url";
 import { SETUP_STEPS, SETUP_TABLE } from "./setup-steps.mjs";
 
 const LOG = process.env.FAKE_KERNEL_LOG;
@@ -534,6 +535,22 @@ function speechRows(text) {
 	} catch {
 		return {};
 	}
+}
+
+/**
+ * Contract §138.8: `rules.bands` lists a band table's rows the way the real kernel's `bandRows` does, read from the
+ * shipped rules-json (the rows are data, not the fixture's to invent). Only the two fields the kernel rolls from.
+ */
+const RULES_JSON = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "content", "rulesets", "coc7", "rules-json");
+function bandRowsOf(field) {
+	const spec = { "time.band": ["time-costs", "categories"], "damage.band": ["hazards", "severity"] }[field];
+	if (!spec) return { ok: false, error: { code: "invalid_params", message: `unsupported field ${JSON.stringify(field)}`,
+		fix: "use one of details.options: time.band, damage.band", details: { field: "field", options: ["time.band", "damage.band"] } } };
+	const block = JSON.parse(readFileSync(join(RULES_JSON, `${spec[0]}.json`), "utf8"))[spec[1]];
+	const rows = Object.entries(block).map(([handle, row]) => field === "time.band"
+		? { handle, min: row.min, max: row.max, ...(Number.isInteger(row.default) ? { default: row.default } : {}) }
+		: { handle, dice: String(row.damage_expr).trim().toUpperCase(), ...(typeof row.note === "string" ? { note: row.note } : {}) });
+	return { ok: true, result: { field, table: spec[0], rows } };
 }
 
 function handle(method, params) {
@@ -1139,6 +1156,8 @@ function handle(method, params) {
 		case "memory.fail":
 			settledJobs.add(jobTurn(params.job_id));
 			return { ok: true, result: { backlogged: true } };
+		case "rules.bands":
+			return bandRowsOf(params.field);
 		default:
 			return { ok: false, error: { code: "unknown_method", message: `假内核不认识 ${method}` } };
 	}

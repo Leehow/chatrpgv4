@@ -35,7 +35,9 @@ import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
 import { learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
-import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds } from "./band-recovery.ts";
+import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds, type ShadowQuestion } from "./band-recovery.ts";
+import { bandShadowGate, readBandRows, shadowRow, shadowTargets, skippedRow, unaskedRow } from "./band-shadow.ts";
+import { SHADOW_FIELDS, type ShadowKind } from "../../runtime/jev/band-shadow-domain.ts";
 import type { BandResult } from "../../runtime/jev/band-recovery-domain.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
@@ -2937,6 +2939,54 @@ export default function (pi: ExtensionAPI) {
 			summary: { field: needs.field, name, band: result.band, table, confidence: result.confidence, ...pinned } };
 	}
 
+	/**
+	 * §138.8: the rows of the two band tables the shadow asks over, read once per session through the kernel's
+	 * `rules.bands`; a read that failed or came back unusable is not kept, so the next landed effect reads again.
+	 */
+	const shadowRowReads = new Map<ShadowKind, Promise<ReturnType<typeof readBandRows>>>();
+	function shadowBandRows(kernel: TableState["kernel"], kind: ShadowKind): Promise<ReturnType<typeof readBandRows>> {
+		let pending = shadowRowReads.get(kind);
+		if (!pending) {
+			pending = kernel.call<Record<string, unknown>>("rules.bands", { field: SHADOW_FIELDS[kind] }).then((answer) => readBandRows(kind, answer));
+			shadowRowReads.set(kind, pending);
+			void pending.then((rows) => { if (!rows) shadowRowReads.delete(kind); }, () => { shadowRowReads.delete(kind); });
+		}
+		return pending;
+	}
+	/**
+	 * Contract §138.8 (BR-04): after a model-origin `apply` landed the Keeper's own `time {minutes}` or `damage {dice}`,
+	 * ask Jev the band question for each such effect in the background and write one `lane: "band-shadow"` row each.
+	 * It is scheduled after the tool result exists (the verifier lane's pattern), runs on the table's lane signal,
+	 * executes nothing, and however it breaks it never reaches the turn: the last-resort catch writes the row itself.
+	 */
+	function shadowBands(state: TableState, payload: Record<string, unknown>, settled: string[], host: unknown): void {
+		const targets = shadowTargets("apply", payload, host);
+		if (!targets.length) return;
+		const env = process.env, at = { turn: state.turn, callId: String(payload.call_id ?? "") };
+		const declaration = state.playerText ?? "", campaign = state.campaign, kernel = state.kernel, signal = state.lanes.signal;
+		const timer = setTimeout(() => {
+			void (async () => {
+				for (const target of targets) {
+					if (signal.aborted) return;
+					// No key, no question: nothing is read for it either.
+					if (!readJevApiKey(env)) { await record(skippedRow(target, at, "unconfigured")); continue; }
+					if (!declaration.trim()) { await record(skippedRow(target, at, "no_declaration")); continue; }
+					let rows: ReturnType<typeof readBandRows>;
+					try { rows = await shadowBandRows(kernel, target.kind); } catch { rows = undefined; }
+					if (!rows || rows.kind !== target.kind) { await record(unaskedRow(target, at, "rows_unavailable")); continue; }
+					const question = { field: target.kind, callId: at.callId, index: target.index, settled, rows: rows.rows } as ShadowQuestion;
+					const result = await askBand({ env, campaign, turn: at.turn, declaration, signal }, question);
+					if (!result) { await record(skippedRow(target, at, "unconfigured")); continue; }
+					await record(shadowRow(target, at, rows, result, bandShadowGate(env)));
+				}
+			})().catch((error) => {
+				void record({ lane: "band-shadow", turn: at.turn, call_id: at.callId, ok: false, reason: "lane_crashed",
+					detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+			});
+		}, 0);
+		timer.unref?.();
+	}
+
 	async function runTool(
 		spec: CocToolSpec,
 		toolCallId: string,
@@ -3182,6 +3232,8 @@ export default function (pi: ExtensionAPI) {
 			if (result._task_advance && dispatcher.tracksMutation(toolCallId))
                 pi.events.emit('coc:task-receipt-advance', result._task_advance);
 			const completedCombatMove = spec.name === "apply" ? combatSceneMove(state, payload) : undefined;
+			// §138.8: what the turn had settled before this call, taken before this call's own line joins it.
+			const settledBefore = spec.name === "apply" ? [...state.landed] : [];
 			applyToolSuccess(state, spec.name, toolCallId, result);
 			if (spec.name === 'resolve') {
 				// A replay describes the original declaration, not necessarily a still-live attack.
@@ -3269,6 +3321,8 @@ export default function (pi: ExtensionAPI) {
 			// the bound patch published; every failure mode — abort, refusal, split delivery, revision
 			// conflict, quota — drops it inside publishWorkpadPatch without touching this result.
 			if (workpad) await publishWorkpadPatch({ record: (row) => record(row) }, workpad, signal);
+			// §138.8: the shadow asks once the result exists and never holds it; a replay was asked when it first landed.
+			if (spec.name === "apply" && result.replayed !== true) shadowBands(state, payload, settledBefore, host);
 			return {
 				content: [{ type: "text", text: JSON.stringify(result) }],
 				details: result,
