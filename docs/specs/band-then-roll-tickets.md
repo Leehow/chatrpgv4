@@ -143,7 +143,7 @@ overwrite); the default replaced by a roll; each caught.
 
 ## BR-06 — Execute time and damage bands as clerk writes
 
-Status: ready-for-human (implemented 2026-09-26 on `claude/br06-band-clerk-20260926`; contract §138.10; see Comments)
+Status: ready-for-human (implemented 2026-09-26 on `claude/br06-band-clerk-20260926`, merged into `0.9.5a` by fast-forward; contract §138.10; suites and replays under Comments; owner review pending)
 Depends on: BR-01 (merged), BR-05 (a move carries its road's time before a time band is offered), BR-04's shadow
 rows (the gates are calibrated from them, not guessed).
 
@@ -241,7 +241,9 @@ argmax (`single_room_search`, 10–45), the case spec D4 says to revisit with th
 trend. The fight round is untouched (a session offers no time band; its damage is the attack's, not a hazard's).
 
 Suites on leehow-pc: `test:ext` 2895 / 2897 -- the two reds are the box's load pair (`npc-preparation-integration`,
-`jev-source-domain`), each 3 / 3 on the Mac; full pytest recorded below once run.
+`jev-source-domain`), each 3 / 3 on the Mac; full pytest at `6be510afd` 1749 passed / 2 skipped / 2 failed (the box-only
+`tests/play/test_driver.py` pair), the box at load 60–70 with other sessions' suites in flight. Merged into `0.9.5a` by
+fast-forward.
 
 Golden walk (base `0.9.5a@fb7334fcd` kernel + content against this branch, four starters, start and after one move, seed 5,
 frozen clock): `table.apply.options` and `table.resolve.options` byte-identical 16 / 16; the eight `table.capsule` reads
