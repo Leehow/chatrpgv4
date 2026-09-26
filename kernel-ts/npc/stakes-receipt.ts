@@ -17,8 +17,13 @@ export const isStakesRoll = (receipt: unknown): boolean => {
     return value.kind === 'roll' && value.family === STAKES_FAMILY;
 };
 
-/** What the generation step is told of one stakes receipt: `{rung, outcome, line}`, `line` null for `nothing`. */
+/**
+ * What the generation step is told of one stakes receipt: `{rung, outcome, line, surprise, surprise_line}` -- `line` null
+ * for `nothing`; `surprise` true only when the receipt says so (§139.19; a receipt written before it has none, and reads
+ * as no surprise), `surprise_line` the table's permission then, else null.
+ */
 export function stakesView(receipt: Row): Row {
     const text = (value: unknown): string | null => typeof value === 'string' && value ? value : null;
-    return {rung: text(receipt.rung), outcome: text(receipt.outcome), line: text(receipt.line)};
+    const surprise = receipt.surprise === true;
+    return {rung: text(receipt.rung), outcome: text(receipt.outcome), line: text(receipt.line), surprise, surprise_line: surprise ? text(receipt.surprise_line) : null};
 }

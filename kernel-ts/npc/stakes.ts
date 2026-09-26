@@ -9,7 +9,11 @@
  * table pinned for him, else the table's default; moved by the table's shifts; clamped to its ends), 1d100 is rolled
  * on the kernel's seeded die, and a keeper-visible `roll` receipt of family `stakes` goes into the open turn. The
  * player is never told the die was rolled (§16.5, `visibility: keeper`); the Keeper sees the receipt; the generation
- * step reads only `{rung, outcome, line}` through the situation packet, never a threshold.
+ * step reads only `{rung, outcome, line, surprise, surprise_line}` through the situation packet, never a threshold.
+ *
+ * Spec D10 (ticket 20, §139.19): the same roll, at most the rung's `surprise_at_most`, is a surprise -- this person may
+ * bring out something no one at the table knew they had. The table gives the permission as a line (`lines.surprise`, or
+ * `lines.severe_surprise` on a severe roll): a permission and its degree, never an object.
  *
  * Every number is the table's; this file knows only what each shift compares.
  */
@@ -36,9 +40,14 @@ import {STAKES_FAMILY, isStakesRoll, stakesView} from './stakes-receipt.js';
 const FILE = 'npc-stakes.json', CONTRACT = 'coc.npc-stakes.v1';
 /** The turn states a receipt may join (the same two `stanceNow` folds). */
 const OPEN_STATES = ['open', 'acting'];
-/** The two outcomes a rung has a line for; the third, `nothing`, has none. */
-const LINED = ['severe', 'escalates'] as const;
-const RUNG_KEYS = ['name', 'severe_at_most', 'escalates_at_most', 'lines', 'note'];
+/**
+ * The lines a rung carries: the degree of the two outcomes that have one (`nothing` has none), and the permission of a
+ * surprise (§139.19) -- its own, and the one a severe roll gives.
+ */
+const LINED = ['severe', 'escalates', 'surprise', 'severe_surprise'] as const;
+const RUNG_KEYS = ['name', 'severe_at_most', 'escalates_at_most', 'surprise_at_most', 'lines', 'note'];
+/** The three columns of a rung; each one rises (or stays) from a rung to the next (§139.19). */
+const COLUMNS = ['severe_at_most', 'escalates_at_most', 'surprise_at_most'] as const;
 /**
  * The shifts the kernel can read, each with the one parameter its comparison takes (null: none). Closed, like the
  * disposition table's conditions: a shift the kernel cannot read is refused when the table loads.
@@ -70,17 +79,22 @@ export async function stakesTable(context: KernelContext): Promise<Row> {
     for (const [index, value] of rungs.entries()) {
         const rung = row(value), name = typeof rung.name === 'string' ? rung.name.trim() : '';
         if (!isJsonObject(value) || !name || names.includes(name) || Object.keys(rung).some(key => !RUNG_KEYS.includes(key)))
-            throw tableError('every rung is {name, severe_at_most, escalates_at_most, lines} with a name of its own', {rung: index});
-        const severe = rung.severe_at_most, escalates = rung.escalates_at_most;
+            throw tableError('every rung is {name, severe_at_most, escalates_at_most, surprise_at_most, lines} with a name of its own', {rung: index});
+        const severe = rung.severe_at_most, escalates = rung.escalates_at_most, surprise = rung.surprise_at_most;
         // 1d100: `severe` at most `escalates`, both on the die's faces, and `severe` never certain (spec D9: no rung is sure death).
         if (!Number.isInteger(severe) || !Number.isInteger(escalates) || severe < 0 || severe > escalates || escalates > 100 || severe >= 100)
             throw tableError('a rung reads 1d100: 0 <= severe_at_most <= escalates_at_most <= 100, and severe_at_most below 100', {rung: name});
-        if (previous && (severe < previous.severe_at_most || escalates < previous.escalates_at_most))
-            throw tableError('rungs run from the least dangerous to the most: neither number falls from one rung to the next', {rung: name, after: previous.name});
+        // §139.19: the surprise column reads the same die on its own; it need not sit between the other two.
+        if (!Number.isInteger(surprise) || surprise < 0 || surprise > 100)
+            throw tableError('a rung reads 1d100 for a surprise too: surprise_at_most is an integer from 0 to 100', {rung: name});
+        // Every column rises with the rung (§139.19): a higher rung is never less likely to go further, or to surprise.
+        const fallen = previous ? COLUMNS.filter(column => rung[column] < previous![column]) : [];
+        if (fallen.length)
+            throw tableError('rungs run from the least dangerous to the most: no column falls from one rung to the next', {rung: name, after: previous!.name, columns: fallen});
         const lines = row(rung.lines);
         if (!isJsonObject(rung.lines) || Object.keys(lines).some(key => !(LINED as readonly string[]).includes(key))
             || LINED.some(key => typeof lines[key] !== 'string' || !lines[key].trim()))
-            throw tableError('a rung has exactly one line for severe and one for escalates', {rung: name});
+            throw tableError('a rung has exactly one line each for severe, escalates, surprise and severe_surprise', {rung: name, lines: [...LINED]});
         names.push(name);
         previous = rung;
     }
@@ -178,6 +192,16 @@ export function stakesOutcome(rung: Row, roll: number): string {
     return roll <= number(rung.severe_at_most) ? 'severe' : roll <= number(rung.escalates_at_most) ? 'escalates' : 'nothing';
 }
 
+/** §139.19: the same roll at most `surprise_at_most` lets this person bring out something no one knew they had. */
+export function stakesSurprise(rung: Row, roll: number): boolean {
+    return roll <= number(rung.surprise_at_most);
+}
+
+/** The permission line of a surprise: the severe one on a severe roll (the thing may be dangerous), else the plain one. */
+export function surpriseLine(rung: Row, outcome: string): string {
+    return string(row(rung.lines)[outcome === 'severe' ? 'severe_surprise' : 'surprise']);
+}
+
 async function factsOf(context: KernelContext, campaign: CampaignSnapshot, graph: ModuleGraph, me: Person): Promise<StakesFacts> {
     const {world, turn, party} = campaign;
     let ledger: Row = {};
@@ -207,14 +231,15 @@ export function createStakesHandlers(context: KernelContext, writer: ReturnType<
                 return {stakes: null, reason: 'prepared'};
             const table = await stakesTable(context), base = baseRung(graph, world, me.handle, table);
             const {rung, shifts} = stakesRung(table, base, await factsOf(context, campaign, graph, me));
-            const roll = context.rng.randint(1, 100), outcome = stakesOutcome(rung, roll);
+            const roll = context.rng.randint(1, 100), outcome = stakesOutcome(rung, roll), surprise = stakesSurprise(rung, roll);
             const line = outcome === 'nothing' ? null : string(row(rung.lines)[outcome]);
             const n = number(turn.turn);
             const receipt: Row = {
                 id: `roll:stakes-${me.handle}-t${n}`, kind: 'roll', family: STAKES_FAMILY, call_id: `t${n}-stakes-${me.handle}`,
                 actor: me.handle, actor_label: me.label, actor_is_investigator: false,
                 rung: string(rung.name), base, shifts, roll, severe_at_most: rung.severe_at_most, escalates_at_most: rung.escalates_at_most,
-                outcome, line, visibility: 'keeper', at: nowIso(),
+                surprise_at_most: rung.surprise_at_most, outcome, line, surprise, surprise_line: surprise ? surpriseLine(rung, outcome) : null,
+                visibility: 'keeper', at: nowIso(),
             };
             // The campaign lock is held for the whole call, so the turn read here is the one the snapshot read.
             const store = await writer.campaign(params), current = await store.readTurn();

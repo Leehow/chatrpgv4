@@ -5,7 +5,8 @@
  * Facts only. Who they are is `npcPerspective`'s rows; what just happened to them is composed by code from the receipts
  * of this turn and the last; their body, their stance, what is at hand, what they already set out to do and how it went,
  * and what the book and the active Mods require of them; and, when `npc.stakes` rolled for them this turn, that die's
- * rung, outcome and degree line (§139.8: read from its receipt, never rolled here). Nothing here reads what a line
+ * rung, outcome and degree line, and whether it allows a surprise with its permission line (§139.8, §139.19: read from
+ * its receipt, never rolled here). Nothing here reads what a line
  * means, chooses a verb from content or advises: each clause is worded by its receipt's kind and fields, and the
  * engine's closed words (a level, a combat action, a resource, a condition, a stance) are quoted as they are. Nothing is
  * written.
@@ -276,8 +277,12 @@ export function stateOf(graph: ModuleGraph, world: Row, me: Person, session: Row
 function atHand(graph: ModuleGraph, world: Row, party: Row[], me: Person, place: Row | null): Row {
     const instances = values(row(row(world.objects).instances)).map(row);
     const profile = npcProfileOf(graph, world, me.handle);
+    // §139.19: a weapon the table's act of this person brought out (`world.npc_weapons`) is theirs with or without a stat
+    // block; with one, `npcProfileOf` already lays it over the profile's weapons.
+    const drawn = profile ? [] : array(row(world.npc_weapons)[me.handle]).map(weapon => string(row(weapon).name || row(weapon).weapon_id));
     const holdings = once([
         ...array(profile?.weapons).map(weapon => isJsonObject(weapon) ? string(weapon.name || weapon.weapon_id) : string(weapon)),
+        ...drawn,
         ...instances.filter(item => row(item.owner).kind === 'npc' && row(item.owner).id === me.handle).map(item => string(item.name)),
     ]);
     if (!place) return {holdings, objects: [], exits: [], present: []};
