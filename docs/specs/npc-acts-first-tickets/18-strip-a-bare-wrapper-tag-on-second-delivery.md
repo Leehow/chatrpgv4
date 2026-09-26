@@ -1,4 +1,4 @@
-Status: ready-for-agent（2026-09-26，真桌 C4 T3 发现；工单 11 的补充）
+Status: landed（合入集成分支 claude/npc-as-actor-20260926 @ 46f2a2093，2026-09-26）
 Spec: docs/specs/npc-acts-first.md（第九节「C4 桌」）
 
 # 18 — 第二次交付时，纯包装标签剥掉而不是原样放出去
