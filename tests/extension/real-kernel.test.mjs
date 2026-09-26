@@ -9,9 +9,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { assistantTexts, customMessages, openTable, waitForIdle } from "./harness.mjs";
+import { assistantTexts, customMessages, openTable, waitFor, waitForIdle, waitForJson } from "./harness.mjs";
 
 const CAMPAIGN = "haunting-seam";
+
+/** Whether the Keeper's narrate of `text` has a tool result in the session (SL-87: the waits below are on deliveries). */
+function narrated(session, text) {
+	const call = session.messages.flatMap((message) => message.role === "assistant" && Array.isArray(message.content) ? message.content : [])
+		.find((block) => block.type === "toolCall" && block.name === "narrate" && block.arguments?.text === text);
+	return Boolean(call && session.messages.some((message) => message.role === "toolResult" && message.toolCallId === call.id));
+}
 
 test("a source wait closes without creating a story action menu", async t => {
 	const notice = "资料仍在准备，要继续等待还是暂停？";
@@ -24,13 +31,16 @@ test("a source wait closes without creating a story action menu", async t => {
 		fauxAssistantMessage("不应泄漏的系统说明。"),
 	] });
 	t.after(() => table.dispose());
+	// SL-87: waits on the opening's delivery and on turn 1's record, not on an idle heuristic. On a loaded box `waitForIdle`
+	// returned before the player's turn had run (its input was held behind the opening), and the turn record read ENOENT.
+	await waitFor(() => narrated(table.session, "委托人把文件放在桌上，等你开口。"), { label: "the opening's delivery", timeoutMs: 60_000 });
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
 	table.emit("coc:reading-bridge", { async ensure() {
 		throw Object.assign(new Error("source read timed out"), { details: { reason: "reading_timeout" } });
 	} });
 	await table.session.prompt("请核实原书里的委托内容。");
+	const record = await waitForJson(join(table.workspace, ".coc/campaigns/source-wait-seam/turns/0001.json"), { label: "turn 1's record", timeoutMs: 60_000 });
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
-	const record = JSON.parse(readFileSync(join(table.workspace, ".coc/campaigns/source-wait-seam/turns/0001.json"), "utf8"));
 	assert.equal(record.closed_by, "narrate");
 	assert.equal(record.rendered_text, notice);
 	assert.equal(table.entries("coc-choice").length, 0);

@@ -1949,6 +1949,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 `setup` 的 `step` 不在表里、前置未满足、或重复已完成的步 → 工具结果带该步的拒绝语与「下一步」（从表派生），不改状态。建卡进程没有胶囊、没有 Director；内核 `table.open` 只开 `ready_for_table` 或 `active` 的战役，其他状态报 `campaign_not_ready` 并给 `fix: bin/pi-coc setup --campaign <id>`。
 
+*(§14.17 amends this paragraph: with no capsule, the campaign's `play_language` reaches the setup model only through the line the onboarding extension appends to every setup request.)*
+
 ### 14.5 读者：一段 section 一个子 `pi` 进程
 
 模型侧的读书工作由 `module` 扩展驱动，不在内核里、也不是 `modelRegistry.complete`：每个 section 起一个子进程 `pi -p --no-session --no-context-files --tools read,write,edit,bash --system-prompt content/setup/reader.md`（工作目录 `work/<section_id>/`，模型 `PI_COC_BUILD_MODEL`，缺省与桌子同模型），标准命令由 `module.packet` 返回的 `brief` 给：读 `packet.json`，用 `bin/coc-evidence`（仓库脚本：`search <名字>` 在全节 span 里找、`verify <span-id>` 查 id 是否存在、`page <n>` 看整页）查证据，把 shard 写到 `shard.json`，跑 `bin/coc-review --module <id> --section <id>`（即 `module.review`）看 findings，改到 `accepted` 或放弃。每 section 至多 3 轮（子进程退出后 review 不过就带着 findings 原样重起一轮），超过记 `failed`；读者产出的一切只在 `work/` 里，进 `shards/` 的只有 review 通过并 `module.accept` 的。这是用户法则要求的形状：带工具的 agent 自己开包、自己分多次写、自己跑闸门。
@@ -2074,6 +2076,40 @@ Owner rulings of 2026-09-24 (`docs/specs/pi-native-single-loop.md`, "A built-in 
 **14.16.6 Campaigns.** A campaign that has not forked follows the library (§22.6) and reads the bound window; a fork copies `source.pdf` as every fork does. A fork made before its starter was bound keeps its own workspace: §22.6 forks do not follow later library publications, and a new campaign is how a table reads the book (a campaign is a compile snapshot).
 
 **14.16.7 The three ends (§31).** Producer: registration (built in) or the window bind (registered), both through `kernel-ts/modules/bound-source.ts` `bindStarterSource`. Reader: `Reading.source` and the two source snapshots, the capsule `reading` section. Adoption: `lookup kind=source`, the prescreen's `native_text` / `reviewed_source` candidates, the reading lane's jobs. Tests: `tests/extension/starter-source-binding.test.mjs` (real kernel runtime, a fixture book the suite writes, both modes, the refusal, replay, the capsule and the carried head's input), `tests/kernel/test_capsule.py` (the shipped Haunting reads its window; a starter without a declaration still answers `no_source_document`).
+
+### 14.17 The setup guide is told the table's language (2026-09-26; amends §14.4 and §16.1)
+
+**Evidence.** Live table `npc-acts-b` (2026-09-26; `mystery-house`, `play_language: zh-Hans`, setup mode through `tests/play/driver.py` with a setup launcher, `opencode-go/deepseek-v4.1-flash`, thinking off). The campaign existed before the setup process started, and the zh-Hans guidance pack was the one loaded: the committed prologue's `handoff` is that pack's, word for word. The first setup reply (no tool call) still opened with two English paragraphs -- the Chinese prologue retold in English, then the guided-creation package's frame line ("a couple of questions so the card carries this person's real strengths and weaknesses instead of whatever the dice say") close to its English wording -- and switched to Chinese only at the question. The same first request rebuilt on a real kernel (the test named in 14.17.4, before this fix) carries a 37.8K-character system prompt that says `play_language` ten times and never says which language that is: the setup process has no capsule (§14.4), and nothing else carried the value. §16.1's "the one sentence in the prompt is the only mechanism" had no value on setup turns, so the model took its language from the English around it.
+
+A second gap of the same shape: `campaign.create` answers with the campaign record, `play_language` nested in it, and the onboarding extension copied only top-level scalars into its context. A campaign the setup model created in-process therefore had no tag in the process, so its guidance was prepared, and its captions spoken, in `content/languages.json`'s `default`. An `en` campaign created from the terminal got the zh-Hans prologue (reproduced 2026-09-26); a zh-Hans one was right only because zh-Hans is the default.
+
+**14.17.1 The binding.** Once the campaign names a play language, every setup request's system prompt carries `play_language=<tag>` in one line the onboarding extension appends directly after the setup preamble, on every branch of `before_agent_start` -- the normal turn, guidance unavailable, package context unavailable, setup already complete -- because each of those replies is read by the player. The line says that every player-facing word is written in that language and that everything else in the request (the setup prompt, the module advice, the setup packages' instructions, tool results) is English for the model, to be carried in sense, never in its English words. `prompts/setup.md` states the rule and points at that line.
+
+**14.17.2 Where the tag comes from.** The kernel's record, as the process learns it: `setup.steps` `state.play_language` for a process opened on an existing campaign, and `campaign.play_language` in `campaign.create`'s answer for one this process created. The same bound tag is the one guidance is prepared in and the setup captions speak. Before a campaign exists there is no tag and none is guessed; the reply in which create-campaign itself runs keeps the prompt it started with.
+
+**14.17.3 What this is not.** Not a language check: nothing inspects what the model wrote (§23 forbids detection); the verifier lane's `play_language_mismatch` stays the only judgment of a delivery. No per-language branch: the tag is passed through as the kernel holds it. The guidance packs, the guided-creation package bytes and §23.4 are unchanged; a setup package's English instruction is covered by 14.17.1 rather than by each package restating the rule.
+
+**14.17.4 The three ends (§31).** Writer: the kernel (`campaign.create`, `setup.steps` `state`). Projection: `extensions/onboarding/index.ts` `tableLanguage()` into `before_agent_start`, and `noteResult` for the in-process campaign. Adoption: the setup model's replies. Tests: `tests/extension/setup.test.mjs`, the cases named "names its play_language" and "prepares its prologue in that language", read the provider request itself on a real kernel for every language the starter ships guidance in (the data default among them, so a fallback to it cannot pass); the three blocked-turn cases of §98 addendum 4 now expect the campaign's captions, not the default's.
+
+### 14.18 The host shows the accepted opening on every path and books what it showed (2026-09-26; amends §14.4 and §23.4's prologue paragraph)
+
+**Evidence.** §23.4 already said it: "The accepted public opening is delivered once, directly, and recorded through `setup.prologue`. The setup agent handles the player's answer without rewriting that opening", and "the setup context records the actual opening delivery". Only the App path did that (`PI_COC_SETUP_AUTOSTART=1`: session start sends the opening as a `coc-setup-opening` message and books those words). A terminal or driver setup gave the opening to the model to "use on the first setup reply only" and then, at `agent_end`, booked the model's whole reply as the prologue. On `npc-acts-b` (§14.17) the model retold the zh-Hans opening in English and added the host's frame and question; all of it became `setup.prologue.opening` and then `table.open`'s `setup_prologue`, the "Committed prologue" the Keeper's opening continues from. Two defects in one channel: the model could rewrite reviewed story text, and the record held whatever it wrote.
+
+**14.18.1 One delivery, three moments.** `shownPrologue(guidance)` in `extensions/onboarding/index.ts` books `setup.prologue` with the accepted `guidance.opening` and returns the `coc-setup-opening` message (display, `details.kind: setup-opening`, the "?" help fold); every path goes through it, once per campaign:
+
+- App: at session start, as before.
+- A terminal or driver setup on an existing campaign: on its first turn, returned as `before_agent_start`'s `message`, so it sits right after the player's first line and before the guide's reply, and is in the guide's first request. It is shown only once nothing else can still block that turn, and not when a draft already exists (the meeting is long past).
+- A campaign created in this process: sent while the turn runs, right after `create-campaign`'s result (Pi steers it in after the tool batch, before the next model step); the result says `opening_shown`.
+
+The guide never writes the prologue: `prompts/setup.md` and the prologue label say the host shows it word for word and the guide must not repeat, retell or translate it. `agent_end` no longer books anything.
+
+**14.18.2 The record.** `setup.prologue.opening` is exactly the words shown, so the Keeper's committed prologue is the story the player read, in the language the reviewed pack was written in. The kernel method, its validation (authored opening scene, guide present) and its first-write-wins rule are unchanged; a refusal blocks the turn as a guidance failure, as it already failed the App's session start.
+
+**14.18.3 The driver.** `tests/play/driver.py` records the shown opening as `setup_opening` in `turn-N.json` (from the message or its entry, once) and prints it before the guide's reply; `final_text` stays the reply. It is transport, not a second producer.
+
+**14.18.4 The three ends (§31).** Writer: `shownPrologue` (host) and `setup.prologue` (kernel). Readers: the player (the message), the guide (the message in its context), the Keeper's opening (`table.open` `setup_prologue`), the driver. Tests: `tests/extension/setup.test.mjs`, the two "shows the accepted opening" cases, on a real kernel read the session order and the kernel's record for both non-App paths; `tests/play/test_driver.py` the `setup_opening` capture. The fake kernel gained `setup.prologue`: before this, nothing on the fake path ever reached it except `agent_end`, where a failure went unseen.
+
+**14.18.5 The review reads it too.** §32.3 names the setup prologue among what the player was already told. `table.open` carries it (only while `opening_needed`) as the whole record, and the host read it with a string accessor, so the reviewer never received it on any table -- including the first player turns, when the player is answering what the guide asked in it. The host now takes the record's `opening` (`extensions/kernel/index.ts`, `table.prologue`); the `handoff` is Keeper-facing and stays out. Test: `tests/extension/admission.test.mjs`, "the review reads the setup prologue the player was shown", on a campaign built through the kernel's setup RPC and a real opening turn.
 
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
@@ -2208,7 +2244,7 @@ submit the chosen dispositions without guessing IDs or repeating the failed call
 ### 16.1 系统语言
 
 - 代码、契约、提示词（守秘人、建卡、读者）、工具描述、宿主消息、胶囊里内核写的说明（`head`、压力/待办的状态词、Director 的 reason、检查点 one_line）、事实清单、抽取指令、校验车道的输入与发现、读者 brief、启动器帮助——全部英文。代码里不出现中文；守卫测试扫 `kernel/**`、`extensions/**`、`bin/**`、`prompts/**`、`content/setup/*.json`、`content/craft/beat-directives.json`，命中 CJK 即失败（模组内容与规则术语表是数据，不受限）。
-- 玩家看到的一切由守秘人按战役 `play_language` 写（提示里的那一句是唯一机制）；记忆候选的 `statement` 也按 `play_language` 写（守秘人之后要读它、玩家可能通过 recall 看到它）；校验发现的 `why` 与遥测用英文。
+- 玩家看到的一切由守秘人按战役 `play_language` 写（提示里的那一句是唯一机制；*§14.17：那一句必须带上值，建卡进程由宿主写入 `play_language=<tag>`*）；记忆候选的 `statement` 也按 `play_language` 写（守秘人之后要读它、玩家可能通过 recall 看到它）；校验发现的 `why` 与遥测用英文。
 - 规则术语表（技能、武器的各语言译名）留在规则数据里，不再被渲染路径消费；守秘人自己把 `Spot Hidden` 说成玩家语言里的词。
 
 ### 16.2 机制投影（`mechanics`）
@@ -5685,7 +5721,7 @@ meeting with one identity question and a brief narrator hint, never a synopsis/m
 setup.prologue is host-only and binds scene/guide/text/handoff to the authored
 opening, validating that the guide is present. Only the first delivered meeting is
 recorded; it does not award any resource. The setup
-context records the actual opening delivery; confirmation records the introduction
+context records the actual opening delivery (*§14.18: on every path the host shows the opening and books those words; the guide never writes it*); confirmation records the introduction
 and last setup exchange. It cannot award keys, money, clues or accept commissions.
 Play opening receives that committed context and continues the meeting, without
 repeating arrival or introductions. Subsequent recovery uses the normal turn receipts.
@@ -8176,7 +8212,7 @@ and refusal/retry boundary only, not that a live model always judges the bargain
 The input is the exact current player text (the `table.player_input` prompt; on a recovered turn,
 `pending_turn.player_text` from `table.open`), the investigators' names and occupations, the scene's
 player-facing name and the names on stage, what the player was already told — the setup prologue
-(`table.open`'s `setup_prologue`) and the last four deliveries as the host delivered them (`rendered_text`
+(`table.open`'s `setup_prologue`, its `opening`; *§14.18.5: read as a string it was always dropped*) and the last four deliveries as the host delivered them (`rendered_text`
 of `narrate`/`ask`), with the capsule's `recent` heads standing in after a restart — what this turn has
 already settled through the kernel, what this turn has already refused, and the proposal itself, one
 line per `resolve` field or `apply` effect. Nothing Keeper-only travels: no scene summary, no
@@ -20851,6 +20887,27 @@ runaway-abort accounting, an audit-refusal stub, a look-budget notice) and were 
 without changing what each test is about, noted at each site; the opening's own exemption
 (`gates.test.mjs`'s "开桌回合") and the two implicit-path SL-80 tests that rely on a genuinely short say-only draft
 were left as they were.
+
+**Re-scoped at integration (2026-09-26): the length floor is `apply.narrate`'s alone.** Merged into line-2 at `92a8b0b42`,
+the every-path floor turned the box suites red: ext 118 and loop 23 failures, found by the load-proof worker at `3d9204520`.
+Their common cause was not stale fixtures but legitimate short prose. `turn.test.mjs`'s ordinary question
+"门厅很安静，你准备怎么做？" (13 code points) is a line a Keeper writes on purpose. Both placeholders in the evidence were
+in `apply.narrate`: the optional field was filled when the Keeper meant to narrate separately, and its text beside the
+calls said so.
+
+The floor therefore runs only under `narratePath: "embedded"`.
+- An explicit `narrate` and the implicit close keep exactly their SL-80 rules (no tool call, or a speech-only draft)
+  and no length check.
+- `apply.narrate`'s schema description says a short stand-in is refused and the field is omitted when the Keeper will
+  narrate separately.
+- The data knob, the one-steer budget spent at the refusal, the never-strand rule and the telemetry row
+  (`path: "embedded"`) are unchanged.
+
+Tests in `delivery-floor-every-path.test.mjs`:
+- The explicit-path steer test now asserts the short explicit line delivers on its first leg. The mutation of dropping
+  the `embedded` condition turns it red.
+- The spent-steer test and both knob tests run on `apply.narrate`.
+- The fixtures lengthened earlier stay long; they are harmless.
 
 #### 135.11.5 The turn record says when the player first sees the turn's prose: `first_prose`, `durations.firstProseMs`, `firstProseVia` (2026-09-26, SL-94)
 

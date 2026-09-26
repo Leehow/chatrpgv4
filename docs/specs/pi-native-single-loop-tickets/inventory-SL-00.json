@@ -1250,6 +1250,21 @@
     },
     {
       "file": "extensions/onboarding/index.ts",
+      "symbol": "execute",
+      "kind": "trigger-turn",
+      "callee": "pi.sendMessage{steer-when-streaming}",
+      "count": 1,
+      "owner": "onboarding ext",
+      "path": "app-setup",
+      "role": "leaf",
+      "trace": "n/a (setup)",
+      "note": "Setup opening (coc-setup-opening) shown right after an in-process create-campaign result; rides the live setup run as a steering message, after the tool batch (§14.18). The App creates campaigns before setup, so it never reaches this site.",
+      "lines_at_04fd394a1": [
+        771
+      ]
+    },
+    {
+      "file": "extensions/onboarding/index.ts",
       "symbol": "checkNameBoundaryFor",
       "kind": "jev-adapter",
       "callee": "createDecisionAdapter",

@@ -999,8 +999,9 @@ test("同一处埋点让两条车道都可见：记忆车道也留同样的四�
 test("等响应头时被砍：只有请求行、没有响应行，那就是这次超时的形状（#67）", async (t) => {
 	const held = gate();
 	// The headers are held for ever, so the timeout's size only sets how long the test waits; 30 ms raced the
-	// request-phase row under a 12-way loaded run (the row was not yet written when the timer fired).
-	const table = await openTable({ responses: keeperTurn(), env: { PI_COC_LANE_TIMEOUT_MS: "300" } });
+	// request-phase row under a 12-way loaded run (the row was not yet written when the timer fired), and SL-87 found 300 ms
+	// racing it too on a box at load ~100 (`model_error`). It is spent whole on every run, so it is 5 s, not a minute.
+	const table = await openTable({ responses: keeperTurn(), env: { PI_COC_LANE_TIMEOUT_MS: "5000" } });
 	t.after(() => {
 		held.open();
 		return table.dispose();

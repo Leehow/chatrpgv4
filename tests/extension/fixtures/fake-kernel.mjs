@@ -630,6 +630,12 @@ function handle(method, params) {
         }
         case "setup.confirm":
             return {ok:true,result:{committed:true,investigator_id:"inv-1"}};
+        case "setup.prologue": {
+            // §14.18: the host books the opening it showed; the kernel keeps the first one and answers every call.
+            const prologues = (globalThis.__fakePrologues ??= new Map());
+            if (!prologues.has(params.campaign)) prologues.set(params.campaign, {scene: params.scene, guide: params.guide ?? null, opening: params.text ?? "", handoff: params.handoff ?? ""});
+            return {ok:true,result:{recorded:true}};
+        }
 		case "setup.investigator": {
 			if (!params.name || !params.occupation) {
 				return { ok: false, error: { code: "invalid_params", message: "建卡要名字与职业 id" } };
