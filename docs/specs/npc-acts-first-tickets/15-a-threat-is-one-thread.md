@@ -1,4 +1,4 @@
-Status: ready-for-agent（2026-09-26，真桌 C3 发现；本 spec 的核心缺口，优先）
+Status: landed（合入集成分支 claude/npc-as-actor-20260926 @ 7a2ecad80，2026-09-26）
 Spec: docs/specs/npc-acts-first.md（第九节「C3 桌」）
 
 # 15 — 宣布要做的事和做它是同一条线；只有骰子和桌子能把它结成 done

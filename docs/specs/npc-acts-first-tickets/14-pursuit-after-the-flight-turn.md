@@ -1,4 +1,4 @@
-Status: ready-for-agent（2026-09-26，真桌 C 第 4–6 回合发现）
+Status: landed（合入集成分支 claude/npc-as-actor-20260926 @ 085ce0bf6，2026-09-26）
 Spec: docs/specs/npc-acts-first.md（第九节「真桌 C」）
 
 # 14 — 逃走的人下一回合还追得上

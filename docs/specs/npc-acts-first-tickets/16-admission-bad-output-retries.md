@@ -1,4 +1,4 @@
-Status: ready-for-agent（2026-09-26，真桌 C3 T3 发现；不在本 spec 主线，顺手立票）
+Status: landed（合入集成分支 claude/npc-as-actor-20260926 @ a1985eacb，2026-09-26）
 Spec: docs/specs/npc-acts-first.md（第九节「C3 桌」）
 
 # 16 — 准入车道的坏 JSON 重试一次，不拒玩家的行动
