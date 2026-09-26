@@ -16,7 +16,10 @@ Spec: docs/specs/jev-driven-steps.md D3/D4/D6; §135.32; §135.8 (clerk did), §
 
 ### Worker report (2026-09-26, worktree `chatrpgv4-wt-sl78`, branch `claude/sl78-20260926`)
 
-Implemented per the owner's per-class ruling below. Summary (commit hashes filled in after commit; see the branch log):
+Implemented per the owner's per-class ruling below. Commits (on top of `efe667213`):
+`2f477c112` (contract addendum 2), `1b4e1ec92` (host-budgets.json/.ts data), `880d68bfb`
+(the execute path, the re-route, the residual row, and their tests), `de5fb3210`
+(jev-steps-report.py's residual section). Summary:
 
 1. **Data.** `content/rulesets/coc7/host-budgets.json`'s `jev_steps` gains `"execute": ["clue_follow_up"]`. `runtime/jev/host-budgets.ts`'s `JevStepsBudget`/`jevStepsBudget()` read and validate it (an array of strings; a non-string entry is dropped; a non-array value or a missing key falls back to `[]`, never a guess).
 2. **Execute path.** `runtime/jev/hybrid-engine.ts`'s `consequenceKeysToExecute` takes a fourth argument, the execute-classes list, and only returns keys of a listed class (`shadow`/`off` unchanged: still `[]` regardless). A new `routeConsequencesAfterWrite` runs the *listed-classes-only* route right after every settled clerk write (`clerkStep`'s own tail, `ok` only) and every settled Keeper write (`modelStep`'s `WRITE_VERBS` branch) -- the point in the run a clue can still be filed and narrated, strictly before the next step, which for a settled declaration is the compose. It reuses the same fresh read `freshOf` already took (`freshOf` now also exposes `consequences()`, added with no change to what `shadow`/`off` do with that object). The unfiltered candidate list still rides on `run.consequenceCandidates`/`consequenceContext` for `turnCloseStep`'s own unconditional call, unchanged mechanism.
