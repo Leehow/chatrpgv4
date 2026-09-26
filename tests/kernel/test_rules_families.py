@@ -62,8 +62,9 @@ def first_success(client, prefix, **action):
 
 
 def walk_to_confrontation(client, start=1):
+    # The walk costs no clock here: a road's minutes (§138.9) are not what these families test.
     for i, scene in enumerate(CONFRONTATION_PATH, start=start):
-        client.table("apply", call_id=f"t1-c{i}", effects=[{"kind": "move", "to": scene}])
+        client.table("apply", call_id=f"t1-c{i}", effects=[{"kind": "move", "to": scene, "travel_minutes": 0}])
     return start + len(CONFRONTATION_PATH)
 
 

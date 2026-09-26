@@ -5,7 +5,14 @@ The figure check went in on 2026-09-06, out on 09-07, back on 09-08 (#84) and ou
 on 09-09 by the user's decision: numbers live on the frontend's cards, the prose is fiction.
 `tests/kernel/test_narrate_numbers.py` guards the last word."""
 
-from conftest import campaign_dir, git_log, narrate, open_turn, read_json, read_jsonl
+from conftest import CONTENT_DIR, campaign_dir, git_log, narrate, open_turn, read_json, read_jsonl
+
+
+def road_minutes(origin: str, destination: str) -> int:
+    """The minutes the shipped graph carries on a road (§138.9): what a move that names none lands with."""
+    graph = read_json(CONTENT_DIR / "starters" / "the-haunting" / "module-graph.json")
+    return next(r["properties"]["travel_minutes"] for r in graph["relations"] if r["relation_kind"] == "route-to"
+                and (r["from_node_id"], r["to_node_id"]) == (f"scene-{origin}", f"scene-{destination}"))
 
 
 def stage_receipts(client):
@@ -32,7 +39,7 @@ def test_labels_ride_on_the_projection_and_the_text_is_verbatim(kernel):
         {"kind": "clue", "marker": "clue:knott-research-leads", "receipt": "clue:knott-research-leads-t1", "clue": "knott-research-leads", "label": "诺特给的查证方向",
          "call": "t1-c1"},
         {"kind": "scene", "marker": "scene:hall-of-records", "receipt": "move:hall-of-records-t1-c1", "from": "commission-briefing", "to": "hall-of-records",
-         "minutes": 0, "from_label": "Knott's Office", "to_label": "市政厅档案室", "call": "t1-c1"},
+         "minutes": road_minutes("commission-briefing", "hall-of-records"), "from_label": "Knott's Office", "to_label": "市政厅档案室", "call": "t1-c1"},
     ]
 
 

@@ -3,6 +3,7 @@ and is accounted for by the kernel's playability check."""
 
 from __future__ import annotations
 
+import copy
 import json
 import subprocess
 import sys
@@ -84,10 +85,31 @@ def test_manifest_matches_the_graph_and_accounts_for_the_projection(module_id):
     assert all(status == "accepted" for status in graph["coverage"].values())
 
 
+#: Contract §138.9 (BR-05): the only bytes of a shipped graph no projection produces -- the minutes the build step
+#: "fill travel minutes" wrote on its roads (`scripts/fill-starter-travel.ts`), and only on `route-to` relations.
+ROAD_TRAVEL = ("travel_minutes", "travel")
+
+
+def without_road_travel(graph: dict) -> tuple[dict, list[str]]:
+    stripped, removed = copy.deepcopy(graph), []
+    for relation in stripped["relations"]:
+        properties = relation.get("properties") or {}
+        for key in ROAD_TRAVEL:
+            if key in properties:
+                assert relation["relation_kind"] == "route-to", f"{relation['relation_id']} carries {key}"
+                removed.append(f"{relation['relation_id']}/{key}")
+                del properties[key]
+    return stripped, removed
+
+
 @pytest.mark.parametrize("module_id", sorted(STARTERS))
-def test_reprojection_reproduces_the_committed_graph(module_id):
-    args = ["diff", "--starter-dir", str(CONTENT_DIR / "starters" / module_id),
-            "--against", str(CONTENT_DIR / "starters" / module_id / "module-graph.json")]
+def test_reprojection_reproduces_the_committed_graph(module_id, tmp_path):
+    committed = read_json(CONTENT_DIR / "starters" / module_id / "module-graph.json")
+    stripped, removed = without_road_travel(committed)
+    assert removed, "the shipped roads carry the minutes the build step filled"
+    against = tmp_path / "module-graph.json"
+    against.write_text(json.dumps(stripped, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    args = ["diff", "--starter-dir", str(CONTENT_DIR / "starters" / module_id), "--against", str(against)]
     result = run_script(*args)
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["identical"] is True
@@ -227,7 +249,12 @@ def test_the_haunting_differs_from_its_pre_rd04_graph_only_by_the_migration():
     if before is None:
         pytest.skip(f"the pre-RD-04 graph ({PRE_RD04}) is not in this checkout's history")
     after = read_json(CONTENT_DIR / "starters" / "the-haunting" / "module-graph.json")
-    assert sorted(_paths(before, after)) == RD04_CHANGES
+    changes = sorted(_paths(before, after))
+    # §138.9 (BR-05): the build step filled the roads' minutes; each filled road gains exactly its two keys.
+    roads = sorted(f"/relations[{r['relation_id']}]/properties/{key}: added" for r in after["relations"]
+                   if r["relation_kind"] == "route-to" and "travel_minutes" in (r.get("properties") or {}) for key in ROAD_TRAVEL)
+    assert roads and set(roads) <= set(changes)
+    assert sorted(set(changes) - set(roads)) == RD04_CHANGES
 
 
 @pytest.mark.parametrize("module_id", sorted(STARTERS))
