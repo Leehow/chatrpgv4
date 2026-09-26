@@ -18895,7 +18895,8 @@ the effect as today:
 
 - **time:** one integer rolled uniformly in the row's `[min, max]` with `kernel.rng` — the same seeded dice as
   `stated_roll` and the archetype roll — becomes `minutes`; the clock, the rest entry (≥ 360) and the magic-point
-  recovery (≥ 60) run on it exactly as on a Keeper's number.
+  recovery (≥ 60) run on it exactly as on a Keeper's number. A row whose `min` is 0 (a few words, a glance) may roll
+  0: the receipt, the event and the card carry it exactly as a Keeper's `minutes: 0` would.
 - **damage:** the row's `damage_expr` becomes `dice` and is rolled where `dice` is rolled today.
 
 The roll happens inside the apply transaction. A replayed call (same `call_id`, same params) returns the journaled
@@ -18905,7 +18906,7 @@ result with `replayed: true` and never rolls again; a refused batch writes nothi
 | --- | --- |
 | `band_none` (`invalid_params`) | `band` on an effect kind the registry does not bind (`fix` names the kinds that take one) |
 | `band_conflict` (`invalid_params`) | `band` beside the field it fills — `minutes`; `dice` — or beside `stated` (`details.fields` names them; with `stated`, `details.stated` names the node) |
-| `band_unknown` (`unknown_entity`) | the handle is not a row of the table (`details.table`; `details.options` lists the rows as `bandRows` returns them) |
+| `band_unknown` (`unknown_entity`) | the handle, folded like every table name the kernel reads (`tableSlug`: case, spaces and hyphens, so "Single Room Search" is `single_room_search`), is not a row of the table (`details.table`; `details.options` lists the rows as `bandRows` returns them) |
 
 Every `fix` names the `details` key it points at, so the host projects it to the model (§8, "what a `fix` names in
 `details`, the model sees").
@@ -18942,8 +18943,9 @@ stated rule for the conflict case; the dice seeded, never stubbed): a banded tim
 with `basis`, `band` and `band_roll`, and the same seed and call sequence give the same total; a banded damage rolls
 the rung's dice with `basis: "banded"` on both receipts and the hit points move by the total; `band` beside `minutes`,
 beside `dice` and beside `stated` is `band_conflict` naming the fields and writes nothing (clock and receipts unchanged);
-a wrong handle is `band_unknown` with the rows in `details.options`; `band` on `cash` is `band_none`; a replayed banded
-call returns the journaled total; a banded night's sleep after a banded minor injury returns the hit point (`recovered`)
+a wrong handle is `band_unknown` with the rows in `details.options`, and a handle in any case or spacing folds to the
+row; `band` on `cash` is `band_none`; a malformed row in the table (a `min` above its `max`) is `campaign_not_ready`
+naming the table and the row, and writes nothing; a replayed banded call returns the journaled total; a banded night's sleep after a banded minor injury returns the hit point (`recovered`)
 exactly as a Keeper's minutes would. `tests/extension/band-operations.test.mjs`: the schema offers `band` on `time` and
 `damage` and on no other effect, every old shape stays valid, the extension passes `band` through untouched, and the
 fake kernel's `band_conflict` and `band_none` reach the Keeper. `tests/kernel/test_rules_tables_register.py` drops

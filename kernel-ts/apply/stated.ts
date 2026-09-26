@@ -13,8 +13,12 @@ import { rollExpression } from '../resolve/arithmetic.js';
 import { array, integer, number, repr, string, type Row } from '../read/values.js';
 import type { ApplyContext } from './index.js';
 
+/** A refusal of a `stated` or `band` binding (§136.22, §138): `details.field` names the binding, `details.reason` the case. */
+export const refusalOf = (field: string) => (code: ErrorCode, reason: string, message: string, extra: { fix?: string; details?: Row } = {}): RpcError =>
+    new RpcError(code, message, { ...(extra.fix ? { fix: extra.fix } : {}), details: { field, reason, ...extra.details } });
+const refusal = refusalOf('stated');
 const refuse = (code: ErrorCode, reason: string, message: string, extra: { fix?: string; details?: Row } = {}): never => {
-    throw new RpcError(code, message, { ...(extra.fix ? { fix: extra.fix } : {}), details: { field: 'stated', reason, ...extra.details } });
+    throw refusal(code, reason, message, extra);
 };
 
 /** The effect to stage, and whose amount it carries. */

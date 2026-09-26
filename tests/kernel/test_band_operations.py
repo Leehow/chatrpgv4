@@ -40,12 +40,23 @@ def content(tmp_path_factory):
     return derived_content(tmp_path_factory.mktemp("br01") / "content")
 
 
+@pytest.fixture(scope="module")
+def broken_content(tmp_path_factory):
+    """The same content with one time-cost row whose min exceeds its max (§138.2: a malformed row fails loudly)."""
+    root = derived_content(tmp_path_factory.mktemp("br01-broken") / "content")
+    path = root / "rulesets" / "coc7" / "rules-json" / "time-costs.json"
+    table = json.loads(path.read_text(encoding="utf-8"))
+    table["categories"]["single_room_search"] = {"min": 50, "default": 20, "max": 45}
+    path.write_text(json.dumps(table, ensure_ascii=False, indent=2), encoding="utf-8")
+    return root
+
+
 @pytest.fixture
-def table(tmp_path, content):
+def table(tmp_path, content, broken_content):
     clients: list[RpcClient] = []
 
-    def open_at(seed: int) -> RpcClient:
-        client = RpcClient(tmp_path / f"s{seed}-{len(clients)}", env={"COC_KERNEL_SEED": str(seed)}, content=content)
+    def open_at(seed: int, broken: bool = False) -> RpcClient:
+        client = RpcClient(tmp_path / f"s{seed}-{len(clients)}", env={"COC_KERNEL_SEED": str(seed)}, content=broken_content if broken else content)
         clients.append(client)
         client.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "pregen": "thomas-hayes", "play_language": "en"})
         client.table("narrate", call_id="t0-c1", text="The opening.")
@@ -139,6 +150,15 @@ def test_a_banded_damage_rolls_the_rungs_dice_and_both_receipts_carry_the_band(t
     assert sheet(client)["current_hp"] == hp - dice["total"]
 
 
+def test_the_handle_folds_like_every_table_name(table):
+    client = table(11)
+    landed = ok(apply(client, "t1-c1", {"kind": "time", "band": "Single Room Search"}))
+    row = {r["id"]: r for r in receipts(client)}[landed["receipts"][0]]
+    assert row["basis"] == "banded" and row["band"] == "single_room_search"
+    landed = ok(apply(client, "t1-c2", {"kind": "damage", "band": " Moderate "}))
+    assert all(r["band"] == "moderate" for r in receipts(client) if r["id"] in landed["receipts"])
+
+
 def test_the_keepers_own_amount_still_lands_as_keeper(table):
     client = table(11)
     landed = ok(apply(client, "t1-c1", {"kind": "time", "minutes": 25}))
@@ -198,6 +218,20 @@ def test_band_on_a_kind_the_registry_does_not_bind_is_band_none(table):
     assert refusal(none) == ("invalid_params", "band_none")
     assert "time" in none["error"]["fix"] and "damage" in none["error"]["fix"]
     assert receipts(client) == []
+
+
+def test_a_malformed_band_table_fails_loudly_and_writes_nothing(table):
+    client = table(11, broken=True)
+    before = clock(client)
+    broken = apply(client, "t1-c1", {"kind": "time", "band": "library_research"})
+    assert not broken["ok"]
+    error = broken["error"]
+    assert error["code"] == "campaign_not_ready"
+    assert error["details"]["table"] == "time-costs" and error["details"]["row"] == "single_room_search"
+    assert "rules-json/time-costs.json" in error["fix"]
+    assert clock(client) == before and receipts(client) == []
+    # The Keeper's own minutes never touch the table.
+    ok(apply(client, "t1-c2", {"kind": "time", "minutes": 15}))
 
 
 # ---- the roll is the transaction's --------------------------------------------------------------------------------

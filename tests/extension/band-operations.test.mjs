@@ -55,6 +55,7 @@ test("the tool carries band to the kernel untouched, and the kernel's refusals r
     assert.deepEqual(sent[1].params.effects, [{kind: "time", band: "single_room_search", minutes: 5}]);
     assert.deepEqual(sent[2].params.effects, [{kind: "cash", band: "single_room_search", delta: 5, source: "found"}]);
     const texts = toolResultTexts(table.session).join("\n");
-    assert.match(texts, /band rolls the time amount inside single_room_search; give one/);
+    // The texts are the serialized tool results, so the handle's quotes arrive escaped.
+    assert.match(texts, /band rolls the time amount inside .{0,4}single_room_search.{0,4}, and minutes is your own; give one/);
     assert.match(texts, /a cash effect takes no band/);
 });

@@ -922,10 +922,15 @@ function handle(method, params) {
 						return { ok: false, error: { code: "invalid_params", message: `a ${effect.kind} effect takes no band`,
 							fix: "leave band out; only time, damage take one", details: { index, field: "band", reason: "band_none" } } };
 					}
-					const fields = [...(effect.stated != null ? ["stated"] : []), ...amounts.filter((field) => effect[field] != null)];
+					if (effect.stated != null) {
+						return { ok: false, error: { code: "invalid_params", message: `stated takes the amount from ${effect.stated}, and band would roll one; give one`,
+							fix: "leave band out to use the book's amount, or stated out to roll inside the band",
+							details: { index, field: "band", reason: "band_conflict", fields: ["stated"], stated: effect.stated } } };
+					}
+					const fields = amounts.filter((field) => effect[field] != null);
 					if (fields.length) {
-						return { ok: false, error: { code: "invalid_params", message: `band rolls the ${effect.kind} amount inside ${effect.band}; give one`,
-							fix: "leave the amount out to let the kernel roll inside the band, or band out to use your own",
+						return { ok: false, error: { code: "invalid_params", message: `band rolls the ${effect.kind} amount inside ${JSON.stringify(effect.band)}, and ${fields.join(", ")} is your own; give one`,
+							fix: `leave ${fields.join(", ")} out to let the kernel roll inside the band, or band out to use your own`,
 							details: { index, field: "band", reason: "band_conflict", fields } } };
 					}
 				}
