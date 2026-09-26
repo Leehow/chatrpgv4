@@ -209,6 +209,61 @@ def test_without_a_provider_style_is_the_language_and_the_register(kernel):
     assert "style" not in later.get("truncated", [])
 
 
+def legacy_craft(kernel, tmp_path):
+    """A narration-craft version frozen before context.style.v1: the package without its style contribution."""
+    path = tmp_path / "narration-craft-legacy"
+    shutil.copytree(WORKTREE / "mods" / "narration-craft", path)
+    manifest = read_json(path / "mod.json")
+    manifest["version"] = "1.99.0"
+    manifest["requires"] = [req for req in manifest["requires"] if req != "context.style.v1"]
+    manifest["package_files"] = [name for name in manifest["package_files"] if name != manifest["contributes"]["style"]]
+    (path / manifest["contributes"].pop("style")).unlink()
+    (path / "mod.json").write_text(json.dumps(manifest), encoding="utf-8")
+    kernel.ok("mods.install", {"path": str(path)})
+    return manifest["version"]
+
+
+def test_a_legacy_narration_craft_lock_keeps_the_base_lines_it_was_played_with(kernel, tmp_path):
+    """Contract §137.9 (2026-09-26): 51 saved App campaigns lock narration-craft 1.x, which never carried the
+    lines because the base did. They keep the frozen table; disabling the package still leaves a clean base."""
+    legacy = read_json(WORKTREE / "content" / "craft" / "legacy-style.json")
+    version = legacy_craft(kernel, tmp_path)
+    create_campaign(kernel)
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "narration-craft", "version": version, "enabled": True})
+    narrate_opening(kernel)
+    first = kernel.table("player_input", text="我仔细观察诺特。")["capsule"]
+    style = first["style"]
+    assert list(style) == ["language", "register", "axes", "directives", "floor"]
+    assert style["axes"] == [axis["line"] for axis in legacy["axes"] if axis["language"] in ("all", "zh-Hans")]
+    assert [d["id"] for d in style["directives"]] == list(legacy["directives"])
+    assert lines(style) == legacy["directives"] and style["floor"] == legacy["floor"]
+    assert "style" not in first.get("truncated", []) and size(style) <= 2048
+    narrate(kernel, "t1-c1", "……")
+    later = kernel.table("player_input", text="继续。")["capsule"]
+    beat = later["director"]["beat"]
+    assert [d["id"] for d in later["style"]["directives"]] == legacy["beats"][beat]
+    assert "style" not in later.get("truncated", []) and size(later["style"]) <= 1536
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "narration-craft", "enabled": False})
+    narrate(kernel, "t2-c1", "……")
+    bare = kernel.table("player_input", text="再看看。")["capsule"]
+    assert bare["style"] == {"language": "zh-Hans", "register": "purist"}
+
+
+def test_the_legacy_table_keeps_its_language_only_axis_to_that_language(tmp_path):
+    client = RpcClient(tmp_path / "ws")
+    try:
+        legacy = read_json(WORKTREE / "content" / "craft" / "legacy-style.json")
+        version = legacy_craft(client, tmp_path)
+        client.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "pregen": "thomas-hayes", "play_language": "en"})
+        client.ok("mods.configure", {"campaign": CAMPAIGN, "id": "narration-craft", "version": version, "enabled": True})
+        narrate_opening(client)
+        style = client.table("player_input", text="I look around.")["capsule"]["style"]
+        assert style["axes"] == [axis["line"] for axis in legacy["axes"] if axis["language"] == "all"]
+        assert len(style["axes"]) == len(legacy["axes"]) - 1
+    finally:
+        client.close()
+
+
 def test_a_style_package_that_would_not_fit_is_refused_when_the_catalog_loads(kernel, tmp_path):
     fixture = FIXTURES / "style-overflow"
     manifest = read_json(fixture / "mod.json")

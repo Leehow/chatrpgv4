@@ -18828,3 +18828,12 @@ is off its lines are the section. `tests/kernel/test_turn_floor.py` reads the fl
 the interface (the table gone, the retired node kinds absent, the manifest counts real, the provider's closed shape),
 `mod-package-boundary.test.mjs` counts `contributes.style` as a referenced runtime file, and `ts-kernel-read.test.mjs`
 builds the two-argument `TextGraph`.
+
+### 137.9 A legacy narration-craft lock keeps the lines it was played with (2026-09-26)
+
+§137.5 left a campaign locked to narration-craft 1.x (every version before `context.style.v1`) with only `language` and `register`: those versions never carried craft lines, because the base did. On 2026-09-26 the installed App held 51 saved campaigns, all locked to 1.1.0–1.3.1, so every one of them would have lost the axes, the directives and the four floor lines it had been played with. The kernel now keeps a frozen copy of that base table as kernel content, `content/craft/legacy-style.json` (`coc.legacy-style.v1`): the six axis lines with their language applicability, the eleven directives in the old kernel's order (ordinal, then node id), the beat table and the four floor lines, exactly as `content/craft/beat-directives.json` and the text graph held them at `ef8efdf97`.
+
+- **When.** No enabled package contributes style, and the enabled narration-craft lock contributes none (it predates this capability). Then `capsule.style` is projected from the legacy table with the §137.3 rules: the first turn of a process sends every directive, later turns the beat's own, and an axis whose `language` is not `all` applies only to that play language. The legacy table has no brief form; a directive's brief line is its full line.
+- **Never otherwise.** A table with narration-craft disabled gets `language` and `register` only, as §137.3 says of any table without a provider; a current narration-craft is its own provider. The file is never edited: new craft goes into the package, and an explicit upgrade (`mods.configure`) moves a campaign onto it.
+- **Size.** The table fit the old 2048/1536 budgets and still does; `tests/kernel/test_capsule_nine.py` asserts no `truncated: style` for a legacy lock in both forms.
+
