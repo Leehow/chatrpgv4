@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "look_budget": {
+    "per_turn": 8,
+    "tools": ["look", "lookup", "recall"]
+  }
+}

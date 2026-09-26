@@ -115,6 +115,11 @@ async function resolveTarget(context: SettleContext, args: Row): Promise<[
 }
 export const executeCheck: SettlementExecutor = async (context, args, plan) => {
     const actor = string(args.investigator || context.actorId);
+    // SL-71 (§11.5.9): a check whose actor is a person the table knows rather than an investigator on
+    // the sheet is that person's own roll -- Keeper-side by default (no name, no number reaches the
+    // player) unless the caller declares it public itself (a combat roll uses its own family and
+    // visibility rules and never reaches this executor).
+    const npcActing = context.npcNode(actor) !== null;
     const difficulty = string(args.difficulty || 'regular');
     const bonus = number(args.bonus);
     const penalty = number(args.penalty);
@@ -193,7 +198,7 @@ export const executeCheck: SettlementExecutor = async (context, args, plan) => {
         bonus: data.bonus,
         penalty: data.penalty,
         ...(typeof args.modifier_reason === 'string' && args.modifier_reason ? { modifier_reason: args.modifier_reason } : {}),
-        visibility: string(args.visibility || 'public'),
+        visibility: string(args.visibility || (npcActing ? 'keeper' : 'public')),
         pushed,
         kind,
         source_receipt: pushed ? args.original_check_decision_id : null,

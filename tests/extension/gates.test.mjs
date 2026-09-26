@@ -68,6 +68,135 @@ test("回合关了还在连番调工具：第三次起回一句「停」，第�
 	assert.ok(!assistantTexts(table.session).includes("这条不该出现"), "the run was cut before the queue ran out");
 });
 
+/**
+ * §34.12.1 (SL-72): a per-turn budget on successful `look`/`lookup`/`recall`, beside §34.12's refusal
+ * budget. The shipped default (`content/rulesets/coc7/host-budgets.json`, `look_budget.per_turn`) is 8;
+ * past it the host answers the tool itself, without a kernel call, and steers the Keeper to write with
+ * what the turn already carries. `apply`, `resolve` and `narrate` are never counted or blocked by it.
+ */
+test("look 预算：第九次 look 被主机截胡，不再到内核；apply/resolve 不算在这份预算里", async (t) => {
+	const look = () => fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" });
+	const table = await openTable({
+		responses: [
+			look(), look(), look(), look(), look(), look(), look(), look(),
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5 }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", skill: "Spot Hidden", goal: "search the desk" } })], { stopReason: "toolUse" }),
+			look(),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "写下去。" })], { stopReason: "toolUse" }),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我环顾四周");
+	await waitForIdle(table.session);
+
+	const looks = toolResults(table.session, "look");
+	assert.equal(looks.length, 9, "九次 look 都留下了工具结果");
+	for (const result of looks.slice(0, 8)) assert.notEqual(result.isError, true, "预算内的八次 look 正常放行");
+	assert.equal(looks[8].isError, true, "第九次 look 被主机拦下");
+	assert.match(resultText(looks[8]), /额度已经用完/);
+
+	const applyResult = toolResults(table.session, "apply").at(0);
+	assert.notEqual(applyResult?.isError, true, "apply 不受 look 预算约束");
+	// `resolve` goes through its own admission and kernel path (unrelated to this budget); what this
+	// ticket promises is only that the look budget never blocks it. Whatever else it does or does not
+	// settle, its own result text and telemetry never carry this gate's `look_budget` reason.
+	const resolveResult = toolResults(table.session, "resolve").at(0);
+	assert.ok(resolveResult, "resolve 也留下了一条工具结果");
+	assert.doesNotMatch(resultText(resolveResult), /额度已经用完/, "resolve 不受 look 预算约束");
+
+	// The 9th look never reached the kernel; the apply in between did.
+	const lookRequests = table.kernelRequests().filter((row) => row.method === "table.look");
+	assert.equal(lookRequests.length, 8, "预算外的那次 look 没有到达内核");
+	assert.ok(table.kernelRequests().some((row) => row.method === "table.apply"));
+	assert.ok(!table.telemetry().some((row) => row.tool === "resolve" && row.reason === "look_budget"), "resolve 的遥测里从没有 look_budget 这个理由");
+
+	const blockedRow = table.telemetry().find((row) => row.tool === "look" && row.reason === "look_budget");
+	assert.ok(blockedRow, "被拦的那次调用留一条按次的遥测");
+	assert.equal(blockedRow.ok, false);
+	assert.equal(blockedRow.code, "blocked");
+
+	const looksLane = table.telemetry().filter((row) => row.lane === "looks");
+	assert.equal(looksLane.length, 1, "整回合只发一次汇总遥测");
+	assert.equal(looksLane[0].reason, "look_budget");
+	assert.equal(looksLane[0].count, 8);
+	assert.ok(Array.isArray(looksLane[0].carried) && looksLane[0].carried.length > 0, "汇总遥测带上了已持有的视图");
+
+	// apply/resolve never trip the budget's own telemetry.
+	assert.ok(!table.telemetry().some((row) => (row.tool === "apply" || row.tool === "resolve") && row.reason === "look_budget"));
+});
+
+/**
+ * §34.12.1: the budget is per turn, and resets exactly where §34.12's own refusal budget resets --
+ * with the next player input.
+ */
+test("look 预算随下一次玩家输入清零", async (t) => {
+	const look = () => fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" });
+	const table = await openTable({
+		responses: [
+			look(), look(), look(), look(), look(), look(), look(), look(),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "第一回合写完。" })], { stopReason: "toolUse" }),
+			look(),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "第二回合写完。" })], { stopReason: "toolUse" }),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我环顾四周");
+	await waitForIdle(table.session);
+	await table.session.prompt("我再看一眼");
+	await waitForIdle(table.session);
+
+	const looks = toolResults(table.session, "look");
+	assert.equal(looks.length, 9, "两个回合总共九次 look 工具结果");
+	assert.ok(looks.slice(0, 8).every((result) => result.isError !== true), "第一回合八次全部放行");
+	// The 9th `look` is the first of the *second* turn, well under budget again.
+	assert.notEqual(looks[8].isError, true, "新玩家输入之后预算已经清零，第二回合的 look 正常放行");
+	const lookRequests = table.kernelRequests().filter((row) => row.method === "table.look");
+	assert.equal(lookRequests.length, 9, "九次都到达了内核");
+});
+
+/**
+ * §34.12.1 / §22.4.3 (SL-36): a `lookup kind=source` that comes back `pending` counts once toward the
+ * look budget, keyed on its own focus/question, however many times the Keeper repeats the exact same
+ * still-reading question this turn. Proven by exhausting the rest of the budget with ordinary `look`
+ * calls afterwards: three repeats of the identical pending question plus seven ordinary looks must all
+ * land (1 + 7 = 8, the shipped budget), and only the next call after that is blocked. If the three
+ * repeats counted separately (3 + 7 = 10) the budget would already be spent partway through the seven.
+ */
+test("look 预算：反复查阅同一个仍在读的来源只算一次", async (t) => {
+	const lookupSource = () => fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "the sealed trunk" })], { stopReason: "toolUse" });
+	const look = () => fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" });
+	const table = await openTable({
+		env: { FAKE_KERNEL_READING: "1", PI_COC_SOURCE_ANSWER_ALLOWANCE_MS: "1" },
+		responses: [
+			lookupSource(), lookupSource(), lookupSource(),
+			look(), look(), look(), look(), look(), look(), look(),
+			look(),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "写下去。" })], { stopReason: "toolUse" }),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我查这个箱子");
+	await waitForIdle(table.session);
+
+	const lookups = toolResults(table.session, "lookup");
+	assert.equal(lookups.length, 3);
+	for (const result of lookups) assert.notEqual(result.isError, true, "还在读的来源答 pending，不是拒绝");
+	for (const text of lookups.map(resultText)) assert.match(text, /"status":\s*"pending"/);
+
+	const looks = toolResults(table.session, "look");
+	assert.equal(looks.length, 8, "七次预算内的 look，加上第八次撞上预算");
+	assert.ok(looks.slice(0, 7).every((result) => result.isError !== true), "七次普通 look 全部放行：三次重复的 pending 查阅只占了一格预算");
+	assert.equal(looks[7].isError, true, "第八次（预算总数第九格）撞上了预算");
+	assert.match(resultText(looks[7]), /额度已经用完/);
+
+	const looksLane = table.telemetry().filter((row) => row.lane === "looks");
+	assert.equal(looksLane.length, 1);
+	assert.equal(looksLane[0].count, 8);
+});
+
 test("narrate 之后，同一批次余下的调用被拒", async (t) => {
 	const table = await openTable({
 		responses: [

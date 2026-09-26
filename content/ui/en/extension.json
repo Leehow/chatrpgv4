@@ -10,6 +10,7 @@
   "handout_written": "handout {name}: {path}",
   "kernel_table_failed": "The kernel could not open the table: {detail}",
   "kernel_table_open": "COC table open: {title} | turn {turn} ({state}) | {scene}",
+  "look_budget_notice": "This turn already spent its look/lookup/recall budget. It already carries: {carried}. Write the turn with what is already here; ask the player directly if something is truly missing.",
   "mechanics_turn": "t{turn}",
   "parse_done": "parse   done  {module}",
   "parse_failed": "parse   failed  {reason}",

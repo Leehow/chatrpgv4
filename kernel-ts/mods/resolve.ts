@@ -8,6 +8,7 @@ import { CampaignSnapshot } from '../read/campaign.js';
 import { npcsPresent } from '../read/capsule.js';
 import { SessionView } from '../read/session-view.js';
 import { findNamedObject } from '../read/mods.js';
+import { enrichActorRefusal } from '../read/handlers.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { array, clone, entries, equal, integer, normalize, repr, row, string, truth, values, type Row } from '../read/values.js';
 import type { SettleContext } from '../resolve/context.js';
@@ -86,7 +87,37 @@ export async function resolveBeforeMain(kernel: KernelContext, runtime: ModRunti
     const found = (await runtime.decisions(world)).get(action.decision);
     if (!found) return null;
     await requireChoiceSettled(kernel, input);
-    const [modId, recipe] = found, context = await input.settlement(action.actor), actor = context.actor, target = graph.npc(action.target);
+    const [modId, recipe] = found;
+    // SL-71 (§11.5.9 addendum, gate #11's t0/t19): this family's roles are fixed by the rules -- the
+    // investigator rolls, the NPC is the target -- so a Keeper who names the NPC `actor` and the
+    // investigator `target` (a first impression written as "Steven Knott's impression of Thomas
+    // Hayes") has the right pair in the wrong order, not an unknown one. `input.settlement(name)`
+    // only ever accepts an investigator; when the named `actor` is not one, try the named `target` as
+    // the true actor before refusing, and only take the swap when it is real: the target really is an
+    // investigator and the named "actor" really is a person the table knows. The receipt then carries
+    // `oriented_from` so the Keeper sees the correction; a target that is also not an investigator, or
+    // an "actor" the graph does not know either, is exactly the refusal it always was, now naming both
+    // kinds of candidate.
+    let targetName: any = action.target, orientedFrom: Row | null = null, context: SettleContext;
+    try {
+        context = await input.settlement(action.actor);
+    }
+    catch (error) {
+        if (!(error instanceof RpcError) || error.code !== 'unknown_entity') throw error;
+        if (targetName == null) throw enrichActorRefusal(error, action.actor, graph);
+        let swapped: SettleContext;
+        try {
+            swapped = await input.settlement(targetName);
+        }
+        catch {
+            throw enrichActorRefusal(error, action.actor, graph);
+        }
+        if (!graph.actor(string(action.actor))) throw enrichActorRefusal(error, action.actor, graph);
+        context = swapped;
+        orientedFrom = {actor: action.actor, target: targetName};
+        targetName = action.actor;
+    }
+    const actor = context.actor, target = graph.npc(targetName);
     // A refusal the Keeper can act on (§1). Without the `fix` and the list it was one sentence with
     // no next step and no `details`, so the class facet was the empty string too: three first
     // impressions for three different people, issued in one message before any of them answered,
@@ -121,9 +152,11 @@ export async function resolveBeforeMain(kernel: KernelContext, runtime: ModRunti
     const impression = clone(recipe.results[check.level]);
     const receipt: Row = {id: `roll:mod-${modId}-${callId}`, kind: 'roll', call_id: callId, roll_kind: 'mod_check', family: 'mod', mod: modId, decision: recipe.name,
         actor: actor.id, actor_label: actor.name, npc: graph.handle(target), skill: label, target: value, roll: check.roll, level: check.level, difficulty: recipe.difficulty,
-        check, visibility: 'public', at: nowIso(), passed: check.passed, threshold: check.threshold, actor_is_investigator: true, impression};
+        check, visibility: 'public', at: nowIso(), passed: check.passed, threshold: check.threshold, actor_is_investigator: true, impression,
+        ...(orientedFrom ? {oriented_from: orientedFrom} : {})};
     const result = {receipt: receipt.id, receipts: [receipt.id], decision: recipe.name, family: 'mod', outcome: {kind: 'check', ...check, skill: label,
-        actor: actor.name, target_npc: graph.displayName(target), impression, attribute_snapshot: orderedObject(choices.map(([value, label]) => [label, value]))},
+        actor: actor.name, target_npc: graph.displayName(target), impression, attribute_snapshot: orderedObject(choices.map(([value, label]) => [label, value])),
+        ...(orientedFrom ? {oriented_from: orientedFrom} : {})},
         effects: [], continuations: [], rule_refs: field(recipe, 'rule_refs', []),
         note: "Realize this impression through the NPC's actual manner and opportunity/friction, preserving their motives and boundaries."};
     state[pair] = {turn: turn.turn, actor: actor.id, target: target.node_id, receipt, result}; await campaign.writeWorld(world);

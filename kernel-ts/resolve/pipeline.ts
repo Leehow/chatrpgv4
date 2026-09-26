@@ -2,7 +2,7 @@
 import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { RESOLVER_NAMES } from '../capabilities.js';
-import { actor as findActor } from '../read/handlers.js';
+import { actor as findActor, actorKnown } from '../read/handlers.js';
 import { SessionView, active, boutActive, defenseOptions } from '../read/session-view.js';
 import { semanticName } from '../read/rule-facts.js';
 import { array, entries, equal, integer, kebab, normalize, normalizeText, number, repr, row, string, truth, type Row } from '../read/values.js';
@@ -122,7 +122,10 @@ export function resolveActor(party: Row[], graph: SettleContext['graph'], sessio
             npcInSession: inSession
         };
     }
-    const actor = findActor(party, name);
+    // SL-71 (§11.5.9): `findActor` (`read/handlers.ts`'s `actor()`) only knows investigators; when the
+    // name is not one and the module graph has no actor of that name either, `actorKnown` names this
+    // table's known people too, so the refusal points at a real next step instead of only the roster gap.
+    const actor = actorKnown(party, name, graph);
     return {
         actor,
         actingId: string(actor.id),

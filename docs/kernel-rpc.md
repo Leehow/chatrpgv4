@@ -1123,6 +1123,191 @@ existing person and mints the other two; the b11 t17 batch replay lands whole. M
 `rankedCandidateIds` to ignore its `opts` parameter (searching the full pool regardless of `roster`) reproduces
 the batch-11 t17 refusal and is caught by all three tests.
 
+#### 11.5.7 addendum 2 -- an empty candidates list is not a fix (2026-09-26, SL-73 of `docs/specs/pi-native-single-loop-tickets/73-an-empty-candidates-list-is-not-a-fix.md`; amends this section)
+
+**Evidence** (long gate #12 `longgate12-haunting-2016`, campaign telemetry + run events). Four `apply npc`
+calls pinning a skill onto a name the graph and roster were both silent on -- `"turn 10-11 已交付"`,
+`"地下室木板"` (the basement boards, an object) twice, and `"托马斯·海斯"` (the investigator himself) --
+were all refused `unknown_entity`, `fix: "pick a name from details.candidates or look first"`,
+`candidates: []`. The Keeper did exactly what the fix said (retried, looked, narrated) and learned
+nothing: the fix names a list that has nothing in it, and nothing told it that one of those four names
+was the party's own investigator and another was a physical object, not an unmet person.
+
+**The ruling.** `ModuleGraph.resolve`'s own `unknown_entity` (`kernel-ts/read/module-graph.ts`, the
+generic "no `${what}` named … in the module graph" thrown by `npc`/`scene`/`find`) is unchanged: it is a
+real answer whenever `details.candidates` has entries, and every existing caller and test stands. A new
+`personRefusal(error, name, graph, party)` re-shapes that same error for a caller resolving a *person*
+specifically, only when the candidates it already carries are empty: an exact match against the party
+(`details.is_investigator: true`, a `fix` naming the investigator and pointing at the investigator's own
+sheet or effect, never `apply npc`); else an exact match against some other kind the graph already knows
+(`details.matched_kind`, the graph's own `node_kind`, a `fix` naming it instead of a person); else a `fix`
+saying the name is in neither the graph nor the roster and pointing at the two lawful ways to make it one
+(establish it with an npc effect and a `why`, or let the carried source text name it) or `look npc` to
+check the spelling first. No `candidates` key travels when it would be empty. No hard-coded name or kind
+list: the investigator match is a lookup against the campaign's own party sheets, and the kind comes from
+the graph's own `node_kind` enum on an exact-name candidate `graph.candidates` (unrestricted kind) turns
+up -- not `graph.find`, which throws (and is silently swallowed to null by design) on the common case of
+a scene sharing its exact name with the graph's own paired "beat" bookkeeping node; `candidates` ranks
+instead of resolving, so it survives that, and a `"beat"` hit is skipped the same way `graph.actor` already
+looks past a scene to find an npc -- a beat is the graph's own internal pacing record, never a thing an
+effect names.
+
+**The fix.** `kernel-ts/apply/entities.ts`'s `personOfEffect` (now `async`, for `context.campaign.party()`)
+routes both of its existing `throw error` moments -- a skill/archetype/condition/reunion pin on an
+unresolved name, and an unresolved name with real ranked candidates -- through `personRefusal`; a name
+with no candidates and none of the three shapes still falls through to minting exactly as before (an
+ordinary `apply npc {name, to, why}` with nothing else pinned is unaffected, and still establishes a new
+table person). Nothing about *when* a name mints or refuses changes; only what an already-refused,
+empty-candidates error says.
+
+**Three ends (§31).** *Writer:* `kernel-ts/read/module-graph.ts`'s new `personRefusal`, called only from
+`personOfEffect`'s two existing throw sites; it writes nothing. *Reader:* the same `unknown_entity` shape
+every caller already reads (`code`, `message`, `fix`, `details`); `is_investigator`/`matched_kind` are
+additive fields. *Actor:* the Keeper, who now learns from the refusal itself that a name it tried to pin a
+skill onto was the investigator, an object, or genuinely unmet, instead of repeating the same refusal to
+the class limit on advice with nothing to act on.
+
+*Tests* (mutation-killable, `tests/extension/npc-effect-refusal-shape.test.mjs`): a skill pin on the
+investigator's own name refuses with `is_investigator: true`, no `candidates` key, and a `fix` naming the
+investigator; a skill pin on a scene's exact name refuses with `matched_kind: "scene"`; a skill pin on a
+name genuinely unknown to the graph and the roster still refuses, with none of `is_investigator`,
+`matched_kind` or `candidates`, and a `fix` pointing at establishing the person or looking first; a skill
+pin on a name with real ranked similar candidates keeps today's `candidates` list unchanged. Mutation:
+reverting `personOfEffect`'s two `throw personRefusal(...)` calls back to the bare `throw error` reproduces
+gate #12's `candidates: []` shape for all three new cases and is caught by them; the fourth test is
+unaffected by that mutation, proving the ordinary-candidates path was never touched.
+
+#### 11.5.9 An NPC the table knows can be the actor of an ordinary resolve: the NPC's own roll (2026-09-26, SL-71 of `docs/specs/pi-native-single-loop-tickets/71-an-npc-can-be-the-actor-of-a-resolve.md`; amends this section, §16.2 and §17.9)
+
+**Evidence** (long gate #11 `longgate11-haunting-1515`, ticket 02's entry). Five `resolve` calls with an
+NPC as `actor` ("no investigator 'Steven Knott' at the table", also Gabriela, Mr. Dooley) were refused
+`unknown_entity`; the Keeper repeated each to the class limit and the refusal budget (§34.12) cut two
+runs. §11.5 already lets an NPC be `actor` for a combat defence (§11.5.2) or standing action (§11.5.3),
+and §17.9 already lets one act with their own skill *for* the party (a rescuer, a locksmith, a guide);
+between the two there was no legal path for an NPC's own uncontested roll -- a guard's Spot Hidden, a
+suspect's Psychology read on the party -- so `read/handlers.ts`'s `actor(party, name)` (investigators
+only) refused it every time, and the Keeper could only narrate the outcome unrolled.
+
+**The ruling (owner, 2026-09-26).** A `resolve` whose `actor` is a person the table knows -- an authored
+NPC of the module graph, an established table person, or a `from_passage` person, in every case a name
+`graph.actor(name)` (`kernel-ts/read/module-graph.ts`) resolves -- is that NPC's own roll: the kernel
+rolls it against the NPC's authored skill/characteristic value where the graph or a pin already carries
+one, else (for a *skill*, never a characteristic) the skill's own rulebook base chance, the same
+deterministic fallback an investigator's own unlisted skill already gets. It settles as an ordinary roll
+receipt, Keeper-side by default (`visibility: "keeper"`; no name and no number reaches the player) unless
+an existing public rule says otherwise (§16.2's `public_combat` exception, unaffected -- a combat roll
+never reaches this executor at all), and it never writes the investigator's sheet. An actor the table does
+not know is still `unknown_entity`, now naming both investigators and this table's known people as
+candidates. Opposed checks and admission grounds are unchanged: the compile does not select an NPC's own
+roll, only the Keeper's `resolve` does.
+
+**What was already there.** `kernel-ts/resolve/pipeline.ts`'s `resolveActor` already set `actingId` to a
+graph-known NPC's handle for an *ordinary* check outside any combat/chase session (not only inside one --
+that reading of "only a combat defender" belonged to the refusal the Keeper actually met, not to this
+function), and `bindings.ts`'s `hostLocked` already read the NPC's authored value first through
+`SettleContext.actorSkillValue` (in-flight `apply npc` pin -> ledger pin -> the book) exactly as §17.9
+built it, stamping the roll receipt's existing `actor_is_investigator: this.sheetById(actor) !== null`
+(`resolve/context.ts`) `false` and hiding the actor's name under §16.2's existing rule. Two gaps remained,
+both closed here:
+
+1. **No value anywhere still asked instead of defaulting.** §17.9's L3 ("the book has none, ask once, never
+   invent") is right for a number the party will see and rely on again and again (the same doctor's
+   Medicine chance), but a rulebook base chance is not an invention that changes between calls -- the same
+   skill name answers the same number every time, exactly as an investigator's own unlisted skill already
+   falls back to it (`resolveTarget`'s `rulebook_base`, `basic.ts`). `hostLocked`'s `ref === ORDINARY`
+   branch now tries `rulebookSkillDefault` (`bindings.ts`, wraps `tables.skillByName(label).base_chance`)
+   before asking; a characteristic, which has no table-wide default, still asks. So does a skill the
+   rules data itself marks `uncommon` (`skills.json`): CoC 7e uses that flag for a skill nobody has
+   without deliberate training (Animal Handling, base chance 5), so its printed number is not "what any
+   ordinary person can do" the way a common skill's is, and defaulting it would be exactly the invention
+   §17.9's L3 forbids. `tests/kernel/test_npc_layer.py`'s existing
+   `test_an_ordinary_npc_helper_needs_their_missing_skill_without_using_player_base` (Steven Knott,
+   missing Animal Handling) is the line: it still refuses `needs`, and this addendum leaves it that way.
+2. **The roll was public.** Nothing set `visibility` for this branch, so it defaulted to `"public"` --
+   the number reached the player even though the name did not. `basic.ts`'s `executeCheck` now defaults
+   `visibility` to `"keeper"` whenever the acting id resolves to a graph NPC (`context.npcNode(actor) !==
+   null`) rather than to `"public"`; a caller that declares `visibility` itself is untouched, and combat's
+   own roll and visibility rules never reach this executor.
+
+**Unknown actor's candidates.** `read/handlers.ts` adds `actorKnown`/`enrichActorRefusal`: when the name
+matches no investigator (`actor()`'s own `unknown_entity`) and `graph.actor` finds no person either, the
+refusal's `details.candidates` gets `graph.candidates(name, ['npc'], 6)` appended to the investigator
+candidates `actor()` already lists, so it names investigators (`kind: "investigator"`) and this table's
+known people (`kind` the graph's own node kind, usually `"npc"`) side by side; the message and refusal code
+are unchanged. `resolveActor` (`pipeline.ts`) calls `actorKnown` in place of its old investigator-only
+lookup; the 11.5.9 addendum below reuses the same pair for a different caller (`mods/resolve.ts`).
+
+**Three ends (§31).** *Writer:* `resolve/bindings.ts` (`hostLocked`'s new rulebook-default branch) and
+`resolve/basic.ts` (`executeCheck`'s new visibility default); neither touches `world.npc_resources` or an
+investigator sheet. *Reader:* the same roll receipt every consumer already reads (`actor_is_investigator`,
+`visibility`); §16.2's existing name/number gating needs no change. *Actor:* the Keeper, who can now name a
+known NPC as `actor` for an ordinary check outside combat/chase and get a settled roll instead of a
+refusal or a silent redirect to whichever investigator the party happens to have.
+
+*Tests* (mutation-killable, `tests/extension/`): an NPC actor with an authored skill rolls it and the
+roll receipt carries `actor_is_investigator: false`, `visibility: "keeper"` and no public name; an NPC
+actor with no authored or pinned *common* skill rolls that skill's rulebook base chance instead of
+refusing; an NPC actor with neither an authored value nor a rulebook default (a bare characteristic, and
+-- pinned by the existing pytest baseline, not newly added here -- an `uncommon` skill) still refuses
+`needs` naming the pin; an actor naming nobody the table or the book knows still refuses `unknown_entity`,
+with `details.candidates` carrying both investigator and NPC-kind entries; the investigator sheet is
+untouched (no `writeSheet` call, no `development-state` tick) by an NPC's own roll. Mutation: reverting
+`rulebookSkillDefault`'s callsite (falling straight to the `needs` refusal, as before this ticket)
+reproduces the gate #11 refusal shape and is caught by the fallback test; reverting `executeCheck`'s
+visibility default back to the literal `"public"` is caught by the keeper-visibility test; dropping the
+`uncommon` guard in `rulebookSkillDefault` is caught by `test_npc_layer.py`'s existing Animal Handling
+test (pytest, not this ticket's own suite, but the one that actually found the gap in review).
+
+#### 11.5.9 addendum -- a decision whose roles are fixed by the rules is oriented, not refused, when the Keeper writes the pair backward (2026-09-26, SL-71 continued; amends this section)
+
+**Evidence.** The eight refusals long gate #11 actually threw at `unknown_entity` were not §11.5.9's own
+shape above: t0 and t19 (five calls) were `natural-npc:first-impression` with `actor` the NPC (Steven
+Knott, Gabriela Macario, Mr. Dooley) and `target` the investigator (Thomas Hayes) -- the Keeper's English
+sentence, "Steven Knott's first impression of Thomas Hayes", written in the order it reads, and this
+family's own fixed roles (the investigator rolls, the NPC is the target) reversed. `kernel-ts/mods/resolve.ts`'s
+`resolveBeforeMain` calls `input.settlement(action.actor)`, which only ever accepts an investigator
+(`read/handlers.ts`'s `actor()`), so the *pair* was right and the *order* was wrong, and the refusal read
+exactly like §11.5.9's "no investigator 'Steven Knott' at the table" -- not because this was an NPC's own
+roll (there is no such thing for a first impression; the family is always the investigator's check) but
+because the two names were transposed.
+
+**The ruling (owner, 2026-09-26).** For a mod-registered decision whose roles are fixed by the rules (this
+family, and any other whose recipe takes an `actor`/`target` pair the same way): when `action.actor` does
+not resolve to an investigator but `action.target` does, and the named `action.actor` resolves to a person
+the table knows (`graph.actor`), the kernel reorients rather than refuses -- the investigator (named by
+`target`) rolls, the person named by `actor` is the target -- and the receipt carries `oriented_from:
+{actor, target}` with the names exactly as the Keeper wrote them, so the correction is visible rather than
+silent. The swap is taken only when it is real: a `target` that is not an investigator either is still
+`unknown_entity`, now naming both investigators and this table's known people as candidates (§11.5.9's own
+widening, reused here). An ordinary check with an NPC `actor` and no `target` at all is unaffected --
+§11.5.9 above already settles that as the NPC's own roll, and nothing here changes it.
+
+**The fix.** `resolveBeforeMain` (`kernel-ts/mods/resolve.ts`) tries `input.settlement(action.actor)`
+first, exactly as before; only on that call's `unknown_entity` does it try `input.settlement(action.target)`
+as the true actor, and only takes it when that succeeds *and* `graph.actor(action.actor)` finds a person.
+Read/write and refusal candidates share `read/handlers.ts`'s new `actorKnown`/`enrichActorRefusal` (also
+used by §11.5.9's `resolveActor` above, replacing that section's inline duplicate of the same widening).
+The settled roll's `outcome` and receipt both carry `oriented_from` when the swap was taken; every other
+field (`actor`, `actor_label`, `npc`, `target_npc`, `actor_is_investigator`) already names the corrected
+pair, since `context`/`target` are simply the swapped values from there on -- nothing downstream needed to
+change. `checkPair`'s reuse cache keys on the resolved ids, so a repeat of the same (reversed) call still
+finds its own prior receipt regardless of which way the Keeper wrote it.
+
+**Three ends (§31).** *Writer:* `resolveBeforeMain`'s new orientation branch; it writes nothing beyond the
+existing mod-check receipt, with one added field. *Reader:* the same receipt and `outcome` every consumer
+of a mod check already reads; `oriented_from` is additive. *Actor:* the Keeper, who may now write a fixed-role
+decision's `actor`/`target` in either order and get the one legal settlement instead of a refusal that
+repeats until the class limit shuts `resolve` for the turn.
+
+*Tests* (mutation-killable, `tests/extension/npc-actor-own-roll.test.mjs`): a `natural-npc:first-impression`
+written `{actor: <npc>, target: <investigator>}` settles as the investigator's own roll, `oriented_from`
+present on both the outcome and the receipt, and the investigator's sheet untouched; the same decision with
+`target` naming a second NPC (neither side an investigator) still refuses `unknown_entity`, `details.candidates`
+carrying both an investigator and the first NPC by handle; an ordinary Charm check with an NPC actor and no
+target remains that NPC's own roll (§11.5.9's original shape, unaffected). Mutation: reverting
+`resolveBeforeMain`'s catch branch to its prior bare `await input.settlement(action.actor)` (no swap
+attempt) reproduces gate #11's t0/t19 refusal shape and is caught by the first of these tests.
+
 ### 11.6 结果与收据
 
 `outcome.kind` 取 `check`、`opposed`、`combined`、`social`、`psychology`、`healing`、`push`、`luck`、`magic`、`development`、`combat`、`chase`、`sanity`、`none`。每种至少有 `level` 或 `status`、涉及的骰面与目标值、`effects`。`effects` 每条 `{kind: hp|san|mp|luck|condition|ammo|position, subject, before, after}`。
@@ -8947,6 +9132,34 @@ Spec: `docs/specs/turn-floor.md`. Two live tables (medians 167 and 37 characters
 **34.12 The refusal budget (2026-09-11, user ruling: three refusals of the same problem and the retrying stops).** Table F ran twenty-eight refusals in one turn — seventeen `turn_state`, eight `needs` — each retry reworded, so the host's identical-resend guard (§8: the third *unchanged* resend is blocked) never fired, and the turn ran to its 300 s cap on the Keeper's re-planning. The host now counts refusals by **class**, never by parameters: the tool, the error code, and the structural field the kernel named (`details.turn_of`, `details.needs.field`, `details.reason`, `details.field`; nothing read from the prose). The third refusal of one class shuts that tool for the rest of the turn; eight refusals of any class shut `resolve`, `apply`, `look`, `lookup` and `recall`. `narrate` and `ask` are never shut. A shut tool's call is blocked before it leaves the extension with the count, the last refusal and the closing rule — nothing refused has happened; close the turn with narrate on what landed, or hand the player the pending choice with ask — and a telemetry row `{tool, ok: false, code: "blocked", reason: "refusal_budget"}`; the moment a limit is reached leaves `{lane: "refusals", reason: "class_limit" | "turn_budget", count, last}`. Everything resets with the next player input. Test: `gates.test.mjs` "同类拒绝三次".
 
 **A strike is an attempt, not a call (2026-09-12).** A class takes at most one strike per model round trip: calls the Keeper wrote in one message are answered after it wrote them, so the second and third of a batch are not it ignoring the first refusal — it never saw one. The host records the round that issued each call (`turn_start` is the round counter) and skips the increment when a class is refused again inside the same round; the refusal is still recorded, still read back, and still counts toward the eight-refusal turn budget, which is a cost valve and keeps counting calls. A Keeper that reads a refusal and tries the same class again in its next message is still shut on the third such round. Masks, Bar Cordano: three first impressions — Larkin, Mendoza, Elias — in one message, all refused `not_here` because an imported book's people are staged in the turn they are met, and the third answer shut `resolve` for the turn; the Keeper staged all three correctly one call later and could no longer roll, delivering three NPCs and no mechanics. Test: `gates.test.mjs` "一条消息里的三次同类拒绝只算一次".
+
+**34.12.1 A per-turn look budget (2026-09-26, SL-72 of `docs/specs/pi-native-single-loop-tickets/72-a-look-budget-per-turn.md`; amends §34.12).** Long gate #11 t6 (eleven `recall` calls in one turn, 71 s) and gate
+#12 (22 `look`s over a table whose carried views, §135.31, already held the scene and its people) share
+one cause the refusal budget above does not reach: with thinking off a deepseek Keeper re-reads instead of
+writing, and every extra read succeeds, so §34.12 -- which counts only refusals -- never fires. Beside
+that class-and-turn refusal budget the host now keeps a second, plain count of this turn's *successful*
+`look`, `lookup` and `recall` calls (`TableState.looksThisTurn`, reset with the next player input exactly
+where `refusalsThisTurn` resets). A `lookup kind=source` answered `pending` (§22.4.3, SL-36) counts once,
+keyed on its own focus and question (`TableState.pendingSourceCounted`, same reset): the pending answer's
+own note (`PENDING_ANSWER_NOTE`/`PENDING_PREPARE_NOTE`, `extensions/kernel/source-answers.ts`) tells the
+Keeper not to resend the exact same lookup this turn, but nothing in the host stops it from doing so --
+`PendingAnswers.register` tracks the consultation for the engine's own carried view, not as a call gate --
+so a repeat of the identical still-pending focus/question is not charged a second time; a different focus,
+or the same one once it has landed with a real answer, is an ordinary look and counts every time. Once the
+count reaches a named default -- `look_budget.per_turn` in `content/rulesets/coc7/host-budgets.json`
+(shipped at 8), read once per process and cached, never a literal in the extension -- every further
+`look`/`lookup`/`recall` call this turn is answered by the host itself, without a kernel read: a telemetry
+row `{tool, ok: false, code: "blocked", reason: "look_budget"}` per call, and once per turn, the first time
+it fires, `{lane: "looks", reason: "look_budget", count, carried}` naming the turn's own carried views
+(the tool/focus/name of each successful `look`/`lookup` this turn, from the same `readsOfTurn` §135.31
+already carries to the turn record; `recall` contributes to the count but not to `carried`, since a memory
+search names no view). The steer text itself is the campaign's own `look_budget_notice` caption
+(`content/ui/<tag>/extension.json`), read through the same words/surface lane `refusal_budget_fallback_notice`
+uses, filled with the carried list; no Chinese or English sentence is hand-written into the gate.
+`narrate`, `apply`, `resolve` and `ask` are never counted and never blocked here -- they keep §34.12's own
+rules exactly as before. Test: `gates.test.mjs` "look 预算". Mutation: reverting the gate's budget
+comparison (or the increment in `runTool`'s success path) to a no-op reproduces gate #12's unbounded
+`look` loop and is caught by the budget test.
 
 **34.13 The inline marker is not out-of-game text (2026-09-12, regression from §34.1).** §34.1 folded "tool names, English enum values and field names" into the immersion principle as things that must not enter the story text. That sentence reads over the `{{marker}}` the narrate description asks for — a marker looks exactly like a field name written into the prose — and on the App's model (deepseek-flash) the Keeper stopped placing them, so every roll, clue and item card fell to the end of the turn instead of being drawn where it happened (§16.6's `marked_text` is empty when no marker is bound). Law 4 now names the marker as the one machine token that belongs in the text, says the kernel strips it before delivery, and points at the Writing paragraph; Writing states the rule affirmatively for the first time in the base prompt, which until now carried it only in the `narrate` tool description. Nothing about what the player may see changes: markers never reach them.
 
