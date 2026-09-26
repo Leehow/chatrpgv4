@@ -24,6 +24,8 @@ import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { customMessage, PRESCREEN_TYPE } from "../../extensions/table/context-policy.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
+import { createFixtureNpcActPort } from "../../runtime/jev/npc-act.ts";
+import { NPC_ACT_BIND_FAMILY } from "../../runtime/jev/npc-act-step.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -58,9 +60,10 @@ function callProbe(calls) {
 	};
 }
 
-async function hybridTable({ decide, responses, realKernel = false, env = {}, prepareWorkspace, extra = [] }) {
+async function hybridTable({ decide, responses, realKernel = false, env = {}, prepareWorkspace, extra = [], npcAct }) {
 	const decisions = [], calls = [], events = [], requests = [];
-	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch, lease) => { decisions.push(batch); return decide(batch, decisions.length, lease); } } });
+	const engine = createHybridEngine({ env: process.env, ...(npcAct !== undefined ? { npcAct } : {}),
+		decision: { decide: async (batch, lease) => { decisions.push(batch); return decide(batch, decisions.length, lease); } } });
 	const table = await openTable({
 		realKernel, prepareWorkspace, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", ...env },
 		runDriver: engine.runDriver,
@@ -71,6 +74,13 @@ async function hybridTable({ decide, responses, realKernel = false, env = {}, pr
 	return { table, engine, decisions, calls, events, requests, dispose: () => table.dispose() };
 }
 
+/**
+ * §139.4: an NPC's own turn of a fight is his act, generated first and bound after. These tables' Knott hits back: the
+ * fixture generation writes the blow and Jev binds it to the fight's attack (its one target and one weapon need no question).
+ */
+const HITS_BACK = "他反手一拳砸过来。";
+const knottHitsBack = () => createFixtureNpcActPort({ "steven-knott": HITS_BACK });
+const attackAnswer = (batch) => answered(batch, (question) => question.key === "way" ? "attack" : undefined);
 const requestText = (context) => JSON.stringify(context.messages);
 const clerkNotes = (context) => context.messages.flatMap((message) => {
 	const text = typeof message.content === "string" ? message.content : (message.content ?? []).map((block) => block.text ?? "").join("");
@@ -169,10 +179,11 @@ test("SL-07: an NPC's pending defence with a standing is a direct clerk step -- 
 	]);
 	const table = await hybridTable({
 		realKernel: true, prepareWorkspace,
-		// Jev: the NPC's own turn is its attack (since SL-08, by the disposition it infers for him once: one who fights
-		// to the end attacks); every other bind is unknown (so a defence bind, were one asked, would go to the LLM); the
-		// route after the NPC's attack finishes.
-		decide: (batch) => batch.family === BIND_FAMILY
+		// Jev: his disposition is inferred once (fights to the end); his own turn is his act (§139.4), bound to the attack;
+		// every other bind is unknown (so a defence bind, were one asked, would go to the LLM); the route after the NPC's
+		// attack finishes.
+		npcAct: knottHitsBack(),
+		decide: (batch) => batch.family === NPC_ACT_BIND_FAMILY ? attackAnswer(batch) : batch.family === BIND_FAMILY
 			? answered(batch, (question) => question.key === "decision" ? "combat:attack" : question.key === "disposition" ? "fights_to_the_end" : "unknown")
 			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
 		// The Keeper's one step: the prose close (the player's defence is settled by §11.5.1's standing preference).
@@ -216,13 +227,15 @@ const knottFight = (campaign, extra) => (workspace) => kernelSteps(workspace, ca
 	["table.narrate", { call_id: `t1-c${3 + extra.length}`, text: "你挥出一拳。" }],
 ]);
 
-test("SL-08: an NPC's standing attack is the clerk's direct step -- no Jev question about his action, no LLM -- and its row names the standing", async (t) => {
+test("§139.4 (replaces SL-08's standing attack): his turn is his own act -- generated, bound to the fight's attack by one Jev question, written by the clerk", async (t) => {
 	const campaign = "test-camp";
 	const table = await hybridTable({
 		realKernel: true,
 		prepareWorkspace: knottFight(campaign, [{ kind: "npc", name: "Steven Knott", disposition: "fights_to_the_end", why: "He will not back down in his own building." }]),
-		// Jev: every bind is unknown (a bind about his action, were one asked, would go to the LLM); every route finishes.
-		decide: (batch) => batch.family === BIND_FAMILY ? answered(batch, () => "unknown") : answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
+		npcAct: knottHitsBack(),
+		// Jev: his act binds to the attack; every other bind is unknown; every route finishes.
+		decide: (batch) => batch.family === NPC_ACT_BIND_FAMILY ? attackAnswer(batch) : batch.family === BIND_FAMILY ? answered(batch, () => "unknown")
+			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
 		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "他反手一拳砸来，你侧身闪开。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
@@ -233,18 +246,19 @@ test("SL-08: an NPC's standing attack is the clerk's direct step -- no Jev quest
 	const attack = calls.find((call) => call.phase === "call" && call.tool === "resolve" && call.input.action?.decision === "combat:attack");
 	assert.ok(attack?.id.startsWith("clerk:"), "Knott's attack is the clerk's");
 	assert.deepEqual([attack.input.action.actor, attack.input.action.target, attack.input.action.weapon], ["steven-knott", "thomas-hayes", "unarmed"]);
+	assert.equal(attack.input.action.goal, HITS_BACK, "the act the generation wrote");
 	assert.equal(calls.find((call) => call.phase === "result" && call.id === attack.id).isError, false);
-	const row = telemetry.find((entry) => entry.tool === "resolve" && entry.origin === "policy" && entry.call_id && entry.basis?.standing?.action);
-	assert.equal(row.clerk, "session_step");
-	assert.deepEqual(row.basis.standing, { action: "attack", basis: "rule-default", disposition: { disposition: "fights_to_the_end", basis: "keeper" } });
-	assert.equal(row.basis.row.decision, "combat:attack", "the kernel row it came from");
-	assert.equal(decisions.filter((batch) => batch.family === BIND_FAMILY).length, 0, "no Jev question: the standing decided the action and the kernel issued one target and one weapon");
+	const row = telemetry.find((entry) => entry.tool === "resolve" && entry.origin === "policy" && entry.call_id && entry.basis?.npc_act);
+	assert.equal(row.clerk, "npc_act");
+	assert.deepEqual([row.basis.npc_act.way, row.basis.npc_act.act], ["attack", HITS_BACK]);
+	assert.equal(decisions.filter((batch) => batch.family === BIND_FAMILY).length, 0, "no bind over his issued actions");
+	assert.equal(decisions.filter((batch) => batch.family === NPC_ACT_BIND_FAMILY).length, 1, "one Jev question: how his act settles");
 	const infers = events.filter((event) => event.type === "step_start" && event.kind === "infer");
 	assert.deepEqual(infers.map((event) => event.purpose), ["compose"], "the round closes on the one LLM step, the compose");
 	assert.ok(!telemetry.some((entry) => entry.event === "llm_bound"));
 });
 
-test("SL-08: an NPC's standing hold issues no step for him; the Keeper's turn carries the standing in the run's note", async (t) => {
+test("§139.4 (was SL-08's standing hold): when the table settles no act on his turn (the generation is unavailable here), the Keeper's turn carries the standing and what the table recorded in the run's note", async (t) => {
 	const campaign = "test-camp";
 	const table = await hybridTable({
 		realKernel: true,
@@ -266,14 +280,16 @@ test("SL-08: an NPC's standing hold issues no step for him; the Keeper's turn ca
 	assert.ok(note, "the Keeper is told why the clerk did not act for him");
 	assert.equal(note.npc_turn.npc, "steven-knott");
 	assert.deepEqual(note.npc_turn.standing_action, { action: "hold", basis: "keeper", disposition: { disposition: "fights_to_the_end", basis: "keeper" } });
+	assert.deepEqual(note.npc_turn.act.status, "unavailable", "the harness's npc-act lane answers no act: nothing was written for him");
 	assert.equal(calls.find((call) => call.phase === "result" && call.tool === "narrate").isError, false);
 });
 
-test("SL-08: without a disposition, Jev infers one once from his own parameters and the clerk writes it (basis inferred); then his standing attack runs", async (t) => {
+test("SL-08: without a disposition, Jev infers one once from his own parameters and the clerk writes it (basis inferred); then his own act runs (§139.4)", async (t) => {
 	const campaign = "test-camp";
 	const table = await hybridTable({
-		realKernel: true, prepareWorkspace: knottFight(campaign, []),
-		decide: (batch) => batch.family === BIND_FAMILY ? answered(batch, (question) => question.key === "disposition" ? "fights_to_the_end" : "unknown")
+		realKernel: true, prepareWorkspace: knottFight(campaign, []), npcAct: knottHitsBack(),
+		decide: (batch) => batch.family === NPC_ACT_BIND_FAMILY ? attackAnswer(batch)
+			: batch.family === BIND_FAMILY ? answered(batch, (question) => question.key === "disposition" ? "fights_to_the_end" : "unknown")
 			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
 		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "他红着眼扑上来，你侧身闪开。" })], { stopReason: "toolUse" })],
 	});
@@ -294,8 +310,9 @@ test("SL-08: without a disposition, Jev infers one once from his own parameters 
 	assert.equal(written.basis, "inferred");
 	assert.deepEqual(written.read, row.basis.row.read, "the parameters read, as the candidate named them");
 	assert.ok(written.read.length > 0);
-	const kernelRow = telemetry.find((entry) => entry.tool === "resolve" && entry.origin === "policy" && entry.basis?.standing?.action === "attack");
-	assert.deepEqual(kernelRow.basis.standing.disposition, { disposition: "fights_to_the_end", basis: "inferred" }, "the standing names the inferred disposition");
+	// The inferred disposition is a description of him now (§139.4): the kernel's standing names it; his act is his own.
+	const actRow = telemetry.find((entry) => entry.tool === "resolve" && entry.origin === "policy" && entry.clerk === "npc_act");
+	assert.deepEqual(actRow.basis.npc_act.way, "attack");
 	const attack = calls.find((call) => call.phase === "call" && call.tool === "resolve" && call.input.action?.decision === "combat:attack");
 	assert.ok(attack?.id.startsWith("clerk:"));
 	const infers = events.filter((event) => event.type === "step_start" && event.kind === "infer");
