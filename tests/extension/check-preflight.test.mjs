@@ -8,6 +8,7 @@ import {build} from 'esbuild';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
 import {supportWire} from './support-agent-helpers.mjs';
+import {PRESELECT_ALLOWANCE_MAX_MS} from '../../extensions/jev/agent/config.js';
 
 const root=resolve(import.meta.dirname,'../..'),homes=[];await mkdir(join(root,'.tmp'),{recursive:true});
 const bundle=await mkdtemp(join(root,'.tmp/check-preflight-api-'));homes.push(bundle);
@@ -41,7 +42,7 @@ test('real resolve options prepare one advisory ordinary check without settling 
   const input='I carefully search the office desk for a hidden note.';await call('table.player_input',{text:input});
   const before=await call('table.status'),scope={owner:'check-preflight',campaign:'check-preflight',worldline:'main',loop:0,audience:'keeper'},
     readSet=[{kind:'world',resource:'check-preflight',revision:'world-r1'}],lease=new TaskLease({owner:'check-preflight',goal:input,scope,
-      capabilities:['decision'],readSet,budget:{deadlineAt:Date.now()+10_000,remainingInputTokens:100_000,remainingOutputTokens:10_000,remainingCostUsd:1,remainingActions:2}}),seen=[];
+      capabilities:['decision'],readSet,budget:{deadlineAt:Date.now()+60_000,remainingInputTokens:100_000,remainingOutputTokens:10_000,remainingCostUsd:1,remainingActions:2}}),seen=[];
   t.after(()=>lease.close());
   const prepared=await api.prepareCheckPreflight({campaign:'check-preflight',turn:1,rawInput:input,goal:'Search the desk for a hidden note.',scope,readSet,
     call,decision:decisionPort(seen),lease});
@@ -54,9 +55,12 @@ test('real resolve options prepare one advisory ordinary check without settling 
   assert.deepEqual(await call('table.status'),before,'advice preparation has no receipts or turn mutation');
   assert.equal((await prepared.check()).status,'current');assert.equal(calls.filter(row=>row.method==='table.resolve.options').length,2);
 
-  const oldFlag=process.env.PI_COC_JEV_PRESELECT,oldKey=process.env.TYPESAFE_API_KEY,oldFetch=globalThis.fetch;
-  process.env.PI_COC_JEV_PRESELECT='1';process.env.TYPESAFE_API_KEY='mechanical-test-key';
-  t.after(()=>{globalThis.fetch=oldFetch;for(const [key,value] of [['PI_COC_JEV_PRESELECT',oldFlag],['TYPESAFE_API_KEY',oldKey]])
+  // SL-87: the preparation's time is not this test's subject (the advice it carries is): on a loaded box the 12 s default
+  // allowance ran out (`fallback`, cancelled_or_timeout) and no support packet was delivered. The allowance is the product's
+  // maximum (`PRESELECT_ALLOWANCE_MAX_MS`, 30 s), and the lease above is a minute.
+  const oldFlag=process.env.PI_COC_JEV_PRESELECT,oldKey=process.env.TYPESAFE_API_KEY,oldAllowance=process.env.PI_COC_JEV_PRESELECT_ALLOWANCE_MS,oldFetch=globalThis.fetch;
+  process.env.PI_COC_JEV_PRESELECT='1';process.env.TYPESAFE_API_KEY='mechanical-test-key';process.env.PI_COC_JEV_PRESELECT_ALLOWANCE_MS=String(PRESELECT_ALLOWANCE_MAX_MS);
+  t.after(()=>{globalThis.fetch=oldFetch;for(const [key,value] of [['PI_COC_JEV_PRESELECT',oldFlag],['TYPESAFE_API_KEY',oldKey],['PI_COC_JEV_PRESELECT_ALLOWANCE_MS',oldAllowance]])
     if(value===undefined)delete process.env[key];else process.env[key]=value;});
   const decisions=[],hooks=new Map(),bus=new Map(),events=[];
   globalThis.fetch=async(_url,request)=>{const sent=JSON.parse(request.body);decisions.push(sent);

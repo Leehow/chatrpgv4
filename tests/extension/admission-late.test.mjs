@@ -263,15 +263,21 @@ test("§32.12.2: at the cap a resolve is returned review_pending with the typed 
 });
 
 test("§32.12.2: the Keeper's resend collects the lane that answered after the cap, and its verdict settles the call", async (t) => {
-	const table = await openTable({ env: { PI_COC_ADMISSION_TIMEOUT_MS: "1000" },
+	// SL-87: the same shape ten times larger -- cap 10 s, the round twice that, the lane's verdict at 16 s, and the resend's
+	// wait bounded by one and a half caps. At 1 s / 1.6 s the verdict had 400 ms to land inside its round, and on a loaded
+	// box it did not (`review_timeout`). A fake clock would need an injection point in the admission review
+	// (`extensions/kernel/admission.ts`) and the resend's `resend_wait_ms` (`extensions/kernel/index.ts`), both out of reach
+	// in this round; see the SL-87 ticket.
+	const CAP_MS = 10_000;
+	const table = await openTable({ env: { PI_COC_ADMISSION_TIMEOUT_MS: String(CAP_MS) },
 		responses: [call("resolve", persuade), call("resolve", persuade), ...close],
-		laneResponses: { admission: [slowVerdict({ verdict: "authorized", grounds: "the player asked her for the clippings" }, 1600)] } });
+		laneResponses: { admission: [slowVerdict({ verdict: "authorized", grounds: "the player asked her for the clippings" }, CAP_MS * 1.6)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt("我说明来意，请她帮忙调出科比特宅这些年的旧剪报。");
 	const rows = admissionRows(table);
 	assert.deepEqual(rows.map((row) => [row.verdict, row.resend ?? false, row.path]), [[REVIEW_PENDING, false, "lane"], ["authorized", true, "lane"]]);
 	assert.equal(table.lanes.admission.requests().length, 1, "one review, collected by the resend");
-	assert.ok(rows[1].resend_wait_ms < 1500, `the resend waited only for the rest of the round (${rows[1].resend_wait_ms} ms)`);
+	assert.ok(rows[1].resend_wait_ms < CAP_MS * 1.5, `the resend waited only for the rest of the round (${rows[1].resend_wait_ms} ms)`);
 	assert.equal(rows[1].grounds, "the player asked her for the clippings");
 	assert.equal(kernelCalls(table, "table.resolve").length, 1, "the resend landed");
 	assert.ok(!table.telemetry().some((entry) => entry.lane === "admission-late"), "a collected round leaves no late row");

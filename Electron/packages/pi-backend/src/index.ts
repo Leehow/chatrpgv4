@@ -204,6 +204,7 @@ import {
 } from "./session-title.js";
 import { createToolBatchTelemetry, type ToolBatchTelemetry } from "./tool-batch-telemetry.js";
 import { createTurnTelemetry, type TurnTelemetry } from "./turn-telemetry.js";
+import { proseArrival } from "./first-prose.js";
 import { ensureWebSearchDefaults } from "./web-search-defaults.js";
 import {
   createExtensionRegistry,
@@ -3331,12 +3332,24 @@ export class PiHostBackend implements HostBackend {
     this.documentWatcher.stop();
     this.listeners.clear();
   }
-  private stream(event: any) {
+  /**
+   * `row` is the transcript row a presentation draws for the first time; a redraw in place passes none
+   * (contract §135.11.5).
+   */
+  private stream(event: any, row?: unknown) {
     emitFrame(this.listeners, {
       protocolVersion: PIPI_HOST_PROTOCOL_VERSION,
       channel: "stream",
       event,
     });
+    // §135.11.5: the moment the player first sees the turn's prose is taken here, where the host has
+    // decided what reaches the renderer, never from the raw pi events it decided from.
+    try {
+      const arrival = proseArrival(event, row);
+      if (arrival && typeof event?.sessionId === "string") this.turnTelemetry.observeProse(event.sessionId, arrival);
+    } catch {
+      /* timing telemetry is observational only */
+    }
   }
   private agent(event: AgentEvent) {
     emitFrame(this.listeners, {
@@ -6336,7 +6349,7 @@ export class PiHostBackend implements HostBackend {
         if (!presentationId || !projected.has(presentationId)) {
           if (presentationId) projected.add(presentationId);
           if (presentationId && live.cocCardRows?.has(presentationId)) (live.cocCardDrawn ??= new Map()).set(presentationId, JSON.stringify(entry.presentation));
-          this.stream({type:"presentation",sessionId:live.session.id,entry});
+          this.stream({type:"presentation",sessionId:live.session.id,entry}, e.entry);
         }
       }
     }
@@ -6351,7 +6364,15 @@ export class PiHostBackend implements HostBackend {
     // said. The acceptance for those notices counts messages at the extension seam, where they
     // have always been, which is why nothing went red for as long as this was missing.
     if (e.type === "message_end" && e.message?.role === "custom" && isHostDeliveredCustomMessage(e.message)) {
-      void this.projectHostDeliveries(live, live.presentationReadTo).then(found => {
+      const projection = this.projectHostDeliveries(live, live.presentationReadTo);
+      // §135.11.5: the §8 fallback is placed from `agent_end`, right before the settle that flushes the
+      // turn's record; the record waits for this projection so the turn's own prose is not left out.
+      try {
+        this.turnTelemetry.holdForProse(live.session.id, projection);
+      } catch {
+        /* timing telemetry is observational only */
+      }
+      void projection.then(found => {
         // A delivery that reached the player live is no longer owed by the recovery replay.
         if (found) this.cocWatchdogPresentationOffsets.delete(live.path);
       }, () => undefined);
@@ -6750,6 +6771,12 @@ export class PiHostBackend implements HostBackend {
           });
         } else if (flushed) {
           this.stream({ type: "text", sessionId: id, contentIndex: 0, segment: endingEpoch, delta: flushed });
+        }
+        // §135.11.5: whatever this message streamed and the diff above did not replace stays on screen.
+        try {
+          this.turnTelemetry.settleText(id);
+        } catch {
+          /* timing telemetry is observational only */
         }
         live.streamedAssistantText = "";
         // Thinking suffers the same dropped-delta failure mode as text but had no
@@ -7207,7 +7234,7 @@ export class PiHostBackend implements HostBackend {
         const entry = visibleHistoryEntry(raw, this.sessionSecrets(live.session.id));
         if (!entry) continue;
         projected.add(raw.id);
-        this.stream({ type: "presentation", sessionId: live.session.id, entry });
+        this.stream({ type: "presentation", sessionId: live.session.id, entry }, raw);
       }
       if (sizeBefore > offset) live.presentationReadTo = sizeBefore;
     } catch (error) {
