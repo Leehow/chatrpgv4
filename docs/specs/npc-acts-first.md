@@ -113,7 +113,7 @@ Jev 一个闭合问题：「这句行动由上面哪一种结算」+ 各方式�
 
 ### D7 老板的否决权与正文
 
-- KP 看到的是收据，不是指令。他可以在同一回合写 `apply npc {intent_ref, intent_outcome: abandoned, why}` 加自己的 `intends`，正文按自己的写；结构上这仍是一次有结果的行动，闸门不拦。
+- KP 看到的是收据，不是指令。对一件**还在进行中**（`attempted`）的行动，他可以在同一回合写 `apply npc {intent_ref, intent_outcome: abandoned, why}` 加自己的 `intends`，正文按自己的写；结构上这仍是一次有结果的行动，闸门不拦。**已经掷过骰、结果落定的行动，结果就是结果**（`intent_settled`，「its result stands」）——骰子是内核的，KP 只能写它，不能改它（工单 06 落地时划的界，与 `engine-is-authoritative` 同一条）。
 - `prompts/keeper.md` 加一句：在场的人这一回合已经做的事在收据里，正文要写出它，可以改结果、不许当它没发生。
 - 玩家侧一字不动：§34 D2「不发明调查员的行动」是这条的镜像，NPC 侧现在也有了作者。
 

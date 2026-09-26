@@ -12,8 +12,12 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {mkdir,mkdtemp,readFile,rm,symlink,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
+import {spawnSync} from 'node:child_process';
 import {build} from 'esbuild';
+import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {KernelClient} from '../../extensions/kernel/client.ts';
+import {COC_TOOLS,INTENT_RESULT_EXPLAINED} from '../../extensions/kernel/tools.ts';
+import {openTable,waitForIdle} from './harness.mjs';
 
 const root=resolve(import.meta.dirname,'../..'),evidence=join(root,'.pi/npc-implementation/intent-tests');
 await mkdir(evidence,{recursive:true});
@@ -224,4 +228,129 @@ test('an npc effect with only intent_ref and intent_outcome settles that intenti
  const delivered=await client.call('table.narrate',{campaign,call_id:'t2-c2',text:'Nobody answers.'});
  assert.equal(delivered.turn,2,'settled: nothing is owed');
  assert.equal((await knottLedger(home)).intents[0].status,'failed');
+});
+
+// ---- ticket 06 (§139.7): the Keeper's side of an act the table already wrote -----------------------------------------
+
+/** Turn 1's committed receipt that opened `line`, stamped as ticket 03's binding stamps the table's own act; the ledger rebuilt. */
+async function markTableAct(client,connect,home,t,line){
+ const path=join(home,'.coc','campaigns',campaign,'turns','0001.json'),turn1=JSON.parse(await readFile(path,'utf8'));
+ turn1.receipts.find(value=>value.intent?.text===line).intent.generated=true;
+ await writeFile(path,JSON.stringify(turn1,null,2));
+ await client.close();
+ await rm(join(home,'.coc','campaigns',campaign,'npc-ledger.json'));
+ const fresh=connect();t.after(()=>fresh.close());
+ await fresh.call('table.open',{campaign});
+ return fresh;
+}
+const REFS_ARE='present[].history.intents[].ref';
+
+test('the Keeper overrules the table\'s act in one turn: two receipts, no owed-result refusal, both rows on the next card (§139.7, spec D7)',async t=>{
+ const {client,connect,home}=await opened(t);
+ const OWN='Push the key back across the desk and say nothing more.';
+ await begin(client);
+ await apply(client,'t1-c1',{intends:SHOUT,outcome:'attempted'});
+ await nextTurn(client,1);
+ const fresh=await markTableAct(client,connect,home,t,SHOUT);
+ const act=knott(await capsuleOf(fresh)).history.intents.find(value=>value.intent===SHOUT);
+ assert.deepEqual([act.status,act.by],['attempted','table'],'the table set it out on turn 1 and it has no result yet');
+ const overruled=await fresh.call('table.apply',{campaign,call_id:'t2-c1',effects:[
+  {kind:'npc',name:KNOTT,intent_ref:act.ref,intent_outcome:'abandoned',why:'he swallows the shout'},
+  {kind:'npc',name:KNOTT,intends:OWN,outcome:'attempted',why:'he would rather buy his way out'}]});
+ assert.equal(overruled.receipts.length,2,'one receipt for the abandoned act, one for the Keeper\'s own');
+ // Without the abandon this delivery is refused `intent_result_owed` (the file's §138.7 test above): the table's act is owed.
+ const delivered=await fresh.call('table.narrate',{campaign,call_id:'t2-c2',text:'He swallows the shout and pushes the key back.'});
+ assert.equal(delivered.turn,2,'delivered on the first try: the table\'s act has its result');
+ assert.equal((await record(home,2)).warnings?.find?.(value=>value.kind==='intent_result_owed'),undefined);
+ await fresh.call('table.player_input',{campaign,text:'I take the key.'});
+ assert.deepEqual(knott(await capsuleOf(fresh)).history.intents.map(value=>[value.intent,value.status,value.by]),
+  [[OWN,'attempted',undefined],[SHOUT,'abandoned','table']],'the Keeper\'s own row under way, the table\'s row abandoned and still the table\'s');
+});
+
+test('a table act its binding already settled keeps its result: the overrule is refused with where the refs are and the rows under way (§139.7)',async t=>{
+ const {client,connect,home}=await opened(t);
+ const OTHER='Offer the key back if the visitor steps away from the desk.';
+ await begin(client);
+ await apply(client,'t1-c1',{intends:SHOUT,outcome:'done'});
+ await apply(client,'t1-c2',{intends:OTHER,outcome:'attempted'});
+ await nextTurn(client,1);
+ const fresh=await markTableAct(client,connect,home,t,SHOUT);
+ const card=knott(await capsuleOf(fresh)).history.intents,act=card.find(value=>value.intent===SHOUT),other=card.find(value=>value.intent===OTHER);
+ assert.deepEqual([act.status,act.by],['done','table']);
+ await assert.rejects(fresh.call('table.apply',{campaign,call_id:'t2-c1',effects:[{kind:'npc',name:KNOTT,intent_ref:act.ref,intent_outcome:'abandoned'}]}),
+  e=>e.code==='invalid_params'&&e.details?.reason==='intent_settled'&&e.fix.includes('its result stands')&&e.fix.includes(REFS_ARE)&&e.fix.includes('details.options')
+   &&JSON.stringify(e.details.options)===JSON.stringify([{ref:other.ref,intent:OTHER,status:'attempted'}]));
+});
+
+test('every refusal of a ref says where refs are and lists the options: made up, unknown, owned by nobody, settled, unresolved (§139.7)',async t=>{
+ const {client,home}=await opened(t);
+ await begin(client);
+ await apply(client,'t1-c1',{intends:SHOUT,outcome:'attempted'});
+ const ref=(await client.call('table.status',{campaign})).receipts.find(value=>value.intent?.text===SHOUT).intent.ref;
+ const underWay=[{ref,intent:SHOUT,status:'attempted'}];
+ const says=(e,reason)=>e.code==='invalid_params'&&e.fix.includes(REFS_ARE)&&e.fix.includes('details.options')&&(reason===undefined||e.details?.reason===reason);
+ await assert.rejects(apply(client,'t1-c2',{intent_ref:'@intent-placeholder',intent_outcome:'done'}),e=>says(e)&&JSON.stringify(e.details.options)===JSON.stringify(underWay),'live gate A T12\'s placeholder');
+ await assert.rejects(apply(client,'t1-c3',{intent_ref:'intent:steven-knott:0123456789ab',intent_outcome:'done'}),e=>says(e,'unknown_intent')&&JSON.stringify(e.details.options)===JSON.stringify(underWay));
+ // An effect about no one: every intention under way at this table, with whose it is.
+ await assert.rejects(client.call('table.apply',{campaign,call_id:'t1-c4',effects:[{kind:'flag',name:'door-barred',intent_ref:'@intent-placeholder'}]}),
+  e=>says(e)&&JSON.stringify(e.details.options)===JSON.stringify([{ref,npc:'steven-knott',intent:SHOUT,status:'attempted'}]));
+ await assert.rejects(client.call('table.resolve',{campaign,call_id:'t1-c5',action:{actor:KNOTT,intent:'investigate',goal:'spot the visitor',method:'look',skill:'Spot Hidden',intent_ref:'@intent-placeholder'}}),
+  e=>says(e)&&e.details.options.length===1);
+ await nextTurn(client,1);
+ await assert.rejects(apply(client,'t2-c1',{intent_ref:ref,outcome:'attempted'}),e=>says(e,'intent_unresolved')&&e.fix.includes('details.ref')&&JSON.stringify(e.details.options)===JSON.stringify(underWay));
+ await apply(client,'t2-c2',{intent_ref:ref,outcome:'failed'});
+ await assert.rejects(apply(client,'t2-c3',{intent_ref:ref,outcome:'done'}),e=>says(e,'intent_settled')&&JSON.stringify(e.details.options)===JSON.stringify([]));
+});
+
+test('the made-up ref of live gate A T12 reaches the Keeper with where the refs are and the options, through the extension (§139.7)',async t=>{
+ // The opening is closed through the emitted kernel's own RPC; the player's line opens turn 1 with Knott in the room.
+ const opening=workspace=>{
+  const input=[['table.open',{}],['table.narrate',{call_id:'t0-c1',text:'诺特把钥匙拍在桌上。'}]]
+   .map(([method,params],index)=>JSON.stringify({id:String(index),method,params:{campaign:'test-camp',...params}})).join('\n');
+  const run=spawnSync(process.execPath,[join(root,'build/kernel/rpc.mjs'),'--workspace',workspace,'--content',join(root,'content')],{cwd:root,input:`${input}\n`,encoding:'utf8'});
+  for(const frame of run.stdout.split('\n').filter(line=>line.trim()).map(line=>JSON.parse(line)).filter(frame=>!frame.progress))
+   if(!frame.ok)throw new Error(`fixture step ${frame.id} failed: ${JSON.stringify(frame.error)}`);
+ };
+ const STAY='Stay behind the desk and let the investigator walk out.';
+ const table=await openTable({realKernel:true,prepareWorkspace:opening,responses:[
+  // The exact batch of gate A T12: a new intention, and a placeholder where its ref would go.
+  fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'npc',name:KNOTT,intends:STAY,outcome:'attempted'},{kind:'npc',name:KNOTT,intent_ref:'@intent-placeholder',intent_outcome:'done'}]})],{stopReason:'toolUse'}),
+  fauxAssistantMessage([fauxToolCall('narrate',{text:'他站在桌后没动。'})],{stopReason:'toolUse'}),
+ ]});
+ t.after(()=>table.dispose());
+ await table.session.prompt('我转身就走。');
+ await waitForIdle(table.session);
+ const [result]=table.session.messages.filter(message=>message.role==='toolResult'&&message.toolName==='apply');
+ const text=result.content.map(block=>block.text??'').join('');
+ assert.equal(result.isError,true,text);
+ assert.match(text,/^fix: refs are on the capsule at present\[\]\.history\.intents\[\]\.ref, or in details\.options here/m);
+ const line=text.split('\n').find(value=>value.startsWith('options: '));
+ assert.ok(line,`the options the fix names travel on their own line:\n${text}`);
+ const options=JSON.parse(line.slice('options: '.length));
+ assert.deepEqual(options.map(value=>[value.intent,value.status]),[[STAY,'attempted']],'the intention this very batch started is named, with its ref');
+ assert.match(options[0].ref,/^intent:steven-knott:[0-9a-f]{12}$/);
+});
+
+test('the effects\' intent_ref and intent_outcome are one short line each, explained once in apply (§139.7)',t=>{
+ const apply=COC_TOOLS.find(tool=>tool.name==='apply');
+ const kinds=branch=>JSON.stringify(branch.properties.kind);
+ const carriers=apply.parameters.properties.effects.items.anyOf.filter(branch=>branch.properties?.intent_ref&&!kinds(branch).includes('"npc"'));
+ assert.ok(carriers.length>=10,`the effects that spread the intent fields: ${carriers.length}`);
+ for(const branch of carriers)for(const key of ['intent_ref','intent_outcome']){
+  const description=branch.properties[key].description;
+  assert.ok(description.length<=60,`${kinds(branch)}.${key} is a pointer, not the explanation: ${description.length} characters`);
+ }
+ assert.ok(apply.description.endsWith(INTENT_RESULT_EXPLAINED),'the explanation is in the apply description');
+ assert.ok(INTENT_RESULT_EXPLAINED.includes('present[].history.intents[].ref'));
+ const size=value=>Buffer.byteLength(JSON.stringify(value),'utf8');
+ t.diagnostic(`tool schema bytes: all ${size(COC_TOOLS.map(tool=>({name:tool.name,description:tool.description,parameters:tool.parameters})))}, `+
+  `apply parameters ${size(apply.parameters)}, the intent fields across ${carriers.length} effects ${carriers.reduce((sum,branch)=>sum+size({intent_ref:branch.properties.intent_ref,intent_outcome:branch.properties.intent_outcome}),0)}`);
+});
+
+test('the Keeper prompt says the people present may already have acted, and presumes no forced blow (§139.7)',async()=>{
+ const prompt=await readFile(join(root,'prompts','keeper.md'),'utf8');
+ assert.ok(prompt.includes('The people present may already have acted this turn'));
+ assert.ok(prompt.includes('rows marked `by: table`'));
+ assert.ok(prompt.includes('nothing is written as if it had not happened'));
+ assert.equal(prompt.includes('need not be a blow'),false,'no default blow is presumed: the table writes the act (§139)');
 });

@@ -44,8 +44,8 @@ export function intentOf(entry: Row, ref: string): Row | null {
 
 /**
  * §139.6: whether a receipt is the table's own act of a person -- one the generation step wrote and the host bound
- * (§139, ticket 03), not one the Keeper wrote. Read from `basis.generated`; any other shape of `basis` (the string
- * `"stated"` / `"keeper"` of §136.22) is not.
+ * (§139, ticket 03), not one the Keeper wrote. Read from the `intent` stamp's `generated` (never from `basis`, which is
+ * the string `"stated"` / `"keeper"` of §136.22 on damage, time, threat, flag and cash receipts).
  */
 export function receiptGenerated(receipt: unknown): boolean {
     return row(row(receipt).intent).generated === true;
