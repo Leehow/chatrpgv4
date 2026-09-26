@@ -199,12 +199,14 @@ function manualClock(start = 1_000_000) {
  * A decision port: `route(batch, n)` answers the n-th route; the compile answers `unknown` (the first after `compileMs`); every
  * other batch is the prescreen's or the ordinary binder's. `slowPrescreen` holds each prescreen batch until its lease
  * ends, so the prescreen spends the whole allowance. With a manual `clock` nothing sleeps: the compile advances it by
- * `compileMs`, and a slow prescreen batch advances it to its lease's deadline, which ends the lease.
+ * `compileMs`, and a slow prescreen batch advances it to its lease's deadline, which ends the lease. `tickMs` advances it
+ * before every decision, so each is stamped strictly after the steps before it.
  */
-function decisionPort({ route: routeAnswer, compileMs = 0, slowPrescreen = false, clock }) {
+function decisionPort({ route: routeAnswer, compileMs = 0, slowPrescreen = false, clock, tickMs = 0 }) {
 	const log = [];
 	let routes = 0, compiles = 0;
 	return { log, port: { async decide(batch, lease) {
+		if (clock && tickMs) clock.advance(tickMs);
 		const at = clock ? clock.now() : Date.now(), deadline = lease?.context?.budget?.deadlineAt ?? null;
 		if (batch.family === ROUTE_FAMILY) { log.push({ kind: "route", at }); return routeAnswer(batch, ++routes); }
 		if (batch.family === COMPILE_FAMILY) {
@@ -299,13 +301,17 @@ test("SL-44 (§135.6.1): a read after the move that comes late in the turn gets 
 	// Gate #4 t19's shape: the read after the move began 11.8 s into the run and was given the 138 ms the turn had left. Here
 	// the first read's prescreen holds every batch to its 2 s deadline, so the read after the clerk's move starts past the old
 	// run-wide deadline (which gave it `not_run`, `allowance_spent`); with no allowance configured, the first compile takes
-	// 300 ms, and the late read's allowance is still the named default, whole.
+	// 300 ms, and the late read's allowance is still the named default, whole. SL-87: both on a manual clock (the allowance is
+	// the subject): a loaded box's kernel reads no longer spend the named default's 12 s and turn the late read into a fallback.
+	// On that clock the first read ends at its semantic deadline (the allowance less the finalization reserve), so the first
+	// compile takes 1 s there: the read after the move then starts past the old run-wide deadline, as it did in real time.
 	for (const [label, allowanceMs, expected, slow] of [["configured 2 s, the first prescreen spending all of it", "2000", 2_000, true],
 		["not configured: the named default", null, PRESELECT_ALLOWANCE_DEFAULT_MS, false]]) await t.test(label, async (tt) => {
-		const { port } = decisionPort({ compileMs: slow ? 0 : 300, slowPrescreen: slow,
+		const clock = manualClock();
+		const { port } = decisionPort({ clock, compileMs: slow ? 1_000 : 300, slowPrescreen: slow,
 			route: (batch, n) => n === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target) ? "now" : undefined)
 				: answered(batch, (question) => question.key === "exit" ? "finish" : undefined) });
-		const table = await hybridTable({ port, allowanceMs, responses: [narrate("You reach the Globe's morgue.")] });
+		const table = await hybridTable({ port, clock, allowanceMs, responses: [narrate("You reach the Globe's morgue.")] });
 		tt.after(() => table.dispose());
 		await table.table.session.prompt("I go to the Boston Globe offices.");
 		const reads = runRows(table.table, "read");
@@ -320,9 +326,11 @@ test("SL-44 (§135.6.1): a read after the move that comes late in the turn gets 
 
 test("a read_more on the same scene reuses the first read's prescreen: its materials, no Jev call", async (t) => {
 	// The first route asks for more material; the second read is on the same scene. Nothing new: the repeated question
-	// goes to the Keeper (Guard 1), who narrates.
-	const { log, port } = decisionPort({ route: (batch) => answered(batch, (question) => question.key === "exit" ? "read_more" : undefined) });
-	const table = await hybridTable({ port, allowanceMs: "12000", responses: [narrate("Knott waits for your question.")] });
+	// goes to the Keeper (Guard 1), who narrates. SL-87: on a manual clock that moves 1 ms per decision, so the 12 s allowance
+	// is not spent by a loaded box's kernel reads, and every batch is stamped strictly after the steps before it.
+	const clock = manualClock();
+	const { log, port } = decisionPort({ clock, tickMs: 1, route: (batch) => answered(batch, (question) => question.key === "exit" ? "read_more" : undefined) });
+	const table = await hybridTable({ port, clock, allowanceMs: "12000", responses: [narrate("Knott waits for your question.")] });
 	t.after(() => table.dispose());
 	await table.table.session.prompt("I look over Knott's desk for anything about the house.");
 

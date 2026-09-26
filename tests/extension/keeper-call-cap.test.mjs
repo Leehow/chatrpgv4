@@ -74,7 +74,22 @@ async function drain(stream) {
 	return events;
 }
 
-test("a fast call, well inside the cap, is untouched: the stream's own events and completion pass through unchanged", async () => {
+/**
+ * SL-87: the cap's timing against the call's own timing is this file's subject, so the tests that race the two run on
+ * node:test's mock timers (`setTimeout` and `Date`). On a loaded box a 5 ms provider event arrived after the 200 ms cap
+ * and "a fast call" was cut. `elapse` moves the mocked clock one millisecond at a time, letting the stream's promises run
+ * between steps, so events and the cap fire in the order their times say, however slow the machine.
+ */
+function mockTime(t) { t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 }); }
+async function elapse(t, ms) {
+	for (let step = 0; step < ms; step++) {
+		t.mock.timers.tick(1);
+		await new Promise((resolve) => setImmediate(resolve));
+	}
+}
+
+test("a fast call, well inside the cap, is untouched: the stream's own events and completion pass through unchanged", async (t) => {
+	mockTime(t);
 	let sawAbort = false;
 	const start = (signal) => {
 		signal?.addEventListener("abort", () => { sawAbort = true; });
@@ -84,13 +99,19 @@ test("a fast call, well inside the cap, is untouched: the stream's own events an
 		])(signal);
 	};
 	const onCap = () => { throw new Error("must not be called: this call never reaches the cap"); };
-	const events = await drain(watchCallCap(start, undefined, CAP_MS, MODEL, onCap));
+	const drained = drain(watchCallCap(start, undefined, CAP_MS, MODEL, onCap));
+	// Past twice the cap: a cap timer left armed after the call finished would call `onCap` here, and its throw fails the test.
+	await elapse(t, CAP_MS * 2);
+	const events = await drained;
 	assert.deepEqual(events.map((event) => event.type), ["start", "done"]);
 	assert.equal(events.at(-1).message.stopReason, "stop");
 	assert.equal(sawAbort, false, "a call that finishes under the cap is never aborted");
 });
 
-test("a stall before the first byte is cut at the cap, phase 'first_byte', with a synthetic error message (no partial message ever arrived to copy)", async () => {
+test("a stall before the first byte is cut at the cap, phase 'first_byte', with a synthetic error message (no partial message ever arrived to copy)", async (t) => {
+	// SL-87: on a loaded box the real timer fired on the event loop's cached time, 199 ms after a `Date.now()` read, and "the
+	// cap actually waited" was false by one millisecond. Here time moves only when the test moves it.
+	mockTime(t);
 	let sawAbort = false, capCalls = 0;
 	const start = (signal) => {
 		signal?.addEventListener("abort", () => { sawAbort = true; });
@@ -98,7 +119,11 @@ test("a stall before the first byte is cut at the cap, phase 'first_byte', with 
 	};
 	const began = Date.now();
 	const onCap = (phase) => { capCalls++; assert.equal(phase, "first_byte"); return `Keeper call timed out: exceeded its per-call cap of ${CAP_MS} ms (phase: ${phase})`; };
-	const events = await drain(watchCallCap(start, undefined, CAP_MS, MODEL, onCap));
+	const drained = drain(watchCallCap(start, undefined, CAP_MS, MODEL, onCap));
+	await elapse(t, CAP_MS - 1);
+	assert.equal(capCalls, 0, "one millisecond short of the cap, the stalled call is still waiting");
+	await elapse(t, 1);
+	const events = await drained;
 	assert.ok(Date.now() - began >= CAP_MS, "the cap actually waited its own duration before firing");
 	assert.equal(capCalls, 1, "onCap is asked exactly once per attempt");
 	assert.equal(events.length, 1);
@@ -110,14 +135,17 @@ test("a stall before the first byte is cut at the cap, phase 'first_byte', with 
 	assert.equal(sawAbort, true, "the underlying fake provider call is aborted when the cap fires");
 });
 
-test("a stall mid-stream is cut at the cap, phase 'streaming', copying the last partial message that did arrive", async () => {
+test("a stall mid-stream is cut at the cap, phase 'streaming', copying the last partial message that did arrive", async (t) => {
+	mockTime(t);
 	let sawAbort = false;
 	const start = (signal) => {
 		signal?.addEventListener("abort", () => { sawAbort = true; });
 		return fakeProvider([{ delayMs: 5, event: { type: "start", partial: partialMessage("Partial so far") } }], { hang: true })(signal);
 	};
 	const onCap = (phase) => { assert.equal(phase, "streaming"); return `Keeper call timed out: exceeded its per-call cap of ${CAP_MS} ms (phase: ${phase})`; };
-	const events = await drain(watchCallCap(start, undefined, CAP_MS, MODEL, onCap));
+	const drained = drain(watchCallCap(start, undefined, CAP_MS, MODEL, onCap));
+	await elapse(t, CAP_MS);
+	const events = await drained;
 	assert.deepEqual(events.map((event) => event.type), ["start", "error"]);
 	assert.equal(events[1].error.stopReason, "error");
 	assert.match(events[1].error.errorMessage, /timed? out|timeout/i);
@@ -162,7 +190,8 @@ test("a caller's own outer abort ends the attempt as 'aborted', never asks the c
  * caller that returns a retryable-worded message on the first call and a non-retryable-worded one on the
  * second gets exactly that back, attempt for attempt, independent of phase.
  */
-test("onCap's returned wording is used verbatim, attempt for attempt: this is the seam the retryable/non-retryable split is built on", async () => {
+test("onCap's returned wording is used verbatim, attempt for attempt: this is the seam the retryable/non-retryable split is built on", async (t) => {
+	mockTime(t);
 	let attempt = 0;
 	const messageFor = (n) => (n <= 1
 		? `Keeper call timed out: exceeded its per-call cap of ${CAP_MS} ms (phase: streaming)`
@@ -170,7 +199,9 @@ test("onCap's returned wording is used verbatim, attempt for attempt: this is th
 	const runOnce = async () => {
 		attempt++;
 		const start = fakeProvider([{ delayMs: 5, event: { type: "start", partial: partialMessage("x") } }], { hang: true });
-		const events = await drain(watchCallCap(start, undefined, CAP_MS, MODEL, () => messageFor(attempt)));
+		const drained = drain(watchCallCap(start, undefined, CAP_MS, MODEL, () => messageFor(attempt)));
+		await elapse(t, CAP_MS);
+		const events = await drained;
 		return events.at(-1).error.errorMessage;
 	};
 	const first = await runOnce();
