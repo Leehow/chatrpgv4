@@ -1,5 +1,5 @@
 /** Host-only accounting for nested provider calls. The main Keeper has its own owner hook. */
-import {TaskLease, BudgetRefusal, type BudgetSpend} from './task-context.ts';
+import {TaskLease, BudgetRefusal, type BudgetSpend, type TaskClock} from './task-context.ts';
 import {ContractError} from './contracts.ts';
 
 export interface ProviderModel {
@@ -131,10 +131,13 @@ export function createTaskProviderBudget(lease:TaskLease, options:{record?:(even
       finally{changedLater();}},release(){if(done)return;done=true;try{reservation.release();emit({kind:'provider-undispatched'});}finally{changedLater();}}};
   }};
 }
-/** A separately declared finite owner for work that has no foreground task. Never a child fallback. */
-export function independentProviderBudget(owner:string, signal?:AbortSignal, timeoutMs=180_000):{budget:TaskProviderBudget;close():void} {
-  const lease=new TaskLease({owner,goal:owner,scope:{owner,audience:'system'},capabilities:[],readSet:[],signal,
-    budget:{deadlineAt:Date.now()+timeoutMs,remainingInputTokens:1_000_000,remainingOutputTokens:65_536,remainingCostUsd:10,remainingActions:16}});
+/**
+ * A separately declared finite owner for work that has no foreground task. Never a child fallback. `clock` (SL-87, tests
+ * only): the deadline is measured and enforced on it; absent, the host's own clock, as before.
+ */
+export function independentProviderBudget(owner:string, signal?:AbortSignal, timeoutMs=180_000, clock?:TaskClock):{budget:TaskProviderBudget;close():void} {
+  const lease=new TaskLease({owner,goal:owner,scope:{owner,audience:'system'},capabilities:[],readSet:[],signal,...(clock?{clock}:{}),
+    budget:{deadlineAt:(clock?clock.now():Date.now())+timeoutMs,remainingInputTokens:1_000_000,remainingOutputTokens:65_536,remainingCostUsd:10,remainingActions:16}});
   return {budget:createTaskProviderBudget(lease),close:()=>lease.close()};
 }
 

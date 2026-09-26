@@ -23,7 +23,7 @@ import { KernelError } from "./client.ts";
 import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
-import { TaskLease } from "../../runtime/jev/task-context.ts";
+import { TaskLease, hostClock, type TaskClock } from "../../runtime/jev/task-context.ts";
 import {
 	ADMISSION_JEV_DEFAULT_MIN_CONFIDENCE,
 	ADMISSION_JEV_FAMILY,
@@ -543,6 +543,11 @@ export interface AdmissionReviewOptions {
 	record: (row: Record<string, unknown>) => Promise<void> | void;
 	signal?: AbortSignal;
 	timeoutMs?: number;
+	/**
+	 * SL-87, tests only: the clock the review is timed on -- its start, the cap, the hard cap (the lane round's deadline)
+	 * and every `ms` it reports, and the typed attempt's deadline. Absent: the host's own clock and timers, exactly as before.
+	 */
+	clock?: TaskClock;
 }
 
 /**
@@ -562,6 +567,7 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 		input: buildAdmissionInput(options.proposal, options.context),
 		...(options.signal ? { signal: options.signal } : {}),
 		timeoutMs: capMs,
+		...(options.clock ? { clock: options.clock } : {}),
 		shape: shapeVerdict,
 	});
 	const meta = { path: "lane", first_byte_ms: lane.firstByteMs ?? null };
@@ -668,6 +674,7 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 	let lease: TaskLease | undefined, accounting: ReturnType<typeof preparationBudget> | undefined;
 	try {
 		const deadlineAt = Math.min(began + admissionJevTimeoutMs(env), options.providerBudget?.deadlineAt ?? Infinity);
+		const clocked = options.clock ? { clock: options.clock } : {};
 		const outer = options.signal ?? new AbortController().signal;
 		const signal = options.providerBudget ? AbortSignal.any([outer, options.providerBudget.signal]) : outer;
 		const bindings = admissionJevBindings(input);
@@ -677,10 +684,10 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 			decision: options.decision ?? createDecisionAdapter({ env, maxConcurrency: 4, retryPolicies: {
 				[ADMISSION_JEV_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } }, trace: jevFailureTelemetry((row) => { void options.record(row); }) }),
 			campaign: options.campaign, deadlineAt, signal, ...(options.providerBudget ? { parent: options.providerBudget } : {}),
-			owner: ADMISSION_JEV_FAMILY, goal: "Judge whether the player chose the proposed action",
+			owner: ADMISSION_JEV_FAMILY, goal: "Judge whether the player chose the proposed action", ...clocked,
 		});
 		lease = new TaskLease({ owner: ADMISSION_JEV_FAMILY, goal: "Judge whether the player chose the proposed action",
-			scope: bindings.scope, capabilities: ["decision"], readSet: bindings.readSet, signal,
+			scope: bindings.scope, capabilities: ["decision"], readSet: bindings.readSet, signal, ...clocked,
 			budget: { deadlineAt, remainingInputTokens: 200_000, remainingOutputTokens: 20_000, remainingCostUsd: 0.02, remainingActions: 4 } });
 		typed = await runAdmissionJev(input, accounting.decision, lease, { minConfidence });
 	} catch {
@@ -699,7 +706,7 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 		...(typed.lines ? { line_confidences: typed.lines.map((line) => line.confidence) } : {}),
 		// SL-84: the last attempt's HTTP status or network/timeout code, so a `service_error` fallback reason is legible.
 		...(typed.status === "fallback" && typed.jevStatus !== undefined ? { jev_status: typed.jevStatus } : {}),
-	} : { jev_calls: 0, jev_ms: Date.now() - began };
+	} : { jev_calls: 0, jev_ms: (options.clock ?? hostClock).now() - began };
 	return { typed, meta };
 }
 
@@ -732,7 +739,8 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	const fastMin = bookkeepingBatch(options.proposal) ? admissionFastMinConfidence(env) : undefined;
 	const numeric = options.proposal.kinds?.some((kind) => LANE_ONLY_KINDS.has(kind)) ?? false;
 	const capMs = options.timeoutMs ?? admissionTimeoutMs(env), hardCapMs = options.hardCapMs ?? admissionHardCapMs(capMs);
-	const began = options.startedAt ?? Date.now();
+	const clock = options.clock ?? hostClock;
+	const began = options.startedAt ?? clock.now();
 	const fast = fastMin === undefined ? {} : { fast_path: true, fast_min_confidence: fastMin };
 	// §32.12.3: the line threshold is the fast-path confidence, on any `apply` batch; the fast path's `off` turns it off too.
 	const lineMin = options.lineLevel && options.proposal.tool === "apply" ? admissionFastMinConfidence(env) : undefined;
@@ -741,7 +749,7 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	const stop = new AbortController();
 	// A review that began here waits its whole cap (timers may fire a millisecond early against the clock, so it is never
 	// shortened); a remainder resumed from a split waits only what is left of the batch's (§32.12.3).
-	const left = (ms: number) => options.startedAt === undefined ? ms : Math.max(1, ms - (Date.now() - began));
+	const left = (ms: number) => options.startedAt === undefined ? ms : Math.max(1, ms - (clock.now() - began));
 	const lane = reviewAdmission({ ...options, signal: options.signal ? AbortSignal.any([options.signal, stop.signal]) : stop.signal,
 		timeoutMs: left(hardCapMs) });
 	// The typed attempt reads every answer (minimum 0) and this function applies each threshold itself: one call serves all.
@@ -773,7 +781,7 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 		return {
 			ok: true,
 			verdict: { verdict: answer.verdict, grounds: answer.grounds, ...(answer.missing ? { missing: answer.missing } : {}), reviewer: "jev", path: "typed" },
-			ms: Date.now() - began,
+			ms: clock.now() - began,
 			model: ADMISSION_JEV_MODEL,
 			reviewer: "jev",
 			meta: { path: "typed", ...fast, ...(fastMin !== undefined ? { typed_rule: rule } : {}), confidence: answer.confidence, ...attempt.meta },
@@ -781,7 +789,7 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	};
 	const late = (cause: "cap" | "no_grounds", attempt: TypedAttempt | undefined, laneDone?: AdmissionOutcome): AdmissionOutcome => {
 		const reading = readingOf(attempt?.typed);
-		return { ok: "late", cause, ms: Date.now() - began, capMs, hardCapMs, ...(reading ? { typed: reading } : {}), ...(cause === "cap" ? { lane } : {}),
+		return { ok: "late", cause, ms: clock.now() - began, capMs, hardCapMs, ...(reading ? { typed: reading } : {}), ...(cause === "cap" ? { lane } : {}),
 			meta: { ...jevMeta(attempt), cap_ms: capMs, hard_cap_ms: hardCapMs,
 				...(laneDone ? { lane_ms: laneDone.ms, ...(laneDone.meta ?? {}), path: "lane" } : { path: "lane" }),
 				...(cause === "no_grounds" ? { lane_no_grounds: true } : {}) } };
@@ -789,7 +797,7 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	// The lane finished with nothing sufficient and the typed answer is in and does not stand.
 	const afterLane = (laneDone: AdmissionOutcome, attempt: TypedAttempt): AdmissionOutcome => {
 		if (laneDone.ok === false && laneDone.reason === NO_GROUNDS) return late("no_grounds", attempt, laneDone);
-		if (laneDone.ok === false) return { ...laneDone, ms: Date.now() - began, meta: { ...laneDone.meta, ...jevMeta(attempt), lane_ms: laneDone.ms } };
+		if (laneDone.ok === false) return { ...laneDone, ms: clock.now() - began, meta: { ...laneDone.meta, ...jevMeta(attempt), lane_ms: laneDone.ms } };
 		return late("cap", attempt, laneDone);
 	};
 	// §32.12.3: some lines admitted on their own and not all -- the batch's lane round is dropped and the caller reviews the
@@ -798,15 +806,15 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 		const cleared = clearedLines(options.proposal, attempt.typed, lineMin);
 		if (!cleared.length || cleared.length >= options.proposal.lines.length) return undefined;
 		stop.abort();
-		return { ok: "split", cleared, ms: Date.now() - began, attempt, capMs, hardCapMs, startedAt: began,
+		return { ok: "split", cleared, ms: clock.now() - began, attempt, capMs, hardCapMs, startedAt: began,
 			meta: { ...jevMeta(attempt), line_min_confidence: lineMin } };
 	};
 	type Event = { kind: "lane"; value: AdmissionOutcome } | { kind: "typed"; value: TypedAttempt } | { kind: "cap" };
-	let timer: ReturnType<typeof setTimeout> | undefined;
+	let cancelCap: (() => void) | undefined;
 	const waiting = new Map<string, Promise<Event>>([
 		["lane", lane.then((value): Event => ({ kind: "lane", value }))],
 		["typed", typed.then((value): Event => ({ kind: "typed", value }))],
-		["cap", new Promise<Event>((settle) => { timer = setTimeout(() => settle({ kind: "cap" }), left(capMs)); timer.unref?.(); })],
+		["cap", new Promise<Event>((settle) => { cancelCap = clock.schedule(() => settle({ kind: "cap" }), left(capMs)); })],
 	]);
 	let laneDone: AdmissionOutcome | undefined, typedDone: TypedAttempt | undefined;
 	try {
@@ -825,7 +833,7 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 			if (event.kind === "lane") {
 				laneDone = event.value;
 				if (laneDone.ok === true && laneDone.verdict.verdict !== REVIEW_TIMEOUT)
-					return { ...laneDone, ms: Date.now() - began, meta: { ...laneDone.meta, ...jevMeta(typedDone), lane_ms: laneDone.ms } };
+					return { ...laneDone, ms: clock.now() - began, meta: { ...laneDone.meta, ...jevMeta(typedDone), lane_ms: laneDone.ms } };
 				if (typedDone) return afterLane(laneDone, typedDone);
 				continue;
 			}
@@ -837,7 +845,7 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 			return split(typedDone) ?? late("cap", typedDone);
 		}
 	} finally {
-		if (timer) clearTimeout(timer);
+		cancelCap?.();
 	}
 }
 

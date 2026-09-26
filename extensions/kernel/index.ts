@@ -38,7 +38,7 @@ import { currentPromptHead } from "./prompt-checkpoint.ts";
 import { isSpeechOnlyDraft, learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
-import { TaskLease } from "../../runtime/jev/task-context.ts";
+import { TaskLease, type TaskClock } from "../../runtime/jev/task-context.ts";
 import { jevStepsBudget } from "../../runtime/jev/host-budgets.ts";
 import { startupRecord } from "../../runtime/startup-record.ts";
 import {
@@ -1222,6 +1222,17 @@ export default function (pi: ExtensionAPI) {
 	let runtime: HostRuntime | undefined;
 	let foregroundProviderBudget: (() => TaskProviderBudget | undefined) | undefined;
 	pi.events.on('coc:task-provider-budget', value => { foregroundProviderBudget = typeof value === 'function' ? value as typeof foregroundProviderBudget : undefined; });
+	/**
+	 * SL-87, test-only seam: a test whose subject is the admission review's wall-clock budget (§32.12.2's cap, hard cap and
+	 * resend) emits a `TaskClock` on `coc:test-admission-clock`, and the review (`reviewAdmissionPrimary`'s `clock`) and the
+	 * resend's wait are timed on it. Nothing in the product emits it: without it both run on the host's own clock and timers.
+	 */
+	let admissionClock: TaskClock | undefined;
+	pi.events.on('coc:test-admission-clock', value => {
+		const clock = value as Partial<TaskClock> | undefined;
+		admissionClock = typeof clock?.now === 'function' && typeof clock.schedule === 'function' ? clock as TaskClock : undefined;
+	});
+	const admissionNow = (): number => admissionClock ? admissionClock.now() : Date.now();
 	let taskDeliveryGuard: ((message?: { provider?: unknown; model?: unknown }, phase?: 'auditing' | 'committing') => void | Promise<void>) | undefined;
 	pi.events.on('coc:task-delivery-guard', value => {
 		taskDeliveryGuard = typeof value === 'function' ? value as typeof taskDeliveryGuard : undefined;
@@ -2276,7 +2287,7 @@ export default function (pi: ExtensionAPI) {
 		const lane = reviewAdmissionPrimary({
 			campaign: state.campaign, ctx, proposal, context: admissionContextFor(state),
 			providerBudget: foregroundProviderBudget?.(), record: (row) => record({ verb: tool, ...row, prefetch: true }),
-			...(state.lanes.signal ? { signal: state.lanes.signal } : {}), lineLevel: tool === "apply",
+			...(state.lanes.signal ? { signal: state.lanes.signal } : {}), lineLevel: tool === "apply", ...(admissionClock ? { clock: admissionClock } : {}),
 		}).catch((error): AdmissionOutcome => ({ ok: false, reason: "prefetch_error",
 			detail: error instanceof Error ? error.message : String(error), ms: 0, reviewer: "lane", meta: {} }));
 		state.admissionPending.set(proposal.key, { lane, capMs, hardCapMs, collected: false, prefetched: true });
@@ -2407,7 +2418,7 @@ export default function (pi: ExtensionAPI) {
 			const base = context();
 			const reviewContext = part ? { ...base, landed: [...base.landed, ...part.landedLines.map((line) => `admitted in this same call: ${line}`)] } : base;
 			const review = () => reviewAdmissionPrimary({ campaign: state.campaign, ctx, proposal, context: reviewContext, providerBudget,
-				record: (row) => record({ verb: tool, ...row, ...origin }), ...(signal ? { signal } : {}),
+				record: (row) => record({ verb: tool, ...row, ...origin }), ...(signal ? { signal } : {}), ...(admissionClock ? { clock: admissionClock } : {}),
 				...(part ? { typedAttempt: part.attempt, startedAt: part.startedAt, timeoutMs: part.capMs, hardCapMs: part.hardCapMs } : { lineLevel: tool === "apply" }) });
 			// §32.12.2: what the lane of a review this call no longer waits for answered in the end, for the record only. A late
 			// lane refusal after a late admission changes nothing that landed; it is what the late admission is measured by.
@@ -2426,15 +2437,16 @@ export default function (pi: ExtensionAPI) {
 				state.admissionPending.delete(proposal.key);
 				pending.collected = true;
 			}
-			const began = Date.now();
+			// SL-87: the resend's wait is on the review's clock (a test's, or the host's own).
+			const began = admissionNow();
 			const outcome = pending?.lane ? await pending.lane : await review();
 			// §32.12.3: the typed answer admitted some lines and not the rest; the caller reviews the rest.
 			if (outcome.ok === "split") return outcome;
 			// §135.5/SL-88: a round `message_end` started before this call's own turn came up is not a resend -- the
 			// Keeper never saw a `review_pending` refusal for it. `concurrent_wait_ms` is what this call still had to
 			// wait once its own turn actually arrived, which is the whole saving the ruling is for.
-			const resent = pending?.prefetched ? { concurrent: true, concurrent_wait_ms: Date.now() - began, lane_ms: outcome.ms }
-				: pending ? { resend: true, resend_wait_ms: Date.now() - began, lane_ms: outcome.ms } : {};
+			const resent = pending?.prefetched ? { concurrent: true, concurrent_wait_ms: admissionNow() - began, lane_ms: outcome.ms }
+				: pending ? { resend: true, resend_wait_ms: admissionNow() - began, lane_ms: outcome.ms } : {};
 			const noVerdict = outcome.ok === "late" || outcome.ok === false && outcome.reason === NO_GROUNDS
 				|| outcome.ok === true && outcome.verdict.verdict === REVIEW_TIMEOUT;
 			// §135.5/SL-88: this shortcut is for a genuine §32.12.2 resend -- the Keeper already read a `review_pending`
@@ -2447,7 +2459,7 @@ export default function (pi: ExtensionAPI) {
 			if (pending && !pending.prefetched && noVerdict) {
 				if (outcome.ok === "late") watchLate(outcome.lane, REVIEW_TIMEOUT);
 				return settle({ verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${pending.hardCapMs} ms hard cap`, reviewer: "lane", path: "lane", capMs: pending.hardCapMs },
-					false, Date.now() - began, outcome.ok === "late" ? undefined : outcome.model,
+					false, admissionNow() - began, outcome.ok === "late" ? undefined : outcome.model,
 					{ ...(outcome.ok === "late" ? {} : outcome.meta ?? {}), ...resent, ...(outcome.ok === false ? { lane_no_grounds: true } : {}), ...refusedCompile, ...refusedConsequence });
 			}
 			if (outcome.ok === "late") {
@@ -2503,7 +2515,7 @@ export default function (pi: ExtensionAPI) {
 				state.admissionOutage = 0;
 				state.admissionOutageNotified = false;
 			}
-			await settle(outcome.verdict, false, pending ? Date.now() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile, ...refusedConsequence, ...partRows });
+			await settle(outcome.verdict, false, pending ? admissionNow() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile, ...refusedConsequence, ...partRows });
 		};
 
 		const split = await admitOne(proposal);

@@ -17,7 +17,7 @@ import { strict as assert } from "node:assert";
 import { createServer } from "node:net";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { openTable } from "./harness.mjs";
+import { openTable, waitFor } from "./harness.mjs";
 import {
 	ADMISSION_LATE_DEFAULT_MIN_CONFIDENCE,
 	DEFAULT_ADMISSION_TIMEOUT_MS,
@@ -101,6 +101,40 @@ function tricklingProvider(t) {
 function registerTrickle(table, port) {
 	table.session.modelRuntime.registerProvider("trickle", { baseUrl: `http://127.0.0.1:${port}/v1`, api: "openai-completions", apiKey: "unused",
 		models: [{ id: "trickle-1", name: "trickle", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 4096 }] });
+}
+/**
+ * SL-87: a manual clock (the `TaskClock` shape: `now` and `schedule`) for a test whose subject is the review's wall-clock
+ * budget. Time moves only when the test moves it; a timer scheduled on it fires when an advance reaches it. `reads()` counts
+ * the readings taken, so the test can see that a waiter has taken its start.
+ */
+function manualClock(start = 1_000_000) {
+	let t = start, reads = 0;
+	const timers = new Set();
+	const clock = {
+		now: () => { reads++; return t; },
+		schedule(callback, delayMs) {
+			const timer = { at: t + Math.max(0, delayMs), callback };
+			timers.add(timer);
+			return () => { timers.delete(timer); };
+		},
+		reads: () => reads,
+		/** When each timer still scheduled is due, in order. */
+		due: () => [...timers].map((timer) => timer.at).sort((a, b) => a - b),
+		advanceTo(target) {
+			for (;;) {
+				let next;
+				for (const timer of timers) if (timer.at <= target && (!next || timer.at < next.at)) next = timer;
+				if (!next) break;
+				timers.delete(next);
+				t = Math.max(t, next.at);
+				next.callback();
+			}
+			t = Math.max(t, target);
+		},
+		/** Resolves when the clock reaches `at`. */
+		until: (at) => new Promise((resolve) => { clock.schedule(resolve, at - t); }),
+	};
+	return clock;
 }
 async function promptWithin(table, text, limitMs) {
 	const prompt = table.session.prompt(text);
@@ -263,21 +297,50 @@ test("§32.12.2: at the cap a resolve is returned review_pending with the typed 
 });
 
 test("§32.12.2: the Keeper's resend collects the lane that answered after the cap, and its verdict settles the call", async (t) => {
-	// SL-87: the same shape ten times larger -- cap 10 s, the round twice that, the lane's verdict at 16 s, and the resend's
-	// wait bounded by one and a half caps. At 1 s / 1.6 s the verdict had 400 ms to land inside its round, and on a loaded
-	// box it did not (`review_timeout`). A fake clock would need an injection point in the admission review
-	// (`extensions/kernel/admission.ts`) and the resend's `resend_wait_ms` (`extensions/kernel/index.ts`), both out of reach
-	// in this round; see the SL-87 ticket.
-	const CAP_MS = 10_000;
+	// SL-87: the subject is a wall-clock budget -- the cap, the round (the hard cap, twice the cap), a verdict landing inside
+	// the round, and a resend that waits only for the rest of it -- so the review and the resend run on a manual clock
+	// (`coc:test-admission-clock`, the kernel extension's test-only seam) and nothing sleeps. On a loaded box the real 1 s /
+	// 1.6 s version left the verdict 400 ms to land inside its round, and it did not (`review_timeout`).
+	const CAP_MS = 1000, VERDICT_MS = 1600, HARD_CAP_MS = admissionHardCapMs(CAP_MS);
+	const clock = manualClock(), T0 = clock.now();
+	let laneAsked = false, resendAt;
+	// The lane's verdict is due 1.6 s after the round began, on the clock.
+	const verdictOnClock = (row) => async () => { laneAsked = true; await clock.until(T0 + VERDICT_MS); return verdict(row); };
+	// The Keeper resends once it has read the pending refusal; what the clock had been read by then is marked.
+	const resend = () => { resendAt = clock.reads(); return call("resolve", persuade); };
 	const table = await openTable({ env: { PI_COC_ADMISSION_TIMEOUT_MS: String(CAP_MS) },
-		responses: [call("resolve", persuade), call("resolve", persuade), ...close],
-		laneResponses: { admission: [slowVerdict({ verdict: "authorized", grounds: "the player asked her for the clippings" }, CAP_MS * 1.6)] } });
+		responses: [call("resolve", persuade), resend, ...close],
+		laneResponses: { admission: [verdictOnClock({ verdict: "authorized", grounds: "the player asked her for the clippings" })] } });
 	t.after(() => table.dispose());
-	await table.session.prompt("我说明来意，请她帮忙调出科比特宅这些年的旧剪报。");
+	table.emit("coc:test-admission-clock", clock);
+	let ended = false;
+	const prompt = table.session.prompt("我说明来意，请她帮忙调出科比特宅这些年的旧剪报。").finally(() => { ended = true; });
+	await waitFor(() => laneAsked, { timeoutMs: 60_000, label: "the review's lane round" });
+	// The round is running and its times are all on the clock: the cap, the verdict, and the round's own end (the hard cap).
+	for (const at of [CAP_MS, VERDICT_MS, HARD_CAP_MS])
+		assert.ok(clock.due().includes(T0 + at), `a timer due ${at} ms into the review (${clock.due().map((due) => due - T0)})`);
+	clock.advanceTo(T0 + CAP_MS);
+	// The call goes back pending at the cap; the Keeper resends it. Nothing else reads the review's clock between the
+	// Keeper's resend and the resend taking its start, right before it waits on the round.
+	await waitFor(() => resendAt !== undefined && clock.reads() > resendAt, { timeoutMs: 60_000, label: "the resend waiting on the round" });
+	clock.advanceTo(T0 + VERDICT_MS);
+	// The rest of the run. A timer due past the round's end can only be a resend waiting longer than the round: once the
+	// round has settled (nothing of it is still scheduled), run it, so such a wait shows in `resend_wait_ms` instead of
+	// hanging the test. The round's own timers are never forced.
+	for (const deadline = Date.now() + 60_000; !ended && Date.now() < deadline;) {
+		const due = clock.due(), next = due.find((at) => at > T0 + HARD_CAP_MS);
+		if (next !== undefined && !due.some((at) => at <= T0 + HARD_CAP_MS)) clock.advanceTo(next);
+		await sleep(10);
+	}
+	assert.ok(ended, "the run ended");
+	await prompt;
 	const rows = admissionRows(table);
 	assert.deepEqual(rows.map((row) => [row.verdict, row.resend ?? false, row.path]), [[REVIEW_PENDING, false, "lane"], ["authorized", true, "lane"]]);
+	assert.equal(rows[0].ms, CAP_MS, "returned pending at the cap");
 	assert.equal(table.lanes.admission.requests().length, 1, "one review, collected by the resend");
 	assert.ok(rows[1].resend_wait_ms < CAP_MS * 1.5, `the resend waited only for the rest of the round (${rows[1].resend_wait_ms} ms)`);
+	assert.equal(rows[1].resend_wait_ms, VERDICT_MS - CAP_MS, "from the cap, where it resent, to the verdict");
+	assert.equal(rows[1].lane_ms, VERDICT_MS, "the round answered 1.6 s in, inside its 2 s");
 	assert.equal(rows[1].grounds, "the player asked her for the clippings");
 	assert.equal(kernelCalls(table, "table.resolve").length, 1, "the resend landed");
 	assert.ok(!table.telemetry().some((entry) => entry.lane === "admission-late"), "a collected round leaves no late row");

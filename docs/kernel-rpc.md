@@ -8874,7 +8874,13 @@ suites updated for concurrency):
   pending, and is not an outage;
 - the trickling socket at the cap: a bookkeeping batch typed 0.72 is admitted `typed_late` within cap + 1 s, and a
   `resolve` returns `review_pending` with the typed reading;
-- the resend collects a lane that answers after the cap and settles its verdict;
+- the resend collects a lane that answers after the cap and settles its verdict (SL-87: at cap 1 s, verdict 1.6 s,
+  hard cap 2 s on a manual clock the test drives, so nothing sleeps and a loaded machine cannot move the verdict out of
+  its round). The seam: `reviewAdmission`/`reviewAdmissionPrimary` take an optional `clock` (`TaskClock`: the review's
+  start, cap, hard cap, every `ms`, the typed attempt's deadline), `runLane` takes it for its deadline, `ms` and
+  `firstByteMs`, and the kernel extension times the resend's wait (`resend_wait_ms`, `concurrent_wait_ms`) on it. A test
+  hands the extension its clock on the test-only bus event `coc:test-admission-clock`; nothing in the product emits it,
+  and without it each of these is the host's `Date.now()` and `setTimeout`, exactly as before;
 - a resend past the hard cap is `review_timeout`, and a third identical call is refused from the turn's verdict;
 - the `admission-late` row.
 Mutations are in the SL-24 ticket.
