@@ -115,6 +115,27 @@ def test_warn_anchors_quotes_as_substrings_and_drops_the_rest(kernel):
     assert len(read_json(campaign_dir(kernel.workspace) / "turns" / "0001.json")["warnings"]) == 12
 
 
+def test_warn_locates_a_quote_whose_quotation_marks_were_retyped(kernel):
+    """§139: the verifier answers in JSON and retypes the prose's ASCII quotation marks (temper-b t8: 7 findings,
+    7 dropped). Quotation marks are one class when a quote is located, the record keeps the prose's own characters,
+    and a quote the prose does not contain under any marks is still dropped, with its text in telemetry."""
+    open_turn(kernel)
+    prose = '王铁柱没有回头。\n\n"搬行李。"这三个字在他嘴里搁了一下。"我扛一天麻袋挣八毛。"'
+    kernel.table("narrate", call_id="t1-c1", text=prose)
+    result = warn(kernel, 1, [
+        {"kind": "unmarked_speech", "quote": "\u201c搬行李。\u201d这三个字在他嘴里搁了一下。", "why": "说出口的话没有标记"},
+        {"kind": "unmarked_speech", "quote": "\u300c我扛一天麻袋挣八毛。\u300d", "why": "说出口的话没有标记"},
+        {"kind": "reveal", "quote": "\u201c他没有说话\u201d", "why": "正文里没有这句"},
+    ])
+    assert result["accepted"] == 2
+    assert result["dropped"] == [{"index": 2, "kind": "reveal", "reason": "quote is not a substring of rendered_text"}]
+    record = read_json(campaign_dir(kernel.workspace) / "turns" / "0001.json")
+    assert [w["quote"] for w in record["warnings"]] == ['"搬行李。"这三个字在他嘴里搁了一下。', '"我扛一天麻袋挣八毛。"']
+    assert all(w["quote"] in record["rendered_text"] for w in record["warnings"])
+    telemetry = read_jsonl(campaign_dir(kernel.workspace) / "telemetry.jsonl")
+    assert telemetry[-1]["unanchored"] == [{"index": 2, "kind": "reveal", "quote": "\u201c他没有说话\u201d"}]
+
+
 def test_warn_files_the_verifiers_play_language_finding(kernel):
     """`play_language_mismatch` is the verifier's judgment, filed like the other three kinds: the
     kernel refuses no delivery by its script (contract section 23), so Latin prose on the zh-Hans
