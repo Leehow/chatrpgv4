@@ -138,3 +138,4 @@ fake-KP shortcuts, and the ticket's own acceptance line is the owner's to run.
 additions to `tests/extension/ts-kernel-write.test.mjs`.
 
 Status: ready-for-human.
+- Live (gate #21): batches 4 (from 1), Keeper calls/turn 2.8 unchanged, concurrent admission 0 triggers (no 2+-write response). Guidance-only did not move grok; SL-92 carries it structurally.
