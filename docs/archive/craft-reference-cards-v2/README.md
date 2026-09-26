@@ -32,3 +32,7 @@
 3. 用玩家语言写整段示范受契约 §16.1 与 2026-09-09 的 i18n 裁定约束，要另开 spec（prose-mod §2.5）。
 
 被删的代码（`runtime/craft/`、`runtime/jev/craft-reference-domain.ts`、`extensions/table/craft-reference.ts`、`extensions/table/craft-runtime.ts`、`kernel-ts/mods/craft-package.ts`、`kernel-ts/mods/craft-reference.ts`）在 git 历史里，最后一版是 `95df22a6d`。
+
+## 设计包的其余部分（2026-09-25 归档）
+
+`design.en.md`、`repository-review.en.md`、`source-studies.en.md` 与两份中文审阅稿来自前一个 agent 的 `docs/pi_coc_craft_v2` 设计包（从未提交）。有长期价值的只有来源研究（六部文学作品、六本模组的选段与「可迁移/不可迁移」笔记），将来做玩家语言示范时可作参考。包里的 TypeScript 库、编译产物、浏览器与安装脚本已丢弃；它们实现的选卡机制已按 `docs/specs/prose-mod.md` 退役。
