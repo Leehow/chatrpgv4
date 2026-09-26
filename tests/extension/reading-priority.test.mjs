@@ -108,6 +108,13 @@ test('§22.4.6 a blocking read never displaces a blocking read', async t => {
   for (const job of held) await fail(f, job);
 });
 
+/** SL-87: foreground waits the test ends itself: `expire(ms)` ends every pending wait scheduled for `ms`. */
+function manualWaits() {
+  const pending = new Set();
+  return {timer(callback, ms) { const wait = {callback, ms}; pending.add(wait); return () => pending.delete(wait); },
+    expire(ms) { for (const wait of [...pending]) if (wait.ms === ms) { pending.delete(wait); wait.callback(); } }};
+}
+
 /** A reader runtime whose every child holds until it is stopped; it records what each child was asked to run as. */
 function heldReaders() {
   const started = [];
@@ -118,7 +125,7 @@ function heldReaders() {
       return {ok: false, code: null, timedOut: false, ms: 1, stderr: '', command: [], error: 'cancelled'};
     }}};
 }
-const until = async (predicate, ms = 30_000) => {
+const until = async (predicate, ms = 60_000) => {
   const deadline = Date.now() + ms;
   while (!(await predicate())) { if (Date.now() > deadline) assert.fail('timed out waiting'); await new Promise(done => setTimeout(done, 25)); }
 };
@@ -128,14 +135,18 @@ test('§22.4.6 the reading service: a blocking detail read arriving while three 
   // A book whose index is done, so the three slots are the three consultations' (the index job would otherwise take one).
   const meta = join(f.home, '.coc/modules', f.module_id, 'module.json'), record = JSON.parse(await readFile(meta, 'utf8'));
   await writeFile(meta, JSON.stringify({...record, reading: {...record.reading, index_complete: true}}));
-  const rows = [], {started, runtime} = heldReaders();
+  const rows = [], {started, runtime} = heldReaders(), waits = manualWaits();
   const service = new ReadingService({home: f.home, runtime, call: (method, params) => f.client.call(method, params),
-    model: () => ({id: 'fixture/vision', vision: true, thinking: 'off'}), progress() {}, record(row) { rows.push(row); }});
+    model: () => ({id: 'fixture/vision', vision: true, thinking: 'off'}), progress() {}, record(row) { rows.push(row); }, waitTimer: waits.timer});
   t.after(() => service.close());
   // Three consultations, each claimed inside its allowance and then past it: pending, demoted, still reading in the
-  // background. (The allowance is long enough for the claim to land first on a loaded machine; the product's is 8 s.)
+  // background. SL-87: the allowance ends when the test ends it, once the claim has landed: a real 1 s allowance ran out
+  // before the claim on a loaded box (the product's is 8 s), and then the consultation was never claimed while a turn waited.
   for (const [n, focus] of ['esso-station', 'mather-general-store', 'abattoir'].entries()) {
-    const reply = await service.ensure(f.module_id, {purpose: 'answer', focus, question: `What is at ${focus}?`, foreground: true}, undefined, {allowanceMs: 1_000});
+    const asked = service.ensure(f.module_id, {purpose: 'answer', focus, question: `What is at ${focus}?`, foreground: true}, undefined, {allowanceMs: 1_000});
+    await until(() => started.length === n + 1);
+    waits.expire(1_000);
+    const reply = await asked;
     assert.equal(reply.state, 'pending');
     assert.equal(started.length, n + 1, 'claimed while a turn waited on it');
   }

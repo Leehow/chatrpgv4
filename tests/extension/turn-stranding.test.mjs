@@ -23,7 +23,8 @@ function environment() {
 		GIT_COMMITTER_NAME: 'coc', GIT_COMMITTER_EMAIL: 'coc@example.invalid',
 	};
 }
-const client = (home) => new KernelClient({ command: [process.execPath, RPC, '--workspace', home, '--content', CONTENT], cwd: ROOT, env: environment(), inheritEnv: false, timeoutMs: 20000 });
+// SL-87: a request's time is not this file's subject; a kernel start on a loaded box outlasted 20 s. A minute bounds a hang.
+const client = (home) => new KernelClient({ command: [process.execPath, RPC, '--workspace', home, '--content', CONTENT], cwd: ROOT, env: environment(), inheritEnv: false, timeoutMs: 60_000 });
 const turnFile = (home) => readFile(join(home, '.coc/campaigns/c1/turn.json'), 'utf8').then(JSON.parse);
 const recordFile = (home, n) => readFile(join(home, '.coc/campaigns/c1/turns', `${String(n).padStart(4, '0')}.json`), 'utf8').then(JSON.parse);
 

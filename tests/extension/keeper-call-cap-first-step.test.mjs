@@ -125,11 +125,14 @@ test("vendored seam (patch 0004): keeperCallCapMs as a function is resolved fres
 	const hybrid = createHybridEngine({ env: process.env, record: (row) => capRows.push(row) });
 	// A function whose answer changes call to call -- if the vendored seam cached the first resolution
 	// instead of re-resolving per attempt, both provider requests below would be cut at the same cap
-	// (1200 ms); resolved fresh, the first is cut at 1200 ms and the retry at 2000 ms.
+	// (5000 ms); resolved fresh, the first is cut at 5000 ms and the retry at 8000 ms. SL-87: the caps' size is not the
+	// subject (their difference is): each cap starts before its request is built and sent, and on a loaded box a 1.2 s cap
+	// cut the first attempt before its request reached the provider (one request seen, not two). The hang bound is a minute
+	// past both caps.
 	let calls = 0;
-	const caps = [1_200, 2_000];
+	const caps = [5_000, 8_000];
 	const keeperCallCapMs = () => caps[calls++] ?? caps.at(-1);
-	const BOUND_MS = caps[0] + caps[1] + 6_000;
+	const BOUND_MS = caps[0] + caps[1] + 60_000;
 
 	const table = await openTable({
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1", FAKE_KERNEL_WORKSPACE: "1", FAKE_KERNEL_PRESENT: "[]" },
@@ -157,9 +160,9 @@ test("vendored seam (patch 0004): keeperCallCapMs as a function is resolved fres
 
 	const capEvents = capRows.filter((row) => row.event === "keeper_call_cap");
 	assert.equal(capEvents.length, 2, "one keeper_call_cap row per overrun");
-	assert.equal(capEvents[0].cap_ms, 1_200, "the first attempt used the freshly resolved first value");
-	assert.equal(capEvents[1].cap_ms, 2_000, "the retry used the freshly resolved second value, not the cached first one");
+	assert.equal(capEvents[0].cap_ms, caps[0], "the first attempt used the freshly resolved first value");
+	assert.equal(capEvents[1].cap_ms, caps[1], "the retry used the freshly resolved second value, not the cached first one");
 	for (const row of capEvents) assert.equal(typeof row.step, "number", "the row carries step");
 
-	await waitFor(() => outageNotices(table.session).length === 1, { label: "the §38.7 terminal provider notice" });
+	await waitFor(() => outageNotices(table.session).length === 1, { label: "the §38.7 terminal provider notice", timeoutMs: 60_000 });
 });

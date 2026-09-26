@@ -148,7 +148,8 @@ function controlledReview() {
         deferred: {mode: 'post', job: JOB, jobMs: 7, async run(options) { runs++; started(options); return gate; }},
     };
 }
-async function until(check, what, timeoutMs = 15_000) {
+// SL-87: a minute: how long a row takes to land is not this file's subject.
+async function until(check, what, timeoutMs = 60_000) {
     const end = Date.now() + timeoutMs;
     while (!check()) {
         if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
@@ -190,6 +191,9 @@ for (const implicit of [false, true]) test(`post, ${implicit ? 'implicit' : 'exp
     assert.deepEqual([warned.params.mode, warned.params.job, warned.params.turn], ['post', JOB, options.turn]);
     // Nothing was reopened, rewritten or steered: one review, one delivery, and the Keeper was not called again.
     await new Promise(resolve => setTimeout(resolve, 100));
+    // SL-87: the `recorded` row is written after the `table.warn` (`void record`); on a loaded box it had not landed 100 ms
+    // later. Waited for as the event it is.
+    await until(() => session.telemetry().some(row => row.lane === 'continuity-review' && row.event === 'recorded'), 'the recorded row');
     assert.equal(prepares, 1);
     assert.equal(review.runs, 1);
     assert.equal(session.kernelRequests().filter(request => request.method === 'table.narrate').length, 1);

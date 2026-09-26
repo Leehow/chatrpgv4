@@ -93,7 +93,8 @@ function environment(extra = {}) {
 }
 async function table(t, content = CONTENT, extra = {}) {
   const home = await mkdtemp(join(evidence, 'rpc-'));
-  const client = new KernelClient({ command: [process.execPath, RPC, '--workspace', home, '--content', content], cwd: ROOT, env: environment(extra), inheritEnv: false, timeoutMs: 20000 });
+  // SL-87: a request's time is not this file's subject; a kernel start on a loaded box outlasted 20 s. A minute bounds a hang.
+  const client = new KernelClient({ command: [process.execPath, RPC, '--workspace', home, '--content', content], cwd: ROOT, env: environment(extra), inheritEnv: false, timeoutMs: 60_000 });
   t.after(() => client.close());
   return { home, client };
 }

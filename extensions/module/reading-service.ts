@@ -55,7 +55,14 @@ interface Dependencies {
 	record(row: Row): void;
 	/** The operator's out-of-fiction surface for a lane that stopped working (contract §22, shaped after §32.2). */
 	status?(row: Row): void;
+	/**
+	 * SL-87: schedules the end of a foreground wait (`ensure`'s allowance, or `PI_COC_READ_WAIT_MS`) and returns its cancel.
+	 * Absent: `setTimeout`, exactly as before. A test whose subject is what happens inside and past the allowance, not its
+	 * length, ends the wait itself once the claim it is about has landed.
+	 */
+	waitTimer?(callback: () => void, ms: number): () => void;
 }
+const realWaitTimer = (callback: () => void, ms: number): (() => void) => { const timer = setTimeout(callback, ms); return () => clearTimeout(timer); };
 interface PendingReading {
 	providerBudget?:TaskProviderBudget;
 	waiters: number;
@@ -469,7 +476,7 @@ export class ReadingService implements ReadingBridge {
 				else request.demotePending = true;
 			}
 		};
-		let timer: ReturnType<typeof setTimeout> | undefined;
+		let cancelTimer: (() => void) | undefined;
 		let onAbort: (() => void) | undefined;
 		try {
 			const configured = Number(process.env.PI_COC_READ_WAIT_MS);
@@ -477,7 +484,7 @@ export class ReadingService implements ReadingBridge {
 			const allowance = options.allowanceMs;
 			const wait = allowance !== undefined ? allowance : Number.isFinite(configured) && configured > 0 ? configured : 120_000;
 			const interrupted = new Promise<Row>((resolvePending, reject) => {
-				timer = setTimeout(() => allowance !== undefined ? resolvePending({ state: "pending", ...(request.jobId ? { job_id: request.jobId } : {}),
+				cancelTimer = (this.deps.waitTimer ?? realWaitTimer)(() => allowance !== undefined ? resolvePending({ state: "pending", ...(request.jobId ? { job_id: request.jobId } : {}),
 					...(request.attached ? { attached: true } : {}), read: { purpose: params.purpose, focus: params.focus ?? "", question: params.question ?? "" },
 					index: request.index ?? [], settled: request.task }) : reject(error("reading_timeout", "the source is still being read",
 					params.purpose === "opening" ? "return control, then call prepare-module again to rejoin the retained preparation"
@@ -498,7 +505,7 @@ export class ReadingService implements ReadingBridge {
 			});
 			return await Promise.race([request.task, interrupted]);
 		} finally {
-			if (timer) clearTimeout(timer);
+			cancelTimer?.();
 			if (onAbort) signal?.removeEventListener("abort", onAbort);
 			releaseWaiter();
 		}
