@@ -710,3 +710,12 @@ Class lines: all met (median 37 ≤ 45, 18/20; t1 commission settled with keys/l
 Model-layer notes: t14 three `invalid_params` (move to the current scene; offer with adopt; an unaccepted definition name) each with a usable fix, no class limit. Refusal codes for the table: needs 27, invalid_params 3, internal 10 (all `usage-prefetch runtime_closed` cancellations, not Keeper refusals).
 Batch 12 verdict: SL-71/72/73 do what they were filed for; two new tickets (SL-80 P2, SL-81 P1) for batch 13 with SL-76/SL-74.
 
+### Long gate #14 (2026-09-26, b088de327, batch 13 live; INVALID for SL-74: cap × thinking, see SL-82)
+INVALID for SL-74 as run: delivered 12/20, stranded t9/10/12/13/17/18/19/20, median 107 s, ≤60 s 6/20. Cause is not the provider: every stranded turn is a step-1 call (thinking ON) killed by SL-69's per-call cap (22,500 ms, streaming phase) — 35 "exceeded its cap a second time" + 11 "timed out" error stops, four 200-responses per turn each ~25 s apart, then `ask_llm unavailable` → `model_unavailable:no_delivered_evidence`. A deepseek thinking call runs ≈35 s (gate #9), so the cap = max(floor, turn budget/2) kills it by construction. The two variables were never tested together; the pre-registration budgeted the call's time but not the cap.
+Valid readings on the same table:
+- SL-81 ✓: 64 lane starts all `off`/`off`; admission n 42, p50 0 / p90 2,268 / max 2,813 ms; review_timeout 0, review_pending 0 (line 4 met; #13: p90 10,275, 4 timeouts, 5 pending).
+- SL-76 shadow (preliminary, 10 turns with rows, stranded turns give `keeper_did: null`): npc_reaction cleared 7 (keeper_did false 2, other 1, null 4, true 0); clue_follow_up cleared 11 (keeper_did true 6, null 5) — clue agreement 6/6 where the Keeper acted; npc_reaction never agreed where paired (2 false): the reaction candidate fires on presence, the Keeper does not stage a first impression at those moments. Rows land only at turn close, so the eight stranded turns lost their pairing.
+- SL-80: no speech-only implicit draft this table (floor rows 0); nothing to confirm.
+- SL-74 side-effects visible even so: Keeper refusals needs 2 / invalid_params 5 / unknown_entity 1 (#13: 27 / 3 / 0); `first_step_thinking: true` on 51 of 93 requests because every retry of the killed step-1 call is again step 1.
+Next: exempt or resize the cap for the thinking step (SL-82), rerun as #15 with the same four variables.
+

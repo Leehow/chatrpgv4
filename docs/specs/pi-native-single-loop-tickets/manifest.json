@@ -409,6 +409,11 @@
       "id": "SL-81",
       "file": "81-the-lane-thinks-at-low-on-a-model-where-low-is-full.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-82",
+      "file": "82-first-step-thinking-sizes-its-own-cap.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
