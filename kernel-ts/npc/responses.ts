@@ -5,6 +5,7 @@ import {RpcError} from '../errors.js';
 import {isJsonObject,jsonDigest} from '../json.js';
 import type {HandlerGroup} from '../handlers.js';
 import type {ModuleGraph} from '../read/module-graph.js';
+import {npcNode} from '../read/capsule.js';
 import {array,clone,number,row,string,type Row} from '../read/values.js';
 import {CampaignWriter,nowIso,required} from '../write/store.js';
 import {personalitySourceRevision,personalityView} from './material.js';
@@ -55,7 +56,7 @@ const instruction='Prepare a small varied set of conditional response intentions
 export function createResponseHandlers(load:(params:Row)=>Promise<Loaded>,readJob:(campaign:CampaignWriter,id:unknown)=>Promise<Row>):HandlerGroup {
     return {
         'npc.responses.job':async params=>{
-            const loaded=await load(params),{campaign,world,graph,scope}=loaded,node=graph.npc(required(params,'name')!);
+            const loaded=await load(params),{campaign,world,graph,scope}=loaded,node=npcNode(graph,world,required(params,'name')!);
             if(!personalityView(graph,world,node))return {job_id:null,reason:'personality_pending'};
             const source_revision=basis(loaded,node),bank=await stored(campaign,node,scope);
             if(bank?.source_revision===source_revision&&bank.status==='ready'&&params.refresh!==true)return {job_id:null};

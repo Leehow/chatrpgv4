@@ -15,7 +15,7 @@ import { RuleObservations } from "./rule-facts.js";
 import { buildCapsule } from "./assemble.js";
 import { contextBinding } from "./context.js";
 import { workspaceRead } from "./workspace.js";
-import { clockSection, sceneLabel, personLabel, clueLabel, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection } from "./capsule.js";
+import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection } from "./capsule.js";
 import { incapacitatedBy } from "../healing/conditions.js";
 import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
@@ -392,7 +392,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 }
                 catch { /* A derived cache that cannot be read says nothing about what the player was told. */
                 }
-                return npcView(graph, world, graph.npc(required(params, "name")), ledger, journal, await campaign.files("turns"), await campaign.log("memory/candidates.jsonl"), {worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)},
+                return npcView(graph, world, npcNode(graph, world, required(params, "name")), ledger, journal, await campaign.files("turns"), await campaign.log("memory/candidates.jsonl"), {worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)},
                     row(await campaign.optional("save/combat.json")), await dispositionTable(context));
             }
             if (focus === "investigator") {
@@ -462,7 +462,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                             // These two sentences and `apply person`'s refusal used to disagree: this one
                             // sent a one-off person to narration, that one sent them to adaptation, and
                             // `apply npc` accepted neither. All three now name the same road.
-                            : 'No graph entity matched. Do not open graph adaptation for a physical object or a compatible first-appearance supporting person. Use define/object/item for physical state; ordinary scenery may remain narration. A person the book never had is established at the table by apply npc under whatever you are already calling them, a description included; open adaptation for them only when they must persist as a source-connected figure. What the player is called to see them by comes from apply person, for anyone at this table. If the player actually chose a missing destination, repeat this lookup with expected_kind scene.',
+                            : 'No graph entity matched. Do not open graph adaptation for a physical object or a compatible first-appearance supporting person. Use define/object/item for physical state; ordinary scenery may remain narration. A person the book never had is established at the table by apply npc with walk_on: true under whatever you are already calling them, a description included; open adaptation for them only when they must persist as a source-connected figure. What the player is called to see them by comes from apply person, for anyone at this table. If the player actually chose a missing destination, repeat this lookup with expected_kind scene.',
                         ...(missingScene ? {preparation: {tool: 'lookup', kind: 'adaptation', action: 'prepare', purpose: 'new_destination', name: query.slice(0, 120),
                             anchors: (sourceNodes.length ? sourceNodes : scene ? [scene] : []).slice(0, 4).map(node => node.name),
                             request: 'Describe the player-chosen destination and its limited connection to the existing campaign. Preserve source causes and all established facts; no automatic clue, NPC appearance, danger or movement.'}} : {})

@@ -3,12 +3,12 @@ import {mkdir,writeFile} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
-import {personRefusal,recordOf} from '../read/module-graph.js';
+import {isAmbiguity,notAPerson,personRefusal,recordOf} from '../read/module-graph.js';
 import {handoutFile} from '../read/handout-document.js';
-import {npcsPresent,personLabel} from '../read/capsule.js';
+import {npcNode,npcsPresent,personLabel,personNode,personRecord,untoldBlock} from '../read/capsule.js';
 import {unsupported} from '../read/handlers.js';
 import {passageOf,tablePersonId} from '../read/table-people.js';
-import {array,integer,normalize,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
+import {array,entries,integer,normalize,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
 import {stanceTable} from '../write/contributions.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
@@ -46,7 +46,7 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
     const scene=left??active;
     if(!here.includes(node.node_id)&&!left)throw new RpcError('not_here',`clue ${repr(handle)} is not discoverable at ${repr(graph.handle(scene))}`,{fix:'discover one of details.clues_here, or move first',details:{clue:handle,scene:graph.handle(scene),clues_here:here.map(id=>graph.handle(graph.nodes.get(id)!))}});
     let source:string|null=null;
-    if(typeof effect.from==='string'&&effect.from.trim())source=graph.handle(graph.npc(effect.from));
+    if(typeof effect.from==='string'&&effect.from.trim())source=graph.handle(npcNode(graph,world,effect.from));
     else {
         const present=new Set(npcsPresent(graph,world,scene).map(node=>graph.handle(node)));
         const holders=new Set((graph.incoming.get(node.node_id)||[]).filter(rel=>['held-by','delivered-by'].includes(rel.relation_kind)).map(rel=>graph.nodes.get(rel.from_node_id)).filter(node=>node?.node_kind==='npc').map(node=>graph.handle(node!)));
@@ -64,60 +64,91 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
     return {receipt,event:{type:'clue-discovered',data:{clue:handle,scene:receipt.scene,how}}};
 }
 /**
- * The person this effect is about: the book's, a reviewed adaptation's, or -- when the graph has
- * nothing to offer under that name -- one this table establishes here (contract §87, see
+ * The person this effect is about: the book's, a reviewed adaptation's, one this table named with
+ * `apply person`, one a passage the source text carried this turn names (§11.5.4), or -- declared
+ * with `walk_on: true` -- one this table establishes here (contract §87, §87.7, see
  * `read/table-people.ts`).
  *
- * **Silence is what mints, not failure to resolve.** The first version of this read through
- * `graph.find`, which answers null for an ambiguous name exactly as it does for an absent one, so
- * `apply npc "Senora Pena"` -- two nodes folding to one name -- minted a third person called that
- * instead of refusing. `ts-kernel-name-fold` caught it. The same hole shadowed the book: a Keeper
- * who wrote a name one word longer than an authored one got a duplicate ghost where #64's guard
- * requires `unknown_entity`.
+ * **A table name is a name.** Before anything is refused or minted, the word is looked up in §79's
+ * record. temper-c t4-c4 sent `apply person {who: <the dock labourer>, name: <an epithet>}` and then
+ * `apply npc {name: <that epithet>}` in one batch, which is what the capsule's `untold.use` tells the
+ * Keeper to do, and the npc effect minted a second man under the epithet: this was the one person
+ * entrance that read the book's names and not the table's. Two people given one word come back as
+ * an ambiguity, never a pick.
  *
- * So the condition is the graph having no suggestion at all. `candidates` is the ranking the kernel
- * already uses for "did you mean", and this consults it to decide whether to *refuse*, never to pick:
- * when it offers anything, the original refusal and its own candidates go back untouched and the
- * Keeper chooses. That is the opposite of correcting a near name, which stays forbidden (contract
- * §2), and it is strictly more conservative than minting on every miss.
+ * **A newcomer is declared, not inferred from silence.** A word no record carries can as well be an
+ * authored person the Keeper has not introduced yet as someone the book never had, and deciding
+ * which is the semantic judgement §87.4 forbids. So minting takes `walk_on: true`, and without it
+ * the refusal hands over the calls for each reading (`notAtThisTable`) -- which is also the
+ * `unknown_entity` §11.5.6's host resolution waits for, so a silent mint had been skipping it. A
+ * passage the book carried vouches for its person, and needs no flag.
  *
- * `skill` and `archetype` refuse an unknown name outright. Those pin numbers, and pinning numbers
- * onto someone the same call is inventing is how a stat block gets attached to a typo; the Keeper
- * establishes the person first and pins afterwards, which is the order §34.10 already describes.
+ * **Silence was never the right test anyway.** The first version read through `graph.find`, which
+ * answers null for an ambiguous name exactly as for an absent one, so `apply npc "Senora Pena"` --
+ * two nodes folding to one name -- minted a third (`ts-kernel-name-fold`); an ambiguity, by an
+ * exact key or a run inside two names, is still the graph's own refusal, flag or no flag. The fix
+ * for that refused whenever `candidates` offered anything, and §11.5.7 and its SL-70 addendum then
+ * spent two rounds taking this table's own people back out of that count. Resemblance is no reason to refuse a declared newcomer at all:
+ * a refusal that sends the Keeper to pick "the porter" for the constable because the words share
+ * letters is §87's turn-106 relocation again. Near names now lead the refusal's list instead.
  *
- * **A table person already established is never counted here (contract §11.5.7/SL-64).** `candidates`
- * appends this table's own roster last, unconditionally, once it has minted anyone at all (§87.4) --
- * that roster is a list for the Keeper (or SL-62's Jev question on the host) to resolve a name
- * *against*, never a headcount that should make a second, unrelated name refuse instead of minting.
- * `graph.candidates(name, ['npc'], 6, {roster: false})` asks only whether the book/graph's own
- * ranking -- name overlap or similarity -- has anything to say; the roster plays no part in the
- * decision to mint. It still rides in the refusal's own `details.candidates` when the graph *did*
- * have something to say (line 91's rethrown `error` carries `graph.npc`'s own candidates, roster
- * included, exactly as before).
+ * With the flag, a pin rides on the call that establishes the person (ticket 07's ruled shape): the
+ * typo §87.2 guarded against is a Keeper reaching for someone the book has, and a Keeper who
+ * declared a newcomer is not doing that. A reunion stays refused on a word nobody carries.
  */
 async function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|null):Promise<{node:Row;established:false|'table'|'passage';from_passage?:Row}>{
-    const {graph}=context;
-    let passage:Row|null=null;
-    try{return{node:graph.npc(name),established:false};}
-    catch(error){
-        // A pin, an ambiguity, or a name the book has something to say about: the graph's own answer
-        // stands, with the candidates it minted. Only a name it is silent on reaches the table.
-        // A creature that states a stat block is the book's body, not a new person (contract §136.12).
-        const creature=graph.actor(name);
-        if(creature)return{node:creature,established:false};
-        // SL-73 (§11.5.7 addendum, gate #12): before minting is even considered, or the graph's own
-        // refusal is repeated to the Keeper, say what the name actually is when the empty-candidates
-        // answer would otherwise be "pick from details.candidates" with nothing in it -- the
-        // investigator's own name, or some other kind the graph already knows, is not a person to mint.
-        if(effect.skill!=null||effect.archetype!=null||effect.conditions!=null||effect.reunion!=null)
-            throw personRefusal(error,name,graph,await context.campaign.party());
-        // §11.5.4 (SL-51): a name the source text carried this turn holds is not invented, candidates or not.
-        passage=passageOf(effect,name);
-        if(!passage&&graph.candidates(name,['npc'],6,{roster:false}).length)
-            throw personRefusal(error,name,graph,await context.campaign.party());
+    const {graph,world}=context,walkOn=effect.walk_on??null;
+    if(walkOn!==null&&typeof walkOn!=='boolean')throw new RpcError('invalid_params','npc.walk_on must be true or false',{fix:'walk_on: true on the effect that brings in someone the book never had; leave it out for anyone this table already has',details:{field:'npc.walk_on'}});
+    let node:Row|null=null,refusal:unknown=null;
+    try{node=graph.npc(name);}catch(error){refusal=error;}
+    // A creature that states a stat block is the book's body, not a new person (contract §136.12); then the word this
+    // table gave someone, through the one junction every person entrance reads (§87.8), which refuses two owners.
+    node??=personNode(graph,world,name);
+    if(node){
+        if(walkOn===true&&!graph.isTablePerson(node))throw new RpcError('invalid_params',`${repr(name)} is ${graph.displayName(node)}, whom this table already has; walk_on brings in someone it does not`,{fix:`leave walk_on out to write to ${graph.displayName(node)}; call a newcomer by a word nobody here carries`,details:{field:'npc.walk_on',query:name,person:graph.displayName(node)}});
+        return{node,established:false};
     }
-    const node=establishPerson(context,name,why,passage);
-    return{node,established:passage?'passage':'table',...(passage?{from_passage:passage}:{})};
+    // A word that already names more than one person -- by an exact key or as a run inside two names
+    // -- is the graph's ambiguity, flag or no flag: a newcomer under it would be a third, and would
+    // shadow both. A reunion is with someone already met. Both keep SL-73's refusal.
+    const ambiguous=isAmbiguity(refusal),party=await context.campaign.party();
+    if(effect.reunion!=null||ambiguous)throw personRefusal(refusal,name,graph,party);
+    // The investigator's own name, or exactly the name of a place or a clue, is not a person anybody
+    // establishes (SL-73): asked before any road to minting, flag or no flag.
+    const other=notAPerson(name,graph,party,refusal instanceof RpcError?refusal.message:`no npc named ${repr(name)}`);
+    if(other)throw other;
+    const passage=passageOf(effect,name),pinned=['skill','archetype','conditions'].some(key=>effect[key]!=null);
+    if(walkOn!==true&&(!passage||pinned))throw await notAtThisTable(context,effect,name,refusal);
+    const established=establishPerson(context,name,why,passage);
+    return{node:established,established:passage?'passage':'table',...(passage?{from_passage:passage}:{})};
+}
+/**
+ * The refusal for a word nobody at this table carries, sent without `walk_on` (contract §87.7). A
+ * `fix` is executed literally, so it carries the calls rather than a description of them:
+ * `details.present` is who is here, and each authored person the player has not been told about and
+ * this table has no word for carries the `apply person` that gives them this one, ready to go first
+ * in the same batch; `details.walk_on` is this effect with the flag set. Choosing between them is the
+ * Keeper's; nothing here compares the word to anybody.
+ */
+async function notAtThisTable(context:ApplyContext,effect:Row,name:string,refusal:unknown):Promise<RpcError>{
+    const {graph,world}=context,snapshot=new CampaignSnapshot(context.kernel,context.campaign.id);
+    const journal=row(await snapshot.optional('npc-journal.json')),records=await snapshot.files('turns');
+    let here:Row[]=[];try{here=npcsPresent(graph,world,graph.scene(world.active_scene));}catch{here=[];}
+    const present=here.map(node=>{
+        const display=graph.displayName(node),called=string(personRecord(world,graph.handle(node)).name||'').trim();
+        const untold=!called&&!graph.isTablePerson(node)&&untoldBlock(graph,world,journal,node,records)!==null;
+        return {name:display,...(called?{called}:{}),...(untold?{introduce:{kind:'person',who:display,name:name.trim()}}:{})};
+    });
+    const walk_on={...Object.fromEntries(entries(effect).filter(([key])=>!key.startsWith('_'))),walk_on:true};
+    // Near names lead; an empty list never travels (SL-73), and the fix names only lists that are there.
+    const candidates=graph.candidates(name,['npc']),lists=[...(candidates.length?['details.candidates']:[]),...(present.length?['details.present']:[])];
+    const pick=lists.length?`if this is someone in ${lists.join(' or ')}, write to them by that name`:'';
+    const introduce=present.some(person=>person.introduce)?'; one in details.present carrying introduce has no word at this table yet, so send its introduce effect first in this same apply and this npc effect after it':'';
+    // The graph's own sentence stays the message ("no npc named ..."): it is still true, and the fix and
+    // details are what change.
+    return new RpcError('unknown_entity',refusal instanceof RpcError?refusal.message:`nobody at this table is called ${repr(name)}`,{
+        fix:`${pick}${introduce}${pick?'. ':''}To establish someone the book never had, send details.walk_on in place of this effect`,
+        details:{query:name,...(present.length?{present}:{}),...(candidates.length?{candidates}:{}),walk_on}});
 }
 /**
  * §87's record of a person the table has and the book (so far) does not; with §11.5.4's `from_passage` when a passage the

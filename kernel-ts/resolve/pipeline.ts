@@ -3,6 +3,7 @@ import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { RESOLVER_NAMES } from '../capabilities.js';
 import { actor as findActor, actorKnown } from '../read/handlers.js';
+import { calledPerson } from '../read/capsule.js';
 import { SessionView, active, boutActive, defenseOptions } from '../read/session-view.js';
 import { semanticName } from '../read/rule-facts.js';
 import { array, entries, equal, integer, kebab, normalize, normalizeText, number, repr, row, string, truth, type Row } from '../read/values.js';
@@ -89,6 +90,31 @@ export function validateExtras(action: Row): void {
         throw new RpcError('invalid_params', 'action.skills must be a list of skill names');
     if (action.mode != null && !['any', 'all'].includes(action.mode))
         unsupportedValue('action.mode', action.mode, ['any', 'all']);
+}
+/**
+ * The person seats of a resolve, `actor` and `target`, read through the junction every person entrance
+ * reads (contract §87.8), once and before anything reads the action.
+ *
+ * A seat an investigator of the party or the graph's actor already answers is left exactly as written,
+ * so nothing that resolved before changes. A seat only this table's own word answers (§79.2) is read as
+ * that person's handle, which every reader after this already resolves: the NPC target and actor, an
+ * obligation's or a stated rule's target, the material gate, combat, chase, a patient, the rulings and a
+ * Mod's settlement. Before this the social adjudication never saw that person's stance or motives -- the
+ * miss routed the call to the ordinary check, a roll against a label. Two people given one word are
+ * refused here, before anything rolls. The stored call parameters stay the Keeper's own (§134.11).
+ */
+export function readCalledPeople(party: Row[], graph: SettleContext['graph'], world: Row, action: Row): Row {
+    let read = action;
+    for (const seat of ['actor', 'target']) {
+        const word = action[seat];
+        if (typeof word !== 'string' || !word.trim() || graph.actor(word)
+            || party.some(sheet => [normalize(string(sheet.id)), normalize(string(sheet.name))].includes(normalize(word))))
+            continue;
+        const person = calledPerson(graph, world, word);
+        if (person)
+            read = { ...read, [seat]: graph.handle(person) };
+    }
+    return read;
 }
 export function resolveActor(party: Row[], graph: SettleContext['graph'], sessions: SessionView, action: Row): {
     actor: Row;

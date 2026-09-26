@@ -7,7 +7,7 @@ import type {createWriteRuntime} from '../write/index.js';
 import {nowIso,required} from '../write/store.js';
 import {loadCampaignModule} from '../read/campaign.js';
 import {playLanguageOf} from '../read/languages.js';
-import {npcsPresent} from '../read/capsule.js';
+import {npcNode,npcsPresent} from '../read/capsule.js';
 import {RpcError} from '../errors.js';
 import {isJsonObject,jsonDigest} from '../json.js';
 import {array,clone,number,row,string,type Row} from '../read/values.js';
@@ -63,7 +63,7 @@ export function createNpcHandlers(context:KernelContext,writer:ReturnType<typeof
         },
         'npc.job':async params=>{
             const {campaign,meta,world,graph,scope}=await load(params);
-            const nodes=params.name!=null?[graph.npc(required(params,'name')!)]:npcsPresent(graph,world,graph.scene(world.active_scene));
+            const nodes=params.name!=null?[npcNode(graph,world,required(params,'name')!)]:npcsPresent(graph,world,graph.scene(world.active_scene));
             const node=nodes.find(node=>!personalityView(graph,world,node));
             if(!node)return {job_id:null};
             const source_revision=personalitySourceRevision(graph,node),id=jsonDigest({campaign:campaign.id,npc:node.node_id,scope,source_revision});

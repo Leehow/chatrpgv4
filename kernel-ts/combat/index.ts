@@ -103,7 +103,7 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                         }
                         else
                             throw new RpcError('needs', 'combat needs a present NPC as action.target', {
-                                fix: 'set action.target to one of details.needs.options; someone not on stage yet is put there with apply npc and a to first. A thing with nobody behind it -- a falling beam, a door, an object moving on its own -- is an ordinary resolve or apply damage, not combat',
+                                fix: 'set action.target to one of details.needs.options; someone not on stage yet is put there with apply npc and a to first, adding walk_on: true when the book never had them. A thing with nobody behind it -- a falling beam, a door, an object moving on its own -- is an ordinary resolve or apply damage, not combat',
                                 details: { needs: { field: 'target', options: context.presentNpcNames() } },
                             });
                     }

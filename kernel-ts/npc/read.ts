@@ -1,7 +1,7 @@
 /** Limited NPC projections from an existing authoritative snapshot. No dossier or write authority. */
 import type {ModuleGraph} from '../read/module-graph.js';
 import {array,number,row,string,type Row} from '../read/values.js';
-import {npcsPresent} from '../read/capsule.js';
+import {npcNode,npcsPresent} from '../read/capsule.js';
 import {withPromiseFulfillment,canonicalMemoryReceipts} from '../read/memory.js';
 import {incapacitatedBy} from '../healing/conditions.js';
 import {jsonDigest} from '../json.js';
@@ -12,7 +12,7 @@ export async function npcViews(input:{campaign:string;graph:ModuleGraph;world:Ro
     name?:string;read(file:string):Promise<Row|null>}):Promise<Row[]> {
     const {graph,world,turn,records,ledger}=input,worldline=string(input.meta.active_worldline||'main');
     const scope={worldline,loop:number(row(row(input.meta.worldlines)[worldline]).loop)};
-    const nodes=input.name?[graph.npc(input.name)]:npcsPresent(graph,world,graph.scene(world.active_scene));
+    const nodes=input.name?[npcNode(graph,world,input.name)]:npcsPresent(graph,world,graph.scene(world.active_scene));
     const memory=withPromiseFulfillment(input.memory,{campaign:input.campaign,world,receipts:canonicalMemoryReceipts(records,array(turn.receipts))});
     const contextRevision=jsonDigest({campaign:input.campaign,world,turn});
     return Promise.all(nodes.map(async node=>{
