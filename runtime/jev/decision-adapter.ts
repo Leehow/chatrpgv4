@@ -33,13 +33,39 @@ export interface AnswerSchemaDiagnostic {
 }
 export type AdapterTrace =
   | { kind: 'packing'; batchId: string; estimate: PackingEstimate; cache: 'disabled' }
-  | { kind: 'attempt'; batchId: string; attempt: number; status?: number }
+  /** SL-84: one row per completed round trip -- `status` on an actual HTTP response (2xx included), `code` when the
+   * fetch itself never produced one (a network error or an attempt-timeout abort). `retryAfter` carries the raw
+   * `retry-after` header text, only when a 429 response sent one. */
+  | { kind: 'attempt'; batchId: string; attempt: number; family: string; ms: number; status?: number; code?: 'network_error' | 'timeout'; retryAfter?: string }
   | { kind: 'retry'; batchId: string; attempt: number; delayMs: number; reason: string }
   | { kind: 'answer_schema'; batchId: string; status: 'incomplete'; diagnostics: AnswerSchemaDiagnostic[] }
   | { kind: 'usage'; batchId: string; attempts: number; inputTokens: number; outputTokens: number;
       cost: { kind: 'listed_price_estimate'; usd: number; inputUsdPerMillion: number; unknownRetryBoundUsd: number } }
-  | { kind: 'failure'; batchId: string; attempts: number; code: NonNullable<DecisionResult['failure']>['code'];
+  | { kind: 'failure'; batchId: string; attempts: number; family: string; code: NonNullable<DecisionResult['failure']>['code'];
+      /** SL-84: the same last-attempt status/code carried onto the batch's own DecisionResult.failure.status. */
+      status?: number | string;
       cost: { kind: 'reserved_bound_actual_unknown'; usd: number } };
+
+/**
+ * SL-84 (contract §122 "Jev attempt/batch failure telemetry" addendum): turns adapter trace events into the
+ * ticket's two telemetry rows. A successful attempt (an HTTP status in [200, 300)) and a successful batch write
+ * nothing. No request or response content ever reaches `record`; only family, status/code, retry count and timing.
+ */
+export function jevFailureTelemetry(record: (row: Record<string, unknown>) => void): (event: AdapterTrace) => void {
+  return event => {
+    if (event.kind === 'attempt') {
+      const failed = event.code !== undefined || (typeof event.status === 'number' && (event.status < 200 || event.status >= 300));
+      if (!failed) return;
+      record({ lane: 'jev', event: 'attempt_failed', family: event.family,
+        ...(event.status !== undefined ? { status: event.status } : {}),
+        ...(event.code !== undefined ? { code: event.code } : {}),
+        retry: event.attempt - 1, ms: event.ms,
+        ...(event.retryAfter !== undefined ? { retry_after: event.retryAfter } : {}) });
+    } else if (event.kind === 'failure') {
+      record({ lane: 'jev', event: 'batch_failed', family: event.family, code: event.code, attempts: event.attempts });
+    }
+  };
+}
 export interface DecisionAdapterOptions {
   env?: Readonly<NodeJS.ProcessEnv>;
   /** Explicit injection for isolated transport tests; production callers pass their captured env. */
@@ -107,10 +133,12 @@ function policy(value: RetryPolicy | undefined): RetryPolicy {
   return result;
 }
 function required(batch: DecisionBatch): string[] { return Array.isArray(batch.questions) ? batch.questions.map(item => item?.key).filter(Boolean) : []; }
-function unavailable(batch: DecisionBatch, code: NonNullable<DecisionResult['failure']>['code'], retryable: boolean, elapsedMs = 0, attempts = 0): DecisionResult {
+function unavailable(batch: DecisionBatch, code: NonNullable<DecisionResult['failure']>['code'], retryable: boolean, elapsedMs = 0, attempts = 0,
+    status?: number | string): DecisionResult {
   const keys = required(batch);
   return { batchId: typeof batch?.id === 'string' ? batch.id : '', status: 'unavailable', answers: {},
-    coverage: { required: keys, answered: [], unknown: keys }, issues: [], elapsedMs, attempts, failure: { code, retryable } };
+    coverage: { required: keys, answered: [], unknown: keys }, issues: [], elapsedMs, attempts,
+    failure: { code, retryable, ...(status !== undefined ? { status } : {}) } };
 }
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -257,6 +285,8 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
         return unavailable(batch, code, false, now() - began);
       }
       let released = false;
+      /** SL-84: the most recent attempt's HTTP status, or its network/timeout code when no response ever arrived. */
+      let lastStatus: number | string | undefined;
       const settleUnknown = (code: NonNullable<DecisionResult['failure']>['code'], retryable: boolean, attempts: number) => {
         const unknownInput = packed.estimate.totalUpperBound * attempts;
         const unknownCost = unknownInput * JEV_INPUT_USD_PER_MILLION / 1_000_000;
@@ -265,8 +295,9 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
             costUsd: unknownCost, actions: 1 });
           released = true;
         }
-        trace({ kind: 'failure', batchId: batch.id, attempts, code, cost: { kind: 'reserved_bound_actual_unknown', usd: unknownCost } });
-        return unavailable(batch, code, retryable, now() - began, attempts);
+        trace({ kind: 'failure', batchId: batch.id, attempts, family: batch.family, code, ...(lastStatus !== undefined ? { status: lastStatus } : {}),
+          cost: { kind: 'reserved_bound_actual_unknown', usd: unknownCost } });
+        return unavailable(batch, code, retryable, now() - began, attempts, lastStatus);
       };
       let attempted = 0;
       try {
@@ -276,6 +307,7 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
           const remaining = lease.context.budget.deadlineAt - now();
           const attemptTimeout = Math.max(1, Math.min(remaining, retry.attemptTimeoutMs ?? remaining));
           const attemptSignal = AbortSignal.any([lease.signal, AbortSignal.timeout(attemptTimeout)]);
+          const attemptBegan = now();
           let response: Response;
           try {
             attempted = attempt;
@@ -285,6 +317,10 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
             if (lease.signal.aborted) return settleUnknown(now() >= lease.context.budget.deadlineAt ? 'timeout' : 'cancelled', false, attempt);
             const timedOut = attemptSignal.aborted;
             const networkError = error instanceof TypeError;
+            // SL-84: a completed round trip never happened; the attempt row names the failure by code, not status.
+            const attemptCode: 'timeout' | 'network_error' = timedOut ? 'timeout' : 'network_error';
+            lastStatus = attemptCode;
+            trace({ kind: 'attempt', batchId: batch.id, attempt, family: batch.family, code: attemptCode, ms: now() - attemptBegan });
             const allowed = timedOut ? retry.retryTimeout === true : networkError && retry.retryNetwork === true;
             if (!allowed || attempt >= maxAttempts) return settleUnknown(timedOut ? 'timeout' : 'service_error', allowed, attempt);
             const delay = Math.min(retry.backoffMaxMs, retry.backoffInitialMs * 2 ** (attempt - 1));
@@ -293,7 +329,12 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
             try { await sleep(delay, lease.signal); } catch { return settleUnknown('cancelled', false, attempt); }
             continue;
           }
-          trace({ kind: 'attempt', batchId: batch.id, attempt, status: response.status });
+          lastStatus = response.status;
+          // SL-84: a 429's raw `retry-after` header, verbatim, only for the telemetry row -- `retryDelay` below computes
+          // the actual wait separately and also honors `retry-after-ms`.
+          const retryAfterHeader = response.status === 429 ? headers(response, 'retry-after') : null;
+          trace({ kind: 'attempt', batchId: batch.id, attempt, family: batch.family, status: response.status, ms: now() - attemptBegan,
+            ...(retryAfterHeader ? { retryAfter: retryAfterHeader } : {}) });
           if (response.status === 429 || response.status === 529) {
             await cancelResponseBody(response);
             if (attempt >= maxAttempts) return settleUnknown('rate_limited', true, attempt);

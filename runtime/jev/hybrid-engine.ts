@@ -34,7 +34,7 @@
 import type { RunDriverPorts, RunEvent } from '@earendil-works/pi-agent-core';
 import type { SessionRunDriver } from '@earendil-works/pi-coding-agent';
 import { createHash } from 'node:crypto';
-import { createDecisionAdapter } from './decision-adapter.ts';
+import { createDecisionAdapter, jevFailureTelemetry } from './decision-adapter.ts';
 import type { DecisionPort as JevDecisionPort } from './decision-port.ts';
 import { ContractError, type DecisionBatch, type DecisionResult, type IntentBinding, type Json, type ObservationPacket, type OperationProposal, type ReadSet, type ScopeBinding } from './contracts.ts';
 import { TaskLease } from './task-context.ts';
@@ -460,11 +460,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   const now = options.now ?? (() => Date.now());
   /** §135.25: the clerk steps the last run's budget deferred, for the next run's first note to the Keeper (session memory). */
   let carried: {campaign?: string; run: string; turn?: number; deferred: DeferredStep[]} | undefined;
-  const jev = options.decision === null ? undefined
-    : options.decision ?? (readJevApiKey(options.env) ? createDecisionAdapter({env: options.env, maxConcurrency: 4}) : undefined);
   const record = (row: Record<string, unknown>) => {
     try { (options.record ?? bridge?.record)?.(row); } catch { /* Telemetry never steers the run. */ }
   };
+  // SL-84 (contract §122 "Jev attempt/batch failure telemetry" addendum): the adapter's own AdapterTrace, which
+  // otherwise went nowhere, now writes the `attempt_failed`/`batch_failed` rows.
+  const jev = options.decision === null ? undefined
+    : options.decision ?? (readJevApiKey(options.env) ? createDecisionAdapter({env: options.env, maxConcurrency: 4, trace: jevFailureTelemetry(record)}) : undefined);
   const call = async (method: string, params: Record<string, unknown> = {}) => {
     if (!bridge?.call || !bridge.campaign) throw new Error('kernel_bridge_unavailable');
     return object(await bridge.call(method, {campaign: bridge.campaign, ...params}));
@@ -555,7 +557,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // Recorded now only when Jev could not answer (D2.7: an outage degrades to no D1 rows plus this reason); a
     // complete answer's own telemetry is the turn-close pairing row below, carrying `keeper_did`.
     if (result?.status !== 'complete') record({lane: 'route', purpose: 'consequence', shadow: mode !== 'on', run: run.runId, step: stepId,
-      status: result?.status ?? 'unavailable', reason: outcome.reason, ms, offered: candidates.length});
+      status: result?.status ?? 'unavailable', reason: outcome.reason,
+      // SL-84: the last attempt's HTTP status or network/timeout code, so a `jev_service_error` reason is legible.
+      ...(result?.failure?.status !== undefined ? {jev_status: result.failure.status} : {}), ms, offered: candidates.length});
     for (const key of consequenceKeysToExecute(mode, outcome.rows, run.consequenceExecuted)) {
       run.consequenceExecuted.add(key);
       const candidate = candidates.find(value => value.key === key);
@@ -872,10 +876,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         const input = object(question.input) as unknown as ReaskInput;
         const reasked = interpretReask({candidates: array(question.candidates) as Candidate[]}, input, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE);
         record({lane: 'route', purpose: 'reask', run: run.runId, step: request.stepId, status: result.status, ms: Date.now() - began,
+          // SL-84: the last attempt's HTTP status or network/timeout code, so a `jev_service_error` reason is legible.
+          ...(result.failure?.status !== undefined ? {jev_status: result.failure.status} : {}),
           settled_by: array(input.settled).map(entry => object(entry).key), answers: reasked.answers, filed: reasked.filed.map(candidate => candidate.key), reason: reasked.reason});
         return {status: result.status === 'complete' ? 'ok' as const : 'unavailable' as const, artifact: {kind: 'reask', result} as StepArtifact};
       }
       record({lane: 'route', purpose: request.purpose, run: run.runId, step: request.stepId, status: result.status, ms: Date.now() - began,
+        // SL-84: the last attempt's HTTP status or network/timeout code, so a `jev_service_error` reason is legible.
+        ...(result.failure?.status !== undefined ? {jev_status: result.failure.status} : {}),
         ...(request.purpose === 'route' ? {offered: offered.map(candidate => candidate.key), selected: routed?.selected ?? [], exit: routed?.exit ?? null, reason: routed?.reason ?? null,
           ...(settled.length ? {settled} : {})}
           : compiled ? {features: compiled.features, fired: compiled.selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),

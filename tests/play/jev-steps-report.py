@@ -230,6 +230,19 @@ def report_campaign(campaign_dir):
             if corrected != raw:
                 print(f'    turn {row.get("turn")} key={row.get("key")!r} cleared={row.get("cleared")}: raw keeper_did={raw!r} -> corrected {corrected!r}')
 
+    print('\n-- jev outages (SL-84, contract §122 addendum: `{lane:"jev", event:"attempt_failed"|"batch_failed"}` rows) --')
+    attempt_failed = [r for r in telemetry if r.get('lane') == 'jev' and r.get('event') == 'attempt_failed']
+    batch_failed = [r for r in telemetry if r.get('lane') == 'jev' and r.get('event') == 'batch_failed']
+    if not attempt_failed and not batch_failed:
+        print('  no jev attempt_failed/batch_failed rows in this campaign\'s telemetry')
+    else:
+        outage_turns = sorted({r.get('turn') for r in batch_failed})
+        print(f'  turns with a batch outage: {outage_turns} ({len(outage_turns)})')
+        statuses = collections.Counter(str(r.get('status', r.get('code'))) for r in attempt_failed)
+        print(f'  attempt statuses/codes seen: {dict(statuses)} over {len(attempt_failed)} failed attempts')
+        by_family = collections.Counter(r.get('family') for r in batch_failed)
+        print(f'  batch_failed by family: {dict(by_family)}')
+
     print('\n-- added Jev ms per turn (from `{lane:"run", event:"consequence_budget"}` rows) --')
     if not budget_rows:
         print('  no consequence_budget rows in this campaign\'s telemetry -- cannot report added ms')
@@ -241,7 +254,8 @@ def report_campaign(campaign_dir):
             print(f'  turns with a shadow call: {len(ms)}/{len(turn_files)}; median {statistics.median(ms):.0f} ms; mean {statistics.mean(ms):.1f} ms; max {max(ms)} ms')
 
     return {'cid': cid, 'candidate_rows': candidate_rows, 'exists_rows': exists_rows, 'stranded': stranded,
-            'budget_rows': budget_rows, 'turn_files': turn_files}
+            'budget_rows': budget_rows, 'turn_files': turn_files,
+            'jev_attempt_failed': attempt_failed, 'jev_batch_failed': batch_failed}
 
 
 def main(argv):

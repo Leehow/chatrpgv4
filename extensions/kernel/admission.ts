@@ -20,7 +20,7 @@ import { createHash } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runLane } from "../lanes/subsession.ts";
 import { KernelError } from "./client.ts";
-import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
+import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
@@ -672,8 +672,10 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 		const signal = options.providerBudget ? AbortSignal.any([outer, options.providerBudget.signal]) : outer;
 		const bindings = admissionJevBindings(input);
 		accounting = preparationBudget({
+			// SL-84 (contract §122 addendum): the adapter's own trace, otherwise unrecorded, writes the
+			// `attempt_failed`/`batch_failed` rows through this call's own telemetry sink.
 			decision: options.decision ?? createDecisionAdapter({ env, maxConcurrency: 4, retryPolicies: {
-				[ADMISSION_JEV_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } }),
+				[ADMISSION_JEV_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } }, trace: jevFailureTelemetry((row) => { void options.record(row); }) }),
 			campaign: options.campaign, deadlineAt, signal, ...(options.providerBudget ? { parent: options.providerBudget } : {}),
 			owner: ADMISSION_JEV_FAMILY, goal: "Judge whether the player chose the proposed action",
 		});
@@ -695,6 +697,8 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 		...(typed.lines ? { line_verdicts: typed.lines.map((line) => line.verdict) } : {}),
 		// §32.12.3: each line's own confidence, so a line-level decision (and one that did not happen) can be read back.
 		...(typed.lines ? { line_confidences: typed.lines.map((line) => line.confidence) } : {}),
+		// SL-84: the last attempt's HTTP status or network/timeout code, so a `service_error` fallback reason is legible.
+		...(typed.status === "fallback" && typed.jevStatus !== undefined ? { jev_status: typed.jevStatus } : {}),
 	} : { jev_calls: 0, jev_ms: Date.now() - began };
 	return { typed, meta };
 }

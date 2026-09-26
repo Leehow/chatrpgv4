@@ -59,6 +59,8 @@ export type AdmissionJevResult =
   | {status: 'decided'; verdict: AdmissionJevVerdict; grounds: string; missing?: string; confidence: number;
     lines: AdmissionJevLine[]; calls: number; elapsedMs: number; usage: {inputTokens: number; outputTokens: number; costUsd: number}}
   | {status: 'fallback'; reason: string; confidence?: number; lines?: AdmissionJevLine[]; calls: number; elapsedMs: number;
+    /** SL-84: the failing attempt's HTTP status or network/timeout code, carried from `DecisionResult.failure.status`. */
+    jevStatus?: number | string;
     usage: {inputTokens: number; outputTokens: number; costUsd: number}};
 
 interface Passage {alias: string; text: string; where: string}
@@ -236,8 +238,9 @@ export function batchVerdict(lines: readonly AdmissionJevVerdict[]): AdmissionJe
 export function interpretAdmissionJev(input: AdmissionJevInput, result: DecisionResult, passagesByAlias: Map<string, Passage>,
   minConfidence = ADMISSION_JEV_DEFAULT_MIN_CONFIDENCE):
   {status: 'decided'; verdict: AdmissionJevVerdict; grounds: string; missing?: string; confidence: number; lines: AdmissionJevLine[]}
-  | {status: 'fallback'; reason: string; confidence?: number; lines?: AdmissionJevLine[]} {
-  if (result.status !== 'complete') return {status: 'fallback', reason: result.failure?.code ?? `decision_${result.status}`};
+  | {status: 'fallback'; reason: string; confidence?: number; lines?: AdmissionJevLine[]; jevStatus?: number | string} {
+  if (result.status !== 'complete') return {status: 'fallback', reason: result.failure?.code ?? `decision_${result.status}`,
+    ...(result.failure?.status !== undefined ? {jevStatus: result.failure.status} : {})};
   const lines: AdmissionJevLine[] = [];
   for (let index = 0; index < input.proposal.length; index++) {
     const verdict = answered(result, `verdict_${index}`), missing = answered(result, `missing_${index}`), basis = answered(result, `basis_${index}`);
@@ -268,7 +271,7 @@ export async function runAdmissionJev(input: AdmissionJevInput, decision: Decisi
   options: {minConfidence?: number} = {}): Promise<AdmissionJevResult> {
   const began = Date.now(), usage = {inputTokens: 0, outputTokens: 0, costUsd: 0};
   let calls = 0;
-  const fallback = (reason: string, extra: {confidence?: number; lines?: AdmissionJevLine[]} = {}): AdmissionJevResult =>
+  const fallback = (reason: string, extra: {confidence?: number; lines?: AdmissionJevLine[]; jevStatus?: number | string} = {}): AdmissionJevResult =>
     ({status: 'fallback', reason, ...extra, calls, elapsedMs: Date.now() - began, usage});
   try {
     if (!input.proposal.length) return fallback('empty_proposal');
@@ -289,7 +292,7 @@ export async function runAdmissionJev(input: AdmissionJevInput, decision: Decisi
     }));
     const read = interpretAdmissionJev(input, merged(results), byAlias, options.minConfidence);
     if (read.status === 'fallback') return fallback(read.reason, {...(read.confidence === undefined ? {} : {confidence: read.confidence}),
-      ...(read.lines ? {lines: read.lines} : {})});
+      ...(read.lines ? {lines: read.lines} : {}), ...(read.jevStatus === undefined ? {} : {jevStatus: read.jevStatus})});
     return {...read, calls, elapsedMs: Date.now() - began, usage};
   } catch {
     return fallback('admission_owner_error');
