@@ -158,6 +158,30 @@ replays' LLM step counts before and after; a live gate.
 
 ## Comments
 
+### 2026-09-26 — BR-03, BR-04 and BR-05 integrated (`claude/integ-band-20260926`)
+
+Merged in the order BR-04, BR-03, BR-05 (`7916105fc`, `68bc205df`, `3afa4818c`) on `0.9.5a@da64930f5`. Conflicts were
+all "appended at the same place": §138.7–§138.9 now sit in order in `docs/kernel-rpc.md`, the three tickets' Comments in
+ticket order here, and the SL-00 inventory carries BR-04's askBand note beside BR-05's new travel-fill row.
+Integration review (high), seven findings: three fixed in `36f8af8b9` (one `clip`/`digest16` in `runtime/jev/text.ts`
+for every Jev domain; the shadow's route rows read from the kernel's `ROUTE_TRAVEL_ROWS` instead of a second list; the
+travel build lease's actions sized for the retry each batch may take), four recorded as decisions: the job identity
+keeps Jev's confidence in the preset digest (a restart mid-turn may mint a second job; rare and cheap, the worker's
+tested choice stands); a deferred weapon define waits for the band question in the foreground (about 0.3 s median,
+capped by `PI_COC_BAND_JEV_TIMEOUT_MS`); `kpi.py`'s basis section does not yet count `creator_preset` or `travel-fill`
+rows; neither the shadow nor the preset is driven through hybrid-v1.
+
+Decisions the owner should see (taken inside the tickets' scope, reversible):
+- BR-05 re-keyed the bundled character guidance of the-haunting and mystery-house (`graph_sha256` and `fingerprint`
+  recomputed after the old fingerprint was reproduced; the text is untouched) so a changed graph does not drop it.
+- BR-05 left 8 of 141 roads without minutes (answers below the 0.5 gate); the mystery-house Danvers ward is `long`
+  from the Costas' rooms and `local` from the North End clinic, as Jev answered.
+- BR-03: a Keeper-named `template` that names a weapons row gets no band question (the template stays evidence).
+- BR-03: departures are stated in a structured `deviations` list, not in `basis` prose (spec D7's wording amended
+  in §138.7).
+Not run here: the turn-3 replay (`experiments/single-loop-routing`, live Jev) and a live PDF publication through the
+real reader; the band-shadow report has no real rows yet (no table has been played since).
+
 ### 2026-09-26 — BR-01 implemented (`claude/br01-band-then-roll-20260926`, `a8999b981` + review fixes `5b8ef9a6b`)
 
 Contract: `docs/kernel-rpc.md` §138 (138.1 the fifth binding path, 138.2 the registry, 138.3 `band` on `time` and
