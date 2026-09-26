@@ -369,6 +369,16 @@
       "id": "SL-73",
       "file": "73-an-empty-candidates-list-is-not-a-fix.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-74",
+      "file": "74-first-step-thinking-experiment.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-75",
+      "file": "75-thinking-picker-needs-off.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
