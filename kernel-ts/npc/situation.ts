@@ -300,6 +300,27 @@ function atHand(graph: ModuleGraph, world: Row, party: Row[], me: Person, place:
     return {holdings, objects, exits, present};
 }
 
+/**
+ * §139.29 (ticket 30, table D2: the copper badge brought out on turn 6 was shown again on turns 9, 14 and 15): what an
+ * earlier act of this person brought out that they still hold -- its name as `holdings` has it, the turn it came out,
+ * and, when that act named its row, the row's `ref` and where it stands now (`status`, from `done` before any cut) -- so
+ * the generation step, and the bind batch that carries `at_hand` (§139.5's `same`, §139.27's `produces_known`), read
+ * that showing it again is not something new. Read from what the writes recorded (`_draws` on the drawn weapon,
+ * `_produces` on the instance's `brought_out`), never from a name. Newest first.
+ */
+export function broughtOut(world: Row, me: Person, done: Row[]): Row[] {
+    const status = new Map(done.map(entry => [string(entry.ref), string(entry.status)]));
+    const origin = (name: string, turn: unknown, ref: unknown): Row => ({name, turn: typeof turn === 'number' ? turn : null,
+        ...(typeof ref === 'string' && ref ? {ref, ...(status.has(ref) ? {status: status.get(ref)} : {})} : {})});
+    const weapons = array(row(world.npc_weapons)[me.handle]).map(row)
+        .map(weapon => origin(string(weapon.name || weapon.weapon_id), weapon.turn, weapon.ref));
+    const things = values(row(row(world.objects).instances)).map(row)
+        .filter(item => row(item.owner).kind === 'npc' && row(item.owner).id === me.handle && row(item.brought_out).by === me.handle)
+        .map(item => origin(string(item.name), row(item.brought_out).turn, row(item.brought_out).ref));
+    return [...weapons, ...things].map((entry, index) => ({entry, index}))
+        .sort((a, b) => number(b.entry.turn ?? -1) - number(a.entry.turn ?? -1) || b.index - a.index).map(({entry}) => entry);
+}
+
 /** The stated obligations of their scene (§134.9), as issued, that name this person: as `who`, as the person of the
  *  next step, or among the people the obligation guards. */
 function obligationsNaming(graph: ModuleGraph, world: Row, me: Person, place: Row | null, receipts: Row[], active: Row[]): Row[] {
@@ -324,7 +345,7 @@ function constraintsOf(graph: ModuleGraph, world: Row, party: Row[], me: Person,
 
 /**
  * The budget (§139.1): while the packet is over `maxBytes`, cut in order -- constraints; at_hand's objects, exits,
- * holdings, present; the oldest `done` rows but never the newest (`history`); the oldest own utterances; the oldest
+ * brought_out (§139.29), holdings, present; the oldest `done` rows but never the newest (`history`); the oldest own utterances; the oldest
  * `happened` sentences but never the closing one (the player's declaration, or the arrival that stands in for it,
  * §139.21); who's relationships and commitments. Each section cut is named once in `truncated`, in the order cut.
  */
@@ -332,8 +353,8 @@ export function fitSituation(packet: Row, maxBytes: number, declared: boolean): 
     const truncated: string[] = packet.truncated, over = () => jsonSize(packet) > maxBytes;
     const cut = (name: string) => { if (!truncated.includes(name)) truncated.push(name); };
     while (over() && packet.constraints.length) { packet.constraints.pop(); cut('constraints'); }
-    for (const key of ['objects', 'exits', 'holdings', 'present'])
-        while (over() && packet.at_hand[key].length) { packet.at_hand[key].pop(); cut('at_hand'); }
+    for (const key of ['objects', 'exits', 'brought_out', 'holdings', 'present'])
+        while (over() && Array.isArray(packet.at_hand[key]) && packet.at_hand[key].length) { packet.at_hand[key].pop(); cut('at_hand'); }
     while (over() && packet.done.length > 1) { packet.done.pop(); cut('history'); }
     while (over() && packet.recent_speech.length) { packet.recent_speech.shift(); cut('recent_speech'); }
     while (over() && packet.happened.length > (declared ? 1 : 0)) { packet.happened.shift(); cut('happened'); }
@@ -406,14 +427,17 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
             const session = new SessionView(campaign, graph, party, world).activeSession();
             const {place, constraints} = await placedConstraints(context, campaign, graph, me);
             const happened = happenedSentences(me, world, party, turn, previous, heard);
+            const done = intentHistory(entryNow(graph, ledger, table, turn, node));
+            // §139.29: what an earlier act of theirs brought out, present only when there is something.
+            const brought = broughtOut(world, me, done);
             const packet: Row = {
                 npc: {handle: me.handle, name: graph.displayName(node)},
                 who: {personality: view.personality ?? null, goals: view.goals ?? null, fears: view.fears ?? null,
                     commitments: view.commitments ?? [], relationships: view.relationships ?? []},
                 happened,
                 state: stateOf(graph, world, me, session, stanceNow(graph, ledger, table, turn, me.handle)),
-                at_hand: atHand(graph, world, party, me, place),
-                done: intentHistory(entryNow(graph, ledger, table, turn, node)),
+                at_hand: {...atHand(graph, world, party, me, place), ...(brought.length ? {brought_out: brought} : {})},
+                done,
                 recent_speech: array(view.recent_speech).map(line => `turn ${string(row(line).turn)}: ${flat(row(line).statement)}`),
                 constraints,
                 stakes: stakesOf(turn, me),

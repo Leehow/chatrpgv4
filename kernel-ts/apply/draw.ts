@@ -30,7 +30,7 @@ import {array, row, string, type Row} from '../read/values.js';
 import {RuleTables} from '../rules/tables.js';
 import {nowIso} from '../write/store.js';
 import {defineObject, moveObject, objectInstance, objectRegistry} from '../mods/objects.js';
-import {INTENT_TEXT_LIMIT} from '../npc/intents.js';
+import {INTENT_TEXT_LIMIT, intentOwner} from '../npc/intents.js';
 import {effectId, type StagedEffect} from './bookkeeping.js';
 import type {ApplyContext} from './index.js';
 
@@ -40,6 +40,16 @@ const OTHERS = ['to', 'stance', 'dead', 'skill', 'archetype', 'conditions', 'def
 const NAME_LIMIT = 120;
 const oneLine = (value: unknown, limit: number): value is string =>
     typeof value === 'string' && !!value.trim() && !/[\r\n\u2028\u2029]/.test(value) && Array.from(value.trim()).length <= limit;
+
+/**
+ * §139.29 (ticket 30): the row of the act that brought a thing out, when the write names one of this person's rows
+ * (`intent_ref`, the stamp the act step puts on what it brings out). Recorded beside the thing so the situation can say
+ * it was brought out before and by which act -- structure only, never read from a name.
+ */
+const originOf = (effect: Row, handle: string): Row => {
+    const ref = effect.intent_ref;
+    return typeof ref === 'string' && intentOwner(ref) === handle ? {ref} : {};
+};
 
 /** The rulebook's price-list record with this id, or undefined. */
 async function priceRecord(context: ApplyContext, priceId: string): Promise<Row | undefined> {
@@ -64,7 +74,7 @@ export async function stageDraw(context: ApplyContext, effect: Row, node: Row, h
     if (typeof draws.price_id === 'string' && (!record || string(row(record.entity_ref).entity_id) !== weapon))
         throw new RpcError('invalid_params', `${JSON.stringify(draws.price_id)} is not the price-list record of ${JSON.stringify(weapon)}`, {details: {field: 'npc._draws.price_id'}});
     if (!list.some(entry => entry.weapon_id === weapon))
-        held[handle] = [...list, {weapon_id: weapon, name, turn: context.turn.turn, ...(draws.price_id ? {price_id: draws.price_id} : {})}];
+        held[handle] = [...list, {weapon_id: weapon, name, turn: context.turn.turn, ...(draws.price_id ? {price_id: draws.price_id} : {}), ...originOf(effect, handle)}];
     const why = typeof effect.why === 'string' && effect.why.trim() ? effect.why : null;
     const produced = {name: string(record?.name) || name, source: 'catalog', ...(draws.price_id ? {record: draws.price_id} : {})};
     const receipt = {id: effectId(context, 'npc', handle), kind: 'npc', call_id: context.callId, npc: node.node_id, handle, name: graph.displayName(node),
@@ -118,7 +128,8 @@ export async function stageProduce(context: ApplyContext, effect: Row, node: Row
     for (const candidate of [name, `${name} (${label})`, `${name} (${label}, turn ${String(turn)})`]) {
         const prior = objectInstance(world, candidate);
         if (prior && row(prior.owner).kind === 'npc' && row(prior.owner).id === handle) { item = prior; break; }
-        if (!prior) { item = moveObject(world, candidate, string(definition.name), owner, {source: null, turn}); break; }
+        // §139.29: a thing brought out for the first time records who brought it out, on which turn, and by which act.
+        if (!prior) { item = moveObject(world, candidate, string(definition.name), owner, {source: null, turn}); item.brought_out = {by: handle, turn, ...originOf(effect, handle)}; break; }
     }
     if (!item)
         throw new RpcError('invalid_params', `${JSON.stringify(name)} is already held by others under every name this person's could take`, {details: {field: 'npc._produces'}});

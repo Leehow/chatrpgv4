@@ -62,7 +62,13 @@ export interface NpcSituation {
   /** Short code-composed sentences: what was done or said to this person this turn and the last. */
   happened: string[];
   state: {hp: number | null; hp_max: number | null; conditions: string[]; stance: string | null; in_session: boolean; my_turn: boolean};
-  at_hand: {holdings: string[]; objects: string[]; exits: string[]; present: string[]};
+  /**
+   * §139.29: `brought_out`, present only when there is something, is what an earlier act of theirs brought out that they
+   * still hold -- the name `holdings` gives it, the turn it came out, and that act's row `ref` and `status` when the act
+   * named one.
+   */
+  at_hand: {holdings: string[]; objects: string[]; exits: string[]; present: string[];
+    brought_out?: Array<{name: string; turn: number | null; ref?: string; status?: string}>};
   /** `intentsView(entry)`, newest first. */
   done: Array<Record<string, unknown>>;
   recent_speech: string[];

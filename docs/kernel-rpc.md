@@ -23628,6 +23628,11 @@ that brought the investigator to them; otherwise nothing. With neither input the
 declaration closes `happened` whenever the turn has one) -- which is what a person's own turn of a fight reads, since
 §139.4's forced step passes neither. The budget never cuts the closing sentence, whichever it is. The rule is §139.21.
 
+*Note, 2026-09-26 (§139.29, ticket 30, live table D2):* `at_hand` gains `brought_out`, present only when non-empty:
+`[{name, turn, ref?, status?}]`, newest first -- what an earlier act of this person brought out that they still hold
+(§139.19's `_produces` and `_draws`), by the name `holdings` gives it, the turn it came out, and that act's row and
+where it stands now. The budget cuts it after `exits` and before `holdings`. The rule is §139.29.
+
 **139.2 The generation step: one sentence of what this person does now (ticket 02, spec D2).** The owner's ruling of
 2026-09-26 -- *a model writes what the NPC does first, and the system binds it to parameters after* -- has its first
 half here: `runtime/jev/npc-act.ts`. It writes an act, never a parameter (§135.28 stands); when it runs is §139.3 and
@@ -25196,6 +25201,11 @@ known at the table -- and its `state.situation` carries the packet's `happened` 
 `new`, an answer below the gates or no Jev leave it the surprise this section describes. The instruction's permission
 gains half a sentence: only a thing no one at the table knew they had, nothing already in `at_hand`, `happened` or
 `recent_speech`.
+
+*Note, 2026-09-26 (§139.29, ticket 30, live table D2):* a thing brought out for the first time records on its instance
+`brought_out: {by: <handle>, turn, ref?}`, and a drawn weapon's `world.npc_weapons` row gains `ref?` -- the write's
+`intent_ref` when it names a row of this person. A thing shown again keeps its first origin. The packet lists them in
+`at_hand.brought_out` (§139.1's note).
 
 **139.20 A person in the conversation acts every turn: the scan does not wait for a landed step, and being talked to
 without being named is being in the conversation (2026-09-26, ticket 21 of `docs/specs/npc-acts-first-tickets/`, spec D4

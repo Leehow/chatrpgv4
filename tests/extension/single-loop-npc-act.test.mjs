@@ -1493,3 +1493,22 @@ test("§139.27: the same pistol no line showed is a surprise as before -- new: t
 	const world = JSON.parse(readFileSync(join(game.workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8"));
 	assert.deepEqual(world.npc_weapons["steven-knott"].map((weapon) => weapon.weapon_id), ["automatic_25_derringer"]);
 });
+
+// ---------------------------------------------------------------------------------------------------
+// Ticket 30 (§139.29) on the emitted kernel: what his own act brought out says so in the next packets. The copper badge of
+// table D2 came out on turn 6 and was shown again on turns 9, 14 and 15; the packet had it in `holdings` as a bare name.
+// ---------------------------------------------------------------------------------------------------
+
+test("§139.29: the thing his act brought out is in the next packet's at_hand.brought_out -- the turn, the act's row and where it stands -- and the bind batch carries it", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "steven-knott": [{ act: SHOW, produces: PHOTO }, QUIET] });
+	const game = await seam(t, { npcAct, stakes: stakesView("escalates", true), act: () => ({ way: "intention_only", produce: "none" }) });
+	await call0(game);
+	await spokenTo(game);
+	const shown = knottActs(game).at(-1);
+	assert.deepEqual([shown.opened, shown.produced], [true, { name: PHOTO, source: "table" }]);
+	await spokenTo(game, "我盯着那张照片。");
+	assert.equal(npcAct.calls[0].packet.at_hand.brought_out, undefined, "nothing brought out before: no section");
+	assert.deepEqual(npcAct.calls[1].packet.at_hand.brought_out, [{ name: PHOTO, turn: 2, ref: shown.ref, status: "attempted" }], JSON.stringify(npcAct.calls[1].packet.at_hand));
+	const bind = game.decisions.filter((batch) => batch.family === NPC_ACT_BIND_FAMILY).at(-1);
+	assert.deepEqual(bind.state.situation.at_hand.brought_out, npcAct.calls[1].packet.at_hand.brought_out, "the same-purpose question's batch reads it too");
+});
