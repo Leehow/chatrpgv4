@@ -103,7 +103,13 @@ export function resolveActor(party: Row[], graph: SettleContext['graph'], sessio
         const handle = graph.handle(node);
         const session = active(sessions.combat) ? sessions.combat : active(sessions.chase) ? sessions.chase : null;
         const participants = array(session?.participants).filter(isJsonObject).map(value => string(value.actor_id));
-        const inSession = session !== null && participants.includes(handle);
+        // Contract §138.6: only a fight action of a person in the fight is the fight's. Anything else they try while it
+        // runs -- a shout, a grab for the telephone, a word to talk the visitor down -- is their own roll (§11.5.9), which
+        // before this was silently turned into an attack (`decision:coc7:combat:attack`) whatever the Keeper asked for.
+        const decision = string(action.decision || '');
+        const fightAction = action.defense != null || ['combat', 'flee', 'cast'].includes(string(action.intent || ''))
+            || [':combat:', ':chase:'].some(part => decision.includes(part)) || decision.startsWith('combat:') || decision.startsWith('chase:');
+        const inSession = session !== null && participants.includes(handle) && fightAction;
         if (inSession) {
             const pending = row(session.pending_attack);
             for (const candidate of [...(truth(pending) ? [pending.target_actor_id, pending.actor_id] : []), ...participants]) {

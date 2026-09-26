@@ -24,6 +24,8 @@ import {appendJsonl} from '../fileio.js';
 import {join} from 'node:path';
 import {stageFlag,stageNote,stageRuling,stageThreat} from './bookkeeping.js';
 import {stageClue,stageNpc,stageHandout,landPeople,landRequests} from './entities.js';
+import { passNpcTurn } from '../combat/execution.js';
+import { effectIntent } from './intent.js';
 import type {MaterialGate,TextLanding} from '../modules/reading.js';
 import {stagePerson} from './person.js';
 import {presentArrivalMaps,revealMap} from '../read/maps.js';
@@ -258,6 +260,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     }
                     if (amounts)
                         stampBasis(receipt, bound);
+                    // §138.2: an effect that is the result of what someone set out to do says whose and which.
+                    if (effect.intent_ref != null && !isJsonObject(receipt.intent))
+                        receipt.intent = await effectIntent(context, effect, `effects[${index}]`);
                     receipts.push(receipt);
                     effectReceipts.set(index,[receipt]);
                     ids.push(string(receipt.id));
@@ -346,6 +351,15 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 staged.index_scenes = [...new Set([...array(staged.index_scenes).filter(value => typeof value === 'string'), ...landedHere.map(entry => entry.focus)])];
             await commitInventorySheets(context,stagedSheets);
             await campaign.writeWorld(staged);
+            // §138.5: a person who spent their own turn of the fight on this batch's hold or intention passes it, once the
+            // whole batch has landed -- a refused batch passes nothing. The writer already checked it is their turn.
+            const passedTurns: Row[] = [];
+            for (const receipt of receipts)
+                if (receipt.kind === 'npc' && isJsonObject(receipt.passes_turn)) {
+                    const passed = await passNpcTurn(await context.settlement(), string(receipt.handle));
+                    receipt.passes_turn = { ...receipt.passes_turn, turn_of: passed.turn_of ?? null };
+                    passedTurns.push(passed);
+                }
             // §129.4: a definition that replaced a placeholder changed what instances already on a sheet read.
             if(effects.some(effect=>isJsonObject(effect)&&['object','usage'].includes(string(effect.kind)))||receipts.some(receipt=>receipt.replaced_placeholder===true))
                 await contributions.mods!.projectInventory(campaign as CampaignWriter,staged);
@@ -389,6 +403,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 result.person_text = personText;
             if (crossed)
                 result.obligation_open = crossed;
+            if (passedTurns.length)
+                result.turn_passed = passedTurns;
             if (recovery.recovered.length)
                 result.recovered = recovery.recovered;
             if (days)

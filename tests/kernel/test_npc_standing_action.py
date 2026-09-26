@@ -63,7 +63,7 @@ def corbitts_turn(client, stance=None):
     return n
 
 
-def edit_fight(client, *, hp_fraction=None, ally=False, investigator=None, corbitt=None, round_delta=0):
+def edit_fight(client, *, hp_fraction=None, ally=False, investigator=None, corbitt=None, round_delta=0, corbitt_turn=False):
     """Change the saved fight's state the table reads: Corbitt's hit points (a fraction of his maximum), an extra
     able participant on the investigator's side (outnumbered), or fields of either participant."""
     path = campaign_dir(client.workspace) / "save" / "combat.json"
@@ -78,6 +78,9 @@ def edit_fight(client, *, hp_fraction=None, ally=False, investigator=None, corbi
     if ally:
         combat["participants"].append({**next(p for p in combat["participants"] if p["actor_id"] == INVESTIGATOR), "actor_id": "a-second-investigator"})
     combat["current_round"] += round_delta
+    if corbitt_turn:
+        # Put the initiative cursor back on Corbitt (a later round's own turn of his), as a round advance would reach him.
+        combat["initiative_cursor"] = next(i for i, value in enumerate(combat["current_initiative"]) if value["actor_id"] == CORBITT)
     path.write_text(json.dumps(combat), encoding="utf-8")
 
 
@@ -222,7 +225,13 @@ def test_a_keeper_hold_is_a_receipt_survives_a_restart_and_lapses_with_its_round
         assert receipt["kind"] == "npc" and receipt["handle"] == CORBITT and receipt["call_id"] == f"t1-c{n}"
         assert receipt["action"] == "hold" and receipt["previous"] is None and receipt["why"] == why
         assert receipt["combat_id"] == "corbitt-final-combat-t1" and receipt["round"] == 1 and receipt["visibility"] == "keeper"
-        assert standing(client) == {"action": "hold", "basis": "keeper", "disposition": {"disposition": "fights_to_the_end", "basis": "authored"}}
+        # §138.5: holding back on his own turn is how he spends it -- the fight moves on instead of waiting on him forever.
+        assert receipt["passes_turn"] == {"combat_id": "corbitt-final-combat-t1", "round": 1, "turn_of": INVESTIGATOR}
+        assert applied["turn_passed"][0]["passed"] == CORBITT
+        session = client.table("look", focus="session")["session"]
+        # Corbitt (DEX 35) is last in the order, so spending his turn ends round 1: the hold held for its round and lapses.
+        assert session["turn_of"] == INVESTIGATOR and session["round"] == 2
+        assert client.table("look", focus="npc", name="Walter Corbitt")["combat_standing"]["basis"] == "rule-default"
         narrate(client, f"t1-c{n + 1}", "Corbitt freezes.")
     finally:
         client.close()
@@ -232,9 +241,9 @@ def test_a_keeper_hold_is_a_receipt_survives_a_restart_and_lapses_with_its_round
         world = read_json(campaign_dir(resumed.workspace) / "world.json")
         assert world["npc_action"][CORBITT] == {"action": "hold", "why": why, "turn": 1, "combat_id": "corbitt-final-combat-t1", "round": 1}
         resumed.table("player_input", text="I wait.")
+        edit_fight(resumed, round_delta=-1, corbitt_turn=True)
         assert standing(resumed)["basis"] == "keeper", "same fight, same round: the hold stands after a restart"
-        assert resumed.table("look", focus="npc", name="Walter Corbitt")["combat_standing"] == {"action": "hold", "basis": "keeper"}
-        edit_fight(resumed, round_delta=1)
+        edit_fight(resumed, round_delta=1, corbitt_turn=True)
         assert standing(resumed)["basis"] == "rule-default", "a hold holds for its round; the next round reads the table again"
     finally:
         resumed.close()

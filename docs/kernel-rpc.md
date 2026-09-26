@@ -23310,3 +23310,33 @@ accepted (`settled_seen`, stored at acceptance), and fewer than `npc_responses.m
 re-offers what was already tried cannot loop the lane. The renewal's packet carries `npc.tried` and
 `npc.previous_responses` (with each row's status), and the instruction says a settled intention is never offered again,
 in any words. While the renewal is pending the replaced bank's rows stay readable (`carried_responses`).
+
+**138.5 A fight turn can be spent on something that is not a blow (amends §11.5.3).** Before this nothing could pass an
+NPC's own turn but an attack, a manoeuvre, aim, reload or flight: a Keeper `action: hold` wrote the override and left
+the initiative cursor on the NPC, so the investigator's next action was refused `turn_state` ("it is walter-corbitt's
+turn") and the only way on was another blow -- which is how Knott came to trade punches for eight turns while his shout
+for help lived only in speech. Now two writes spend the NPC's turn and move the initiative on, exactly as a
+self-resolving action moves it (`passNpcTurn`, `kernel-ts/combat/execution.ts`; marked acted, cursor advanced, the round
+turned over when they were last, the fight concluded when a side can no longer fight): `apply npc action: hold` written
+on that NPC's own turn, and the intention variant with `spend_turn: true`. Both are checked when the effect is staged
+(`fightTurn` on the raw save: a running fight, no attack awaiting its defence, and the cursor on this person) and the
+turn passes only after the whole batch has landed, so a refused batch passes nothing and writes nothing. The receipt
+carries `passes_turn: {combat_id, round, turn_of}` (who acts next) and the apply result `turn_passed`. `spend_turn` off
+their turn is `turn_state` with `details.turn_of`; outside a fight, `invalid_params` on `npc.spend_turn`. The
+`turn_state` refusal for someone acting out of turn now names both lawful ways on in its `fix`. Nothing is rolled by the
+pass: a roll the action needs is its own `resolve` (138.6).
+
+**138.6 An NPC's roll in a fight is their own check.** `resolveActor` counted any `resolve` naming an NPC who takes part
+in the running fight as the fight's, so a Spot Hidden, a Throw or a Fast Talk the Keeper asked of Corbitt settled as
+`decision:coc7:combat:attack`. Only a fight action is the fight's now -- `defense` given, `intent` `combat`, `flee` or
+`cast`, or a combat/chase decision; anything else is the NPC's own roll (§11.5.9: their skill, else the rulebook base
+chance of a common skill, Keeper-side). The roll does not spend the turn; `spend_turn` does.
+
+**138.2 addendum: every writer.** Any `apply` effect may carry `intent_ref` (+ `intent_outcome`, default `done`): the
+receipt carries the stamp of that intention, whose owner may differ from the effect's subject (`apply npc {name:
+"the porter", to: "here", intent_ref: <Knott's shout>}`). On an `npc` effect `intent_ref` opens the intention variant
+only with `outcome` (or `intends`); beside `to`, `stance` and the rest it is this stamp. A `resolve` may carry
+`action.intent_ref` (+ `action.intent_outcome`): checked before any die is thrown (unknown or settled: refused, nothing
+rolled) and stamped on the call's last graded roll -- `done` when it passed, `failed` when it did not -- or on its first
+receipt as `attempted` when nothing was rolled yet (an attack waiting for its defence). Admission (§32) is unchanged: an
+NPC-actor `resolve` and an `npc` effect are not reviewed.

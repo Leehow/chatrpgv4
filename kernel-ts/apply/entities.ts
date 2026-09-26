@@ -22,6 +22,7 @@ import {CampaignSnapshot} from '../read/campaign.js';
 import {acceptReunion} from '../npc/reunion.js';
 import {INTENT_OUTCOMES} from '../npc/intents.js';
 import {intentStamp,refuseSettled,resolveIntent} from './intent.js';
+import {fightTurn} from '../combat/execution.js';
 /** §135.30.7 (SL-42): the scenes the party left during this turn, latest departure first, from the turn's own move receipts. */
 function departedThisTurn(context:ApplyContext):string[]{
     const moves=[...array(context.turn.receipts),...(context.staged?.()??[])].filter(receipt=>isJsonObject(receipt)&&receipt.kind==='move'&&receipt.renamed!==true&&typeof receipt.from==='string'&&receipt.from!==receipt.to);
@@ -137,6 +138,15 @@ export function establishPerson(context:Pick<ApplyContext,'graph'|'world'|'turn'
  *  person against the scene's known people rather than an exact match. */
 const establishedOf=(established:false|'table'|'passage',fromPassage:Row|undefined,resolvedFrom?:string):Row=>
     ({...(established?{established,...(fromPassage?{from_passage:fromPassage}:{})}:{}),...(resolvedFrom?{resolved_from:resolvedFrom}:{})});
+/** §138.5: this person's own turn of the running fight, or the refusal that says whose it is. */
+async function ownTurn(context:ApplyContext,node:Row,handle:string,field:string):Promise<Row>{
+    const fight=fightTurn(row(await context.campaign.readSave('combat.json')));
+    const who=context.graph.displayName(node);
+    if(!fight)throw new RpcError('invalid_params',`${field} spends a turn of a fight, and no fight is running`,{fix:'leave spend_turn out; outside a fight, what they try is recorded without it',details:{field}});
+    if(fight.pending)throw new RpcError('turn_state',`an attack awaits its defence; ${who} cannot spend a turn until it is resolved`,{fix:'resolve the pending defence first',details:{field}});
+    if(fight.turn_of!==handle)throw new RpcError('turn_state',`it is ${string(fight.turn_of)}'s turn, not ${who}'s`,{fix:`record it without spend_turn, or wait until it is ${who}'s turn`,details:{field,turn_of:fight.turn_of}});
+    return {combat_id:fight.combat_id,round:fight.round};
+}
 export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEffect>{
     const {graph,world}=context;
     const why=typeof effect.why==='string'&&effect.why.trim()?effect.why:null;
@@ -149,7 +159,9 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // Contract §138.2: what this person is trying to do, and how it went -- the Keeper's own account of a result no
     // other effect or roll carries (an announcement, a shout nobody answers, a plan dropped). Its own variant, like
     // `defense`: it changes no world value, only where the intention stands.
-    if(effect.intends!=null||effect.intent_ref!=null||effect.outcome!=null){
+    // `intent_ref` alone does not open this variant: beside `to`, `stance` and the rest it names whose intention the effect
+    // is a result of (the porter comes up the stairs because Knott shouted), stamped by the batch (`apply/index.ts`).
+    if(effect.intends!=null||effect.outcome!=null){
         const combined=['to','stance','dead','skill','archetype','conditions','defense','action','disposition','reunion'].filter(key=>effect[key]!=null);
         if(combined.length)throw new RpcError('invalid_params','npc.intends is its own effect',{fix:'report the intention in one npc effect and the other change in a second effect of the same batch',details:{field:'npc.intends',conflicts:combined}});
         const outcome=effect.outcome;
@@ -157,7 +169,13 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const resolved=await resolveIntent(context,node,{intends:effect.intends,intent_ref:effect.intent_ref},'npc');
         await refuseSettled(context,node,resolved,'npc');
         const intent=intentStamp(handle,resolved,outcome as string);
-        const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),intent,previous:resolved.status,...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
+        // §138.5: in a fight, on this person's own turn, the thing they try is what they spend the turn on.
+        let passes:Row|null=null;
+        if(effect.spend_turn!=null){
+            if(effect.spend_turn!==true)throw new RpcError('invalid_params','npc.spend_turn is true or absent',{fix:'send spend_turn: true when this person spends their own turn of the fight on it; leave it out otherwise',details:{field:'npc.spend_turn'}});
+            passes=await ownTurn(context,node,handle,'npc.spend_turn');
+        }
+        const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),intent,previous:resolved.status,...(passes?{passes_turn:passes}:{}),...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
         return {receipt,event:{type:'npc-changed',data:{npc:handle,intent:{ref:intent.ref,text:intent.text,outcome},why}}};
     }
     if(effect.reunion!=null){
@@ -212,8 +230,12 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
             if(combat.status!=='active')throw new RpcError('invalid_params','npc.action hold holds back for this round of a fight, and no fight is running',{fix:'write hold on the round the person holds back; outside a fight, just narrate it',details:{field:'npc.action'}});
             if(!array(combat.participants).some(participant=>string(row(participant).actor_id)===handle))throw new RpcError('invalid_params',`${graph.displayName(node)} is not in this fight`,{fix:'write hold for a participant of the running fight',details:{field:'npc.name',actor:handle}});
             scope={combat_id:string(combat.combat_id),round:number(combat.current_round)};
+            // §138.5: holding back on one's own turn is how that turn is spent; before this the fight stayed on them.
+            const fight=fightTurn(combat);
+            if(fight&&fight.turn_of===handle&&!fight.pending)scope={...scope,passes_turn:{combat_id:fight.combat_id,round:fight.round}};
         }
-        written[handle]={[field]:word,why,turn:number(context.turn.turn),...scope};
+        const {passes_turn:_passes,...kept}=scope;
+        written[handle]={[field]:word,why,turn:number(context.turn.turn),...kept};
         const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),[field]:word,previous,...scope,...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
         return {receipt,event:{type:'npc-changed',data:{npc:handle,[field]:word,why}}};
     }

@@ -30,6 +30,7 @@ import { ambiguityNote } from '../read/obligations.js';
 import { bindRule, continuedRule, settleRule, type RuleClaim } from './rule.js';
 import { statedEndingReward } from '../read/stated.js';
 import { latestCheckReceipt as latestCheck } from './context.js';
+import { planRollIntent } from '../apply/intent.js';
 export { CheckArithmetic, rollExpression, resourceDelta } from './arithmetic.js';
 export { SettleContext, continuableCheck, latestCheckReceipt, recordSkillTicks, skillTickEligible } from './context.js';
 export type { ResolveWriter, SettlementExecutor, ExecutionResult } from './context.js';
@@ -340,6 +341,8 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             const sessions = new SessionView(snapshot, graph, snapshot.party, transaction.world);
             const actor = resolveActor(snapshot.party, graph, sessions, action);
             refuseIncapacitated(actor, action);
+            // Contract §138.2: the roll is the result of what someone set out to do. Checked before any die is thrown.
+            const stampIntent = await planRollIntent({ kernel, campaign: transaction.campaign, graph, world: transaction.world, turn: transaction.turn }, action);
             // Contract §134.17: an investigator's ordinary check that fits one open obligation's check is its attempt.
             // Found here, before the roll; applied only if the decision the pipeline settles is the ordinary check.
             let fold: Fold | null = null;
@@ -400,6 +403,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                     result.note = ambiguityNote(fold.handles);
                 }
             }
+            stampIntent?.(context.receipts);
             await transaction.commitResolve({
                 callId: start.callId,
                 params,

@@ -363,7 +363,9 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
     else {
         const holder = cursorActor(session);
         if (holder !== actor)
-            return turnState(`it is ${string(holder)}'s turn, not ${actor}'s (DEX order: ${session.currentInitiative.map(value => `${value.actor_id} (DEX ${value.dex})`).join(', ')})`, `resolve with actor: ${string(holder)}, or combat:end`, { turn_of: holder });
+            return turnState(`it is ${string(holder)}'s turn, not ${actor}'s (DEX order: ${session.currentInitiative.map(value => `${value.actor_id} (DEX ${value.dex})`).join(', ')})`,
+                // §138.5: a person whose turn it is may spend it on something that is not a fight action; that is a lawful way on.
+                `settle ${string(holder)}'s turn first: resolve with actor: ${string(holder)} for a fight action, or -- when ${string(holder)} spends the turn on something else -- apply npc with name ${string(holder)}, intends (what they try) or intent_ref, outcome and spend_turn: true (action: hold when they only hold back); or combat:end`, { turn_of: holder });
         if (kind === 'attack') {
             const target = string(args.target_npc_id || '');
             if (!Object.hasOwn(session.participants, target))
@@ -432,6 +434,41 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
     if (turn && truth(turn.outcome))
         data.turn_outcome = turn.outcome;
     return { data, warnings, hints };
+}
+/**
+ * Contract §138.5: whose turn a saved fight is on, read off the raw save -- for a writer that must refuse before anything
+ * lands. `null` when no fight is running. `pending` says an attack is waiting for its defence, when no turn can pass.
+ */
+export function fightTurn(combat: Row | null): { combat_id: string; round: number; turn_of: string | null; pending: boolean } | null {
+    if (!isJsonObject(combat) || combat.status !== 'active') return null;
+    const order = array(combat.current_initiative), cursor = number(combat.initiative_cursor);
+    const at = cursor >= 0 && cursor < order.length ? row(order[cursor]) : null;
+    return { combat_id: string(combat.combat_id), round: number(combat.current_round), turn_of: at ? string(at.actor_id) : null, pending: truth(combat.pending_attack) };
+}
+/**
+ * Contract §138.5: an NPC spends their own turn of a fight on something that is not a fight action -- holds back, shouts
+ * for help, grabs the telephone. Before this nothing could pass an NPC's turn but an attack, a manoeuvre, aim, reload or
+ * flight, so a person who did anything else left the fight stuck on them ("it is <npc>'s turn") and the Keeper's only
+ * way on was another blow. The turn is marked acted and the initiative moves on exactly as a self-resolving action moves
+ * it; nothing is rolled here -- a roll the action needs is its own `resolve`.
+ */
+export async function passNpcTurn(context: SettleContext, handle: string): Promise<Row> {
+    const session = await loadCombat(context);
+    if (session.status !== 'active')
+        return turnState('no fight is running; the turn has nothing to pass');
+    if (session.pendingAttack)
+        return turnState('an attack awaits its defence; resolve it before anyone spends a turn');
+    const holder = cursorActor(session);
+    if (holder !== handle)
+        return turnState(`it is ${string(holder)}'s turn, not ${handle}'s`, undefined, { turn_of: holder });
+    const round = session.currentRound;
+    session.markCurrentInitiativeActed();
+    session.initiativeCursor++;
+    if (conclusion(session, context, {}) === null)
+        normalizeCursor(session);
+    session.revision++;
+    await session.save(context);
+    return { combat_id: session.combatId, round, passed: handle, turn_of: cursorActor(session), revision: session.revision };
 }
 export async function executeCombatEnd(context: SettleContext, args: Row): Promise<ExecutionResult> {
     if (context.sessions().combat === null)

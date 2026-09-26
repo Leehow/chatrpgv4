@@ -109,3 +109,51 @@ export function intentStamp(handle: string, resolved: ResolvedIntent, outcome: s
     if (!INTENT_OUTCOMES.includes(outcome)) throw new Error(`unknown intent outcome ${outcome}`);
     return {ref: resolved.ref, npc: handle, text: resolved.text, outcome};
 }
+
+/**
+ * §138.2: an effect of any kind that is the result of what someone set out to do names it with `intent_ref`; the
+ * receipt carries the stamp with `intent_outcome` (default `done`: the effect is what happened). The intention may be
+ * someone else's than the effect's subject -- the porter comes up the stairs because Knott shouted.
+ */
+export async function effectIntent(scope: IntentScope, effect: Row, field: string): Promise<Row> {
+    const owner = intentOwner(effect.intent_ref);
+    const node = owner === null ? null : scope.graph.actor(owner) ?? scope.graph.find(owner, ['npc']);
+    if (!node)
+        throw new RpcError('invalid_params', `${field}.intent_ref ${JSON.stringify(effect.intent_ref)} names no person's intention`, {
+            fix: 'copy a ref from present[].history.intents, director.offer or the NPC advice; or leave intent_ref out', details: {field: `${field}.intent_ref`}});
+    const outcome = effect.intent_outcome ?? 'done';
+    if (typeof outcome !== 'string' || !INTENT_OUTCOMES.includes(outcome))
+        throw new RpcError('invalid_params', `${field}.intent_outcome ${JSON.stringify(outcome)} is not where an intention can stand`, {
+            fix: 'one of details.options; leave it out when the effect is the intention done', details: {field: `${field}.intent_outcome`, options: [...INTENT_OUTCOMES]}});
+    const resolved = await resolveIntent(scope, node, {intent_ref: effect.intent_ref}, field);
+    await refuseSettled(scope, node, resolved, field);
+    return intentStamp(scope.graph.handle(node), resolved, outcome);
+}
+
+/**
+ * §138.2: a `resolve` whose roll is the result of what someone set out to do (`action.intent_ref`). Checked before the
+ * dice are thrown -- an unknown or settled intention refuses without a roll -- and stamped after: the check that passed
+ * did it, the one that failed did not, unless `action.intent_outcome` says otherwise (a first step that leaves it under
+ * way). A call that rolls nothing yet (an attack waiting for its defence) leaves it `attempted`.
+ */
+export async function planRollIntent(scope: IntentScope, action: Row): Promise<((receipts: Row[]) => void) | null> {
+    if (action.intent_ref == null) return null;
+    const outcome = action.intent_outcome;
+    if (outcome != null && (typeof outcome !== 'string' || !INTENT_OUTCOMES.includes(outcome)))
+        throw new RpcError('invalid_params', `action.intent_outcome ${JSON.stringify(outcome)} is not where an intention can stand`, {
+            fix: 'one of details.options, or leave it out: a passed check is done, a failed one failed', details: {field: 'action.intent_outcome', options: [...INTENT_OUTCOMES]}});
+    const owner = intentOwner(action.intent_ref), node = owner === null ? null : scope.graph.actor(owner) ?? scope.graph.find(owner, ['npc']);
+    if (!node)
+        throw new RpcError('invalid_params', `action.intent_ref ${JSON.stringify(action.intent_ref)} names no person's intention`, {
+            fix: 'copy a ref from present[].history.intents, director.offer or the NPC advice; or leave intent_ref out', details: {field: 'action.intent_ref'}});
+    const resolved = await resolveIntent(scope, node, {intent_ref: action.intent_ref}, 'action');
+    await refuseSettled(scope, node, resolved, 'action');
+    const handle = scope.graph.handle(node);
+    return receipts => {
+        const roll = [...receipts].reverse().find(value => value.kind === 'roll' && value.form !== 'dice' && typeof value.passed === 'boolean');
+        const target = roll ?? receipts[0];
+        if (!target) return;
+        const settled = typeof outcome === 'string' ? outcome : roll ? (roll.passed ? 'done' : 'failed') : 'attempted';
+        target.intent = intentStamp(handle, resolved, settled);
+    };
+}

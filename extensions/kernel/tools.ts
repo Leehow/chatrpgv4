@@ -77,6 +77,15 @@ const WorkpadPatch = Type.Optional(Type.Unknown({
 	description: "Host-only working notes. The host strips this before the table sees the call and files it only if this exact delivery lands; a malformed, oversized, refused, split, cancelled or stale patch is silently dropped and the delivery itself is unchanged — never rewrite the delivery to fix a patch. Shape: {focus?: string (one line, at most 200 chars), upserts?: array of at most 8 {id: short stable name you choose (letters, digits, dot, dash, underscore; reusing an id replaces that item), kind: \"open_question\" | \"hypothesis\" | \"conditional_continuation\", text: one short sentence in your own words, at most 200 chars, never a receipt number or a settled outcome, status?: \"tentative\" | \"needs_recheck\" | \"discarded\", defaults to tentative, evidence: array of 1–4 names from the current coc-workspace index this item rests on, such as npc:gardener or turn:12}, removes?: array of at most 8 earlier ids to remove; the whole patch stays under 1 KiB and every upsert must cite evidence the index actually showed you. Notes are your private scratchpad across turns: they never become facts, clues obtained, obligations, notes, rulings, admissions or player-visible anything, and they never replace a fresh lookup",
 }));
 
+/**
+ * Contract §138.2: the result of what someone set out to do. Any effect below can carry it -- the porter comes up the
+ * stairs (npc) or the clock moves (threat) because Knott shouted -- and the receipt says whose intention it settled.
+ */
+const IntentResult = {
+	intent_ref: Type.Optional(Type.String({ description: "when this effect is the result of what someone set out to do: the ref of that intention (present[].history.intents, director.offer, the NPC advice). The intention may be someone else's than the effect's subject" })),
+	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "where that intention stands after this effect; default done (the effect is what happened)" })),
+};
+
 const EndingEffect = Type.Object({
     kind: StringEnum(["ending"] as const),
     scope: StringEnum(["chapter", "campaign"] as const, { description: "chapter leaves the same campaign playable; campaign is only the final end of the entire adventure, never a pause or a chapter boundary. For an incorrectly completed legacy chapter, scope chapter reclassifies the existing ending without repeating its accounting; narrate commits the correction before continuing" }),
@@ -88,6 +97,7 @@ const AdaptationEffect = Type.Object({
 });
 
 const MoveEffect = Type.Object({
+	...IntentResult,
 	kind: StringEnum(["move"] as const, { description: "change the persistent gameplay locus; ordinary spatial description inside the current locus needs no move" }),
 	to: Type.String({ description: "the registered persistent gameplay locus that subsequent action or durable location-bound state will use; a name the module already gives that place, or a part, entrance, room, floor or counter of it, names this same locus and needs no new one. For a chosen locus absent from the graph, first lookup kind module with expected_kind scene, then prepare and accept the returned adaptation before moving. Never substitute or relabel another physical place" }),
 	travel_minutes: Type.Optional(Type.Integer({ description: "minutes spent on the way; omitted means the value on the graph edge" })),
@@ -96,6 +106,7 @@ const MoveEffect = Type.Object({
 });
 
 const ClueEffect = Type.Object({
+	...IntentResult,
 	kind: StringEnum(["clue"] as const, { description: "the investigator obtains one clue" }),
 	clue: Type.String({
 		description:
@@ -110,6 +121,7 @@ const ClueEffect = Type.Object({
 const StatedAmount = Type.Optional(Type.String({ description: "instead of your own amount: the name of the stated rule whose book amount this is (a where.rules row with a mech line; for threat also the threat whose clock the book advances). The kernel takes the amount from what this turn's resolve with action.rule on it reached, else from the rule's own shape, and records basis stated. Never give an amount as well: that is refused. Without stated the amount is yours and is recorded as yours" }));
 
 const DamageEffect = Type.Object({
+	...IntentResult,
 	kind: StringEnum(["damage"] as const, { description: "damage with no attacker: a fall, fire, a falling object, suffocation, an overdose — and the failed check whose stated cost was that someone got hurt" }),
 	dice: Type.Optional(Type.String({ description: "the damage dice from the rulebook, such as 1D6; the kernel rolls them. Required unless stated names them" })),
 	stated: StatedAmount,
@@ -124,6 +136,7 @@ const ClockEffect = Type.Object({
 });
 
 const TimeEffect = Type.Object({
+	...IntentResult,
 	kind: StringEnum(["time"] as const, { description: "the world clock moves forward" }),
 	stated: StatedAmount,
 	minutes: Type.Optional(Type.Integer({ description: "required unless stated gives them: minutes advanced. Six hours or more is a day of rest and the party heals for it (1 HP a day with no major wound), an hour or more regenerates magic points; the result lists what came back in recovered, and your narration owes those numbers like any other change" })),
@@ -132,6 +145,7 @@ const TimeEffect = Type.Object({
 
 /** Things changing hands (contract §5 `item`, #19): what the narration gains or loses reaches the sheet here. */
 const ItemEffect = Type.Object({
+	...IntentResult,
 	kind: StringEnum(["item"] as const, { description: "something changes hands: gained, handed over, used up, taken away" }),
 	name: Type.String({ description: "item name; weapons and rules-table entries use the name on the table" }),
 	to: Type.Optional(Type.String({ description: "who ends up with it; defaults to the current investigator" })),
@@ -201,6 +215,7 @@ const AbilityEffect = Type.Object({
 
 /** A priced transaction (contract §5 `cash`, #19; §58 source and Spending Level settlement). */
 const CashEffect = Type.Object({
+	...IntentResult,
 	kind: StringEnum(["cash"] as const, { description: "settle money received or a purchase, either from cash or under the investigator's Spending Level" }),
 	subject: Type.Optional(Type.String({ description: "whose money; defaults to the current investigator" })),
 	stated: StatedAmount,
@@ -215,6 +230,7 @@ const CashEffect = Type.Object({
 
 /** The Keeper's pacing instrument (contract §30.9): the book writes the clock, only this moves it. */
 const ThreatEffect = Type.Object({
+	...IntentResult,
 	kind: StringEnum(["threat"] as const, { description: "advance a threat's clock: the danger has come one step closer because of what just happened" }),
 	name: Type.Optional(Type.String({ description: "the threat, as pressures names it; required unless stated names it" })),
 	stated: StatedAmount,
@@ -225,6 +241,7 @@ const ThreatEffect = Type.Object({
 
 /** The Keeper's bookkeeping (contract §18, #27): world switches, debts owed, table rulings. */
 const FlagEffect = Type.Object({
+	...IntentResult,
 	kind: StringEnum(["flag"] as const, { description: "set a world switch: something is now barred, lit, alarmed, opened" }),
 	name: Type.Optional(Type.String({ description: "the switch's name; a name the book uses for a gate reads back on the exits that gate on it. Required unless stated names it" })),
 	stated: StatedAmount,
@@ -308,7 +325,11 @@ const NpcEffect = Type.Object({
 		description: "a new thing this person sets out to do, in one Keeper-facing English sentence: what they try, not what they say (\"shout down the stairs for the porter\", \"back to the door and bolt\", \"offer the key back if he stops\"). Write it the turn they start or announce it; every later result names it by intent_ref. This variant stands alone in one npc effect, with outcome",
 	})),
 	intent_ref: Type.Optional(Type.String({
-		description: "the ref of an intention already on this person's card (present[].history.intents), in director.offer, or in the NPC advice: report its next result instead of writing it again",
+		description: "the ref of an intention (present[].history.intents, director.offer, the NPC advice). With outcome and nothing else: this person's own intention, and its next result. Beside to, stance or another change: that change is the result of the intention named, which may be someone else's (the porter comes up because Knott shouted)",
+	})),
+	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "with intent_ref beside another change: where the named intention stands after it; default done" })),
+	spend_turn: Type.Optional(Type.Literal(true, {
+		description: "in a fight, on this person's own turn: they spend the turn on what intends or intent_ref names instead of a fight action, and the initiative passes on. Without it a person who does something other than attack, manoeuvre, aim, reload or flee leaves the fight waiting on them. action: hold on their own turn passes it too",
 	})),
 	outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, {
 		description: "where that intention stands after this turn: attempted (under way, the world has not answered yet), done (it happened), failed (stopped, or it came to nothing), abandoned (given up for something else). What a person announces gets a result by their next turn, and a settled intention (done, failed, abandoned) is not tried again: what they do next is a new intention. A roll or another effect that carries intent_ref reports the result itself; write this only for a result nothing else records",
@@ -322,6 +343,7 @@ const NpcEffect = Type.Object({
  * capsule and the prose stop each answering with a different word for one human being.
  */
 const PersonEffect = Type.Object({
+	...IntentResult,
 	kind: StringEnum(["person"] as const, { description: "record what this table calls someone: the name it uses for them, or what they are called to their face" }),
 	who: Type.String({ description: "the person this is about: an investigator at the table or an NPC, by the name you already use for them" }),
 	name: Type.Optional(Type.String({ description: "what this table calls this NPC in the player's language \u2014 the transliteration or rendering you have been writing. Say it once, the first turn you write it, and every card, capsule and later turn uses that same word instead of re-inventing it; refused for an investigator, whose name is the player's own and already on the sheet" })),
@@ -384,6 +406,7 @@ const MergeEffect = Type.Object({
 });
 
 const HandoutEffect = Type.Object({
+	...IntentResult,
 	kind: Type.Literal("handout"),
 	name: Type.String({ description: "the name of a player-safe or revealable handout or image in the module graph" }),
 	label: Type.Optional(Type.String({ description: "an optional player-facing title" })),
@@ -400,6 +423,8 @@ const MapEffect = Type.Object({
 });
 
 const ResolveAction = Type.Object({
+	intent_ref: Type.Optional(Type.String({ description: "when this roll is the result of what an NPC set out to do: the ref of that intention (present[].history.intents, director.offer, the NPC advice). A passed check makes it done and a failed one failed, unless intent_outcome says otherwise; a settled intention is refused before any die is thrown" })),
+	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "with intent_ref: where the intention stands after this roll, when the pass or failure alone does not say (a first step that leaves it under way)" })),
 	actor: Type.Optional(
 		Type.String({
 			description:
