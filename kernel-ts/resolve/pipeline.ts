@@ -18,7 +18,7 @@ import { familyBinding, type FixedFamilies } from './families.js';
 import {parseSanLoss} from '../sanity/expression.js';
 import {knownSpells,readMagicState} from '../magic/state.js';
 import {magicLearningSources} from '../magic/facts.js';
-import {CHASE_INTENTS, chaseRoles, presentOpponents, quarryParticipant} from '../chase/bindings.js';
+import {CHASE_INTENTS, askWhomTheChaseIsAfter, chaseRoles, fledFromHere, presentOpponents, quarryParticipant} from '../chase/bindings.js';
 import { shapeSettlement, tagNpcReceipts } from './projection.js';
 /**
  * The decisions whose roll carries `action.modifiers.bonus_dice` / `penalty_dice` (§95).
@@ -199,6 +199,21 @@ export class ResolvePipeline {
             }
         });
     }
+    /**
+     * Contract §139.13: the person named in `action.target` who is not in the current scene but ran from here and can
+     * still be chased (`fledFromHere`), with their flight's receipt id. Only a chase start reaches them (`run`).
+     */
+    fledTarget: { handle: string; node: Row; flight: string } | null = null;
+    private presentCandidates(): Row[] {
+        return entries(this.context.world.npc_presence).flatMap(([name, at]) => {
+            const present = this.context.graph.actor(name);
+            return at === this.context.world.active_scene && present ? [{
+                    name,
+                    kind: 'npc',
+                    display_name: this.context.graph.displayName(present)
+                }] : [];
+        });
+    }
     npcTarget(): Row | null {
         if (!truth(this.action.target) || this.context.sheetById(this.action.target))
             return null;
@@ -207,23 +222,54 @@ export class ResolvePipeline {
             return null;
         const handle = this.context.graph.handle(node);
         if (row(this.context.world.npc_presence)[handle] !== this.context.world.active_scene) {
-            const candidates = entries(this.context.world.npc_presence).flatMap(([name, at]) => {
-                const present = this.context.graph.actor(name);
-                return at === this.context.world.active_scene && present ? [{
-                        name,
-                        kind: 'npc',
-                        display_name: this.context.graph.displayName(present)
-                    }] : [];
-            });
+            // Contract §139.13: a person in the running chase is where the chase is, whatever the world has them at (a
+            // quarry the Keeper wrote away in their flight's turn is still grabbed by the pursuer).
+            if (active(this.sessions.chase) && array(this.sessions.chase!.participants).some(p => isJsonObject(p) && string(p.actor_id) === handle))
+                return node;
+            // ... and a person who ran from here can still be chased until their flight's window closes; `run` admits
+            // only the chase start at them.
+            const flight = fledFromHere(this.context).get(handle);
+            if (flight) {
+                this.fledTarget = { handle, node, flight };
+                return node;
+            }
             throw new RpcError('unknown_entity', `${this.context.graph.displayName(node)} is not in the current scene`, {
                 fix: 'target one of details.candidates, or move first',
                 details: {
                     query: this.action.target,
-                    candidates
+                    candidates: this.presentCandidates()
                 }
             });
         }
         return node;
+    }
+    /**
+     * Contract §139.13: anything but a chase start at a person who ran from here is refused, and the refusal says the
+     * one thing that reaches them -- told apart from `unknown_entity`'s "not in the current scene".
+     */
+    private fledFromHereRefusal(fled: { handle: string; node: Row; flight: string }): never {
+        const name = this.context.graph.displayName(fled.node);
+        throw new RpcError('needs', `${name} is not in the current scene: they ran from here and can still be chased, and only a chase reaches them`, {
+            fix: `to run after them, resolve chase:start (intent move) with actor: <the investigator> and target: ${name}, and ${name} is the chase's quarry; otherwise act on someone who is here (details.candidates)`,
+            details: {
+                reason: 'fled_from_here',
+                npc: fled.handle,
+                flight: fled.flight,
+                needs: { field: 'decision', options: ['chase:start'] },
+                candidates: this.presentCandidates()
+            }
+        });
+    }
+    /**
+     * Contract §139.13: the rule graph's `chase.start.ready` counts the people here with a stat block. A person who ran
+     * from here and is named as the quarry is on the chase's track though the world has them gone, so their stat block
+     * counts too; without one the rule graph still withholds the start and the quarry's own refusal answers.
+     */
+    private chaseFacts(facts: Row): Row {
+        const fled = this.fledTarget;
+        if (fled && facts['chase.session.inactive'] === true && facts['chase.start.ready'] !== true && truth(this.context.npcProfile(fled.handle)))
+            facts['chase.start.ready'] = true;
+        return facts;
     }
     private async withSanityOffer(refs: string[]): Promise<string[]> {
         const text = normalizeText(this.stakesText);
@@ -614,6 +660,9 @@ export class ResolvePipeline {
             if(array(unmet[CHASE_START]).some(value=>value.path==='chase.session.inactive'))throw new RpcError('turn_state','a chase is already underway',{fix:'continue it with chase decisions (see session.actions)',details:{unmet}});
             const roles=chaseRoles(this.context);
             if(roles.quarry==='npc')await quarryParticipant(this.context,roles.handle,roles.node);
+            // Contract §139.13: a chase start that names no one is asked whom -- a pursuit always, a flight when someone
+            // who ran from here can still be chased -- never told it needs a pursuer present.
+            else askWhomTheChaseIsAfter(this.context);
             const present=presentOpponents(this.context);throw new RpcError('needs','a chase needs a pursuer with a stat block present in the scene',{fix:'establish the pursuer here first (an NPC whose module record carries mechanics.profile), or narrate the flight without dice',details:{needs:{field:'target',options:present.filter(([, ,profile])=>truth(profile)).map(([name])=>name).sort()},present:present.map(([name])=>name).sort(),unmet}});
         }
         if (truth(this.action.push) || this.action.luck != null) {
@@ -646,7 +695,10 @@ export class ResolvePipeline {
     async run(beforeExecute: () => Promise<void>): Promise<Row> {
         const context = this.context;
         const npc = this.npcTarget();
-        const candidates = this.restrict(await this.route(npc));
+        const routed = await this.route(npc);
+        if (this.fledTarget && !routed.includes(CHASE_START))
+            this.fledFromHereRefusal(this.fledTarget);
+        const candidates = this.restrict(routed);
         if (!candidates.length)
             return {
                 kind: 'none',
@@ -666,7 +718,7 @@ export class ResolvePipeline {
         if(active(this.sessions.chase)&&this.intent==='flee')effectiveIntent=candidates.length===1&&candidates[0]==='decision:coc7:chase:attack'?'combat':'move';
         const runtimeFor=(intent:string)=>new RuleGraph(context.observations, {
             campaignId: context.campaignId,
-            facts: () => context.facts(intent),
+            facts: () => this.chaseFacts(context.facts(intent)),
             resolverIndex: Object.fromEntries(RESOLVER_NAMES.map(name => [name, {}])),
             optionalRules: () => gates,
             augmentFacts: (selected, facts) => context.augmentFacts(selected, facts),

@@ -415,11 +415,13 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
             // the fiction decides. §139.12 (2026-09-26): a chase now admits them as its quarry, so the hint is the mirror
             // of an investigator's flight below -- the investigators still able to run after them, and that the pursuer
             // opens the chase with actor: <investigator> and target: <them>. (§139.9 had withdrawn the call while the
-            // chase binding knew only one shape, the investigator as quarry.)
+            // chase binding knew only one shape, the investigator as quarry.) §139.13: the player usually answers the flight
+            // on their next turn, after the Keeper has already written where the person went, so the hint says the chase
+            // start still reaches them until that turn is settled.
             if (kind === 'flee' && session.participants[actor].side !== 'investigator') {
                 const pursuers = values(session.participants).filter(value => value.side === 'investigator' && eligibleParticipant(value)).map(value => string(value.actor_id));
                 hints.push(pursuers.length
-                    ? `${actor} fled the fight: a pursuit is the investigators' choice and the pursuer opens it -- if ${pursuers.join(' or ')} gives chase, resolve chase:start (intent move) with actor: <that investigator> and target ${actor}, and ${actor} is the chase's quarry; otherwise say where ${actor} went with apply npc to: away (or the scene they reach)`
+                    ? `${actor} fled the fight: a pursuit is the investigators' choice and the pursuer opens it -- if ${pursuers.join(' or ')} gives chase, resolve chase:start (intent move) with actor: <that investigator> and target ${actor}, and ${actor} is the chase's quarry; otherwise say where ${actor} went with apply npc to: away (or the scene they reach). Writing where they went does not end the pursuit: until the player's next turn is settled, that chase:start still runs after ${actor} from here`
                     : `${actor} fled the fight and no investigator able is left to give chase; say where ${actor} went with apply npc to: away (or the scene they reach)`);
             }
             // §139.9: an investigator's flight is the mirror. Whether anyone runs after them is the pursuer's own decision,

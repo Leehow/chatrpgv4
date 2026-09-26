@@ -3,7 +3,7 @@ import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { conditionMet } from '../read/module-graph.js';
 import { SessionView, active } from '../read/session-view.js';
-import { array, integer, kebab, normalize, repr, row, string, truth, type Row } from '../read/values.js';
+import { array, integer, kebab, normalize, number, repr, row, string, truth, type Row } from '../read/values.js';
 import { SkillResolver } from '../rules/skills.js';
 import { presentOpponents, type SettleContext } from '../resolve/context.js';
 import { investigatorCombatParticipant, npcCombatParticipant } from '../combat/profiles.js';
@@ -16,26 +16,104 @@ export { presentOpponents } from '../resolve/context.js';
  * `chase:start` too, read by the side the actor takes: a pursuer may declare any of them, a quarry flees.
  */
 export const CHASE_INTENTS = ['flee', 'move', 'combat'];
+/** A flight on record that still stands: its receipt, the turn it was written in, and whether they were moved since. */
+type Flight = {
+    receipt: string;
+    turn: number;
+    moved: boolean;
+};
 /**
- * Contract §139.12: the flight of `handle` that still stands -- the last receipt that gained them `fled` (a combat
- * flight, or the Keeper's `apply npc` condition), unless a fight or a chase began after it, they were moved since, or
- * the acting investigator fled after them. Its receipt id, or null.
+ * Contracts §139.12 and §139.13: every flight that still stands, by the person who fled. A flight is the last receipt
+ * that gained a person `fled` (a combat flight, or the Keeper's `apply npc` condition). It stands through the turn it
+ * was written in and the next one -- the turn in which the player answers it -- and is over from the turn after that
+ * (lapsed unused), or earlier when a fight or a chase begins after it (a chase that runs after them consumes it) or the
+ * acting investigator flees after it. Where the Keeper wrote them to go (`apply npc to`, in either turn) does not end
+ * it: the pursuit is the player's answer to the flight, and the Keeper writes where the person went in the flight's own
+ * turn (§139.13, table `npc-acts-c` turns 4 and 5). Receipts are read in order with the turn each belongs to: the
+ * committed turns, then the open turn, then this call's.
  */
-export function standingFlight(context: SettleContext, handle: string): string | null {
-    let flight: string | null = null;
-    for (const receipt of context.allReceipts()) {
-        if (receipt.kind === 'condition' && array(receipt.gained).includes('fled')) {
-            if (receipt.subject === handle)
-                flight = string(receipt.id);
-            else if (receipt.subject === context.actorId)
-                flight = null;
+function standingFlights(context: SettleContext): Map<string, Flight> {
+    const standing = new Map<string, Flight>();
+    const turns: Array<[number, any[]]> = [
+        ...context.snapshot.records.map(record => [number(record.turn), array(record.receipts)] as [number, any[]]),
+        [context.turnNumber, [...array(context.turn.receipts), ...context.receipts]]
+    ];
+    for (const [turn, receipts] of turns)
+        for (const receipt of receipts.filter(isJsonObject)) {
+            if (receipt.kind === 'condition' && array(receipt.gained).includes('fled')) {
+                if (receipt.subject === context.actorId)
+                    standing.clear();
+                else
+                    standing.set(string(receipt.subject), { receipt: string(receipt.id), turn, moved: false });
+            }
+            else if (receipt.kind === 'session' && receipt.transition === 'start' && ['combat', 'chase'].includes(string(receipt.family)))
+                standing.clear();
+            else if (receipt.kind === 'npc' && truth(receipt.to) && standing.has(string(receipt.handle)))
+                standing.get(string(receipt.handle))!.moved = true;
         }
-        else if (receipt.kind === 'session' && receipt.transition === 'start' && ['combat', 'chase'].includes(string(receipt.family)))
-            flight = null;
-        else if (receipt.kind === 'npc' && receipt.handle === handle && truth(receipt.to))
-            flight = null;
+    for (const [handle, flight] of standing)
+        if (context.turnNumber > flight.turn + 1)
+            standing.delete(handle);
+    return standing;
+}
+/** Contract §139.12, windowed by §139.13: the receipt id of `handle`'s flight that still stands, or null. */
+export function standingFlight(context: SettleContext, handle: string): string | null {
+    return standingFlights(context).get(handle)?.receipt ?? null;
+}
+/**
+ * Contract §139.13: the people a pursuit from here can still reach -- their flight stands, and they ran from where the
+ * investigators are: still present here, or written somewhere else (`apply npc to`) since they fled. Handle to the
+ * flight's receipt id, in handle order. A person the Keeper stamped `fled` somewhere else and never moved is not one.
+ */
+export function fledFromHere(context: SettleContext): Map<string, string> {
+    const presence = row(context.world.npc_presence);
+    return new Map([...standingFlights(context)]
+        .filter(([handle, flight]) => !context.sheetById(handle) && !!context.graph.actor(handle) && (flight.moved || presence[handle] === context.activeScene))
+        .map(([handle, flight]): [string, string] => [handle, flight.receipt])
+        .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
+}
+/**
+ * Contract §139.13: a chase start by an investigator that names no one. A pursuit names whom: `move` or `combat` is
+ * refused `quarry_does_not_flee` (§139.12), whose options now carry whoever ran from here as well as the people here
+ * with a stat block. A `flee` that names no one while someone who ran from here can still be chased is asked whom
+ * (`chase_names_no_one`), rather than read as the investigator running from whoever is still here -- the Keeper of
+ * table `npc-acts-c` turn 5 wrote exactly that call for a pursuit. A `flee` with no one named and no one who ran from
+ * here returns, left to the callers (the investigator flees whoever is here, or the pursuer message).
+ */
+export function askWhomTheChaseIsAfter(context: SettleContext): void {
+    if (truth(context.action.target) || !context.sheetById(context.actingId))
+        return;
+    const fled = fledFromHere(context);
+    const handles = [...fled.keys()];
+    const name = (handle: string): string => {
+        const node = context.graph.actor(handle);
+        return node ? context.graph.displayName(node) : handle;
+    };
+    const running = handles.length ? `${handles.map(name).join(' and ')} ran from here and can still be chased` : '';
+    const flights: Row = handles.length ? { fled: handles.map(handle => ({ npc: handle, flight: fled.get(handle)! })) } : {};
+    if (string(context.action.intent) !== 'flee') {
+        const present = presentOpponents(context).filter(([, , profile]) => truth(profile)).map(([handle]) => handle);
+        throw new RpcError('needs', `chase:start with no one named in action.target makes ${context.actorId} the quarry, and a quarry's intent is flee${running ? `; ${running}` : ''}`, {
+            fix: handles.length
+                ? `to run after ${name(handles[0])}, resolve chase:start again with target: ${name(handles[0])} (they are the chase's quarry); to run from whoever is here, set action.intent to flee and name them in action.target`
+                : 'to run after someone, name them in action.target; to run from whoever is here, set action.intent to flee',
+            details: {
+                reason: 'quarry_does_not_flee',
+                needs: { field: 'target', options: [...new Set([...present, ...handles])].sort() },
+                ...flights
+            }
+        });
     }
-    return flight;
+    if (!handles.length)
+        return;
+    throw new RpcError('needs', `chase:start names no one, and ${running}: whom does ${context.actorId} run after, or from?`, {
+        fix: `to run after ${name(handles[0])}, resolve chase:start again with target: ${name(handles[0])} (flee, move or combat all read as the pursuit, and they are the chase's quarry); to run from someone who is still here, name them in action.target with intent flee`,
+        details: {
+            reason: 'chase_names_no_one',
+            needs: { field: 'target', options: handles },
+            ...flights
+        }
+    });
 }
 export type ChaseRoles = {
     quarry: 'investigator';
@@ -51,7 +129,8 @@ export type ChaseRoles = {
  * pursuer and the investigator the quarry (§139.9, unchanged). An investigator acting against a person named in
  * `action.target` runs after them -- that person is the quarry -- when their flight still stands, or when the
  * investigator's own intent is not a flight (`move`, `combat`); an investigator who declares `flee` at a person with no
- * standing flight runs from them, and with no one named the investigator flees whoever is here (both unchanged).
+ * standing flight runs from them, and with no one named the investigator flees whoever is here (both unchanged). The
+ * flight stands for the window of §139.13, whether or not the Keeper has written where the person went.
  */
 export function chaseRoles(context: SettleContext): ChaseRoles {
     const action = context.action;
@@ -226,18 +305,9 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
                 }
             };
         }
-        // The acting investigator is the quarry, and a quarry flees: move or combat is a pursuit, which names whom.
-        if (context.sheetById(context.actingId) && string(action.intent) !== 'flee')
-            throw new RpcError('needs', `chase:start with no one named in action.target makes ${context.actorId} the quarry, and a quarry's intent is flee`, {
-                fix: 'to run after someone, name them in action.target; to run from whoever is here, set action.intent to flee',
-                details: {
-                    reason: 'quarry_does_not_flee',
-                    needs: {
-                        field: 'target',
-                        options: presentOpponents(context).filter(([, , profile]) => truth(profile)).map(([handle]) => handle).sort()
-                    }
-                }
-            });
+        // The acting investigator is the quarry, and a quarry flees: move or combat is a pursuit, which names whom; and
+        // a flee that names no one while someone who ran from here can still be chased is asked whom (§139.13).
+        askWhomTheChaseIsAfter(context);
         let opponents = presentOpponents(context).filter((value): value is [
             string,
             Row,
