@@ -103,7 +103,7 @@ removed; the preset dropped from the packet; each caught.
 
 ## BR-04 — The shadow lane for the Keeper's `time` and `damage`, and its report
 
-Status: ready-for-human (implemented 2026-09-26 on `claude/br04-band-shadow-20260926` at `b21497dbf`; awaiting review and merge, see Comments)
+Status: ready-for-human (implemented 2026-09-26 on `claude/br04-band-shadow-20260926` at `b21497dbf`, review fix `c1966c729`; awaiting review and merge, see Comments)
 Depends on: BR-01 merged (the registry and question shapes). Worker model: `sonnet` (measurement).
 
 **What.** Spec D9. After a model-origin `apply time {minutes}` or `apply damage {dice}` succeeds, ask the band
@@ -275,9 +275,10 @@ Decisions taken inside the ticket's scope:
 - **State**: `{declaration, settled_this_turn}` — `state.playerText` (clipped at 600 code points) and `state.landed`
   (the admission review's "already settled this turn" lines, e.g. `apply landed: clue:t1-c1`, `resolve settled
   (success)`), snapshotted before this call's own line, the last sixteen. Nothing of the measured call.
-- **Unasked rows** carry only `{lane, turn, call_id, index, kind, ok: false, reason}`: `unconfigured` (no key; nothing is
-  read either), `no_declaration` (a turn without player text, the opening: a question with no declaration would be
-  noise), `rows_unavailable` (the kernel could not list the rows; the read is retried on the next effect).
+- **Unasked rows** carry only `{lane, turn, call_id, index, kind}` plus, for a deliberate skip, `ok: true, skipped`
+  (`unconfigured`: no key, nothing is read either; `no_declaration`: a turn without player text, the opening, where a
+  question would be noise) and, for a failure, `ok: false, reason` (`rows_unavailable`: the kernel could not list the
+  rows, retried on the next effect; `lane_crashed`). Changed in review (`c1966c729`), see below.
 - **Answered rows** add `index`, `gate` and, for damage, `score` to the D9 fields; `ok` means a distribution exists.
   The band is the argmax of the distribution (first row on a tie), not Jev's `choice`; an argmax on `unknown` is
   `ok: true`, `band: null`, `reason: "unknown"`. `range` and `inside` are `null` without a band. Damage `inside`
@@ -289,8 +290,8 @@ Decisions taken inside the ticket's scope:
   not a vocabulary. If BR-05 gives the registry a marker for route rows, the constant should read it.
 - **`rules.bands`** answers only the two fields the kernel rolls from (`time.band`, `damage.band`); any other field is
   `invalid_params` with `details.options`. No campaign, no lock, no write.
-- **Keyless tables** write one `unconfigured` row per own-number effect, as the brief asked (and as BR-02's recovery
-  does); `kpi.py`'s lanes section will list `band-shadow` with those as failures.
+- **Keyless tables** write one `skipped: "unconfigured"` row per own-number effect with `ok: true` (the admission lane's
+  skip convention), so `kpi.py`'s lanes section does not show `band-shadow` failing on every Keeper time write.
 
 Tests (single files, on the Mac, on the tree of `b21497dbf`, kernel rebuilt with `npm run build:runtime`;
 `npm run check:kernel` clean):
@@ -317,7 +318,7 @@ mutations rebuilt before and after):
 
 | mutation | caught by |
 | --- | --- |
-| the row recording removed (`record(shadowRow(…))` dropped) | `band-shadow.test.mjs`: 5 of 7 (every case that waits for an asked row) |
+| the row recording removed (`record(shadowRow(…))` dropped); re-run on `c1966c729` | `band-shadow.test.mjs`: 5 of 7 (every case that waits for an asked row) |
 | the Keeper's `why` leaked into the question's state (appended to `settled`) | `band-shadow.test.mjs`: the time case and the damage case (exact state, the sentinel `why`) |
 | the shadow firing for every `time`/`damage` effect, `stated` and `band` included (selected by kind only) | `band-shadow.test.mjs` "no row for a stated or a banded effect"; the domain test's own-numbers case |
 | the stated/band guard alone removed | **survives, equivalent**: a `stated` or `band` effect carries no own number, and one beside `minutes`/`dice` is refused by the kernel (`stated_conflict`, `band_conflict`) before the success path; the guard is defence in depth |
@@ -334,6 +335,8 @@ mutations rebuilt before and after):
 | report: hit rate over answered instead of banded | `test_band_shadow_report.py` (4 of 5) |
 | report: gate rate counting `unknown`-exit answers | `test_band_shadow_report.py` (4 of 5) |
 | report: Jev seconds counting a zero-call row | `test_band_shadow_report.py` (2 of 5) |
+| (`c1966c729`) a skip written as a failure (`ok: false, reason`) | the domain row case; `band-shadow.test.mjs` the no-key case and the real-kernel case |
+| (`c1966c729`) report: `unasked` reading only `reason` | `test_band_shadow_report.py` (2 of 5) |
 
 Not covered here:
 - A clerk (host-origin) `time`/`damage` write is excluded at the pure seam (`shadowTargets` given an origin) and not
@@ -344,3 +347,22 @@ Not covered here:
 - **The report over real tables**: the script is ready for the integrator
   (`uv run --frozen python tests/play/band_shadow_report.py --all --workspace <path to .coc> [--json]`, or
   `--campaign <id>` repeated); its output over the next real tables is BR-06's evidence and belongs under this ticket.
+
+### 2026-09-26 — BR-04 review fix (`c1966c729`)
+
+- **Skipped is not failed.** `unconfigured` and `no_declaration` now write `{ok: true, skipped: <reason>}` with no
+  `reason` key (`skippedRow` in `extensions/kernel/band-shadow.ts`, the admission lane's convention in
+  `extensions/kernel/index.ts`); `rows_unavailable` and `lane_crashed` stay `ok: false` with `reason`. The report's
+  `unasked` counts `skipped` or `reason`; §138.8's row paragraph, its reader line and the report's docstring say so.
+  Tests on the fix: `band-shadow.test.mjs` 7/7, `jev-band-shadow-domain.test.mjs` 9/9, `band-recovery.test.mjs` 8/8,
+  `test_band_shadow_report.py` 5 passed (its fixture now carries two skips and one `rows_unavailable`),
+  `test_rules_bands.py` 6 passed, `test_kpi.py` 47 passed 1 skipped. Mutations re-run on this commit: the row
+  recording removed (caught, 5 of 7 as before), a skip written as a failure (caught), the report reading only
+  `reason` (caught); table above.
+- **A Score's `probabilities` are keyed by level index** (`"0"` … `"n-1"`, lowest level first), on the wire and in
+  `DecisionAnswer`: verified in `runtime/jev/contracts.ts` `bindDecisionAnswers` (the score branch builds
+  `keys = question.criteria.map((_, index) => String(index))` and rejects an answer whose `legend`/`probabilities` keys
+  differ — `invalid_answer`), in `runtime/jev/decision-adapter.ts` `answerSchemaDiagnostics` (the same index keys as
+  the expected set) and `runtime/jev/question-packing.ts` `responseUpperBound`; the skill's `reference/primitives.md`
+  says the same ("`probabilities` keyed "0","1",…"). So `readAnswer`'s `answer.probabilities[String(index)]` is right
+  and unchanged.
