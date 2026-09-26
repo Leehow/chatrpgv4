@@ -6,6 +6,8 @@ import { CheckArithmetic, valueError } from '../resolve/arithmetic.js';
 import type { RuleTables } from '../rules/tables.js';
 import type { HealingSavePort } from '../healing/session.js';
 import { applyWoundConditions } from '../healing/resources.js';
+import { incapacitatedBy } from '../healing/conditions.js';
+import { RpcError } from '../errors.js';
 import { fullAutoVolleySize, parseUsesPerRound, resolveModuleWeapons, UnknownWeaponError } from './catalog.js';
 import { canonicalSkipSourceReceipt, damageBindingsForTurn, damageEvidenceRows, damageTransactionReceipt } from './evidence.js';
 import { LEVELS, PERCENTILE_FIELDS, playerProjection, resolveOpposed, stampSkillOwnership } from './rolls.js';
@@ -116,10 +118,18 @@ export class CombatSession {
     initiativeProgress: Row[] = [];
     revision = 0;
     pendingAttack: Row | null = null;
+    /**
+     * Contract §139.9: the states that keep a person from fleeing, read from the ruleset (`combat.json`
+     * `flee.flee_blocked_by`), matched against a participant's conditions and the names of their active effects. The
+     * list is rules data; the engine keeps none of its own.
+     */
+    fleeBlockedBy: string[] = [];
     constructor(readonly combatId: string, readonly sceneRef: string, readonly startedAtTurn: number, readonly rng: PythonRandom, readonly tables: RuleTables, readonly arithmetic: CheckArithmetic, public weaponCatalog: Row) { }
     static async create(combatId: string, sceneRef: string, startedAtTurn: number, rng: PythonRandom, tables: RuleTables, moduleWeapons: Row[] = []): Promise<CombatSession> {
-        const [arithmetic, catalog] = await Promise.all([CheckArithmetic.create(tables), resolveModuleWeapons(tables, moduleWeapons)]);
-        return new CombatSession(combatId, sceneRef, startedAtTurn, rng, tables, arithmetic, catalog);
+        const [arithmetic, catalog, rules] = await Promise.all([CheckArithmetic.create(tables), resolveModuleWeapons(tables, moduleWeapons), tables.load('combat')]);
+        const session = new CombatSession(combatId, sceneRef, startedAtTurn, rng, tables, arithmetic, catalog);
+        session.fleeBlockedBy = array(row(row(rules).flee).flee_blocked_by).map(string);
+        return session;
     }
     addParticipant(actorId: string, side: string, options: ParticipantOptions): void {
         const armorRule = options.armorRule ?? null;
@@ -1003,9 +1013,14 @@ export class CombatSession {
             turn.outcome = prefix + 'restrain_success';
         }
         else if (goal === 'escape') {
+            // §139.9: a hold is either the engine's own `restrained` effect or a `grappled` condition the person
+            // brought into the fight; the held person's escape breaks either, or a grappled person could never get
+            // free and flee (the refusal's fix names this manoeuvre).
             const effects = array(attacker.active_effects), restraint = effects.find(effect => effect.effect === 'restrained');
-            if (restraint) {
+            const grappled = array(attacker.conditions).includes('grappled');
+            if (restraint || grappled) {
                 attacker.active_effects = effects.filter(effect => effect !== restraint);
+                attacker.conditions = array(attacker.conditions).filter(value => value !== 'grappled');
                 turn.effect_applied = { effect: 'broke_free', target_actor_id: actor, counter };
                 turn.outcome = prefix + 'escape_success';
             }
@@ -1024,6 +1039,21 @@ export class CombatSession {
         }
     }
     private resolveFlee(turn: Row, actor: string): void {
+        // Contract §139.9 (Keeper Rulebook, Fleeing): a person flees on their own action, with an escape route and not
+        // physically restrained, so a person held, or with no action left to take, cannot. Before this a Keeper's
+        // flee for anyone was stamped `fled` and the fight ended on it (table npc-actor-gate-a2, turn 6).
+        const participant = this.participants[actor];
+        const carried = [...array(participant.conditions).map(string), ...array(participant.active_effects).map(effect => string(row(effect).effect))];
+        const blocked = [...new Set(carried.filter(state => this.fleeBlockedBy.includes(state)))];
+        if (blocked.length) {
+            const state = blocked[0], out = incapacitatedBy(blocked);
+            throw new RpcError('needs', `${actor} is ${blocked.join(' and ')} and cannot flee`, {
+                fix: out.length
+                    ? `${actor} takes no action while ${out.join(' and ')}: nothing flees on their behalf. The fight goes on without them (the initiative skips them); narrate the state, and settle a flight only once they can act again.`
+                    : `${actor} has to get free first, and that is a turn of its own: on ${actor}'s turn resolve combat:maneuver with goal escape against whoever holds them (the held person's own manoeuvre breaks a hold). The flight is a later turn's action; the fight goes on meanwhile.`,
+                details: { reason: state, blocked_by: blocked, actor, rule: 'combat.json flee.flee_blocked_by' },
+            });
+        }
         this.participants[actor].conditions = [...this.participants[actor].conditions.filter((value: string) => value !== 'fled'), 'fled'];
         Object.assign(turn, { defense_kind: 'none', opposed_outcome: 'unopposed', outcome: 'fled' });
     }

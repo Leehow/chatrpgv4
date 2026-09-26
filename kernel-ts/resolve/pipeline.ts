@@ -744,27 +744,11 @@ export class ResolvePipeline {
         tagNpcReceipts(context, chosen.family, npc, shaped.outcome);
         if (selectedCard.decision_source)
             shaped.decision_source = selectedCard.decision_source;
-        if(ref==='decision:coc7:combat:flee'&&shaped.outcome.combat_outcome==='fled'){
-            const ready=!active(context.sessions().chase)&&context.party().length>0&&presentOpponents(context).some(([, ,profile])=>truth(profile));
-            if(!ready)shaped.continuations.push({decision:'chase:start',executed:false,when:'no pursuer with a stat block is present; the flight ends the fight'});
-            else{
-                const nextRuntime=runtimeFor('flee'),nextRef='decision:coc7:chase:start';
-                const card=array(nextRuntime.context({kind:'procedure',semantic_inputs:{},family:'chase'}).cards).find(card=>card.decision_ref===nextRef);
-                if(card){
-                    const binding=familyBinding(this.families,nextRef,nextRuntime.capabilityOf(nextRef));
-                    if(!binding)unsupportedDecision(nextRuntime,nextRef);
-                    const slots=await binding.slots(nextRef,context,{npc:null,investigator:null}),choice={decision_ref:nextRef,semantic_inputs:slots.semantic,...slots.extras};
-                    const next=await settleFamily(context,nextRuntime,choice,nextRuntime.latestGrantCovering(nextRef),binding,beforeExecute);
-                    if(next.status!=='settled')throwPlanningFailure(next,card);
-                    const result=row(row(next.settlement).result);
-                    shaped.continuations=shaped.continuations.filter((entry:Row)=>entry.decision!=='chase:start');
-                    shaped.continuations.push({decision:'chase:start',executed:true,when:card.label??null,outcome:binding.outcome(context,nextRef,result)});
-                    shaped.session=result.session??null;shaped.pending_choice=result.pending_choice??null;shaped.outcome.continued='chase:start';
-                    for(const rule of array(next.rule_refs))if(!shaped.rule_refs.includes(rule))shaped.rule_refs.push(string(rule));
-                    shaped.effects=[...context.effects];shaped.receipts=context.receipts;
-                }
-            }
-        }
+        // Contract §139.9: an investigator's successful flight no longer starts a chase here. The settlement executed
+        // `chase:start` as a continuation of `combat:flee`, so a pursuit nobody had decided on was rolled in the same call
+        // (table npc-actor-gate-a, turn 12: the receipts held a chase while the prose had the pursuer stay seated). The
+        // flight's result carries the pursuit as a hint instead (`combat/execution.ts`), exactly as an NPC's flight
+        // does, and whoever pursues opens the chase with their own `resolve chase:start`.
         return shaped;
     }
 }

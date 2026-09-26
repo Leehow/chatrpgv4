@@ -415,6 +415,15 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
             // the fiction decides, and a pursuit is a chase the investigators choose.
             if (kind === 'flee' && session.participants[actor].side !== 'investigator')
                 hints.push(`${actor} fled the fight: if the investigators give chase, resolve chase:start with target ${actor}; otherwise say where they went with apply npc to: away (or the scene they ran to)`);
+            // §139.9: an investigator's flight is the mirror. Whether anyone runs after them is the pursuer's own decision,
+            // so nothing starts a chase here (the pipeline used to execute chase:start as the flight's continuation); the
+            // hint names who is still able to give chase and how the pursuer opens it.
+            else if (kind === 'flee') {
+                const pursuers = values(session.participants).filter(value => value.side !== 'investigator' && eligibleParticipant(value)).map(value => string(value.actor_id));
+                hints.push(pursuers.length
+                    ? `${actor} fled the fight: a pursuit is the pursuer's choice and the pursuer opens it -- if ${pursuers.join(' or ')} gives chase, resolve chase:start (intent flee) with actor: <that pursuer> and target ${actor}; otherwise say where ${actor} went with apply move to: <the scene they ran to>`
+                    : `${actor} fled the fight and no one able is left to give chase; say where ${actor} went with apply move to: <the scene they ran to>`);
+            }
         }
         else {
             const options = sorted(['attack', 'defend', ...SELF_RESOLVING]);

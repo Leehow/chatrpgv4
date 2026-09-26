@@ -51,6 +51,11 @@
       "attack_vs_fight_back_tie_winner": "maneuver_actor"
     }
   },
+  "flee": {
+    "rule_ref": "rule:coc7:combat:escape-close-combat",
+    "flee_blocked_by": ["grappled", "restrained", "unconscious", "dying", "dead"],
+    "source_note": "Keeper Rulebook, Fleeing (source page 119, printed p.107; summary source page 420): a character can use their action to flee melee combat on their turn, providing they have an escape route and are not physically restrained. grappled is that restraint as a condition (core.combat.maneuver.grapple); restrained is the same hold as the combat engine records it, the active effect of the ongoing_disadvantage maneuver, which the held character breaks on their own turn with a maneuver of goal escape (source page 117, printed p.105). unconscious, dying and dead take no action at all, so none is left to flee with (0 HP is unconscious; 0 HP with the Major Wound box ticked is dying; source page 131, printed p.119). prone is deliberately absent: the Prone optional rule (source page 139, printed p.127) lets a prone character stand up when their turn comes and then take their action."
+  },
   "special_damage_effects": {
     "source_rule_id": "core.combat.special_damage_effects",
     "source_note": "Keeper Rulebook Table XVII Key (p.405-406). Defines special-damage tags appearing in weapon damage expressions (e.g. '1D6+burn', '1D3+stun').",
