@@ -1,5 +1,8 @@
 # Natural NPC
 
+## 1.4.4
+- Restores the language paragraph of the brief word for word from 1.4.2. The 1.4.3 compression reworded the language-barrier rules (it dropped "bound or not", "never rewrite the book", "Read the sheet with `look` if needed: Language values limit both directions", "keep the intent", "never in documents"), which were not this change's to shorten; `tests/kernel/test_language_barrier.py` caught one of them. The asking rule is one shorter sentence; the full rule stays in `agent.md`.
+
 ## 1.4.3
 - Asking for something: a request this person might grant is uncertain and rolled, with an opposing motive as strong as the ask cuts against them; a request nobody in their position would grant without a reason (goods, labour or a secret for nothing) is not uncertain, gets no roll, and is refused outright in their register. A reason the fiction supports puts it back in the range the dice decide. The brief is compressed to keep all active briefs within 5000 bytes.
 
