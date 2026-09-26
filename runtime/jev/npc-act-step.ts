@@ -115,9 +115,10 @@ export function npcTurnCandidate(actor: string, label: string, round: number, de
  * step reads who). `addressees` are the people the compile read the declaration as aimed at (§135.30's `addressee`), which
  * count as acted on; an addressee who is someone else ends another person's conversation for the turn.
  */
-export function npcScanCandidate(ordinal: number, landed: readonly string[], addressees: readonly string[]): Candidate {
+export function npcScanCandidate(ordinal: number, landed: readonly string[], addressees: readonly string[], fightPending?: {named: readonly string[]}): Candidate {
   return {key: `npc_act:scan:${ordinal}`, verb: 'apply', family: 'npc_act', source: 'run',
-    label: 'The people present who were acted on, addressed or are in the conversation act', bound: {trigger: 'acted_on', addressees: [...addressees]}, unbound: [],
+    label: 'The people present who were acted on, addressed or are in the conversation act', unbound: [],
+    bound: {trigger: 'acted_on', addressees: [...addressees], ...(fightPending ? {fight_pending: {named: [...fightPending.named]}} : {})},
     clerk: NPC_ACT_CLERK, basis: {read: 'run', path: 'landed', row: {landed: [...landed]}}};
 }
 export const isNpcAct = (candidate: Pick<Candidate, 'clerk'> | undefined): boolean => candidate?.clerk === NPC_ACT_CLERK;
@@ -673,11 +674,11 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
  * they were said to them.
  */
 export async function runNpcScan(deps: NpcActDeps, input: {present: readonly string[]; addressees: readonly string[]; seen: Set<string>; count: {acted: number};
-  firstPresent?: readonly string[]; moved?: boolean}): Promise<NpcActOutcome[]> {
+  firstPresent?: readonly string[]; moved?: boolean; fightPending?: {named: readonly string[]}; held?: Row[]}): Promise<NpcActOutcome[]> {
   const out: NpcActOutcome[] = [];
   type Due = {name: string; handle: string; names: string[]; options: ActOptions; addressed: boolean; engaged: boolean; elsewhere: boolean;
-    trigger: NpcActTrigger; conversation: {turn: number; order: number} | null};
-  const due: Due[] = [];
+    actedOn: boolean; trigger: NpcActTrigger; conversation: {turn: number; order: number} | null};
+  let due: Due[] = [];
   for (const name of input.present) {
     let options: ActOptions;
     try { options = await deps.call('npc.act.options', {name}) as unknown as ActOptions; } catch { continue; }
@@ -690,7 +691,24 @@ export async function runNpcScan(deps: NpcActDeps, input: {present: readonly str
     const engaged = conversation !== null && !elsewhere;
     const actedOn = array(options.acted_on).length > 0;
     if (!actedOn && !addressed && !engaged) continue;
-    due.push({name, handle, names, options, addressed, engaged, elsewhere, trigger: actedOn || addressed ? 'acted_on' : 'engaged', conversation});
+    due.push({name, handle, names, options, addressed, engaged, elsewhere, actedOn, trigger: actedOn || addressed ? 'acted_on' : 'engaged', conversation});
+  }
+  // §139.25 (ticket 26, live table D turn 3): the declaration is a fight action no clerk step has settled yet, so the person
+  // it is aimed at does not act before it is resolved -- their reaction comes on their own turn of the fight or in the scan
+  // after the step lands. Aimed at: the people the compile named (its cleared addressee and target rows); when it named no
+  // one, the people something of this turn was done to; when nothing was, the people in the conversation, one of whom the
+  // blow is for. Structure only. Held people are not `seen`: a later scan runs them.
+  const pending = input.fightPending;
+  if (pending) {
+    const named = due.filter(entry => pending.named.some(value => entry.names.includes(value)));
+    const aimed = pending.named.length ? named : due.some(entry => entry.actedOn) ? due.filter(entry => entry.actedOn) : due.filter(entry => entry.engaged);
+    for (const entry of aimed) {
+      const row = {npc: entry.handle, trigger: entry.trigger, reason: 'fight_pending'};
+      input.held?.push(row);
+      // Its own event, not an `npc_act` row: nothing was generated or written for them.
+      deps.record({lane: 'run', event: 'npc_held', run: deps.runId, step: deps.stepId, ...row, named: [...pending.named]});
+    }
+    due = due.filter(entry => !aimed.includes(entry));
   }
   const latest = (a: Due, b: Due) => (b.conversation?.turn ?? -1) - (a.conversation?.turn ?? -1) || (b.conversation?.order ?? -1) - (a.conversation?.order ?? -1);
   const ranked = [...due.filter(entry => entry.trigger === 'acted_on'), ...due.filter(entry => entry.trigger === 'engaged').sort(latest)];

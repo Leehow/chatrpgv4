@@ -24,7 +24,7 @@ import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
 import {answerOf, clears} from './decision-gate.ts';
 import {npcScanCandidate} from './npc-act-step.ts';
-import {actGated, askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, interpretReask, ORDINARY_CHECK,
+import {actGated, askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, FIGHT_FAMILIES, fightAct, interpretCompile, interpretReask, ORDINARY_CHECK,
   reachable, REASK_FAMILY, reaskBatch, reaskOf, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput} from './route-compile.ts';
 
 type Row = Record<string, any>;
@@ -273,6 +273,15 @@ export interface RunView {
    * does. An investigator's step of a running fight is the route's to select only when its decision is among them (`actGated`).
    */
   declaredActs?: string[];
+  /**
+   * §139.25 (NAF-26): a compile of the run cleared `act` on a fight action (`fightAct`), and whether a clerk step that settles
+   * one has landed since (`FIGHT_FAMILIES`). Declared and not landed, the person the declaration is aimed at does not act in
+   * a scan (`npcScanItem` carries `fight_pending`). `targets`: the compile's cleared `target` rows, the people a declared
+   * attack is aimed at (the addressees are the other half).
+   */
+  fightDeclared?: boolean;
+  fightLanded?: boolean;
+  targets?: string[];
 }
 export interface StagedClue {after: string; key: string; compile: Json}
 export interface StagedUnlock {after: string; to: string; compile: Json; guarded: GuardedDestination}
@@ -330,10 +339,15 @@ export function npcScanDue(view: Pick<RunView, 'landed' | 'npcScanned'> & {conte
   if (view.npcScanned === undefined) return landed.length > 0 || (view.context?.present?.length ?? 0) > 0;
   return landed.some(key => !view.npcScanned!.includes(key));
 }
-/** The scan step `next` issues when one is due: a clerk candidate of its own, never taken from `pending`. */
-export function npcScanItem(view: Pick<RunView, 'landed' | 'addressees'>): PendingItem {
+/**
+ * The scan step `next` issues when one is due: a clerk candidate of its own, never taken from `pending`. §139.25: while a
+ * declared fight action has no landed clerk step, it carries `fight_pending` with the people the compile named (its
+ * cleared addressees and targets), so the person the declaration is aimed at does not act before it is resolved.
+ */
+export function npcScanItem(view: Pick<RunView, 'landed' | 'addressees' | 'targets' | 'fightDeclared' | 'fightLanded'>): PendingItem {
   const landed = view.landed ?? [];
-  return {kind: 'direct', purpose: 'execute', scan: true, candidate: npcScanCandidate(landed.length, landed, view.addressees ?? [])};
+  const pending = view.fightDeclared === true && view.fightLanded !== true ? {named: [...new Set([...(view.addressees ?? []), ...(view.targets ?? [])])]} : undefined;
+  return {kind: 'direct', purpose: 'execute', scan: true, candidate: npcScanCandidate(landed.length, landed, view.addressees ?? [], pending)};
 }
 
 /**
@@ -723,6 +737,8 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
  */
 export function settleCompile(view: RunView, step: number, batch: DecisionBatch, result: DecisionResult, ms: number, gate: number): TelemetryRow {
   view.budget.jevCalls++;view.budget.jevMs += ms;
+  // §139.25: what the read issued when the compile was asked (a fight step the compile decided is filtered out below).
+  const issued = view.candidates;
   const outcome = interpretCompile(view, result, gate);
   for (const key of outcome.decided) if (!view.consumed.includes(key)) view.consumed.push(key);
   view.candidates = view.candidates.filter(value => !outcome.decided.includes(value.key));
@@ -745,6 +761,11 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
   const act = outcome.features?.act;
   if (act?.cleared && typeof act.row === 'string' && act.row && !(view.declaredActs ?? []).includes(act.row))
     view.declaredActs = [...(view.declaredActs ?? []), act.row];
+  // §139.25 (NAF-26): a declared fight action, and the person a declared attack is aimed at (a cleared `target` row).
+  if (act?.cleared && typeof act.row === 'string' && act.row && fightAct(act.row, issued)) view.fightDeclared = true;
+  const target = outcome.features?.target;
+  if (target?.cleared && typeof target.row === 'string' && target.row && !(view.targets ?? []).includes(target.row))
+    view.targets = [...(view.targets ?? []), target.row];
   // §135.30.8 (SL-43): the act an obligation check fired on is settled for the rest of the run.
   settleActs(view, outcome.actsSettled ?? []);
   // §135.30.9.2 (SL-52 stage 2): a compile that settles a step of the book re-asks the scene's clue rows once, before the batch.
@@ -1062,6 +1083,8 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     // on their act before the next model step.
     if (executed.ok && !item.candidate!.forced && item.candidate!.clerk !== 'npc_act' && !(view.landed ?? []).includes(item.candidate!.key))
       view.landed = [...(view.landed ?? []), item.candidate!.key];
+    // §139.25: a landed clerk step that settles a fight action ends the hold on the person the declaration is aimed at.
+    if (executed.ok && !item.candidate!.forced && item.candidate!.clerk !== 'npc_act' && FIGHT_FAMILIES.includes(item.candidate!.family)) view.fightLanded = true;
     // §135.30.8 (SL-43): the act an obligation check was executed with is settled for the run, taken or refused.
     const act = obligationAct(item);
     if (act) settleActs(view, [act]);

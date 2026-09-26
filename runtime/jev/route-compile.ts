@@ -198,6 +198,19 @@ export function fightStep(candidate: Candidate): boolean {
     && typeof candidate.bound.decision === 'string';
 }
 /**
+ * §139.25 (NAF-26): the fight actions among the compile's `act` rows. Outside a fight the rows are the resolve tool's closed
+ * intents, of which `combat` and `flee` are the fight's; in a running fight they are the session's decisions, and a
+ * decision is a fight action when the read issued it as the investigator's fight step (`fightStep`) or as the first blow.
+ * (The person a running fight's action is aimed at is its participant, whom the scan never runs, §139.4.)
+ */
+export const FIGHT_INTENTS: readonly string[] = Object.freeze(['combat', 'flee']);
+export function fightAct(row: string, candidates: readonly Candidate[]): boolean {
+  return FIGHT_INTENTS.includes(row)
+    || candidates.some(candidate => (fightStep(candidate) || candidate.clerk === 'first_blow') && candidate.bound.decision === row);
+}
+/** §139.25: the candidate families of a clerk step that settles a declared fight action (the first blow and the investigator's fight steps are `combat`; a chase's are `chase`). */
+export const FIGHT_FAMILIES: readonly string[] = Object.freeze(['combat', 'chase']);
+/**
  * §139.16: the route may select an investigator's fight step only when a compile of this run cleared `act` on that step's own
  * decision (`acts`: the act rows the run's compiles cleared, `RunView.declaredActs`). Otherwise the step is gated: its `need`
  * question is asked and recorded, it selects nothing, and after a complete route it is the Keeper's for the run.

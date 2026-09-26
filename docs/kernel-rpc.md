@@ -25222,6 +25222,12 @@ scan before the model step (one existing test changed). Mutation record (copy an
 (`engaged = false`) fails the first table case (no row); `npcScanDue` restored to "a landed step not yet followed" fails
 it too; both restored, green.
 
+*Note, 2026-09-26 (§139.25, ticket 26, table D turn 3):* the scan before the first model step no longer runs the person a
+declared fight action is aimed at while no clerk step has settled it. "照他脸上就是一拳" read `act` combat 1.0, named no one,
+and no clerk step took it; the scan ran Knott (engaged) on a punch that had not happened, and he walked out before it
+landed. While a compile of the run cleared `act` on a fight action and no clerk fight step has landed, the scan holds the
+person it is aimed at (`npc_held`, not an `npc_act` row); everyone else is scanned as above. The rule is §139.25.
+
 **139.21 The player's words reach the person they were said to, and the act is written in the table's language from the
 opening on (2026-09-26, ticket 22 of `docs/specs/npc-acts-first-tickets/`, spec D1 and section 九's table B; amends
 §139.1 and §139.2).**
@@ -25412,3 +25418,71 @@ existing assertions changed to the new wording (§139.20's engaged case and §13
 one"), because both are the no-one-named case. Mutation record (copy and restore): the compile state's `last_exchange`
 removed fails the first table case (and the emitted-kernel case); the closing sentence put back to the words unconditionally
 (the kernel rebuilt each way) fails the both-in-the-conversation case; restored, green.
+
+**139.25 The scan does not act before the declaration: a declared fight action no clerk step has settled holds the person
+it is aimed at (2026-09-26, ticket 26 of `docs/specs/npc-acts-first-tickets/`,
+`26-the-scan-does-not-act-before-the-declaration.md`; spec D4 and section 九's table D; amends §139.20's scan).**
+
+*Evidence* (table D, `npc-acts-d`, the-haunting, turn 3, run `run-01a0dea0-1323-75c2-adfc-677cc223bf08`). "我走过去，照他脸上就
+是一拳": the compile read `act` `combat` 1.0 (cleared) and `addressee` `none` 0.28 (not cleared), and asked no `target`
+(the kernel issued no first blow: Knott had no stat block yet); the route selected the ordinary check (`need` `now` 0.47,
+cleared on the margin, 0.64 against 0.33) and its bind went to the model (bind `outcome: keeper`), so no clerk step took
+the punch -- it was the Keeper's. The scan §139.20 put before the first model step, here before that bind, ran Knott
+(`engaged`: he had spoken the turn before) with the unresolved declaration as the last line of his packet; he generated
+"诺特把折好的租房广告收回口袋，侧身让开门口，抬脚朝外走去", bound as `leave`, `to: away`, done. The Keeper then had to `apply npc ... to:
+here` to bring him back and hit him. On turn 4, his own turn of the fight, he generated the same thing again, which the
+row settled `done` let through. Table B2 was all talk and never showed it.
+
+**The rule** (`npcScanItem`, `settleCompile`, `settleExecute` in `runtime/jev/step-policy.ts`; `runNpcScan` in
+`runtime/jev/npc-act-step.ts`). The run's view records two facts:
+
+- `fightDeclared`: a compile of the run cleared `act` on a fight action (`fightAct`, `runtime/jev/route-compile.ts`): outside
+  a fight the `act` rows are the resolve tool's closed intents, of which `combat` and `flee` are the fight's
+  (`FIGHT_INTENTS`); in a running fight they are the session's decisions, and one is a fight action when the read issued it
+  as the investigator's fight step (`fightStep`, §139.16) or as the first blow (§135.30.2). The compile's cleared `target`
+  rows are recorded beside its addressees (`RunView.targets`).
+- `fightLanded`: a clerk step of the declaration landed (not forced, not a person's own act) whose candidate family is
+  `combat` or `chase` (`FIGHT_FAMILIES`: the first blow, the investigator's fight steps, a chase's steps). A refused step
+  did not land.
+
+While declared and not landed, the scan candidate carries `fight_pending: {named}` -- the compile's cleared addressees and
+targets -- and the scan holds the person the declaration is aimed at: the people it named, when it named anyone; else the
+people something of this turn was done to (`acted_on`); else, when nothing was, the people in the conversation
+(`engaged`), one of whom the blow is for and whom the structure cannot tell apart. Everyone else due is scanned as
+§139.20 has it (a person named silences another's conversation there, unchanged). A held person is not run, generates
+nothing and is not `seen`: a scan after a clerk fight step lands runs them as usual, and a person the landed step drew
+into the fight is a participant, whose reaction is their own turn of it (§139.4's forced step). A held person does not
+count against `npc_act.max_per_turn`.
+
+*Decided (the ticket's parenthesis lists the named, the addressee or target, "or acted_on"; the evidence is none of
+them).* On table D's turn 3 the compile named no one and nothing had been done to Knott; he was in the conversation. The
+ticket's own acceptance replays exactly that and requires him held, so the aimed-at person falls back, in order, from
+the named to the acted on to the conversation. The fallback is conservative: with two people in the conversation and a
+blow that names neither, neither acts before the Keeper's step this turn. Nothing reads the declaration's words; the
+criterion is the compile's closed `act` row and the landed-step record.
+
+**Telemetry.** A held person is one `lane: "run"`, `event: "npc_held"` row: `npc`, `trigger` (what they would have acted
+as), `reason: "fight_pending"`, `named`. It is not an `npc_act` row: nothing was generated or written. The scan step's
+summary adds `held` when there were any.
+
+**Three ends (§31).** Writers: the compile's `act` and `target` answers (`settleCompile`), the landed clerk steps
+(`settleExecute`). Reader: the scan (`runNpcScan`, through `npcScanItem`'s `fight_pending`). Actor: the person's reaction
+comes after the declaration is resolved -- their own fight turn, or the scan after the landed step; the Keeper, who takes
+the declared blow the clerk did not.
+
+**Not covered.** Ticket 27 (a person being chased is at the `calm` stakes rung) and 28 (a surprise produced from what is
+already on the table) are their own tickets. A fight action the Keeper resolves itself (a model-origin `resolve`) is not
+a landed clerk step and owes no scan (§139.4); the person's reaction then comes on their turn of the fight the Keeper's
+blow opened.
+
+*Tests.* `tests/extension/single-loop-npc-act.test.mjs`: at the table (the policy's own scheduling, the emitted kernel),
+table D's turn 3 replayed -- Knott spoke last turn, the compile reads `combat` 1.0 and names no one, no clerk step
+lands: no `npc_act` row, nothing generated, one `npc_held` row (`engaged`, `named: []`), by step id before the Keeper's
+first model step (the telemetry file interleaves writers, so line order is not evidence); the policy -- `combat` cleared
+puts `fight_pending` on the scan (with the named addressee when there is one), `social` never does, a landed clue and a
+refused first blow leave it, a landed first blow ends it; on the emitted kernel, the punch aimed at Knott (the compile's
+`target`) with Edna Hale also in the conversation -- she acts as `engaged`, he is held, and the scan after the blow
+lands runs him. No existing test changed. Mutation (copy and restore): the hold disabled in `runNpcScan` fails the
+table-D replay (an `npc_act` row for him) and the Edna case; restored, green. `tests/extension/single-loop-run-driver.test.mjs`
+fails two cases at the integration base (7f54e9c63) with and without this change -- the step sequence gained §139.20's
+scan before the first model step -- which is not this ticket's.
