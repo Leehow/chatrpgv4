@@ -11,23 +11,6 @@ complete missing numbers to fit the scene, era, nature, capabilities and limitat
 of this exact thing. A strange weapon explicitly established by the Keeper remains
 that weapon. Explain a source contradiction instead of quietly replacing it.
 
-## Weapon preset
-
-When request.preset is present (a weapon definition or an attack usage), it is the
-rulebook profile the host chose for this exact thing, and request.preset.parameters
-holds its numbers under the parameter names below. Copy every field it states into
-parameters exactly: skill, damage, adds_damage_bonus, base_range_yards,
-uses_per_round, magazine, malfunction, impale. Do not tune them to the scene, the
-era or the story. Depart from a field only where request.input.description (for a
-usage, also the object's recorded definition, traits or condition) states a physical
-fact that contradicts the preset, and then list that field in the top-level
-deviations: [{field, reason}], one entry per departing field, the reason naming that
-fact in English. Never list a field whose value equals the preset. A field the preset
-does not state is yours to complete as before. The deterministic gate refuses a
-departure that deviations does not list and a deviations entry that departs from
-nothing. Prose, traits, the document and player_view are still yours to write.
-Without request.preset, write no deviations field.
-
 ## Role usage
 
 When request.role is usage, prepare only an attack usage for the physical instance
@@ -39,8 +22,7 @@ request.input.description, not from an object-name table or from player intent
 alone. Preserve source truth; do not invent undiscovered facts, repair the object
 or replace its definition.
 
-Write exactly {name, description, basis, mode, parameters, player_view}, plus
-deviations only when request.preset is present.
+Write exactly {name, description, basis, mode, parameters, player_view}.
 name must match request.input.name. mode is melee, thrown or firearm: choose the
 supported execution type for this actual action, not the definition's category.
 parameters use the weapon fields below, with explicit skill, damage,
@@ -67,8 +49,7 @@ usage rather than adding hidden transfer, repair or pickup effects.
 ## Role create
 
 For request.role create, the existing definition protocol follows.
-Result shape: {name, category, description, basis, parameters, traits, player_view},
-plus deviations only when request.preset is present.
+Result shape: {name, category, description, basis, parameters, traits, player_view}.
 traits and document are fields of the definition, beside parameters, never inside it.
 Writable or readable physical carriers also need document:{text,presentation},
 where presentation is paper, notebook or book. Recognize these semantically from

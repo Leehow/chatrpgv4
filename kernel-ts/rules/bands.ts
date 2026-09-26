@@ -9,7 +9,8 @@
  */
 import type { KernelContext } from "../context.js";
 import { RpcError } from "../errors.js";
-import { entries, integer, number, row, string, type Row } from "../read/values.js";
+import { compareUnicode } from "../json.js";
+import { array, entries, integer, normalize, number, row, similarity, string, truth, type Row } from "../read/values.js";
 import { RuleTables } from "./tables.js";
 
 export interface BandTable {
@@ -71,4 +72,59 @@ export async function bandRows(kernel: KernelContext, field: string): Promise<Ba
     if (!rows.length)
         broken("*", "a table with any row");
     return rows;
+}
+
+/** A weapons-band row as the host's profile question reads it (§138.6, §138.7); host-only detail, never named by a `fix`. */
+export type WeaponBandProfile = {
+    id: string;
+    name: string;
+    skill: string;
+    damage: string | null;
+    range: number | null;
+};
+
+/** The key a weapon name is matched by: folded like every table name, with a `weapon:` or `item:` prefix dropped. */
+function weaponKey(query: string): string {
+    let key = normalize(query);
+    for (const prefix of ["weapon:", "item:"])
+        if (key.startsWith(prefix))
+            key = key.slice(prefix.length);
+    return key;
+}
+const weaponNames = (id: string, entry: Row): Set<string> =>
+    new Set([normalize(id), ...["display_name", "name"].filter(field => typeof entry[field] === "string").map(field => normalize(entry[field]))]);
+
+/** The weapons-band row a name or id names exactly (`weapon_id` set), or null. */
+export function weaponRowNamed(catalog: Iterable<[string, Row]>, query: string): Row | null {
+    const key = weaponKey(query);
+    for (const [id, entry] of catalog)
+        if (weaponNames(id, entry).has(key))
+            return { ...entry, weapon_id: id };
+    return null;
+}
+
+/**
+ * The weapons band's rows offered for a name that named none: the ids the era allows (a row without `eras` is
+ * every era's), up to six ids closest to the name, and the profiles behind the offered ids. One reading for the
+ * kernel's `needs {field: "weapon"}` refusal (§138.6) and the definition job's preset offer (§138.7), so the host's
+ * question sees the same rows from both.
+ */
+export function weaponBandOptions(catalog: Iterable<[string, Row]>, era: string, query: string): { options: string[]; close: string[]; profiles: WeaponBandProfile[] } {
+    const rows = [...catalog], key = weaponKey(query), byName = new Map<string, string>();
+    for (const [id, entry] of rows)
+        for (const name of weaponNames(id, entry))
+            byName.set(name, id);
+    const options = rows.filter(([, entry]) => !era || !truth(entry.eras) || array(entry.eras).includes(era)).map(([id]) => id), close: string[] = [];
+    const matching = [...byName.keys()].map(name => ({ name, score: similarity(key, name) })).filter(value => value.score >= 0.5)
+        .sort((a, b) => b.score - a.score || compareUnicode(b.name, a.name)).slice(0, 12);
+    for (const { name } of matching)
+        if (!close.includes(byName.get(name)!))
+            close.push(byName.get(name)!);
+    const byId = new Map(rows);
+    const profiles = options.map(id => {
+        const entry = row(byId.get(id));
+        return { id, name: string(entry.display_name || id), skill: string(entry.skill || ""), damage: typeof entry.damage_die === "string" ? entry.damage_die : null,
+            range: typeof entry.base_range_yards === "number" ? entry.base_range_yards : null };
+    });
+    return { options, close: close.slice(0, 6), profiles };
 }

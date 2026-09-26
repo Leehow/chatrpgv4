@@ -1,3 +1,14 @@
+# 1.3.0
+
+Requires weapons.preset.v1 (contract §138.7). When the host names a rulebook weapon
+profile for a weapon definition or an attack usage, the packet carries it as
+request.preset and the creator copies its parameters field for field. A departure is
+allowed only where the description states a physical fact that contradicts the
+preset, and is listed in the result's deviations as {field, reason}; the kernel's
+acceptance gate refuses an unlisted departure and a listed field that departs from
+nothing. Without a preset the creator works as in 1.2.2. Campaigns locked to 1.2.2
+keep that package, and its bytes, until explicitly upgraded; nothing is rewritten.
+
 # 1.2.2
 
 Adopts the §101 runtime-file allowlist. The package bytes contain only the manifest and referenced

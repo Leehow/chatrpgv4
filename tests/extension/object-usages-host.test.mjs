@@ -90,8 +90,9 @@ test('usage preparation waits, repairs through object-usage check, and injects t
   assert.equal(effect._usage, undefined);
   finish.release();
   await preparing;
+  // §138.7: an action usage is asked for with `offer_preset`; a kernel that offers nothing answers with the job itself.
   assert.deepEqual(h.jobs, [{campaign: 'test-campaign', role: 'usage', input: {
-    object: 'Held chair', name: 'Swing', description: effect.description}}]);
+    object: 'Held chair', name: 'Swing', description: effect.description}, offer_preset: true}]);
   assert.deepEqual(h.operations, ['mods.queued', 'mods.job', 'run', 'object-usage', 'run', 'object-usage', 'mods.accept']);
   assert.equal(h.tasks[0].kind, 'mod');
   assert.equal(h.tasks[0].request.tools, 'read,write,edit,bash');

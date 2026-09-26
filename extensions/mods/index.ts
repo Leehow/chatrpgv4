@@ -14,6 +14,7 @@ import {extensionContentRoot, extensionHome, fill} from '../ui/words.ts';
 import {publicDefinition, publicUsage} from '../../kernel-ts/mods/public-definition.ts';
 import {AUDIT_SUBREVIEW_PLACEMENT} from '../../kernel-ts/mods/audit-references.ts';
 import {patchCard} from '../table/card-patch.ts';
+import {choosePreset, presetOfferOf, presetRows, type PresetDecision} from './creator-preset.ts';
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<any>;
 
@@ -346,6 +347,42 @@ export default function modsExtension(pi: ExtensionAPI): void {
     } finally { budget.close(); }
   }
 
+  /** §138.7: the answer each offered job identity got in this process, so a job asked for again takes the same preset. */
+  const presetChoices = new Map<string, Promise<PresetDecision>>();
+  /**
+   * Contract §138.7. Mint a definition or usage job, naming its weapon preset first when the kernel offers one: the
+   * offer mints nothing, the band question runs over the offered rows, and the job is minted with the profile when the
+   * answer clears the gate (without a preset otherwise). Only a weapon definition and an action usage can be offered
+   * one; every other job is minted exactly as before, and so is one the kernel does not offer (its answer is the job).
+   */
+  function mintJob(current: Call, campaign: string, role: "create" | "usage" | "audit", input: unknown, preview?: Record<string, any>[],
+    signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<any> {
+    const params: Record<string, unknown> = preview === undefined ? {campaign, role, input} : {campaign, role, input, preview};
+    const offerable = role === "usage" ? (input as any)?.propose !== true : role === "create" && (input as any)?.category === "weapon";
+    // Not async on this path: the very call it always was, the same promise, no extra turn of the event loop.
+    return offerable ? offeredJob(current, campaign, role, input, params, preview, signal, providerBudget) : current("mods.job", params);
+  }
+  async function offeredJob(current: Call, campaign: string, role: string, input: unknown, params: Record<string, unknown>, preview?: Record<string, any>[],
+    signal?: AbortSignal, providerBudget?: TaskProviderBudget): Promise<any> {
+    const first = await current("mods.job", {...params, offer_preset: true}), offer = presetOfferOf(first);
+    if (!offer) return first;
+    const key = JSON.stringify([campaign, offer.turn, role, input, preview ?? null]);
+    let pending = presetChoices.get(key);
+    const asked = !pending;
+    if (!pending) {
+      pending = choosePreset(offer, {env: process.env, campaign, ...(signal ? {signal} : {}), ...(providerBudget ? {parent: providerBudget} : {})});
+      presetChoices.set(key, pending);
+      // Only a job asked for again in the same turn reads this back; the oldest answers go first.
+      while (presetChoices.size > 64) presetChoices.delete(presetChoices.keys().next().value!);
+    }
+    const decision = await pending;
+    const job = await current("mods.job", decision.preset ? {...params, preset: decision.preset} : params);
+    if (asked) for (const row of presetRows(offer, decision, typeof job?.job === "string" ? job.job : undefined)) {
+      try { record?.({campaign, ...row}); } catch { /* telemetry must never break a job */ }
+    }
+    return job;
+  }
+
   /**
    * `options.job` is a job already prepared by the caller; `options.onJob` reports the one prepared here;
    * `options.post` runs an audit after its delivery closed (§130).
@@ -358,7 +395,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
     const acceptMethod = proposal ? 'mods.prefetch.accept' : 'mods.accept';
     const afterDelivery = options.post ? {after_delivery: true} : {};
     if (role === "usage") signal?.throwIfAborted();
-    const job = options.job ?? await current("mods.job", preview === undefined ? {campaign, role, input} : {campaign, role, input, preview});
+    const job = options.job ?? await mintJob(current, campaign, role, input, preview, signal, providerBudget);
     if (role === "usage") signal?.throwIfAborted();
     if (!job.enabled) return null;
     options.onJob?.(job);
@@ -538,13 +575,13 @@ export default function modsExtension(pi: ExtensionAPI): void {
    * parameters beside it. Nothing is invented on the Keeper's behalf: the kernel writes real receipts
    * saying the registration is queued, and the audit that reads this turn's receipts is told the truth.
    */
-  async function defer(campaign: string, defines: Record<string, any>[], _signal?: AbortSignal): Promise<{now: number[]; jobs: any[]}> {
+  async function defer(campaign: string, defines: Record<string, any>[], signal?: AbortSignal): Promise<{now: number[]; jobs: any[]}> {
     const all = {now: defines.map((_, index) => index), jobs: [] as any[]};
     if (!call) return all;
     const current = call;
     const inputs = defines.map(effect => ({name:effect.name, category:effect.category ?? "item", description:effect.description, template:effect.template}));
     for (const input of inputs) {
-      const job = await current("mods.job", {campaign, role:"create", input});
+      const job = await mintJob(current, campaign, "create", input, undefined, signal);
       all.jobs.push(job);
       // Not something a marker can name: the whole batch takes the blocking path, with the jobs already prepared.
       if (!job?.enabled || typeof job.mod !== "string" && !job.accepted) return all;

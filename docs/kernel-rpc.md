@@ -4562,6 +4562,8 @@ Enhanced Items 1.0.1 requires `weapons.profile.v2`: non-applicable range and
 malfunction fields may be null, and new creator results must explicitly declare
 the preset's `adds_damage_bonus` rule. Existing accepted definitions remain valid
 and unchanged. Player descriptions are generated in the campaign language.
+Enhanced Items 1.3.0 requires `weapons.preset.v1`: a weapon definition and an action usage copy the weapon preset
+the host names, and acceptance refuses a departure the creator did not state (§138.7).
 
 Packages contain `mod.json`, instructions, schemas and optional data/migrations.
 The manifest declares `id`, `version`, `game_api`, `state_version`, `name`,
@@ -19014,3 +19016,113 @@ controlled typed endpoint: the pin under `t1-c2` and the retry under `t1-c1`; th
 `tests/play/test_kpi.py` (the basis section). The fake kernel refuses an unpinned person (`FAKE_KERNEL_UNPINNED`) and a
 wrong profile against its own table (`FAKE_KERNEL_WEAPON_PROFILES`), accepts the pin, and answers `look focus=npc`
 with the person's row.
+
+### 138.7 The item creator copies a host-chosen preset (2026-09-26, BR-03 of `docs/specs/band-then-roll.md`; extends §138.6 and the Enhanced Items `mods.job` / `mods.accept` contract)
+
+A weapon definition's numbers, and an attack usage's, were the creator child's own: the whole weapons table rode
+along in `request.catalogs` as "evidence", so two revolvers defined by two children fired differently and nothing
+tied a definition's dice to a rulebook row. Now the host names the row before the job is minted (the two-level weapon
+question of §138.6), the kernel writes it into the packet projected onto the definition's parameters, the creator
+copies it, and acceptance refuses a departure the creator did not state. The spec's D7 says the departure is stated
+"in `basis`"; it is a structured field instead (`deviations`), because the gate counts statements and cannot read prose.
+
+**Which jobs take a preset.** A `create` job of category `weapon` or a `usage` job that is not a proposal
+(`input.propose`), whose materializer declares the new capability `weapons.preset.v1` (Enhanced Items 1.3.0 is the
+first), and that will run a creator: not a `create` whose name is already a non-placeholder definition of the same
+category, not a `usage` with a fresh accepted usage of the same name (both are reuses, §129), and not a `create` whose
+`template` names a weapons row (the Keeper named its evidence; the template stays evidence, as before). Items, spells,
+audits and prefetched proposals take none; neither does any job of a campaign locked to Enhanced Items 1.2.2.
+
+**The offer and the choice (`mods.job` gains `offer_preset` and `preset`, host-only like every `mods.job` param).**
+
+- `offer_preset: true` on a job that takes a preset and names none answers `{enabled: true, preset_offer: {field:
+  "weapon", table: "weapons", for: "define" | "usage", turn, declaration, thing, options, close, profiles}}` and mints
+  nothing: no job directory, no packet. `options` are the ids of the weapons table the era allows (the first party
+  sheet's `era`, else the module's), `close` up to six ids nearest the thing's name, `profiles` `{id, name, skill,
+  damage, range}` per option: the same reading as the kernel's `needs {field: "weapon"}` refusal, now one function
+  (`weaponBandOptions`, with `weaponRowNamed`, in `kernel-ts/rules/bands.ts`; the refusal's bytes are unchanged).
+  `thing` is `{name, description}` for a definition; for a usage, the object's name, `why: "<usage name>: <usage
+  description>"` and the description of the object's recorded definition. `declaration` is the turn's player text.
+  A job that takes no preset answers with the job itself, so `offer_preset` costs nothing where it does not apply.
+- `preset: {weapon, confidence}` mints the job with it. `weapon` must be one of the offered ids and `confidence` a
+  number in [0, 1], else `invalid_params` with `details.reason: "preset_unknown"` and `details.options`. The packet gains
+  `request.preset: {table: "weapons", id, name, confidence, parameters, profile}`: `profile` is the table row as it
+  is; `parameters` is that row under the definition's own parameter names, the way the combat engine reads it —
+  `skill`; `damage` (the row's `damage_die` through the definition's dice grammar); `adds_damage_bonus`;
+  `base_range_yards` (null when the row has none); `uses_per_round` (`parseUsesPerRound`'s shots, only when the row
+  allows a positive number of attacks every round: a full-auto-only row or one use every few rounds states none);
+  `magazine`; `malfunction`; `impale` (the row's `impales`). A field the row cannot state in that shape is absent and
+  stays the creator's. `request.catalogs` is unchanged. A `preset` sent for a job that takes none is ignored.
+- Neither: the job is minted exactly as before, without a preset.
+- **The preset is identity.** `identity.request` gains `preset: <digest of the whole request.preset block>`, so the
+  same row chosen with the same answer is the same retained job and a different row or answer never is; `mods.accept`
+  recomputes the key from the retained packet the same way. The child can write its own directory, so a packet whose
+  preset was edited there is refused as a changed request (`needs`, "The retained Mod preparation request changed")
+  and is never gated by the edited block. A usage packet's `usage_request_digest` already covered the whole packet.
+- **A queued registration keeps its preset (§129).** A later `create` for the same registration (its input equals the
+  marker's `define`) reads `request.preset` back from the marker's own retained packet and ignores `offer_preset` and
+  `preset`, so the generation resumed at the next turn lands where the marker looks.
+- The answer of a minted job carries `preset: {weapon, confidence}` when its packet has one.
+
+**The creator (Enhanced Items 1.3.0, `mods/enhanced-items/creator.md`).** With `request.preset` the weapon parameters
+are the preset's, copied field for field (`skill, damage, adds_damage_bonus, base_range_yards, uses_per_round,
+magazine, malfunction, impale`); a field may depart only where the description (for a usage, also the object's
+recorded definition, traits or condition) states a physical fact that contradicts the preset, and every departure is
+listed in the result's top-level `deviations: [{field, reason}]`, the reason naming that fact in English. Prose,
+traits, the document and `player_view` stay generated in the play language. Without `request.preset` the creator
+writes no `deviations` and works as in 1.2.2. Package bytes are frozen per version: 1.3.0 ships at digest
+`681d03ddf0be5454e3ae5172001f862dcfd9da7710eeec275a70ecc928401909`; a campaign locked to 1.2.2 keeps its frozen bytes
+(digest `7714ce10e86032ebf427e45c63e61d38a4dabb8f75dabb2d6182f7d3638f54af`) and today's behaviour until explicitly
+upgraded, and nothing already accepted is rewritten.
+
+**The gate (`kernel-ts/mods/preset.ts`; `mods.accept` for `create` and action `usage`, and the definition checker).**
+With a preset in the packet, `deviations` is taken off the draft first — at most eight `{field, reason}`, each field
+one of the eight names and listed once, each reason nonempty and at most 600 characters, else `invalid_params`
+`preset_deviation_shape` — then the draft is validated by the ordinary definition or usage validator, then every field
+the preset states is compared with the validated value (skill folded like every table name; damage uppercased; absent
+reads as null for `base_range_yards`, `magazine`, `malfunction`). A departure not listed is `preset_deviation`; a
+listed field whose value equals the preset, or that the preset does not state, is `preset_deviation_unfounded`. All
+findings go in one refusal: `invalid_params`, a message naming the fields, a `fix` naming `details.findings`, and
+`details: {reason: <the first finding's code>, preset: <id>, findings: [{code, field, preset, value}]}`. The reason is
+never judged for truth: the gate checks accounting, not content. An accepted definition's or usage's provenance gains
+`preset: {table, id, confidence}` and `deviations` (the list, `[]` when every field was copied), so a definition's dice
+are traceable to a rulebook row; `deviations` is never a definition field. Without a preset nothing is gated and a
+`deviations` field is refused as an unknown definition field, exactly as before. The checker the host runs before
+acceptance (`kernel-ts/check.ts`, kinds `mod-definition` and `object-usage`) reads the draft's sibling `request.json`
+and runs the same gate, so the child's repair round hears the same findings; a draft outside a job directory is checked
+as before. A reused accepted usage whose provenance carries `preset` and `deviations` passes the retained-provenance
+check.
+
+**The host (`extensions/mods/creator-preset.ts`; `mintJob` in `extensions/mods/index.ts`).** A weapon `create` or an
+action `usage` is minted with `offer_preset: true` (every other job with the one call it always was). On an offer the
+host asks §138.6's weapon question (`askBand`: skill family, then the profiles of the best three families, `none` at
+each level; state = the offer's `thing` and `declaration`), under `PI_COC_BAND_MIN_CONFIDENCE` (default 0.5) and
+`PI_COC_BAND_JEV_TIMEOUT_MS` (default 4000), charged to the calling job's provider budget when it has one, and mints with
+`preset` when the answer clears the gate, without one otherwise (below the gate, `none`, Jev unavailable or
+unconfigured). One question per offered job identity (campaign, turn, role, input, preview) per process: the deferral
+of §129.4 and the generation beside the turn mint the same job from one answer. Cost: a deferred weapon definition now
+waits in the foreground for one band question (median about 0.3 s, capped by the timeout) before its marker lands.
+
+**Telemetry.** Every question writes the §135.28 bind row — `lane: "run"`, `event: "bind"`, `clerk: "creator_preset"`,
+`status: "succeeded"` or `outcome: "keeper"` with its `cause`, `bindings: [{name: "weapon", path: "banded", value,
+table: "weapons", confidence, distribution, family?}]`, `jev_calls`, `jev_ms`, `job`, `for`, `name` — and one `lane:
+"band-recovery"` row with `ok`, `reason` (`decided`, `low_confidence`, `none`, ...), `for: "define" | "usage"`, `name`,
+`job`. Without a key only the `band-recovery` row is written (`reason: "unconfigured"`): no question, no bind row.
+`kpi.py`'s `basis.pins` still counts only `band_recovery` bind rows; a count of preset-copied definitions is not here.
+
+*Writer:* Jev names the row through the host; the kernel writes `request.preset` and the provenance. *Reader:* the
+creator child (`request.json`), the gate. *Actor:* the creator copies the row; the kernel refuses what departs unstated.
+
+**Tests.** `tests/extension/creator-preset.test.mjs` (the TS kernel over its testing seam with the shipped packages, the
+definition checker, and the real Mods extension with a fake creator child and a controlled typed endpoint behind the
+real decision adapter): the offer mints nothing and names the era's rows, the thing and the declaration; a job without a
+preset has none in its packet; with one the packet carries the projected row, the preset is identity, and a row the
+definition cannot hold leaves `uses_per_round` unstated; a preset edited in the retained packet is refused as a changed
+request; a queued registration keeps its preset a turn later; items,
+spells and a weapons-row template are not offered; the gate refuses an unstated departure (at acceptance and in the
+checker), an unfounded and a malformed statement, accepts a copied and a stated one and records them in provenance;
+without a preset nothing is gated; a usage is offered the object and gated on its parameters; 1.3.0 and 1.2.2 load at
+their digests and a 1.2.2 campaign is offered nothing; the host mints with the profile above the gate asking one
+question for the deferral and the generation beside it, mints without one below the gate, on `none` and without a key
+with the rows saying why, and a usage batch waits for its preset. `tests/fixtures/mods/enhanced-items-v122/` holds the
+1.2.2 package bytes. `tests/extension/object-usages-host.test.mjs` now expects `offer_preset: true` on a usage job.

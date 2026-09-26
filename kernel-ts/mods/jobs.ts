@@ -8,7 +8,7 @@ import { isJsonObject, jsonDigest } from '../json.js';
 import { loadCampaignModule } from '../read/campaign.js';
 import {actor as selectActor} from '../read/handlers.js';
 import { playLanguageOf } from '../read/languages.js';
-import { recordOf, type ModuleGraph } from '../read/module-graph.js';
+import { moduleDeclaration, recordOf, type ModuleGraph } from '../read/module-graph.js';
 import { presentSection, whereSection } from '../read/capsule.js';
 import { MOD_CAPABILITIES, objectContext, unregisteredEquipment, findNamedObject } from '../read/mods.js';
 import { array, chars, clone, entries, equal, normalize, repr, row, sorted, string, truth, values, type Row } from '../read/values.js';
@@ -25,6 +25,7 @@ import type { ModRuntime } from './runtime.js';
 import {SOURCE_AUDIT, auditSourceEvidence, writeAuditSources, verifyAuditSources, validateSourceReview} from './audit-source.js';
 import {CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2, AUDIT_LIMITS, continuityArtifactErrors} from './audit-result.js';
 import {buildAuditReferences, materializeAuditReferences, auditReferenceIssues} from './audit-references.js';
+import {PRESET_TABLE, WEAPON_PRESET_CAPABILITY, gatePreset, presetBlock, presetOf, presetOffer, presetStamp, templateProfile} from './preset.js';
 
 export interface ModSources { asset?: (moduleId: string, name: string) => Promise<Row | null>; }
 const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
@@ -147,6 +148,52 @@ export class ModJobs {
         return {campaign, prefetch:true, worldline, mod:candidates[0].id, digest:candidates[0].digest,
             packages:candidates.map(mod => ({id:mod.id,digest:mod.digest})), request:{input,role:'usage'}, physical_basis:physicalBasis};
     }
+    /**
+     * The request a job is keyed by (identity.request): its input and role, and a digest of the whole preset block it
+     * copies (§138.7). The child can write its own directory, so the block the gate compares against is bound by the key
+     * like the input is: a retained packet whose preset was edited is refused as a changed request, never gated by it.
+     */
+    private keyedRequest(input: any, role: any, request: Row): Row {
+        const preset = presetOf(request);
+        return {input, role, ...(preset ? {preset: jsonDigest(preset)} : {})};
+    }
+    /**
+     * Contract §138.7. Whether this job copies a preset, and which. None unless the materializer declares
+     * `weapons.preset.v1` and the job is a weapon definition or an action usage that will run a creator: a reused
+     * definition or usage runs none, and a `template` naming a weapons row is the Keeper's own evidence. A queued
+     * registration keeps the preset its job was minted with, so a later request lands where the marker looks (§129).
+     * Otherwise the host's `preset`, checked against the offered rows; or, when the host asks for an offer and has not
+     * chosen, what it needs to ask the band question -- and no job is minted until it answers.
+     */
+    private async jobPreset(params: Row, job: {role: string; prefetch: boolean; packageRow: Row; world: Row; party: Row[]; graph: ModuleGraph;
+        turn: Row; request: Row; waiting?: Row}): Promise<{offer: Row} | {block: Row | null}> {
+        const input = row(params.input), none = {block: null};
+        const eligible = job.role === 'create' ? input.category === 'weapon' : job.role === 'usage' && !job.prefetch;
+        if (!eligible || !array(job.packageRow.requires).includes(WEAPON_PRESET_CAPABILITY)) return none;
+        if (job.waiting) return {block: await this.retainedPreset(job.waiting.job)};
+        const table = await this.tables.weaponsTable();
+        if (job.role === 'create') {
+            const prior = findNamedObject(row(row(job.world.objects).definitions), string(input.name));
+            if (prior && prior.category === input.category && !isPlaceholder(prior)) return none;
+            if (templateProfile(table, input.template)) return none;
+        } else if (findAcceptedUsage(job.world, string(input.object), string(input.name))) return none;
+        const text = (value: unknown): string | undefined => typeof value === 'string' && value.trim() ? value : undefined;
+        const item = row(job.request.usage_object), description = text(job.role === 'create' ? input.description : row(item.definition).description);
+        const thing = job.role === 'create' ? {name: string(input.name), ...(description ? {description} : {})}
+            : {name: text(item.name) ?? string(input.object), why: `${string(input.name)}: ${string(input.description)}`, ...(description ? {description} : {})};
+        const era = text(job.party.find(sheet => text(sheet.era))?.era) ?? text(moduleDeclaration(job.graph.moduleNode).era) ?? '';
+        const {options, close, profiles} = presetOffer(table, era, thing);
+        if (params.preset != null) return {block: presetBlock(table, options, params.preset)};
+        if (params.offer_preset !== true) return none;
+        return {offer: {field: 'weapon', table: PRESET_TABLE, for: job.role === 'create' ? 'define' : 'usage', turn: job.turn.turn ?? null,
+            declaration: text(job.turn.player_text) ?? '', thing, options, close, profiles}};
+    }
+    /** The preset a queued registration's job was minted with, read back from its retained packet. */
+    private async retainedPreset(job: unknown): Promise<Row | null> {
+        if (typeof job !== 'string' || !/^[0-9a-f]{64}$/.test(job)) return null;
+        const path = join(this.jobRoot(job), 'request.json');
+        return await this.context.snapshots.pathExists(path) ? presetOf(row(await this.context.snapshots.readJson(path))) : null;
+    }
     private jobRoot(key: string): string { return join(this.runtime.root, 'jobs', key); }
     private jobKey(identity: Row): string {
         return jsonDigest(identity.prefetch === true
@@ -233,9 +280,14 @@ export class ModJobs {
         // never looks, so an unfinished registration was generated again at every later turn and never written.
         const waiting = role === 'create' ? queuedRegistrations(world).find(entry => typeof entry.job === 'string'
             && equal(Object.fromEntries(entries(row(entry.define)).filter(([name]) => name !== 'kind')), params.input)) : undefined;
+        // §138.7: a weapon definition or an action usage copies the preset the host names before the job is minted, so
+        // the preset is part of the job's identity and a retained job is never reused under a different one.
+        const preset = await this.jobPreset(params, {role, prefetch, packageRow, world, party, graph, turn, request, waiting});
+        if ('offer' in preset) return {enabled: true, preset_offer: preset.offer};
+        if (preset.block) request.preset = preset.block;
         const identity: Row = prefetch ? this.proposalIdentity(campaign.id,meta.active_worldline ?? null,candidates,params.input,physicalBasis!)
             : {campaign: campaign.id, turn:waiting ? waiting.turn : turn.turn, worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
-            packages: candidates.map(mod => ({id: mod.id, digest: mod.digest})), request: role === 'audit' ? request : {input: params.input ?? null, role},
+            packages: candidates.map(mod => ({id: mod.id, digest: mod.digest})), request: role === 'audit' ? request : this.keyedRequest(params.input ?? null, role, request),
             ...(physicalBasis ? {physical_basis:physicalBasis,usage_request_digest:jsonDigest(request)} : {}),
             ...(evidence ? {source_binding: evidence.binding} : {})};
         const key = this.jobKey(identity), root = this.jobRoot(key);
@@ -265,8 +317,10 @@ export class ModJobs {
                 }
             }
         }
+        const taken = presetOf(request);
         return {enabled: true, job: key, cwd: root, system_prompt: join(root, 'prompt.md'), mod: packageRow.id, digest: packageRow.digest,
             accepted: await this.context.snapshots.pathExists(join(root, 'accepted.json')), role, ...(sourceAudit ? {source_review: true} : {}),
+            ...(taken ? {preset: {weapon: taken.id, confidence: clone(taken.confidence ?? null)}} : {}),
             ...(continuity ? {continuity_review: true, ...(continuityV2 ? {continuity_schema:2} : {}),
                 focus: {...evidence!.files['context.json'], ...(continuityV2 ? {sources:request.continuity_review.sources} : {})}, limits: AUDIT_LIMITS,
                 review_scope: this.reviewScope(campaign.id, meta, turn)} : {})};
@@ -356,7 +410,7 @@ export class ModJobs {
         if (!equal(providers, identity.packages ?? null)) throw new RpcError('invalid_params', 'The effective Mod provider changed while the job was running');
         const continuity = request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).some(cap => [CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2].includes(cap)));
         const sourceAudit = !continuity && request.role === 'audit' && (await this.contributors(world, turn, 'audit')).some(mod => array(mod.requires).includes(SOURCE_AUDIT));
-        const keyedRequest = request.role === 'audit' ? request : {input:request.input ?? null,role:request.role};
+        const keyedRequest = request.role === 'audit' ? request : this.keyedRequest(request.input ?? null, request.role, request);
         if (this.jobKey({...identity,request:keyedRequest}) !== key || identity.usage_request_digest && jsonDigest(request) !== identity.usage_request_digest)
             throw new RpcError('needs',request.role === 'audit' ? 'The retained source-audit request changed' : 'The retained Mod preparation request changed',
                 {details:{reason:request.role === 'audit' ? 'mod_audit_evidence' : 'usage_request_changed',file:'request.json'},
@@ -410,7 +464,7 @@ export class ModJobs {
             if (request.role === 'usage') {
                 const usage = prefetch && accepted.usage === null ? null : await this.checkedUsage(accepted.usage,prefetch ? null : string(request.input.name)), provenance = row(accepted.provenance);
                 if (!equal(accepted.physical_basis,identity.physical_basis) || provenance.mod !== identity.mod || provenance.digest !== identity.digest || provenance.job !== key
-                    || Object.keys(provenance).some(field => !['mod','digest','job','reused_usage','prefetched'].includes(field))
+                    || Object.keys(provenance).some(field => !['mod','digest','job','reused_usage','prefetched','preset','deviations'].includes(field))
                     || (prefetch ? provenance.prefetched !== true || Object.hasOwn(provenance,'reused_usage') : Object.hasOwn(provenance,'prefetched')))
                     throw new RpcError('invalid_params','Accepted usage provenance or physical basis differs from its job');
                 if (provenance.reused_usage) {
@@ -438,15 +492,19 @@ export class ModJobs {
         if (stat.isSymbolicLink() || stat.size > 512000) throw new RpcError('invalid_params', 'Mod agent did not write a bounded result.json');
         const raw = clone(await this.context.snapshots.readJson(resultPath));
         let result: Row;
+        // §138.7: a packet with a preset is gated: every departure from it stated in `deviations`, and nothing else.
+        const preset = prefetch ? null : presetOf(request);
+        const copied = (deviations: Row[] | null): Row => preset && deviations ? {preset: presetStamp(preset), deviations} : {};
         if (request.role === 'usage') {
-            const usage = prefetch && raw === null ? null : await this.checkedUsage(raw,prefetch ? null : string(request.input.name));
-            result = {usage,physical_basis:identity.physical_basis,provenance:{mod:identity.mod,digest:identity.digest,job:key,...(prefetch ? {prefetched:true} : {})}};
+            const gated = prefetch && raw === null ? null : await gatePreset(raw, preset, draft => this.checkedUsage(draft,prefetch ? null : string(request.input.name)));
+            result = {usage:gated ? gated.value : null,physical_basis:identity.physical_basis,
+                provenance:{mod:identity.mod,digest:identity.digest,job:key,...(prefetch ? {prefetched:true} : {}),...copied(gated ? gated.deviations : null)}};
         } else if (request.role === 'create') {
             if (isJsonObject(raw) && Object.hasOwn(raw, 'document')) raw.document = await this.documentSeed(graph, world, raw.document);
-            const value = validateDefinition(raw, {name: request.input.name ?? null, category: request.input.category ?? null});
+            const {value, deviations} = await gatePreset(raw, preset, draft => validateDefinition(draft, {name: request.input.name ?? null, category: request.input.category ?? null}));
             if (value.category === 'weapon' && array(active.get(identity.mod)!.requires).includes('weapons.profile.v2') && !Object.hasOwn(value.parameters, 'adds_damage_bonus'))
                 throw new RpcError('invalid_params', 'Weapon profile v2 must explicitly declare adds_damage_bonus from its preset rule');
-            result = {definition: value, provenance: {mod: identity.mod, digest: identity.digest, job: key}};
+            result = {definition: value, provenance: {mod: identity.mod, digest: identity.digest, job: key, ...copied(deviations)}};
         } else if (continuity) {
             result = this.materializeContinuity(raw,request,evidence!.files,identity);
             this.validateContinuity(result, request, evidence!.files);
