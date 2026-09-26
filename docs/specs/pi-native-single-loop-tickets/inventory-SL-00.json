@@ -1162,21 +1162,6 @@
       ]
     },
     {
-      "file": "extensions/npc/index.ts",
-      "symbol": "npcExtension.on(session_start)",
-      "kind": "jev-adapter",
-      "callee": "createDecisionAdapter",
-      "count": 1,
-      "owner": "npc ext: NPC advice",
-      "path": "app-play-gated",
-      "role": "leaf",
-      "trace": "observed: npc decision x3, advice x3, coc-npc-advice messages",
-      "note": "Gate: Jev key, not the preparation owner, PI_COC_NPC_ADVICE_AUTO != 0. Bounded Jev fan-out prepared before the Keeper's first request.",
-      "lines_at_0b729e8fb": [
-        63
-      ]
-    },
-    {
       "file": "extensions/npc/writer.ts",
       "symbol": "authorNpc",
       "kind": "reader-task",
