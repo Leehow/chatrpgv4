@@ -1584,7 +1584,10 @@ export default function (pi: ExtensionAPI) {
 		});
 		table.scene = { ...(asString(open.scene?.name) ? { handle: asString(open.scene?.name) } : {}),
 			...(asString(open.scene?.display_name) ? { label: asString(open.scene?.display_name) } : {}) };
-		table.prologue = asString(open.setup_prologue);
+		// §32.3: what the player was told before play is the prologue's opening, the words the setup host
+		// showed (§14.18). The kernel sends the whole record; read as a string it was always dropped, and
+		// its handoff is Keeper-facing, so only the opening goes to the review.
+		table.prologue = asString((open.setup_prologue as { opening?: unknown } | null | undefined)?.opening);
 		table.playerText = asString(open.pending_turn?.player_text);
 		table.interruptedPlayerText = undefined;
 		table.admission = new Map();
@@ -3790,7 +3793,8 @@ export default function (pi: ExtensionAPI) {
 			// (this same function, called recursively under narratePath "embedded"). That optional field is where a
 			// placeholder reached the player ("text", "text thriftily-placeholder": the Keeper meant to narrate
 			// separately and filled the field anyway); a narrate the Keeper calls itself may be legitimately short
-			// ("门厅很安静，你准备怎么做？"), so the explicit path and the implicit close keep their SL-80 rules.
+			// (turn.test.mjs's thirteen-code-point hall question), so the explicit path and the implicit close keep
+			// their SL-80 rules.
 			// Checked before admission, attribution or any Mod hook spends anything on a draft that is about to be
 			// refused; skipped once the turn's one steer is already spent (a second leg below the count still closes
 			// the turn, never stranding it) and while this call closes the opening (`closesOpening`), the same

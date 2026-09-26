@@ -144,6 +144,14 @@ def extract_host_delivery(message: dict) -> dict | None:
             "pending_choice": None, "details": deepcopy(details)}
 
 
+def extract_setup_opening(message: dict) -> str | None:
+    """The accepted opening a setup host shows the player itself, word for word (contract §14.18)."""
+    if message.get("customType") != "coc-setup-opening" or message.get("display") is not True:
+        return None
+    content = message.get("content")
+    return content if isinstance(content, str) and content else None
+
+
 def resolve_launcher(launcher_arg: str | None) -> Path:
     if launcher_arg:
         return Path(launcher_arg).resolve()
@@ -526,6 +534,9 @@ class Daemon:
             delivered = ""
             delivery: dict | None = None
             notices: list[dict] = []
+            # Story text the setup host showed before the guide's reply; one message can arrive as both
+            # its message_end and its entry_appended.
+            setup_openings: list[str] = []
             rejected_delivery = False
 
             def capture_host_delivery(host: dict) -> None:
@@ -594,8 +605,12 @@ class Daemon:
                 elif etype == "message_end":
                     msg = event.get("message") or {}
                     host = extract_host_delivery(msg) if msg.get("role") == "custom" else None
+                    opening = extract_setup_opening(msg) if msg.get("role") == "custom" else None
                     if host is not None:
                         capture_host_delivery(host)
+                    elif opening is not None:
+                        if opening not in setup_openings:
+                            setup_openings.append(opening)
                     elif msg.get("role") == "assistant" and msg.get("display") is False:
                         final_text_parts.clear()
                         text_parts.clear()
@@ -646,8 +661,12 @@ class Daemon:
                     entry = event.get("entry") or {}
                     data = entry.get("data") or {}
                     host = extract_host_delivery(entry)
+                    opening = extract_setup_opening(entry)
                     if host is not None:
                         capture_host_delivery(host)
+                    elif opening is not None:
+                        if opening not in setup_openings:
+                            setup_openings.append(opening)
                     elif entry.get("customType") == "coc-telemetry" and data.get("tool") == "narrate" and data.get("implicit"):
                         rejected_delivery = data.get("ok") is False
                 elif etype == "agent_settled":
@@ -690,14 +709,16 @@ class Daemon:
             return self._finalize_turn(n, text, started_at, started_mono, tool_records,
                                         final_text, settle_class, stop_reason,
                                         stale_settles=stale_settles, delivery=delivery,
-                                        **({"notices": notices} if notices else {}))
+                                        **({"notices": notices} if notices else {}),
+                                        **({"setup_opening": "\n\n".join(setup_openings)} if setup_openings else {}))
         finally:
             self.pi.end_turn()
 
     def _finalize_turn(self, n: int, player_text: str, started_at: str, started_mono: float,
                         tool_records: list[dict], final_text: str,
                         settle_class: str, stop_reason: str | None, stale_settles: int = 0,
-                        delivery: dict | None = None, notices: list[dict] | None = None) -> dict:
+                        delivery: dict | None = None, notices: list[dict] | None = None,
+                        setup_opening: str | None = None) -> dict:
         wall_seconds = round(time.monotonic() - started_mono, 3)
         clean_tools = [
             {"name": t.get("name"), "args": t.get("args"), "result_text": t.get("result_text", ""),
@@ -715,6 +736,8 @@ class Daemon:
             # The player-visible kernel delivery (§16.2) or terminal host notice (§13.11).
             **({"delivery": delivery} if delivery else {}),
             **({"notices": notices} if notices else {}),
+            # The story the setup host showed before the guide's reply (§14.18); final_text stays the reply.
+            **({"setup_opening": setup_opening} if setup_opening else {}),
         }
         write_json(self.dir / f"turn-{n}.json", summary)
         self._write_heartbeat("running")
@@ -1052,6 +1075,9 @@ def cmd_turn(args: argparse.Namespace) -> int:
         return 2
 
     summary = resp["summary"]
+    if summary.get("setup_opening"):
+        print(summary["setup_opening"])
+        print()
     print(summary.get("final_text") or "(no assistant text this turn)")
     for index, notice in enumerate(summary.get("notices") or []):
         if index == 0 and (summary.get("delivery") or {}).get("kind") == "notice":

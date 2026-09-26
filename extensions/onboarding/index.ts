@@ -165,6 +165,18 @@ export default function (pi: ExtensionAPI) {
 	function playLanguage(): string | undefined {
 		return asString(context.play_language);
 	}
+	/**
+	 * The one sentence §16.1 relies on, with its value (§14.17). The setup process has no capsule, so
+	 * this is the only way the campaign's language reaches the guide; before a campaign names one
+	 * there is nothing to say, and nothing is guessed.
+	 */
+	function tableLanguage(): string {
+		const tag = playLanguage();
+		return tag
+			? `\n\nThis table's language: play_language=${tag}. Every word the player reads from you is written in it: each acknowledgement, question, example and reminder, the language notice, the card account and the close. ` +
+				"Everything else given to you here is English for you, not for the player: these instructions, the module advice, the setup packages' instructions and the tool results. Carry their sense into play_language, never their English words."
+			: "";
+	}
 	/** The captions for the language this setup is in right now; the tag is re-read every time, because it arrives mid-run. */
 	function speaking(): Promise<ExtensionWords> {
 		surface.speak(playLanguage());
@@ -204,6 +216,26 @@ export default function (pi: ExtensionAPI) {
       return characterGuidance;
     })().finally(()=>{guidancePending=undefined;});
     return guidancePending;
+  }
+
+  /**
+   * The accepted opening is delivered once, directly, and booked as delivered (§23.4, §14.18). Every
+   * path that shows it comes through here -- the App's session start, a terminal or driver setup's
+   * first turn, and the turn a campaign is created in -- so the words the kernel records are the
+   * words the player was shown, never a reply that retold them.
+   */
+  async function shownPrologue(guidance: Guidance): Promise<{customType:string;content:string;display:true;details:Record<string,unknown>}> {
+    await bridge!.call('setup.prologue',{campaign:context.campaign,scene:guidance.scene,guide:guidance.guide,handoff:guidance.handoff,text:guidance.opening});
+    prologueRecorded=true;
+    // The prologue is the story and nothing else. What is happening here -- that this is the player's
+    // investigator being made, that a name and a trade is enough -- rides beside it as a help fold
+    // the host draws behind a "?" after the guide's question (user ruling 2026-09-16: immersion and
+    // guidance both; the pinned intro card that used to say this hid the transcript). Captions of the
+    // extension surface, so they arrive in the play language.
+    const words=await speaking();
+    // Open by itself the first time this home meets the moment, then only on the "?" (§4 of the spec).
+    const help=await openingHelp('setup-opening',words.line('setup_help_title'),[words.line('setup_help_1'),words.line('setup_help_2'),words.line('setup_help_3'),words.line('setup_help_4'),words.line('setup_help_skip')],{home:cocHome(ctx!.cwd),agentHome:agentHomeOf(ctx!.cwd)});
+    return {customType:'coc-setup-opening',content:guidance.opening,display:true,details:{kind:'setup-opening',help}};
   }
 
 	function state(): GateState {
@@ -366,7 +398,11 @@ export default function (pi: ExtensionAPI) {
 		const campaign = asRecord(result.campaign);
 		const campaignId = asString(result.campaign_id) ?? asString(campaign.id) ?? asString(result.campaign);
 		if (campaignId) context.campaign = campaignId;
-    const language = asString(asRecord(result.campaign).play_language) ?? asString(context.play_language);
+    // `campaign.create` answers with the campaign record, the tag nested in it (§14.17). Left out of
+    // the context, a campaign made in this process prepared its guidance and spoke its captions in
+    // the data default, and its guide was never told the table's language.
+    if (asString(campaign.play_language)) context.play_language = asString(campaign.play_language);
+    const language = asString(context.play_language);
     if (ctx && context.campaign && language) {
       const data = {campaign: context.campaign, home: cocHome(ctx.cwd), play_language: language, mode: "setup"};
       const identity = JSON.stringify(data);
@@ -729,6 +765,12 @@ export default function (pi: ExtensionAPI) {
       try {
         const guidance=await ensureGuidance();
         if(guidance)outcome.character_guidance=guidance;
+        // Sent while the turn runs, the opening lands right after this result and before the guide's
+        // next step (§14.18); the guide only has to know it was shown.
+        if(guidance && !prologueRecorded) {
+          pi.sendMessage(await shownPrologue(guidance));
+          outcome.opening_shown='The host has shown character_guidance.opening to the player word for word, right after this result. Do not repeat, retell or translate it; continue after it as the host.';
+        }
       } catch(error) {setupBlock={kind:'guidance_at_create_campaign',code:errorCode(error),detail:errorText(error),noticed:false};return {ok:false,code:'guidance_failed',message:errorText(error)};}
     }
 		const next = nextStep(steps, state());
@@ -843,24 +885,27 @@ export default function (pi: ExtensionAPI) {
     // the agent only owes the short prologue close, and agent_end will let the wrapper replace this
     // setup child with the play child.
     await refreshCompleted();
+    // Every reply below is read by the player, the blocked and closing ones included (§14.17).
+    const base=event.systemPrompt+tableLanguage();
     if(completed.has('complete')) {
       await finish();
-      return {systemPrompt:event.systemPrompt+'\nSetup is already complete. Do not call setup or continue character creation. Close the prologue briefly; the host will open the table.'};
+      return {systemPrompt:base+'\nSetup is already complete. Do not call setup or continue character creation. Close the prologue briefly; the host will open the table.'};
     }
     let guidance: Guidance | undefined;
     // The campaign id may be known before the campaign exists (PI_COC_CAMPAIGN); preparing guidance for a campaign that a
     // rejected create-campaign never made throws, and that used to poison every later turn with a guidance refusal.
     // Guidance is prepared by the create-campaign step itself and, on later turns, only once that step has run.
-    try {guidance=completed.has('create-campaign')||characterGuidance?await ensureGuidance():undefined;}
-    catch(error) {
+    const guidanceFailed=async(error:unknown)=>{
       // What the player is told is the campaign's sentence; the English message the preparation
       // threw stays in it as the detail, which is what a log and a bug report need (contract §23).
       const detail=errorText(error);
       setupBlock={kind:'guidance_at_turn_start',code:errorCode(error),detail,noticed:true};
       try {ctx?.ui.notify((await speaking()).line('setup_guidance_failed',{detail}),'error');}
       catch {ctx?.ui.notify(detail,'error');}
-      return {systemPrompt:event.systemPrompt+'\nModule guidance is unavailable. Do not invent a prologue, create an investigator or continue setup.'};
-    }
+      return {systemPrompt:base+'\nModule guidance is unavailable. Do not invent a prologue, create an investigator or continue setup.'};
+    };
+    try {guidance=completed.has('create-campaign')||characterGuidance?await ensureGuidance():undefined;}
+    catch(error) {return await guidanceFailed(error);}
     // Setup packages (contract §26): what the campaign's enabled Mods have to say about creation, refreshed every turn so a panel toggle lands on the next reply.
     // Consulted whether or not module guidance exists: a package speaks to setup, not to the prologue.
     let setupPackages='';
@@ -884,7 +929,7 @@ export default function (pi: ExtensionAPI) {
         setupBlock={kind:'package_context',code:errorCode(error),detail,noticed:true};
         try {ctx?.ui.notify((await speaking()).line('setup_packages_failed',{detail}),'error');}
         catch {ctx?.ui.notify(detail,'error');}
-        return {systemPrompt:event.systemPrompt+'\nThe setup package context is unavailable. Do not draft or continue setup until it is restored.'};
+        return {systemPrompt:base+'\nThe setup package context is unavailable. Do not draft or continue setup until it is restored.'};
       }
     }
     // The catalog (§98): every trade, skill and printed weapon with the play language's label, once,
@@ -901,8 +946,17 @@ export default function (pi: ExtensionAPI) {
           '\nWeapons the tables print (anything else is equipment): '+weapons.join(', ');
       } catch { /* a catalog that cannot be read is not a reason to stop setup; the kernel still resolves names */ }
     }
-    if(!guidance)return {systemPrompt:event.systemPrompt+setupPackages+catalogText+inputPrompt};
-    return {systemPrompt:event.systemPrompt+'\n\nPrepared module prologue ('+(prologueRecorded?'already delivered; continue from the player answer without repeating it':'use on the first setup reply only')+'):\n'+guidance.opening+
+    if(!guidance)return {systemPrompt:base+setupPackages+catalogText+inputPrompt};
+    // A terminal or driver setup shows the opening on its first turn, right after the player's first
+    // line (§14.18): the App showed it at session start, and a campaign created in this process right
+    // after create-campaign. Shown last, once nothing else can still block this turn; a draft on the
+    // table means the meeting is long past.
+    let shown: Awaited<ReturnType<typeof shownPrologue>> | undefined;
+    if(!prologueRecorded && draftRevision===undefined) {
+      try {shown=await shownPrologue(guidance);}
+      catch(error) {return await guidanceFailed(error);}
+    }
+    return {...(shown?{message:shown}:{}),systemPrompt:base+'\n\nPrepared module prologue ('+(prologueRecorded?'the host has shown it to the player word for word; never repeat, retell or translate it, and continue after it as the host':'context for the meeting already under way; do not narrate it')+'):\n'+guidance.opening+
       '\n\nModule-specific setup advice:\n'+guidance.advice+
       '\nBefore create-investigator, briefly explain useful or explicitly required languages from this advice or the public opening, and how lacking them can hinder conversation or reading. Distinguish authored requirements from contextual recommendations; do not invent a requirement or expose a secret. The display language is not a character skill. After drafting or a relevant revision, compare the actual own_language and Language skills and mention any material difficulty before inviting confirmation. This is a notice, not an extra question or confirmation gate: preserve chosen limitations and never change language skills merely to remove a warning. Only a player request, accepted suggestion or explicit delegation authorizes changing those choices.'+
       '\nThe rulebook tabulates these finance periods: '+JSON.stringify(context.rulebook_eras||[])+'. The authored setting can be descriptive prose or a year the rulebook never tabulated; never copy it as a table key. Pass profile.era only to name the listed period that reads closest to that setting. Omit it and the table\'s own period stands in. Either way the draft comes back with the period used and the setting it stood in for on sheet.finance, and setup is never blocked on this: say it once to the player in their own words (which setting, which period stood in for it) and carry on.'+
@@ -953,17 +1007,7 @@ export default function (pi: ExtensionAPI) {
     if(process.env.PI_COC_SETUP_AUTOSTART==='1' && campaign && !hasDialogue && !completed.has('complete')) {
       const guidance=await ensureGuidance();
       if(!guidance)throw new Error('The prepared module guidance is unavailable');
-      await bridge!.call('setup.prologue',{campaign,scene:guidance.scene,guide:guidance.guide,handoff:guidance.handoff,text:guidance.opening});
-      prologueRecorded=true;
-      // The prologue is the story and nothing else. What is happening here -- that this is the player's
-      // investigator being made, that a name and a trade is enough -- rides beside it as a help fold
-      // the host draws behind a "?" after the guide's question (user ruling 2026-09-16: immersion and
-      // guidance both; the pinned intro card that used to say this hid the transcript). Captions of the
-      // extension surface, so they arrive in the play language.
-      const words=await speaking();
-      // Open by itself the first time this home meets the moment, then only on the "?" (§4 of the spec).
-      const help=await openingHelp('setup-opening',words.line('setup_help_title'),[words.line('setup_help_1'),words.line('setup_help_2'),words.line('setup_help_3'),words.line('setup_help_4'),words.line('setup_help_skip')],{home:cocHome(ctx.cwd),agentHome:agentHomeOf(ctx.cwd)});
-      pi.sendMessage({customType:'coc-setup-opening',content:guidance.opening,display:true,details:{kind:'setup-opening',help}});
+      pi.sendMessage(await shownPrologue(guidance));
     }
     if (ctx.hasUI && steps && process.env.PI_COC_SETUP_AUTOSTART!=='1') {
 			// The player is told how long the table is and which step is next. The step's own
@@ -999,11 +1043,6 @@ export default function (pi: ExtensionAPI) {
         catch {/* an unreadable content root must not swallow the agent_end handler */}
       }
       return;
-    }
-    if(characterGuidance && bridge && context.campaign && !prologueRecorded && !handoff) {
-      const messages=ctx?.sessionManager.getBranch().filter((e:any)=>e.type==='message'&&e.message?.role==='assistant') as any[] || [];
-      const last=messages.at(-1)?.message?.content?.filter((x:any)=>x.type==='text').map((x:any)=>x.text).join('\n');
-      if(last) {await bridge.call('setup.prologue',{campaign:context.campaign,scene:characterGuidance.scene,guide:characterGuidance.guide,handoff:characterGuidance.handoff,text:last});prologueRecorded=true;}
     }
 		if (!handoff) return;
 		const command = handoff;
