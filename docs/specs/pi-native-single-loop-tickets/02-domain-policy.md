@@ -765,3 +765,9 @@ Reading: the execute path is sound (0 FP, no double filing, fastest table); the 
 - Admission p90 1,385 ms with 4.3 off lanes (vs 7,105 on 4.5 low): the lane wants a no-thinking model.
 Reading: 4.5-low writes like a Keeper at ≈50 s; 4.3-off narrates thinly at 11 s. #20 (4.3 low, lanes 4.3 off) is the middle candidate; whichever way, lanes go on a no-thinking model.
 
+### Long gate #20 (2026-09-26, d08fa2ebb; Keeper xai/grok-4.3 LOW, lanes 4.3 off)
+20/20, median 19 s, all ≤ 27 s; reasoning on 23/31 calls (p50 609 tokens) but the Keeper still made 5 tool calls all table; prose median 128 chars, min 47, five thin deliveries (t12, t13, t14, t19, t20), five ASCII full names in zh prose. Not a Keeper at low either (owner: "grok4.3就是个垃圾"). Admission p90 1,365 ms with 4.3-off lanes (same as #19).
+
+### Where grok-4.5's time goes (gate #18, 881 s input-to-delivery over 20 turns)
+Keeper inference 55% (2.8 calls/turn × 9.3 s; per call ≈ 4.3 s to the first event — prefill of ≈ 46k context with ≈ 14k uncached plus queue, independent of reasoning count — then ≈ 4 s streaming ≈ 470 tokens); reasoning is ≈ 116 tokens/call (≈ 1 s, ≈ 6% of the wall). Keeper tool execution 27% (apply/resolve p50 4.6–4.9 s, mostly the admission lane reasoning on grok-4.5 low; lookup waits at the 8 s allowance ×9). Clerk operations 15%; Jev decisions 4%. The Keeper issues one tool per call and waits (apply → narrate, apply → resolve → narrate); each extra step ≈ 9 s. Levers: a no-thinking admission lane (4.3 off: p90 1.4 s), fewer Keeper steps (Stage 2), batching a write that needs no result with the narrate.
+
