@@ -130,3 +130,44 @@ async function readFirstStepThinkingBudget(contentRoot?: string): Promise<FirstS
 
 /** Test-only: forgets the cached value, so a test that swaps the content root sees its own fixture. */
 export function resetFirstStepThinkingBudgetCache(): void { firstStepThinkingCached = undefined; }
+
+/**
+ * SL-93 (§135.11.4.1, "one floor for every delivery path"): the prose floor every delivery -- the implicit close, an
+ * explicit `narrate`, and `apply`'s embedded one -- is measured against. A named default in the same rules-data file
+ * the look budget and the Jev step thresholds live in, not a literal in `extensions/kernel/index.ts`, so raising it
+ * after a table that writes longer is a data change.
+ */
+export interface DeliveryFloorBudget {
+  /** `delivery_floor.min_prose_chars`: Unicode code points of rendered prose (markers and say tokens removed, the
+   *  spoken words inside a span left standing) a delivery needs before the turn's one floor steer lets it stand. */
+  minProseChars: number;
+}
+
+/** Used only if `content/rulesets/coc7/host-budgets.json` cannot be read; the shipped file carries the real default. */
+export const DELIVERY_FLOOR_FALLBACK: DeliveryFloorBudget = Object.freeze({minProseChars: 40});
+
+let deliveryFloorCached: Promise<DeliveryFloorBudget> | undefined;
+
+/**
+ * SL-93's floor, read once per process and cached like `jevStepsBudget`/`firstStepThinkingBudget` above.
+ * `contentRoot` is for tests only; production code always calls this with no argument.
+ */
+export function deliveryFloorBudget(contentRoot?: string): Promise<DeliveryFloorBudget> {
+  if (contentRoot !== undefined) return readDeliveryFloorBudget(contentRoot);
+  return deliveryFloorCached ??= readDeliveryFloorBudget();
+}
+
+async function readDeliveryFloorBudget(contentRoot?: string): Promise<DeliveryFloorBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      delivery_floor?: {min_prose_chars?: unknown};
+    };
+    const minProseChars = raw.delivery_floor?.min_prose_chars;
+    return {minProseChars: finite(minProseChars) && minProseChars > 0 ? minProseChars : DELIVERY_FLOOR_FALLBACK.minProseChars};
+  } catch {
+    return DELIVERY_FLOOR_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached value, so a test that swaps the content root sees its own fixture. */
+export function resetDeliveryFloorBudgetCache(): void { deliveryFloorCached = undefined; }

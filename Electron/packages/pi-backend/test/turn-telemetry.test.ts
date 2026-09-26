@@ -409,6 +409,40 @@ describe("turn telemetry: the first prose the player sees", () => {
     expect(phase(record!, "first_prose")).toBe(120);
   });
 
+  it("counts a folded text at its settle, not its first delta, and an earlier prose still wins (§135.11.6)", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-turn-telemetry-prose-folded-"));
+    const clock = { value: 100 };
+    const telemetry = createTurnTelemetry({ agentDir: root, now: () => clock.value });
+    openTurn("s", clock, telemetry);
+    clock.value = 120;
+    telemetry.observeProse("s", { kind: "text" });
+    clock.value = 160;
+    telemetry.settleText("s", "settle");
+    clock.value = 170;
+    telemetry.terminal("s", "settled");
+    telemetry.flushTerminal("s");
+    await telemetry.pending();
+    const [record] = await readRows(turnTelemetryPath(root));
+    expect(record!.firstProseVia).toBe("text");
+    expect(phase(record!, "first_prose")).toBe(160);
+    expect(record!.durations?.firstProseMs).toBe(60);
+
+    // A card drawn before the folded text settles is the turn's first prose.
+    openTurn("t", clock, telemetry);
+    clock.value = 180;
+    telemetry.observeProse("t", { kind: "text" });
+    clock.value = 190;
+    telemetry.observeProse("t", { kind: "prose", via: "mechanics" });
+    clock.value = 200;
+    telemetry.settleText("t", "settle");
+    telemetry.terminal("t", "settled");
+    telemetry.flushTerminal("t");
+    await telemetry.pending();
+    const rows = await readRows(turnTelemetryPath(root));
+    expect(rows[1]!.firstProseVia).toBe("mechanics");
+    expect(phase(rows[1]!, "first_prose")).toBe(190);
+  });
+
   it("counts a replaced text at its replacement, and a text replaced by nothing never", async () => {
     root = await mkdtemp(join(tmpdir(), "pipi-turn-telemetry-prose-replaced-"));
     const clock = { value: 100 };

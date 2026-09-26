@@ -20794,6 +20794,100 @@ move and whose Keeper's only reply is one say span is floor-steered once (not de
 say-only draft, and a reply with prose beside the say span delivers on the first leg; an explicit `narrate` of the
 same shape is unchanged, because the check never runs on that path.
 
+##### 135.11.4.1 Addendum (2026-09-26, SL-93, "one floor for every delivery path"): the explicit `narrate` and `apply.narrate` join the implicit close
+
+**Evidence** (long gate #22, `longgate22-haunting-1448`, `d64c7a7c4`, Keeper grok-4.5 low; filed P0, batch 17, because a
+placeholder reached the player). Turn 1: `apply {effects, narrate: "text thriftily-placeholder"}` — the effects
+landed, and the embedded narrate delivered that twenty-six-character fragment verbatim as the whole turn
+(`narrate_in_apply: true`, `closed_how: explicit`); the Keeper's real intent sat in the text beside its tool calls
+("受理委托与抵达已由书记结算。正在补登钥匙、称呼…"), dropped as `text_beside_tool_calls` and never recovered. Turn 8:
+`apply {effects, narrate: "text"}` delivered "text". This section's own floor (SL-80) runs only where `message_end`
+builds the implicit close (`toolCallsThisTurn === 0` or a speech-only draft): an explicit `narrate` call and
+`apply`'s embedded one both go through `runTool` directly and never meet that check, so four characters of prose
+passed every other gate — there is no admission for `narrate`, the Mod hooks ran on text that was about to be
+discarded, and the narration audit checks claims, not omissions — and delivered.
+
+**The ruling.** The floor is a property of the delivery, not of which of the three paths produced it. One shared
+structural count, `proseCharCount` (`extensions/kernel/unwrapped-speech.ts`), reads the draft the same way
+`isSpeechOnlyDraft` already does — `speechPass`'s own §40.1 repair, then every `{{...}}` token removed, a mechanics
+marker and a say span's open/close tokens alike, the spoken words a say span wraps left standing — and counts what
+is left in Unicode code points. That is exactly the shape of the kernel's own `rendered_text` (`stripMarkers`,
+`kernel-ts/write/text.ts`: `SAY_TOKENS` removes only the token, never the words between them), so the host
+anticipates the kernel's own rendering without waiting for a receipt to bind against. The threshold,
+`delivery_floor.min_prose_chars` in `content/rulesets/coc7/host-budgets.json` (default 40; never a word list, a
+structural length only), is read once per process through `runtime/jev/host-budgets.ts`'s `deliveryFloorBudget` —
+the same file and the same cached-promise shape `jevStepsBudget` and `firstStepThinkingBudget` already use — and
+compared against that count on all three paths:
+
+- **Implicit** (`message_end`, unchanged location). The existing `toolCallsThisTurn === 0 || speechOnly`
+  disjunction gains a third, `belowFloor`, computed from the same `prose` the speech-only check already reads
+  whenever the turn's steer is still unspent. `speechOnly` keeps its own `reason: "speech_only"` even on a draft
+  that also happens to be short — SL-80's own case is not retired by this one — and a draft that clears `speechOnly`
+  but not the count is `reason: "below_floor"`, carrying `path: "implicit"` and the count; the classic no-tool-call
+  turn keeps its unreasoned row when nothing else explains why it fired.
+- **Explicit `narrate` and `apply`'s embedded one** (`runTool`, `extensions/kernel/index.ts`). Both run through the
+  same code, because the embedded call is `runTool` calling itself recursively on a synthetic id (§135.5.2) — so
+  one check, placed once, at the top of `narrate`'s own try block (after the standing-defense recovery and the
+  continuity-review-unavailable checks, before admission, attribution or any Mod hook spends anything on a draft
+  that is about to be refused), covers both. It is skipped once the turn's one steer is already spent (a second
+  leg below the count still closes the turn, never stranding it) and while this call closes the opening
+  (`closesOpening`), the same exemption the implicit floor and the beginner's fold already read. Below the count,
+  the host sets `state.deliveryFix = {kind: "floor", text: FLOOR_STEER}` (the identical text §135.11's own
+  turn-close steer already sends) and throws a `needs` refusal (`details.reason: "below_floor"`, `chars`,
+  `min_chars`, `fix` carrying `FLOOR_STEER`'s own text) before the kernel is ever called: a genuine tool call needs a
+  result, and `table.narrate` must not be asked to commit a delivery the host is about to discard.
+  - This path never reaches `takeTurnCloseSteer`/`turn_close` the way the implicit close does. A batch that made a
+    tool call — refused or not — is not "no pending model proposals", so Pi's own agent loop simply hands the
+    refusal back to the Keeper and asks it again in the next step; the steer is the refusal's own `fix` field, read
+    directly, not a `coc-host` message. Because of this, the one-steer budget (`state.steeredThisTurn`) is set
+    `true` here synchronously, the moment the floor refuses — not deferred to a `turn_close` that this path may
+    never reach. Without it a Keeper that kept writing short drafts would be refused every time, never once, and a
+    turn could run short of the floor forever instead of being closed after one steer.
+  - For the **explicit** call this refusal reaches the Keeper exactly as a `repeated_line` or a narration-audit
+    refusal already do: an `isError` tool result, counted by the ordinary refusal budget (§34.12; `narrate` is
+    never shut by it) under its own class (`narrate`, `needs`, `below_floor`).
+  - For **`apply.narrate`** the recursive call's own refusal becomes `embedded.details.coc_error`, which the
+    existing SL-92 branch (`if (embeddedError)`) was already built to carry: `narrate_in_apply: false`, the effects
+    already landed still named in the result, and a message prefixed "This apply's effects landed and stand." — the
+    writes stand, only the embedded narrate is refused, and the refusal says what landed.
+- **Once the steer is spent**, `state.steeredThisTurn` guards every one of the three checks above the same way it
+  already guards the implicit floor and the speech steer: a second leg below the count still delivers, because the
+  alternative is a stranded turn.
+
+Telemetry: `{lane: "floor", reason: "below_floor", path: "explicit" | "embedded" | "implicit", chars}` (plus
+`min_chars`, and, for the implicit path, the existing `steered`/`round_trips`). The refused explicit/embedded call
+also leaves the ordinary tool-refusal row (`ok: false, code: "needs", reason: "below_floor"`) `finalizeOperation`
+already writes for any `coc_error`.
+
+`apply`'s own `narrate` field description (`extensions/kernel/tools.ts`) now says the field carries the turn's
+complete closing prose and is omitted when the Keeper means to narrate separately, on the same rules and the same
+floor an explicit call reads.
+
+**Three ends (§31).** *Writer:* `proseCharCount`'s structural read of the draft; `runTool`'s own
+`state.steeredThisTurn`/`state.deliveryFix` assignment before its throw (explicit/embedded), `message_end`'s
+`belowFloor` disjunct (implicit). *Reader:* `takeTurnCloseSteer`, unchanged, for the implicit path; Pi's own
+tool-refusal retry loop for the explicit/embedded path, which reads the refusal's `fix` field. *Actor:* the Keeper,
+whose second leg — however it arrives, an explicit `narrate`, an `apply.narrate`, or prose closed implicitly — is
+honoured however it comes, exactly as the implicit floor and SL-80's speech-only check already promise.
+
+*Tests* (`tests/extension/delivery-floor-every-path.test.mjs`; `proseCharCount`/`deliveryFloorBudget` directly, no
+table; the real `apply`/`narrate` tools over the emitted kernel and the hybrid engine; the fake kernel and the
+hybrid engine): `apply {effects, narrate: "text"}` lands the effects, delivers nothing, one floor steer
+(`path: "embedded"`, `chars: 4`), and the apply's own tool result names the landed effects; a second leg with real
+(40-plus-code-point) prose delivers; an explicit `narrate {text: "text"}` is steered the same way, its own refusal
+carrying `FLOOR_STEER`'s text as `fix`; once the steer is spent a second, equally short draft still closes the turn
+(never stranding it); a 40-plus-code-point Chinese draft delivers on the first leg on both the explicit and the
+embedded path; lowering or raising `delivery_floor.min_prose_chars` in a fixture content root (a symlinked overlay
+of the real `content/`, with only `rulesets/coc7/host-budgets.json` replaced) changes which of these delivers,
+proving the threshold is read at the actual use site and not a literal folded into the check. The existing
+floor/SL-80 suites (`single-loop-turn-close.test.mjs`, `unwrapped-speech.test.mjs`, `apply-narrate-combined.test.mjs`,
+`narrate-non-blocking-batch.test.mjs`, `gates.test.mjs`) were re-run in full; several of their own narrate fixtures
+were placeholder text under the new floor for a reason unrelated to length (batching, refusal-budget counting,
+runaway-abort accounting, an audit-refusal stub, a look-budget notice) and were lengthened past 40 code points
+without changing what each test is about, noted at each site; the opening's own exemption
+(`gates.test.mjs`'s "开桌回合") and the two implicit-path SL-80 tests that rely on a genuinely short say-only draft
+were left as they were.
+
 #### 135.11.5 The turn record says when the player first sees the turn's prose: `first_prose`, `durations.firstProseMs`, `firstProseVia` (2026-09-26, SL-94)
 
 **Why.** Owner, 2026-09-26: the latency target is 60 s from the player's input to **the first character of the prose
@@ -20903,6 +20997,118 @@ a maximal record stays inside the 4 KB bound. `test/turn-telemetry-first-prose.t
 does not; a card the host never forwards does not; host prose sets `host` and a service notice does not; kept text
 counts from its first delta, text replaced by prose counts at the replace, text replaced by nothing never counts; an
 earlier turn's card redrawn by a patch does not count.
+
+#### 135.11.6 The Keeper's text is available, not read to the player: a message's text is folded until that message ends (2026-09-26, SL-95; applies §93 to assistant text)
+
+**Evidence.** §135.11.5 found the path: the host forwards every `text_delta` at once, the extension strips text beside
+tool calls only in its `message_end` hook, and the host then sends `replace: true` with an empty delta. Long gate #22
+(`longgate22-haunting-1448`): 11 assistant messages carried text beside tool calls across the opening and 20 turns, and
+that text was on the player's screen for a median of 5.5 s, max 14.6 s. It was Keeper bookkeeping and, once, a module
+spoiler: a line naming the floating-knife threat before the player had met it. The same window held for every draft a
+`message_end` hook drops or rewrites: the floor and speech steers (§34.6, §135.11.4, §40), a draft the narrate audit
+refuses (§34.14), a failed leg (§34.18), and a setup reply a guidance failure hides.
+
+**The owner's ruling (2026-09-26).** SL-95 was first implemented as a host hold (a bound session's text forwarded only
+at `message_end`). The owner did not merge it: it overrode the §22 correction of 2026-09-15, and chose §93's pattern
+instead, available and not pushed. The hold is kept, unmerged, on branch `claude/sl95-20260926` as the record.
+
+1. The host keeps streaming assistant text live exactly as before. Nothing is suppressed; §22's correction stands.
+2. Where the assistant keeps secrets (§93's structural boolean, `assistantKeepsSecretsFor`, never the content), the
+   renderer draws a message's text **while that message is still being written** inside a folded working card. Its
+   body is closed by default and one click opens it, the treatment §93 gives the Thinking body. It is not drawn as the
+   story. Its label says the Keeper is working, with the spinner, the way the Thinking card's label does.
+3. When the message ends, text it keeps is drawn as ordinary prose. Text the host removed (`replace: true`, empty)
+   disappears with its card, as before. Kept text the host replaced is drawn as the replacement. A history reading is
+   unchanged.
+4. A transcript whose assistant keeps no secrets (the base console) is unchanged: text opens and streams as prose.
+5. SL-94: in a bound COC session a text counts as first prose when it becomes prose, at its `message_end`, not at its
+   first delta. Sessions without a binding keep §135.11.5's first-delta rule. This is the only host change.
+6. Setup keeps secrets too (same product): the fold applies there.
+7. The label is a UI word with an English source, never a literal and never hand-translated (§23).
+
+**How the renderer knows a message has ended** (`unsettledTextIds`, `Electron/packages/ui/src/transcript-model.ts:202`).
+A live assistant row holds a whole turn; each message's activities carry that message's `segment` (the host's
+`messageEpoch`, which advances only at a `message_end`). A text activity is still being written unless one of three
+things the stream carries says otherwise, and nothing reads the words:
+
+- the row is no longer streaming (the turn settled, stopped or failed; every history row);
+- the host answered that segment's `message_end` with a replacement, which marks the activity `final`
+  (`:747`); an empty replacement removes the activity, so the card goes with it;
+- a later message of the same row has begun: some activity of the row carries a higher `segment`.
+
+A `message_end` that changes nothing sends nothing, so that text leaves its card when the next message of the turn
+begins or the turn settles. The gap is the host's work between that `message_end` and the next event (the extension's
+`agent_end` and `agent_settled` hooks). It is not closed here: a per-message end marker would change what the host
+streams, which point 1 rules out. §135.11.5's number for such a text is the host's `message_end`, which can precede the
+card opening by that gap. An implicit narrate whose draft carries say or marker tokens always sends a replacement: its
+rendered text drops them (§40.1, §16.6), so it differs from the draft.
+
+**The replacement lands on the message's own row** (`applyStreamEvent`, `transcript-model.ts:695`). An implicit
+narrate appends its `coc-mechanics` card inside the same `message_end` hook, before Pi emits that `message_end`, so the
+card was the last assistant row when the replacement arrived. The replacement landed on the card, and the streamed
+draft, say tokens and all, stayed in its row until the turn's history reload. A `replace` now goes to the streaming row
+that holds that segment's text (it may cross a card, as a tool's own events already do), and falls back to the last
+row as before when there is none. The plain copy of a marked delivery therefore folds into its card live (§16.6's
+`foldMarkedDeliveries`), not only on the history reading.
+
+**The card** (`Electron/packages/ui/src/AssistantTranscriptContent.tsx:216-222`): an `ActivityCard` with the word as its
+label and summary, the same token-count meta as the Thinking card, `running`, `defaultExpanded={false}`, and the text as
+Markdown inside. It replaces the prose segment for that text only; steps, cards and settled text of the same row are
+drawn as before.
+
+**The word.** `transcript.keeper_working`, authored in `content/ui/en/transcript.json` ("The Keeper is working…"). The
+host already attaches the campaign's `ui` block to the `timeline.graph` answer (§23), so `App.tsx:3000` provides
+`timeline.ui.words.transcript` through `TranscriptWords` (`transcript-words.tsx`) inside the §93 provider, and the card
+calls `transcriptWord(words, 'keeper_working')` with the key written in place. No words draws an ellipsis and words
+without the key draw the key, `presentationWord`'s rule. `tests/extension/ui-words-surfaces.test.mjs` now scans the
+renderer for every `transcriptWord(…, key)` and `presentationWord(…, 'transcript', key)` and requires exactly the
+authored keys. The `zh-Hans` seed's word came from the presenter lane, run offline on the fast-model setting
+(`opencode-go/deepseek-v4.1-flash`, thinking off) with the transcript surface projected whole, and only the missing key
+harvested (the lane kept `loading` as shipped). A first run over every surface (549 captions, the seed being
+incomplete) ended after 85 s without writing its output; its cause was not established.
+
+**Setup.** `assistantKeepsSecretsFor` answers for the product (`assistant-secrets.tsx:39-41`), so a setup session is
+folded like play. The kernel extension has no table there and strips nothing (`extensions/kernel/index.ts:1364`,
+`:4406-4420`, `:5435-5436`); the onboarding hook removes every text block while a setup block hides text
+(`extensions/onboarding/index.ts:827-831`, `setupBlockHidesText` `:70-72`, set at turn start `:859` or at
+`create-campaign` `:732`). That removal reaches the renderer as an empty replacement, and the card disappears with the
+text.
+
+**SL-94.** `settleText(id, from)` (`Electron/packages/pi-backend/src/turn-telemetry.ts:693`): `first_delta` counts from
+the candidate's first delta as before; `settle` counts from now. `message_end` passes `settle` when the session has a
+COC binding (`Electron/packages/pi-backend/src/index.ts:6779`). A replacement with prose still counts at the replacement,
+which is the same `message_end`; an empty replacement still clears the candidate. The fold is keyed by the product and
+the telemetry by the binding, as ruled: a `coc-keeper` session not yet bound folds its text but counts it from its
+first delta.
+
+**Reported, not changed: a COC session renders the Keeper's thinking.** The host forwards every `thinking_delta` live
+(`index.ts:6656-6671`) and backfills a dropped tail at `message_end` (`:6789-6811`); history keeps it
+(`test/pi-backend.test.ts`, "retains thinking and tool activity when a bound COC history is reconciled"). The renderer
+appends it (`transcript-model.ts:779-811`) and draws a Thinking card whose body starts closed in PipiCOC
+(`AssistantTranscriptContent.tsx:247`, `defaultExpanded={live && !assistantKeepsSecrets}`, §93) and opens with one
+click, live and in history. It can carry Keeper-only content: the Keeper reasons over the capsule's module truth and
+nothing filters reasoning (§93's H-DETOUR t10: "Arty grants access" before the narration). Its visibility is the
+owner's decision; §93 made it available, not pushed, and this section gives the Keeper's text the same treatment.
+
+**Three ends (§31).** *Writer:* the host's stream (live deltas, the `message_end` replacement, the segment), §93's
+boolean and the `ui` block. *Reader:* `unsettledTextIds` and `AssistantTranscriptContent`. *Actor:* the player, who
+reads the story as prose and opens the working card only by choice.
+
+**Unchanged.** What the host streams, the extensions, thinking, tool cards and results, presentations, the history
+projection, the console, and `ttftMs`/`first_text`.
+
+*Tests.* `Electron/packages/ui/src/keeper-text-is-available-not-pushed.test.tsx`, on the real `Transcript` with the
+host's event shapes: beside-text is a folded card while its message streams, never prose, and gone after an empty
+replacement; implicit prose is folded while it streams and drawn as the replacement at its message end; unchanged kept
+text becomes prose when a later message begins or the turn settles; the body is closed, one click opens it, and the
+label is the play language's word (the key when missing, an ellipsis with no words); a setup reply folds and its
+removal takes the card; a console streams prose; a history reading is prose; the model names the unsettled text by the
+three ends; a replacement lands on the message's row behind its own card and the plain copy folds; through `App`, the
+graph answer's words label the card in PipiCOC and the console streams prose. `tests/extension/ui-words-surfaces.test.mjs`:
+the transcript surface's keys equal what the renderer asks for. `Electron/packages/pi-backend/test/turn-telemetry.test.ts`
+and `test/turn-telemetry-first-prose.test.ts`: a folded text counts at its settle and an earlier card still wins; a
+bound session's unchanged text counts at its `message_end`; an unbound session's kept text counts from its first
+delta. Mutations in the SL-95 ticket's Comments.
 
 ### 135.20 The read hands the Keeper the bodies of what it issued (2026-09-23, SL-11 scope 1; the model-call diet)
 
