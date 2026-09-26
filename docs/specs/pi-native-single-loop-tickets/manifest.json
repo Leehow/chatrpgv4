@@ -419,6 +419,11 @@
       "id": "SL-83",
       "file": "83-shadow-pairing-compares-a-label-to-a-handle.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-84",
+      "file": "84-a-jev-outage-leaves-no-status-code.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [

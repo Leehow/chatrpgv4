@@ -122,3 +122,4 @@ handle) rather than evidence against Jev's own judgment, with one narrower resid
 vocabulary not covering every way the Keeper can genuinely engage someone). Recommend, before SL-78 reads these
 numbers as a go/no-go signal: fix `keeperDidFor`'s `npc_reaction` branch to compare handles (not label vs. handle)
 before trusting the raw agreement figure for that class — this ticket does not do that (measurement only).
+- Gate #16 run of the script: see SL-02's #16 entry; rerun after SL-83 lands.
