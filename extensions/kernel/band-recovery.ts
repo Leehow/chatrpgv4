@@ -23,6 +23,7 @@ import {BAND_DEFAULT_MIN_CONFIDENCE, BAND_RECOVERY_FAMILY, bindingsFor, runArche
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {BAND_SHADOW_FAMILY, runBandShadow, shadowBindings, type DamageBandRow, type ShadowInput, type ShadowResult,
   type TimeBandRow} from '../../runtime/jev/band-shadow-domain.ts';
+import {clip} from '../../runtime/jev/text.ts';
 import {readJevApiKey} from '../jev/agent/config.js';
 
 export const BAND_TABLES: Readonly<Record<BandField, string>> = Object.freeze({archetype: 'npc-stat-archetypes', weapon: 'weapons'});
@@ -57,7 +58,6 @@ export function bandNeeds(error: unknown): BandNeeds | undefined {
 }
 
 const DOSSIER_KEYS = ['name', 'role', 'occupation', 'summary', 'description', 'appearance', 'agenda', 'wants', 'fears', 'hides', 'secret', 'voice', 'personality', 'toward_party', 'stance', 'knows', 'ties', 'history'] as const;
-const clip = (value: string, max: number): string => Array.from(value).length <= max ? value : Array.from(value).slice(0, max - 3).join('') + '...';
 /** The fields of the kernel's NPC view a tier is judged by, clipped; internal handles and ids are not among them. */
 export function dossierOf(view: unknown): Json {
   const out: Record<string, Json> = {};

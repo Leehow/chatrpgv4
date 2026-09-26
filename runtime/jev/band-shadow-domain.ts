@@ -10,8 +10,9 @@
  *
  * Pure: the extension owns the kernel read of the rows, the lease, the scheduling and the telemetry row.
  */
-import {createHash} from 'node:crypto';
 import type {DecisionAnswer, DecisionBatch, DecisionQuestion, DecisionResult, Json, ReadSet, ScopeBinding} from './contracts.ts';
+import {ROUTE_TRAVEL_ROWS} from '../../kernel-ts/modules/route-travel.ts';
+import {clip, digest16 as digest} from './text.ts';
 import type {DecisionPort} from './decision-port.ts';
 import type {TaskLease} from './task-context.ts';
 import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts';
@@ -22,10 +23,10 @@ export type ShadowKind = 'time' | 'damage';
 /** The band field of the registry (§138.2) each shadow kind is about; `rules.bands` answers these. */
 export const SHADOW_FIELDS: Readonly<Record<ShadowKind, 'time.band' | 'damage.band'>> = Object.freeze({time: 'time.band', damage: 'damage.band'});
 /**
- * The two time-cost rows that are a road's time, not an action's (spec D2, D6; §138.2): a move carries the route's
- * minutes, so the per-turn question never offers them. Handles of the registry's own table, not a vocabulary.
+ * The time-cost rows that are a road's time, not an action's (spec D2, D6; §138.2): a move carries the route's
+ * minutes, so the per-turn question never offers them. The kernel's one list (§138.9), not a second copy.
  */
-export const ROUTE_TIME_BANDS: readonly string[] = Object.freeze(['local_travel', 'long_travel']);
+export const ROUTE_TIME_BANDS: readonly string[] = ROUTE_TRAVEL_ROWS;
 /** Placeholder gate recorded on every row for the report (spec D4): the shadow gates nothing. */
 export const BAND_SHADOW_DEFAULT_GATE = 0.5;
 
@@ -55,8 +56,6 @@ export interface ShadowAnswered {
 export interface ShadowFailed {status: 'failed'; kind: ShadowKind; reason: string; calls: number; elapsedMs: number; usage: ShadowUsage}
 export type ShadowResult = ShadowAnswered | ShadowFailed;
 
-const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
-const clip = (value: string, max: number): string => Array.from(value).length <= max ? value : Array.from(value).slice(0, max - 3).join('') + '...';
 /** A row handle as words (id syntax, not a reading of any text): `single_room_search` -> `single room search`. */
 const words = (handle: string): string => handle.replace(/_+/g, ' ').trim();
 const TIME_KEY = 'time_cost', DAMAGE_KEY = 'severity';

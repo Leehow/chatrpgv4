@@ -11,8 +11,8 @@
  * (`kernel-ts/modules/route-travel.ts`) turns it into the row's `default` (never a roll: the same road is the same
  * length every time). The host glue owns the adapter, the lease, the telemetry and the write.
  */
-import {createHash} from 'node:crypto';
 import type {DecisionBatch, DecisionQuestion, DecisionResult, Json, ReadSet, ScopeBinding} from './contracts.ts';
+import {clip, digest16 as digest} from './text.ts';
 import type {DecisionPort} from './decision-port.ts';
 import type {TaskLease} from './task-context.ts';
 import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts';
@@ -45,8 +45,6 @@ export interface TravelAnswer {
 }
 export interface TravelBandResult {answers: TravelAnswer[]; calls: number; elapsedMs: number; usage: TravelUsage}
 
-const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
-const clip = (value: string, max: number): string => Array.from(value).length <= max ? value : Array.from(value).slice(0, max - 3).join('') + '...';
 
 /** The one binding of a build's questions: the lease and every batch carry it, or the adapter refuses the batch. */
 export function travelBindings(input: TravelBandInput): {scope: ScopeBinding; readSet: ReadSet} {

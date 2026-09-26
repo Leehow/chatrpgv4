@@ -183,7 +183,7 @@ export async function askTravel(ask: TravelAsk): Promise<TravelFill> {
     lease = new TaskLease({owner: TRAVEL_FILL_FAMILY, goal: 'Name the travel band of every road the build adds without minutes',
       scope: bindings.scope, capabilities: ['decision'], readSet: bindings.readSet, signal,
       budget: {deadlineAt, remainingInputTokens: Math.max(1, inputTokens), remainingOutputTokens: Math.max(1, outputTokens),
-        remainingCostUsd: inputTokens * JEV_INPUT_USD_PER_MILLION / 1_000_000 + 0.001, remainingActions: Math.max(1, batches.length)}});
+        remainingCostUsd: inputTokens * JEV_INPUT_USD_PER_MILLION / 1_000_000 + 0.001, remainingActions: Math.max(1, batches.length * attempts)}});
     const decision = createDecisionAdapter({env: ask.env, maxConcurrency: 4, retryPolicies: {[TRAVEL_FILL_FAMILY]: TRAVEL_RETRY}});
     const result = await runTravelBands(input, decision, lease, {minConfidence: travelMinConfidence(ask.env)});
     const entries: TravelEntry[] = result.answers.filter(answer => answer.outcome === 'banded')

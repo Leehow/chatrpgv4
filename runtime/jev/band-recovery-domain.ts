@@ -7,8 +7,8 @@
  * reads that feed the state, the pin write, the retry and the telemetry. Jev names a row; it never writes a number
  * (the kernel rolls inside the tier; the profile carries its own dice).
  */
-import {createHash} from 'node:crypto';
 import type {DecisionBatch, DecisionQuestion, DecisionResult, Json, ReadSet, ScopeBinding} from './contracts.ts';
+import {clip, digest16 as digest} from './text.ts';
 import type {DecisionPort} from './decision-port.ts';
 import type {TaskLease} from './task-context.ts';
 import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts';
@@ -67,8 +67,6 @@ export interface BandFallback {
 }
 export type BandResult = BandDecided | BandFallback;
 
-const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
-const clip = (value: string, max: number): string => Array.from(value).length <= max ? value : Array.from(value).slice(0, max - 3).join('') + '...';
 
 /** The lease's and the batches' one binding for a question, from the whole input: the adapter refuses a batch whose scope or read set differs from its lease's. */
 export function bindingsFor(field: BandField, input: ArchetypeBandInput | WeaponBandInput): {scope: ScopeBinding; readSet: ReadSet} {
