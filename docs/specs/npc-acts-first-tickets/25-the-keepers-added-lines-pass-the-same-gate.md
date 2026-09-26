@@ -1,4 +1,4 @@
-Status: ready-for-agent（2026-09-26，真桌 B2 T9 发现）
+Status: landed @ d525d10ff（合并到集成分支，2026-09-26；真桌 B2 T9 发现）
 Spec: docs/specs/npc-acts-first.md（D5/D6；第九节「B2 桌」）
 Contract: §139.24（新）；修 §139.5/§139.14 的不重复闸与 §139.7 的 KP 侧
 
@@ -22,3 +22,11 @@ Contract: §139.24（新）；修 §139.5/§139.14 的不重复闸与 §139.7 �
 - ext：KP 给他加的是新目的的台词 → 不拒，零额外交付。
 - 变异：闸去掉 → 第一条逮住。
 - 真桌 B3 看：亚瑟的目的级重复。
+
+## 落地记录（2026-09-26）
+
+- 内核新增读法 `npc.threads {campaign, text}`：按 KP 自己的说话记号列出这段交付里谁开口；只算这回合桌子替他行动过、或正在对话中的人，给出他没做成（本回合之前开的 attempted）或已放弃（所有 abandoned）的行。
+- 扩展与 §128.3 归属并行问 Jev 一批（family `keeper-line-purpose`，题面就是 §139.5/§139.14 的 `SAME_QUESTION`，字节一致），结果作为宿主私有的 `purpose_repeats` 交给 `table.narrate`：本回合第一次交付拒 `purpose_repeated`，之后的交付放行并记 warning；闸门顺序 `repeated_line` → `purpose_repeated` → `intent_result_owed` → `markup_in_prose`。开关 `PI_COC_PURPOSE_GATE`，超时 `PI_COC_PURPOSE_GATE_TIMEOUT_MS`（默认 2500）。
+- **worker 查出的细节：** B2 T9 那条「明天带纸来」（`intent:arthur-wilmot:e6c156ac94b3`）当回合已被桌子的恐吓检定结算为 failed；闸只算本回合之前开的、或已放弃的行，真 T9 会拿 T5「先带公函来」（T7 放弃）去比——Jev 判不判同一目的，看 B3。
+- 已知空缺：本回合桌子行动续着的、还在等防御骰的行，渲染它会被拒一次。
+- 测试：`keeper-line-purpose.test.mjs` 6、`test_npc_threads.py` 6；变异两处（内核闸去掉、宿主不交读数）各被逮住。未真桌验证。
