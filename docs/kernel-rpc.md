@@ -19627,7 +19627,13 @@ rules data (§136) or the session view can issue is no longer boss-only by const
   candidate, one `exists` Noul per family -- never the route/compile fan-out's own `need`/typed-feature questions,
   and never able to select or change what those choose), but under `COC_JEV_STEPS=shadow` (the default; SL-76) it
   is never executed: it is logged and paired at turn close with what the Keeper did on its own (`{lane: "route",
-  shadow: true, class, key, cleared, confidence, distribution, keeper_did}`). `COC_JEV_STEPS=on` (SL-78's acceptance)
+  shadow: true, class, key, cleared, confidence, distribution, keeper_did}`). The pairing compares handles, never
+  a display name to a handle (SL-83): a `capsule.mods.pending_contacts[]`/`relationships[]` row carries the
+  person's `handle` (the graph handle, the same identifier the first-impression `roll` receipt's `npc` carries)
+  beside its display-name `target`; `npc_reaction`'s `key` and `bound.target` are that handle, its `label` and
+  Noul keep the display name, and `keeperDidFor` matches `bound.target` against `roll.npc` (a display-name target
+  from a row without `handle` is resolved through the turn's own `person` receipts, `name` → `who`, first; one no
+  receipt this turn names cannot pair). `COC_JEV_STEPS=on` (SL-78's acceptance)
   runs a cleared one through the same `clerkStep` gateway as any other clerk candidate (§135.4); `off` builds none
   of the three. Thresholds (`row_min`, `row_ratio`) are `content/rulesets/coc7/host-budgets.json`'s `jev_steps`
   entry, the same shape as `ROW_MIN`/`ROW_RATIO` (§135.30.9.1), never a literal in the policy.

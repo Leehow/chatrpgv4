@@ -69,7 +69,9 @@ def stranded_turns(telemetry_rows):
 
 def parse_key(cls, key):
     """The candidate's own entity handle/label out of its telemetry `key`, built by `consequence-candidates.ts`:
-    `consequence:npc_reaction:<actor>:<target>`, `consequence:clue_follow_up:<clue>`, `consequence:time_cost:<handle>`."""
+    `consequence:npc_reaction:<actor>:<target>`, `consequence:clue_follow_up:<clue>`, `consequence:time_cost:<handle>`.
+    `npc_reaction`'s `<target>` is the person's graph handle since SL-83 (`vittorio-macario`); a table played on a
+    build before SL-83 wrote the display name there (`Vittorio Macario`), which `corrected_npc_reaction` resolves."""
     prefix = f'consequence:{cls}:'
     rest = key[len(prefix):] if key.startswith(prefix) else key
     if cls == 'npc_reaction':
@@ -106,10 +108,13 @@ def npc_evidence(target_label, turn_receipts, label_map):
     if rolls:
         parts.append('first-impression rolls this turn: ' + ', '.join(f"npc={r.get('npc')!r}" for r in rolls))
     handle = label_map.get(target_label)
-    if handle and any(r.get('npc') == handle for r in rolls):
+    if any(r.get('npc') == target_label for r in rolls):
+        parts.append(f"a first-impression roll's npc field this turn IS the row's own target {target_label!r} (a handle, SL-83's row shape): "
+                      "the product's pairing should have read true -- check keeperDidFor before reading this as a disagreement")
+    elif handle and any(r.get('npc') == handle for r in rolls):
         parts.append(f"label->handle map resolves target {target_label!r} to {handle!r}, which matches a first-impression roll's npc field this turn "
                       "-- reads as the SAME engagement; keeper_did disagrees only because the row's own key carries the display label, not the handle "
-                      "the roll receipt normalizes to (telemetry key/entity-id mismatch, not a real disagreement)")
+                      "the roll receipt normalizes to (a row written before SL-83; the product now carries the handle on the row)")
     if other_rolls:
         parts.append('other (non-first-impression) rolls this turn: ' + ', '.join(f"{r.get('skill')}" for r in other_rolls))
     if persons:
@@ -141,7 +146,9 @@ def corrected_npc_reaction(rows, turn_records, label_map):
     `target` label resolved through `label_map` before comparing to a first-impression roll's `npc` handle, to
     size how much of the class's raw disagreement is the label/handle mismatch this file's `npc_evidence` keeps
     finding rather than a real Jev/Keeper disagreement. Same three-way shape as `keeperDidFor` (true/false/other),
-    computed only over rows whose turn is not stranded."""
+    computed only over rows whose turn is not stranded. On a table played after SL-83 the key already carries the
+    handle, `label_map` resolves nothing, and this figure equals the raw one (SL-83 fixed the product: the row
+    carries `handle`, the candidate's key/bound.target is that handle, and `keeperDidFor` compares handles)."""
     out = []
     for row in rows:
         target = parse_key('npc_reaction', row.get('key', '')).get('target', '')

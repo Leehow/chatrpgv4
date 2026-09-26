@@ -211,11 +211,20 @@ export function receiptLabel(receipt: Row): string {
  * model-origin call's arguments, which this engine does not otherwise retain. `true`: the same entity, the same
  * kind of consequence; `other`: the same kind of consequence landed on a different entity this turn (npc_reaction,
  * clue_follow_up only -- `time_cost` has no second entity to distinguish); `false`: neither.
+ *
+ * SL-83: `npc_reaction` compares handles. The candidate's `target` is the person's graph handle
+ * (`consequence-candidates.ts`, off the capsule row's `handle`), and the first-impression `roll` receipt's `npc` is
+ * the same handle. A `target` that is not a handle but the person's display name (a capsule row from a kernel
+ * older than SL-83 carries only that) is resolved through the turn's own `person` receipts, whose `name` is that
+ * display name and whose `who` is the handle -- the turn's own data, never a list -- before the comparison; when
+ * no receipt this turn names it, it cannot be paired and reads as `other`/`false` exactly as a stranger would.
  */
 export function keeperDidFor(entry: {consequenceClass: ConsequenceClass; target?: string; clue?: string}, receipts: readonly Row[]): true | false | 'other' {
   if (entry.consequenceClass === 'npc_reaction') {
     const rolls = receipts.filter(receipt => text(receipt.kind) === 'roll' && text(receipt.decision) === NPC_REACTION_DECISION);
-    if (rolls.some(receipt => text(receipt.npc) === entry.target)) return true;
+    const handles = new Set([entry.target ?? '']);
+    for (const receipt of receipts) if (text(receipt.kind) === 'person' && text(receipt.name) === entry.target && text(receipt.who)) handles.add(text(receipt.who));
+    if (rolls.some(receipt => handles.has(text(receipt.npc)))) return true;
     return rolls.length ? 'other' : false;
   }
   if (entry.consequenceClass === 'clue_follow_up') {
