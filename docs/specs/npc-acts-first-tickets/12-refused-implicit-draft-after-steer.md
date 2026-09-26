@@ -1,4 +1,4 @@
-Status: ready-for-agent（2026-09-26，工单 11 的 worker 发现；等第二波合入后派，避免在 `extensions/kernel/index.ts` 上撞车）
+Status: landed（合入集成分支 claude/npc-as-actor-20260926 @ f1c7eb6ed，2026-09-26；全量套件见 spec 第八节）
 Spec: docs/specs/npc-acts-first.md（第七节）
 
 # 12 — steer 用完之后被内核拒绝的隐式稿不许掉

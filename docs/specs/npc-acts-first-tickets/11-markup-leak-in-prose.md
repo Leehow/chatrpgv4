@@ -1,4 +1,4 @@
-Status: ready-for-agent（2026-09-26，两桌复核漏报的处置）
+Status: landed（合入集成分支 claude/npc-as-actor-20260926 @ 3860ffeb7，2026-09-26；全量套件见 spec 第八节）
 Spec: docs/specs/npc-acts-first.md（第七节「复核漏报的处置」）
 
 # 11 — 玩家看到的正文里漏出标记

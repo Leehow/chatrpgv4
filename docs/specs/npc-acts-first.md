@@ -1,6 +1,6 @@
 # NPC 先行动，再落参数
 
-Status: ready-for-agent（01–07；用户 2026-09-26 三处按推荐拍板，见第四节末）；08 ready-for-human
+Status: 01–06、09–13 landed（集成分支 `claude/npc-as-actor-20260926` @ f1cfe0192，契约 §139.1–139.12）；07 in progress；08 ready-for-human
 Branch: `claude/npc-as-actor-20260926`（基于集成线 `claude/integ-single-loop-20260923@6eac0c2f9`）；契约落地写 §139
 Parent: `docs/specs/npc-as-actor.md`（§138：意图行有状态、NPC 的一轮是一次操作、写入面）。本 spec 不撤它，只把「谁来决定 NPC 做什么」倒过来
 Related: `docs/specs/pi-native-single-loop.md`（§135.28 参数绑定不过 LLM；§135.32 后果候选影子执行）、`docs/specs/jev-driven-steps.md`（D1 `npc_reaction`）、§11.5.3（NPC 常备动作）、§40.7（口吻面具：NPC 不需要自己的人格）、记忆 `npc-action-generated-first-then-bound`
@@ -157,18 +157,18 @@ Jev 一个闭合问题：「这句行动由上面哪一种结算」+ 各方式�
 
 | 票 | 题 | 状态 | 依赖 |
 |---|---|---|---|
-| 01 | `npc.situation`：处境包 | ready-for-agent（派出，`claude/naf-01-situation-20260926`） | — |
-| 02 | 生成步骤：指令文件、端口、模型解析 | ready-for-agent（派出，`claude/naf-02-generation-20260926`；按 §139.1 的包形状并行） | 01 |
-| 03 | `npc.act.options` 与绑定执行（会话内外两个触发） | ready-for-agent（第二波，与 04 同一 worker） | 01、02 |
-| 04 | 不重复的两道与欠账衔接 | ready-for-agent（第二波） | 02、03 |
-| 05 | 应对库与 advice 选择整体退役；投影 | ready-for-agent（派出，`claude/naf-05-retire-bank-20260926`） | 03（只有 `by: table` 一行） |
-| 06 | KP 侧：keeper.md、工具说明、否决面 | ready-for-agent（第二波） | 03 |
-| 07 | 造景探针与裁判 | ready-for-agent（第三波，sonnet） | 01–04 |
-| 09 | 无准备局面的威胁骰（D9） | ready-for-agent（第二波，与 03/04 并行） | 01；`severe` 的武器允许在 03 |
-| 10 | 逃跑的两条：躺着的人逃不了；玩家逃跑不自动开追逐 | ready-for-agent（派出，`claude/naf-10-flee-20260926`） | — |
-| 11 | 玩家看到的正文里漏出标记 | ready-for-agent（派出，`claude/naf-11-markup-20260926`） | — |
-| 12 | steer 用完之后被内核拒绝的隐式稿不许掉（11 的 worker 发现的既有缺口） | ready-for-agent（第二波合入后派） | 11 |
-| 13 | 追逐引擎要认 NPC 当猎物（10 的 worker 实测：调查员从来追不了 NPC） | ready-for-agent（03 合入后派） | 10 |
+| 01 | `npc.situation`：处境包 | landed @ e5ce5404f | — |
+| 02 | 生成步骤：指令文件、端口、模型解析 | landed @ bac660a83 | 01 |
+| 03 | `npc.act.options` 与绑定执行（会话内外两个触发） | landed @ f098fdae6（合并后修正 f1e9b66c7） | 01、02 |
+| 04 | 不重复的两道与欠账衔接 | landed @ f098fdae6 | 02、03 |
+| 05 | 应对库与 advice 选择整体退役；投影 | landed @ c4fbe7ade（标记改挂 `intent.generated`，d64614ff9） | 03 |
+| 06 | KP 侧：keeper.md、工具说明、否决面 | landed @ 87b57e7e3 | 03 |
+| 07 | 造景探针与裁判 | in progress（sonnet，`claude/naf-07-probe-20260926`） | 01–04 |
+| 09 | 无准备局面的威胁骰（D9） | landed @ 3717cf2c7 | 01 |
+| 10 | 逃跑的两条（按书：趴着的人起身再逃；被擒/受缚/昏迷不能逃）；玩家逃跑不自动开追逐 | landed @ 9663376e3 | — |
+| 11 | 玩家看到的正文里漏出标记 | landed @ 3860ffeb7 | — |
+| 12 | steer 用完之后被内核拒绝的隐式稿不许掉 | landed @ f1c7eb6ed | 11 |
+| 13 | 追逐引擎要认 NPC 当猎物 | landed @ f1cfe0192 | 10 |
 | 08 | 真桌 C、B | ready-for-human | 01–07、09–13 合入并重打包 |
 
 ## 七、复核漏报的处置（2026-09-26）

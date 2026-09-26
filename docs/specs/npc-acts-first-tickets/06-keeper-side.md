@@ -1,4 +1,4 @@
-Status: ready-for-agent（2026-09-26 用户三处按推荐拍板：快模型、书记员执行、应对库退役）
+Status: landed（合入集成分支 claude/npc-as-actor-20260926 @ 87b57e7e3，2026-09-26；全量套件见 spec 第八节）
 Spec: docs/specs/npc-acts-first.md（D7）
 
 # 06 — KP 侧：提示词、工具说明、否决面
