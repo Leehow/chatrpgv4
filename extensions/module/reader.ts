@@ -1,5 +1,6 @@
 /** A tool-enabled Pi child for one visual reading or review phase. */
-import {type TaskProviderBudget, type ProviderCharge, type ProviderRefusal, providerUsage, providerSpend, providerRefusal, providerRefusalText} from "../../runtime/jev/provider-budget.ts";
+import {type TaskProviderBudget, type ProviderBound, type ProviderCharge, type ProviderRefusal, providerUsage, providerSpend, providerRefusal, providerRefusalText, resentUsage} from "../../runtime/jev/provider-budget.ts";
+import {ContractError} from "../../runtime/jev/contracts.ts";
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -139,6 +140,8 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
  * because it is the operator's value for the table. A child whose wall-clock budget is shorter than
  * that value can never reach it: its own timer kills it first, so a stalled stream becomes a SIGTERM
  * with no reason instead of the retryable transport error pi's auto-retry already recovers from.
+ * A reader child needs the opposite (contract §140.1): a model writing its draft in one tool call is
+ * silent for longer than the table's value, so its allowance (`reading.idle_ms`) is longer.
  * Pi's project scope is the per-child seam: `<cwd>/.pi/settings.json` is deep-merged over the agent
  * home's, for this process only, and only when the run is `--approve`d.
  *
@@ -306,10 +309,16 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 		const child = spawn(bin, args, { cwd: request.cwd, env, stdio: request.providerBudget ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"], detached: grouped });
 
 		const charges = new Map<number, ProviderCharge>();
+		// §140.1: per granted call, its bound, its payload's digest and how many identical attempts its reservation pays for.
+		const granted = new Map<number, {bound: ProviderBound; digest?: string; attempts: number}>();
+		// §140.1: the reservation of a call that failed on the provider without usage, kept for the identical resend pi's
+		// auto-retry sends next. Anything else charges it whole, exactly as a call without usage always was.
+		let kept: {charge: ProviderCharge; bound: ProviderBound; digest: string; attempts: number} | undefined;
 		const seen = new Set<number>();
 		const channel = new AbortController();
 		const usage = {inputTokens:0,outputTokens:0,costUsd:0,actions:0,unknownCalls:0};
 		const overruns: ProviderRefusal[] = [];
+		const chargeKeptWhole = () => { const held = kept; kept = undefined; if (!held) return; usage.unknownCalls++; held.charge.settle(); };
 		if(request.providerBudget)child.on('message',async(message:any)=>{
 			try {
 				if(message?.type==='coc-provider-reserve') {
@@ -317,9 +326,23 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 					seen.add(message.id);
 					providerSpend(message.bound);
 					if(request.model && `${message.bound.model.provider}/${message.bound.model.id}`!==request.model)throw new Error('provider_model_changed');
-					const charge=await request.providerBudget!.reserve(message.bound,AbortSignal.any([channel.signal,request.signal!]));
-					if(settled||channel.signal.aborted){charge.release();return;}
-					charges.set(message.id,charge);
+					const digest=typeof message.digest==='string'&&message.digest?message.digest:undefined;
+					// §140.1: the identical payload again, after its attempt failed on the provider: pi's auto-retry. It is paid
+					// from the reservation that attempt already holds, instead of a second whole-context reservation.
+					const resent=kept&&digest===kept.digest&&JSON.stringify(message.bound)===JSON.stringify(kept.bound)?kept:undefined;
+					let charge:ProviderCharge,attempts=1;
+					if(resent){
+						kept=undefined;charge=resent.charge;attempts=resent.attempts+1;
+						try{
+							request.providerBudget!.signal.throwIfAborted();
+							if(Date.now()>=request.providerBudget!.deadlineAt)throw new ContractError('task_deadline');
+						}catch(error){usage.unknownCalls++;charge.settle();throw error;}
+					}else{
+						chargeKeptWhole();
+						charge=await request.providerBudget!.reserve(message.bound,AbortSignal.any([channel.signal,request.signal!]));
+					}
+					if(settled||channel.signal.aborted){if(resent){usage.unknownCalls++;charge.settle();}else charge.release();return;}
+					charges.set(message.id,charge);granted.set(message.id,{bound:message.bound,digest,attempts});
 					child.send({type:'coc-provider-grant',id:message.id,ok:true},error=>{if(error){refuse(new Error(`transport: ${error.message}`));kill();}});
 				} else if(message?.type==='coc-provider-failure') {
 					// The child's echo of a refusal this host sent arrives here too; `refuse` keeps the first cause.
@@ -327,10 +350,19 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 				} else if(message?.type==='coc-provider-settle') {
 					const charge=charges.get(message.id);if(!charge)throw new Error('unknown_provider_reservation');
 					charges.delete(message.id);
-					const actual=providerUsage(message.usage);
+					const call=granted.get(message.id);granted.delete(message.id);
+					// §140.1: failed on the provider (a stream timeout) and no usage: not charged yet. Its identical resend
+					// either reports usage for every attempt, or the reservation is charged whole when anything else comes.
+					if(message.failed===true&&message.usage===undefined&&call?.digest){
+						chargeKeptWhole();
+						kept={charge,bound:call.bound,digest:call.digest,attempts:call.attempts};
+						return;
+					}
+					const reported=call&&call.attempts>1?resentUsage(message.usage,call.attempts,call.bound):message.usage;
+					const actual=providerUsage(reported);
 					if(actual)for(const key of ['inputTokens','outputTokens','costUsd','actions'] as const)usage[key]+=actual[key];
 					else usage.unknownCalls++;
-					const overrun=charge.settle(message.usage);
+					const overrun=charge.settle(reported);
 					if(overrun)overruns.push({...overrun,unknown_usage_calls:usage.unknownCalls});
 				}
 			}catch(error){
@@ -346,6 +378,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 			settled = true;
 			channel.abort();
 			for(const charge of charges.values()){usage.unknownCalls++;try{charge.settle();}catch(error){if(!refusal)providerError=String(error);}}charges.clear();
+			try{chargeKeptWhole();}catch(error){if(!refusal)providerError=String(error);}
 			clearTimeout(timer);
 			if (hardKill) clearTimeout(hardKill);
 			request.signal?.removeEventListener("abort", onAbort);

@@ -23,7 +23,7 @@ const lease = (overrides = {}) => new TaskLease({owner: 'test-root', goal: 'Type
   readSet: [], capabilities: [], budget: {deadlineAt: Date.now() + 20000, remainingInputTokens: 20000, remainingOutputTokens: 1000,
     remainingCostUsd: 1, remainingActions: 10, ...overrides}});
 
-/** A child that makes the scripted calls: `text`/`image` payloads, each ending `ok` (with usage) or `error`. */
+/** A child that makes the scripted calls: `text`/`image` payloads (`image` names the page, default one), each ending `ok` (with usage), `error` or `aborted`. */
 async function child(t, steps) {
   const home = await mkdtemp(join(tmpdir(), 'provider-refusal-'));
   t.after(() => rm(home, {recursive: true, force: true}));
@@ -38,10 +38,10 @@ runner.bindCore({}, {getModel:()=>ctx.model,abort:()=>ctx.abort()});
 const wait=ms=>new Promise(done=>setTimeout(done,ms));
 for(const step of ${JSON.stringify(steps)}){
  if(step.raw){process.send(step.raw);await wait(200);continue;}
- let payload={model:ctx.model.id,input:step.call==='image'?[{type:'input_image',image_url:'data:image/png;base64,small'}]:'hello'};
+ let payload={model:ctx.model.id,input:step.call==='image'?[{type:'input_image',image_url:'data:image/png;base64,'+(step.image??'small')}]:'hello'};
  payload=await runner.emitBeforeProviderRequest(payload);
  appendFileSync(${JSON.stringify(marker)},JSON.stringify({call:step.call,max_output_tokens:payload.max_output_tokens})+'\\n');
- const message=step.end==='error'?{role:'assistant',stopReason:'error',errorMessage:step.message}:{role:'assistant',stopReason:'toolUse',usage:step.usage??${JSON.stringify(usage)}};
+ const message=['error','aborted'].includes(step.end)?{role:'assistant',stopReason:step.end,errorMessage:step.message}:{role:'assistant',stopReason:'toolUse',usage:step.usage??${JSON.stringify(usage)}};
  console.log(JSON.stringify({type:'message_end',message}));
  await wait(100);
  await runner.emitMessageEnd({type:'message_end',message});
@@ -55,8 +55,26 @@ process.disconnect();`);
   return {run, calls};
 }
 
-test('the Masks shape: an image call that ends in a stream timeout is charged its reservation, and its retry is refused on input tokens', async t => {
+test('§140.1 the Masks shape: a stream timeout is not charged a whole context; its identical resend pays for every attempt and the round goes on', async t => {
+  // read-4/read-5 on the Masks table: the timed-out image call was charged its whole 500,000-token reservation, its
+  // identical resend asked for another 500,000 the 1,000,000 lease no longer had, and the round died with 0 pages.
   const f = await child(t, [{call: 'text', end: 'ok'}, {call: 'image', end: 'ok'}, {call: 'image', end: 'error', message: STALL}, {call: 'image', end: 'ok'}]);
+  const root = lease(); t.after(() => root.close());
+  const outcome = await f.run(createTaskProviderBudget(root));
+  assert.equal(outcome.ok, true, JSON.stringify(outcome));
+  assert.equal(outcome.refusal, undefined);
+  assert.equal((await f.calls()).length, 4, 'the resend was dispatched');
+  // text 15, image 15, then the failed attempt and its resend: 2 x 15, both read the identical payload.
+  assert.equal(root.context.budget.remainingInputTokens, 20000 - (15 + 15 + 2 * 15));
+  assert.equal(root.context.budget.remainingOutputTokens, 1000 - (5 + 5 + 2 * 5));
+  assert.equal(root.context.budget.remainingActions, 10 - 3, 'the failed attempt and its resend are one reservation');
+  const {costUsd, ...counts} = outcome.usage;
+  assert.deepEqual(counts, {inputTokens: 60, outputTokens: 20, actions: 3, unknownCalls: 0});
+  assert.ok(Math.abs(costUsd - 4 * 0.00004) < 1e-12, String(costUsd));
+});
+
+test('§140.1 a different request after a failed call: the failed call is charged its whole reservation, and a lease that cannot pay refuses, typed', async t => {
+  const f = await child(t, [{call: 'text', end: 'ok'}, {call: 'image', end: 'ok'}, {call: 'image', end: 'error', message: STALL}, {call: 'image', image: 'next-page', end: 'ok'}]);
   const root = lease(); t.after(() => root.close());
   const outcome = await f.run(createTaskProviderBudget(root));
   assert.equal(outcome.ok, false);
@@ -65,7 +83,37 @@ test('the Masks shape: an image call that ends in a stream timeout is charged it
   // The child's echo of the refusal ("ContractError: provider_budget_refused") does not replace the cause.
   assert.equal(outcome.error, providerRefusalText(outcome.refusal));
   assert.match(outcome.error, /^provider_budget_refused: budget_input_tokens \(the call asked for 10000 inputTokens; the lease's ceiling is 20000, 10030 used/);
-  assert.equal((await f.calls()).length, 3, 'the refused retry was never dispatched');
+  assert.equal((await f.calls()).length, 3, 'the refused call was never dispatched');
+});
+
+test('§140.1 the inferred attempts never make an overrun; a chain no resend measures is charged one whole reservation', async t => {
+  // A resend reporting 6,000 input tokens stands for two attempts (12,000) against a 10,000 reservation: charged 10,000.
+  const big = {...usage, input: 6000, cacheRead: 0, cacheWrite: 0};
+  const clamped = await child(t, [{call: 'image', end: 'error', message: STALL}, {call: 'image', end: 'ok', usage: big}]), root = lease();
+  t.after(() => root.close());
+  const outcome = await clamped.run(createTaskProviderBudget(root));
+  assert.equal(outcome.ok, true, JSON.stringify(outcome));
+  assert.equal(root.signal.aborted, false, 'an inference alone does not cancel the lease');
+  assert.equal(root.context.budget.remainingInputTokens, 20000 - 10000);
+  assert.equal(outcome.usage.inputTokens, 10000);
+
+  // Nothing reports usage: the attempts are one request, charged once at its whole reservation (it read one payload).
+  const silent = await child(t, [{call: 'image', end: 'error', message: STALL}, {call: 'image', end: 'error', message: STALL}]), second = lease();
+  t.after(() => second.close());
+  const unmeasured = await silent.run(createTaskProviderBudget(second));
+  assert.equal(unmeasured.refusal, undefined);
+  assert.equal((await silent.calls()).length, 2);
+  assert.equal(unmeasured.usage.unknownCalls, 1);
+  assert.equal(second.context.budget.remainingInputTokens, 20000 - 10000);
+});
+
+test('§140.1 only a provider error is kept for its resend: an aborted call is charged its whole reservation', async t => {
+  // A revoked run is never resent by pi, so an identical request after it is a new request, not the attempt's retry.
+  const f = await child(t, [{call: 'image', end: 'aborted', message: 'Request was aborted'}, {call: 'image', end: 'ok'}]), root = lease();
+  t.after(() => root.close());
+  const outcome = await f.run(createTaskProviderBudget(root));
+  assert.equal(outcome.usage.unknownCalls, 1);
+  assert.equal(root.context.budget.remainingInputTokens, 20000 - 10000 - 15);
 });
 
 test('each lease dimension names itself', async t => {

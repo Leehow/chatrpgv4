@@ -39,7 +39,9 @@ const runner=new ExtensionRunner([{path:"play-lease-conformance",handlers}],crea
 runner.bindCore({}, {getModel:()=>ctx.model,abort:()=>ctx.abort()});
 const wait=ms=>new Promise(done=>setTimeout(done,ms));
 for(let n=0;n<${calls};n++){
- let payload={model:ctx.model.id,input:[{type:'input_image',image_url:'data:image/png;base64,small'}]};
+ // A different page each call: SL-99 (§140.1) pays an identical resend from its failed attempt's reservation, and this
+ // file's subject is distinct image calls that each end without usage.
+ let payload={model:ctx.model.id,input:[{type:'input_image',image_url:'data:image/png;base64,page'+n}]};
  payload=await runner.emitBeforeProviderRequest(payload);
  appendFileSync(${JSON.stringify(marker)},JSON.stringify({max_output_tokens:payload.max_output_tokens})+'\\n');
  const message={role:'assistant',stopReason:'error',errorMessage:${JSON.stringify(STALL)}};
