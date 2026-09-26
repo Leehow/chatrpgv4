@@ -40,6 +40,7 @@ import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRe
 import {activeName} from '../read/worldline.js';
 import {eventOf} from '../worldline/index.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
+import { owedIntents } from '../npc/owed.js';
 export { createTurnTransaction } from './store.js';
 export { CampaignWriter } from './store.js';
 export { writeEpisode } from './contributions.js';
@@ -992,6 +993,17 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const text = required(params, 'text')!, receipts = [...array(turn.receipts)];
         const { placed, ...delivery } = deliveryText(text, receipts, speakerResolver(module.graph, snapshot.world, snapshot.party)), rendered = delivery.rendered_text;
         const hostRepeats = await refuseRepeatedLine(snapshot, campaign, delivery.speech, hostAttributed(params, delivery.speech));
+        // Contract §138.7: someone present set out to do something on an earlier turn and nothing of this turn reports how
+        // it went. Refused once per set of owed intentions; the same set a second time is delivered, with a finding.
+        const owed = owedIntents(module.graph, snapshot.world, row(await snapshot.optional('npc-ledger.json')), turn);
+        const owedKey = owed.map(item => string(item.ref)).sort().join(' ');
+        if (owed.length && string(row(turn.intent_gate).refs) !== owedKey) {
+            await campaign.writeTurn({ ...turn, intent_gate: { refs: owedKey } });
+            throw new RpcError('needs', `${owed.map(item => `${string(item.who)} set out on turn ${string(item.since_turn)} to ${string(item.intent)}`).join('; ')} -- and it has no result yet`, {
+                fix: 'What a person set out to do gets a result by their next turn: report it before delivering -- a roll or an effect with intent_ref, or apply npc with intent_ref and outcome done, failed or abandoned (abandoned when they drop it for something else). Then deliver again; the prose stands.',
+                details: { reason: 'intent_result_owed', owed },
+            });
+        }
         const language = await playLanguageOf(context, snapshot.meta);
         // Nothing is read out of the prose. Figures travel as the mechanics projection and the
         // frontend draws them (2026-09-09 user decision, contract section 16.3); whether the words
@@ -1036,11 +1048,16 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...(reads.length ? { reads } : {}),
             // §128.3: a repeat inside a line the host wrapped is a finding on the delivery, the same
             // `warnings` rows the verifier's `unmarked_speech` lands in, never a refusal.
-            ...(hostRepeats.length ? { warnings: hostRepeats.map(repeat => ({ lane: 'speech', kind: 'repeated_line',
+            ...(hostRepeats.length || owed.length ? { warnings: [...hostRepeats.map(repeat => ({ lane: 'speech', kind: 'repeated_line',
                 quote: chars(string(repeat.line), 120),
                 why: chars(`${string(repeat.name)} already said this at turn ${string(repeat.earlier_turn)}; the host wrapped the line, so it was delivered, not refused`, 200),
                 fix: 'Already delivered: do not rewrite it. Next time the same point comes back, say it in fresh words; the position need not move.',
-                at: nowIso() })) } : {})
+                at: nowIso() })),
+                // §138.7: delivered on the second try with the result still owed -- a finding for the next turn, not a third refusal.
+                ...owed.map(item => ({ lane: 'intents', kind: 'intent_result_owed', quote: null,
+                    why: chars(`${string(item.who)} set out on turn ${string(item.since_turn)} to ${string(item.intent)}, and this delivery reported no result`, 200),
+                    fix: 'Settle it this turn: a roll or effect with its intent_ref, or apply npc with intent_ref and outcome done, failed or abandoned.',
+                    ref: item.ref, at: nowIso() }))] } : {})
         };
         await campaign.writeTurnRecord(record);
         await updateNpcLedger(campaign, module.graph, record);

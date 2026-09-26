@@ -104,6 +104,18 @@ export async function refuseSettled(scope: IntentScope, node: Row, resolved: Res
         details: {field, reason: 'intent_settled', ref: resolved.ref, status: resolved.status, turn: resolved.turn, options: await intentOptions(scope, node)}});
 }
 
+/**
+ * §138.7: an intention still under way from an earlier turn is not announced again -- it gets a result. Written as
+ * `attempted` a second time on a later turn, it is refused; within the same turn it may be written again.
+ */
+export function refuseRepeat(scope: IntentScope, node: Row, resolved: ResolvedIntent, outcome: string, field: string): void {
+    if (outcome !== 'attempted' || resolved.status !== 'attempted' || resolved.turn === null || resolved.turn >= number(scope.turn.turn)) return;
+    const who = scope.graph.displayName(node);
+    throw new RpcError('invalid_params', `${who} already set out on turn ${resolved.turn} to ${resolved.text}, and it has no result; it is not announced again`, {
+        fix: `report how it went instead: outcome done, failed or abandoned (a roll or effect with this intent_ref does the same). If ${who} tries something else now, that is a new intention`,
+        details: {field, reason: 'intent_unresolved', ref: resolved.ref, since_turn: resolved.turn}});
+}
+
 /** The `intent` a receipt carries (§138.2). */
 export function intentStamp(handle: string, resolved: ResolvedIntent, outcome: string): Row {
     if (!INTENT_OUTCOMES.includes(outcome)) throw new Error(`unknown intent outcome ${outcome}`);
@@ -127,6 +139,7 @@ export async function effectIntent(scope: IntentScope, effect: Row, field: strin
             fix: 'one of details.options; leave it out when the effect is the intention done', details: {field: `${field}.intent_outcome`, options: [...INTENT_OUTCOMES]}});
     const resolved = await resolveIntent(scope, node, {intent_ref: effect.intent_ref}, field);
     await refuseSettled(scope, node, resolved, field);
+    refuseRepeat(scope, node, resolved, outcome, field);
     return intentStamp(scope.graph.handle(node), resolved, outcome);
 }
 
@@ -148,6 +161,7 @@ export async function planRollIntent(scope: IntentScope, action: Row): Promise<(
             fix: 'copy a ref from present[].history.intents, director.offer or the NPC advice; or leave intent_ref out', details: {field: 'action.intent_ref'}});
     const resolved = await resolveIntent(scope, node, {intent_ref: action.intent_ref}, 'action');
     await refuseSettled(scope, node, resolved, 'action');
+    if (typeof outcome === 'string') refuseRepeat(scope, node, resolved, outcome, 'action');
     const handle = scope.graph.handle(node);
     return receipts => {
         const roll = [...receipts].reverse().find(value => value.kind === 'roll' && value.form !== 'dice' && typeof value.passed === 'boolean');

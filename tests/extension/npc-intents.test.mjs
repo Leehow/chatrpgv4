@@ -150,3 +150,47 @@ test('the intention ledger is a fold of the turn records and is rebuilt from the
  assert.deepEqual(card.map(value=>[value.ref,value.status]),[[ref,'failed']]);
  assert.deepEqual((await knottLedger(home)).intents,folded,'the rebuilt ledger is the same fold');
 });
+
+// ---- ticket 03 (§138.7): what was set out on gets a result by the next turn -----------------------------------------
+
+const record=async(home,turn)=>JSON.parse(await readFile(join(home,'.coc','campaigns',campaign,'turns',`${String(turn).padStart(4,'0')}.json`),'utf8'));
+
+test('a delivery that reports no result for an intention under way is refused once, then delivered with a finding',async t=>{
+ const {client,home}=await opened(t);
+ await begin(client);
+ await apply(client,'t1-c1',{intends:SHOUT,outcome:'attempted'});
+ await nextTurn(client,1);
+ const ref=(await knottLedger(home)).intents[0].ref;
+ await assert.rejects(client.call('table.narrate',{campaign,call_id:'t2-c1',text:'You swing again.'}),
+  e=>e.code==='needs'&&e.details?.reason==='intent_result_owed'&&e.details.owed.map(item=>item.ref).join()===ref);
+ const delivered=await client.call('table.narrate',{campaign,call_id:'t2-c2',text:'You swing again.'});
+ assert.equal(delivered.turn,2,'the same owed set a second time is delivered');
+ const warning=(await record(home,2)).warnings.find(value=>value.kind==='intent_result_owed');
+ assert.equal(warning.ref,ref);
+ assert.equal(warning.lane,'intents');
+});
+
+test('an intention under way is not announced again on a later turn; a result clears the debt',async t=>{
+ const {client,home}=await opened(t);
+ await begin(client);
+ await apply(client,'t1-c1',{intends:SHOUT,outcome:'attempted'});
+ await apply(client,'t1-c2',{intends:SHOUT,outcome:'attempted'});
+ await nextTurn(client,1);
+ const ref=(await knottLedger(home)).intents[0].ref;
+ await assert.rejects(apply(client,'t2-c1',{intent_ref:ref,outcome:'attempted'}),e=>e.code==='invalid_params'&&e.details?.reason==='intent_unresolved');
+ await assert.rejects(apply(client,'t2-c2',{intends:SHOUT,outcome:'attempted'}),e=>e.details?.reason==='intent_unresolved','the same line is the same intention');
+ await apply(client,'t2-c3',{intent_ref:ref,outcome:'failed',why:'nobody comes up the stairs'});
+ const delivered=await client.call('table.narrate',{campaign,call_id:'t2-c4',text:'Nobody answers his shout.'});
+ assert.equal(delivered.turn,2);
+ assert.equal((await record(home,2)).warnings?.find?.(value=>value.kind==='intent_result_owed'),undefined);
+});
+
+test('someone who is no longer present owes the delivery nothing',async t=>{
+ const {client}=await opened(t);
+ await begin(client);
+ await apply(client,'t1-c1',{intends:SHOUT,outcome:'attempted'});
+ await nextTurn(client,1);
+ await apply(client,'t2-c1',{to:'away',why:'he bolts down the stairs'});
+ const delivered=await client.call('table.narrate',{campaign,call_id:'t2-c2',text:'He is gone.'});
+ assert.equal(delivered.turn,2);
+});

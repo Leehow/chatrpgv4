@@ -21,7 +21,7 @@ import type {ApplyContext} from './index.js';
 import {CampaignSnapshot} from '../read/campaign.js';
 import {acceptReunion} from '../npc/reunion.js';
 import {INTENT_OUTCOMES} from '../npc/intents.js';
-import {intentStamp,refuseSettled,resolveIntent} from './intent.js';
+import {intentStamp,refuseRepeat,refuseSettled,resolveIntent} from './intent.js';
 import {fightTurn} from '../combat/execution.js';
 /** §135.30.7 (SL-42): the scenes the party left during this turn, latest departure first, from the turn's own move receipts. */
 function departedThisTurn(context:ApplyContext):string[]{
@@ -168,6 +168,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         if(typeof outcome!=='string'||!INTENT_OUTCOMES.includes(outcome))unsupported('npc.outcome',outcome,[...INTENT_OUTCOMES],`npc.outcome ${repr(outcome)} is not where an intention can stand`);
         const resolved=await resolveIntent(context,node,{intends:effect.intends,intent_ref:effect.intent_ref},'npc');
         await refuseSettled(context,node,resolved,'npc');
+        refuseRepeat(context,node,resolved,outcome as string,'npc');
         const intent=intentStamp(handle,resolved,outcome as string);
         // §138.5: in a fight, on this person's own turn, the thing they try is what they spend the turn on.
         let passes:Row|null=null;

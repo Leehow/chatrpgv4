@@ -23340,3 +23340,20 @@ only with `outcome` (or `intends`); beside `to`, `stance` and the rest it is thi
 rolled) and stamped on the call's last graded roll -- `done` when it passed, `failed` when it did not -- or on its first
 receipt as `attempted` when nothing was rolled yet (an attack waiting for its defence). Admission (§32) is unchanged: an
 NPC-actor `resolve` and an `npc` effect are not reviewed.
+
+**138.7 What was set out on gets a result by the next turn.** The owner's ruling, as two structural checks; neither reads
+prose, and neither compares wording (a rephrased announcement is a new intention, and the card, the offer and the
+advice lane all show the old one still waiting).
+
+- *Not announced again.* An intention still `attempted` from an earlier turn, written `attempted` again on a later turn
+  (by `apply npc`, an effect's `intent_outcome` or a roll's `action.intent_outcome`), is refused `invalid_params` with
+  `reason: "intent_unresolved"`, `ref`, `since_turn`; the `fix` asks for its result. Within the turn it began it may be
+  written again.
+- *Owed at delivery.* `table.narrate` computes the intentions of the people present that are `attempted` since an
+  earlier turn with no receipt of this turn carrying their ref (`owedIntents`, `kernel-ts/npc/owed.ts`). The first
+  delivery that owes a set is refused `needs` with `reason: "intent_result_owed"` and `details.owed` (`who`, `npc`,
+  `ref`, `intent`, `since_turn`), and `turn.json` remembers the set (`intent_gate.refs`). A second delivery owing the
+  same set is delivered: the host never pays more than one round trip for a Keeper that will not record a result, and
+  the turn record carries one `warnings` row per owed intention (`lane: "intents"`, `kind: "intent_result_owed"`,
+  `ref`), which the next capsule's warnings raise. Someone no longer present owes nothing. An implicit delivery reaches
+  the Keeper through the host's existing refused-delivery repair steer; an explicit one as the tool's refusal.
