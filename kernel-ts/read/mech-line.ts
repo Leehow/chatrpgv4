@@ -202,8 +202,28 @@ export function mechLine(graph: ModuleGraph, node: Row): string | null {
     const parts = Object.keys(SHAPE_KINDS).filter(key => Object.hasOwn(shapes, key)).map(key => renderer.shape(key, shapes[key], node));
     return parts.length ? parts.join(" | ") : null;
 }
-/** The keys a `where.rules[]` row gains from its node: `{mech}` when it states a shape, else nothing. */
+/**
+ * SL-76 (contract §136.10 addendum, jev-driven-steps.md D1's `time_cost` candidate): the node's own `time_cost`
+ * shape, typed and without its `book` line -- the same "typed, no book" projection `ModuleGraph.statedRewards`
+ * already gives the reward shape. A candidate builder that needs to know whether a rule states a cost, and how
+ * much, reads this structured field rather than parsing the rendered `mech` line's English.
+ */
+function timeCostOf(graph: ModuleGraph, node: Row): Row | null {
+    const shape = graph.mechanicsOf(node).time_cost;
+    if (!shape || typeof shape !== "object" || Array.isArray(shape)) return null;
+    const { book: _book, ...typed } = shape as Row;
+    return typed;
+}
+/**
+ * The keys a `where.rules[]` row gains from its node: `{mech}` when it states a shape, else nothing, and (SL-76)
+ * `{time_cost, handle}` when the node's own shape states a time cost -- the structured twin of the `mech` line's
+ * rendered words, with the node's own handle so a `time_cost` candidate can `apply {kind: "time", stated: handle}`
+ * rather than re-deriving the amount itself (the kernel's own `stated` resolution, `kernel-ts/apply/stated.ts`,
+ * already converts the shape's unit and refuses `stated_unstated` when it names none). A row with only `mech`
+ * gains no new key, so a module with no `time_cost` shape reads byte for byte as before.
+ */
 export const mechRow = (graph: ModuleGraph) => (node: Row): Row => {
     const mech = mechLine(graph, node);
-    return mech === null ? {} : { mech };
+    const timeCost = timeCostOf(graph, node);
+    return { ...(mech === null ? {} : { mech }), ...(timeCost ? { time_cost: timeCost, handle: graph.handle(node) } : {}) };
 };
