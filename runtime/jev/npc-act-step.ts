@@ -16,7 +16,8 @@
  *      the same purpose whatever the hands do (§139.5's semantic gate, asked by purpose since §139.14);
  *   5. treats a repeat of a thread never carried out as that thread (§139.14): an act that settles it continues it; one
  *      that does not is re-asked once ("twice without doing it: do it or drop it"), and a second repeat gives the row up
- *      (abandoned, when nothing settles it); the same thing held up again right after it was given up opens no row;
+ *      (abandoned, when nothing settles it) and is itself dropped, never handed to the Keeper as done (§139.29); the same
+ *      thing held up again right after it was given up opens no row;
  *   6. executes the bound writes as the clerk (`direct`, authority `npc_act`) through the ordinary operation gateway,
  *      every receipt stamped `intent: {ref, npc, text, outcome, generated: true}` (the host sets `_generated`).
  *
@@ -502,7 +503,12 @@ export type NpcActTrigger = 'turn' | 'acted_on' | 'engaged';
 export interface HeardInput {addressed?: boolean; declared_before_move?: boolean; named_no_one?: boolean}
 export interface NpcActOutcome {
   npc: string; handle: string | null; trigger: NpcActTrigger;
-  /** `dropped` (§139.14): the act repeats a thread they just gave up, with nothing to settle it; nothing is written. */
+  /**
+   * `dropped` (§139.14): the act repeats a thread they just gave up, with nothing to settle it; nothing is written
+   * (`reason: "repeats_given_up"`). §139.29: also a repeat that gives up the row it continues (the same purpose after the
+   * re-ask, or the very line of a row under way since an earlier turn) -- that row's abandonment is its one write
+   * (`abandoned`, `reason: "repeated"`), and the act is not done.
+   */
   status: 'bound' | 'unavailable' | 'refused' | 'failed' | 'dropped';
   act?: string; way?: string; params?: Record<string, string>; ref?: string;
   opened?: boolean; continued?: string | null; abandoned?: string | null; reask?: boolean; draw?: string | null;
@@ -649,7 +655,8 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
   } else if (hit?.underWay) {
     // The same thing again with nothing to settle it: asked once more, told plainly -- twice without doing it, so this
     // time do it or drop it. A second repeat is that row continued: a way that settles it gives it that result, and
-    // nothing to settle it gives it up (`abandoned`, why: repeated), which the next packet's `happened` says.
+    // nothing to settle it gives it up (`abandoned`, why: repeated), which the next packet's `happened` says -- and the act
+    // that repeated it is dropped (§139.29, below).
     const row = hit.row;
     reask = true;
     const second = await generate({...packet, happened: [...array(packet.happened), reaskLine(who, row)]});
@@ -680,12 +687,21 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
   }
   const line = continued ? text(continued.intent) || act : text(options.act?.line) || act;
   const ref = continued ? text(continued.ref) : text(options.act?.ref);
-  const spend = options.in_session && options.my_turn && bound.judged;
-  const writes = npcActWrites(bound, {name: text(options.npc?.name) || name, handle: text(options.npc?.handle) || base.handle || name, line, ref, act, open: !continued,
-    continuedTurn: continued ? Number(continued.turn ?? continued.since_turn ?? deps.turn) : null, turn: deps.turn, spend, abandon, place: options.place});
-  const produced = bound.produced ? {name: bound.produced.name, source: bound.produced.source, ...(bound.produced.record ? {record: bound.produced.record.value} : {})} : null;
-  const summary = {act, way: bound.way, params: Object.fromEntries(Object.entries(bound.params).map(([key, option]) => [key, option.value])), ref,
-    opened: !continued, continued: continued ? ref : null, reask, draw: bound.produced?.record?.weapon ?? null, ...told, produced};
+  const continuedTurn = continued ? Number(continued.turn ?? continued.since_turn ?? deps.turn) : null;
+  // §139.29 (ticket 30, table D2 T8/T15): a repeat the table gives up is not done. When the act continues a row with
+  // nothing to settle it and the repeat gives that row up -- the same purpose again after the re-ask (§139.14), or the
+  // very line of a row under way since an earlier turn (§139.5's structural gate) -- the row is written `abandoned`
+  // (why: repeated) exactly as before, and the act itself is dropped: nothing it brings out is placed, no line of it is
+  // handed to the Keeper as what the table did (spec D6: the Keeper sees that they gave it up), and on their turn of a
+  // fight the turn is not spent, so it stays the Keeper's as a dropped act's does.
+  const givenUp = !!continued && bound.judged && !settles(bound) && (abandon || (continuedTurn !== null && continuedTurn < deps.turn));
+  const spend = options.in_session && options.my_turn && bound.judged && !givenUp;
+  const writing = givenUp ? {...bound, produced: null} : bound;
+  const writes = npcActWrites(writing, {name: text(options.npc?.name) || name, handle: text(options.npc?.handle) || base.handle || name, line, ref, act, open: !continued,
+    continuedTurn, turn: deps.turn, spend, abandon: abandon || givenUp, place: options.place});
+  const produced = writing.produced ? {name: writing.produced.name, source: writing.produced.source, ...(writing.produced.record ? {record: writing.produced.record.value} : {})} : null;
+  const summary = {...(givenUp ? {droppedAct: act} : {act}), way: bound.way, params: Object.fromEntries(Object.entries(bound.params).map(([key, option]) => [key, option.value])), ref,
+    opened: !continued, continued: continued ? ref : null, reask, draw: writing.produced?.record?.weapon ?? null, ...told, produced};
   // 6. The clerk executes, in order; a refused write stops the act and hands what is left to the Keeper.
   const receipts: string[] = [], calls: NpcActOutcome['calls'] = [];
   let passed = false, abandoned: string | null = null;
@@ -703,6 +719,8 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
     if (effects.some(effect => effect.spend_turn === true || effect.action === 'hold') || (call.tool === 'resolve' && FIGHT_WAYS.has(bound.way))) passed = true;
     if (effects.some(effect => effect.outcome === 'abandoned')) abandoned = ref;
   }
+  if (givenUp)
+    return done({...base, ...summary, status: 'dropped', dropped: ref, receipts, calls, abandoned, reason: 'repeated', ...(options.in_session ? {passedTurn: passed} : {})});
   return done({...base, ...summary, status: 'bound', receipts, calls, abandoned, reason: bound.reason, ...(options.in_session ? {passedTurn: passed} : {})});
 }
 

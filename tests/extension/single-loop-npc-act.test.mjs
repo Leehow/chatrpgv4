@@ -4,7 +4,7 @@
  * its parameters, the clerk writes it through the ordinary gateway, and every receipt of the act carries
  * `intent: {ref, npc, text, outcome, generated: true}`. Two gates keep a person from doing the same thing twice: the act
  * that is the same line as a row under way continues it (structural), and the act Jev reads as the same thing as a row
- * with no result is re-asked once, then bound as that row continued and abandoned (semantic).
+ * with no result is re-asked once, then that row is continued and abandoned and the act dropped (semantic; §139.29).
  *
  * - Pure seams: the batch and its reading under the §135.2 gates; the writes a bound act becomes; the policy's scan step;
  *   the NPC's turn of a fight as the forced `npc_act` candidate.
@@ -788,7 +788,7 @@ test("§139.5 semantic gate: the same thing again with no result is re-asked onc
 	assert.equal(reasked.packet.happened.length, asked.packet.happened.length + 1, "the re-ask's packet names the row with no result");
 	assert.ok(reasked.packet.happened.at(-1).includes(CALL));
 	const second = knottActs(game).at(-1);
-	assert.deepEqual([second.reask, second.opened, second.continued], [true, false, first.ref], "bound as that row continued");
+	assert.deepEqual([second.reask, second.opened, second.continued], [true, false, first.ref], "that row continued (and, §139.29, the act dropped)");
 	await spokenTo(game, "我把抽屉关上。");
 	const rows = doneOf(npcAct.calls[3]);
 	assert.deepEqual(rows.find(([intent]) => intent === CALL), [CALL, "abandoned"], "the next turn's packet: no longer under way");
@@ -837,6 +837,8 @@ test("§139.5 structural gate: the very line of a row under way is that row cont
 	assert.ok(!binds.at(-1).questions.some((question) => question.key === "same"), "the structural gate answered it");
 	const last = knottActs(game).at(-1);
 	assert.deepEqual([last.opened, last.continued, last.abandoned, last.reask], [false, ref, ref, false]);
+	// §139.29: the row given up by the repeat is the act's one write; the act itself is dropped, not handed to the Keeper.
+	assert.deepEqual([last.status, last.reason, last.receipts.length], ["dropped", "repeated", 1]);
 	const situation = await game.call("npc.situation", { name: "Steven Knott" });
 	assert.deepEqual(situation.done.map((row) => [row.ref, row.status]), [[ref, "abandoned"]]);
 });
@@ -965,6 +967,144 @@ test("§139.14 step: a dropped act writes nothing and hands the Keeper no line -
 		? { ...(await deps.call(method, params)), done: [{ ref: "intent:steven-knott:eeeeeeeeeeee", intent: DOOR, status: "attempted", since_turn: 4, turn: 4 }, given] }
 		: deps.call(method, params) }, "Steven Knott", "acted_on");
 	assert.deepEqual([later.status, later.opened], ["bound", true]);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Ticket 30 (§139.29): a repeat after it was given up. Live table D2 (`npc-acts-d2`), one identity here: the copper badge
+// brought out on T6 and given up; T14's act first repeated the Keeper's own row under way (squeeze out and shout), was
+// re-asked, and came back as the badge -- which cleared on a badge row given up with other rows of his since, so it was
+// a new row; T15 repeated that row, was re-asked, and was still the badge. That second hit gave the row up and, before
+// §139.29, was still bound and handed to the Keeper as what he did; now it is dropped. The next turn's badge is dropped
+// as a thread just given up.
+// ---------------------------------------------------------------------------------------------------
+
+const BADGE_OUT = "他被揪住领子，喘着气从马甲内袋摸出一枚铜徽章举到你眼前：「我是替考尔比家看房子的，你先松手。」";
+const ASK_WHAT = "他背抵文件柜，慢慢摊开掌心：「别打了——你到底想要什么？」";
+const SQUEEZE = "趁海斯收拳的空隙从门边挤出去，朝楼梯口喊人";
+const SHOUT_AGAIN = "他朝楼梯口又拔高嗓子喊了一声「来人」，背贴着门框不动。";
+const BADGE_GRIP = "他不再朝门口挤，背抵文件柜站定，把铜徽章从马甲里摸出来攥在掌心，盯着你喘气。";
+const BADGE_SHOW = "他把攥着徽章的手举到胸前：「我是替考尔比家看房子的，你打死我也变不出别的东西来。」";
+const BADGE_OPEN = "他朝你摊开手掌让你看清那枚铜徽章：「考尔比家的——我是替他们看房子的，你要什么，说出来。」";
+const BADGE_CLUTCH = "他双手把铜徽章攥在胸口，喘着气：「我只是看房子的。」";
+/** D2's readings: the second shout is the Keeper's row; every badge after the first is the purpose of the row `badge` names. */
+const d2Jev = (badge = BADGE_GRIP) => (batch) => {
+	const target = { [SHOUT_AGAIN]: SQUEEZE, [BADGE_GRIP]: BADGE_OUT, [BADGE_SHOW]: BADGE_GRIP, [BADGE_OPEN]: BADGE_GRIP, [BADGE_CLUTCH]: badge }[batch.state.act];
+	return { way: "intention_only", same: target && batch.questions.some((question) => question.key === "same") ? (row) => row.intent === target : "none" };
+};
+/** Turns 1-4 of the D2 shape: T6 the badge (given up by the Keeper), T11 something else, T13 the Keeper's own row under way. */
+async function d2Before(game) {
+	await call0(game);
+	await game.say("我揪住他的领子把他提起来。");
+	await game.run(scan(["Steven Knott"]));
+	const out = knottActs(game).at(-1);
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "Steven Knott", intent_ref: out.ref, intent_outcome: "abandoned", why: "海斯没接那枚徽章" }] });
+	await game.close().catch(() => game.close());
+	await spokenTo(game, "我又给了他一拳。");
+	await game.say("我松开一只手，照他脸上又是一拳。");
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "Steven Knott", intends: SQUEEZE, outcome: "attempted" }] });
+	await game.close().catch(() => game.close());
+	return out;
+}
+/** T14 of the D2 shape: the Keeper's row repeated, re-asked, the badge again as a new row; the Keeper then settles his own row. */
+async function d2Turn14(game) {
+	await game.say("我堵在门口：那栋房子的钥匙，现在交出来。");
+	await game.run(scan(["Steven Knott"]));
+	const squeeze = (await game.call("npc.situation", { name: "Steven Knott" })).done.find((row) => row.intent === SQUEEZE);
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "Steven Knott", intent_ref: squeeze.ref, intent_outcome: "done", why: "楼下的门房应声上来" }] });
+	await game.close().catch(() => game.close());
+	return knottActs(game).at(-1);
+}
+
+test("§139.29 at the table (D2 T14-T16, one identity): the badge after the re-ask is a new row; the next turn's repeat gives it up and is dropped; the one after is dropped as given up", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "steven-knott": [BADGE_OUT, ASK_WHAT, SHOUT_AGAIN, BADGE_GRIP, BADGE_SHOW, BADGE_OPEN, BADGE_CLUTCH] });
+	const game = await seam(t, { npcAct, act: d2Jev() });
+	const out = await d2Before(game);
+	// T14: the first act repeats the Keeper's row under way -- re-asked with that row's line; the badge comes back and
+	// clears on the badge row given up on turn 2 with something of his set out since (turns 3 and 4): no thread, a new row.
+	const grip = await d2Turn14(game);
+	assert.equal(npcAct.calls.length, 4, "turn 5 generated twice: the shout, then the re-ask");
+	assert.ok(npcAct.calls[3].packet.happened.at(-1).includes(SQUEEZE), "the re-ask was about the Keeper's own row, not the badge");
+	assert.deepEqual([grip.status, grip.act, grip.opened, grip.reask, grip.continued, grip.abandoned], ["bound", BADGE_GRIP, true, true, null, null]);
+	// T15: the badge again -- the row opened on turn 5 is under way: re-asked; the badge a second time gives that row up,
+	// and the act that repeated it is dropped: its one write is the abandonment, no line of it is the table's act.
+	await game.say("他还磨蹭，我冲上去又是一拳。");
+	const run15 = await game.run(scan(["Steven Knott"]));
+	await game.close().catch(() => game.close());
+	assert.equal(npcAct.calls.length, 6, "turn 6 generated twice: the act, then the re-ask");
+	assert.ok(npcAct.calls[5].packet.happened.at(-1).includes(BADGE_GRIP), "the re-ask named the badge row under way");
+	const gaveUp = knottActs(game).at(-1);
+	assert.deepEqual([gaveUp.status, gaveUp.reason, gaveUp.act, gaveUp.reask, gaveUp.opened, gaveUp.dropped, gaveUp.abandoned],
+		["dropped", "repeated", BADGE_OPEN, true, false, grip.ref, grip.ref], "the telemetry keeps the line; the act is dropped and the row given up");
+	assert.deepEqual(run15.artifact.executed.summary.acts.map((act) => [act.status, act.receipts.length]), [["dropped", 1]], "what the Keeper's note is built from: dropped, one receipt");
+	const written = turnReceipts(game, 6).filter((receipt) => receipt.intent?.npc === "steven-knott");
+	assert.deepEqual(written.map((receipt) => [receipt.intent.ref, receipt.intent.outcome, receipt.why, receipt.intent.generated]), [[grip.ref, "abandoned", "repeated", true]],
+		"nothing written for him on turn 6 but the row given up");
+	// T16: the packet says he gave it up; the badge once more is the thread just given up -- dropped, not asked again, no row.
+	await spokenTo(game, "我盯着他。");
+	assert.equal(npcAct.calls.length, 7, "no re-ask");
+	assert.ok(npcAct.calls[6].packet.happened.some((line) => line.includes(`gave up "${BADGE_GRIP}" without doing it (why: repeated)`)), JSON.stringify(npcAct.calls[6].packet.happened));
+	const dropped = knottActs(game).at(-1);
+	assert.deepEqual([dropped.status, dropped.reason, dropped.act, dropped.dropped, dropped.reask, dropped.receipts], ["dropped", "repeats_given_up", BADGE_CLUTCH, grip.ref, false, []]);
+	assert.ok(!turnReceipts(game, 7).some((receipt) => receipt.intent?.npc === "steven-knott"), "nothing written for him on turn 7");
+	const situation = await game.call("npc.situation", { name: "Steven Knott" });
+	assert.deepEqual(situation.done.map((row) => [row.intent, row.status]).sort(), [[ASK_WHAT, "attempted"], [BADGE_GRIP, "abandoned"], [BADGE_OUT, "abandoned"], [SQUEEZE, "done"]].sort(),
+		"one row per purpose set out: no row for the shout again, the badge shown on turns 6 and 7, or held on turn 7");
+	assert.equal(out.opened, true);
+});
+
+test("§139.29 known boundary: the badge the turn after it was given up, read as the older badge row -- that row is no thread, so a new row opens", async (t) => {
+	// Purposes are rows, not chains: "just given up" is read on the row Jev names. The badge given up on turn 6 is the
+	// newest row, but Jev naming the badge row given up on turn 2 instead reads a purpose with something of his since.
+	const npcAct = createFixtureNpcActPort({ "steven-knott": [BADGE_OUT, ASK_WHAT, SHOUT_AGAIN, BADGE_GRIP, BADGE_SHOW, BADGE_OPEN, BADGE_CLUTCH] });
+	const game = await seam(t, { npcAct, act: d2Jev(BADGE_OUT) });
+	await d2Before(game);
+	await d2Turn14(game);
+	await spokenTo(game, "他还磨蹭，我冲上去又是一拳。");
+	assert.equal(knottActs(game).at(-1).status, "dropped");
+	await spokenTo(game, "我盯着他。");
+	const last = knottActs(game).at(-1);
+	assert.deepEqual([last.status, last.act, last.opened, last.reask], ["bound", BADGE_CLUTCH, true, false]);
+});
+
+test("§139.29 step: on their turn of a fight, the same purpose after the re-ask gives the row up and is dropped -- one write, no turn spent, nothing brought out, no line for the Keeper", async () => {
+	const underWay = { ref: "intent:steven-knott:aaaaaaaaaaaa", intent: LIFT, status: "attempted", since_turn: 2, turn: 2 };
+	const rows = [], writes = [], answers = [{ act: PRESS }, { act: HOLD_UP, produces: "听筒" }];
+	const deps = {
+		call: async (method, params) => method === "npc.situation"
+			? { npc: { handle: "steven-knott", name: "Steven Knott" }, happened: [], state: { in_session: true, my_turn: true }, at_hand: {}, done: [underWay],
+				stakes: { rung: "tense", outcome: "nothing", surprise: true } }
+			: method === "npc.act.options"
+				? { npc: { handle: "steven-knott", name: "Steven Knott" }, play_language: "zh-Hans", place: "commission-briefing", in_session: true, my_turn: true,
+					acted_on: [], produce: [], ways: [{ way: "intention_only", params: {} }], ...(params.act ? { act: { line: params.act, ref: "intent:steven-knott:dddddddddddd", continues: null } } : {}) }
+				: {},
+		generate: async () => answers.shift(),
+		decide: async (batch) => actAnswer(batch, { way: "intention_only", same: (row) => row.intent === LIFT }),
+		write: async (call) => { writes.push(call); return { ok: true, callId: "x", receipts: ["npc:steven-knott-t3-c1"], status: "succeeded" }; },
+		record: (row) => rows.push(row), scope, readSet: [], runId: "r", stepId: "r:s1", turn: 3, gate: 0.6,
+		budget: { timeoutMs: 8000, maxPerTurn: 2, sameActRows: 5 }, signal: new AbortController().signal,
+	};
+	const outcome = await runNpcAct(deps, "Steven Knott", "turn");
+	assert.deepEqual([outcome.status, outcome.reason, outcome.act, outcome.droppedAct, outcome.dropped, outcome.abandoned, outcome.continued, outcome.reask, outcome.passedTurn],
+		["dropped", "repeated", undefined, HOLD_UP, underWay.ref, underWay.ref, underWay.ref, true, false]);
+	assert.deepEqual(writes.map((call) => [call.tool, call.args, call.carries]), [["apply", { effects: [{ kind: "npc", name: "Steven Knott", intent_ref: underWay.ref,
+		outcome: "abandoned", why: "repeated" }] }, undefined]], "the abandonment alone: no spend_turn, and what the dropped act named is not brought out");
+	assert.deepEqual([outcome.produced, outcome.draw], [null, null]);
+	const row = rows.find((entry) => entry.event === "npc_act");
+	assert.deepEqual([row.status, row.act, row.dropped, row.abandoned, row.receipts], ["dropped", HOLD_UP, underWay.ref, underWay.ref, ["npc:steven-knott-t3-c1"]]);
+	// The re-ask unavailable: the first repeat gives the row up and is dropped the same way.
+	writes.length = 0;
+	answers.push({ act: PRESS }, { unavailable: "model_unavailable" });
+	const unavailable = await runNpcAct(deps, "Steven Knott", "turn");
+	assert.deepEqual([unavailable.status, unavailable.droppedAct, unavailable.abandoned, writes.length], ["dropped", PRESS, underWay.ref, 1]);
+	// A way that settles it after the re-ask is still that row given its result (§139.14, unchanged).
+	writes.length = 0;
+	answers.push({ act: PRESS }, { act: HOLD_UP });
+	const settled = await runNpcAct({ ...deps, call: async (method, params) => {
+		const value = await deps.call(method, params);
+		return method === "npc.act.options" ? { ...value, ways: [{ way: "check", params: { skill: [{ value: "Listen", label: "Listen 40" }] } }, { way: "intention_only", params: {} }] } : value;
+	}, decide: async (batch) => actAnswer(batch, { way: batch.state.act === HOLD_UP ? "check" : "intention_only", same: (entry) => entry.intent === LIFT }) }, "Steven Knott", "turn");
+	assert.deepEqual([settled.status, settled.reask, settled.act, settled.continued, settled.way], ["bound", true, HOLD_UP, underWay.ref, "check"]);
+	assert.equal(writes.find((call) => call.tool === "resolve")?.args.action.intent_ref, underWay.ref, "the roll settles the row it continues");
 });
 
 // ---------------------------------------------------------------------------------------------------

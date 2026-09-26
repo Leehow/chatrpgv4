@@ -23858,6 +23858,11 @@ its result, with no re-ask; the re-ask's line is §139.14's ("twice without doin
 second repeat given up is said in the next packet's `happened`; and the same thing held up again right after it was
 given up opens no row (`status: "dropped"`). The structural gate is unchanged.
 
+*Note, 2026-09-26 (§139.29, ticket 30, live table D2):* a repeat either gate gives up -- the structural gate's very line
+of a row under way since an earlier turn, or the semantic gate's second hit after the re-ask -- still writes the row
+`abandoned` (`why: "repeated"`), and the act itself is dropped (`status: "dropped"`, `reason: "repeated"`): no line of
+it reaches the Keeper as the table's act, nothing it names is brought out, and no turn is spent.
+
 **139.6 The response bank and the per-turn advice are retired; the card says whose act a row was (ticket 05, spec D5).**
 *Why.* The bank was a set of "if the player does X, try Y" rows written ahead of time, and the advice lane asked Jev
 every turn which row fit. That treats an open set as a closed one: what a player may do cannot be listed, so neither
@@ -24733,6 +24738,12 @@ settled a table act by the Keeper's word now settle it by a roll and by an arriv
 (the Keeper's later result on a table act is `abandoned`). Mutations (copy and restore): the refusal removed fails four
 of the six kernel cases; the second-hit abandonment removed, the drop removed, and the settling continuation removed
 each fail their loop case; the `happened` clause removed fails the situation case and two loop cases.
+
+*Note, 2026-09-26 (§139.29, ticket 30, live table D2):* the row "(after the re-ask) a thread again, or the re-ask
+unavailable | `intention_only`" now also drops the act (`status: "dropped"`, `reason: "repeated"`, the row's ref as
+`dropped` and `abandoned`): the row is given up as before, and the act that repeated it is not handed to the Keeper as
+done, brings nothing out and spends no turn -- spec D6's "the Keeper sees that he gave it up". D2's T15 was this row (a
+row opened on T14, still under way), not a purpose given up coming back; §139.29 has the rows.
 
 **139.15 The admission lane asks a malformed answer once more, and the investigator's declared action is not refused on a
 lane failure (2026-09-26, ticket 16 of `docs/specs/npc-acts-first-tickets/`, spec section 九 "C3 桌"; amends §32.2, §32.7
@@ -25791,3 +25802,113 @@ gains a `known` option that defaults to `new`. Mutation record (copy and restore
 fails four of the five §139.27 cases -- the at-hand case on "no _produces and no draw was written", the happened case on
 "no second batch" (2 !== 1), the reading case on "no record, no object", the batch case on its question -- and the
 unchanged `new` case passes. **Not verified live.**
+
+**139.29 A repeat the table gives up is not done, and what an act brought out says so (2026-09-26, ticket 30 of
+`docs/specs/npc-acts-first-tickets/`, `30-a-repeat-after-it-was-given-up.md`; the spec's section 九, table D2; amends
+§139.5, §139.14, §139.1's `at_hand` and §139.19's writes).**
+**Evidence** (table `npc-acts-d2`: the campaign's `telemetry.jsonl` -- `lane: "run"`, `event: "npc_act"` rows, the
+`lane: "route"`, `purpose: "npc-act"` rows with the `same` answers, the clerk's tool rows whose `basis.npc_act.same.ref`
+names the row an answer cleared -- and `npc-ledger.json`; line numbers are the telemetry file's). The purpose "the copper
+badge / I only look after the house for the Colby family" was the table's act on T6, T9, T14 and T15, every time on one
+identity (诺特先生, ledger entry `npc-table-357586133d9283f7982c`). The split of Knott into `steven-knott` and 诺特先生
+(§87.7/§87.8, another line) holds none of the badge rows, and merged it would change no newest turn below (every
+`steven-knott` row was last written on T9 or before).
+- T6 (line 1082): generated under a surprise (`produces` 考尔比家族雇员的铜制徽章, placed as the table's own), row
+  `intent:诺特先生:dc9b4740e6e7`; the Keeper gave it up the same turn (`npc:t6-c6`).
+- T7 (line 1276): `same` cleared `row_1` = dc9b4740e6e7 at 0.94 (line 1275), the thread just given up: `dropped`,
+  `repeats_given_up`, as §139.14 has it. The Keeper then set out a row of his own of the same purpose (a written note,
+  "only the one who looks after the house", `intent:诺特先生:dde6683c97a5`); §139.24 refused that delivery once
+  (line 1380) and delivered the second with its finding.
+- T8 (line 1468): the act repeated the Keeper's note row, was re-asked, repeated it again: the row given up (`npc:t8-c1`)
+  and the act bound, its line handed to the Keeper.
+- T9 (line 1663): the badge again; `same` cleared dc9b4740e6e7 at 0.87 (line 1658), given up on T6 with dde6683c97a5
+  set out and settled since: no thread (§139.14's decision (2)), so a new row `intent:诺特先生:8857deac769c`, which the
+  Keeper gave up the same turn (`npc:t9-c5`).
+- T14 (line 2582): the first act, a second shout down the stairs, cleared `row_1` at 0.96 (line 2571) -- the Keeper's own
+  row `intent:诺特先生:5ef6151ec1eb` ("趁海斯收拳的空隙从门边挤出去，朝楼梯口喊人", set out on T13, the one row under
+  way) -- so the generator was re-asked with that row's line. The re-asked act was the badge; its `same` cleared `row_4`
+  = 8857deac769c at 0.61 (line 2577; the write's `basis.npc_act.same.ref`), given up on T9 with three rows of his newer
+  (`a120dd56e278` and `99a9ce131637` last written on T12, 5ef6151ec1eb on T13): no thread, so a new row
+  `intent:诺特先生:430eb32323eb` (`reask: true`, `opened: true`). The re-ask that led to it was not about the badge.
+- T15 (line 2774): the badge; `same` cleared `row_1` = 430eb32323eb at 0.88 (line 2764), a row under way: re-asked. The
+  re-asked act was the badge again and cleared 430eb32323eb (confidence 0.57, probability 0.64 against 0.24: the margin
+  gate; line 2770): the row continued and given up (`npc:t15-c3`), and the act bound -- `status: "bound"`, its line
+  handed to the Keeper in `clerk_did` as what the table did. The Keeper rendered it, §139.24 refused that delivery
+  against dc9b4740e6e7 (line 2798), and the rewrite still showed the badge's glint.
+
+So T15 was not a purpose given up coming back: nothing of his was given up between T14 and T15, and every gate did what
+§139.14 says -- the first repeat of a row under way is re-asked, the second gives it up. Two things carried the badge.
+The second hit gave the row up and still handed the Keeper the act that repeated it (T8's note and T15's badge alike),
+though spec D6 has said from the start that the second time is settled `abandoned` and the Keeper sees that he gave it
+up. And the badge sat in his `at_hand.holdings` as a bare name -- the one thing within reach when a re-ask told him to do
+something else (T14) -- with nothing saying it had come out before, or by which act.
+
+*The second hit is dropped* (`runNpcAct`, `runtime/jev/npc-act-step.ts`). When the act continues a row with nothing to
+settle it and the repeat gives that row up -- the same purpose again after the re-ask, or with the re-ask unavailable
+(§139.14's "(after the re-ask) a thread again" with `intention_only`), or the very line of a row under way since an
+earlier turn (§139.5's structural gate) -- the row is written `abandoned`, `why: "repeated"`, exactly as before (the same
+`apply npc {intent_ref, outcome: "abandoned", why: "repeated"}`), and the act itself is dropped:
+
+| | before | now |
+|---|---|---|
+| status, reason | `bound`, the bind's reason | `dropped`, `repeated` (a thread given up earlier stays `repeats_given_up`) |
+| the act's line | `act` on the outcome, so the Keeper's `clerk_did` row reads it as what the table did | on the telemetry row only (`act`); the outcome carries none, so `clerk_did` (and `npc_turn.act` in a fight) names the status, the ref and the reason and no line, as §139.14's drop |
+| refs | `continued`, `abandoned` | the same, and `dropped` |
+| a `produces` of the act | placed or drawn | nothing brought out (no carrier write) |
+| their turn of a fight | spent by the abandonment's `spend_turn` | not spent: the abandonment carries no `spend_turn`, so the turn stays the Keeper's, as a dropped act's does |
+
+The next packet's `happened` says they gave it up (§139.14's clause). A way that settles the row -- with or without the
+re-ask -- is unchanged: that row continued and given its result. Nothing reads what an act says: which acts are dropped
+is the gates' closed answers and the ledger's statuses.
+
+*What an act brought out says so* (`kernel-ts/apply/draw.ts`, `kernel-ts/npc/situation.ts`). A thing brought out for the
+first time (`_produces`) records on its instance `brought_out: {by: <handle>, turn, ref?}`; a drawn weapon's
+`world.npc_weapons` row, which already had `turn`, gains `ref?`. `ref` is the write's `intent_ref` when it names a row of
+this person (the act step stamps what it brings out with the act's row whenever that row may still be written
+`attempted`, §139.19). A thing shown again keeps its first origin; nothing is recorded for the Keeper's own placements.
+`npc.situation` gains `at_hand.brought_out`, present only when non-empty: `[{name, turn, ref?, status?}]`, newest first
+-- each thing they still hold that their own act brought out, by the name `holdings` gives it, the turn it came out, and
+that act's row and its status now (read from `done` before any cut). A thing taken from them is no longer listed. The
+budget cuts it after `exits` and before `holdings`. The bind batch already carries `at_hand` in `state.situation`, so
+§139.5's `same` and §139.27's `produces_known` read it with no new question: a thing in `brought_out` is known by
+construction. The instruction (`content/setup/npc-act.md`) gains a clause where `at_hand` is described and one sentence
+under "What they already tried": a thing in `brought_out` is already known; showing it again is not a new act but the act
+that brought it out once more, and when that act was given up, so is showing it. The origin is what the writes recorded,
+never a name read.
+
+*Decisions the owner should see.* (1) T14 stays lawful: a purpose given up with something else of theirs set out since
+may come back (§139.14's decision (2); the owner's criterion is two consecutive turns). The packet now tells the
+generator the badge is not new; whether that keeps it in his pocket is a live table's reading. A stricter rule -- a
+given-up row that brought out a thing they still hold stays a thread while they hold it -- would have dropped T9's badge;
+it overrides decision (2) for one class of rows, so it is not made here. (2) A purpose kept as several rows (the badge
+as dc9b4740e6e7, 8857deac769c, 430eb32323eb) is "just given up" only on the row Jev names: the turn after the newest was
+given up, an answer naming an older row of the same purpose opens a new row (a test pins this boundary). Recording, when
+a row opens as the same purpose as an older one, that it recurs would close it; not done here. (3) A turn the table
+dropped is the Keeper's to write, and the Keeper can still write the purpose again (D2's T7); §139.24 refuses that once
+per turn, by design.
+
+*Three ends (§31).* Writers: the act step's abandonment on a dropped repeat; the kernel's `brought_out` and `ref` at the
+moment a thing comes out. Readers: the Keeper's note (the status, the ref, no line), the next packet's `happened`, and
+`at_hand.brought_out` (the generator; Jev through the bind batch's state). Actors: the Keeper, who writes what the person
+does on a turn the table dropped; the generator, whose next act does something else than show again what it already
+brought out for an act given up.
+
+*Not covered.* The identity split itself (§87.7/§87.8, another line). A thing brought out by an act continuing a row of
+an earlier turn records no `ref` (the carrier names no row then, §139.19). Whether the generator reads `brought_out` as
+the instruction says is not measured offline.
+
+*Tests.* `tests/extension/single-loop-npc-act.test.mjs`: on the emitted kernel, D2's shape on one identity, turns 2 to 7
+standing for T6 to T16 -- the badge given up by the Keeper; something else; the Keeper's own row under way; the shout
+re-asked with that row's line and the badge after it a new row; the badge again, re-asked and dropped, with the
+abandonment its one write and nothing else written for him; the next turn's badge dropped as the thread just given up,
+with no re-ask; one row per purpose set out -- and the known boundary (the older badge row named: a new row); the step on
+their turn of a fight (dropped, one write with no `spend_turn`, the act's `produces` not placed, `passedTurn: false`; the
+re-ask unavailable dropped the same way; a way that settles after the re-ask still that row given its result);
+`brought_out` in the next packet and in the bind batch's state. `tests/kernel/test_npc_produce.py`: the instance's
+`brought_out` and the drawn weapon's turn; the packet's `brought_out` with the row's status after the Keeper gave it up;
+shown again keeps turn 1; taken, gone. Existing tests changed: two -- the §139.5 structural gate test asserts the drop's
+status and reason, and the §139.5 semantic gate test's assertion message no longer says "bound". Mutations (copy and
+restore): the second-hit drop off fails four cases (the D2 table at T15 -- `bound`, the badge's line handed on --, the
+boundary, the step, the structural gate); the drop of a thread just given up removed fails the D2 table at T16 (a fifth
+row); the instance's origin not recorded (rebuilt) fails the kernel case and the packet case; the packet section removed
+(rebuilt) fails both. **Not verified live.**
