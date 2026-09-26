@@ -475,6 +475,21 @@ interface RunState {
   keeperCalls: Record<KeeperResidualKey, number>;
   /** SL-78: how many `purpose: "compile"` Jev decisions this run asked, for the `residual` row. */
   compileCalls: number;
+  /**
+   * SL-85 (§135.32 addendum 2's own "once per turn" ruling): whether `closeConsequences` -- the one place that
+   * writes the `route`/`consequence` pairing rows and the `residual` row -- has already run for this run. A run
+   * can reach the point a turn closes more than once (a `turn_close` proposal that comes back `steer`, then a
+   * later one that actually closes) or not through `turnCloseStep` at all (the Keeper's own `narrate`/`ask`
+   * delivers directly, `modelStep`'s own path): this flag is the single choke point that makes either shape
+   * write exactly once, at whichever call is the true final one (a steer's own call never sets it).
+   */
+  residualWritten?: true;
+  /**
+   * SL-85: the receipt ids `packet.receipts` returned for a specific executed consequence candidate's own clerk
+   * write (`clerkStep`, keyed by the candidate's key) -- so the turn-close pairing can tell "the Keeper also
+   * filed this independently" from "this is the clerk's own receipt, read back off `run.turnReceipts`".
+   */
+  consequenceExecutedReceiptIds: Map<string, string[]>;
 }
 
 /**
@@ -772,6 +787,16 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // SL-78: the Keeper's own settled write (never merely proposed) is a point a listed D1 class can newly clear
     // from, the same as a clerk write. `off`/`shadow` return at once inside `routeConsequencesAfterWrite`.
     if (fresh) await routeConsequencesAfterWrite(run, fresh, signal, stepId).catch(() => undefined);
+    // SL-85: a real `narrate`/`ask` delivery is the turn's true close exactly as much as a `turn_close` proposal's
+    // `delivered` verdict is (§135.11: `turn_close` is proposed only for "a run with no delivery evidence" --
+    // a Keeper that delivers here is never proposed one at all). Without this, a turn delivered this way wrote no
+    // pairing/residual row at all (SL-85's evidence: turns 1, 11, 12, 14, 17, 19). `closeConsequences` is the same
+    // once-per-run guard `turnCloseStep` uses, so a run that somehow reaches both paths still writes once. It
+    // spends no extra Jev call here (unlike `turnCloseStep`'s own `routeConsequences`): it only writes telemetry
+    // over whatever `run.consequenceRows`/`consequenceExists` already hold from this run's own writes (each
+    // `apply`/`resolve` already routed itself through `routeConsequencesAfterWrite`), never asking Jev again for a
+    // turn that is closing by a Keeper delivery instead of a `turn_close` proposal.
+    if (delivery) closeConsequences(run);
     return {status: toolResult.isError ? 'refused' as const : 'ok' as const, toolResult, ...(delivery ? {delivery} : {}),
       artifact: {kind: 'execute', executed: {ok: !toolResult.isError, summary: {tool: proposal.operation}}, ...(fresh ? {fresh} : {}), ...(fell ? {fell} : {})}};
   }
@@ -837,6 +862,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       receipts: packet.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
       result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null, ...(result.obligation ? {obligation: result.obligation} : {})} : {effects: args.effects}) as Json,
       ...(obligation ? {obligation} : {}), ...(crossed ? {obligation_open: crossed} : {}), ...(binding ? {binding} : {})});
+    // SL-85: an executed consequence candidate's own receipt ids, so the turn-close pairing (`pairConsequences`)
+    // can exclude them and ask "did the Keeper *also* file this, independently" -- never "does the clerk's own
+    // write pair with itself". `packet.receipts` is already an array of receipt id strings (the canonical
+    // operation dispatcher's own shape, `canonical-operation-dispatcher.ts`), the same ids `table.status.receipts[].id`
+    // carries -- never an array of receipt objects.
+    if (ok && (candidate as Partial<ConsequenceCandidate>).consequenceClass)
+      run.consequenceExecutedReceiptIds.set(candidate.key, array(packet.receipts).filter((value): value is string => typeof value === 'string'));
     const read = await freshOf(run);
     // SL-78 (§135.32 addendum 2): a settled clerk write -- the compile's own declared step, or (recursively) an
     // executed consequence step itself -- is a point a listed D1 class can newly clear from; this is the loop's
@@ -859,11 +891,22 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    */
   function pairConsequences(run: RunState) {
     if (!run.consequenceRows.size && !run.consequenceExists.size) return;
-    const mode = jevStepsMode(options.env as NodeJS.ProcessEnv), shadow = mode !== 'on';
-    for (const [key, row] of run.consequenceRows) record({lane: 'route', purpose: 'consequence', shadow, run: run.runId, class: row.class, key,
-      cleared: row.cleared, confidence: row.confidence, distribution: row.distribution, ...(row.direct ? {direct: true} : {}),
-      keeper_did: keeperDidFor({consequenceClass: row.class, target: row.target, clue: row.clue}, run.turnReceipts)});
-    for (const [cls, row] of run.consequenceExists) record({lane: 'route', purpose: 'consequence', shadow, run: run.runId, class: cls, exists: true,
+    const mode = jevStepsMode(options.env as NodeJS.ProcessEnv);
+    for (const [key, row] of run.consequenceRows) {
+      // SL-85 (§135.32 addendum 2's "clerk did" line, this ticket's own ruling): an executed candidate's row
+      // pairs against the Keeper's writes *other than the clerk's own receipt* -- excluded here by id, never by
+      // re-deriving "was this the clerk's" from the receipt's shape -- and carries `executed: true`. A row whose
+      // class was never executed this turn (unlisted in `jev_steps.execute`, or listed but not cleared) reads
+      // exactly as the shadow path always did: `shadow: true`, even under `COC_JEV_STEPS=on`.
+      const executed = run.consequenceExecuted.has(key);
+      const ownReceiptIds = executed ? new Set(run.consequenceExecutedReceiptIds.get(key) ?? []) : undefined;
+      const receiptsForPairing = ownReceiptIds ? run.turnReceipts.filter(receipt => !ownReceiptIds.has(text(receipt.id))) : run.turnReceipts;
+      record({lane: 'route', purpose: 'consequence', shadow: mode !== 'on' || !executed, run: run.runId, class: row.class, key,
+        cleared: row.cleared, confidence: row.confidence, distribution: row.distribution, ...(row.direct ? {direct: true} : {}),
+        ...(executed ? {executed: true} : {}),
+        keeper_did: keeperDidFor({consequenceClass: row.class, target: row.target, clue: row.clue}, receiptsForPairing)});
+    }
+    for (const [cls, row] of run.consequenceExists) record({lane: 'route', purpose: 'consequence', shadow: mode !== 'on', run: run.runId, class: cls, exists: true,
       cleared: row.cleared, confidence: row.confidence, distribution: row.distribution});
     if (run.consequenceMs) record({lane: 'run', event: 'consequence_budget', run: run.runId, ms: run.consequenceMs, rows: run.consequenceRows.size});
   }
@@ -883,30 +926,53 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       clerk_calls: run.clerkDid.length, consequence_calls: run.consequenceCalls ?? 0});
   }
 
+  /**
+   * SL-85 (§135.32 addendum 2's own "once per turn" ruling, which the code did not yet keep): the single choke
+   * point for the pairing rows and the `residual` row, called from every path that can be the turn's *true* close
+   * -- `turnCloseStep`'s non-`steer` verdicts, and `modelStep`'s own `narrate`/`ask` delivery (§135.11's "a run
+   * with no delivery evidence" is exactly the case `turnCloseStep` is proposed for; a Keeper that delivers on its
+   * own is never proposed one at all, so nothing downstream of this ticket's fix would otherwise write these rows
+   * for that turn). `run.residualWritten` makes either shape idempotent: a `turn_close` proposal that comes back
+   * `steer` calls `routeConsequences` (unchanged: it still needs the latest D1 state for the Keeper's next note)
+   * but never this function, so the *next*, truly final call is the one and only writer -- "last writer wins"
+   * falls out of writing once, at the end, rather than writing every time and picking a winner afterward.
+   */
+  function closeConsequences(run: RunState): void {
+    if (run.residualWritten) return;
+    run.residualWritten = true;
+    pairConsequences(run);
+    recordResidual(run);
+  }
+
   async function turnCloseStep(run: RunState, invocation: {stepId: string; signal: AbortSignal}) {
     // SL-76: the shadow route's one Jev call per run, made here -- after the run's own route/compile/bind calls are
     // long done, so it can never be mistaken for the run's first decision, and a `read_more` that must spend no
-    // Jev call (§135.6's same-scene reuse) still spends none. `routeConsequences` itself is the guard against
-    // asking twice: nothing here dedupes by digest, because a run has exactly one turn close.
+    // Jev call (§135.6's same-scene reuse) still spends none. A `turn_close` proposal that comes back `steer` (the
+    // Keeper is nudged, then asked again) calls this a second time in the same run; only the pairing/residual
+    // rows below are guarded against that (`closeConsequences`) -- this call itself still refreshes the D1 state
+    // for whichever note comes next.
     await routeConsequences(run, run.consequenceCandidates, run.consequenceContext ?? emptyTurnContext(), invocation.signal, invocation.stepId);
-    pairConsequences(run);
-    recordResidual(run);
     const done = (status: 'ok' | 'unavailable', verdict: Row, delivery?: 'accepted' | 'awaiting_player') =>
       ({status, ...(delivery ? {delivery} : {}), ...(status === 'unavailable' ? {reason: 'turn_close_unavailable'} : {}),
         artifact: {kind: 'turn_close', verdict} as StepArtifact});
-    if (!closer) return done('unavailable', {status: 'unavailable', reason: 'no_turn_close_port'});
+    if (!closer) { closeConsequences(run); return done('unavailable', {status: 'unavailable', reason: 'no_turn_close_port'}); }
     let verdict: Row;
     try { verdict = object(await closer.verdict()); } catch (error) {
+      closeConsequences(run);
       return done('unavailable', {status: 'unavailable', reason: String((error as Error)?.message ?? error).slice(0, 200)});
     }
     if (verdict.status === 'delivered') {
       const delivery = verdict.delivery === 'awaiting_player' ? 'awaiting_player' as const : 'accepted' as const;
+      closeConsequences(run);
       return done('ok', {status: 'delivered', delivery, implicit: verdict.implicit === true, call_id: verdict.call_id ?? null, turn: verdict.turn ?? null}, delivery);
     }
     if (verdict.status === 'steer' && verdict.message && typeof verdict.message === 'object') {
+      // Not a close: the run continues (the Keeper is nudged, then this operation is proposed again). Writing
+      // here is exactly SL-85's duplicate -- the pairing/residual rows wait for the call that actually closes.
       run.steer = object(verdict.message);
       return done('ok', {status: 'steer', kind: text(verdict.kind) || 'steer'});
     }
+    closeConsequences(run);
     return done('ok', {status: 'none', reason: text(verdict.reason) || 'nothing_owed'});
   }
 
@@ -1249,7 +1315,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         guarded: [], guardedShown: 0,
         prescreenSpent: {reads: 0, jev_calls: 0, ms: 0},
         consequenceRows: new Map(), consequenceExists: new Map(), consequenceExecuted: new Set(), consequenceMs: 0, turnReceipts: [], consequenceCandidates: [],
-        keeperCalls: {apply: 0, resolve: 0, look: 0, lookup: 0, recall: 0}, compileCalls: 0};
+        keeperCalls: {apply: 0, resolve: 0, look: 0, lookup: 0, recall: 0}, compileCalls: 0, consequenceExecutedReceiptIds: new Map()};
       const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
         ...(options.compile === false ? {compile: false} : {})});
       return {policy: budgetRows(run, policy), ports: makePorts(run), maxSteps: options.maxSteps ?? 48};
