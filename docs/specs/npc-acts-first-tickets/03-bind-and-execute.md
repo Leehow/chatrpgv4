@@ -12,6 +12,7 @@ Spec: docs/specs/npc-acts-first.md（D3、D4）
   - 会话外：玩家声明 `settled` 之后、compose 之前，对本回合被作用的在场 NPC 各一次（收据对象是他，或 compile addressee 命中他），一回合最多 `npc_act.max_per_turn`（命名默认值 2）。
   - `overRun` 已过 → 跳过，遥测 `skipped_budget`。
 - `intention_only` = `apply npc {name, intends: act, outcome: attempted}`，走 §138 已有的写入面。
+- 追不追是他的行动（复核漏报 A T12：玩家转身下楼，收据里凭空一场追逐，正文写诺特没追）：10 把「玩家逃跑自动开追逐」改成提示后，玩家逃跑 = 对在场对手的一次「被作用」触发；绑定方式表加 `pursue {target}`（会话外，对方刚逃）→ `chase:start`。生成的行动不是追 → 不追，`chase` 不开。用例：夹具行「站在桌后看他走」→ 无追逐会话；夹具行「追出门去」+ Jev 选 `pursue` → `session:chase-start` 收据。
 - 数值：规则缺省（§135.28）；本线无 band-then-roll。
 - D9 的允许：包里 `stakes.outcome === 'severe'` 时，绑定可以在同一批里加一件武器——`equipment.json` `records` 的一条，Jev 按生成的那句在闭合目录里选（闭合问题，unknown 就不加）；加了就把它写进他的持有并让 `attack` 的 weapon 选项含它。`stakes` 缺席或不是 severe → 绝不加。用例：夹具包带 severe + 夹具行「从腰里拔出手枪开火」+ Jev 夹具选 `.38 Revolver` → 收据里有持有写入与带该武器的攻击；同一行不带 severe → 绑到 `intention_only` 或无武器路径，没有持有写入（变异：去掉 severe 判断，用例逮住）。
 
