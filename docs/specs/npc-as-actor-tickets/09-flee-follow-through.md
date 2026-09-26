@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human (landed 2026-09-26 @ 82a513ff2, 8be94abd5)
 Spec: docs/specs/npc-as-actor.md（D2、D4）
 
 # 09 — 逃跑的后续：在场、去向、追逐
@@ -23,3 +23,7 @@ Spec: docs/specs/npc-as-actor.md（D2、D4）
 
 - `tests/kernel/test_npc_flee.py`：NPC 逃成功 → 在场变化、战斗自动结束；玩家追 → chase 以 NPC 为 quarry；逃失败 → 仍在场、仍在会话。
 - 变异用例：删掉自动 `combat:end`，「只剩一方时会话结束」必须红。
+
+## Comments
+
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed as §138.10. A probe showed `resolve {actor: <npc>, intent: flee}` settling as an attack; three causes fixed (the view issued flee only to investigators, the session default preceded flee, the effective intent was forced to combat). The single loop binds a standing flee. Presence is not moved automatically: the result hints `chase:start` or `apply npc to`. Tests: `test_npc_round_operation.py`, single-loop-candidates, the ts-kernel-read projection, test_sessions.

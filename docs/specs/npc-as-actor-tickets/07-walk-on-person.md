@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human (already met on this line; evidence test ceeac8e21)
 Spec: docs/specs/npc-as-actor.md（D4）；docs/specs/npc-acts-for-the-party.md L3 与其第 3 条拍板
 
 # 07 — 书上没有的人到场：轻路径
@@ -33,3 +33,7 @@ Spec: docs/specs/npc-as-actor.md（D4）；docs/specs/npc-acts-for-the-party.md 
 
 - `tests/kernel/test_walk_on.py`：到场、被当 target 打、说话解析到他、下场、战役重开后不在。
 - 变异用例：删掉 `speakerResolver` 的 walk-on 层，「说话解析」必须红。
+
+## Comments
+
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** The ruling (a runtime person, not a graph node) is §87's table people on the integration line. `tests/kernel/test_walk_on_person.py` pins the chain with an intention: the porter comes up as the result of Knott's shout. Live gate A: the building clerk who came up the stairs was established this way.

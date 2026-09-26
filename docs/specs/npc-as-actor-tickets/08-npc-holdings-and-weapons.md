@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human (already met on this line; evidence tests bf5bec91f)
 Spec: docs/specs/npc-as-actor.md（D4）
 
 # 08 — NPC 手里的东西：持有与武器
@@ -24,3 +24,7 @@ Spec: docs/specs/npc-as-actor.md（D4）
 
 - `tests/kernel/test_npc_holdings.py`：给 NPC 一件 club 后他的 attack 用 club 伤害；`apply item to: <npc>` 调查员失去、NPC holdings 增加；反向取回。
 - 变异用例：删掉 holdings 写入，「NPC 持有出现在下一回合胶囊」必须红。
+
+## Comments
+
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** The managed object system already takes an NPC owner, and the fight's weapon catalog already holds owned weapons. A start-of-fight projection written for this ticket was reverted: a mutation removing it left both tests green. `tests/kernel/test_npc_holdings.py` pins the chain.

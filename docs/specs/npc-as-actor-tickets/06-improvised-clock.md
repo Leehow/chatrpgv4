@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human (landed 2026-09-26 @ 2aca0eb6a)
 Spec: docs/specs/npc-as-actor.md（D4）；契约 §30.9
 
 # 06 — 临时的钟：`apply threat` 可铸运行时钟
@@ -24,3 +24,7 @@ Spec: docs/specs/npc-as-actor.md（D4）；契约 §30.9
 
 - `tests/kernel/test_minted_clock.py`：铸钟、走格、投影带 `minted`、满格回 `on_full`、同名书上 threat 拒绝；旧战役无 `threat_defs` 不受影响。
 - 变异用例：删掉 `threat_defs` 写入，「下一回合投影里还有这口钟」必须红。
+
+## Comments
+
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed as §138.9 with `length` for the clock's size (the ticket's `segments` keeps its meaning of how far to advance). Tests: `tests/kernel/test_table_clocks.py`; five mutations killed. Not used by the Keeper on either live table.

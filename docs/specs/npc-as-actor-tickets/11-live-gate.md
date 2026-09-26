@@ -1,4 +1,4 @@
-Status: ready-for-human
+Status: ready-for-human (two tables played 2026-09-26; one open question)
 Spec: docs/specs/npc-as-actor.md（第五节）
 
 # 11 — 真桌验收
@@ -29,3 +29,5 @@ Spec: docs/specs/npc-as-actor.md（第五节）
 ## Acceptance
 
 - 两桌产物（`.coc/campaigns/<id>/` 与 `.coc/playtests/`）与指标表提交到本票 `## Comments`，附每回合的读法；不合格的指标按类别立票，不在本票修。
+
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Gate A (`npc-actor-gate-a`, 12 turns) and gate A2 (`npc-actor-gate-a2`, 10 turns); results in the spec's section 七. Met across the two: delivery, results by the next turn, non-blow turns with receipts, zh-Hans prose. Open: a threat repeated only in speech (four times on A2) is invisible to the structural checks. Table B (another NPC, no violence) was not played. The test box leehow-pc had a full /tmp (a 32 GB tmpfs of pytest temp dirs), so the final kernel pytest ran on the Mac.

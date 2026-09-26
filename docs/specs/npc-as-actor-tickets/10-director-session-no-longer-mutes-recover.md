@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human (landed 2026-09-26 @ 8232c10c4)
 Spec: docs/specs/npc-as-actor.md（D5）
 
 # 10 — 导演：session 不再屏蔽 RECOVER
@@ -25,3 +25,7 @@ Spec: docs/specs/npc-as-actor.md（D5）
 - `tests/kernel/test_director_scoring.py` 加用例：session 活跃且 `repeat_input` 为真时 `scores` 含 RECOVER 且 `beat` 仍为 SUBSYSTEM；`hit_rules` 不变。
 - 变异用例：把提前返回加回去，该用例必须红。
 - 现有 `test_director_scoring.py` 与 `test_turn_floor.py` 全绿。
+
+## Comments
+
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed as §138.8. The frozen Python oracle comparison projects the added scores out (cb1739d7a). Test: test_director_scoring.py; mutation killed.

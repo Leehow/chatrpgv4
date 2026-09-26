@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human (landed 2026-09-26 @ 66a1cf8d6)
 Spec: docs/specs/npc-as-actor.md（D4）；吸收 docs/specs/npc-acts-for-the-party.md 的 L1、L2，并落它第 1、2 条拍板（不推导技能；`apply npc skill` 钉数——后者已实现，契约 L1887）
 
 # 04 — NPC 在战斗外用自己的本事
@@ -27,3 +27,7 @@ Spec: docs/specs/npc-as-actor.md（D4）；吸收 docs/specs/npc-acts-for-the-pa
 - `tests/kernel/test_npc_actor_outside_session.py`：无战斗时 `actor: <npc>` 走 core-check 掷他的数；书没写、没钉 → `needs` 指向 `apply npc skill`；healing 的施救者是 NPC 时掷 NPC 的医药；NPC 对调查员 Intimidate 出 roll、不动 stance。
 - 变异用例：把 `rescuer_ref` 改回 `context.actorId`，医生用例必须红。
 - 构建书夹具（扁平 `properties`）上 `npcProfile` 非空；变异删掉扁平读取必须红。
+
+## Comments
+
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Most of this ticket was already on the integration line (SL-71's own roll, the healing rescuer, flat profiles). What was missing was the rulebook's "When Used on Player Characters": landed as §138.13 -- the investigator's opposing skill sets the difficulty, a success is a coercion receipt listed in pressures, a refusal is one penalty die on one later roll (`action.coercion`). Tests: `tests/kernel/test_npc_coercion.py`; six mutations killed. Not exercised on a live table.

@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human (landed 2026-09-26 @ 2051b6726; follow-ups f2722d2fa, 1d5b6bc3c)
 Spec: docs/specs/npc-as-actor.md（D2）
 
 # 02 — NPC 的一轮是一次操作：单循环 NPC 步骤、`other` 不缺省、hold/flee 出收据、`apply npc intends` 兜底
@@ -29,3 +29,7 @@ NPC 自己的回合不再以散文结束。模型为 NPC 选的每件事都变�
 - `tests/extension/npc-round.test.mjs`：单循环里 NPC 回合的候选集含应对库行与 session 动作，模型选行后宿主执行并铸收据；NPC 回合结束时该回合至少一条 `intent_ref` 收据或一条 `intends` 收据，否则宿主记 `lane: "npc-round", missing: true`（遥测，不拦，03 再拦）。
 - 变异用例：把 `|| 50` 加回去，「无技能时 needs」必须红。
 - `check:kernel`、`npm run test:ext`、`pytest tests/kernel` 基线不退。
+
+## Comments
+
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed with §138.5, §138.6 and the §138.2 writer addendum. The `other` default this ticket names is dead code on this line (the executor accepts no `other`); the real gap, found by a probe, was that a Keeper `hold` left the fight stuck on the NPC. Now `hold` on the NPC's own turn and an intention with `spend_turn: true` pass the turn; an NPC's non-fight roll in a fight is theirs, not an attack; `intent_ref` stamps any effect or roll. Gate A showed the single loop forcing the standing attack every round (fixed in §138.14); gate A2 showed `{intent_ref, intent_outcome}` alone being refused (fixed in §138.15). Tests: `tests/kernel/test_npc_round_operation.py`, `test_npc_standing_action.py` (hold rewritten to the new contract), single-loop-candidates.

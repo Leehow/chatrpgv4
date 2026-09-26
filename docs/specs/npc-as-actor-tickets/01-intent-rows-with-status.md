@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human (landed 2026-09-26, claude/npc-as-actor-20260926 @ b65d5a5f2)
 Spec: docs/specs/npc-as-actor.md（D1）
 
 # 01 — 意图行有状态：应对库、折叠、重算、投影
@@ -29,3 +29,7 @@ Spec: docs/specs/npc-as-actor.md（D1）
 - 变异用例：删掉 fold 里对 `intent_ref` 的读取，「attempted 行进 offer」的用例必须红。
 - 夹具取自 09-23 那桌（`npc/jobs/19d842aa….json` 的库与 `turns/0003–0009.json`）：给回合 3 的 item 与 cash 收据补上「End the arrangement」那行的 `intent_ref` 后折叠，该行为 `done`；回合 4–9 的 advice 候选集不再含它。夹具是那桌的字节加一个字段，不是手搓的归一化字典（记忆 `tests-must-travel-the-real-path`）。
 - `npm run test:ext` 与 `pytest tests/kernel` 基线不退（基线见记忆：ext 全绿；pytest 走 `uv run --frozen`）。
+
+## Comments
+
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed with contract §138.1-138.4. Deviation: the status of an intention lives only in the receipt fold (the NPC ledger `intents`), never in the bank file; bank rows carry a derived `ref`, and a read filters settled rows. The `apply npc` intention variant landed here too, since the fold needs a writer. The bank renews itself once per settled count (`settled_seen`), and its old rows stay readable while pending (`carried_responses`). Tests: `tests/extension/npc-intents.test.mjs`; six mutations killed. Live: the advice lane never re-offered a settled row on either gate table.

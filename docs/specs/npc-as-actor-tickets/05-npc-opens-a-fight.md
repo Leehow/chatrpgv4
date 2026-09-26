@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human (landed 2026-09-26 @ 5a8080dce)
 Spec: docs/specs/npc-as-actor.md（D4）；契约 §32.9 与 `kernel-ts/combat/execution.ts:277` 记的已知缺口
 
 # 05 — NPC 主动开打：偷袭与伏击进规则层
@@ -24,3 +24,7 @@ Spec: docs/specs/npc-as-actor.md（D4）；契约 §32.9 与 `kernel-ts/combat/e
 
 - `tests/kernel/test_npc_opens_fight.py`：无战斗时 NPC 开局建会话、NPC 先动；surprise 检定过则调查员第一轮跳过；收据 `opened_by`；调查员 standing defense 自动结算。
 - 变异用例：删掉 surprise 表读取，「被袭者跳过第一轮」必须红。
+
+## Comments
+
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed as §138.11 per the rulebook's "Striking the First Blow (Surprise)": out of DEX order; `surprise: true` is an unopposed attack with one bonus die, otherwise a first-blow pending attack the investigator defends; the blow spends no one's turn. Tests: `tests/kernel/test_npc_first_blow.py`; five mutations killed. Not exercised on a live table.
