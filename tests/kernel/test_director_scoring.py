@@ -408,3 +408,21 @@ def test_a_pushed_failure_without_consequence_nudges_pressure(tmp_path):
         assert director["scores"]["PRESSURE"] == round(base * weight("PRESSURE"), digits)
     finally:
         client.close()
+
+
+def test_a_live_session_still_scores_the_other_beats_so_a_stalled_fight_shows(tmp_path):
+    """§138.8: the session decides the beat; it no longer cuts RECOVER's signals off before they are counted.
+    Campaign game-26d5a671 ran eight fight turns with stalled_turns climbing to 7 and RECOVER never scored."""
+    client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "9"})
+    try:
+        open_turn(client, "我举枪。")
+        n = walk_to_confrontation(client)
+        resolve(client, f"t1-c{n}", intent="combat", goal="开枪", method="用左轮射击", target="Walter Corbitt", weapon=".38 Revolver")
+        director = next_turn(client, 1, text="我举枪。")
+        assert director["beat"] == "SUBSYSTEM" and director["override"] == "session"
+        assert "repeat_input = True" in director["because"]
+        assert director["scores"]["SUBSYSTEM"] == 1.0
+        assert director["scores"]["RECOVER"] == weighted("RECOVER", "repeated-input")
+        assert director["grounded_by"] == grounded_names("scoring-rule:subsystem:combat-flee-cast-intent")
+    finally:
+        client.close()

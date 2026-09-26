@@ -176,15 +176,17 @@ export function score(dg: DirectorGraph, sig: Row, scene: Row, options: {
     const because = SIGNALS.filter(name => Object.hasOwn(sig, name)).map(name => `${name} = ${string(sig[name])}`),
         digits = number(dg.threshold("score-precision-digits"));
     const override = sig.session !== "none" ? "session" : sig.hp_state === "dying" ? "dying" : sig.last_roll === "fumble" ? "fumble" : sig.pending_choice ? "pending_choice" : null;
-    if (override) {
-        const beat = override === "session" || override === "dying" ? "SUBSYSTEM" : override === "fumble" ? "PRESSURE" : "CHOICE";
+    // Contract §138.8: a live session hands the rules to the subsystem, not the whole scene. The session still decides
+    // the beat, but the other beats are scored as ever and ride in `scores`, so a stalled fight (RECOVER's four signals)
+    // is visible to the Keeper instead of being cut off before it is counted.
+    if (override && override !== "session") {
+        const beat = override === "dying" ? "SUBSYSTEM" : override === "fumble" ? "PRESSURE" : "CHOICE";
         const reasons: Row = {
-            session: "a session is live; hand it to the subsystem",
             dying: "someone is dying: subsystem takes over, pressure on",
             fumble: "last roll fumbled; misfortune lands now",
             pending_choice: "a choice is pending; the player answers first"
         };
-        const grounding = override === "session" ? ["scoring-rule:subsystem:combat-flee-cast-intent"] : override === "dying" ? ["craft-directive:dying-forces-rescue-subsystem", "craft-directive:dying-clock-kind"] : [];
+        const grounding = override === "dying" ? ["craft-directive:dying-forces-rescue-subsystem", "craft-directive:dying-clock-kind"] : [];
         return {
             beat,
             reason: reasons[override],
@@ -257,6 +259,17 @@ export function score(dg: DirectorGraph, sig: Row, scene: Row, options: {
     const top = Math.max(0, ...weighted.values()),
         rank = (beat: string) => dg.tiebreak.includes(beat) ? dg.tiebreak.indexOf(beat) : dg.tiebreak.length;
     const ranked = [...weighted].sort((a, b) => b[1] - a[1] || rank(a[0]) - rank(b[0]));
+    if (override === "session") {
+        const others = ranked.filter(([beat, value]) => beat !== "SUBSYSTEM" && value > 0).slice(0, 2);
+        return {
+            beat: "SUBSYSTEM",
+            reason: "a session is live; hand it to the subsystem",
+            because,
+            scores: { SUBSYSTEM: float(1), ...Object.fromEntries(others.map(([beat, value]) => [beat, float(value)])) },
+            override,
+            hit_rules: ["scoring-rule:subsystem:combat-flee-cast-intent"]
+        };
+    }
     if (top <= 0 || ![...hits.values()].some(rows => rows.some(([condition]) => condition !== "baseline")))
         return {
             beat: "ADVANCE",

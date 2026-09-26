@@ -23357,3 +23357,11 @@ advice lane all show the old one still waiting).
   the turn record carries one `warnings` row per owed intention (`lane: "intents"`, `kind: "intent_result_owed"`,
   `ref`), which the next capsule's warnings raise. Someone no longer present owes nothing. An implicit delivery reaches
   the Keeper through the host's existing refused-delivery repair steer; an explicit one as the tool's refusal.
+
+**138.8 A live session decides the beat, not the scoring (amends §13.3 and §34 D3).** `score()` returned `SUBSYSTEM`
+before counting anything once a session was active, so the four RECOVER signals were never scored in a fight: on
+campaign `game-26d5a671` `stalled_turns` climbed to 7 and `empty_turns` to 2 across eight fight turns, and the
+director said `SUBSYSTEM` every time with nothing else. The session still overrides the beat (`beat: "SUBSYSTEM"`,
+`override: "session"`, the same reason and grounding), but every other beat is scored as ever and the two best
+non-zero ones ride in `scores` beside `SUBSYSTEM: 1.0`. The offer keeps SUBSYSTEM's order (consequence first), whose
+pool now carries the intentions under way (138.3). `dying`, `fumble` and `pending_choice` overrides are unchanged.
