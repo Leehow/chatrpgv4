@@ -317,6 +317,79 @@ for (const [language, guidance] of Object.entries(shippedGuidance("the-haunting"
 	});
 }
 
+// ---- The accepted opening is delivered by the host and recorded as delivered (contract §14.18) ----
+//
+// Outside the App the setup process handed the prepared opening to the model to "use on the first
+// setup reply", and agent_end booked that whole reply as the prologue. On npc-acts-b the model retold
+// the zh-Hans opening in English, added the host's questions, and all of it became the committed
+// prologue the Keeper's opening continued from. The App path already showed the opening itself and
+// booked exactly those words; these cases hold the terminal/driver path to the same shape, on a real
+// kernel, reading the session and the kernel's record rather than the prompt.
+
+/** The session's messages from the player's first line on, as role/customType/text rows. */
+const transcriptRows = (session) => session.messages.filter((message) => message.role !== "system").map((message) => ({
+	role: message.role, customType: message.customType,
+	text: typeof message.content === "string" ? message.content : (message.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n"),
+}));
+
+test("a setup process opened on an existing campaign shows the accepted opening itself and records exactly it", async (t) => {
+	const campaign = "setup-prologue";
+	const language = "zh-Hans";
+	const {opening, handoff} = shippedGuidance("mystery-house")[language];
+	const reply = "Tell me what this person does for a living.";
+	const contexts = [];
+	const table = await openTable({
+		mode: "setup", campaign, realKernel: true, seedCampaign: false, systemPrompt: setupPrompt,
+		prepareWorkspace: (workspace) => coldKernel(workspace, [["campaign.create", { id: campaign, module: "mystery-house", play_language: language }]]),
+		responses: [(context) => { contexts.push(context); return fauxAssistantMessage(reply); }, fauxAssistantMessage("Noted.")],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("你好，我想建一个角色开始玩。");
+	await waitForIdle(table.session);
+	await table.session.prompt("私家侦探。");
+	await waitForIdle(table.session);
+
+	assert.deepEqual(table.extensionErrors, []);
+	const rows = transcriptRows(table.session);
+	const openings = rows.filter((row) => row.customType === "coc-setup-opening");
+	assert.deepEqual(openings.map((row) => row.text), [opening], "the host shows the accepted opening once, word for word, and not again on the next turn");
+	assert.deepEqual(rows.slice(0, 3).map((row) => row.role), ["user", "custom", "assistant"], "after the player's first line and before the guide's reply");
+	assert.ok(contexts[0].messages.some((message) => message.role !== "assistant" && JSON.stringify(message.content).includes(JSON.stringify(opening).slice(1, -1))),
+		"the guide's first request already holds the delivered opening");
+	const [{state: {prologue}}] = coldKernel(table.workspace, [["setup.steps", {campaign}]]);
+	assert.equal(prologue.opening, opening, "the committed prologue is what the player was shown, not the guide's reply");
+	assert.equal(prologue.handoff, handoff);
+});
+
+test("a setup process that creates the campaign itself shows the accepted opening right after create-campaign and records exactly it", async (t) => {
+	const language = "zh-Hans";
+	const {opening} = shippedGuidance("the-haunting")[language];
+	const reply = "Tell me what this person does for a living.";
+	const table = await openTable({
+		mode: "setup", campaign: null, realKernel: true, seedCampaign: false, systemPrompt: setupPrompt,
+		responses: [
+			setupCall({ step: "choose-source", kind: "starter", module: "the-haunting" }),
+			setupCall({ step: "create-campaign", id: "setup-prologue-new", title: "A haunted house", play_language: language }),
+			fauxAssistantMessage(reply),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("I want to play the haunted house.");
+	await waitForIdle(table.session);
+
+	assert.deepEqual(table.extensionErrors, []);
+	const rows = transcriptRows(table.session);
+	const at = rows.findIndex((row) => row.customType === "coc-setup-opening");
+	assert.ok(at > 0, `the host shows the opening: ${JSON.stringify(rows.map((row) => row.customType ?? row.role))}`);
+	assert.equal(rows[at].text, opening, "word for word");
+	assert.equal(rows[at - 1].role, "toolResult", "right after create-campaign's result");
+	assert.equal(rows.at(-1).text, reply, "and before the guide's reply");
+	const [{state: {prologue}}] = coldKernel(table.workspace, [["setup.steps", {campaign: "setup-prologue-new"}]]);
+	assert.equal(prologue.opening, opening, "the committed prologue is what the player was shown, not the guide's reply");
+});
+
 // ---- A blocked setup turn names its cause (contract §23.4, §26) ------------------------------
 //
 // Three failures block a setup turn and used to share one boolean: every `setup` call then got

@@ -150,6 +150,48 @@ def test_hidden_or_unmarked_custom_messages_are_not_delivery(overrides, event_ty
     assert result["settle_class"] == "undelivered_with_tools"
 
 
+def setup_opening_message(**overrides):
+    return {"role": "custom", "customType": "coc-setup-opening", "display": True,
+            "content": "Autumn 1920, a landlord's office in Boston. \"Who are you?\"",
+            "details": {"kind": "setup-opening"}, **overrides}
+
+
+def setup_opening_turn(opening):
+    return [
+        (0, {"type": "agent_start"}),
+        (.1, {"type": "message_end", "message": {"role": "user", "content": [{"type": "text", "text": "Hello."}]}}),
+        (.2, {"type": "message_end", "message": opening}),
+        (.3, {"type": "entry_appended", "entry": opening}),
+        (.4, {"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "What do you do for a living?"}]}}),
+        (.5, {"type": "agent_end"}),
+        (.6, {"type": "agent_settled"}),
+    ]
+
+
+def test_setup_opening_shown_by_the_host_reaches_the_turn_and_its_printout(monkeypatch, capsys):
+    """§14.18: a setup host shows the accepted opening itself, so the player at the driver must be given it."""
+    opening = setup_opening_message()
+    result = replay_turn(setup_opening_turn(opening))
+    assert result["setup_opening"] == opening["content"], "once, although it arrived as a message and as an entry"
+    assert result["final_text"] == "What do you do for a living?", "final_text stays the guide's reply"
+    assert result["settle_class"] == "settled"
+
+    spec = importlib.util.spec_from_file_location("driver_opening_cli", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "rpc_call", lambda *a, **kw: {"ok": True, "summary": {**result, "turn": 1}})
+    assert module.cmd_turn(SimpleNamespace(run="opening-replay", text="Hello.", timeout=10)) == 0
+    out = capsys.readouterr().out
+    assert out.index(opening["content"]) < out.index(result["final_text"]), "the story is printed before the reply"
+
+
+@pytest.mark.parametrize("overrides", [{"display": False}, {"customType": "coc-capsule"}, {"content": ""},
+                                       {"content": [{"type": "text", "text": "Not string content"}]}])
+def test_hidden_or_other_custom_messages_are_not_a_setup_opening(overrides):
+    result = replay_turn(setup_opening_turn(setup_opening_message(**overrides)))
+    assert "setup_opening" not in result
+
+
 @pytest.mark.parametrize("event", [
     {"type": "message_start", "message": review_notice()},
     {"type": "message_end", "message": review_notice(role="user")},

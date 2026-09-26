@@ -2091,6 +2091,24 @@ A second gap of the same shape: `campaign.create` answers with the campaign reco
 
 **14.17.4 The three ends (§31).** Writer: the kernel (`campaign.create`, `setup.steps` `state`). Projection: `extensions/onboarding/index.ts` `tableLanguage()` into `before_agent_start`, and `noteResult` for the in-process campaign. Adoption: the setup model's replies. Tests: `tests/extension/setup.test.mjs`, the cases named "names its play_language" and "prepares its prologue in that language", read the provider request itself on a real kernel for every language the starter ships guidance in (the data default among them, so a fallback to it cannot pass); the three blocked-turn cases of §98 addendum 4 now expect the campaign's captions, not the default's.
 
+### 14.18 The host shows the accepted opening on every path and books what it showed (2026-09-26; amends §14.4 and §23.4's prologue paragraph)
+
+**Evidence.** §23.4 already said it: "The accepted public opening is delivered once, directly, and recorded through `setup.prologue`. The setup agent handles the player's answer without rewriting that opening", and "the setup context records the actual opening delivery". Only the App path did that (`PI_COC_SETUP_AUTOSTART=1`: session start sends the opening as a `coc-setup-opening` message and books those words). A terminal or driver setup gave the opening to the model to "use on the first setup reply only" and then, at `agent_end`, booked the model's whole reply as the prologue. On `npc-acts-b` (§14.17) the model retold the zh-Hans opening in English and added the host's frame and question; all of it became `setup.prologue.opening` and then `table.open`'s `setup_prologue`, the "Committed prologue" the Keeper's opening continues from. Two defects in one channel: the model could rewrite reviewed story text, and the record held whatever it wrote.
+
+**14.18.1 One delivery, three moments.** `shownPrologue(guidance)` in `extensions/onboarding/index.ts` books `setup.prologue` with the accepted `guidance.opening` and returns the `coc-setup-opening` message (display, `details.kind: setup-opening`, the "?" help fold); every path goes through it, once per campaign:
+
+- App: at session start, as before.
+- A terminal or driver setup on an existing campaign: on its first turn, returned as `before_agent_start`'s `message`, so it sits right after the player's first line and before the guide's reply, and is in the guide's first request. It is shown only once nothing else can still block that turn, and not when a draft already exists (the meeting is long past).
+- A campaign created in this process: sent while the turn runs, right after `create-campaign`'s result (Pi steers it in after the tool batch, before the next model step); the result says `opening_shown`.
+
+The guide never writes the prologue: `prompts/setup.md` and the prologue label say the host shows it word for word and the guide must not repeat, retell or translate it. `agent_end` no longer books anything.
+
+**14.18.2 The record.** `setup.prologue.opening` is exactly the words shown, so the Keeper's committed prologue is the story the player read, in the language the reviewed pack was written in. The kernel method, its validation (authored opening scene, guide present) and its first-write-wins rule are unchanged; a refusal blocks the turn as a guidance failure, as it already failed the App's session start.
+
+**14.18.3 The driver.** `tests/play/driver.py` records the shown opening as `setup_opening` in `turn-N.json` (from the message or its entry, once) and prints it before the guide's reply; `final_text` stays the reply. It is transport, not a second producer.
+
+**14.18.4 The three ends (§31).** Writer: `shownPrologue` (host) and `setup.prologue` (kernel). Readers: the player (the message), the guide (the message in its context), the Keeper's opening (`table.open` `setup_prologue`), the driver. Tests: `tests/extension/setup.test.mjs`, the two "shows the accepted opening" cases, on a real kernel read the session order and the kernel's record for both non-App paths; `tests/play/test_driver.py` the `setup_opening` capture. The fake kernel gained `setup.prologue`: before this, nothing on the fake path ever reached it except `agent_end`, where a failure went unseen.
+
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
 一条世界线就是战役 sidecar 仓库里的一条分支。玩家在一个战役里同一时刻只玩一条线；可以分叉、回溯、切换、汇流；所有线都留着（证据永不删除）。什么跨线留下、谁记得别的线、汇流时怎么合，由模组图声明、内核确定性地算；守秘人只在胶囊里看到这是第几圈、锚点在哪、留下了什么、谁记得、有哪些回声可投放。世界线操作是世界的改变，所以走 `apply`（法则二），并在那一回合提交之后由内核执行——守秘人仍然只有七个动词。旧树世界线系统的双时态断言、九种记忆状态、跨战役转移、自动合并策略都不回来。
@@ -5701,7 +5719,7 @@ meeting with one identity question and a brief narrator hint, never a synopsis/m
 setup.prologue is host-only and binds scene/guide/text/handoff to the authored
 opening, validating that the guide is present. Only the first delivered meeting is
 recorded; it does not award any resource. The setup
-context records the actual opening delivery; confirmation records the introduction
+context records the actual opening delivery (*§14.18: on every path the host shows the opening and books those words; the guide never writes it*); confirmation records the introduction
 and last setup exchange. It cannot award keys, money, clues or accept commissions.
 Play opening receives that committed context and continues the meeting, without
 repeating arrival or introductions. Subsequent recovery uses the normal turn receipts.

@@ -10,7 +10,8 @@ The setup tool's step table owns order and prerequisites. Follow its next step a
 needs. Do not guess ids or repeat rejected calls unchanged. A prepared campaign
 already has its module selected; do not ask the player to choose it again.
 
-Use the supplied character guidance as material. Begin with its opening, then ask
+Use the supplied character guidance as material. The host shows its opening to the
+player itself, word for word; never repeat, retell or translate it. After it, ask
 only name and occupation concept. Never show the guidance JSON, headings, internal
 instructions or paths. Do not advance the actual adventure yet.
 
