@@ -23451,3 +23451,55 @@ line gate A failed; the player prose stayed in zh-Hans throughout. Two lines fai
   will hire you" came back on turns 2, 4, 5 and 8 in different words and never became a receipt, so no structural
   check here could see it (§113 D's repeated-line refusal caught one literal repeat). This is the open-semantics half
   of the owner's ruling that 138.7 does not cover; it is reported, not changed here.
+
+## 139. NPC acts first: the act is generated, then bound (2026-09-26, `docs/specs/npc-acts-first.md`; builds on §138)
+
+**139.2 The generation step: one sentence of what this person does now (ticket 02, spec D2).** The owner's ruling of
+2026-09-26 -- *a model writes what the NPC does first, and the system binds it to parameters after* -- has its first
+half here: `runtime/jev/npc-act.ts`. It writes an act, never a parameter (§135.28 stands); when it runs is §139.3 and
+whether an act repeats one already made is §139.4.
+
+- **Port.** `NpcActPort.generate({packet, play_language, providerBudget?}, signal)` answers `{act}` or
+  `{unavailable: reason}`, the product lane adding `ms`, `model`, `attempts`, `usage` and on failure `detail`. `packet`
+  is the §139.1 situation (`NpcSituation`); `play_language` is the campaign's tag, taken by shape only; `providerBudget`
+  is the run's `TaskProviderBudget` when the caller has one. `generate` never throws.
+- **Shape.** One zero-tool completion through the session's model registry (`runLane`, the admission lane's and the
+  voice check's shape, `docs/pi-host-contract.md` §5), on `resolveLaneModel(ctx, "PI_COC_NPC_ACT_MODEL")`: the lane's
+  variable, then the fast-model setting, then the table (§37.10.1); reasoning effort as every `runLane` lane (SL-81).
+  Product constructor: `createNpcActLane(pi, {ctx: () => ctx, campaign: () => id})`, both read at every call.
+- **Instruction.** `content/setup/npc-act.md` is the whole system prompt; code carries no wording about what a person
+  should do. English, the act in `play_language`. It says: only the facts in the packet; the one thing this person does
+  right now, as a person in their situation would; at most 200 characters, one sentence, one line; what they already
+  tried with no result is not done the same way again (seen through, given up, or something else); an ignored threat or
+  demand is carried out or dropped, not repeated; no choices, no explanation, no scene, no investigator, no dice or
+  rules; `{"act": ...}` only. It holds no examples of acts and no list at all -- `tests/extension/npc-act-generation.test.mjs`
+  refuses any markdown list item in it (structure, not words: an action menu is a list).
+- **Input.** One JSON object `{play_language, situation}`, `situation` being the packet **whole**. The packet is already
+  the kernel's bounded projection (6 KB, §139.1); there is no second whitelist here, so a field the kernel adds reaches
+  the model without a change on this side.
+- **Answer check (structure only).** A JSON object whose `act` is a string, non-empty after trimming, with no line break
+  (`\r`, `\n`, U+2028, U+2029), of at most 200 characters counted as code points. Whether it is one sentence, in the play
+  language, and something a person would do is the instruction's and the model's business, never a check here.
+- **One retry, one deadline.** An answer of the wrong shape is asked for once more, the input carrying one English line
+  that says why it was refused; a second wrong answer is `bad_output`. No other failure is retried. One deadline covers
+  the whole generation, retry included: `npc_act.timeout_ms` in `content/rulesets/coc7/host-budgets.json` (named default
+  8000, `npcActBudget()` in `runtime/jev/host-budgets.ts`); the retry runs on what is left. The deadline is read off the
+  call's own clock, so a round the lane's own budget lease cut at the same moment is `timeout`, not `model_error`.
+- **Reasons (closed).** `model_unavailable` (no model resolves, or no session context), `model_error` (the provider
+  failed; not retried), `bad_output`, `timeout`, `cancelled` (the caller's signal ended it), `lane_error` (the host could
+  not prepare the call, e.g. the instruction file could not be read). An unavailable act is not an error of the turn:
+  the turn goes on to the Keeper as before (spec D2).
+- **Telemetry.** Exactly one `lane: "npc-act"` row per call through the shared lane writer (`createLaneTelemetry`, so a
+  streak of three failures raises the §56 lane notice naming `PI_COC_NPC_ACT_MODEL`): `{npc: <handle>, ok, ms, model,
+  attempts, reason?, detail?, act?, usage?}`; the act is on the row so a probe or a failed binding still has the line.
+  Each completion also leaves its §12.8.1 `lane: "lane-call"` rows, `subsession: "npc-act"`. With no campaign the row
+  is not written; with no workspace it is the session entry alone, as for every lane.
+- **Budget.** With `providerBudget` the completion reserves and settles against the run's budget in the lane's
+  `onPayload` seam (§20 addendum); `usage` on the result is the answered attempt's provider usage for the run's budget
+  summary (§135.25). A refused attempt's usage is settled into the budget but not returned.
+- **Fixture.** `createFixtureNpcActPort(table)` is the test double for §139.3/§139.4's loop tests: keyed by the packet's
+  `npc.handle`, then `npc.name`, then `"*"`; a list answers that key's successive calls in order and repeats its last
+  entry; answers verbatim (`{act}` or `{unavailable}`); keeps every input in `calls`.
+- **The three ends (§31).** Writes: this lane. Reads: §139.3's binding step -- not wired by this ticket, which is why
+  the SL-00 inventory lists `runtime/jev/npc-act.ts` `createNpcActLane.generate` as a `no-caller` leaf until §139.3 gives
+  it one. Acts: the bound receipt (§139.3).
