@@ -1,5 +1,9 @@
 # Narration Craft
 
+## 2.0.2
+- Carries the voice lane's instruction (`contributes.voice_lane`, `voice-lane.md`); the kernel no longer keeps it as base content. Older owners read a frozen compatibility copy.
+- People react to how they are treated: asked the same thing again they answer shorter, then sharper; sarcasm and insult land in their register; a demand for something for nothing is refused outright. A feeling that outlasts the exchange is recorded with `apply npc` and a stance.
+
 ## 2.0.1
 - States the viewpoint in the package itself: the investigator is always "you", never a name or he/she, in both the full instruction and the per-turn brief; and the investigator's thoughts, feelings, hesitations and intentions are written only when declared or rules-settled. On the single-loop line table prose-mod-c (deepseek-v4.1-flash low) two of fifteen turns narrated the investigator in the third person; the opening sentence no longer invites a novelist's register ("as a writer writes").
 

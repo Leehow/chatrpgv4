@@ -8,6 +8,8 @@ import test, {after} from "node:test";
 import {build} from "esbuild";
 
 const ROOT = resolve(import.meta.dirname, "../..");
+/** The shipped unified package's version, read rather than pinned: a new version must not rewrite this file. */
+const SHIPPED = JSON.parse(await readFile(join(ROOT, "mods/narration-craft/mod.json"), "utf8")).version;
 const temporary = await mkdtemp(join(tmpdir(), "unified-voice-kernel-"));
 after(() => rm(temporary, {recursive: true, force: true}));
 await symlink(join(ROOT, "node_modules"), join(temporary, "node_modules"), "dir");
@@ -111,7 +113,7 @@ test("a new world enables unified expression once and ignores a cached npc-voice
 	const listed = await game.call("mods.list");
 	const narration = lockOf(listed, "narration-craft");
 	const voice = lockOf(listed, "npc-voice");
-	assert.equal(narration.version, "2.0.1");
+	assert.equal(narration.version, SHIPPED);
 	assert.equal(narration.enabled, true);
 	assert.deepEqual(Object.keys(narration.settings).sort(), ["coarse_language", "density_guide"]);
 	assert.equal(voice.version, "1.3.0");
@@ -128,7 +130,7 @@ test("a new world enables unified expression once and ignores a cached npc-voice
 	// §40.7 Owner: 2.0.0 declares npc.voice.generation.v2, so a new world's lane belongs to it from the first turn.
 	const issued = await game.call("voice.job");
 	assert.equal(typeof issued.job_id, "string");
-	assert.equal(issued.generation.version, "2.0.1");
+	assert.equal(issued.generation.version, SHIPPED);
 	assert.deepEqual((await game.call("table.capsule")).voices, capsule.voices);
 });
 
@@ -147,7 +149,7 @@ test("installing the unified packages does not retarget an explicit old world", 
 test("an enabled unified upgrade copies whole v2 cards, keeps the old namespace, and reports counts only", async t => {
 	const game = await open(t, "uv-hand");
 	await seedLegacy(game, {target: {[NPC]: OTHER}});
-	const listed = await game.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true,
+	const listed = await game.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true,
 		settings: {density_guide: "off", coarse_language: false}});
 	const saved = await world(game);
 	assert.equal(saved.mods.active["npc-voice"].enabled, false);
@@ -159,7 +161,7 @@ test("an enabled unified upgrade copies whole v2 cards, keeps the old namespace,
 	assert.deepEqual(saved.mods.state["npc-voice"].dossier[NPC].sample_lines, CARD.sample_lines);
 	assert.deepEqual(saved.mods.state["npc-voice"].dossier[NPC].aside, CARD.aside);
 	assert.equal(Object.hasOwn(saved.mods.state["narration-craft"], "legacy_voice_dossier"), false);
-	const handover = listed.mods.find(row => row.id === "narration-craft" && row.version === "2.0.1").voice_handover;
+	const handover = listed.mods.find(row => row.id === "narration-craft" && row.version === SHIPPED).voice_handover;
 	assert.deepEqual(Object.keys(handover).sort(), ["conflict_count", "copied_count", "from", "from_version", "legacy_v1_retained", "schema_version", "skipped_count", "to_version"]);
 	assert.equal(handover.copied_count, 0);
 	assert.equal(handover.conflict_count, 1);
@@ -171,11 +173,11 @@ test("an enabled unified upgrade copies whole v2 cards, keeps the old namespace,
 test("coarse preference is inherited only when the target has not established it and the caller did not set it", async t => {
 	const game = await open(t, "uv-coarse");
 	await seedLegacy(game, {coarse: false, target: {}});
-	const inherited = await game.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true});
+	const inherited = await game.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true});
 	assert.equal(lockOf(inherited, "narration-craft").settings.coarse_language, false);
 	const again = await open(t, "uv-coarse-set");
 	await seedLegacy(again, {coarse: false, target: {}});
-	const explicit = await again.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true,
+	const explicit = await again.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true,
 		settings: {coarse_language: true}});
 	assert.equal(lockOf(explicit, "narration-craft").settings.coarse_language, true);
 	assert.equal(lockOf(explicit, "narration-craft").settings.density_guide, "off");
@@ -184,7 +186,7 @@ test("coarse preference is inherited only when the target has not established it
 	const prior = await world(partial);
 	prior.mods.active["narration-craft"].settings.density_guide = "on";
 	await writeWorld(partial, prior);
-	const kept = await partial.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true, settings: {coarse_language: false}});
+	const kept = await partial.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true, settings: {coarse_language: false}});
 	const settings = lockOf(kept, "narration-craft").settings;
 	assert.equal(settings.coarse_language, false);
 	assert.equal(settings.density_guide, "on");
@@ -193,7 +195,7 @@ test("coarse preference is inherited only when the target has not established it
 test("a disabled legacy lock is not revived and a disabled target does not take the owner", async t => {
 	const off = await open(t, "uv-legacy-off");
 	await seedLegacy(off, {enabled: false});
-	await off.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true});
+	await off.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true});
 	const saved = await world(off);
 	assert.deepEqual(saved.mods.state["narration-craft"].dossier, {});
 	assert.equal(JSON.stringify(saved.mods.state["narration-craft"]).includes("archived v1 sample"), false);
@@ -202,7 +204,7 @@ test("a disabled legacy lock is not revived and a disabled target does not take 
 	assert.equal(saved.mods.active["npc-voice"].enabled, false);
 	const target = await open(t, "uv-target-off");
 	await seedLegacy(target);
-	await target.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: false,
+	await target.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: false,
 		settings: {density_guide: "off"}});
 	const kept = await world(target);
 	assert.equal(kept.mods.active["npc-voice"].enabled, true);
@@ -214,10 +216,10 @@ test("a busy upgrade waits for the next safe boundary and then applies the whole
 	await seedLegacy(game);
 	await game.call("table.open");
 	await game.call("table.player_input", {text: "I stay by the desk."});
-	const queued = await game.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true});
+	const queued = await game.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true});
 	const narration = queued.mods.find(row => row.id === "narration-craft" && row.version === "1.6.0");
 	assert.equal(narration.active.version, "1.6.0");
-	assert.equal(narration.pending.version, "2.0.1");
+	assert.equal(narration.pending.version, SHIPPED);
 	assert.equal(narration.pending.enabled, true);
 	let saved = await world(game);
 	assert.equal(saved.mods.active["npc-voice"].enabled, true);
@@ -232,7 +234,7 @@ test("a busy upgrade waits for the next safe boundary and then applies the whole
 	assert.equal(saved.mods.active["npc-voice"].enabled, true);
 	await game.call("table.player_input", {text: "I ask one plain question."});
 	saved = await world(game);
-	assert.equal(saved.mods.active["narration-craft"].version, "2.0.1");
+	assert.equal(saved.mods.active["narration-craft"].version, SHIPPED);
 	assert.equal(saved.mods.active["narration-craft"].enabled, true);
 	assert.equal(saved.mods.active["npc-voice"].enabled, false);
 	assert.deepEqual(saved.mods.state["narration-craft"].dossier[NPC], COPIED);
@@ -244,7 +246,7 @@ test("after narrate the queued handover still rejects a legacy change until the 
 	await seedLegacy(game);
 	await game.call("table.open");
 	await game.call("table.player_input", {text: "I stay by the desk."});
-	await game.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true});
+	await game.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true});
 	await game.call("table.narrate", {call_id: "t1-c1", text: "The office stays quiet."});
 	const before = await world(game);
 	await assert.rejects(game.call("mods.configure", {id: "npc-voice", version: "1.2.0", enabled: true, settings: {coarse_language: true}}),
@@ -254,7 +256,7 @@ test("after narrate the queued handover still rejects a legacy change until the 
 	assert.equal(before.mods.active["npc-voice"].enabled, true);
 	await game.call("table.player_input", {text: "I ask one plain question."});
 	const saved = await world(game);
-	assert.equal(saved.mods.active["narration-craft"].version, "2.0.1");
+	assert.equal(saved.mods.active["narration-craft"].version, SHIPPED);
 	assert.equal(saved.mods.active["npc-voice"].enabled, false);
 	assert.deepEqual(saved.mods.state["narration-craft"].dossier[NPC], COPIED);
 });
@@ -266,15 +268,15 @@ test("a queued legacy preference and a later queued handover land together", asy
 	await game.call("table.player_input", {text: "I stay by the desk."});
 	const legacy = await game.call("mods.configure", {id: "npc-voice", version: "1.2.0", enabled: true, settings: {coarse_language: false}});
 	assert.equal(legacy.mods.find(row => row.id === "npc-voice" && row.pending).pending.settings.coarse_language, false);
-	const queued = await game.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true});
-	assert.equal(queued.mods.find(row => row.id === "narration-craft" && row.version === "1.6.0").pending.version, "2.0.1");
+	const queued = await game.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true});
+	assert.equal(queued.mods.find(row => row.id === "narration-craft" && row.version === "1.6.0").pending.version, SHIPPED);
 	let saved = await world(game);
 	assert.equal(saved.mods.active["npc-voice"].settings.coarse_language, true);
 	assert.equal(saved.mods.active["narration-craft"].version, "1.6.0");
 	await game.call("table.narrate", {call_id: "t1-c1", text: "The office stays quiet."});
 	await game.call("table.player_input", {text: "I ask one plain question."});
 	saved = await world(game);
-	assert.equal(saved.mods.active["narration-craft"].version, "2.0.1");
+	assert.equal(saved.mods.active["narration-craft"].version, SHIPPED);
 	assert.equal(saved.mods.active["narration-craft"].enabled, true);
 	assert.equal(saved.mods.active["narration-craft"].settings.coarse_language, false);
 	assert.equal(saved.mods.active["npc-voice"].enabled, false);
@@ -284,9 +286,9 @@ test("a queued legacy preference and a later queued handover land together", asy
 test("repeating the upgrade is idempotent and a later legacy enable conflicts", async t => {
 	const game = await open(t, "uv-idem");
 	await seedLegacy(game, {target: {}});
-	await game.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true});
+	await game.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true});
 	const once = await world(game);
-	const again = await game.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true});
+	const again = await game.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true});
 	const twice = await world(game);
 	assert.deepEqual(once.mods.state["narration-craft"].dossier[NPC], COPIED);
 	assert.equal(Object.hasOwn(once.mods.state["narration-craft"].dossier[NPC], "sample_lines"), false);
@@ -299,7 +301,7 @@ test("repeating the upgrade is idempotent and a later legacy enable conflicts", 
 	const stored = once.mods.state["narration-craft"].voice_handover;
 	const {from_digest: _digest, ...projected} = stored;
 	assert.equal(typeof _digest, "string");
-	assert.deepEqual(again.mods.find(row => row.id === "narration-craft" && row.version === "2.0.1").voice_handover, projected);
+	assert.deepEqual(again.mods.find(row => row.id === "narration-craft" && row.version === SHIPPED).voice_handover, projected);
 	await assert.rejects(game.call("mods.configure", {id: "npc-voice", version: "1.3.0", enabled: true}),
 		error => error.code === "invalid_params" && /conflicts with npc-voice|conflicts with narration-craft/.test(error.message));
 	assert.equal((await world(game)).mods.active["npc-voice"].enabled, false);
@@ -311,14 +313,14 @@ test("a malformed recognized field rejects the whole handover and an inherited k
 	delete broken.voice_mask.turn;
 	await seedLegacy(bad, {dossier: {[NPC]: broken, "npc-walter-corbitt": COPIED}, target: {}});
 	const before = await world(bad);
-	await assert.rejects(bad.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true}),
+	await assert.rejects(bad.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true}),
 		error => error.code === "invalid_params" && /malformed/.test(error.message));
 	assert.deepEqual(await world(bad), before);
 	const proto = await open(t, "uv-proto");
 	const inherited = {};
 	Object.defineProperty(inherited, "__proto__", {value: COPIED, enumerable: true, writable: true, configurable: true});
 	await seedLegacy(proto, {dossier: inherited, archived: {}, target: {}});
-	await proto.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true});
+	await proto.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true});
 	const saved = await world(proto);
 	assert.equal(Object.hasOwn(saved.mods.state["narration-craft"].dossier, "__proto__"), true);
 	assert.deepEqual(Object.getOwnPropertyDescriptor(saved.mods.state["narration-craft"].dossier, "__proto__").value, COPIED);
@@ -328,7 +330,7 @@ test("a malformed recognized field rejects the whole handover and an inherited k
 test("a copied v2 card is still read from capsule.voices after the legacy owner is disabled", async t => {
 	const game = await open(t, "uv-voices");
 	await seedLegacy(game, {dossier: {[KNOTT]: COPIED}, archived: {}, target: {}});
-	await game.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true});
+	await game.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true});
 	await game.call("table.open");
 	const capsule = await game.call("table.capsule");
 	const knott = capsule.voices.find(row => row.name === "Steven Knott");
@@ -344,7 +346,7 @@ test("an in-flight legacy voice result cannot publish after handover", async t =
 	await game.call("table.open");
 	const job = await game.call("voice.job", {backfill: true});
 	assert.equal(typeof job.job_id, "string");
-	await game.call("mods.configure", {id: "narration-craft", version: "2.0.1", enabled: true, settings: {density_guide: "off"}});
+	await game.call("mods.configure", {id: "narration-craft", version: SHIPPED, enabled: true, settings: {density_guide: "off"}});
 	const voice = {mask: "flat and brief", exchanges: ["hello → hello", "where → here", "thanks → right"]};
 	await assert.rejects(game.call("voice.submit", {job_id: job.job_id, voice}),
 		error => error.code === "invalid_params" && error.details?.job_id === job.job_id);
@@ -356,5 +358,5 @@ test("an in-flight legacy voice result cannot publish after handover", async t =
 	const reissued = await game.call("voice.job", {backfill: true});
 	assert.equal(typeof reissued.job_id, "string");
 	assert.notEqual(reissued.job_id, job.job_id);
-	assert.equal(reissued.generation.version, "2.0.1");
+	assert.equal(reissued.generation.version, SHIPPED);
 });

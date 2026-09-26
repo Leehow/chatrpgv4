@@ -1,6 +1,6 @@
 # NPC 是一等行动者：意图有状态，行动有落点
 
-Status: ready-for-agent（工单 07 与 11 是 ready-for-human，各票开头有说明）
+Status: ready-for-agent（工单 11 是 ready-for-human：需要真人或单句玩家）
 Date: 2026-09-26
 Branch: `0.9.5a`（核查基线 `651a9cb26`；`kernel-ts/read/director.ts` 与 `claude/integ-single-loop-20260923@d292ed66e` 同哈希，本文引用的行号在两条线上都成立）
 Owner ruling: 2026-09-26（见第二节）
@@ -27,7 +27,8 @@ Related: `docs/specs/turn-floor.md`（契约 §34）、`docs/specs/npc-acts-for-
 
 - `keeper-pacing`「目标完成且没选下一个就交回，不要制造事件」与 §122 T14「no progress obligation」说的是**不逼玩家**：不给玩家塞任务、不替玩家选路。本裁定说的是 **NPC 对已经发生的事必须有回应**，回应的对象是世界不是玩家。两者不冲突：诺特被打之后做点什么，不等于把玩家拉回委托线。
 - 「不许硬编码语义列表」不变。本 spec 没有任何一处存「NPC 动作种类表」：他会做什么由模型按处境写（应对库那些行就是这么来的）；闭合的只有**结果**——引擎能结算的几种（检定过或不过、伤害、钟走一格、有人到场、立场或位置变化）。「不重复」比的是意图行的 id，不是文本，不是类别。
-- 「turn-floor D7 不加第五种 too little 审计类」不变。停滞不靠语义审计抓，靠结构：同一意图行连交两次而中间没有结果收据。
+- 「turn-floor D7 不加第五种 too little 审计类」不变。
+- 书上没有的人到场走 walk-on（运行时人物，不建图节点；slug 进名字解析与桌上名表），不走 adaptation 的同步快路径（2026-09-26，用户按工单 07 的推荐拍板）。停滞不靠语义审计抓，靠结构：同一意图行连交两次而中间没有结果收据。
 
 ## 三、诊断
 
@@ -108,11 +109,11 @@ Related: `docs/specs/turn-floor.md`（契约 §34）、`docs/specs/npc-acts-for-
 | 04 | NPC 在战斗外用自己的本事（吸收 npc-acts L1/L2） | ready-for-agent | 02 |
 | 05 | NPC 主动开打：偷袭与伏击进规则层 | ready-for-agent | 02 |
 | 06 | 临时的钟：`apply threat` 可铸运行时钟 | ready-for-agent | 无 |
-| 07 | 书上没有的人到场：轻路径 | ready-for-human（身份边界要拍板） | 无 |
+| 07 | 书上没有的人到场：walk-on 运行时人物 | ready-for-agent | 无 |
 | 08 | NPC 手里的东西：持有与武器 | ready-for-agent | 02 |
 | 09 | 逃跑的后续：在场、去向、追逐 | ready-for-agent | 02 |
 | 10 | 导演：session 不再屏蔽 RECOVER | ready-for-agent | 01、02 |
-| 11 | 真桌验收 | ready-for-human（需要真人或单句玩家） | 01–06、08–10 |
+| 11 | 真桌验收 | ready-for-human（需要真人或单句玩家） | 01–10 |
 
 ## 附录 A　结算面矩阵：收据种类 × 行动者（2026-09-26 核查）
 

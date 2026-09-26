@@ -14,7 +14,8 @@ test('compressed context supplies facts but never the player-facing sentence pat
   assert.equal(prompt.includes('give a little, refuse harder, or change the subject'), false);
   assert.ok(craft.includes('who does what to whom is never left for the reader to reconstruct'));
   assert.ok(craft.includes('do not repeat, paraphrase or summarise them'));
-  assert.ok(craft.includes('the position moves only when the fiction moves it'));
+  assert.ok(craft.includes('The facts do not change; their patience does.'));
+  assert.ok(craft.includes('Sarcasm, contempt and insult land'));
   // prose-mod-c (2026-09-26): two of fifteen turns narrated the investigator in the third person; both forms state the viewpoint.
   const brief = await readFile(new URL('../../mods/narration-craft/brief.md', import.meta.url), 'utf8');
   assert.ok(craft.includes('The investigator is always "you"'));

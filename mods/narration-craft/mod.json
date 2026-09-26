@@ -1,6 +1,6 @@
 {
   "id": "narration-craft",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "game_api": "pipicoc.game.v1",
   "state_version": 2,
   "migrations": [
@@ -38,7 +38,8 @@
   "package_files": [
     "agent.md",
     "brief.md",
-    "style.json"
+    "style.json",
+    "voice-lane.md"
   ],
   "dependencies": {},
   "conflicts": [
@@ -81,6 +82,7 @@
     },
     "instructions": "agent.md",
     "brief": "brief.md",
-    "style": "style.json"
+    "style": "style.json",
+    "voice_lane": "voice-lane.md"
   }
 }
