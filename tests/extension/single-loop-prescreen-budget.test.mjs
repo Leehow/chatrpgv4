@@ -121,7 +121,8 @@ test("a spent decision budget composes once; after it the Keeper's own batches c
 		advance: { "decide:route": 1_500 },
 		decide: (batch) => route(batch, [], "ask_llm"),
 		infer: (index) => index === 0 ? batchOf("a") : index === 1 ? batchOf("b") : index === 2 ? batchOf("c") : prose("Done.") });
-	assert.deepEqual(log, ["read", "decide:route", "infer:adjudicate", "model:apply:a", "infer:compose", "model:apply:b", "infer:adjudicate",
+	// §139.20/§139.25: Knott is present, so the scan of the people present runs once, before the Keeper's first adjudication.
+	assert.deepEqual(log, ["read", "decide:route", "clerk:npc_act:scan:0", "infer:adjudicate", "model:apply:a", "infer:compose", "model:apply:b", "infer:adjudicate",
 		"model:apply:c", "infer:adjudicate", "turn_close"]);
 	assert.deepEqual(inferSteps.map((step) => `${step.purpose}:${step.reason}`),
 		["adjudicate:ask_llm", "compose:jev_budget", "adjudicate:keeper_carries", "adjudicate:keeper_carries"]);

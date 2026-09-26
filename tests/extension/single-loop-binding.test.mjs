@@ -219,6 +219,8 @@ test("§135.28: a target among several has no rules default: Jev's unknown hands
 	const attack = candidates.find((candidate) => candidate.bound.decision === "combat:attack");
 	assert.equal(attack.unbound.find((value) => value.name === "target").ruleDefault, undefined);
 	const view = initialView({ runId: "r", rawInput: "hit him", context, candidates: [], readFirst: false });
+	// §139.20/§139.25: Arty is present, so the scan precedes the Keeper's adjudication; this case is about the bind, not the scan.
+	view.npcScanned = [];
 	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
 	view.pending = [{ kind: "decide", purpose: "bind", candidate: attack }];
 	const request = next(view);
@@ -454,7 +456,8 @@ test("§135.28 on the driver: Jev unknown on every closed parameter -- the clerk
 test("§135.28 on the driver: a clerk candidate without a default goes to the Keeper as an adjudication; a spent Jev budget binds by default with no Jev question", async () => {
 	const check = checkOf(morgue());
 	const unknown = await drive({ candidates: [check], rows: compileRows(morgue()), decide: (batch) => batch.family === BIND_FAMILY ? unknownAll(batch) : routeAll(batch), infer: prose });
-	assert.ok(!unknown.log.some((entry) => entry.clerk), "the intent has no default: nothing executed");
+	// §139.20/§139.25: the one clerk step is the scan of the people present (Arty), before the Keeper's adjudication.
+	assert.deepEqual(unknown.log.filter((entry) => entry.clerk).map((entry) => entry.clerk), ["npc_act:scan:0"], "the intent has no default: the check is not executed");
 	assert.deepEqual(unknown.inferred, ["adjudicate"], "the Keeper's turn, never a bind");
 	// Past the Jev budget (spent by the compile that selected it), the bind is offline: no Jev call; the intent has no
 	// default, so the Keeper; a candidate whose every closed parameter has a default is bound by the rules default alone.
@@ -491,6 +494,8 @@ test("§135.28 at the engine: the bind row names every parameter's path; the Kee
 	// What the clerk could not bind reaches the Keeper as its own turn: left_to_you, and a bind row with outcome keeper.
 	const [dropped] = interpretBind(check, { questions: [] }, answer({ skill: ["unknown", 0.76], bonus: ["none", 0.83], penalty: ["none", 0.83], intent: ["unknown", 0.7] }), 0.6).pending;
 	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [], readFirst: false });
+	// §139.20/§139.25: Arty is present, so the scan precedes the Keeper's adjudication; this case is about the bind, not the scan.
+	view.npcScanned = [];
 	view.pending = [dropped];
 	const policy = createStepPolicy({ context, scope, candidates: [] });
 	const request = policy.next({ pendingProposals: [], policyState: { view, gate: 0.6 }, observations: [], steps: 0, pendingRequirements: [] });

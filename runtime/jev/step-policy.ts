@@ -178,7 +178,7 @@ export interface PendingItem {
   call?: {method: string; params: Record<string, Json>; label: string};
   /** §135.28: how each parameter the bind step settled got its value (`jev` or `rule-default`), carried to the clerk's row. */
   bindings?: BindRecord[];
-  /** §139.4/§139.20: the step `next` puts before the run's first model step and after a landed step; never in `pending` (see `npcScanDue`). */
+  /** §139.4/§139.20/§139.25: the step `next` puts before the Keeper's first turn-writing model step and after a landed step; never in `pending` (see `npcScanDue`). */
   scan?: true;
 }
 export interface Observation {
@@ -260,9 +260,10 @@ export interface RunView {
   settledClues?: StagedClue[];
   /**
    * §139.4: the declaration's clerk steps the kernel took this run (not forced, not a person's own act), and those an
-   * `npc_act` scan already followed. A landed step not yet followed owes one scan before the next model step. §139.20:
-   * `npcScanned` is absent until the run's first scan, which is owed before its first model step whether or not a step
-   * landed (a person in the conversation acts on a turn of pure talk).
+   * `npc_act` scan already followed. A landed step not yet followed owes one scan before the next turn-writing model step.
+   * §139.20: `npcScanned` is absent until the run's first scan, which is owed before the Keeper's first turn-writing model
+   * step (§139.25: an `adjudicate` or a `compose`, never a clerk's `bind`) whether or not a step landed (a person in the
+   * conversation acts on a turn of pure talk).
    */
   landed?: string[];
   npcScanned?: string[];
@@ -328,11 +329,12 @@ export function routeDigest(view: Pick<RunView, 'rawInput' | 'candidates' | 'mat
 }
 
 /**
- * §139.4 as §139.20 (ticket 21) amended it: before the run's first model step the people present are scanned once
- * (`npc_act` scan) -- every turn, not only after a landed step, because a turn of pure talk lands nothing and the person
- * in the conversation must still act -- and a step of the declaration that landed after it owes another scan before the
- * next model step. With nobody present and nothing landed there is no one to scan. Past the run's time budget it is not
- * run (the engine records `skipped_budget`).
+ * §139.4 as §139.20 (ticket 21) amended it: before the Keeper's first turn-writing model step (§139.25: an `adjudicate` or a
+ * `compose`, never a clerk's bind handed to the model) the people present are scanned once (`npc_act` scan) -- every turn,
+ * not only after a landed step, because a turn of pure talk lands nothing and the person in the conversation must still
+ * act -- and a step of the declaration that landed after it owes another scan before the next such step. With nobody
+ * present and nothing landed there is no one to scan. Past the run's time budget it is not run (the engine records
+ * `skipped_budget`).
  */
 export function npcScanDue(view: Pick<RunView, 'landed' | 'npcScanned'> & {context?: Pick<TurnContext, 'present'>}): boolean {
   const landed = view.landed ?? [];
@@ -351,13 +353,19 @@ export function npcScanItem(view: Pick<RunView, 'landed' | 'addressees' | 'targe
 }
 
 /**
- * The policy. Pure: it reads the view and returns one step request. §139.4/§139.20: the run's first model step, and a
- * model step a landed clerk step precedes, is preceded by the scan of the people present (`npcScanDue`), within the
- * run's time budget.
+ * The Keeper's turn-writing model step: the adjudication or the compose. §139.25 (NAF-26): the scan comes before it, never
+ * before a clerk's bind handed to the model mid-flow (`infer` `bind`), which is the clerk's work on the declaration and
+ * not yet the Keeper's turn.
+ */
+const turnWriting = (request: StepRequest): boolean => request.kind === 'infer' && (request.purpose === 'adjudicate' || request.purpose === 'compose');
+/**
+ * The policy. Pure: it reads the view and returns one step request. §139.4/§139.20: the Keeper's first turn-writing model
+ * step, and one a landed clerk step precedes, is preceded by the scan of the people present (`npcScanDue`), within the
+ * run's time budget (§139.25: not a clerk's bind handed to the model).
  */
 export function next(view: RunView): StepRequest {
   const request = routeNext(view);
-  if (request.kind === 'infer' && npcScanDue(view) && !overRun(view.budget)) return {kind: 'direct', item: npcScanItem(view)};
+  if (turnWriting(request) && npcScanDue(view) && !overRun(view.budget)) return {kind: 'direct', item: npcScanItem(view)};
   return request;
 }
 function routeNext(view: RunView): StepRequest {

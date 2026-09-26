@@ -25226,7 +25226,9 @@ it too; both restored, green.
 declared fight action is aimed at while no clerk step has settled it. "照他脸上就是一拳" read `act` combat 1.0, named no one,
 and no clerk step took it; the scan ran Knott (engaged) on a punch that had not happened, and he walked out before it
 landed. While a compile of the run cleared `act` on a fight action and no clerk fight step has landed, the scan holds the
-person it is aimed at (`npc_held`, not an `npc_act` row); everyone else is scanned as above. The rule is §139.25.
+person it is aimed at (`npc_held`, not an `npc_act` row); everyone else is scanned as above. And "before the run's first
+model step" is corrected to "before the Keeper's first turn-writing model step" (`adjudicate` or `compose`): the scan was
+issued before any `infer`, a clerk's bind handed to the model mid-flow (`infer` `bind`) included. The rule is §139.25.
 
 **139.21 The player's words reach the person they were said to, and the act is written in the table's language from the
 opening on (2026-09-26, ticket 22 of `docs/specs/npc-acts-first-tickets/`, spec D1 and section 九's table B; amends
@@ -25421,19 +25423,30 @@ removed fails the first table case (and the emitted-kernel case); the closing se
 
 **139.25 The scan does not act before the declaration: a declared fight action no clerk step has settled holds the person
 it is aimed at (2026-09-26, ticket 26 of `docs/specs/npc-acts-first-tickets/`,
-`26-the-scan-does-not-act-before-the-declaration.md`; spec D4 and section 九's table D; amends §139.20's scan).**
+`26-the-scan-does-not-act-before-the-declaration.md` with its addendum; spec D4 and section 九's table D; amends §139.20's
+scan: when it runs, and whom it holds).**
 
 *Evidence* (table D, `npc-acts-d`, the-haunting, turn 3, run `run-01a0dea0-1323-75c2-adfc-677cc223bf08`). "我走过去，照他脸上就
 是一拳": the compile read `act` `combat` 1.0 (cleared) and `addressee` `none` 0.28 (not cleared), and asked no `target`
 (the kernel issued no first blow: Knott had no stat block yet); the route selected the ordinary check (`need` `now` 0.47,
-cleared on the margin, 0.64 against 0.33) and its bind went to the model (bind `outcome: keeper`), so no clerk step took
-the punch -- it was the Keeper's. The scan §139.20 put before the first model step, here before that bind, ran Knott
-(`engaged`: he had spoken the turn before) with the unresolved declaration as the last line of his packet; he generated
+cleared on the margin, 0.64 against 0.33), and its binder left it unsettled, so it was the Keeper's (bind `outcome:
+keeper`, an `adjudicate` `clerk_unbound`): no clerk step took the punch. The scan §139.20 put before that adjudication ran
+Knott (`engaged`: he had spoken the turn before) with the unresolved declaration as the last line of his packet; he generated
 "诺特把折好的租房广告收回口袋，侧身让开门口，抬脚朝外走去", bound as `leave`, `to: away`, done. The Keeper then had to `apply npc ... to:
 here` to bring him back and hit him. On turn 4, his own turn of the fight, he generated the same thing again, which the
 row settled `done` let through. Table B2 was all talk and never showed it.
 
-**The rule** (`npcScanItem`, `settleCompile`, `settleExecute` in `runtime/jev/step-policy.ts`; `runNpcScan` in
+**When the scan runs** (`next` and `turnWriting` in `runtime/jev/step-policy.ts`; the ticket's addendum of 2026-09-26,
+integration head c94b1d682). §139.20 said "before the run's first model step" and `next` implemented it as before the first
+`infer` of any purpose, so the scan also came before a clerk's bind handed to the model mid-flow -- an `infer` `bind`, the
+open parameters of a clerk step the model fills and the clerk then executes (§135.28). That put people's acts in the
+middle of the clerk's work on the declaration, ahead of the clerk steps still pending: the loop suite's "needs judged now
+run in structural order" had `npc_act:scan:0` before the model's bind of person A, and the pure time-budget case saw the
+scan where the head `infer` `bind` should run. The scan is now issued only before the Keeper's turn-writing model step,
+`infer` `adjudicate` or `compose` -- first when someone is present, and again after a later landed clerk step, as §139.20
+has it; still never taken from `pending`, still not past the run's time budget.
+
+**The hold** (`npcScanItem`, `settleCompile`, `settleExecute` in `runtime/jev/step-policy.ts`; `runNpcScan` in
 `runtime/jev/npc-act-step.ts`). The run's view records two facts:
 
 - `fightDeclared`: a compile of the run cleared `act` on a fight action (`fightAct`, `runtime/jev/route-compile.ts`): outside
@@ -25482,7 +25495,26 @@ first model step (the telemetry file interleaves writers, so line order is not e
 puts `fight_pending` on the scan (with the named addressee when there is one), `social` never does, a landed clue and a
 refused first blow leave it, a landed first blow ends it; on the emitted kernel, the punch aimed at Knott (the compile's
 `target`) with Edna Hale also in the conversation -- she acts as `engaged`, he is held, and the scan after the blow
-lands runs him. No existing test changed. Mutation (copy and restore): the hold disabled in `runNpcScan` fails the
-table-D replay (an `npc_act` row for him) and the Edna case; restored, green. `tests/extension/single-loop-run-driver.test.mjs`
-fails two cases at the integration base (7f54e9c63) with and without this change -- the step sequence gained §139.20's
-scan before the first model step -- which is not this ticket's.
+lands runs him. Mutation (copy and restore): the hold disabled in `runNpcScan` fails the table-D replay (an `npc_act` row
+for him) and the Edna case; restored, green. The timing: with the scan issued before any `infer` again, the loop suite's
+"needs judged now run in structural order" and "after an LLM step the next step is direct or finish" and the time-budget
+suite's pure-policy case fail (all three unchanged); restored, green.
+
+*The cases §139.20 shifted* (the addendum's list, sixteen at the integration head; each read one by one). Three needed no
+change once the scan stopped preceding a clerk's bind: `loop.test.mjs` "needs judged now run in structural order" and
+"after an LLM step ...", `single-loop-turn-budget.test.mjs` "the pure policy: a spent time budget ...". The rest are the
+design: someone is present, so the scan of the people present runs once before the Keeper's first adjudication or
+compose. Where a case is about routing or binding and not the scan, its view sets `npcScanned: []` (the scan has already
+run), with a comment saying so: `loop.test.mjs` "a low-confidence need is not selected ...", "ask_llm with nothing
+selected ...", "the same question ... escalates to the LLM", "an exhausted Jev budget ...", "a closed choice among issued
+actions ..."; `single-loop-binding.test.mjs` "a target among several has no rules default ..." and "at the engine: the
+bind row names every parameter's path ...". Where a case asserts the step sequence, the sequence gains the scan:
+`single-loop-binding.test.mjs` "on the driver: a clerk candidate without a default ..." (the one clerk step is
+`npc_act:scan:0`, and the check is still not executed), `single-loop-prescreen-budget.test.mjs` "a spent decision budget
+composes once ..." and `single-loop-turn-budget.test.mjs` "a model step that crosses the budget ..." (`clerk:npc_act:scan:0`
+once, before the first `infer:adjudicate`), `single-loop-run-driver.test.mjs` "SL-01 gate ..." and "without a Jev key ..."
+(one more `operate` before the `infer`). `host-state-not-fiction.test.mjs` "a delivery made under an adaptation wait ..."
+is not the scan: that table runs the legacy loop (no RunDriver, so neither §139.20 nor this section runs there), and
+`said once per delivered turn: []` is the test reading `telemetry.jsonl` as soon as the notice is in the session, while
+`record` appends the notice's row after it (a `mkdir`, then an `appendFile`); the case now waits for the decision row, as
+the file's other cases do.

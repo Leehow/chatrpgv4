@@ -78,7 +78,8 @@ test('needs judged now run in structural order: the person before the check befo
 
 test('a low-confidence need is not selected; a low-confidence exit goes to the LLM', async () => {
   const {ports: stub} = ports([batch => answer(batch, {need_1: ['now', 0.3], exit: ['continue', 0.3]})]);
-  const {telemetry, view: after} = await runTurn(stub, view(), {gate: 0.6});
+  // §139.20/§139.25: with someone present the scan of the people present precedes the Keeper's first adjudicate or compose; `npcScanned: []` marks this case as not about the scan.
+  const {telemetry, view: after} = await runTurn(stub, view({npcScanned: []}), {gate: 0.6});
   assert.deepEqual(telemetry.map(row => [row.kind, row.purpose]), [['decide', 'route'], ['infer', 'adjudicate'], ['finish', 'finish']]);
   assert.equal(telemetry[1].reason, 'low_confidence');
   assert.equal(after.observations.some(value => value.kind === 'direct'), false);
@@ -97,13 +98,15 @@ test('a margin lead clears the gate even when the reported confidence does not',
 
 test('ask_llm with nothing selected is a legal answer and goes to the LLM', async () => {
   const {ports: stub} = ports([batch => answer(batch, {exit: 'ask_llm'})]);
-  const {telemetry} = await runTurn(stub, view());
+  // §139.20/§139.25: with someone present the scan of the people present precedes the Keeper's first adjudicate or compose; `npcScanned: []` marks this case as not about the scan.
+  const {telemetry} = await runTurn(stub, view({npcScanned: []}));
   assert.equal(telemetry[1].kind, 'infer');
   assert.equal(telemetry[1].reason, 'ask_llm');
 });
 
 test('the same question over the same candidates and materials escalates to the LLM', async () => {
-  const start = view();
+  // §139.20/§139.25: with someone present the scan of the people present precedes the Keeper's first adjudicate or compose; `npcScanned: []` marks this case as not about the scan.
+  const start = view({npcScanned: []});
   assert.deepEqual(next({...start, asked: [routeDigest(start)]}), {kind: 'infer', purpose: 'adjudicate', reason: 'repeated_question'});
   // read_more that reads nothing new leaves the question identical; the second ask is not sent to Jev.
   const {calls, ports: stub} = ports([batch => answer(batch, {exit: 'read_more'})]);
@@ -132,9 +135,10 @@ test('a closed parameter is bound by Jev and then executed directly', async () =
 });
 
 test('an exhausted Jev budget hands the close to the LLM', async () => {
-  const spent = view({budget: {...view().budget, jevCalls: DEFAULT_BUDGET.maxJevCalls}});
+  // §139.20/§139.25: with someone present the scan of the people present precedes the Keeper's first adjudicate or compose; `npcScanned: []` marks this case as not about the scan.
+  const spent = view({budget: {...view().budget, jevCalls: DEFAULT_BUDGET.maxJevCalls}, npcScanned: []});
   assert.deepEqual(next(spent), {kind: 'infer', purpose: 'compose', reason: 'jev_budget'});
-  const slow = view({budget: {...view().budget, jevMs: DEFAULT_BUDGET.maxJevMs}});
+  const slow = view({budget: {...view().budget, jevMs: DEFAULT_BUDGET.maxJevMs}, npcScanned: []});
   assert.equal(next(slow).kind, 'infer');
   const {calls, ports: stub} = ports([]);
   const {telemetry} = await runTurn(stub, spent);
@@ -168,7 +172,8 @@ test('a closed choice among issued actions runs the chosen action with its own p
     async refresh(current) { reads++; return {context: current.context, candidates: reads === 1 ? [npcTurn] : []}; },
     async execute(candidate) { executed.push(candidate); return {ok: true, summary: {executed: candidate.key}}; },
   });
-  const {telemetry} = await runTurn(stub, initialView({runId: 'r', rawInput: 'hit him', context, candidates: []}));
+  // §139.20/§139.25: with someone present the scan of the people present precedes the Keeper's first adjudicate or compose; `npcScanned: []` marks this case as not about the scan.
+  const {telemetry} = await runTurn(stub, {...initialView({runId: 'r', rawInput: 'hit him', context, candidates: []}), npcScanned: []});
   assert.deepEqual(telemetry.slice(0, 3).map(row => [row.kind, row.purpose]), [['direct', 'read'], ['decide', 'bind'], ['direct', 'execute']]);
   assert.deepEqual(executed.map(candidate => [candidate.key, candidate.bound.decision, candidate.bound.target]), [[npcTurn.key, 'combat:attack', 'tom']]);
 });
