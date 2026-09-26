@@ -8081,7 +8081,11 @@ JSON object:
 
 The first three admit: the player's words in context chose it; it is a routine step the chosen goal
 requires; it is not the investigator's voluntary action at all. The last two refuse. A malformed answer
-is no answer (`bad_output`) and refuses like an outage.
+is no answer (`bad_output`) and refuses like an outage. *(Note, 2026-09-26, §139.15, ticket 16 of
+`docs/specs/npc-acts-first-tickets/`: a malformed answer is first asked for once more inside the same lane round,
+with one line saying it was not valid JSON; only the second is `bad_output`. On the investigator's own declared
+action as the clerk carries it out, a lane failure then takes §32.12.2's late admission or one host-run resend
+before it refuses; a Keeper's own proposal still refuses as written here.)*
 
 **Implementation clarification (2026-09-21): agency precedes consent.** First distinguish a
 voluntary investigator choice from genuine NPC initiative, environmental force, rules or settled
@@ -8793,7 +8797,9 @@ keeps its own 4 s cap. What is sufficient:
   fast path.
 - When one verdict is sufficient the other is abandoned, and a running lane round is aborted.
 - A lane failure (`model_unavailable`, `model_error`, `bad_output`) is §32.2's outage, unless a typed verdict stands. The
-  host waits for the typed answer (bounded by its own cap) before deciding.
+  host waits for the typed answer (bounded by its own cap) before deciding. *(Note, 2026-09-26, §139.15: on a clerk write
+  that carries out the investigator's declaration, the failure goes to the late admission below and, failing that, to the
+  one resend, which the host runs at once because a clerk cannot; the resend's own failure is the outage.)*
 
 So a typed answer no longer delays the lane on the fast path. Nor does a lane that is faster than Jev wait for the typed
 answer. On the table, the typed answer (0.3–2.1 s) comes first on almost every review. It stands on the fast path only
@@ -24385,3 +24391,83 @@ and a nameless `move` is told to name whom. `tests/kernel/test_npc_round_operati
 restored hint. Mutations (copy and restore): `chaseRoles` returning "the investigator is the quarry" always fails the
 four first cases, the `flee` one with exactly ticket 10's measured sides; the MOV requirement removed, the three-intent
 admission removed, the escape hint removed and the standing flight ignored each fail their cases.
+
+**139.15 The admission lane asks a malformed answer once more, and the investigator's declared action is not refused on a
+lane failure (2026-09-26, ticket 16 of `docs/specs/npc-acts-first-tickets/`, spec section 九 "C3 桌"; amends §32.2, §32.7
+and §32.12.2).** *Evidence.* Live table C3 (`npc-acts-c3`, lane `opencode-go/deepseek-v4.1-flash`), turn 3, 「我不拉闩。我走过去，
+照他脸上就是一拳。」: the Keeper's `resolve` (intent combat, target Steven Knott, unarmed) was answered in 2 082 ms (headers at
+1 631 ms) with `bad_output: JSON parse failed: Expected ',' or '}' after property value in JSON at position 36` -- the
+model opened `grounds` with an ASCII quote of the player's words -- while the typed reading was `authorized` 0.82. §32.2
+refused it `admission_unavailable`; the Keeper then wrote a fight nobody rolled (verifier `player_agency`), and the turn
+had no receipt. The generation step of §139.2, on the same model, asks a malformed answer once more before it gives up.
+
+*The retry.* `reviewAdmission` (`extensions/kernel/admission.ts`) sends at most `ADMISSION_LANE_ATTEMPTS` (2) completions
+per lane round, the second only when the first was `bad_output` (no JSON object, JSON that does not parse after the lane's
+repair, or not the verdict shape). The second input is the first plus one English line: `Your previous answer was not
+valid JSON for this review (<the parse detail>); answer again with the one JSON object only.` Both attempts share the
+round's one deadline (§32.12.2's hard cap); a round with no time left for the second attempt ends as a timeout, the host's
+`review_timeout` (§32.12). A provider error, a missing model, a timeout and an answer without grounds are not retried:
+asking again does not repair them. The second bad answer is the lane's `bad_output`, exactly as one was before.
+
+*Telemetry (amends §32.7).* Every `lane: "admission"` row whose verdict or failure came from a lane round carries
+`attempts` (1 or 2), and so does an `admission-late` row; `ms` and `lane_ms` cover both attempts, and `first_byte_ms` runs
+from the round's first request to the first response headers any attempt received. Each attempt writes its own
+`lane-call` rows (§12.8.1).
+
+*The investigator's declared action.* `declaredAction` (pure) is true for a call whose dispatcher host origin says
+`origin: "policy"` and whose clerk authority (§135.3) is one of `DECLARED_CLERKS`: `declared_bookkeeping`,
+`declared_check`, `stated_obligation`, `first_blow`, `session_step`, `mod_contact` -- the clerk carrying out the step the
+compile or the route selected from the player's words. `consequence_bookkeeping`, `npc_act` and `disposition_inference`
+are not, and neither is any Keeper-origin or host-dispatched call. A closed contract enum over where the call came from,
+read off the host origin (`evidence.clerk`, never the tool arguments). When §32.12.2's primary review of such a call ends
+in a lane failure (`model_unavailable`, `model_error`, `bad_output`; `no_grounds` keeps §32.12.2's own path, and a typed
+verdict that stands has already won), and the call is not itself a resend, `admitAction` (`extensions/kernel/index.ts`):
+
+1. writes the failure row as it is (`ok: false`, `reason`, `detail`, `attempts`) with `declared: true`, `late_rule` and
+   `then` (`typed_late` or `resend`). It is returned to no one, so it neither counts toward the §32.2 outage streak nor
+   resets it;
+2. applies §32.12.2's late admission unchanged (`lateAdmission`: a bookkeeping-only `apply` of `LATE_KINDS` whose typed
+   reading admits every line at `PI_COC_ADMISSION_LATE_MIN_CONFIDENCE`, 0.70): admitted `path: "typed_late"`, the row adding
+   `cause: "unavailable"` and `declared: true`. No new kind and no new threshold;
+3. otherwise runs §32.12.2's one resend itself, at once: a fresh review (`reviewAdmissionPrimary` again: its own cap, its
+   own typed attempt, its own one retry). The host runs it because the proposer cannot: a refused clerk step is dropped for
+   the run and the turn goes to the Keeper (§135.26), who reads `clerk_did`, never the refusal's `fix`, so a
+   `review_pending` returned to the clerk would never be resent -- C3's mechanics-free turn by another road. A verdict with
+   grounds settles as any verdict (it admits, or refuses with §32.2's refusal, and resets the streak); a lane failure is
+   §32.2's `admission_unavailable` and counts once; no grounds, or a review past its cap, is `review_timeout` naming the hard
+   cap, because a call is never pending twice. The resend's row adds `resend: true`, `resend_by: "host"`, `declared: true`,
+   `resend_wait_ms` and `lane_ms`; its `ms` runs from the first review's start.
+
+*The path a player's punch takes when both answers are bad.* (a) **The Keeper's own `resolve`** -- C3 turn 3 itself: the
+compile read `act: combat` at 1.0 but fired no predicate (`fired: []`), so the resolve was `origin: model` -- is retried
+once inside the round; a valid second answer admits it and the roll lands; two bad answers refuse `admission_unavailable`
+as before (not widened: a Keeper proposal keeps §32.2). (b) **The clerk's first blow with clean compile evidence**
+(`first_blow`, §135.30.2) is admitted `path: "compile"` before any lane call (§32.12), so no answer is asked for. (c) **A
+declared punch the lane reviews** -- the compile's exemption refused (`compile_refused`), or a fight's `session_step`
+attack the route selected -- after two bad answers is not late-eligible (`late_rule: not_bookkeeping`: a `resolve` never
+is), so the host runs the resend: a verdict with grounds admits it and the attack is rolled (or refuses it with its
+grounds), and a second failure refuses it `admission_unavailable`.
+
+*What this is not.* No new verdict, no new admitting threshold and no admit on a failure: the only admits are a lane
+verdict with grounds and §32.12.2's measured late rule. Nothing changes for Keeper-origin or host calls, for what §32.1 puts
+to review, for §32.4's reuse, for the compile admission of §32.12 or for the caps.
+
+*Three ends (§31).* Writer: the lane round's attempts, `lateAdmission`, the host-run resend. Reader: `admitAction`, still the
+one place a call is admitted or refused. Actor: the clerk, whose step lands or is dropped as before; the Keeper, through
+the unchanged refusal; the operator, through `attempts`, `declared`, `then` and `resend_by`.
+
+Tests: `tests/extension/admission.test.mjs` (fake kernel, the scripted `admission/a1` lane, C3's own malformed answer):
+a malformed first answer and a valid second admit the Keeper's punch with `attempts: 2`, the second request carrying the
+one added line and the resolve's `roll:fighting-brawl-*` receipt landing; the Keeper's punch with two malformed answers is
+refused `admission_unavailable` with `attempts: 2`, two requests and no resend. `tests/extension/admission-within-turn.test.mjs`
+(emitted kernel, hybrid engine, stub Jev; the first blow's target record put under the gate so the lane reviews it): two
+malformed answers, then the host's resend admits the clerk's first blow, the investigator's Fighting (Brawl) roll lands and
+the rows read `bad_output, attempts 2, declared, then resend` and `authorized, resend_by host, attempts 1`; four malformed
+answers refuse it `admission_unavailable` after exactly one resend, nothing rolled, no outage notice; the route-selected
+morgue move with two malformed answers and a typed reading `authorized` 0.80 is admitted `typed_late` with no resend;
+`declaredAction` pure over the clerk authorities and origins. Existing tests that scripted one malformed answer per failed
+review now script two (`admission.test.mjs` 2, `admission-jev.test.mjs` 1, `object-usages-admission.test.mjs` 1,
+`involuntary-admission.test.mjs` 1). Mutations (copy and restore): `ADMISSION_LANE_ATTEMPTS = 1` fails the first case
+(one request, not two); `declaredAction` returning false fails the first-blow resend case; `declaredAction` returning true
+for every call fails the Keeper's two-malformed case. **Not verified live:** whether the table's lane answers valid JSON on
+the second attempt as often as the generation step's does, and the host-run resend on a real table.

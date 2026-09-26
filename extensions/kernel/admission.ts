@@ -12,13 +12,14 @@
  *
  * Three boundaries: the verdict authorises the affected voluntary action, never its outcome, and
  * never asks the player to approve hidden dangers; an unavailable review is a refusal with a
- * service status, not fail-open fiction (§32.2); nothing here reaches the next capsule — a
- * refusal is a tool result on this turn and a telemetry row, not a debt.
+ * service status, not fail-open fiction (§32.2; on the investigator's own declared action it first
+ * takes §32.12.2's late admission or its one resend, §139.15); nothing here reaches the next
+ * capsule — a refusal is a tool result on this turn and a telemetry row, not a debt.
  */
 
 import { createHash } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { runLane } from "../lanes/subsession.ts";
+import { runLane, type LaneResult } from "../lanes/subsession.ts";
 import { KernelError } from "./client.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
@@ -70,6 +71,17 @@ export function admissionHardCapMs(capMs: number): number {
 export const REVIEW_PENDING = "review_pending";
 /** A lane answer whose grounds are empty: no verdict, not an outage (§32.12.2). */
 export const NO_GROUNDS = "no_grounds";
+/**
+ * §139.15 (ticket 16): a lane round asks its model at most twice, and the second time only when the first answer was not a
+ * verdict at all (`bad_output`: no JSON object, JSON that does not parse, or not the verdict shape). Live table C3, turn 3:
+ * one malformed answer in 2.1 s refused a player's punch and left the turn with no mechanics. Both attempts share the
+ * round's one deadline; the second bad answer is the lane's failure, as one was before.
+ */
+export const ADMISSION_LANE_ATTEMPTS = 2;
+/** The one line the second attempt adds to the review's input: the first answer was not a valid verdict, and why. */
+export function admissionRetryInput(input: string, detail: string): string {
+	return `${input}\n\nYour previous answer was not valid JSON for this review (${detail.slice(0, 160)}); answer again with the one JSON object only.`;
+}
 
 export interface AdmissionVerdict {
 	verdict: string;
@@ -521,7 +533,8 @@ export function typedDetails(typed: TypedReading): Record<string, unknown> {
 
 export type AdmissionOutcome =
 	| { ok: true; verdict: AdmissionVerdict; ms: number; model: string; reviewer?: AdmissionReviewer; meta?: Record<string, unknown> }
-	| { ok: false; reason: string; detail: string; ms: number; model?: string; reviewer?: AdmissionReviewer; meta?: Record<string, unknown> }
+	/** `typed`: the typed reviewer's reading when it had answered (§139.15 reads it for a declared action's late admission). */
+	| { ok: false; reason: string; detail: string; ms: number; model?: string; reviewer?: AdmissionReviewer; meta?: Record<string, unknown>; typed?: TypedReading }
 	/**
 	 * §32.12.2: no sufficient verdict -- the cap passed (`cause: "cap"`, and `lane` is the review still running, until the
 	 * hard cap) or the lane answered without grounds (`cause: "no_grounds"`, nothing running). The caller decides between
@@ -549,33 +562,55 @@ export interface AdmissionReviewOptions {
  * One review round through the shared lane runner (contract §12.5's pattern, §32's remit). Never throws. A round cut at
  * `timeoutMs` is the host's `review_timeout` verdict; an answer whose grounds are empty is no verdict (`no_grounds`,
  * §32.12.2): it neither admits nor refuses, and it is not an outage.
+ *
+ * §139.15 (ticket 16): an answer that is not a verdict at all (`bad_output`) is asked for once more inside the same round,
+ * with one line saying why, under the round's one deadline; the second bad answer is the lane's `bad_output`. Only a
+ * malformed answer is retried: a provider error, a missing model or a timeout is not something asking again repairs.
+ * The outcome's `meta.attempts` says how many completions the round sent.
  */
 export async function reviewAdmission(options: AdmissionReviewOptions): Promise<AdmissionOutcome> {
 	const capMs = options.timeoutMs ?? admissionTimeoutMs();
-	const lane = await runLane<AdmissionVerdict>({
-		providerBudget: options.providerBudget,
-		ctx: options.ctx,
-		envName: "PI_COC_ADMISSION_MODEL",
-		lane: "admission",
-		record: options.record,
-		systemPrompt: admissionSystemPrompt(),
-		input: buildAdmissionInput(options.proposal, options.context),
-		...(options.signal ? { signal: options.signal } : {}),
-		timeoutMs: capMs,
-		shape: shapeVerdict,
-	});
-	const meta = { path: "lane", first_byte_ms: lane.firstByteMs ?? null };
+	const began = Date.now(), deadline = began + capMs;
+	const input = buildAdmissionInput(options.proposal, options.context);
+	let lane: LaneResult<AdmissionVerdict> | undefined, model: string | undefined, firstByteMs: number | undefined, previous: string | undefined;
+	let attempts = 0;
+	for (let attempt = 1; attempt <= ADMISSION_LANE_ATTEMPTS; attempt++) {
+		const startedAt = Date.now(), left = deadline - startedAt;
+		// No time left for the second attempt: the round produced no verdict by its deadline, which is a timeout (§32.12).
+		if (left <= 0) { lane = { ok: false, reason: "timeout", detail: `the lane did not answer within ${capMs} ms: none was left for another attempt`, ms: startedAt - began }; break; }
+		attempts = attempt;
+		lane = await runLane<AdmissionVerdict>({
+			providerBudget: options.providerBudget,
+			ctx: options.ctx,
+			envName: "PI_COC_ADMISSION_MODEL",
+			lane: "admission",
+			record: options.record,
+			systemPrompt: admissionSystemPrompt(),
+			input: previous === undefined ? input : admissionRetryInput(input, previous),
+			...(options.signal ? { signal: options.signal } : {}),
+			timeoutMs: left,
+			shape: shapeVerdict,
+		});
+		model = lane.model ?? model;
+		// From the round's first request to the first response headers any attempt received (§32.12's `first_byte_ms`).
+		if (firstByteMs === undefined && lane.firstByteMs !== undefined) firstByteMs = startedAt - began + lane.firstByteMs;
+		if (lane.ok || lane.reason !== "bad_output" || options.signal?.aborted) break;
+		previous = lane.detail;
+	}
+	const ms = Date.now() - began;
+	const meta = { path: "lane", first_byte_ms: firstByteMs ?? null, attempts };
 	// §32.12: a round cut at its cap -- whether the provider never answered or answered and streamed past it -- is the
 	// host's `review_timeout` verdict, a refusal; never an outage, and never an admit.
-	if (!lane.ok && lane.reason === "timeout") return { ok: true,
+	if (!lane!.ok && lane!.reason === "timeout") return { ok: true,
 		verdict: { verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${capMs} ms cap`, reviewer: "lane", path: "lane", capMs },
-		ms: lane.ms, model: lane.model ?? "", reviewer: "lane", meta: { ...meta, timed_out: true, cap_ms: capMs } };
-	if (!lane.ok) return { ok: false, reason: lane.reason, detail: lane.detail, ms: lane.ms, ...(lane.model ? { model: lane.model } : {}), reviewer: "lane", meta };
+		ms, model: model ?? "", reviewer: "lane", meta: { ...meta, timed_out: true, cap_ms: capMs } };
+	if (!lane!.ok) return { ok: false, reason: lane!.reason, detail: lane!.detail, ms, ...(model ? { model } : {}), reviewer: "lane", meta };
+	const answer = lane!.value;
 	// §32.12.2: only a verdict with grounds is a verdict. The prompt asks for the words relied on; an answer without them
 	// cannot be read back by the Keeper or audited, so it is treated as no answer.
-	if (!lane.value.grounds.trim()) return { ok: false, reason: NO_GROUNDS, detail: `the lane answered ${lane.value.verdict} with no grounds`, ms: lane.ms,
-		model: lane.model, reviewer: "lane", meta: { ...meta, lane_verdict: lane.value.verdict } };
-	return { ok: true, verdict: { ...lane.value, reviewer: "lane", path: "lane" }, ms: lane.ms, model: lane.model, reviewer: "lane", meta };
+	if (!answer.grounds.trim()) return { ok: false, reason: NO_GROUNDS, detail: `the lane answered ${answer.verdict} with no grounds`, ms,
+		model: model ?? "", reviewer: "lane", meta: { ...meta, lane_verdict: answer.verdict } };
+	return { ok: true, verdict: { ...answer, reviewer: "lane", path: "lane" }, ms, model: model ?? "", reviewer: "lane", meta };
 }
 
 /**
@@ -785,7 +820,11 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	// The lane finished with nothing sufficient and the typed answer is in and does not stand.
 	const afterLane = (laneDone: AdmissionOutcome, attempt: TypedAttempt): AdmissionOutcome => {
 		if (laneDone.ok === false && laneDone.reason === NO_GROUNDS) return late("no_grounds", attempt, laneDone);
-		if (laneDone.ok === false) return { ...laneDone, ms: Date.now() - began, meta: { ...laneDone.meta, ...jevMeta(attempt), lane_ms: laneDone.ms } };
+		if (laneDone.ok === false) {
+			// §139.15: the typed reading travels with the failure; a declared action's late admission reads it (never a verdict here).
+			const reading = readingOf(attempt.typed);
+			return { ...laneDone, ms: Date.now() - began, ...(reading ? { typed: reading } : {}), meta: { ...laneDone.meta, ...jevMeta(attempt), lane_ms: laneDone.ms } };
+		}
 		return late("cap", attempt, laneDone);
 	};
 	// §32.12.3: some lines admitted on their own and not all -- the batch's lane round is dropped and the caller reviews the
@@ -884,6 +923,25 @@ export interface ClerkEvidence {
 	basis?: unknown;
 	/** The engine's bind records for this call, computed before the dispatch: `path: null` for a parameter with no record. */
 	bindings?: unknown;
+	/** The clerk authority the candidate ran under (§135.3), from the same host origin. */
+	clerk?: string;
+}
+
+/**
+ * §139.15 (ticket 16): the clerk authorities (§135.3) whose writes carry out the investigator's own declaration -- the step
+ * the compile or the route selected from the player's words: a declared move, clue or handout, the ordinary check, a stated
+ * obligation's check, the first blow, a fight's or chase's step, a Mod's contact check. Not a consequence the host routed
+ * (`consequence_bookkeeping`), a person's own act (`npc_act`) or an NPC's standing (`disposition_inference`). A closed
+ * contract enum over where the call came from, never a reading of its words.
+ */
+export const DECLARED_CLERKS: ReadonlySet<string> = new Set(["declared_bookkeeping", "declared_check", "stated_obligation", "first_blow", "session_step", "mod_contact"]);
+/**
+ * Pure (§139.15). Whether a call is the investigator's own declared action as the clerk carries it out: policy origin and a
+ * declared clerk authority, both read off the dispatcher's host origin. A Keeper-origin call, a host-dispatched call with
+ * no origin and every other clerk write answer false, and keep §32.2's refusal on an unavailable review.
+ */
+export function declaredAction(evidence: ClerkEvidence | undefined): boolean {
+	return evidence?.origin === "policy" && typeof evidence.clerk === "string" && DECLARED_CLERKS.has(evidence.clerk);
 }
 
 export type CompileAdmission =

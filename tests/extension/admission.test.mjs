@@ -8,6 +8,9 @@
  *
  * Nothing here asserts a phrase of the review prompt. The verdicts are scripted, because the
  * judgement is the model's; what is under test is what the host does with a verdict.
+ *
+ * §139.15's declared-action cases (the clerk's own writes, on the emitted kernel and the hybrid engine) are in
+ * `admission-within-turn.test.mjs`, beside the rest of §32.12's engine seam.
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
@@ -302,13 +305,14 @@ test("an uncertain verdict refuses too, naming what is unclear", async (t) => {
 });
 
 test("a malformed verdict is no verdict: the action is refused as unavailable, never admitted by default", async (t) => {
+	// §139.15: a malformed answer is asked for once more; two of them are the lane's failure, as one was before.
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 60 }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "时间没有过去。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
-		laneResponses: { admission: [fauxAssistantMessage(JSON.stringify({ verdict: "sure, go ahead" }))] },
+		laneResponses: { admission: [fauxAssistantMessage(JSON.stringify({ verdict: "sure, go ahead" })), fauxAssistantMessage(JSON.stringify({ verdict: "sure, go ahead" }))] },
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("我等一会儿");
@@ -317,6 +321,7 @@ test("a malformed verdict is no verdict: the action is refused as unavailable, n
 	const [row] = admissionRows(table);
 	assert.equal(row.ok, false);
 	assert.equal(row.reason, "bad_output");
+	assert.equal(row.attempts, 2);
 });
 
 
@@ -484,12 +489,13 @@ test("a live verdict resets the outage streak: the next failure reads as transie
 			...moveTurn("stack-room", "你到了书库。"),
 			...moveTurn("photo-morgue", "又结算不了了。"),
 		],
+		// §139.15: each failed review is two malformed answers (the round asks once more), so each turn scripts two.
 		laneResponses: {
 			admission: [
-				badVerdict(), // turn 1: bad_output, streak 1 — transient
-				badVerdict(), // turn 2: bad_output, streak 2 — persistent, notified
+				badVerdict(), badVerdict(), // turn 1: bad_output, streak 1 — transient
+				badVerdict(), badVerdict(), // turn 2: bad_output, streak 2 — persistent, notified
 				verdict({ verdict: "authorized", grounds: "the player named the stacks" }), // turn 3: live verdict — reset
-				badVerdict(), // turn 4: bad_output, streak 1 again — transient
+				badVerdict(), badVerdict(), // turn 4: bad_output, streak 1 again — transient
 			],
 		},
 	});
@@ -512,4 +518,63 @@ test("a live verdict resets the outage streak: the next failure reads as transie
 	assert.match(fourth, /next input can try again/);
 	assert.doesNotMatch(fourth, /notified outside the game/);
 	assert.equal(table.entries("coc-admission-status").length, 1, "the new streak has not reached two");
+});
+
+// ---- §139.15 (ticket 16): a malformed answer is asked for once more; the declared action is not refused on a failure ----
+
+/**
+ * Live table C3, turn 3 (`npc-acts-c3`, lane `opencode-go/deepseek-v4.1-flash`): the lane answered in 2.1 s with its grounds
+ * opening on an ASCII quote of the player's words, `JSON parse failed: Expected ',' or '}' after property value in JSON at
+ * position 36`, and the punch was refused `admission_unavailable`; the Keeper then wrote an unrolled fight. This is that
+ * answer's shape, which fails the same way after the lane's repair.
+ */
+const C3_MALFORMED = () => fauxAssistantMessage(`{"verdict":"authorized","grounds":""我走过去，照他脸上就是一拳。" chose the punch"}`);
+const PUNCH_WORDS = "我不拉闩。我走过去，照他脸上就是一拳。";
+/** The Keeper's own punch (origin model), as C3's Keeper proposed it, then its delivery. */
+const keeperPunch = () => [
+	fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "combat", goal: "一拳打在他脸上", method: "走近后挥拳击中面部", actor: "托马斯·海耶斯", target: "看门人", weapon: "unarmed" } })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("narrate", { text: "你一拳挥了过去。" })], { stopReason: "toolUse" }),
+	fauxAssistantMessage("after"),
+];
+const RETRY_LINE = /Your previous answer was not valid JSON for this review \(JSON parse failed: Expected ',' or '\}' after property value in JSON at position 36/;
+
+test("§139.15: a malformed first answer is asked for once more in the same round, with one line saying why; the valid second admits the punch and it is rolled -- attempts: 2", async (t) => {
+	const table = await openTable({
+		responses: keeperPunch(),
+		laneResponses: { admission: [C3_MALFORMED(), verdict({ verdict: "authorized", grounds: "the player said they walk over and punch him in the face" })] },
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt(PUNCH_WORDS);
+
+	const requests = table.lanes.admission.requests();
+	assert.equal(requests.length, 2, "one round, two completions");
+	assert.doesNotMatch(requests[0], /Your previous answer/);
+	assert.match(requests[1], RETRY_LINE, "the second attempt says the first was not valid JSON, and why");
+	assert.equal(requests[1].split("\n").filter((line) => /previous answer/.test(line)).length, 1, "one added line");
+	const rows = admissionRows(table);
+	assert.equal(rows.length, 1, JSON.stringify(rows));
+	assert.deepEqual([rows[0].verdict, rows[0].admitted, rows[0].attempts, rows[0].path, rows[0].origin], ["authorized", true, 2, "lane", "model"]);
+	const rolled = kernelCalls(table, "table.resolve").filter((entry) => !entry.params._standing_defense);
+	assert.equal(rolled.length, 1, "the punch reached the kernel");
+	const [text] = toolResultTexts(table.session, "resolve");
+	assert.match(text, /roll:fighting-brawl-/, "its roll receipt landed");
+	assert.equal(table.entries("coc-admission-status").length, 0);
+});
+
+test("§139.15: the Keeper's own punch with two malformed answers keeps §32.2's refusal -- unavailable, nothing rolled, no resend", async (t) => {
+	const table = await openTable({ responses: keeperPunch(), laneResponses: { admission: [C3_MALFORMED(), C3_MALFORMED()] } });
+	t.after(() => table.dispose());
+	await table.session.prompt(PUNCH_WORDS);
+
+	assert.equal(table.lanes.admission.requests().length, 2, "the round's retry and nothing more: a Keeper proposal gets no resend");
+	assert.equal(kernelCalls(table, "table.resolve").length, 0, "no authority, no roll");
+	const [text] = toolResultTexts(table.session, "resolve");
+	assert.match(text, /^needs: The action review is unavailable, so this action cannot be settled now$/m);
+	assert.match(text, /The player's next input can try again/, "the first failure of a streak reads as transient, as before");
+	const rows = admissionRows(table);
+	assert.equal(rows.length, 1, JSON.stringify(rows));
+	assert.deepEqual([rows[0].ok, rows[0].reason, rows[0].attempts, rows[0].origin, rows[0].declared, rows[0].resend], [false, "bad_output", 2, "model", undefined, undefined]);
+	assert.match(rows[0].detail, /position 36/, "the second answer's own parse failure");
+	const refusal = table.telemetry().find((row) => row.tool === "resolve" && !row.lane && row.ok === false);
+	assert.equal(refusal?.reason, "admission_unavailable");
 });

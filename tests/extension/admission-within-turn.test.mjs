@@ -22,9 +22,9 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
 import { askWords, isAskRow } from "./compile-ask.mjs";
 import { withOriginTamper } from "./origin-tamper.mjs";
-import { DEFAULT_ADMISSION_TIMEOUT_MS, REVIEW_PENDING, REVIEW_TIMEOUT, admissionTimeoutMs, compileAdmission } from "../../extensions/kernel/admission.ts";
+import { DECLARED_CLERKS, DEFAULT_ADMISSION_TIMEOUT_MS, REVIEW_PENDING, REVIEW_TIMEOUT, admissionTimeoutMs, compileAdmission, declaredAction } from "../../extensions/kernel/admission.ts";
 import { admissionBindings, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
-import { BIND_FAMILY } from "../../runtime/jev/step-policy.ts";
+import { BIND_FAMILY, CLERK_AUTHORITY } from "../../runtime/jev/step-policy.ts";
 import { COMPILE_FAMILY, COMPILE_PREDICATES, FEATURE_FAMILIES, interpretCompile } from "../../runtime/jev/route-compile.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -316,11 +316,12 @@ function countTyped(t) {
 	return requests;
 }
 
-async function hybrid(t, { prepare, compile, responses, env = {}, engine: engineOptions = {}, tamper }) {
+async function hybrid(t, { prepare, compile, responses, env = {}, engine: engineOptions = {}, tamper, laneResponses }) {
 	const engine = createHybridEngine({ env: process.env, decision: stubJev(compile), ...engineOptions });
 	const table = await openTable({
 		realKernel: true, prepareWorkspace: prepare, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: PASS, ...env },
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: tamper ? withOriginTamper(engine, tamper) : engine.extension }], responses,
+		...(laneResponses ? { laneResponses } : {}),
 	});
 	t.after(() => table.dispose());
 	return table;
@@ -610,4 +611,140 @@ test("SL-31 (§135.28): long gate #2's STR shape -- the binder's difficulty `unk
 		assert.deepEqual([row.basis.binding, row.basis.rule_default], [expected.defaults ? "rule-default" : undefined, expected.defaults], "the basis carries each default");
 		assert.equal(row.path, "compile", "a rules default is an exempt path: admitted on the compile's evidence");
 	});
+});
+
+// ---- §139.15 (ticket 16): the lane failed on the investigator's own declared action -----------------------------------
+
+/**
+ * Live table C3, turn 3's malformed answer: the grounds open on an ASCII quote of the player's words, which fails the lane's
+ * JSON repair at position 36 exactly as the table's did.
+ */
+const malformed = () => fauxAssistantMessage(`{"verdict":"authorized","grounds":""我走过去，照他脸上就是一拳。" chose the punch"}`);
+const laneVerdict = (row) => fauxAssistantMessage(JSON.stringify(row));
+/** SL-19's state (`single-loop-settlement.test.mjs`): Knott has numbers and holds back when hit; no fight is running. */
+const knottAtHisDesk = (workspace) => kernelSteps(workspace, [
+	["table.open", {}], ["table.player_input", { text: "我盯着他" }],
+	["table.apply", { call_id: "t1-c1", effects: [{ kind: "npc", name: "Steven Knott", archetype: "ordinary_adult", why: "test fixture" }] }],
+	["table.apply", { call_id: "t1-c2", effects: [{ kind: "npc", name: "Steven Knott", disposition: "avoids_fighting", why: "test fixture" }] }],
+	["table.narrate", { call_id: "t1-c3", text: "他在桌后看着你。" }],
+]);
+/** Jev for the punch: the compile reads a combat act on Knott (the first blow's predicate), the bind takes his fists; routes finish. */
+const firstBlowJev = { decide: async (batch) => {
+	if (batch.family === COMPILE_FAMILY)
+		return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(question.key === "act"
+			? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("combat")), 0.95]
+			: question.key === "target" ? [aliasWhere(question, (value) => JSON.stringify(value).includes("Steven Knott")), 0.95] : ["unclear", 0.9])])));
+	if (batch.family === BIND_FAMILY)
+		return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice([question.key === "weapon" ? "unarmed" : "unknown", 0.9])])));
+	return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
+		choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9])])));
+} };
+/**
+ * The compile's target record under the gate, on the first blow only: its exemption is refused (§32.12), so the lane reviews
+ * the clerk's punch. The product's own compile does not produce this record for a blow it selects; it stands for any
+ * declared write the lane reviews (a skill under the gate, a route selection).
+ */
+const targetUnderGate = (origin) => {
+	if (origin.origin === "policy" && origin.clerk === "first_blow" && origin.basis?.compile?.read_features?.target)
+		origin.basis.compile.read_features.target = { ...origin.basis.compile.read_features.target, confidence: 0.41, cleared: false };
+	return origin;
+};
+const PUNCH = "我不拉闩。我走过去，照他脸上就是一拳。";
+const punchRows = (table) => admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.clerk === "first_blow");
+const clerkPunch = (table) => table.telemetry("test-camp").find((row) => row.tool === "resolve" && row.origin === "policy" && row.clerk === "first_blow");
+/** The investigator's attack rolls among the turn's mechanics (§16.2): what the player sees as the dice. */
+const brawl = (table) => table.mechanics().flatMap((entry) => entry.mechanics ?? [])
+	.filter((row) => row.kind === "roll" && row.skill === "Fighting (Brawl)" && row.actor_is_investigator === true);
+
+test("§139.15: the player's punch, two malformed answers -- the host runs the one resend at once, the fresh review admits it and the attack is rolled", async (t) => {
+	const table = await hybrid(t, { prepare: knottAtHisDesk, engine: { decision: firstBlowJev }, tamper: targetUnderGate, responses: narrateOnly("你一拳打在他脸上。"),
+		laneResponses: { admission: [malformed(), malformed(), laneVerdict({ verdict: "authorized", grounds: "the player said they walk over and punch him in the face" })] } });
+	await table.session.prompt(PUNCH);
+
+	const requests = table.lanes.admission.requests();
+	assert.equal(requests.length, 3, "the round's two attempts, then the resend's fresh review");
+	assert.match(requests[1], /Your previous answer was not valid JSON for this review \(JSON parse failed: .*position 36/);
+	assert.doesNotMatch(requests[2], /Your previous answer/, "the resend is a fresh review, not a third attempt of the round");
+	const [failed, resend, ...rest] = punchRows(table);
+	assert.equal(rest.length, 0, JSON.stringify(rest));
+	assert.deepEqual([failed.ok, failed.reason, failed.attempts, failed.declared, failed.late_rule, failed.then, failed.compile_refused, failed.path],
+		[false, "bad_output", 2, true, "not_bookkeeping", "resend", "feature_not_cleared:target", "lane"], "the lane's failure, said as such, and what came next");
+	assert.deepEqual([resend.verdict, resend.admitted, resend.resend, resend.resend_by, resend.attempts, resend.path, resend.reviewer],
+		["authorized", true, true, "host", 1, "lane", "lane"], "the resend's verdict admitted the punch");
+	assert.equal(typeof resend.resend_wait_ms, "number");
+	const roll = clerkPunch(table);
+	assert.ok(roll?.ok, "the clerk's first blow reached the kernel and was settled");
+	assert.equal(roll.outcome_kind, "combat");
+	const bind = table.telemetry("test-camp").find((row) => row.lane === "run" && row.event === "bind" && row.candidate === "resolve:combat:first-blow");
+	assert.equal(bind?.status, "succeeded");
+	assert.ok(brawl(table).length > 0, `the investigator's Fighting (Brawl) roll landed: ${JSON.stringify(table.mechanics())}`);
+	assert.match(brawl(table)[0].receipt, /^roll:fighting-brawl-/);
+	assert.equal(table.entries("coc-admission-status").length, 0, "no outage");
+});
+
+test("§139.15: the resend fails too (four malformed answers) -- §32.2's refusal, counted once; nothing admitted on a failure", async (t) => {
+	const table = await hybrid(t, { prepare: knottAtHisDesk, engine: { decision: firstBlowJev }, tamper: targetUnderGate, responses: narrateOnly("他挡开了你的手。"),
+		laneResponses: { admission: [malformed(), malformed(), malformed(), malformed()] } });
+	await table.session.prompt(PUNCH);
+
+	assert.equal(table.lanes.admission.requests().length, 4, "one resend, never a second");
+	const [failed, resend, ...rest] = punchRows(table);
+	assert.equal(rest.length, 0, JSON.stringify(rest));
+	assert.deepEqual([failed.ok, failed.declared, failed.then], [false, true, "resend"]);
+	assert.deepEqual([resend.ok, resend.reason, resend.attempts, resend.resend, resend.resend_by], [false, "bad_output", 2, true, "host"]);
+	const refused = clerkPunch(table);
+	assert.deepEqual([refused?.ok, refused?.reason], [false, "admission_unavailable"], "unavailability still refuses (§32.2)");
+	assert.notEqual(table.telemetry("test-camp").find((row) => row.lane === "run" && row.event === "bind" && row.candidate === "resolve:combat:first-blow")?.status, "succeeded");
+	assert.equal(brawl(table).length, 0, "no attack was rolled");
+	assert.equal(table.entries("coc-admission-status").length, 0, "the streak counts the one failure returned, not the resend's first review");
+});
+
+/** Admission's typed endpoint answering every line `verdict` at `confidence` (the shape `admission-late.test.mjs` answers in). */
+function typedAnswers(t, verdict, confidence) {
+	const original = globalThis.fetch, requests = [];
+	globalThis.fetch = async (url, init) => {
+		if (String(url) !== "https://api.typesafe.ai/v1/systemone") return original(url, init);
+		const body = JSON.parse(init.body);
+		requests.push(body);
+		const answers = Object.fromEntries(Object.entries(body.questions).map(([key, question]) => {
+			const keys = Object.keys(question.criteria);
+			const picked = key.startsWith("verdict_") ? verdict : key.startsWith("missing_") ? "none" : body.state.playerWords?.[0]?.alias ?? "none";
+			const level = key.startsWith("verdict_") ? confidence : 0.97, rest = keys.length > 1 ? (1 - level) / (keys.length - 1) : 0;
+			return [key, { type: "choice", choice: picked, confidence: level, probabilities: Object.fromEntries(keys.map((option) => [option, option === picked ? level : rest])) }];
+		}));
+		return new Response(JSON.stringify({ model: "jev-1.13.0", answers, usage: { input_tokens: 900, output_tokens: 40 } }), { status: 200 });
+	};
+	t.after(() => { globalThis.fetch = original; });
+	return requests;
+}
+
+test("§139.15: the route-selected move, two malformed answers, the typed reading authorized at 0.80 -- admitted typed_late on §32.12.2's rule, no resend", async (t) => {
+	const typed = typedAnswers(t, "authorized", 0.8);
+	const table = await hybrid(t, { prepare: tookTheJob, compile: () => undefined, responses: narrateOnly("你到了报馆。"), env: { EXT_JEV_APIKEY: "test-jev-key" },
+		engine: { compile: false, decision: { decide: async (batch) => complete(Object.fromEntries(batch.questions.map((question) => {
+			const candidate = batch.state?.candidates?.[`candidate_${question.key.split("_")[1]}`];
+			return [question.key, choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now"
+				? (candidate?.bound?.to === MORGUE ? "now" : "later") : "unknown", 0.9])];
+		}))) } },
+		laneResponses: { admission: [malformed(), malformed()] } });
+	await table.session.prompt("先去《环球报》剪报室，翻科比特宅这些年的旧报道。");
+
+	assert.equal(table.lanes.admission.requests().length, 2, "no resend: the late admission decided");
+	assert.ok(typed.length >= 1, "the typed reviewer read the move");
+	const rows = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "apply");
+	assert.deepEqual(rows.map((row) => [row.ok, row.reason ?? row.verdict, row.path]), [[false, "bad_output", "lane"], [true, "authorized", "typed_late"]]);
+	assert.deepEqual([rows[0].attempts, rows[0].declared, rows[0].late_rule, rows[0].then, rows[0].clerk], [2, true, "typed_late", "typed_late", "declared_bookkeeping"]);
+	assert.deepEqual([rows[1].admitted, rows[1].reviewer, rows[1].late_rule, rows[1].late_min_confidence, rows[1].confidence, rows[1].cause], [true, "jev", "typed_late", 0.7, 0.8, "unavailable"]);
+	const move = table.telemetry("test-camp").find((row) => row.tool === "apply" && row.origin === "policy");
+	assert.ok(move?.ok, "the declared move landed");
+});
+
+test("§139.15: declaredAction reads the host origin's clerk authority only -- the declared clerks, never a consequence, a person's act, a Keeper or a host call", () => {
+	for (const clerk of ["declared_bookkeeping", "declared_check", "stated_obligation", "first_blow", "session_step", "mod_contact"])
+		assert.equal(declaredAction({ origin: "policy", clerk }), true, clerk);
+	for (const clerk of ["consequence_bookkeeping", "npc_act", "disposition_inference", undefined])
+		assert.equal(declaredAction({ origin: "policy", ...(clerk ? { clerk } : {}) }), false, String(clerk));
+	assert.equal(declaredAction({ origin: "model", clerk: "first_blow" }), false, "only the dispatcher's policy origin");
+	assert.equal(declaredAction(undefined), false);
+	assert.ok([...DECLARED_CLERKS].every((clerk) => CLERK_AUTHORITY.includes(clerk)), "every declared clerk is a clerk authority");
 });
