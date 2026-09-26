@@ -6773,8 +6773,10 @@ export class PiHostBackend implements HostBackend {
           this.stream({ type: "text", sessionId: id, contentIndex: 0, segment: endingEpoch, delta: flushed });
         }
         // §135.11.5: whatever this message streamed and the diff above did not replace stays on screen.
+        // §135.11.6: in a bound COC session it was the Keeper's working, folded, until now; decided by
+        // the session's binding, never by the text.
         try {
-          this.turnTelemetry.settleText(id);
+          this.turnTelemetry.settleText(id, this.cocSessionBindings.has(id) ? "settle" : "first_delta");
         } catch {
           /* timing telemetry is observational only */
         }

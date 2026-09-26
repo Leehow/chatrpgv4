@@ -43,6 +43,7 @@ import { chatImagesFromAttachments, fileToPromptAttachment, filesFromClipboard, 
 import { composerInputFilesFromList, DEFAULT_COMPOSER_INPUT_FILES_PROMPT, EMPTY_INPUT_FILE_GATE, InputFileAttachments, modelHasInputFiles, type InputFileAttachmentsHandle, type InputFileGate } from './InputFileAttachments'
 import { LiveSubagentBindingProvider } from './LiveSubagentBinding'
 import { AssistantKeepsSecrets, assistantKeepsSecretsFor } from './assistant-secrets'
+import { TranscriptWords } from './transcript-words'
 import { Transcript, type IllustrationState } from './Transcript'
 import { EmptySetupGuide } from './EmptySetupGuide'
 import { parseSubagentSignal } from './subagent-signal'
@@ -2996,6 +2997,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
           </div>
         ) : (
         <AssistantKeepsSecrets value={assistantKeepsSecretsFor(productId, sessions.find(session => session.id === selectedSession))}>
+        <TranscriptWords words={timeline?.ui?.words?.transcript}>
         <LiveSubagentBindingProvider host={host} sessionId={selectedSession}>
           {selectedSession ? (
             <div key={selectedSession} className="session-transcript-slot" data-session-transcript={selectedSession}>
@@ -3068,6 +3070,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
             <Transcript messages={messages} documentBasePath={selectedProjectPath} onOpenDocument={openDocument} onOpenSubagents={openSubagents} onCopy={handleCopy} onResend={handleResend} resendDisabled={resendDisabled} copiedId={copiedId} waiting={firstResponseWaiting ?? subagentWaiting} />
           )}
         </LiveSubagentBindingProvider>
+        </TranscriptWords>
         </AssistantKeepsSecrets>
         )}
       </div>

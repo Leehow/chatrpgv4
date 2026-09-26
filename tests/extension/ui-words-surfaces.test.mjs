@@ -115,6 +115,30 @@ test("the transcript's presentation entry draws no words of its own", () => {
 	assert.ok(!CJK.test(body), `PresentationEntry writes a player's words in code:\n${body}`);
 });
 
+/**
+ * The transcript surface's keys, found where they are asked for (§135.11.6). A caption reaches the
+ * transcript through `presentationWord(details, "transcript", key)` or `transcriptWord(words, key)`,
+ * always with the key written in the call; a key kept in a variable is invisible here on purpose, the
+ * same rule as the extensions' `.word()`/`.line()` scan.
+ */
+test("the transcript surface declares exactly the keys the transcript asks for", () => {
+	const root = join(REPO, "Electron/packages/ui/src");
+	const sources = readdirSync(root, { recursive: true })
+		.filter((name) => /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) && !name.includes("fixtures"));
+	const asked = new Set();
+	for (const name of sources) {
+		const text = read(join("Electron/packages/ui/src", name));
+		for (const [, key] of text.matchAll(/\bpresentationWord\([^,()]+,\s*["']transcript["'],\s*["']([a-z][a-z0-9_]*)["']\)/g)) asked.add(key);
+		for (const [, key] of text.matchAll(/\btranscriptWord\([^,()]+,\s*["']([a-z][a-z0-9_]*)["']\)/g)) asked.add(key);
+	}
+	assert.ok(asked.has("loading"), "the scan no longer finds the loading caption; it is pointed at nothing");
+	const shipped = Object.keys(surface("en", "transcript"));
+	const missing = [...asked].filter((key) => !shipped.includes(key)).sort();
+	assert.deepEqual(missing, [], `these transcript captions have no word in content/ui/en/transcript.json:\n${missing.join("\n")}`);
+	const unused = shipped.filter((key) => !asked.has(key)).sort();
+	assert.deepEqual(unused, [], `these transcript captions are shipped but nothing asks for them:\n${unused.join("\n")}`);
+});
+
 test("the guard reads the files it claims to, and its CJK test is not a no-op", () => {
 	// Mutation: point RENDERERS at nothing, or widen CJK to match nothing, and the tests above stop
 	// being able to fail. Both are checked here so neither can rot quietly.
