@@ -148,11 +148,12 @@ test('the row the table\'s own act set out carries by: table on the card, throug
  const shout=card.find(value=>value.intent===SHOUT),other=card.find(value=>value.intent===OTHER);
  assert.equal(shout.by,'table','the table set it out');
  assert.equal(other.by,undefined,'the Keeper set it out');
- await fresh.call('table.apply',{campaign,call_id:'t2-c1',effects:[{kind:'npc',name:KNOTT,intent_ref:shout.ref,outcome:'failed',why:'nobody comes'}]});
+ // §139.14: the Keeper settles the table's act by giving it up (D7) -- saying it failed is refused; the mark stays.
+ await fresh.call('table.apply',{campaign,call_id:'t2-c1',effects:[{kind:'npc',name:KNOTT,intent_ref:shout.ref,outcome:'abandoned',why:'nobody comes'}]});
  await fresh.call('table.apply',{campaign,call_id:'t2-c2',effects:[{kind:'npc',name:KNOTT,intent_ref:other.ref,outcome:'abandoned'}]});
  await nextTurn(fresh,2);
  const after=knott(await capsuleOf(fresh)).history.intents.find(value=>value.ref===shout.ref);
- assert.deepEqual([after.status,after.by],['failed','table'],'a later result from the Keeper settles it and leaves who set it out');
+ assert.deepEqual([after.status,after.by],['abandoned','table'],'a later result from the Keeper settles it and leaves who set it out');
 });
 
 test('the intention ledger is a fold of the turn records and is rebuilt from them',async t=>{

@@ -22,9 +22,10 @@ export interface IntentScope {
 }
 /**
  * `options` are this person's intentions under way when the name was resolved -- what every refusal about it lists, so
- * a refusal that has already resolved the person never reads the ledger a second time.
+ * a refusal that has already resolved the person never reads the ledger a second time. `generated` says the table's
+ * own act of this person set the intention out (the ledger row's mark, §139.6); a new line is not.
  */
-export interface ResolvedIntent { ref: string; text: string; status: string | null; turn: number | null; options: Row[] }
+export interface ResolvedIntent { ref: string; text: string; status: string | null; turn: number | null; generated: boolean; options: Row[] }
 
 /**
  * §139.7: where a writer finds a ref, said in every refusal about one (live gate A, T12: the Keeper wrote
@@ -104,7 +105,8 @@ export async function resolveIntent(scope: IntentScope, node: Row, fields: {inte
     if (ref === null || text === null)
         throw new RpcError('invalid_params', `${field} names no intention`, {fix: 'give intent_ref (an intention on the card) or intends (a new one)', details: {field}});
     const known = intentOf(entry, ref);
-    return {ref, text, status: known ? string(known.status) : null, turn: known ? number(known.last_turn) : null, options: await intentOptions(scope, node, entry)};
+    return {ref, text, status: known ? string(known.status) : null, turn: known ? number(known.last_turn) : null, generated: known?.generated === true,
+        options: await intentOptions(scope, node, entry)};
 }
 
 /**
@@ -130,6 +132,34 @@ export function refuseRepeat(scope: IntentScope, node: Row, resolved: ResolvedIn
     throw new RpcError('invalid_params', `${who} already set out on turn ${resolved.turn} to ${resolved.text}, and it has no result; it is not announced again`, {
         fix: `report how it went instead: details.ref with outcome done, failed or abandoned (a roll or effect with this intent_ref does the same); ${REFS_ARE}. If ${who} tries something else now, that is a new intention`,
         details: {field, reason: 'intent_unresolved', ref: resolved.ref, since_turn: resolved.turn, options: resolved.options}});
+}
+
+/**
+ * §139.14: what the table's own act of a person set out (a `generated` row) is settled only by the dice, a clock, an
+ * arrival or a departure -- what its binding writes (§139.3), whoever writes it -- or given up. Saying it happened is
+ * not a result: live table C3 (2026-09-26) had "grab the telephone" made `done` by a clue's `intent_ref` and a
+ * threat made `done` by the intention variant, so the situation packet told the generator every turn that the
+ * telephone was dealt with, and the same threat came back four times. Refused here, before anything lands: `done` or
+ * `failed` on such a row by a write that is not the table's own (`_generated`) and does not itself settle it
+ * (`settles`: a roll, a threat clock, an npc `to`). `abandoned` stays the Keeper's (spec D7); a Keeper-written row
+ * keeps §138.2's rules; a settled row was refused `intent_settled` before this is asked.
+ */
+export const TABLE_ACT_UNSETTLED_FIX = 'a table act that rolled nothing is not done by saying so: abandon it (intent_outcome: abandoned), or let the dice settle it';
+export function refuseSaidDone(scope: IntentScope, node: Row, resolved: ResolvedIntent, outcome: string, field: string,
+    write: {generated: boolean; settles: boolean; fix?: string}): void {
+    if (!resolved.generated || write.generated || write.settles || (outcome !== 'done' && outcome !== 'failed')) return;
+    const who = scope.graph.displayName(node);
+    throw new RpcError('invalid_params', `${who}'s "${resolved.text}" was the table's own act and nothing has settled it; saying so does not make it ${outcome}`, {
+        fix: write.fix ?? TABLE_ACT_UNSETTLED_FIX,
+        details: {field, reason: 'table_act_unsettled', ref: resolved.ref, status: resolved.status, outcome}});
+}
+/**
+ * §139.14: the effects that settle a table act by themselves, as its binding's non-roll ways do (§139.3: `clock`,
+ * `walk_on`, `leave`) -- a threat clock moving, and a person arriving or departing (an npc effect with `to`). A closed
+ * set of effect kinds, never a reading of what the effect is about.
+ */
+export function effectSettlesAct(effect: Row): boolean {
+    return effect.kind === 'threat' || (effect.kind === 'npc' && effect.to != null);
 }
 
 /**
@@ -170,6 +200,8 @@ export async function effectIntent(scope: IntentScope, effect: Row, field: strin
     const resolved = await resolveIntent(scope, node, {intent_ref: effect.intent_ref}, field);
     await refuseSettled(scope, node, resolved, field);
     refuseRepeat(scope, node, resolved, outcome, field);
+    // §139.14: a clue, a note or any other effect that carries a table act's ref does not settle it by being written.
+    refuseSaidDone(scope, node, resolved, outcome, `${field}.intent_outcome`, {generated, settles: effectSettlesAct(effect)});
     return intentStamp(scope.graph.handle(node), resolved, outcome, generated);
 }
 
@@ -200,7 +232,12 @@ export async function planRollIntent(scope: IntentScope, action: Row): Promise<R
     const generated = generatedOf(action._generated, 'action._generated');
     const resolved = await resolveIntent(scope, node, {intent_ref: action.intent_ref}, 'action');
     await refuseSettled(scope, node, resolved, 'action');
-    if (typeof outcome === 'string') refuseRepeat(scope, node, resolved, outcome, 'action');
+    if (typeof outcome === 'string') {
+        refuseRepeat(scope, node, resolved, outcome, 'action');
+        // §139.14: the dice settle a table act; an outcome written beside the roll would overrule them.
+        refuseSaidDone(scope, node, resolved, outcome, 'action.intent_outcome', {generated, settles: false,
+            fix: 'the dice settle a table act: leave action.intent_outcome out and the roll makes it done or failed; or abandon it (apply npc, intent_outcome: abandoned)'});
+    }
     const handle = scope.graph.handle(node);
     const {outcome: _outcome, ...carried} = intentStamp(handle, resolved, 'attempted', generated);
     return {carried, stamp: receipts => {

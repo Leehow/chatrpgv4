@@ -29,7 +29,7 @@ import { createRealCampaign, openTable } from "./harness.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
 import { createFixtureNpcActPort } from "../../runtime/jev/npc-act.ts";
-import { NPC_ACT_BIND_FAMILY, interpretNpcAct, npcActBatch, npcActWrites, npcScanCandidate } from "../../runtime/jev/npc-act-step.ts";
+import { NPC_ACT_BIND_FAMILY, SAME_QUESTION, interpretNpcAct, npcActBatch, npcActWrites, npcScanCandidate, runNpcAct } from "../../runtime/jev/npc-act-step.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { initialView, next, npcScanDue, settleExecute, startStep } from "../../runtime/jev/step-policy.ts";
 import { markNpcAct } from "../../extensions/kernel/npc-act-marks.ts";
@@ -111,7 +111,10 @@ test("§139.3 batch: one closed question for the way, one per parameter with a c
 		"the attack's weapon options include the one the act draws");
 	const rows = [{ ref: "intent:steven-knott:aaaaaaaaaaaa", intent: "ring the bell", status: "attempted", since_turn: 1, turn: 1 }];
 	const same = batchOf({ rows }).batch.questions.find((question) => question.key === "same");
-	assert.deepEqual(same.criteria, { row_1: { intent: "ring the bell", status: "attempted" }, none: "The act is something else." });
+	// §139.14: the options are the rows' own lines and statuses plus none; what is asked is the purpose, not the hands.
+	assert.deepEqual(same.criteria, { row_1: { intent: "ring the bell", status: "attempted" }, none: SAME_QUESTION.none });
+	assert.equal(same.instructions, SAME_QUESTION.instructions);
+	assert.match(same.instructions, /same purpose, whatever the hands do/);
 });
 
 test("§139.3 reading: a cleared way binds with its parameters; unknown, below the gate or an unbound parameter binds intention_only; no answer is not judged", () => {
@@ -629,7 +632,9 @@ test("§139.5 semantic gate: the same thing as a row already settled is a new ro
 	await game.say("我看着诺特。");
 	await game.run(scan(["Steven Knott"]));
 	const ref = knottActs(game).at(-1).ref;
-	await game.write("table.apply", { effects: [{ kind: "npc", name: "Steven Knott", intent_ref: ref, outcome: "failed", why: "nobody came" }] });
+	// §139.14: the table's act is settled by the dice (here the Keeper's roll for him), not by saying it failed.
+	await game.write("table.resolve", { action: { actor: "Steven Knott", intent: "investigate", skill: "Listen", goal: "listen for the constable", method: "listen", intent_ref: ref } });
+	assert.ok((await game.receipts()).some((receipt) => receipt.kind === "roll" && receipt.intent?.ref === ref && ["done", "failed"].includes(receipt.intent.outcome)));
 	await game.close();
 	await spokenTo(game, "我不理他。");
 	assert.equal(npcAct.calls.length, 2, "no re-ask");
@@ -660,11 +665,121 @@ test("§139.5: the same line as a settled row is a new attempt -- a new line (th
 	await game.say("我看着诺特。");
 	await game.run(scan(["Steven Knott"]));
 	const ref = knottActs(game).at(-1).ref;
-	await game.write("table.apply", { effects: [{ kind: "npc", name: "Steven Knott", intent_ref: ref, outcome: "done", why: "the constable came" }] });
+	// §139.14: an arrival settles the table's act (the §138.2 addendum's shape); saying it was done would be refused.
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "the porter", to: "here", intent_ref: ref, why: "the porter came up at the shout" }] });
 	await game.close();
 	await spokenTo(game, "我不理他。");
 	const last = knottActs(game).at(-1);
 	assert.deepEqual([last.status, last.opened], ["bound", true]);
 	const situation = await game.call("npc.situation", { name: "Steven Knott" });
 	assert.ok(situation.done.some((row) => row.intent.startsWith(CALL) && row.intent !== CALL && row.status === "attempted"), JSON.stringify(situation.done));
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Ticket 15 (§139.14): a threat is one thread -- the same purpose in other hands is the same thing, and only a result
+// or giving it up ends it. Live table C3: lift the receiver, press it down, shout over it, hold it up between them.
+// ---------------------------------------------------------------------------------------------------
+
+const LIFT = "他一把抓起电话听筒，拇指压在叉簧上，盯着你。", PRESS = "他把听筒死死按在电话机上，另一只手挡在身前。";
+const SHOUT_OVER = "他攥着听筒冲你喊：再碰我一下这电话就摇到巡警那儿去。", HOLD_UP = "他把听筒举在你们之间挡着，另一只手按在电话机边上。";
+const DOOR = "他绕过桌子，去拉开办公室的门。";
+/** Jev's fixture: every telephone act is the same thing as the first telephone row; anything else is none. */
+const phoneJev = (phones, settled = {}) => (batch) => ({ way: settled[batch.state.act] ?? "intention_only",
+	same: batch.questions.some((question) => question.key === "same") && phones.includes(batch.state.act) ? (row) => row.intent === LIFT : "none" });
+const turnReceipts = (game, turn) => JSON.parse(readFileSync(join(game.workspace, ".coc/campaigns", CAMPAIGN, "turns", `${String(turn).padStart(4, "0")}.json`), "utf8")).receipts;
+
+test("§139.14: the same purpose in other hands -- re-asked once ('twice without doing it'), then given up; the next packet says so, the same thing held up again opens no row, and a different purpose opens normally", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "steven-knott": [LIFT, PRESS, SHOUT_OVER, HOLD_UP, DOOR] });
+	const game = await seam(t, { npcAct, act: phoneJev([PRESS, SHOUT_OVER, HOLD_UP]) });
+	await call0(game);
+	await spokenTo(game);
+	const lifted = knottActs(game).at(-1);
+	assert.deepEqual([lifted.status, lifted.opened, lifted.reask], ["bound", true, false], "turn 2: the first telephone act opens its row");
+	// Turn 3: other hands, the same purpose. Jev reads it by purpose (the question asks it); the generator is asked once more.
+	await spokenTo(game, "我不理他，继续翻抽屉。");
+	assert.equal(npcAct.calls.length, 3, "turn 3 generated twice: the act, then the re-ask");
+	const same = game.decisions.filter((batch) => batch.family === NPC_ACT_BIND_FAMILY && batch.state.act === PRESS)[0].questions.find((question) => question.key === "same");
+	assert.match(same.instructions, /same purpose, whatever the hands do/);
+	const reasked = npcAct.calls[2].packet.happened.at(-1);
+	assert.ok(reasked.includes(LIFT) && /twice without doing it/.test(reasked) && /either does it, or drops it/.test(reasked), reasked);
+	const gaveUp = knottActs(game).at(-1);
+	assert.deepEqual([gaveUp.reask, gaveUp.opened, gaveUp.continued, gaveUp.abandoned], [true, false, lifted.ref, lifted.ref], "the second repeat gives the row up");
+	const abandonment = turnReceipts(game, 3).find((receipt) => receipt.intent?.ref === lifted.ref);
+	assert.deepEqual([abandonment?.intent.outcome, abandonment?.why, abandonment?.intent.generated], ["abandoned", "repeated", true]);
+	// Turn 4: the packet says he gave it up; the telephone held up again is dropped -- not asked again, no row.
+	await spokenTo(game, "我把抽屉关上。");
+	const fourth = npcAct.calls[3].packet;
+	assert.deepEqual(doneOf(npcAct.calls[3]), [[LIFT, "abandoned"]], "the one telephone row, given up; no row for the other hands");
+	assert.ok(fourth.happened.some((line) => line === `turn 3: Steven Knott gave up "${LIFT}" without doing it (why: repeated)`), JSON.stringify(fourth.happened));
+	assert.equal(npcAct.calls.length, 4, "a thread just given up is not asked about again");
+	const dropped = knottActs(game).at(-1);
+	assert.deepEqual([dropped.status, dropped.act, dropped.dropped, dropped.opened, dropped.receipts], ["dropped", HOLD_UP, lifted.ref, false, []]);
+	assert.ok(!turnReceipts(game, 4).some((receipt) => receipt.intent?.npc === "steven-knott"), "nothing written for him on turn 4");
+	// Turn 5: something else entirely opens its own row.
+	await spokenTo(game, "我盯着他。");
+	const door = knottActs(game).at(-1);
+	assert.deepEqual([door.status, door.act, door.opened, door.reask], ["bound", DOOR, true, false]);
+	const situation = await game.call("npc.situation", { name: "Steven Knott" });
+	assert.deepEqual(situation.done.map((row) => [row.intent, row.status]), [[DOOR, "attempted"], [LIFT, "abandoned"]],
+		"one telephone row, given up; no row for any of the other hands; the door is its own");
+});
+
+test("§139.14: announced, then done -- the same purpose bound to a way that settles it is that row, and the roll gives it its result (no re-ask, no new row)", async (t) => {
+	const RING = "他抓起听筒，真的摇起了电话找接线员。";
+	const npcAct = createFixtureNpcActPort({ "steven-knott": [LIFT, RING] });
+	const game = await seam(t, { npcAct, act: phoneJev([RING], { [RING]: "check" }) });
+	await call0(game);
+	await spokenTo(game);
+	const lifted = knottActs(game).at(-1);
+	await spokenTo(game, "我不理他。");
+	assert.equal(npcAct.calls.length, 2, "doing it is not asked again");
+	const rang = knottActs(game).at(-1);
+	assert.deepEqual([rang.way, rang.opened, rang.continued, rang.reask], ["check", false, lifted.ref, false]);
+	const roll = turnReceipts(game, 3).find((receipt) => receipt.kind === "roll" && receipt.intent?.ref === lifted.ref);
+	assert.ok(roll && ["done", "failed"].includes(roll.intent.outcome) && roll.intent.generated === true, "the dice settled the telephone row");
+	const situation = await game.call("npc.situation", { name: "Steven Knott" });
+	assert.deepEqual(situation.done.map((row) => row.intent), [LIFT], "one thread: announcing it and doing it are the same row");
+});
+
+test("§139.14 at the table's kernel: the Keeper cannot make the table's act done by saying so; abandoning it stands, and the packet says he gave it up", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "steven-knott": LIFT });
+	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
+	await call0(game);
+	await game.say("我看着诺特。");
+	await game.run(scan(["Steven Knott"]));
+	const { ref } = knottActs(game).at(-1);
+	await assert.rejects(game.write("table.apply", { effects: [{ kind: "npc", name: "Steven Knott", intent_ref: ref, intent_outcome: "done", why: "he threatened" }] }),
+		(error) => error.code === "invalid_params" && error.details?.reason === "table_act_unsettled");
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "Steven Knott", intent_ref: ref, intent_outcome: "abandoned", why: "he puts the receiver down" }] });
+	const situation = await game.call("npc.situation", { name: "Steven Knott" });
+	assert.deepEqual(situation.done.map((row) => [row.ref, row.status, row.by]), [[ref, "abandoned", "table"]]);
+	assert.ok(situation.happened.some((line) => line.includes(`gave up "${LIFT}"`) && line.includes("(why: he puts the receiver down)")), JSON.stringify(situation.happened));
+});
+
+test("§139.14 step: a dropped act writes nothing and hands the Keeper no line -- the act was not done; the telemetry row keeps it", async () => {
+	const given = { ref: "intent:steven-knott:aaaaaaaaaaaa", intent: LIFT, status: "abandoned", since_turn: 2, turn: 3 };
+	const rows = [], writes = [];
+	const deps = {
+		call: async (method, params) => method === "npc.situation"
+			? { npc: { handle: "steven-knott", name: "Steven Knott" }, happened: [], state: {}, at_hand: {}, done: [given] }
+			: method === "npc.act.options"
+				? { npc: { handle: "steven-knott", name: "Steven Knott" }, play_language: "zh-Hans", place: "commission-briefing", in_session: false, my_turn: false,
+					acted_on: [], ways: [{ way: "intention_only", params: {} }], ...(params.act ? { act: { line: params.act, ref: "intent:steven-knott:dddddddddddd", continues: null } } : {}) }
+				: {},
+		generate: async () => ({ act: HOLD_UP }),
+		decide: async (batch) => actAnswer(batch, { way: "intention_only", same: (row) => row.intent === LIFT }),
+		write: async (call) => { writes.push(call); return { ok: true, callId: "x", receipts: [], status: "succeeded" }; },
+		record: (row) => rows.push(row), scope, readSet: [], runId: "r", stepId: "r:s1", turn: 4, gate: 0.6,
+		budget: { timeoutMs: 8000, maxPerTurn: 2, sameActRows: 5 }, signal: new AbortController().signal,
+	};
+	const outcome = await runNpcAct(deps, "Steven Knott", "acted_on");
+	assert.deepEqual([outcome.status, outcome.act, outcome.droppedAct, outcome.dropped, outcome.reason], ["dropped", undefined, HOLD_UP, given.ref, "repeats_given_up"]);
+	assert.deepEqual(writes, [], "nothing written");
+	const row = rows.find((entry) => entry.event === "npc_act");
+	assert.deepEqual([row.status, row.act, row.dropped, row.opened], ["dropped", HOLD_UP, given.ref, false]);
+	// Something of theirs set out after the row was given up: it is no longer the thread just put down -- a new row.
+	const later = await runNpcAct({ ...deps, call: async (method, params) => method === "npc.situation"
+		? { ...(await deps.call(method, params)), done: [{ ref: "intent:steven-knott:eeeeeeeeeeee", intent: DOOR, status: "attempted", since_turn: 4, turn: 4 }, given] }
+		: deps.call(method, params) }, "Steven Knott", "acted_on");
+	assert.deepEqual([later.status, later.opened], ["bound", true]);
 });

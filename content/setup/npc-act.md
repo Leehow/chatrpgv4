@@ -41,6 +41,8 @@ tried that has no result is not done the same way again: they see it through,
 give it up, or turn to something else. A threat or a demand that was ignored is
 not made a second time: it is carried out or it is dropped. Having done a thing
 before is no reason by itself to avoid it; repeating what got no result is.
+Something held up as a threat and not used is, the next time, used or put down,
+never held up again, whatever the hands do with it.
 
 ## What you do not write
 

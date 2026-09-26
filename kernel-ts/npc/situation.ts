@@ -68,11 +68,32 @@ export function personOf(graph: ModuleGraph, world: Row, node: Row): Person {
     return {node, handle, label, is: value => typeof value === 'string' && keys.has(normalize(value))};
 }
 
+/**
+ * §139.14: a receipt that settles one of this person's intentions `abandoned` says they gave it up -- the table's own
+ * act repeated with no result (`why: repeated`, §139.5), or the Keeper's overrule (D7) -- so the next act is generated
+ * knowing that thread was put down, not only that a row's status changed. Worded by the stamp's outcome, never by the
+ * line's words; the line is quoted as it is.
+ */
+const LINE_MAX = 200;
+function gaveUp(receipt: Row, me: Person): string | null {
+    const intent = row(receipt.intent);
+    return intent.outcome === 'abandoned' && me.is(intent.npc) && typeof intent.text === 'string' && intent.text.trim()
+        ? `${me.label} gave up "${clip(intent.text, LINE_MAX)}" without doing it` : null;
+}
+
 /** The one clause a receipt of this person's contributes, or null when the receipt is not about them. */
 function clause(receipt: Row, me: Person, world: Row): string | null {
-    const kind = receipt.kind;
     // The stakes die (§139.8) is not something done to or by this person; the packet carries it as `stakes`.
     if (isStakesRoll(receipt)) return null;
+    const done = kindClause(receipt, me, world), gave = gaveUp(receipt, me);
+    if (!gave) return done;
+    // The intention variant has no clause of its own, so the writer's why rides on the giving up.
+    return done ? `${done}; ${gave}` : `${gave}${because(receipt)}`;
+}
+
+/** The clause a receipt's own kind and fields make, or null when the receipt is not about them. */
+function kindClause(receipt: Row, me: Person, world: Row): string | null {
+    const kind = receipt.kind;
     if (kind === 'roll') {
         const own = me.is(receipt.actor);
         if (!own && !me.is(receipt.npc)) return null;
