@@ -441,7 +441,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const read = await freshOf(run);
     // §138.10: a band the clerk named carries the kernel's roll on its record, read back from the turn's receipts.
     const bindings = bandRolls(bindRecords(candidate, extra, array(params.bindings) as BindRecord[]), ok ? packet.receipts : [], read?.receipts ?? []);
-    const binding = [defaultLine(candidate), bandLine, bandedLine(candidate, bindings)].filter((line): line is string => !!line).join(' ') || undefined;
+    // A refused write landed no band: its line would tell the Keeper to rule otherwise on nothing.
+    const binding = [defaultLine(candidate), bandLine, ok ? bandedLine(candidate, bindings) : undefined].filter((line): line is string => !!line).join(' ') || undefined;
     // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed, banded); none was a model call.
     record({lane: 'run', event: 'bind', run: run.runId, step: invocation.stepId, candidate: candidate.key, clerk: candidate.clerk, call_id: callId, status: packet.status, bindings});
     run.clerkDid.push({step: invocation.stepId, operation: tool, label: candidate.label, clerk: candidate.clerk, call_id: callId, status: packet.status,

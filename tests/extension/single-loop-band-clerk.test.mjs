@@ -262,7 +262,7 @@ test("§138.10 at the engine: the rows are read once, the bind row carries the k
 	const executed = await plan.ports.operations.execute({ origin: "policy", operation: "execute", params: { candidate: item.candidate, extra: item.extra, bindings: item.bindings } }, invocation("s3"));
 	assert.equal(executed.status, "ok");
 	const bind = rows.find((row) => row.event === "bind");
-	assert.deepEqual([bind.clerk, bind.call_id, bind.status], ["declared_time", undefined, "succeeded"].map((value, index) => index === 1 ? bind.call_id : value));
+	assert.deepEqual([bind.clerk, bind.status], ["declared_time", "succeeded"]);
 	assert.deepEqual(bind.bindings.map((entry) => [entry.name, entry.path]), [["why", "composed"], ["band", "banded"]]);
 	assert.deepEqual(bind.bindings[1], { name: "band", path: "banded", value: "single_room_search", confidence: 0.8, distribution: { single_room_search: 0.8, unknown: 0.2 }, table: "time-costs", band: "single_room_search", roll: { min: 10, max: 45, total: 23 } });
 	assert.ok(!executed.artifact.fresh.candidates.some((candidate) => candidate.key === TIME_CANDIDATE_KEY), "the fresh read holds a time receipt: time is charged");

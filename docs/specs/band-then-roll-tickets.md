@@ -169,6 +169,86 @@ contract amends §135.3's clerk authority list and §136.24 by a new section. If
 
 ## Comments
 
+### 2026-09-26 — BR-06 implemented (`claude/br06-band-clerk-20260926`, `c7116d9e1`)
+
+Contract: `docs/kernel-rpc.md` §138.10 (the amendment of §135.3 and §136.24, `table.apply.options.unstated_damage`, the
+two candidates, the banded bind, the engine's roll read-back and note line). Kernel: `unstatedDamage`
+(`kernel-ts/read/stated.ts`) issued by `kernel-ts/runtime/apply-operation.ts` beside `obligations`, absent when empty and
+folded into `revision`. Runtime: `Unbound.band` / `BandParameter`, `CLERK_AUTHORITY` + `declared_time`, `stated_hazard`,
+`TIME_CANDIDATE_KEY`, `PRECEDENCE.time`, the Score bind question and `boundAnswer` (`runtime/jev/step-policy.ts`);
+`timeCandidate` / `damageCandidate` and `StateReads.bands` (`runtime/jev/candidates.ts`); `bandReads` (once per engine),
+`bandRolls`, `bandedLine` (`runtime/jev/hybrid-engine.ts`); the gate defaults widened to `time` / `damage`
+(`runtime/jev/band-recovery-domain.ts`, `extensions/kernel/band-recovery.ts`); `kpi.py`'s `basis` gains `clerk_bands`.
+
+Decisions taken inside the ticket:
+- The clerk's questions **are** the shadow lane's (`timeQuestion`, `damageQuestion` of §138.8): one text, so the shadow's
+  rows calibrate exactly what the clerk asks. The time candidate's route is a fact about the declaration (`costs` /
+  `none` / `unknown`), not now/later: a candidate not selected is the Keeper's for the run and not asked again.
+- The band's gate is the table's (`PI_COC_BAND_MIN_CONFIDENCE`, placeholder 0.5), never the run's 0.6 route gate; below it
+  the candidate is `keeperOwns` (the contract's one "the Keeper's" mechanism), and the time candidate ranks last so that
+  hand-over never precedes the other selected clerk steps.
+- Only an **unstated** dice is the clerk's: a stated dice stays P6's (the Keeper applies what it chooses with `stated`);
+  `stated` beats `banded` (§138.1) and the projection issues no row for it. A hazard step is reached only by the
+  Keeper's own `action.rule` roll (§136.20, ruling Q1): the clerk rolls no hazard, it lands the harm the roll stated.
+- "Settled" for the projection is a hit-point delta on the roll's actor after the roll, whoever wrote it; a push replaces
+  the roll it continues (the latest roll per node, as `statedCandidates` reads it).
+- Time is charged once a turn: no time candidate once the turn holds a `time` receipt (`current_receipts`), a
+  model-origin `time` consumes the candidate, and the road rows are never offered (a move carries its road, §138.9).
+- No new `createDecisionAdapter` site: the engine's own decision port asks both binds (SL-00 inventory unchanged).
+
+Tests (single files on the Mac): `tests/kernel/test_apply_options_unstated_damage.py` 3 / 3 (seeds 1 / 15 / 0 recorded
+for the ledge's failure, pass, and failure-then-passed-push); `tests/extension/single-loop-band-clerk.test.mjs` 6 / 6;
+`single-loop-binding` 9 / 9 with two band shapes and three band answers added to the structural test;
+`single-loop-run-driver` 4 / 4 (the opening turn now routes the time band's fact beside the exit); `single-loop-candidates`
+12, `-domain-policy` 10, `-turn-close` 6, `-turn-budget` 6, `-model-call-diet` 11, `band-shadow` 7,
+`jev-band-shadow-domain` 9, `band-recovery` 8, `control-flow-inventory` 4, `test_kpi -k basis` 1: all green.
+
+Mutations (copy-restore, one test file each): runtime 11 / 11 killed -- the run's gate in place of the table's; `jev` in
+place of `banded`; a tie to the last rung; the time candidate offered after a time receipt; the damage candidate not
+forced; a model-origin time not consuming; the roll not read back; the rows read per read; the fact's `selects` flipped;
+the Score asked as a Choice; the road rows offered. Kernel (each rebuilt on leehow-pc, the projection pytest): 5 / 5 killed --
+the "settled" filter dropped; a stated dice issuing a row too; the first roll per node instead of the latest; the row left
+out of `revision`; and, after the review, an upward hit-point delta counted as harm.
+
+Review (high, in-context), seven findings: two fixed at once -- `unstatedDamage` counted any later hit-point delta on the
+actor as the harm (first aid after the roll would have dropped the row; now only a delta downward settles it, with the
+pytest case `test_a_hit_point_delta_upward_settles_nothing_only_harm_does`, seed 1), and the engine test's `call_id`
+assertion compared the value with itself; one needs no change (a severity ladder past ten rows would fail in packing and
+go to the Keeper as `no_answer`, where the shadow says `schema_error`; the ladder has six); four recorded as decisions: a
+combined move-plus-activity turn may charge the road and a band (the design accepts it: the bind sees the move under
+"done this turn" and the question says unknown when nothing fits); an unavailable `rules.bands` is retried on every read
+with a `read_failed` row; the projection's latest-roll-per-node reading is its own beside `statedResult`'s; a refused clerk
+write no longer carries a band line (fixed in the same pass).
+
+Replays (`experiments/single-loop-routing/run.mjs --llm replay`, live Jev, the recorded Keeper replayed; the base is a
+detached worktree at `0.9.5a@fb7334fcd` with its own build):
+
+| fixture | arm | runs | LLM steps | clerk writes | Jev calls | matches |
+| --- | --- | --- | --- | --- | --- | --- |
+| turn3 ("先去报馆…翻旧报道") | base | 3 | 5 / 5 / 5 | move | 19 / 10 / 9 | 11 / 11 each |
+| turn3 | BR-06 | 3 | 5 / 5 / 5 | move, **time band** | 21 / 11 / 11 | 11 / 11 each |
+| fight-round ("继续揍他") | base | 2 | 2 / 2 | two session steps | 9 / 4 | 6 / 6 |
+| fight-round | BR-06 | 2 | 2 / 2 | two session steps | 9 / 4 | 6 / 6 |
+
+On turn 3 the route judged the declaration `costs` (the fact question rides on the same route request), the move landed
+first, and the bind named `library_research` at 0.93 (distribution: library_research 0.94, single_room_search 0.02, the
+rest ≤ 0.01); the kernel rolled 133 minutes inside 60–480, and the replay matched the live Keeper's `time 40` to the
+clerk's write (origin `policy`), so the Keeper's own time is the one effect the clerk took off its last batch. The LLM
+step count is unchanged: that batch (two clues, a handout, the time) is still one Keeper call, and the four adjudications
+are scene craft (staging Arty and Ruth, the Persuade, the reveal). A band saves a parameter, not a call, unless the turn's
+only bookkeeping is its time. Calibration note for the owner: the live Keeper's 40 minutes sits one rung below the
+argmax (`single_room_search`, 10–45), the case spec D4 says to revisit with the shadow's rows -- one data point, not a
+trend. The fight round is untouched (a session offers no time band; its damage is the attack's, not a hazard's).
+
+Suites on leehow-pc: `test:ext` 2895 / 2897 -- the two reds are the box's load pair (`npc-preparation-integration`,
+`jev-source-domain`), each 3 / 3 on the Mac; full pytest recorded below once run.
+
+Golden walk (base `0.9.5a@fb7334fcd` kernel + content against this branch, four starters, start and after one move, seed 5,
+frozen clock): `table.apply.options` and `table.resolve.options` byte-identical 16 / 16; the eight `table.capsule` reads
+differ only in `_context.source_revision` / `task_source_revision`, which fold the content directory's path (the base
+kernel on the branch's content directory gives the branch's digests, and the branch kernel on the base's gives the
+base's; the two directories are `diff -rq` identical).
+
 ### 2026-09-26 — BR-03, BR-04 and BR-05 integrated (`claude/integ-band-20260926`)
 
 Merged in the order BR-04, BR-03, BR-05 (`7916105fc`, `68bc205df`, `3afa4818c`) on `0.9.5a@da64930f5`. Conflicts were

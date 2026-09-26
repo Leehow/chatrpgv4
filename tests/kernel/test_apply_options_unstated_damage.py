@@ -103,6 +103,7 @@ def sheet(client):
 JUMP_FAILS = 1          # dark-ledge step 0 (Jump) fails on the first roll of the turn
 JUMP_PASSES = 15        # dark-ledge step 0 (Jump) passes (regular) on the first roll of the turn
 JUMP_FAILS_PUSH_PASSES = 0  # dark-ledge fails, and the push that follows it passes
+WOUND_LEDGE_FAILS_AID_PASSES = 1  # a 1D3 wound, then dark-ledge fails, then first aid on the wound passes (+1 HP)
 
 
 def test_a_reached_step_whose_damage_the_book_leaves_unstated_is_issued_until_harm_on_that_actor_lands(table):
@@ -159,3 +160,20 @@ def test_the_keepers_own_damage_settles_the_row_and_a_passed_push_withdraws_it(t
     push = ok(resolve(pushed, "t1-c2", push=True, stakes="they fall", method="a running leap"))
     assert push["stated"]["rule"] == "dark-ledge" and push["stated"]["level"] not in ("failure", "fumble")
     assert "unstated_damage" not in options(pushed)
+
+
+def test_a_hit_point_delta_upward_settles_nothing_only_harm_does(table):
+    client = table(WOUND_LEDGE_FAILS_AID_PASSES)
+    # A wound before the roll is not the roll's harm; first aid after it moves hit points up, which is not harm either.
+    ok(apply(client, "t1-c1", {"kind": "damage", "dice": "1D3", "why": "a splinter"}))
+    ok(resolve(client, "t1-c2", rule="dark-ledge"))
+    assert len(options(client)["unstated_damage"]) == 1
+    aid = ok(client.call("table.resolve", {"campaign": CAMPAIGN, "call_id": "t1-c3",
+                                           "action": {"intent": "investigate", "goal": "bind the wound", "method": "first aid on the wound"}}))
+    assert aid["decision"] == "healing:first-aid-ordinary" and aid["outcome"]["passed"] is True
+    assert "delta:hp-t1-c3" in aid["receipts"]
+    healed = next(row for row in receipts(client) if row["id"] == "delta:hp-t1-c3")
+    assert healed["after"] > healed["before"]
+    assert len(options(client)["unstated_damage"]) == 1, "hit points going up is not the harm the step stated"
+    ok(apply(client, "t1-c4", {"kind": "damage", "band": "minor", "subject": ACTOR, "why": "the fall"}))
+    assert "unstated_damage" not in options(client)

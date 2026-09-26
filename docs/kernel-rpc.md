@@ -19405,8 +19405,10 @@ effect): the clerk's bind row is that write's measurement.
 
 **Three ends.** *Writer:* the kernel's `unstated_damage` projection and the builder (rows, facts, composed `why`);
 `clerkBind` (the row above the table's gate). *Reader:* the clerk's execution through the canonical gateway, the bind
-row, the Keeper's note; `kpi.py`'s `basis` section counts the landed receipts by `banded`. *Actor:* the kernel, which
-rolls inside the row; the Keeper, who reads the line and may settle otherwise with an operation of its own.
+row, the Keeper's note; `kpi.py`'s `basis` section counts the landed receipts by `banded` and, as `clerk_bands`, the
+clerk's own band writes per table (landed, refused, left to the Keeper), so a banded receipt the Keeper named itself is
+told apart from the clerk's. *Actor:* the kernel, which rolls inside the row; the Keeper, who reads the line and may
+settle otherwise with an operation of its own.
 
 **Tests.** `tests/kernel/test_apply_options_unstated_damage.py` (the projection over the emitted kernel on a derived
 haunting: the row after a failed ledge step, its fields, read-only and stable; the band landed on the actor settles it;
