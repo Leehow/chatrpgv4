@@ -80,6 +80,12 @@ export interface KernelClientOptions {
 	inheritEnv?: boolean;
 	/** Timeout for a single request, 30 seconds by default. */
 	timeoutMs?: number;
+	/**
+	 * SL-87: how long `close()` waits after SIGTERM before it escalates to SIGKILL (and as long again after that before it
+	 * gives up), 2 seconds by default. A test whose subject is what the kernel does on shutdown, not how fast, passes a
+	 * longer grace so a loaded machine does not kill the kernel in the middle of it.
+	 */
+	closeGraceMs?: number;
 	/** Diagnostics: stderr lines, protocol noise, restart notices. */
 	onDiagnostic?: (message: string) => void;
 	/** The reopening to replay after a respawn (`kernel.hello` + `table.open`). */
@@ -95,6 +101,7 @@ interface Pending {
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_CLOSE_GRACE_MS = 2000;
 
 export class KernelClient {
 	private readonly options: KernelClientOptions;
@@ -150,6 +157,7 @@ export class KernelClient {
 		this.child = undefined;
 		this.rejectAllPending(new KernelError({ code: "internal", message: "the kernel is closed" }));
 		if (!child) return this.closePromise = Promise.resolve();
+		const grace = this.options.closeGraceMs ?? DEFAULT_CLOSE_GRACE_MS;
 		this.closePromise = new Promise<void>((resolve, reject) => {
 			let escalation: NodeJS.Timeout | undefined;
 			let deadline: NodeJS.Timeout | undefined;
@@ -172,9 +180,9 @@ export class KernelClient {
 				deadline = setTimeout(() => {
 					child.removeListener("close", done);
 					reject(new KernelError({ code: "internal", message: "kernel shutdown did not complete after SIGKILL" }));
-				}, 2000);
+				}, grace);
 				deadline.unref?.();
-			}, 2000);
+			}, grace);
 			escalation.unref?.();
 		});
 		return this.closePromise;

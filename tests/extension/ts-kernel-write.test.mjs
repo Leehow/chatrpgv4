@@ -43,12 +43,17 @@ function environment(extra={}) {
     GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_COUNT:'0',GIT_AUTHOR_DATE:'2000-01-02T03:04:05Z',GIT_COMMITTER_DATE:'2000-01-02T03:04:05Z',
     COC_TEST_CLOCK:'2000-01-02T03:04:05Z',NODE_OPTIONS:`--require ${JSON.stringify(join(ROOT,'tests/kernel/rpc_clock.cjs'))}`,TZ:'UTC',...extra};
 }
+// SL-87: none of these waits is a subject here. On a loaded box a kernel start outlasted the 15 s request timeout, a fixture
+// Git outlasted the 5 s wait for its pid file, and the host's 2 s SIGTERM-to-SIGKILL grace killed the kernel in the middle
+// of its own shutdown -- before it had put the working tree back -- so the next owner opened the unfinished narrate as
+// delivered. What this file asserts is what the kernel does on shutdown, not how fast: each wait is a minute.
+const WAIT_MS=60_000;
 async function until(read) {
-  const deadline=Date.now()+5000;
+  const deadline=Date.now()+WAIT_MS;
   while(Date.now()<deadline){const result=await read();if(result)return result;await new Promise(resolve=>setTimeout(resolve,10));}
   throw new Error('Owned process did not reach its expected state');
 }
-function client(home,env) {return new KernelClient({command:[process.execPath,RPC,'--workspace',home,'--content',CONTENT],cwd:ROOT,env,inheritEnv:false,timeoutMs:15000});}
+function client(home,env) {return new KernelClient({command:[process.execPath,RPC,'--workspace',home,'--content',CONTENT],cwd:ROOT,env,inheritEnv:false,timeoutMs:WAIT_MS,closeGraceMs:WAIT_MS});}
 async function stateBytes(home) {
   const result={};
   async function walk(path,relative='') {
