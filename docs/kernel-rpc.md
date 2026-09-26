@@ -23423,3 +23423,16 @@ the rule and no consequence, so a pressed investigator was only prose. Now (`ker
 - a later roll of that same investigator with `action.coercion: <receipt id>` takes one more penalty die (capped at
   two) and its roll receipt carries `coercion_spent`; spent once; another actor's roll, an unknown or spent id is
   refused `invalid_params` (`reason: "coercion_unavailable"`, `details.options`). Nothing decides what the player does.
+
+**138.14 An intention under way releases the clerk's forced blow (amends §135's SL-08 standing step; live gate A,
+2026-09-26).** Live gate A (`npc-actor-gate-a`, 12 turns, deepseek-v4.1-flash, thinking off) met four of its five
+pre-registered lines -- 12/12 delivered, no announcement repeated without a result, both intentions settled by the next
+turn (one of them after the owed-result gate refused the first delivery once) -- and failed the fifth: every one of
+Knott's fight turns was a clerk-forced blow (his inferred disposition `fights_then_flees` gives `attack` while the fight
+goes his way, and SL-08 runs a standing attack directly), while his shouting, the telephone he hurled and the door he
+ran for were narrated on top of it (15 `unsettled_object` findings on that table). The single loop now reads the
+intentions under way on the present cards (`present[].history.intents`, status `attempted`); when the NPC whose turn it
+is owns one (its ref names their handle), a standing `attack` is not forced -- the turn is the Keeper's, who may still
+resolve the blow or spend the turn on that intention (§138.5). A standing `flee`, and an NPC with nothing under way,
+are unchanged. Also from the gate: the `intends` description no longer asks for an English sentence -- the one turn the
+Keeper wrote a long English intention line, its prose for the player slid into English on a zh-Hans table.

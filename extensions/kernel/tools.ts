@@ -325,7 +325,7 @@ const NpcEffect = Type.Object({
 		description: "how this person behaves in a fight, when the fiction has shown it: it replaces the book's; each of their turns then reads the disposition table against their wounds, the odds and their stance (session.standing_action). This variant stands alone in one npc effect and needs why",
 	})),
 	intends: Type.Optional(Type.String({
-		description: "a new thing this person sets out to do, in one Keeper-facing English sentence: what they try, not what they say (\"shout down the stairs for the porter\", \"back to the door and bolt\", \"offer the key back if he stops\"). Write it the turn they start or announce it; every later result names it by intent_ref. This variant stands alone in one npc effect, with outcome",
+		description: "a new thing this person sets out to do, in one short sentence: what they try, not what they say (\"shout down the stairs for the porter\", \"back to the door and bolt\", \"offer the key back if he stops\"). Write it the turn they start or announce it; every later result names it by intent_ref. This variant stands alone in one npc effect, with outcome",
 	})),
 	intent_ref: Type.Optional(Type.String({
 		description: "the ref of an intention (present[].history.intents, director.offer, the NPC advice). With outcome and nothing else: this person's own intention, and its next result. Beside to, stance or another change: that change is the result of the intention named, which may be someone else's (the porter comes up because Knott shouted)",

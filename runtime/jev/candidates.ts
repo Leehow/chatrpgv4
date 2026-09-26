@@ -89,7 +89,7 @@ const STANDING_BASES: readonly string[] = ['authored', 'rule-default', 'keeper']
  * investigator's turn offers each issued action to the route question, keyed without the round, so the action the
  * player declared is carried out once per turn.
  */
-function sessionCandidates(session: Row, rawInput: string, answering: readonly string[], pendingChoice: Row, fighter: Row = {}, relationships: Row[] = []): Candidate[] {
+function sessionCandidates(session: Row, rawInput: string, answering: readonly string[], pendingChoice: Row, fighter: Row = {}, relationships: Row[] = [], underWay: readonly string[] = []): Candidate[] {
   const kind = text(session.kind);
   if ((kind !== 'combat' && kind !== 'chase') || session.status !== 'active') return [];
   const participants = array(session.participants).map(object);
@@ -185,6 +185,11 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
     // Keeper, who spends it on whatever the person does instead of a blow (§138.5).
     const bound = word === 'attack' ? 'combat:attack' : word === 'flee' ? 'combat:flee' : null;
     if (bound === null) return [];
+    // §138.14: someone who set out to do something and has no result yet (the card's intention under way) is not made
+    // to swing again by the clerk: the turn is the Keeper's, who may still attack or spend it on that intention. Live
+    // gate A (2026-09-26) had Knott's clerk-forced blow every round while he shouted, hurled the telephone and ran for
+    // the door in prose on top of it. Structural: the intention's ref names its owner.
+    if (word === 'attack' && underWay.some(ref => ref.startsWith(`intent:${actor}:`))) return [];
     const step = own.find(candidate => candidate.bound.decision === bound);
     if (step) return [{...step, forced: true, basis: {...object(step.basis), standing: named} as Json}];
     if (word === 'flee') return [];
@@ -299,7 +304,10 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     : {bound: {}, unbound: [{name: 'actor', required: true, vocabulary: 'closed', options: actors}]};
   // A structurally determined step goes first: its candidate is the only thing the kernel accepts next.
   const relationships = array(object(capsule.mods).relationships).map(object);
-  for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice), object(reads.fighter), relationships))
+  // §138.14: the refs of the intentions under way of the people present, from their cards.
+  const underWay = array(capsule.present).flatMap(person => array(object(object(person).history).intents).map(object))
+    .filter(intent => intent.status === 'attempted').map(intent => text(intent.ref)).filter(Boolean);
+  for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice), object(reads.fighter), relationships, underWay))
     if (candidate.forced) push(candidate);
   // Effects the kernel issues for the current state.
   for (const [index, row] of array(object(reads.applyOptions).candidates).map(object).entries()) {

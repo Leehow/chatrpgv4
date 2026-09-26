@@ -302,6 +302,25 @@ test("SL-08: an NPC's standing attack with one target and one weapon is its forc
 	assert.deepEqual([args.action.intent, args.action.decision, args.action.actor, args.action.target, args.action.weapon], ["combat", "combat:attack", "steven-knott", "thomas-hayes", "unarmed"]);
 });
 
+test("§138.14: an NPC with an intention under way is not made to swing by the clerk -- the turn is the Keeper's", async (t) => {
+	const { call } = kernel(t);
+	const { turn, n } = await knottsTurn(call, "fights_to_the_end");
+	await call("table.apply", { call_id: `t${turn}-c${n}`, effects: [{ kind: "npc", name: "Steven Knott", intends: "Get to the telephone and ring the police.", outcome: "attempted" }] });
+	await call("table.narrate", { call_id: `t${turn}-c${n + 1}`, text: "诺特一边挡着，一边往电话那边挪。" });
+	await call("table.player_input", { text: "我揍他" });
+	const state = await reads(call);
+	assert.equal(state.resolveOptions.context.session.turn_of, "steven-knott");
+	assert.equal(state.resolveOptions.context.session.standing_action.action, "attack", "the standing attack still stands");
+	const card = state.capsule.present.find((person) => person.name === "Steven Knott");
+	assert.equal(card.history.intents[0].status, "attempted");
+	assert.deepEqual(buildCandidates(state, "我揍他").filter((candidate) => candidate.forced), [], "no forced blow: the Keeper spends his turn");
+	// The same view without the intention on the card: the clerk's forced attack, as before.
+	const settled = { ...state, capsule: { ...state.capsule, present: state.capsule.present.map((person) => person.name === "Steven Knott"
+		? { ...person, history: { ...person.history, intents: person.history.intents.map((intent) => ({ ...intent, status: "failed" })) } } : person) } };
+	const [attack] = buildCandidates(settled, "我揍他").filter((candidate) => candidate.forced);
+	assert.equal(attack.bound.decision, "combat:attack");
+});
+
 test("SL-08: several weapons or targets under a standing attack are a Jev bind over the kernel's own lists, and the attack is still decided", async (t) => {
 	const { call } = kernel(t);
 	await knottsTurn(call, "fights_to_the_end");
