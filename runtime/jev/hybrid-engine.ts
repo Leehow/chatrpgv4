@@ -783,7 +783,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // counted here, attempt or not -- a refused free-text call is exactly the residual SL-78 measures.
     if (isKeeperResidualKey(proposal.operation)) run.keeperCalls[proposal.operation]++;
     const toolResult = await execute();
-    const delivery = !toolResult.isError ? DELIVERY_VERBS[proposal.operation] : undefined;
+    // SL-92: an apply whose embedded narrate landed closed the turn exactly as an explicit narrate would (the
+    // kernel extension ran the same table.narrate call, on a synthetic call of its own); `DELIVERY_VERBS` only
+    // ever named the two real delivery verbs, so this apply's own `narrate_in_apply` flag is read beside it.
+    const delivery = !toolResult.isError
+      ? DELIVERY_VERBS[proposal.operation]
+        ?? (proposal.operation === 'apply' && (toolResult.details as {narrate_in_apply?: unknown} | undefined)?.narrate_in_apply === true ? 'accepted' : undefined)
+      : undefined;
     const fell = toolResult.isError ? `${proposal.operation}_refused` : proposal.operation === 'resolve' && failedCheck(toolResult.details) ? 'check_failed' : undefined;
     if (fell) { batch.fell = fell; batch.fellAt = proposal.toolCall?.id; }
     const fresh = !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? await freshOf(run) : undefined;
