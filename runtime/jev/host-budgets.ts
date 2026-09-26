@@ -28,19 +28,22 @@ export interface JevStepsBudget {
   execute: readonly string[];
   /** SL-86: a per-class override of `rowMin`, keyed by class name; a class absent here uses the shared `rowMin`. */
   classRowMin: Readonly<Record<string, number>>;
+  /** SL-86 follow-up (§135.32 addendum 3.1): a per-class `rowRatio` override. For a Noul the two gates collapse into one
+   *  number (`yes >= ratio/(1+ratio)`), so a class that lowers `rowMin` must be allowed to lower the ratio too. */
+  classRowRatio: Readonly<Record<string, number>>;
 }
 
 /** Used only if `content/rulesets/coc7/host-budgets.json` cannot be read; the shipped file carries the real default. */
-export const JEV_STEPS_FALLBACK: JevStepsBudget = Object.freeze({rowMin: 0.5, rowRatio: 2, shadow: true, execute: Object.freeze([]), classRowMin: Object.freeze({})});
+export const JEV_STEPS_FALLBACK: JevStepsBudget = Object.freeze({rowMin: 0.5, rowRatio: 2, shadow: true, execute: Object.freeze([]), classRowMin: Object.freeze({}), classRowRatio: Object.freeze({})});
 
 /**
  * SL-86 (§135.32 addendum 3): the class's own `{rowMin, rowRatio}`, falling back to the shared gate field by
- * field -- `rowRatio` never has a per-class override (the ratio is about how peaked the answer is, not how
- * cheap a miss is), only `rowMin` can differ per class.
+ * field. A per-class `rowRatio` is allowed too (addendum 3.1): for a Noul the ratio gate is `yes >= ratio/(1+ratio)`,
+ * so the shared ratio of 2 (an effective 0.667) would silently override any lower per-class `rowMin`.
  */
-export function thresholdsForClass(budget: Pick<JevStepsBudget, 'rowMin' | 'rowRatio' | 'classRowMin'>, cls: string): {rowMin: number; rowRatio: number} {
-  const rowMin = budget.classRowMin[cls];
-  return {rowMin: typeof rowMin === 'number' ? rowMin : budget.rowMin, rowRatio: budget.rowRatio};
+export function thresholdsForClass(budget: Pick<JevStepsBudget, 'rowMin' | 'rowRatio' | 'classRowMin' | 'classRowRatio'>, cls: string): {rowMin: number; rowRatio: number} {
+  const rowMin = budget.classRowMin[cls], rowRatio = budget.classRowRatio?.[cls];
+  return {rowMin: typeof rowMin === 'number' ? rowMin : budget.rowMin, rowRatio: typeof rowRatio === 'number' ? rowRatio : budget.rowRatio};
 }
 
 let cached: Promise<JevStepsBudget> | undefined;
@@ -63,11 +66,13 @@ async function readJevStepsBudget(contentRoot?: string): Promise<JevStepsBudget>
       jev_steps?: {row_min?: unknown; row_ratio?: unknown; shadow?: unknown; execute?: unknown; classes?: unknown};
     };
     const rowMin = raw.jev_steps?.row_min, rowRatio = raw.jev_steps?.row_ratio, shadow = raw.jev_steps?.shadow, execute = raw.jev_steps?.execute;
-    const classes = raw.jev_steps?.classes, classRowMin: Record<string, number> = {};
+    const classes = raw.jev_steps?.classes, classRowMin: Record<string, number> = {}, classRowRatio: Record<string, number> = {};
     if (classes && typeof classes === 'object' && !Array.isArray(classes))
       for (const [cls, shape] of Object.entries(classes as Record<string, unknown>)) {
         const classRowMinValue = shape && typeof shape === 'object' && !Array.isArray(shape) ? (shape as Record<string, unknown>).row_min : undefined;
         if (finite(classRowMinValue) && classRowMinValue > 0 && classRowMinValue < 1) classRowMin[cls] = classRowMinValue;
+        const classRowRatioValue = shape && typeof shape === 'object' && !Array.isArray(shape) ? (shape as Record<string, unknown>).row_ratio : undefined;
+        if (finite(classRowRatioValue) && classRowRatioValue > 0) classRowRatio[cls] = classRowRatioValue;
       }
     return {
       rowMin: finite(rowMin) && rowMin > 0 && rowMin < 1 ? rowMin : JEV_STEPS_FALLBACK.rowMin,
@@ -75,6 +80,7 @@ async function readJevStepsBudget(contentRoot?: string): Promise<JevStepsBudget>
       shadow: typeof shadow === 'boolean' ? shadow : JEV_STEPS_FALLBACK.shadow,
       execute: Array.isArray(execute) ? Object.freeze(execute.filter((value): value is string => typeof value === 'string')) : JEV_STEPS_FALLBACK.execute,
       classRowMin: Object.freeze(classRowMin),
+      classRowRatio: Object.freeze(classRowRatio),
     };
   } catch {
     return JEV_STEPS_FALLBACK;

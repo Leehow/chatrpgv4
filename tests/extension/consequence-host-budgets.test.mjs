@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { JEV_STEPS_FALLBACK, jevStepsBudget, thresholdsForClass } from "../../runtime/jev/host-budgets.ts";
+import { noulClears } from "../../runtime/jev/consequence-route.ts";
 
 function fixture(t, jevSteps) {
 	const root = mkdtempSync(join(tmpdir(), "jev-steps-budget-"));
@@ -22,7 +23,7 @@ function fixture(t, jevSteps) {
 test("jevStepsBudget: reads row_min/row_ratio/shadow/execute from the data file", async (t) => {
 	const root = fixture(t, { row_min: 0.6, row_ratio: 2.5, shadow: false, execute: ["clue_follow_up"] });
 	const budget = await jevStepsBudget(root);
-	assert.deepEqual(budget, { rowMin: 0.6, rowRatio: 2.5, shadow: false, execute: ["clue_follow_up"], classRowMin: {} });
+	assert.deepEqual(budget, { rowMin: 0.6, rowRatio: 2.5, shadow: false, execute: ["clue_follow_up"], classRowMin: {}, classRowRatio: {} });
 });
 
 test("jevStepsBudget (SL-78): `execute` is empty when the file names none, filters out a non-string entry, and never throws on a bad shape", async (t) => {
@@ -89,9 +90,10 @@ test("jevStepsBudget (SL-86): mutating a class's row_min changes only that class
 	assert.equal(second.classRowMin.clue_follow_up, 0.2);
 });
 
-test("jevStepsBudget: the shipped file opens `clue_follow_up` at row_min 0.35, ratio kept shared (SL-86, §135.32 addendum 3)", async () => {
+test("jevStepsBudget: the shipped file opens `clue_follow_up` at row_min 0.4 with its own row_ratio 0.67 (effective Noul gate 0.4; §135.32 addendum 3.1)", async () => {
 	const budget = await jevStepsBudget();
-	assert.deepEqual(budget.classRowMin, { clue_follow_up: 0.35 });
+	assert.deepEqual(budget.classRowMin, { clue_follow_up: 0.4 });
+	assert.deepEqual(budget.classRowRatio, { clue_follow_up: 0.67 });
 });
 
 // SL-86 finding (owner-facing, ticket 86 Comments): `noulClears`'s row gate is `p >= rowMin AND p >= rowRatio *
@@ -118,4 +120,15 @@ test("thresholdsForClass (SL-86): a named class's own row_min, the shared row_ra
 	assert.deepEqual(thresholdsForClass(budget, "clue_follow_up"), { rowMin: 0.35, rowRatio: 2 });
 	assert.deepEqual(thresholdsForClass(budget, "npc_reaction"), { rowMin: 0.5, rowRatio: 2 }, "unnamed class: the shared gate, unchanged");
 	assert.deepEqual(thresholdsForClass(budget, "time_cost"), { rowMin: 0.5, rowRatio: 2 });
+});
+
+test("jevStepsBudget (§135.32 addendum 3.1): a per-class `row_ratio` is read and used, so a class can lower its effective Noul gate", async (t) => {
+	const budget = await jevStepsBudget(fixture(t, { row_min: 0.5, row_ratio: 2, classes: { clue_follow_up: { row_min: 0.4, row_ratio: 0.67 } } }));
+	assert.deepEqual(budget.classRowRatio, { clue_follow_up: 0.67 });
+	assert.deepEqual(thresholdsForClass(budget, "clue_follow_up"), { rowMin: 0.4, rowRatio: 0.67 });
+	assert.deepEqual(thresholdsForClass(budget, "npc_reaction"), { rowMin: 0.5, rowRatio: 2 }, "an unlisted class keeps the shared gate");
+	assert.equal(noulClears(0.42, thresholdsForClass(budget, "clue_follow_up")), "true", "0.42 clears the clue class (effective gate 0.4)");
+	assert.equal(noulClears(0.42, thresholdsForClass(budget, "npc_reaction")), undefined, "0.42 does not clear the shared gate (effective 0.667)");
+	const bad = await jevStepsBudget(fixture(t, { row_min: 0.5, row_ratio: 2, classes: { clue_follow_up: { row_ratio: -1 } } }));
+	assert.deepEqual(bad.classRowRatio, {}, "a non-positive per-class ratio is ignored");
 });
