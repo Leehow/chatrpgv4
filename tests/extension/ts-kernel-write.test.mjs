@@ -277,3 +277,64 @@ test('a deliberately incomplete writer rejects unavailable contributions but all
     }finally{await kernel.close();}
   });
 });
+
+/**
+ * §141: a kernel killed inside narrate's finalizing window. The Git wrapper SIGKILLs the kernel that called it (its
+ * parent) when narrate commits: before the real commit runs, or right after it succeeded. A fresh kernel then opens the
+ * campaign. Before §141 the first case reopened at {2,'awaiting_player'} with the undelivered narrate as delivered.
+ */
+async function crashAtCommit(t,when) {
+  const home=await mkdtemp(join(evidence,`narrate-crash-${when}-`)),armed=join(home,'arm-crash'),script=join(home,'git-crash.mjs'),executable=join(home,'crash-git');
+  await writeFile(script,`
+import {spawnSync} from 'node:child_process';import {existsSync,unlinkSync} from 'node:fs';
+const args=process.argv.slice(2),crash=args.includes('commit')&&existsSync(process.env.TEST_GIT_ARMED);
+if(crash)unlinkSync(process.env.TEST_GIT_ARMED);
+if(crash&&process.env.TEST_GIT_WHEN==='before'){process.kill(process.ppid,'SIGKILL');process.exit(1);}
+const run=spawnSync('git',args,{stdio:'inherit'});
+if(crash&&run.status===0)process.kill(process.ppid,'SIGKILL');
+process.exit(run.status??1);
+`);
+  const quote=value=>"'"+value.replaceAll("'","'\\''")+"'";
+  await writeFile(executable,`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`);await chmod(executable,0o755);
+  const env=environment({PI_COC_GIT:executable,TEST_GIT_ARMED:armed,TEST_GIT_WHEN:when}),first=client(home,env);
+  t.after(()=>first.close());
+  await first.call('campaign.create',create);await first.call('table.open',{campaign:'c1'});
+  await first.call('table.narrate',{campaign:'c1',call_id:'t0-c1',text:'The case begins.'});
+  await first.call('table.player_input',{campaign:'c1',text:'I inspect the letter.'});
+  await writeFile(armed,'arm');
+  const failed=await first.call('table.narrate',{campaign:'c1',call_id:'t1-c1',text:'The paper is dry.'}).then(()=>null,error=>error);
+  assert.ok(failed,'the kernel died inside narrate');
+  const campaign=join(home,'.coc/campaigns/c1'),journal=join(home,'.coc/narrate-journal/c1.json');
+  assert.ok(JSON.parse(await readFile(journal,'utf8')).turn===1,'the killed narrate left its journal');
+  const second=client(home,env);t.after(()=>second.close());
+  return {home,campaign,journal,second,reopened:await second.call('table.open',{campaign:'c1'})};
+}
+const exists=path=>readFile(path).then(()=>true,()=>false);
+const recoveries=async campaign=>(await readFile(join(campaign,'telemetry.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line)).filter(row=>row.step==='narrate-recovery');
+
+test('§141: a kernel killed before narrate commits reopens with the turn still owing its narrate, and the resent narrate lands once',async t=>{
+  const {campaign,journal,second,reopened}=await crashAtCommit(t,'before');
+  assert.deepEqual(reopened.turn,{number:1,state:'acting'});
+  assert.deepEqual(reopened.pending_turn.owed,['narrate']);
+  assert.equal(await exists(journal),false,'recovery clears the journal');
+  assert.deepEqual((await recoveries(campaign)).map(row=>[row.turn,row.outcome]),[[1,'rolled_back']]);
+  const transcript=(await readFile(join(campaign,'transcript.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
+  assert.equal(transcript.some(line=>line.role==='keeper'&&String(line.text).includes('The paper is dry.')),false,'the undelivered narration is not on the record');
+  const resent=await second.call('table.narrate',{campaign:'c1',call_id:'t1-c1',text:'The paper is dry.'});
+  assert.ok(resent.commit);
+  assert.equal(JSON.parse(await readFile(join(campaign,'turn.json'),'utf8')).turn,2);
+  assert.equal((await readFile(join(campaign,'transcript.jsonl'),'utf8')).split('The paper is dry.').length-1,1,'delivered exactly once');
+});
+
+test('§141: a kernel killed after narrate committed reopens past the turn with the commit stamped on its record',async t=>{
+  const {campaign,journal,second,reopened}=await crashAtCommit(t,'after');
+  assert.equal(reopened.turn.number,2);
+  assert.equal(await exists(journal),false,'recovery clears the journal');
+  const recovered=await recoveries(campaign);
+  assert.deepEqual(recovered.map(row=>[row.turn,row.outcome]),[[1,'completed']]);
+  const record=JSON.parse(await readFile(join(campaign,'turns/0001.json'),'utf8'));
+  assert.ok(record.commit&&record.commit===recovered[0].commit,'the record carries the commit that landed');
+  assert.equal(record.calls['t1-c1'].result.commit,record.commit);
+  const replayed=await second.call('table.narrate',{campaign:'c1',call_id:'t1-c1',text:'The paper is dry.'});
+  assert.equal(replayed.commit,record.commit,'the resent call replays the delivered turn; nothing is committed twice');
+});

@@ -1,12 +1,12 @@
 /** Static campaign and turn handlers. Other domains contribute through named seams. */
-import { mkdir, rm, unlink } from 'node:fs/promises';
+import { mkdir, readFile, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
 import type { HandlerGroup, ProgressReporter } from '../handlers.js';
 import type { TurnTransaction } from '../transactions.js';
 import { RpcError, internalError } from '../errors.js';
 import { sha256Text,isJsonObject } from '../json.js';
-import { appendJsonl, fileSize, truncateFile } from '../fileio.js';
+import { appendJsonl, fileSize, truncateFile, writeJsonAtomic } from '../fileio.js';
 import { CampaignSnapshot, loadModule, loadCampaignModule, replayTrail, type LoadedModule } from '../read/campaign.js';
 import { scopedModuleRoot } from '../modules/campaign-scope.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
@@ -24,7 +24,7 @@ import { playLanguages, playLanguageOf } from '../read/languages.js';
 import { modContext, kernelGaps, readModCatalog } from '../read/mods.js';
 import { array, entries, values, row, clone, number, string, truth, repr, chars, words, equal, integer, normalize, type Row } from '../read/values.js';
 import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError, parseCallId } from './store.js';
-import { checked, commit, CommitFailed } from './history.js';
+import { checked, commit, CommitFailed, head } from './history.js';
 import { registerStarter } from './source.js';
 import { playsFromReading } from '../modules/bound-source.js';
 import { validateDifficulty } from '../setup/difficulty.js';
@@ -323,6 +323,59 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         snapshot.jsonFiles.set('turn.json', snapshot.turn);
         return snapshot;
     }
+    /**
+     * Contract §141: narrate finalizes a turn in several file writes and then one commit. A kernel killed anywhere in
+     * that window (a loaded machine's SIGTERM-to-SIGKILL grace ran out mid-shutdown) left the files saying the turn was
+     * delivered, and the next `table.open` served the undelivered narrate as delivered. The rollback a failed commit
+     * already does needs values only narrate had in memory, so narrate writes them here, outside the campaign's own
+     * repository (`commit` stages everything inside it), before its first write, and removes them as soon as the commit
+     * returns or the rollback is done.
+     */
+    const narrateJournalPath = (campaign: string) => join(context.stateRoot, 'narrate-journal', `${campaign}.json`);
+    async function clearNarrateJournal(campaign: string): Promise<void> {
+        await rm(narrateJournalPath(campaign), { force: true });
+    }
+    /** Undo narrate's finalizing writes, exactly as a failed commit does. */
+    async function rollBackNarrate(campaign: CampaignWriter, journal: Row): Promise<void> {
+        await campaign.writeCampaign(row(journal.prior_meta));
+        await campaign.writeTurn(row(journal.before));
+        await truncateFile(campaign.path('transcript.jsonl'), number(journal.transcript_size));
+        await truncateFile(campaign.path('events.jsonl'), number(journal.events_size));
+        if (!journal.had_record)
+            await unlink(campaign.path(campaign.recordName(number(journal.turn)))).catch(error => {
+                if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+                    throw error;
+            });
+    }
+    /**
+     * A journal left behind means narrate never finished. If the campaign's last commit is this turn's, the commit
+     * landed and only its hash was not stamped on the record; otherwise nothing was committed and the writes are undone,
+     * so the turn is still open and owes its narrate. Runs under the campaign lock, before anything reads the turn.
+     */
+    async function recoverInterruptedNarrate(campaignId: string): Promise<void> {
+        let journal: Row;
+        try { journal = row(JSON.parse(await readFile(narrateJournalPath(campaignId), 'utf8'))); }
+        catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+            throw error;
+        }
+        const campaign = writer(campaignId), n = number(journal.turn), callId = string(journal.call_id);
+        const last = await head(context, campaignId);
+        if (last.sha && last.turn === n) {
+            const record = await campaign.readTurnRecord(n);
+            if (record && !record.commit) {
+                record.commit = last.sha;
+                const call = row(row(record.calls)[callId]);
+                if (isJsonObject(call.result)) call.result.commit = last.sha;
+                await campaign.writeTurnRecord(record);
+            }
+            await campaign.telemetry({ lane: 'kernel', step: 'narrate-recovery', turn: n, outcome: 'completed', commit: last.sha });
+        } else {
+            await rollBackNarrate(campaign, journal);
+            await campaign.telemetry({ lane: 'kernel', step: 'narrate-recovery', turn: n, outcome: 'rolled_back' });
+        }
+        await clearNarrateJournal(campaignId);
+    }
     async function load(params: Row, { allowReady = false, requireTurn = true, repairLegacyTrail: repair = true, preload = true }: {
         allowReady?: boolean;
         requireTurn?: boolean;
@@ -333,6 +386,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         snapshot: CampaignSnapshot;
         module: LoadedModule;
     }> {
+        if (typeof params.campaign === 'string') await recoverInterruptedNarrate(params.campaign);
         const snapshot = requireTurn ? await CampaignSnapshot.open(context, params.campaign) : await recoverySnapshot(params);
         snapshot.meta = clone(snapshot.meta);
         snapshot.world = clone(snapshot.world);
@@ -1024,6 +1078,12 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         };
         const before = clone(turn), transcriptSize = await fileSize(campaign.path('transcript.jsonl')), eventsSize = await fileSize(campaign.path('events.jsonl'));
         const recordPath = campaign.path(campaign.recordName(n)), hadRecord = await context.snapshots.pathExists(recordPath);
+        // §141: what a rollback needs, on disk before the first write below.
+        const rolledBack = clone(before);
+        if (rolledBack.state === 'open')
+            rolledBack.state = 'acting';
+        await writeJsonAtomic(narrateJournalPath(campaign.id), { turn: n, call_id: started.callId, before: rolledBack,
+            prior_meta: await campaign.readCampaign(), transcript_size: transcriptSize, events_size: eventsSize, had_record: hadRecord, at: nowIso() });
         rememberCall(turn, started.callId, params, result);
         const record: Row = {
             ...deliveryRecord(turn, text, receipts, result, world),
@@ -1070,17 +1130,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         catch (error) {
             if (!(error instanceof CommitFailed))
                 throw error;
-            await campaign.writeCampaign(priorMeta);
-            if (before.state === 'open')
-                before.state = 'acting';
-            await campaign.writeTurn(before);
-            await truncateFile(campaign.path('transcript.jsonl'), transcriptSize);
-            await truncateFile(campaign.path('events.jsonl'), eventsSize);
-            if (!hadRecord)
-                await unlink(recordPath).catch(error => {
-                    if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-                        throw error;
-                });
+            await rollBackNarrate(campaign, { turn: n, before: rolledBack, prior_meta: priorMeta, transcript_size: transcriptSize,
+                events_size: eventsSize, had_record: hadRecord });
+            await clearNarrateJournal(campaign.id);
             // Contract §38.11: the Git verb, its exit code and what it printed reach the host as
             // fields, so a repeated failure can be escalated by cause instead of by sentence.
             throw new RpcError('commit_failed', `git commit failed; the turn stays open: ${error.message}`, {
@@ -1091,6 +1143,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 }
             });
         }
+        // §141: the commit landed; clear the journal before any post step can add another commit.
+        await clearNarrateJournal(campaign.id);
         // A failed commit throws above, so this frame only ever announces a real commit.
         report?.('commit');
         record.commit = sha;
