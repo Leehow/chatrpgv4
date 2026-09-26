@@ -283,13 +283,14 @@ test('a deliberately incomplete writer rejects unavailable contributions but all
  * parent) when narrate commits: before the real commit runs, or right after it succeeded. A fresh kernel then opens the
  * campaign. Before §141 the first case reopened at {2,'awaiting_player'} with the undelivered narrate as delivered.
  */
-async function crashAtCommit(t,when) {
+async function crashAtCommit(t,when,{social=false}={}) {
   const home=await mkdtemp(join(evidence,`narrate-crash-${when}-`)),armed=join(home,'arm-crash'),script=join(home,'git-crash.mjs'),executable=join(home,'crash-git');
   await writeFile(script,`
 import {spawnSync} from 'node:child_process';import {existsSync,unlinkSync} from 'node:fs';
 const args=process.argv.slice(2),crash=args.includes('commit')&&existsSync(process.env.TEST_GIT_ARMED);
 if(crash)unlinkSync(process.env.TEST_GIT_ARMED);
 if(crash&&process.env.TEST_GIT_WHEN==='before'){process.kill(process.ppid,'SIGKILL');process.exit(1);}
+if(crash&&process.env.TEST_GIT_WHEN==='fail'){console.error('fixture: commit refused');process.exit(1);}
 const run=spawnSync('git',args,{stdio:'inherit'});
 if(crash&&run.status===0)process.kill(process.ppid,'SIGKILL');
 process.exit(run.status??1);
@@ -301,13 +302,18 @@ process.exit(run.status??1);
   await first.call('campaign.create',create);await first.call('table.open',{campaign:'c1'});
   await first.call('table.narrate',{campaign:'c1',call_id:'t0-c1',text:'The case begins.'});
   await first.call('table.player_input',{campaign:'c1',text:'I inspect the letter.'});
+  const campaign=join(home,'.coc/campaigns/c1'),journal=join(home,'.coc/narrate-journal/c1.json'),narrateId=social?'t1-c2':'t1-c1';
+  // §141.1: a settled social check against Knott, so narrate folds an interaction into the NPC ledger.
+  if(social)await first.call('table.resolve',{campaign:'c1',call_id:'t1-c1',action:{intent:'social',goal:'get the keys and the story',
+    method:'persuade him',target:'Steven Knott',stakes:'he clams up'}});
+  const ledgerBefore=await readFile(join(campaign,'npc-ledger.json'),'utf8').catch(()=>null);
   await writeFile(armed,'arm');
-  const failed=await first.call('table.narrate',{campaign:'c1',call_id:'t1-c1',text:'The paper is dry.'}).then(()=>null,error=>error);
-  assert.ok(failed,'the kernel died inside narrate');
-  const campaign=join(home,'.coc/campaigns/c1'),journal=join(home,'.coc/narrate-journal/c1.json');
+  const failed=await first.call('table.narrate',{campaign:'c1',call_id:narrateId,text:'The paper is dry.'}).then(()=>null,error=>error);
+  assert.ok(failed,when==='fail'?'the commit was refused':'the kernel died inside narrate');
+  if(when==='fail')return {home,campaign,journal,ledgerBefore,narrateId,second:first,failed};
   assert.ok(JSON.parse(await readFile(journal,'utf8')).turn===1,'the killed narrate left its journal');
   const second=client(home,env);t.after(()=>second.close());
-  return {home,campaign,journal,second,reopened:await second.call('table.open',{campaign:'c1'})};
+  return {home,campaign,journal,ledgerBefore,narrateId,second,reopened:await second.call('table.open',{campaign:'c1'})};
 }
 const exists=path=>readFile(path).then(()=>true,()=>false);
 const recoveries=async campaign=>(await readFile(join(campaign,'telemetry.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line)).filter(row=>row.step==='narrate-recovery');
@@ -337,4 +343,16 @@ test('§141: a kernel killed after narrate committed reopens past the turn with 
   assert.equal(record.calls['t1-c1'].result.commit,record.commit);
   const replayed=await second.call('table.narrate',{campaign:'c1',call_id:'t1-c1',text:'The paper is dry.'});
   assert.equal(replayed.commit,record.commit,'the resent call replays the delivered turn; nothing is committed twice');
+});
+
+const knottTurnOne=async campaign=>JSON.parse(await readFile(join(campaign,'npc-ledger.json'),'utf8'))['npc-steven-knott'].interactions.filter(item=>item.turn===1);
+for(const when of ['before','fail'])test(`§141.1: a narrate ${when==='fail'?'whose commit is refused':'killed before its commit'} leaves the NPC ledger as it was, and the resent narrate folds the turn once`,async t=>{
+  const {campaign,journal,ledgerBefore,narrateId,second,failed}=await crashAtCommit(t,when,{social:true});
+  if(when==='fail')assert.equal(failed.code??failed.payload?.code??(/commit_failed/.test(String(failed.message))?'commit_failed':failed.message),'commit_failed');
+  assert.equal(await exists(journal),false,'the journal is gone after the rollback');
+  assert.equal(await readFile(join(campaign,'npc-ledger.json'),'utf8').catch(()=>null),ledgerBefore,'the ledger is back to what it was before narrate');
+  const resent=await second.call('table.narrate',{campaign:'c1',call_id:narrateId,text:'The paper is dry.'});
+  assert.ok(resent.commit);
+  const folded=await knottTurnOne(campaign);
+  assert.equal(folded.length,1,`one interaction for the one social check, not one per attempt: ${JSON.stringify(folded)}`);
 });

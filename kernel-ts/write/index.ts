@@ -335,8 +335,16 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     async function clearNarrateJournal(campaign: string): Promise<void> {
         await rm(narrateJournalPath(campaign), { force: true });
     }
-    /** Undo narrate's finalizing writes, exactly as a failed commit does. */
+    /**
+     * Undo narrate's finalizing writes, exactly as a failed commit does. The NPC ledger is one of them (§141.1):
+     * `foldNpcTurn` appends each interaction and adds each stance delta, so a resent narrate folded the same turn a
+     * second time when the ledger was left as the rolled-back narrate had written it.
+     */
     async function rollBackNarrate(campaign: CampaignWriter, journal: Row): Promise<void> {
+        if (Object.hasOwn(journal, 'npc_ledger')) {
+            if (journal.npc_ledger === null) await rm(campaign.path('npc-ledger.json'), { force: true });
+            else await campaign.write('npc-ledger.json', row(journal.npc_ledger));
+        }
         await campaign.writeCampaign(row(journal.prior_meta));
         await campaign.writeTurn(row(journal.before));
         await truncateFile(campaign.path('transcript.jsonl'), number(journal.transcript_size));
@@ -1082,8 +1090,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const rolledBack = clone(before);
         if (rolledBack.state === 'open')
             rolledBack.state = 'acting';
+        const ledgerPath = campaign.path('npc-ledger.json');
+        const priorLedger = await context.snapshots.pathExists(ledgerPath) ? await campaign.read('npc-ledger.json') : null;
         await writeJsonAtomic(narrateJournalPath(campaign.id), { turn: n, call_id: started.callId, before: rolledBack,
-            prior_meta: await campaign.readCampaign(), transcript_size: transcriptSize, events_size: eventsSize, had_record: hadRecord, at: nowIso() });
+            prior_meta: await campaign.readCampaign(), npc_ledger: priorLedger, transcript_size: transcriptSize, events_size: eventsSize,
+            had_record: hadRecord, at: nowIso() });
         rememberCall(turn, started.callId, params, result);
         const record: Row = {
             ...deliveryRecord(turn, text, receipts, result, world),
@@ -1130,8 +1141,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         catch (error) {
             if (!(error instanceof CommitFailed))
                 throw error;
-            await rollBackNarrate(campaign, { turn: n, before: rolledBack, prior_meta: priorMeta, transcript_size: transcriptSize,
-                events_size: eventsSize, had_record: hadRecord });
+            await rollBackNarrate(campaign, { turn: n, before: rolledBack, prior_meta: priorMeta, npc_ledger: priorLedger,
+                transcript_size: transcriptSize, events_size: eventsSize, had_record: hadRecord });
             await clearNarrateJournal(campaign.id);
             // Contract §38.11: the Git verb, its exit code and what it printed reach the host as
             // fields, so a repeated failure can be escalated by cause instead of by sentence.
