@@ -142,3 +142,4 @@ a first impression, unlike gate #14's turn 7 Persuade). What stays `false` is th
 engagement the Keeper resolved through a mechanic other than the first-impression roll. `jev-steps-report.py`'s
 `corrected_npc_reaction` prints the same 3/6 and 3/5 on these two tables and will equal the raw figure on any table
 played after SL-83.
+- Gate #17 (execute): clue_follow_up TP 2 / FP 0 / FN 7 (yes 0.12–0.45); the report should add recall (FN) beside agreement — SL-86 asks for it.

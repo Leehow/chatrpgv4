@@ -739,3 +739,15 @@ Reading: first-step thinking on opencode-go/deepseek-v4.1-flash buys fewer plann
 7. Routing ✗ on its face — moves by the compile 7/12 — but **Jev returned service errors on every call from turn 8 to turn 14** (route/compile/consequence/admission fast-path all `jev_service_error` in 200–440 ms, `jev_input_tokens: 0`; prescreen "Adaptive material retrieval: unavailable"); the product degraded exactly as §135.32 D2.7 says (the Keeper chose; admission fell to the lane; 7/7 of those turns delivered, walls 27–76 s). Excluding the outage turns the compile selected 7/7 of the script's moves it could see. Gap found: the adapter's failure code/HTTP status is not written to telemetry, so the outage cannot be classified (429 rate limit vs 529 overload vs 401) from the table's own records — SL-84.
 Reading: the batch-13 build with thinking off is back inside #13's envelope with the lane fixed (median 41, 18/20 ≤60, zero admission timeouts); the Jev outage is the table's one real event and it was survivable.
 
+### Long gate #17 (2026-09-26, f332d72bc, one line; Stage 2b for clue_follow_up)
+1. Delivery 20/20 ✓; cap rows 0; reasoning 0.
+2. Wall ✓✓: median 30 s (best table yet; #16 41, #13 42), ≤60 s 19/20, max 64.
+3. Execution: 3 consequence clue steps executed (t2 macario-tragedy 0.73, t5 burning-eyes-form 0.87, +1), all reached by the player's action, all in the prose, none re-filed by the Keeper (3c ✓); false positives 0.
+4. Residual ✗: Keeper-chosen apply 30 / resolve 8 over 18 residual turns — no drop vs #16. Why: Jev cleared only 2 of the 9 clues the Keeper went on to file (false negatives 7, yes-probability 0.12–0.45: globe-unpublished-story 0.39, dooley-macario-madness 0.45, gabriela-night-visitor 0.37, knott-macario-summary 0.20, nailed-windows 0.24, catholic-wards 0.12, upstairs-disturbance 0.20); 7 more filed clues were never offered (compile-filed or gate unsatisfied at route time). The question is too conservative on "reach", not the mechanism.
+5. npc_reaction shadow: 13 rows, keeper_did on 7 (the on-mode rows carry `shadow` but the report's shadow filter read 0) — reporting gap.
+6. Admission p90 2.3 s, 0 timeouts ✓. Jev (SL-84 live): one 404 on `action-admission`, one timeout on `keeper-support-agent`; both isolated, now classified ✓.
+7. Jev cost: median 1,555 ms per turn (was 495 in shadow) because the on-mode route runs after every settled write; at D6's 1.5 s line.
+8. Keeper refusals: needs 7, invalid_params 5, unknown_entity 2 (t13: a `look` on an unregistered object, an `apply` transfer naming '诺特' as owner); cuts 0. No thin delivery; t20 one implicit narrate refused (needs) then delivered.
+9. Reporting gaps: residual rows duplicated on turns 5/7/20 and missing on 1/11/12/14/17/19; an executed row's `keeper_did` reads the clerk's own receipt as `true`.
+Reading: the execute path is sound (0 FP, no double filing, fastest table); the lever now is the clue question's recall (7 FN), then the reporting gaps.
+

@@ -424,6 +424,16 @@
       "id": "SL-84",
       "file": "84-a-jev-outage-leaves-no-status-code.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-85",
+      "file": "85-execute-mode-reporting-gaps.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-86",
+      "file": "86-the-clue-question-under-recalls.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
