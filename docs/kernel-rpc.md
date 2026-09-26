@@ -1689,6 +1689,7 @@ acceptance remain pending until their dedicated checks are recorded.
 | obligations | `scene` | 当前场景的 stated obligation（模组图 `requirement` 节点，§134）：`sceneObligations` 投影的每一行，`{kind, name: <handle>, who?, state, cue}`，排在 `continuation` 之后、`quest` 之前（§134.10） |
 | pressures | `threat`, key `advances` | the threat record's `clocks[].advances_on` (§136.18): one line per clock the book advances on an event, `<clock_id>: the book advances it on entering <scene>`; information for the Keeper's `apply threat`, never a write |
 | where | `rules[].mech` | the `uses-rule` row's node's mechanical shapes, read by `ModuleGraph.mechanicsOf` (§136.10) and rendered by code into one English line (§136.11); absent when the node states none, so a module without shapes reads byte for byte as before |
+| where | `rules[].time_cost`, `rules[].handle` | SL-76 (§135.32, `time_cost` candidate): the node's own `mechanicsOf(node).time_cost` shape, typed and without its `book` line -- the same "typed, no book" projection `ModuleGraph.statedRewards` already gives a rule's `reward` shape (§136.17) -- with the node's own handle, so a candidate can `apply {kind: "time", stated: <handle>}` and let the kernel's own `stated` resolution (`kernel-ts/apply/stated.ts`) convert the unit and refuse `stated_unstated` when none is named. Both keys are absent when the node states no `time_cost`, so a module without one reads byte for byte as before |
 
 ### 13.3 Director：三层打分，图是唯一的数
 
@@ -19536,6 +19537,31 @@ calls `narrate` or `ask`. The canonical gateway already refuses both from a host
 
 Clerk steps commit at once. There is no "pending confirmation" receipt. A clerk mistake is reconciled by the
 Keeper in the fiction, or reversed with a real operation of its own (its own receipt, its own time cost).
+
+#### 135.3.1 Addendum (2026-09-26, SL-76; §135.32's ruling): a new clerk authority, `consequence_bookkeeping`
+
+§135.32's ruling narrows this section's "boss only" line: a consequence whose candidate the graph, the roster, the
+rules data (§136) or the session view can issue is no longer boss-only by construction. `CLERK_AUTHORITY`
+(`runtime/jev/step-policy.ts`) gains one member:
+
+- `consequence_bookkeeping`: the three classes SL-76 adds, in a wholly separate shadow list
+  (`buildConsequenceCandidates`, `runtime/jev/consequence-candidates.ts`) never merged into §135.2's own
+  `buildCandidates` -- `npc_reaction` (an authored, present NPC this table has no first-impression receipt for;
+  bound `actor`/`target`/`decision`, source `capsule.mods.pending_contacts` filtered to the
+  `natural-npc:first-impression` decision, the *same* rows §135.2's live `mod_contact` family already reads and
+  keeps reading -- SL-02's accepted candidate for that row is unchanged; `npc_reaction` is an additional, parallel,
+  shadow-only reading of it, not a replacement), `clue_follow_up` (a scene clue the kernel already offers, i.e. its
+  gate holds, that is not yet discovered -- likewise additional to, never in place of, the live `apply:clue`
+  family's own candidate for the same row) and `time_cost` (a settled clerk action whose rule states a `time_cost`
+  shape, read structurally off `capsule.where.rules[].time_cost`, §136.10 addendum above, never off the rendered
+  `mech` line). Every one of them is routed through Jev in its own batch (`consequence-route.ts`: one Noul per
+  candidate, one `exists` Noul per family -- never the route/compile fan-out's own `need`/typed-feature questions,
+  and never able to select or change what those choose), but under `COC_JEV_STEPS=shadow` (the default; SL-76) it
+  is never executed: it is logged and paired at turn close with what the Keeper did on its own (`{lane: "route",
+  shadow: true, class, key, cleared, confidence, distribution, keeper_did}`). `COC_JEV_STEPS=on` (SL-78's acceptance)
+  runs a cleared one through the same `clerkStep` gateway as any other clerk candidate (§135.4); `off` builds none
+  of the three. Thresholds (`row_min`, `row_ratio`) are `content/rulesets/coc7/host-budgets.json`'s `jev_steps`
+  entry, the same shape as `ROW_MIN`/`ROW_RATIO` (§135.30.9.1), never a literal in the policy.
 
 ### 135.4 One tool catalog; a policy-origin write is the Keeper's verb through the canonical gateway
 
