@@ -4,8 +4,8 @@ Spec: [band-then-roll.md](band-then-roll.md) (`Status: ready-for-agent`, BR-06 `
 Parent: [pi-native-single-loop.md](pi-native-single-loop.md) (ruling **Parameter binding never goes to the LLM**,
 contract §135.28); [rules-as-data.md](rules-as-data.md) (§136.22 `stated`).
 
-State: **BR-01 first; BR-02, BR-03, BR-04 and BR-05 in parallel after it; BR-06 blocked on the owner's ruling and
-BR-04's report.**
+State: **BR-01 merged into `0.9.5a` (2026-09-26); BR-02, BR-03, BR-04 and BR-05 in parallel; BR-06 unblocked by the
+owner's ruling the same day and waits only on BR-04's rows and BR-05.**
 
 Common constraints for every ticket (from `Agents.md`): contract first (`docs/kernel-rpc.md`, a new section at
 the next free number, amending the sections the spec names; §-numbers are stable ids, never renumber);
@@ -143,12 +143,11 @@ overwrite); the default replaced by a roll; each caught.
 
 ## BR-06 — Execute time and damage bands as clerk writes
 
-Status: ready-for-human
-Depends on: the owner's ruling (spec Further Notes: *may the clerk land the banded time of the player's own
-declared action, and the banded damage of a book-stated hazard, when the rung clears its gate?*), BR-04's report,
-BR-01, BR-05.
+Status: ready-for-agent (the owner lifted the three rulings on 2026-09-26, recorded in the spec's Further Notes)
+Depends on: BR-01 (merged), BR-05 (a move carries its road's time before a time band is offered), BR-04's shadow
+rows (the gates are calibrated from them, not guessed).
 
-**What, if ruled yes.** The candidate builder issues a `time` band candidate for the player's declared action
+**What.** The candidate builder issues a `time` band candidate for the player's declared action
 (the time-cost categories minus travel) and a `damage` band candidate for a book-stated hazard whose step the
 turn reached (§136.20); both bind `banded` and run direct above the gate; below the gate the Keeper's; the
 contract amends §135.3's clerk authority list and §136.24 by a new section. If ruled no, close this ticket

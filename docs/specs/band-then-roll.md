@@ -418,7 +418,14 @@ shadow); the tool schema seam (that a field exists). No new seam is introduced.
 
 ## Further Notes
 
-**The ruling BR-06 waits for.** §135.3 lists the clerk's authority and calls consequences (damage, sanity,
+**Ruled (owner, 2026-09-26, after BR-01 merged): the three are lifted.** The clerk may land the banded time of the
+player's own declared action and the banded damage of a book-stated hazard when the rung clears its gate; §135.3's
+"consequences are boss-only", §136.24's "never for a hazard or a consequence" and the pacing-instrument reading of
+the clock are amended to that extent by BR-06's contract section. BR-06 is `ready-for-agent`; its gates are
+calibrated from BR-04's shadow rows, which is why BR-04 still precedes it. The paragraph below is kept as the record
+of what was asked.
+
+**The ruling BR-06 waited for.** §135.3 lists the clerk's authority and calls consequences (damage, sanity,
 cash beyond the declared) boss-only; §136.24 says the clerk acts "never for a hazard or a consequence"; the
 memory rule "the module is a reference, the clock is the Keeper's pacing instrument" says the same of time.
 Letting the clerk land a banded `time` for the player's declared action, or a banded `damage` for a hazard the
