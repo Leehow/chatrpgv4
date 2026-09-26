@@ -47,6 +47,8 @@ function installJev(t, lines) {
 	globalThis.fetch = async (url, init) => {
 		if (String(url) !== "https://api.typesafe.ai/v1/systemone") return original(url, init);
 		const body = JSON.parse(init.body);
+		// §142.2: the time reading is a family of its own; it falls back (503) and is not counted with this file's requests.
+		if (body.questions?.cut) return new Response("unavailable", { status: 503 });
 		requests.push(body);
 		const answers = Object.fromEntries(Object.entries(body.questions).map(([key, question]) => {
 			const keys = Object.keys(question.criteria), index = Number(key.split("_")[1]), line = lines[index] ?? lines[0];
