@@ -12,13 +12,25 @@ import { array, number, repr, row, string, type Row } from '../read/values.js';
 import { createWriteRuntime } from '../write/index.js';
 import { readNpcLedger } from '../write/contributions.js';
 import { readModCatalog } from '../read/mods.js';
-import { KEYS, assertJobGeneration, buildPacket, fail, investigatorIdentity, nextPerson, openJob, parseJobId, readJob, submit, voiceOwner } from './jobs.js';
-/** The lane instruction is authored content (`content/setup/npc-voice.md`, §40.7); the packet carries it whole.
- *  Until 1.1.0 nothing read the file and the model saw only the kernel's short fallback passage. */
-async function laneInstruction(context: KernelContext): Promise<string | undefined> {
+import { KEYS, assertJobGeneration, buildPacket, fail, investigatorIdentity, nextPerson, openJob, parseJobId, readJob, submit, voiceOwner, type VoiceOwner } from './jobs.js';
+/** Contract §40.7 Instruction (2026-09-26): the lane's instruction is the owner package's `contributes.voice_lane`, a
+ *  package Markdown file frozen with its version. An owner whose version predates the contribution (npc-voice 1.x,
+ *  narration-craft 2.0.0-2.0.1) reads the frozen copy it was written against, `content/compat/npc-voice-lane.md`,
+ *  so a saved game keeps its lane. Neither readable: the kernel's short fallback in jobs.ts. */
+const decode = (bytes: Uint8Array): string => new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+async function laneInstruction(context: KernelContext, owner: VoiceOwner): Promise<string | undefined> {
+    const manifest = row(owner.manifest), path = row(manifest.contributes).voice_lane;
+    const files = manifest.files instanceof Map ? manifest.files as ReadonlyMap<string, Uint8Array> : undefined;
+    if (typeof path === 'string' && files?.has(path)) {
+        try {
+            return decode(files.get(path)!).trim() || undefined;
+        }
+        catch {
+            return undefined;
+        }
+    }
     try {
-        const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(join(context.content, 'setup', 'npc-voice.md')));
-        return text.trim() || undefined;
+        return decode(await readFile(join(context.content, 'compat', 'npc-voice-lane.md'))).trim() || undefined;
     }
     catch {
         return undefined;
@@ -44,7 +56,7 @@ export function createVoiceHandlers(context: KernelContext, writer: ReturnType<t
                 return { job_id: null };
             const ledger = await readNpcLedger(campaign), dossier = npcView(graph, snapshot.world, node, ledger);
             const handle = graph.handle(node), said = (await campaign.records()).flatMap((record: Row) => array(record.speech).filter(line => row(row(line).who).npc === handle).map(line => string(row(line).text)));
-            const packet = buildPacket(campaign, graph, snapshot.world, owner, node, await playLanguageOf(context, snapshot.meta), dossier, await laneInstruction(context), said, await investigatorIdentity(campaign, snapshot.world));
+            const packet = buildPacket(campaign, graph, snapshot.world, owner, node, await playLanguageOf(context, snapshot.meta), dossier, await laneInstruction(context, owner), said, await investigatorIdentity(campaign, snapshot.world));
             return openJob(campaign, owner, graph.handle(node), packet);
         },
         'voice.submit': async (params) => {

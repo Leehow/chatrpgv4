@@ -99,7 +99,7 @@ test('the per-turn brief stays inside its 250-byte share of the §30.7 ceiling',
 
 test('writer, full instruction, brief and capsule head agree on flexible register', async () => {
   const [writer, full, brief, head] = await Promise.all([
-    'content/setup/npc-voice.md', 'mods/npc-voice/agent.md', 'mods/npc-voice/brief.md', 'kernel-ts/read/assemble.ts',
+    'content/compat/npc-voice-lane.md', 'mods/narration-craft/voice-lane.md', 'mods/npc-voice/agent.md', 'mods/npc-voice/brief.md', 'kernel-ts/read/assemble.ts',
   ].map(path => readFile(join(ROOT, path), 'utf8')));
   for (const text of [writer, full, brief, head]) {
     assert.match(text, /register/);
@@ -113,7 +113,14 @@ test('writer, full instruction, brief and capsule head agree on flexible registe
 });
 
 test("the lane instruction is authored in English and asks for exactly the shape the lane checks", async () => {
-  const instruction = await readFile(join(ROOT, 'content/setup/npc-voice.md'), 'utf8');
+  // Contract §40.7 Instruction (2026-09-26): the lane's instruction ships in the owning package; the kernel keeps a
+  // frozen copy only for owners whose version predates the contribution.
+  const instruction = await readFile(join(ROOT, 'mods/narration-craft/voice-lane.md'), 'utf8');
+  const shipped = JSON.parse(await readFile(join(ROOT, 'mods/narration-craft/mod.json'), 'utf8'));
+  assert.equal(shipped.contributes.voice_lane, 'voice-lane.md');
+  assert.ok(shipped.package_files.includes('voice-lane.md') && shipped.requires.includes('npc.voice.generation.v2'));
+  await assert.rejects(readFile(join(ROOT, 'content/setup/npc-voice.md')), 'the base no longer carries the lane instruction');
+  assert.equal(await readFile(join(ROOT, 'content/compat/npc-voice-lane.md'), 'utf8'), instruction, 'the frozen copy matches what 2.0.1 owners used');
   assert.match(instruction, /\{"voice": \{"mask": "<one line>", "exchanges": \["<stranger> → <reply>", "<stranger> → <reply>", "<stranger> → <reply>"\]\}\}/);
   assert.match(instruction, /200 characters/);
   assert.match(instruction, /taken_masks/);
