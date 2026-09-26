@@ -25157,6 +25157,15 @@ Mutation record (copy and restore): the step always allowing `produces` fails th
 batches where one was expected); `mayProduce` always true fails it and five generation cases; the table object never
 written fails the photograph case and the writes seam.
 
+*Note, 2026-09-26 (§139.27, ticket 28, the table `npc-acts-d`):* a surprise is something no one knew. Whenever the bind
+batch asks `produce` or `produce_part`, it also asks `produces_known` -- whether the thing `produces` names was already
+known at the table -- and its `state.situation` carries the packet's `happened` and `recent_speech` beside `state` and
+`at_hand`. A cleared `known` is no surprise: nothing is matched to the price list (no second batch), drawn or placed
+(`produced: null`, no `_draws`/`_produces`), the act binds as it is, and the step's rows say `produces_known: true`.
+`new`, an answer below the gates or no Jev leave it the surprise this section describes. The instruction's permission
+gains half a sentence: only a thing no one at the table knew they had, nothing already in `at_hand`, `happened` or
+`recent_speech`.
+
 **139.20 A person in the conversation acts every turn: the scan does not wait for a landed step, and being talked to
 without being named is being in the conversation (2026-09-26, ticket 21 of `docs/specs/npc-acts-first-tickets/`, spec D4
 and section 九's table B; amends §139.4).**
@@ -25365,3 +25374,56 @@ punch stands); the clamp test's shifts gain `in_fight_with_investigators`; the s
 names. Mutation record (copy and restore): `in_fight_with_investigators` removed from the table fails the first-punch
 case (`[] == ["in_fight_with_investigators"]`); the kernel never reading `attacked_last_turn` fails the no-fight case,
 the turn-4 case and the once-per-turn case. **Not verified live.**
+
+**139.27 A surprise is something no one knew: a thing already at the table is not brought out as one (2026-09-26, ticket
+28 of `docs/specs/npc-acts-first-tickets/`, `28-a-surprise-is-something-no-one-knew.md`; spec D10 and section 九, table D;
+amends §139.19's bind and the generation instruction).**
+**Evidence.** Table `npc-acts-d`, turn 2: the stakes die rolled 11 on tense -- escalates and a surprise. The generator's
+`produces` was "折好的别墅租房广告和一支钢笔" (the folded villa rental notice and a fountain pen); the notice had been under his
+hand since turn 1, where the Keeper wrote it, and the pen was on the desk. It was bound as a table object and counted as
+the surprise. The owner asked that a person pushed far enough may bring out something no one knew they had; a thing
+already in front of everyone is not that.
+**The question.** One more closed question in the same bind batch (`npcActBatch`, `runtime/jev/npc-act-step.ts`; no
+extra Jev call), asked whenever `produce` or `produce_part` is asked, after it: `produces_known`, a choice between `new`
+("nothing in state.situation shows this thing or says this person has it") and `known` ("state.situation already shows
+this same thing: among what they hold or what is around them, or in what happened or what they said"), with
+instructions that name the fields -- `at_hand`, `happened`, `recent_speech` and `state` -- and say that the same thing
+named in other words or another language is the same thing (`KNOWN_QUESTION`). With a `produces` the batch's
+`state.situation` is `{state, at_hand, happened, recent_speech}`, the packet's own (without one it stays `{state,
+at_hand}`). Whether the table already knew of a thing is an open judgement over the host's English sentences and the
+book's and the table's own words in any language, so it is Jev's closed choice over the facts, never a word list or a
+string match on names.
+**The reading** (`producesKnown`, the §135.2 gates as every answer of this batch): `known` that clears is no surprise --
+`produced: null` and `producesKnown: true` on the bound act, so no write carries `_draws` or `_produces`, and a long price
+list's second batch is not asked (`producePart` answers null: there is nothing to match). The act binds as it is: the
+way and its parameters as read. A `weapon` answered "the thing this act has them bring out" then has nothing to bind
+(`param_unbound:weapon`, the act `intention_only`), as it already had for a record that is no weapon. `new`, `known`
+below the gates, no answer, or no Jev at all leave the thing a surprise exactly as §139.19 has it.
+**Rows.** The step's `npc_act` row adds `produces_known: true` (its `produces` still the generator's words, `produced:
+null`, `draw: null`); the bind's route row adds the same and carries the raw answer in `answers.produces_known`. Nothing
+reaches the Keeper as a receipt: nothing was brought out.
+**The instruction** (`content/setup/npc-act.md`): the permission sentence gains half a sentence -- the one thing brought
+out is only such a thing as the table did not know they had, nothing already in `at_hand`, `happened` or
+`recent_speech`. Nothing else changes.
+**Not here.** A known thing lying in the place is not moved into their hands (the Keeper's `object` moves it); the
+family's version stays 2 (the question set is read by key; a batch without `produces` is unchanged).
+**Three ends (§31).** *Writer:* the bind batch's answer, read by `interpretNpcAct`; the row flag is written by the step.
+*Reader:* the step's own writes (`npcActWrites` gets no carrier) and `producePart` (no second batch); the row is the
+record for whoever audits a table, as `produces_dropped` is. *Actor:* the clerk, who writes nothing brought out; the
+Keeper narrates the act as bound.
+**Tests.** `tests/extension/single-loop-npc-act.test.mjs`: the batch -- with a `produces` the `produces_known` question
+rides after `produce` with its two answers and the packet's `happened` and `recent_speech` in the state; without one,
+no question and the state unchanged; the reading -- a cleared `known` gives no record and no object and the act bound as
+read, no write carries anything, `new` binds the record as before, `known` below the gate and no Jev leave the table's
+own thing, a known thing answered as the weapon unbinds it, and a long list's second batch is not asked when known; on
+the emitted kernel -- the family photograph brought out on turn 2 is placed as before (`new`), and brought out again on
+turn 3, when his packet's `at_hand.holdings` already holds it, Jev (the stub reads the batch's own state) answers
+`known`: no `_produces` or draw written, the act bound, the row `produces_known: true` and `produced: null`, still one
+object; the pocket pistol a line of his on the previous turn already showed (in `happened`) answers `known` -- one bind
+batch, nothing drawn -- and the same pistol no line showed is the book's .25 Derringer drawn as before.
+`tests/extension/npc-act-generation.test.mjs` unchanged and green on the reflowed instruction. Existing tests changed:
+one assertion (the §139.3 batch test's list of question keys gains `produces_known`); the stub's `actAnswer` helper
+gains a `known` option that defaults to `new`. Mutation record (copy and restore): the question removed from the batch
+fails four of the five §139.27 cases -- the at-hand case on "no _produces and no draw was written", the happened case on
+"no second batch" (2 !== 1), the reading case on "no record, no object", the batch case on its question -- and the
+unchanged `new` case passes. **Not verified live.**
