@@ -21,7 +21,6 @@ import { playLanguageOf } from "./languages.js";
 import { RpcError } from "../errors.js";
 import { array, row, number, string, truth, chars, clone, normalize, type Row } from "./values.js";
 import type { ModuleGraph } from "./module-graph.js";
-import {openResponseRows,responseHint} from '../npc/responses.js';
 import {openIntents} from '../npc/intents.js';
 import {allReceipts, coercionPressures} from '../resolve/coercion.js';
 /**
@@ -55,8 +54,6 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "do not wait for optional character preparation to answer an ordinary question. " +
     "Their relationships retain specific people and evidence; recent_speech is what that person actually said, " +
     "available even before memory extraction finishes. Reports are attributed, not new world truth. " +
-    "For a genuine NPC response tradeoff, response_options offers optional typed comparison through its next read; " +
-    "direct answers and natural closure need no comparison, and unavailable advice never stops play. " +
     "Return at a genuine unselected decision or the completion of the selected goal; never choose " +
     "the next goal for the player. voices gives each person's flexible register, not a required marker " +
     "on every line or a topic for every reply. Answer the player's words first; preserve source secrets and " +
@@ -402,15 +399,9 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         full = options.styleFull ?? true;
     const warningRecord = [...campaign.records].sort((a, b) => number(b.turn) - number(a.turn)).find(record => number(record.turn) < number(turn.turn) && record.closed_by === "narrate");
     const npcScope={worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)};
-    const responseHints=new Map<string,Row>();
-    await Promise.all(present.map(async node=>{
-        try{const bank=await openResponseRows({graph,world,scope:npcScope},node,file=>campaign.optional(file),row(row(campaign.jsonFiles.get("npc-ledger.json"))[string(node.node_id)]));
-            if(bank.length)responseHints.set(graph.displayName(node),responseHint(graph.displayName(node),bank.length));}
-        catch{/* Optional preparation cannot block the ordinary capsule. */}
-    }));
     const sections: Row = clone({
         where,
-        present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true, campaign:campaign.id, currentReceipts:array(turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: campaign.records, scope:npcScope }).map(person=>responseHints.has(person.name)?{...person,response_options:responseHints.get(person.name)}:person),
+        present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true, campaign:campaign.id, currentReceipts:array(turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: campaign.records, scope:npcScope }),
         voices: voicesSection(graph, world, scene),
         known: knownSection(graph, world, scene, party, campaign.records),
         // The body that cannot act goes first: `fitBudget(..., "last")` trims this section from the

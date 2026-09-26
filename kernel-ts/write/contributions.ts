@@ -9,7 +9,7 @@ import { ModuleGraph } from '../read/module-graph.js';
 import { readModCatalog, activeMods } from '../read/mods.js';
 import { array, entries, values, clone, row, string, number, integer, truth, sorted, type Row } from '../read/values.js';
 import { CampaignWriter, missingContribution, nowIso } from './store.js';
-import { foldIntent } from '../npc/intents.js';
+import { foldIntent, receiptGenerated } from '../npc/intents.js';
 function topological(preferred: string[], active: Row[]): string[] {
     const todo = [...preferred], done: string[] = [];
     while (todo.length) {
@@ -179,12 +179,13 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
         const kind = receipt.kind;
         // Contract §138.3: a receipt that reports a result of what a person was trying to do carries `intent`, whatever
         // its kind -- the roll that tried it, the clock it moved, the Keeper's own account of it. Fold it before the
-        // kind's own fields, which may `continue` past the rest of the loop body.
+        // kind's own fields, which may `continue` past the rest of the loop body. §139.6: the row the table's own act
+        // opened is marked `generated`.
         const intent = row(receipt.intent);
         if (typeof intent.ref === 'string') {
             const id = npcId(graph, intent.npc);
             if (id)
-                foldIntent(entry(ledger, id), intent, turn, receipt.id);
+                foldIntent(entry(ledger, id), intent, turn, receipt.id, receiptGenerated(receipt));
         }
         if (kind === 'roll') {
             const against = npcId(graph, receipt.npc), actor = npcId(graph, receipt.actor);

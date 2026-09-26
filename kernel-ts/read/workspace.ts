@@ -1,4 +1,3 @@
-import {npcViews} from '../npc/read.js';
 /** Host-only workspace snapshot. This read path never enters the turn state machine. */
 import { join } from "node:path";
 import type { KernelContext } from "../context.js";
@@ -225,16 +224,15 @@ export async function workspaceRead(context: KernelContext, params: Row): Promis
     let recordsUnavailable: string | null = null;
     const requested = params.candidate_limit;
     const limit = typeof requested === 'number' && Number.isInteger(requested) ? Math.min(MAX_CANDIDATES, Math.max(1, requested)) : MAX_CANDIDATES;
-    let recordFiles = 0,npcRecords:Row[]|undefined;
+    let recordFiles = 0;
     try {
         const directory = join(campaign.dir, 'turns');
         const names = (await context.snapshots.sortedChildNames(directory, path => context.snapshots.isFile(path))).filter(name => name.endsWith('.json'));
         recordFiles = names.length;
         // Freshness covers the same retained record window regardless of candidate pagination.
-        const needed=params.npc_perspectives===true?names:names.slice(-RECORD_SLOTS);
+        const needed=names.slice(-RECORD_SLOTS);
         const records=await Promise.all(needed.map(async name=>row(await campaign.optional(join('turns',name)))));
         campaign.records=records.slice(-RECORD_SLOTS);
-        if(params.npc_perspectives===true)npcRecords=records;
     }
     catch (error) { recordsUnavailable = error instanceof Error ? error.message : String(error); }
     let memoryRows: Row[] = [], npcLedger: Row = {}, npcJournal: Row = {}, catalogResult: Row = {
@@ -366,10 +364,6 @@ export async function workspaceRead(context: KernelContext, params: Row): Promis
         manifest: { version: 1, static: staticManifest, records: recordManifest, truncated }
     };
     if (!materialRequest) return result;
-    if(materialRequest.mode==='catalog'&&params.npc_perspectives===true&&!recordsUnavailable){
-        result.npc_perspectives=await npcViews({campaign:campaign.id,graph:module.graph,world:campaign.world,meta:campaign.meta,
-            turn:campaign.turn,memory:memoryRows,records:npcRecords??campaign.records,ledger:npcLedger,read:file=>campaign.optional(file).then(value=>value==null?null:row(value))});
-    }
     const graphMaterials = coherentGraphMaterials(pool.nodes.map(node => graphMaterialCandidates(module.graph,node,scope,source,
         module.material(module.graph.handle(node))==='ready')));
     // Rules the host names (semantic locate or prior Keeper reads) lead the rule owner's own query lookup.

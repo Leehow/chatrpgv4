@@ -1,20 +1,20 @@
 /**
  * The writer's half of contract §138: which intention of which person an effect or a roll is a result of, checked
- * before anything lands. An intention is named either by its reference (`intent_ref`, from the card, the offer or the
- * NPC advice) or by the line itself (`intends`, a new thing this person tries). Nothing here reads prose: a line is
- * its own identity, and a settled intention is found by that identity, never by what the words resemble.
+ * before anything lands. An intention is named either by its reference (`intent_ref`, from the card or the offer) or
+ * by the line itself (`intends`, a new thing this person tries). Nothing here reads prose: a line is its own identity,
+ * and a settled intention is found by that identity, never by what the words resemble. The ledger is the only place
+ * an intention is known from (§139.6: the response bank that could also name one is retired).
  */
 import {RpcError} from '../errors.js';
 import type {KernelContext} from '../context.js';
 import type {ModuleGraph} from '../read/module-graph.js';
 import {CampaignSnapshot} from '../read/campaign.js';
 import {array, clone, number, row, string, type Row} from '../read/values.js';
-import {INTENT_OUTCOMES, INTENT_TEXT_LIMIT, foldIntent, intentOf, intentOwner, intentRef, intentsOf, isSettled, openRows} from '../npc/intents.js';
-import {responseBankFor} from '../npc/responses.js';
+import {INTENT_OUTCOMES, INTENT_TEXT_LIMIT, foldIntent, intentOf, intentOwner, intentRef, intentsOf, isSettled, receiptGenerated} from '../npc/intents.js';
 
 export interface IntentScope {
     readonly kernel: KernelContext;
-    readonly campaign: {readonly id: string; readCampaign(): Promise<Row>};
+    readonly campaign: {readonly id: string};
     readonly graph: ModuleGraph;
     readonly world: Row;
     readonly turn: Row;
@@ -30,24 +30,14 @@ export async function intentEntry(scope: IntentScope, node: Row): Promise<Row> {
     for (const receipt of [...array(scope.turn.receipts), ...(scope.staged?.() ?? [])]) {
         const intent = row(row(receipt).intent);
         if (typeof intent.ref === 'string' && intent.npc === handle)
-            foldIntent(entry, intent, number(scope.turn.turn), row(receipt).id);
+            foldIntent(entry, intent, number(scope.turn.turn), row(receipt).id, receiptGenerated(receipt));
     }
     return entry;
 }
-/** The rows of this person's current response bank, with references, that are still open. */
-async function bankOptions(scope: IntentScope, node: Row, entry: Row): Promise<Row[]> {
-    const meta = await scope.campaign.readCampaign(), worldline = string(meta.active_worldline || 'main');
-    const loaded = {graph: scope.graph, world: scope.world, scope: {worldline, loop: number(row(row(meta.worldlines)[worldline]).loop)}};
-    const snapshot = new CampaignSnapshot(scope.kernel, scope.campaign.id);
-    try { return openRows(await responseBankFor(loaded, node, file => snapshot.optional(file)), scope.graph.handle(node), entry); }
-    catch { return []; }
-}
-/** What a writer may name: this person's intentions under way, then the open rows of their response bank. */
+/** What a writer may name: this person's intentions under way. */
 export async function intentOptions(scope: IntentScope, node: Row, entry?: Row): Promise<Row[]> {
     const current = entry ?? await intentEntry(scope, node);
-    const under = intentsOf(current).filter(item => !isSettled(item.status)).map(item => ({ref: item.ref, intent: item.text, status: item.status}));
-    const known = new Set(under.map(item => item.ref));
-    return [...under, ...(await bankOptions(scope, node, current)).filter(item => !known.has(item.ref)).map(item => ({ref: item.ref, intent: item.intent}))];
+    return intentsOf(current).filter(item => !isSettled(item.status)).map(item => ({ref: item.ref, intent: item.text, status: item.status}));
 }
 
 /**
@@ -68,7 +58,7 @@ export async function resolveIntent(scope: IntentScope, node: Row, fields: {inte
         const owner = intentOwner(fields.intent_ref);
         if (owner === null)
             throw new RpcError('invalid_params', `${field}.intent_ref ${JSON.stringify(fields.intent_ref)} is not an intention reference`, {
-                fix: 'copy a ref from details.options, from present[].history.intents or from the NPC advice; or write the new thing this person tries with intends',
+                fix: 'copy a ref from details.options or from present[].history.intents; or write the new thing this person tries with intends',
                 details: {field: `${field}.intent_ref`, options: await intentOptions(scope, node, entry)}});
         if (owner !== handle)
             throw new RpcError('invalid_params', `${field}.intent_ref belongs to ${owner}, not to ${who}`, {
@@ -79,10 +69,10 @@ export async function resolveIntent(scope: IntentScope, node: Row, fields: {inte
                 fix: 'one intention per npc effect: to settle the one on the card and start a new one, send two npc effects in the same batch -- {intent_ref, outcome: done|failed|abandoned} and {intends, outcome: attempted}', details: {field: `${field}.intent_ref`}});
         ref = fields.intent_ref as string;
         // Not `string()`: it renders an absent value as the word "None", which would pass for a line (string-helper trap).
-        const known = intentOf(entry, ref)?.text, banked = (await bankOptions(scope, node, entry)).find(item => item.ref === ref)?.intent;
-        text ??= typeof known === 'string' && known ? known : typeof banked === 'string' && banked ? banked : null;
+        const known = intentOf(entry, ref)?.text;
+        text ??= typeof known === 'string' && known ? known : null;
         if (text === null)
-            throw new RpcError('invalid_params', `${who} has no intention ${ref} on the card or in their prepared responses`, {
+            throw new RpcError('invalid_params', `${who} has no intention ${ref} on the card`, {
                 fix: 'copy a ref from details.options, or write the new thing this person tries with intends',
                 details: {field: `${field}.intent_ref`, reason: 'unknown_intent', options: await intentOptions(scope, node, entry)}});
     }
@@ -132,7 +122,7 @@ export async function effectIntent(scope: IntentScope, effect: Row, field: strin
     const node = owner === null ? null : scope.graph.actor(owner) ?? scope.graph.find(owner, ['npc']);
     if (!node)
         throw new RpcError('invalid_params', `${field}.intent_ref ${JSON.stringify(effect.intent_ref)} names no person's intention`, {
-            fix: 'copy a ref from present[].history.intents, director.offer or the NPC advice; or leave intent_ref out', details: {field: `${field}.intent_ref`}});
+            fix: 'copy a ref from present[].history.intents or director.offer; or leave intent_ref out', details: {field: `${field}.intent_ref`}});
     const outcome = effect.intent_outcome ?? 'done';
     if (typeof outcome !== 'string' || !INTENT_OUTCOMES.includes(outcome))
         throw new RpcError('invalid_params', `${field}.intent_outcome ${JSON.stringify(outcome)} is not where an intention can stand`, {
@@ -158,7 +148,7 @@ export async function planRollIntent(scope: IntentScope, action: Row): Promise<(
     const owner = intentOwner(action.intent_ref), node = owner === null ? null : scope.graph.actor(owner) ?? scope.graph.find(owner, ['npc']);
     if (!node)
         throw new RpcError('invalid_params', `action.intent_ref ${JSON.stringify(action.intent_ref)} names no person's intention`, {
-            fix: 'copy a ref from present[].history.intents, director.offer or the NPC advice; or leave intent_ref out', details: {field: 'action.intent_ref'}});
+            fix: 'copy a ref from present[].history.intents or director.offer; or leave intent_ref out', details: {field: 'action.intent_ref'}});
     const resolved = await resolveIntent(scope, node, {intent_ref: action.intent_ref}, 'action');
     await refuseSettled(scope, node, resolved, 'action');
     if (typeof outcome === 'string') refuseRepeat(scope, node, resolved, outcome, 'action');
