@@ -7,7 +7,8 @@
   "jev_steps": {
     "row_min": 0.5,
     "row_ratio": 2,
-    "shadow": true
+    "shadow": true,
+    "execute": ["clue_follow_up"]
   },
   "first_step_thinking": {
     "call_cap_ms": 60000
