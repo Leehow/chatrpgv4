@@ -195,3 +195,47 @@ def test_a_person_the_flight_rules_block_is_not_offered_flee(knott):
     knott_row["conditions"] = [c for c in knott_row["conditions"] if c != "grappled"]
     path.write_text(json.dumps(combat, ensure_ascii=False, indent=2), encoding="utf-8")
     assert "flee" in ways(options(knott))
+
+
+# ---------------------------------------------------------------------------------------------------
+# §139.20 (ticket 21, live table B): `conversation` -- whether they took part in the exchange where the investigators
+# stand, on the newest committed turn or earlier in this one. Structure only: a spoken line the speech markers
+# attributed to them, an act or an intention of theirs; the newest committed turn counts while its scene is still the
+# active one and they were among its `present`.
+# ---------------------------------------------------------------------------------------------------
+
+def spoke_at_the_office(client):
+    """Turn 1: Knott says one line at the office (a say marker); turn 2 opens, nothing done yet."""
+    open_turn(client, "I ask Knott about the house.")
+    narrate(client, "t1-c1", "诺特靠回椅背。{{say:Steven Knott}}「那房子空了好些年。」{{/say}}")
+    client.table("player_input", text="I keep asking.")
+
+
+def test_a_line_he_said_last_turn_in_this_room_keeps_him_in_the_conversation(knott):
+    spoke_at_the_office(knott)
+    conversation = options(knott)["conversation"]
+    assert conversation is not None and conversation["turn"] == 1 and conversation["by"] == ["speech"], conversation
+    assert options(knott)["acted_on"] == [], "nothing was done to him this turn: this is the third trigger, not the first"
+
+
+def test_an_intention_of_his_this_turn_is_his_part_now(knott):
+    spoke_at_the_office(knott)
+    knott.table("apply", call_id="t2-c1", effects=[{"kind": "npc", "name": "Steven Knott", "intends": "Ring for the porter.", "outcome": "attempted"}])
+    conversation = options(knott)["conversation"]
+    assert (conversation["turn"], conversation["by"]) == (2, ["intention"]), conversation
+
+
+def test_leaving_the_room_ends_it_even_if_he_comes_along(knott):
+    spoke_at_the_office(knott)
+    knott.table("apply", call_id="t2-c1", effects=[{"kind": "move", "to": "newspaper-morgue"}])
+    knott.table("apply", call_id="t2-c2", effects=[{"kind": "npc", "name": "Steven Knott", "to": "here", "why": "test fixture: he came along"}])
+    moved = options(knott)
+    assert moved["place"] == "newspaper-morgue" and moved["acted_on"] == [], "he stands beside the investigator again, and nothing was done to him"
+    assert moved["conversation"] is None, "the office's exchange does not follow the party to the morgue"
+
+
+def test_someone_who_said_nothing_is_not_in_it(knott):
+    open_turn(knott, "I look around the office.")
+    narrate(knott, "t1-c1", "诺特低头看文件，一言不发。")
+    knott.table("player_input", text="I wait.")
+    assert options(knott)["conversation"] is None

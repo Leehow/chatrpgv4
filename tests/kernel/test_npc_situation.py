@@ -205,3 +205,53 @@ def test_constraints_are_the_capsules_rows_that_name_him(knott):
     assert scene_rows and contacts, "the office: the book's commission obligation and the active Mod's first-impression check"
     assert constraints == [f"scene obligation {row['name']} ({row['state']}): {row['cue']}" for row in scene_rows] + \
         [f"Mod check {row['decision']} between {row['actor']} and Steven Knott is still to come: {row['when']}" for row in contacts]
+
+
+# ---------------------------------------------------------------------------------------------------
+# §139.21 (ticket 22, live table B turn 1): the player's words reach only the person they were said to. The player told
+# Crane "I'll take the job, give me the keys and the money, I'm off to the Globe"; the clerk moved the party to the
+# Globe in the same turn, and the editor there got that line as the last thing that happened to him -- so he handed
+# over keys and money. The host now says, per person, whether the declaration was said to them (`addressed`) and
+# whether it was put before a move brought the investigator to them (`declared_before_move`).
+# ---------------------------------------------------------------------------------------------------
+
+ASK_THE_EDITOR = "I take the job. Give me the keys and the money; I'm off to the Globe to read the old papers."
+ARTY = "Arty Wilmot"
+MORGUE = "newspaper-morgue"
+
+
+def moved_to_the_morgue(client):
+    """One turn: the player speaks at the office, then the clerk's move takes the party to the morgue, where Arty stands."""
+    open_turn(client, ASK_THE_EDITOR)
+    client.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": MORGUE}])
+    assert any(person.get("name") == ARTY for person in client.table("capsule")["present"]), "the city editor stands in the morgue"
+
+
+def test_said_before_a_move_the_line_is_not_theirs_and_the_arrival_stands_in_for_it(knott):
+    moved_to_the_morgue(knott)
+    before = situation(knott, ARTY)["happened"]
+    assert before[-1].endswith(f'declared: "{ASK_THE_EDITOR}"'), "without the host's reading, §139.1 as it was"
+    who = before[-1].split(" (investigator) declared: ")[0]
+    packet = knott.ok("npc.situation", {"campaign": "c1", "name": ARTY, "declared_before_move": True})
+    happened = packet["happened"]
+    assert not any(ASK_THE_EDITOR in line for line in happened), happened
+    assert happened[-1] == f"{who} (investigator) has just arrived where {ARTY} is", happened
+    # The move outranks the addressee: a line said at the office before the move was not said here.
+    both = knott.ok("npc.situation", {"campaign": "c1", "name": ARTY, "declared_before_move": True, "addressed": True})["happened"]
+    assert not any(ASK_THE_EDITOR in line for line in both) and both[-1] == happened[-1]
+
+
+def test_the_person_it_was_said_to_has_it_and_no_one_else_does(knott):
+    open_turn(knott, "I tell Knott I will not take the job.")
+    addressed = knott.ok("npc.situation", {"campaign": "c1", "name": "Steven Knott", "addressed": True, "declared_before_move": False})["happened"]
+    assert addressed[-1].endswith('declared: "I tell Knott I will not take the job."'), addressed
+    other = knott.ok("npc.situation", {"campaign": "c1", "name": "Steven Knott", "addressed": False})["happened"]
+    assert not any("I will not take the job" in line for line in other), "said to someone else: nothing stands in for it"
+    assert not any("has just arrived" in line for line in other)
+
+
+def test_the_readings_are_booleans_or_absent(knott):
+    open_turn(knott, "I look Knott over.")
+    for field in ("addressed", "declared_before_move"):
+        error = knott.err("npc.situation", {"campaign": "c1", "name": "Steven Knott", field: "yes"})
+        assert error["code"] == "invalid_params" and error["details"]["field"] == field, error

@@ -4,9 +4,13 @@ you are not writing the story, and you are not speaking to the player.
 
 ## What you are given
 
-One JSON object with two keys. `play_language` is the language tag of this
-table. `situation` is this person at this moment, assembled by the host from
-the game's own records.
+One JSON object. `play_language` is the language tag of this table, and
+`play_language_name`, when present, is that language's name in English.
+`situation` is this person at this moment, assembled by the host from the
+game's own records. Its sentences are the host's English whatever the table
+plays in, and the book's and the table's own words in it may be in any
+language: none of that tells you the language of your answer. `play_language`
+does.
 
 `npc` names the person. `who` is what the book and the table have established
 about them: personality, goals, fears, commitments and relationships. `happened`

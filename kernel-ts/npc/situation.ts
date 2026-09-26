@@ -28,7 +28,7 @@ import {array, clone, normalize, number, row, string, truth, values, type Row} f
 import {stanceNow} from '../combat/standing.js';
 import {npcProfileOf} from '../resolve/context.js';
 import {emptyLedgerEntry, foldNpcTurn, stanceTable} from '../write/contributions.js';
-import {intentsOf, isSettled} from './intents.js';
+import {intentsOf, isSettled, receiptGenerated} from './intents.js';
 import {npcPerspective} from './perspective.js';
 import {isStakesRoll, stakesView} from './stakes-receipt.js';
 
@@ -147,10 +147,34 @@ function kindClause(receipt: Row, me: Person, world: Row): string | null {
 }
 
 /**
- * `happened`: one sentence per call over the receipts of the newest committed turn before this one and of this turn,
- * then the player's declaration of this turn, always last.
+ * §139.21 (ticket 22): what the host read about the player's words and this person -- the optional inputs of
+ * `npc.situation`. `addressed`: the declaration was said to them (the compile's addressee cleared on them, or they are in
+ * the conversation, §139.20). `declaredBeforeMove`: the declaration was put before a move of this turn brought the
+ * investigator to where they are, so it was said somewhere else. Absent, the declaration is theirs, as §139.1 had it.
  */
-export function happenedSentences(me: Person, world: Row, party: Row[], turn: Row, previous: Row | null): string[] {
+export interface Heard { addressed?: boolean; declaredBeforeMove?: boolean }
+
+/**
+ * The last `happened` item (§139.1, §139.21), or null. The player's declaration when it was said to this person; when it
+ * was said before a move brought the investigator here, one host sentence that the investigator has just arrived (the
+ * words were said elsewhere, to someone else, and are not theirs); otherwise nothing -- the receipts already say what
+ * was done to them, and a line said to another person is not something that happened to this one.
+ */
+export function closingSentence(me: Person, world: Row, party: Row[], turn: Row, heard: Heard = {}): string | null {
+    const who = party.length === 1 ? personLabel(world, string(party[0].id), string(party[0].name || party[0].id)) : 'an investigator';
+    if (heard.declaredBeforeMove === true) return clip(`${who} (investigator) has just arrived where ${me.label} is`, SENTENCE_MAX);
+    const said = flat(turn.player_text);
+    if (!said || heard.addressed === false) return null;
+    const frame = `${who} (investigator) declared: ""`;
+    return `${who} (investigator) declared: "${clip(said, Math.max(ELLIPSIS.length + 1, SENTENCE_MAX - Array.from(frame).length))}"`;
+}
+
+/**
+ * `happened`: one sentence per call over the receipts of the newest committed turn before this one and of this turn,
+ * then the closing sentence (`closingSentence`: the player's declaration said to them, or the investigator's arrival),
+ * always last.
+ */
+export function happenedSentences(me: Person, world: Row, party: Row[], turn: Row, previous: Row | null, heard: Heard = {}): string[] {
     const seen = new Set<string>(), groups = new Map<string, {turn: number; clauses: string[]}>();
     const windows: Array<[number, Row[]]> = [...(previous ? [[number(previous.turn), array(previous.receipts)] as [number, Row[]]] : []), [number(turn.turn), array(turn.receipts)]];
     for (const [n, receipts] of windows)
@@ -166,13 +190,54 @@ export function happenedSentences(me: Person, world: Row, party: Row[], turn: Ro
             groups.set(key, group);
         }
     const sentences = [...groups.values()].map(group => clip(`turn ${group.turn}: ${group.clauses.join('; ')}`, SENTENCE_MAX));
-    const said = flat(turn.player_text);
-    if (said) {
-        const who = party.length === 1 ? personLabel(world, string(party[0].id), string(party[0].name || party[0].id)) : 'an investigator';
-        const frame = `${who} (investigator) declared: ""`;
-        sentences.push(`${who} (investigator) declared: "${clip(said, Math.max(ELLIPSIS.length + 1, SENTENCE_MAX - Array.from(frame).length))}"`);
-    }
+    const closing = closingSentence(me, world, party, turn, heard);
+    if (closing) sentences.push(closing);
     return sentences;
+}
+
+/** The committed turn records on the campaign's current line, and the newest of them before this turn. */
+export function committedOnLine(campaign: CampaignSnapshot): {scope: Row; records: Row[]; previous: Row | null} {
+    const worldline = string(campaign.meta.active_worldline || 'main');
+    const scope = {worldline, loop: number(row(row(campaign.meta.worldlines)[worldline]).loop)};
+    const records = campaign.records.filter(record => truth(record.commit) && onLine(record, scope));
+    const previous = records.filter(record => number(record.turn) < number(campaign.turn.turn)).sort((a, b) => number(b.turn) - number(a.turn))[0] ?? null;
+    return {scope, records, previous};
+}
+
+/**
+ * §139.20 (ticket 21): whether this person is in the conversation the investigators are having where they stand -- the
+ * host's third trigger, beside a receipt done to them and the compile's addressee (§139.4). They took part in it on the
+ * newest committed turn or earlier in this one: an act or an intention of theirs (a receipt whose `intent` names them --
+ * the table's generated act, `act`, or anyone else's writing of what they set out to do, `intention`), or a spoken line
+ * the delivery's speech markers attributed to them (the committed record's `speech`, `who.npc`, §40.3/§128 -- read by
+ * the same name matching as every receipt field here). The newest committed turn counts only while the investigators
+ * are still where it closed: its record's scene is the active scene and this person was among its `present`; leaving
+ * that scene ends the conversation. This turn counts while they stand in the active scene. `order` is the position of
+ * their latest part in that turn (the receipts in order, the delivery's lines after them), for ranking several people.
+ * Structure only: nothing reads what anyone said or did.
+ */
+export function conversationOf(graph: ModuleGraph, world: Row, me: Person, turn: Row, previous: Row | null): {turn: number; order: number; by: string[]} | null {
+    const active = string(world.active_scene), scene = active ? graph.find(active, ['scene']) : null, here = scene ? graph.handle(scene) : active;
+    if (!active || string(row(world.npc_presence)[me.handle]) !== active) return null;
+    const took = (record: Row): {turn: number; order: number; by: string[]} | null => {
+        const receipts = array(record.receipts).map(row), by = new Set<string>();
+        let order = -1;
+        receipts.forEach((receipt, index) => {
+            const intent = row(receipt.intent);
+            if (typeof intent.ref !== 'string' || !me.is(intent.npc)) return;
+            by.add(receiptGenerated(receipt) ? 'act' : 'intention');
+            order = index;
+        });
+        array(record.speech).map(row).forEach((line, index) => {
+            if (!me.is(row(line.who).npc)) return;
+            by.add('speech');
+            order = receipts.length + index;
+        });
+        return by.size ? {turn: number(record.turn), order, by: [...by]} : null;
+    };
+    const closed = previous ? row(previous.world) : {};
+    const stillThere = previous !== null && string(row(closed.scene).name) === here && array(closed.present).some(name => me.is(name));
+    return took(turn) ?? (stillThere ? took(previous!) : null);
 }
 
 /** The person's ledger entry as it folds now: the committed ledger with an open turn's receipts folded onto a copy. */
@@ -263,8 +328,8 @@ function constraintsOf(graph: ModuleGraph, world: Row, party: Row[], me: Person,
 /**
  * The budget (§139.1): while the packet is over `maxBytes`, cut in order -- constraints; at_hand's objects, exits,
  * holdings, present; the oldest `done` rows but never the newest (`history`); the oldest own utterances; the oldest
- * `happened` sentences but never the player's declaration; who's relationships and commitments. Each section cut is
- * named once in `truncated`, in the order cut.
+ * `happened` sentences but never the closing one (the player's declaration, or the arrival that stands in for it,
+ * §139.21); who's relationships and commitments. Each section cut is named once in `truncated`, in the order cut.
  */
 export function fitSituation(packet: Row, maxBytes: number, declared: boolean): void {
     const truncated: string[] = packet.truncated, over = () => jsonSize(packet) > maxBytes;
@@ -324,13 +389,16 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
         'npc.situation': async params => {
             if (typeof params.name !== 'string' || !params.name.trim())
                 throw new RpcError('invalid_params', 'params.name must be a non-empty string', {details: {field: 'name'}});
+            // §139.21: what the host read about the player's words and this person, both optional booleans.
+            for (const field of ['addressed', 'declared_before_move'])
+                if (params[field] != null && typeof params[field] !== 'boolean')
+                    throw new RpcError('invalid_params', `params.${field} is true, false or absent`, {details: {field}});
+            const heard: Heard = {...(typeof params.addressed === 'boolean' ? {addressed: params.addressed} : {}),
+                ...(typeof params.declared_before_move === 'boolean' ? {declaredBeforeMove: params.declared_before_move} : {})};
             const {campaign, module} = await readCampaign(context, params, false, false, {}, true);
             const {graph} = module, {world, turn, party} = campaign, node = graph.npc(params.name);
             const me = personOf(graph, world, node);
-            const worldline = string(campaign.meta.active_worldline || 'main');
-            const scope = {worldline, loop: number(row(row(campaign.meta.worldlines)[worldline]).loop)};
-            const records = campaign.records.filter(record => truth(record.commit) && onLine(record, scope));
-            const previous = records.filter(record => number(record.turn) < number(turn.turn)).sort((a, b) => number(b.turn) - number(a.turn))[0] ?? null;
+            const {scope, records, previous} = committedOnLine(campaign);
             let ledger: Row = {};
             try { ledger = row(await campaign.optional('npc-ledger.json')); } catch { /* A missing or unreadable ledger is an empty one here, as for look. */ }
             const table = await stanceTable(context);
@@ -339,7 +407,7 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
             const view = row(npcPerspective(graph, world, node, memory, records, scope).view);
             const session = new SessionView(campaign, graph, party, world).activeSession();
             const {place, constraints} = await placedConstraints(context, campaign, graph, me);
-            const happened = happenedSentences(me, world, party, turn, previous);
+            const happened = happenedSentences(me, world, party, turn, previous, heard);
             const packet: Row = {
                 npc: {handle: me.handle, name: graph.displayName(node)},
                 who: {personality: view.personality ?? null, goals: view.goals ?? null, fears: view.fears ?? null,
@@ -353,7 +421,7 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
                 stakes: stakesOf(turn, me),
                 truncated: [],
             };
-            fitSituation(packet, await situationBudget(context), Boolean(flat(turn.player_text)));
+            fitSituation(packet, await situationBudget(context), closingSentence(me, world, party, turn, heard) !== null);
             return packet;
         },
     };
