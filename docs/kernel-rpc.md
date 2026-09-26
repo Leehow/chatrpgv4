@@ -23436,3 +23436,18 @@ is owns one (its ref names their handle), a standing `attack` is not forced -- t
 resolve the blow or spend the turn on that intention (§138.5). A standing `flee`, and an NPC with nothing under way,
 are unchanged. Also from the gate: the `intends` description no longer asks for an English sentence -- the one turn the
 Keeper wrote a long English intention line, its prose for the player slid into English on a zh-Hans table.
+
+**138.15 Live gate A2 and what it changed (2026-09-26, after 138.14).** Ten turns on the same shape, pre-registered:
+delivery 10/10; Knott spent two fight turns on something other than a blow with a receipt (`spend_turn` on "ring the
+brass bell for the porter, then call the constable from the door", then `hold`), and one on a disarm manoeuvre -- the
+line gate A failed; the player prose stayed in zh-Hans throughout. Two lines failed:
+- *An intention settled a turn late.* The Keeper's natural way of writing "that one failed" was an npc effect with only
+  `{intent_ref, intent_outcome}`; that was not the intention variant (which opened only on `intends` or `outcome`), so
+  it was refused as "an npc effect needs `to`, `stance` ..." -- eight such refusals, five on turn 8 alone, where the
+  owed-result gate then let the delivery through on its second try with a finding. Now `{intent_ref, intent_outcome}`
+  with no other npc field is the intention variant (`intent_outcome` read as `outcome`); the empty-effect refusal
+  names the intention path, and "two different intentions" says to send two npc effects.
+- *A threat said again in other words.* "The doorman downstairs, the constable at the corner, nobody in this building
+  will hire you" came back on turns 2, 4, 5 and 8 in different words and never became a receipt, so no structural
+  check here could see it (§113 D's repeated-line refusal caught one literal repeat). This is the open-semantics half
+  of the owner's ruling that 138.7 does not cover; it is reported, not changed here.

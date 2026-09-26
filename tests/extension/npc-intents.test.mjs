@@ -194,3 +194,16 @@ test('someone who is no longer present owes the delivery nothing',async t=>{
  const delivered=await client.call('table.narrate',{campaign,call_id:'t2-c2',text:'He is gone.'});
  assert.equal(delivered.turn,2);
 });
+
+test('an npc effect with only intent_ref and intent_outcome settles that intention (how a Keeper writes it)',async t=>{
+ const {client,home}=await opened(t);
+ await begin(client);
+ await apply(client,'t1-c1',{intends:SHOUT,outcome:'attempted'});
+ await nextTurn(client,1);
+ const ref=(await knottLedger(home)).intents[0].ref;
+ const settled=await apply(client,'t2-c1',{intent_ref:ref,intent_outcome:'failed',why:'nobody comes up the stairs'});
+ assert.equal(settled.receipts.length,1);
+ const delivered=await client.call('table.narrate',{campaign,call_id:'t2-c2',text:'Nobody answers.'});
+ assert.equal(delivered.turn,2,'settled: nothing is owed');
+ assert.equal((await knottLedger(home)).intents[0].status,'failed');
+});

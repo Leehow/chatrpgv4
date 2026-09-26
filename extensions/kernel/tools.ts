@@ -330,7 +330,7 @@ const NpcEffect = Type.Object({
 	intent_ref: Type.Optional(Type.String({
 		description: "the ref of an intention (present[].history.intents, director.offer, the NPC advice). With outcome and nothing else: this person's own intention, and its next result. Beside to, stance or another change: that change is the result of the intention named, which may be someone else's (the porter comes up because Knott shouted)",
 	})),
-	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "with intent_ref beside another change: where the named intention stands after it; default done" })),
+	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "with intent_ref: where the named intention stands -- alone, as that intention's result; beside another change, after that change (default done)" })),
 	spend_turn: Type.Optional(Type.Literal(true, {
 		description: "in a fight, on this person's own turn: they spend the turn on what intends or intent_ref names instead of a fight action, and the initiative passes on. Without it a person who does something other than attack, manoeuvre, aim, reload or flee leaves the fight waiting on them. action: hold on their own turn passes it too",
 	})),

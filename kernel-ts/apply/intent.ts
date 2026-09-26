@@ -76,7 +76,7 @@ export async function resolveIntent(scope: IntentScope, node: Row, fields: {inte
                 details: {field: `${field}.intent_ref`, owner, options: await intentOptions(scope, node, entry)}});
         if (ref !== null && ref !== fields.intent_ref)
             throw new RpcError('invalid_params', `${field}.intends and ${field}.intent_ref name two different intentions`, {
-                fix: 'give one of them: the ref of an intention already on the card, or the line of a new one', details: {field: `${field}.intent_ref`}});
+                fix: 'one intention per npc effect: to settle the one on the card and start a new one, send two npc effects in the same batch -- {intent_ref, outcome: done|failed|abandoned} and {intends, outcome: attempted}', details: {field: `${field}.intent_ref`}});
         ref = fields.intent_ref as string;
         // Not `string()`: it renders an absent value as the word "None", which would pass for a line (string-helper trap).
         const known = intentOf(entry, ref)?.text, banked = (await bankOptions(scope, node, entry)).find(item => item.ref === ref)?.intent;
