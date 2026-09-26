@@ -23655,3 +23655,59 @@ prescreen still delivered; the legacy message dropped), `tests/extension/npc-int
 ledger only; `by: "table"` through a rebuild and a later Keeper result), `tests/extension/npc-character-rpc.test.mjs`
 (unknown methods; an older bank file neither read nor deleted), `tests/extension/npc-character-lane.test.mjs` (the
 lane authors personalities only).
+
+**139.7 The Keeper's side: an act the table already wrote, where a ref comes from, the name a table mints (ticket 06,
+spec D7).** Under §139 the people present may have acted before the Keeper composes: the table generated the act and
+bound it, and its receipts carry `intent: {..., generated: true}` (§139.6). The Keeper sees receipts, not orders --
+the prose renders what happened, a result still under way may be given or changed, nothing is written as if it had
+not happened. Three surfaces say so; none reads prose and none detects a language.
+
+- *Prompt* (`prompts/keeper.md`, the **present** paragraph). One sentence before "What a person announces or starts
+  ...": the people present may already have acted this turn; their act and how it went are on the card
+  (`present[].history.intents`, rows marked `by: table`) and in this turn's receipts; the prose renders it, a result
+  still under way is changed with `apply npc` `intent_ref` and `intent_outcome`, and nothing is written as if it had
+  not happened. §138.5's teaching sentence ("In a fight a person's own turn need not be a blow: they can shout for
+  help, ...") presumed the clerk's forced blow, which §139.3 retires; it now says only that when a person's own fight
+  turn is left to the Keeper (the act unavailable, the run over budget, the legacy engine), what they do other than a
+  fight action is recorded with `spend_turn: true` (or `action: hold`) and the initiative passes on. Every other
+  sentence is unchanged. The file went from 31,396 to 31,703 bytes (+307).
+- *The overrule* (D7). In one turn the Keeper writes two npc effects -- `{intent_ref: <the table's act>,
+  intent_outcome: abandoned, why}` and `{intends: <its own>, outcome: attempted}` -- and gets two receipts; the
+  owed-result gate (§138.7) has the table's act settled and lets the delivery through on the first try, and the next
+  card shows both rows, the table's still `by: "table"` (the mark is who set it out, §139.6). The boundary: only a row
+  still under way can be overruled. A row the table's binding already settled -- a roll that passed or failed -- keeps
+  its result: the write is refused `intent_settled` like any settled intention, its `fix` opening "its result stands"
+  (numbers come only from `resolve`, the Keeper prompt's first law). The Keeper renders it and writes what the person
+  does next as a new `intends`.
+- *Tools* (`extensions/kernel/tools.ts`). `apply npc` `intends` adds: when the table has already written this person's
+  act this turn (their `history.intents` row `by: table`), write one only to overrule it, beside a second npc effect
+  that names theirs by `intent_ref` with `intent_outcome: abandoned`. The ten effects that spread `intent_ref` /
+  `intent_outcome` (§138.2 addendum: move, clue, damage, time, item, cash, threat, flag, person, handout) each carry
+  one short line now, and the explanation is written once, at the end of the `apply` tool's description
+  (`INTENT_RESULT_EXPLAINED`). `apply npc` `name` adds: a person this table mints is named in `play_language`, and that
+  name is what the player sees until `apply person` records another word; its English example appellation is gone.
+  Measured (`JSON.stringify` of the tool definitions, UTF-8): all seven tools 71,836 -> 70,499 bytes; the ten effects'
+  intent fields 4,330 -> 2,370; `apply`'s parameters 39,131 -> 37,423; and every Keeper request of
+  `tests/extension/long-campaign-context.test.mjs` is 1,337 bytes smaller (its floor 136,024 -> 134,687, the ceiling
+  run's largest request 165,514 -> 164,177; that harness passes no system prompt, so the prompt's +307 is not in it).
+- *Refusals* (`kernel-ts/apply/intent.ts`; live gate A T12, where the Keeper wrote `intent_ref: "@intent-placeholder"`
+  for an intention it started in the same batch). Every refusal of a ref -- not a reference, `unknown_intent`, a ref
+  that names nobody (on any effect or on `resolve`'s `action`), `intent_settled`, `intent_unresolved` -- says in its
+  `fix` "refs are on the capsule at present[].history.intents[].ref, or in details.options here", and carries
+  `details.options`: the person's intentions under way (`{ref, intent, status}`, this call's staged receipts
+  included, so the intention the same batch just started is listed with its ref); for a ref that names nobody, every
+  intention under way at the table with whose it is (`{ref, npc, intent, status}`). `intent_unresolved` gained
+  `options` and names `details.ref`. Because each `fix` names `details.options`, the extension renders the options on a
+  line of their own (§8, `namedDetailKeys`), which is how they reach the model.
+- *Language.* Nothing detects a language; the name description is the whole change, and whether a minted name is in
+  the play language is counted on live table 08 (spec §五).
+
+Three ends (§31): the writers are the table's binding (§139.3) and the Keeper's `apply npc`; the reader is the card's
+`history.intents` with `by` and this turn's receipts; the actor is the Keeper, whose prose renders the act and whose
+overrule is a receipt. Whether the Keeper writes to the receipts is live table 08's reading, not a test's.
+
+Tests: `tests/extension/npc-intents.test.mjs` (the overrule through the real kernel: two receipts, delivered first
+time, both rows on the next card; a settled table act refused with "its result stands"; every ref refusal's `fix` and
+`details.options`, the placeholder included; gate A T12's batch through the extension, the options line in the tool
+result; the ten intent-field descriptions one short line each with the explanation in `apply`; the prompt sentence),
+`tests/kernel/test_npc_round_operation.py` (the refusals over the emitted kernel).

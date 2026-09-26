@@ -80,11 +80,16 @@ const WorkpadPatch = Type.Optional(Type.Unknown({
 /**
  * Contract §138.2: the result of what someone set out to do. Any effect below can carry it -- the porter comes up the
  * stairs (npc) or the clock moves (threat) because Knott shouted -- and the receipt says whose intention it settled.
+ * Contract §139.7: ten effects spread these two fields, so their descriptions are one short line each and the
+ * explanation is written once, in the apply tool's description (`INTENT_RESULT_EXPLAINED`). The long sentence repeated
+ * in every effect was 4,330 bytes of every Keeper request's tool schema.
  */
 const IntentResult = {
-	intent_ref: Type.Optional(Type.String({ description: "when this effect is the result of what someone set out to do: the ref of that intention (present[].history.intents, director.offer). The intention may be someone else's than the effect's subject" })),
-	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "where that intention stands after this effect; default done (the effect is what happened)" })),
+	intent_ref: Type.Optional(Type.String({ description: "the intention this effect is a result of (see apply)" })),
+	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "where it stands after; default done" })),
 };
+/** The one place the effects' `intent_ref` / `intent_outcome` are explained (§139.7). */
+export const INTENT_RESULT_EXPLAINED = "Any effect may carry intent_ref when it is the result of what someone set out to do: the ref of that intention (present[].history.intents[].ref, director.offer), which may be someone else's than the effect's subject (the porter comes up because someone shouted); intent_outcome is where that intention stands after the effect, default done (the effect is what happened).";
 
 const EndingEffect = Type.Object({
     kind: StringEnum(["ending"] as const),
@@ -286,7 +291,7 @@ const RulingEffect = Type.Object({
 /** A person moved on or off the stage, or where you read them as standing (contract §17.3). */
 const NpcEffect = Type.Object({
 	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, record that they died, change how they defend, or what they do in a fight; or report what they set out to do and how it went" }),
-	name: Type.String({ description: "what you are calling this person. A name from the book, or -- for someone the book never had -- whatever you are already calling them, a description like \"the clerk at the archive window\" included; the table establishes them under that word on this call, and apply person is what decides the word the player sees. Reuse the exact word you used before: two spellings make two people, and a refusal lists the ones this table already has" }),
+	name: Type.String({ description: "what you are calling this person. A name from the book, or -- for someone the book never had -- whatever you are already calling them, a description included; the table establishes them under that word on this call. A person this table mints is named in play_language: that name is what the player sees, until apply person records another word. Reuse the exact word you used before: two spellings make two people, and a refusal lists the ones this table already has" }),
 	reunion: Type.Optional(Type.Object({
 		background:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
 		reports:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
@@ -325,7 +330,7 @@ const NpcEffect = Type.Object({
 		description: "how this person behaves in a fight, when the fiction has shown it: it replaces the book's; each of their turns then reads the disposition table against their wounds, the odds and their stance (session.standing_action). This variant stands alone in one npc effect and needs why",
 	})),
 	intends: Type.Optional(Type.String({
-		description: "a new thing this person sets out to do, in one short sentence: what they try, not what they say (\"shout down the stairs for the porter\", \"back to the door and bolt\", \"offer the key back if he stops\"). Write it the turn they start or announce it; every later result names it by intent_ref. This variant stands alone in one npc effect, with outcome",
+		description: "a new thing this person sets out to do, in one short sentence: what they try, not what they say (\"shout down the stairs for the porter\", \"back to the door and bolt\", \"offer the key back if he stops\"). Write it the turn they start or announce it; every later result names it by intent_ref. This variant stands alone in one npc effect, with outcome. When the table has already written this person's act this turn (their history.intents row by: table), write one only to overrule it, beside a second npc effect that names theirs by intent_ref with intent_outcome abandoned",
 	})),
 	intent_ref: Type.Optional(Type.String({
 		description: "the ref of an intention (present[].history.intents, director.offer). With outcome and nothing else: this person's own intention, and its next result. Beside to, stance or another change: that change is the result of the intention named, which may be someone else's (the porter comes up because Knott shouted)",
@@ -721,7 +726,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Apply",
 		method: "table.apply",
 		description:
-			"Land this turn's changes to the world: move walks to another scene, clue gives the investigator a clue, time advances the clock, clock pins the opening datetime once when the book gives no full date, damage hurts, item and cash change possessions, handout delivers a document, and map reveals only named source-backed regions the investigators learned. Use look focus map to inspect semantic map and region names; map why states what established that knowledge. The whole batch is validated before anything is written, and one bad effect writes none of them. What happens in narration without an apply did not happen. Viewing an already delivered map is a UI action and changes nothing. fork, switch and merge take effect after narrate commits; at most one may be last in a batch. threat moves one authored threat clock.",
+			"Land this turn's changes to the world: move walks to another scene, clue gives the investigator a clue, time advances the clock, clock pins the opening datetime once when the book gives no full date, damage hurts, item and cash change possessions, handout delivers a document, and map reveals only named source-backed regions the investigators learned. Use look focus map to inspect semantic map and region names; map why states what established that knowledge. The whole batch is validated before anything is written, and one bad effect writes none of them. What happens in narration without an apply did not happen. Viewing an already delivered map is a UI action and changes nothing. fork, switch and merge take effect after narrate commits; at most one may be last in a batch. threat moves one authored threat clock. " + INTENT_RESULT_EXPLAINED,
 		promptSnippet: "Land this turn's world changes: move, clue, time, handout, map, item, cash; apply clock pins the opening datetime once when the book gives no full date",
 		parameters: Type.Object({
 			using_skill: UsingSkill,

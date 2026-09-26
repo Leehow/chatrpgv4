@@ -131,3 +131,36 @@ def test_an_npc_who_flees_flees_and_the_pursuit_is_the_investigators_choice(figh
     assert fight.table("look", focus="session")["session"] is None, "he was the only one fighting them: the fight is over"
     assert not [c for c in fled.get("continuations", []) if "chase" in str(c.get("decision", "")) and c.get("executed")], \
         "a pursuit is the investigators' choice, never started for them"
+
+
+def test_every_refusal_of_a_ref_says_where_refs_are_and_lists_the_options(fight):
+    """§139.7 (docs/specs/npc-acts-first.md ticket 06). Live gate A, T12: the Keeper wrote
+    `intent_ref: "@intent-placeholder"` for an intention it had started in the same batch. Every refusal of a ref now
+    says where refs come from and carries the options -- the person's intentions under way, or for a ref that names
+    nobody, the table's with whose each is."""
+    where = "refs are on the capsule at present[].history.intents[].ref, or in details.options here"
+    n = corbitts_turn(fight)
+    applied = fight.table("apply", call_id=f"t1-c{n}", effects=[{"kind": "npc", "name": "Walter Corbitt", "intends": HURL, "outcome": "attempted"}])
+    ref = receipts_of(fight, applied)[0]["intent"]["ref"]
+    under_way = [{"ref": ref, "intent": HURL, "status": "attempted"}]
+    for bad, reason in [("@intent-placeholder", None), ("intent:walter-corbitt:0123456789ab", "unknown_intent")]:
+        refused = fight.table_err("apply", call_id=f"t1-c{n + 1}", effects=[{"kind": "npc", "name": "Walter Corbitt", "intent_ref": bad, "intent_outcome": "done"}])
+        assert refused["code"] == "invalid_params" and where in refused["fix"], refused
+        assert refused["details"].get("reason") == reason and refused["details"]["options"] == under_way
+    # A ref that names nobody, on an effect and on a roll: the table's intentions under way, with whose each is.
+    nobody = fight.table_err("apply", call_id=f"t1-c{n + 1}", effects=[{"kind": "threat", "name": "corbitt-haunting", "clock": "corbitt-awareness", "intent_ref": "@intent-placeholder"}])
+    assert where in nobody["fix"] and nobody["details"]["options"] == [{**under_way[0], "npc": CORBITT}]
+    rolled = resolve_err(fight, f"t1-c{n + 1}", actor="Walter Corbitt", intent="investigate", skill="Throw", goal="hit the lantern",
+                         method="throw the lamp", intent_ref="@intent-placeholder")
+    assert where in rolled["fix"] and rolled["details"]["options"] == [{**under_way[0], "npc": CORBITT}]
+    # Under way since turn 1 and announced again on turn 2: the fix names the ref to report and the options.
+    narrate(fight, f"t1-c{n + 1}", "The lamp is in his hand.")
+    fight.table("player_input", text="I keep swinging.")
+    unresolved = fight.table_err("apply", call_id="t2-c1", effects=[{"kind": "npc", "name": "Walter Corbitt", "intent_ref": ref, "outcome": "attempted"}])
+    assert unresolved["details"]["reason"] == "intent_unresolved" and where in unresolved["fix"] and "details.ref" in unresolved["fix"]
+    assert unresolved["details"]["options"] == under_way
+    # Settled: its result stands, and the refusal still says where refs are (nothing else is under way).
+    fight.table("apply", call_id="t2-c1", effects=[{"kind": "npc", "name": "Walter Corbitt", "intent_ref": ref, "outcome": "failed"}])
+    settled = fight.table_err("apply", call_id="t2-c2", effects=[{"kind": "npc", "name": "Walter Corbitt", "intent_ref": ref, "outcome": "abandoned"}])
+    assert settled["details"]["reason"] == "intent_settled" and settled["fix"].startswith("its result stands") and where in settled["fix"]
+    assert settled["details"]["options"] == []
