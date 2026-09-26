@@ -751,3 +751,17 @@ Reading: the batch-13 build with thinking off is back inside #13's envelope with
 9. Reporting gaps: residual rows duplicated on turns 5/7/20 and missing on 1/11/12/14/17/19; an executed row's `keeper_did` reads the clerk's own receipt as `true`.
 Reading: the execute path is sound (0 FP, no double filing, fastest table); the lever now is the clue question's recall (7 FN), then the reporting gaps.
 
+### Long gates #18/#19 (2026-09-26, d08fa2ebb; Keeper switched to grok after deepseek ran out)
+## #18 Keeper grok-build/grok-4.5 low, lanes grok-4.5 low, clue execute on
+1. Delivery 20/20 ✓; cap rows 0; no `</text>` leak (tool-argument markup fix live) ✓; Jev failures 0.
+2. Wall: median 49 s, ≤60 s 18/20 (t14 61, t15 68) — inside the owner's "under a minute" for 18 turns; reasoning on 55/57 calls (low is real on grok); 17 `text_beside_tool_calls` drops (grok writes prose beside tool calls; dropped).
+3. SL-86 ✓ direction: clue_follow_up TP 7 / FP 0 / FN 8 → recall 0.47 (from 0.22–0.25), precision 1.0; five of the seven TPs sat at 0.42–0.51, i.e. cleared only by the new 0.4/0.67 class gate. FN still 8 (0.11–0.37): the question's state, not the gate, is the next lever.
+4. Residual: Keeper apply 22 / resolve 11 / lookup 8; consequence steps 8 (from 3). Line "≤ 30" missed by 3; the compile filed 4 clues, the clerk 8, the Keeper the rest.
+5. SL-85 ✓: residual rows 21 (one per turn incl. turn 0), no duplicates.
+6. Refusals: invalid_params 3, unknown_entity 1, needs 1; cuts 0 ✓. Prose median 287 chars, min 142, thin 0, ASCII names 0 ✓.
+7. Admission ✗: p90 7,105 / max 10,526 ms (grok-4.5 lanes at low reason on every review; 0 timeouts). A lane model that can switch thinking off (grok-4.3 `none`, or deepseek when its quota returns) is the fix; #20 runs lanes on 4.3 off.
+## #19 Keeper xai/grok-4.3 OFF, lanes xai/grok-4.3 off
+- 20/20, median 11 s, all ≤ 25 s, zero errors, xai OAuth refreshed. But the Keeper made 0 tool calls all table (29 model calls, output p50 89 tokens): prose median 101 chars, min 45, six deliveries under 80 chars, three ASCII full names in zh prose, one floor steer. The clerk did every mechanic; the Keeper added almost nothing. Not a Keeper at `off`.
+- Admission p90 1,385 ms with 4.3 off lanes (vs 7,105 on 4.5 low): the lane wants a no-thinking model.
+Reading: 4.5-low writes like a Keeper at ≈50 s; 4.3-off narrates thinly at 11 s. #20 (4.3 low, lanes 4.3 off) is the middle candidate; whichever way, lanes go on a no-thinking model.
+

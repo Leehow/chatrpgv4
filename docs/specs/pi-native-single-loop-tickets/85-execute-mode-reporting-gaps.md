@@ -44,3 +44,4 @@ One residual row per turn, written on the turn's close whichever path closes it 
 This lines up exactly with the ticket's own evidence (duplicates on turns 5, 7, 20). A table played with this ticket's fix should show this section empty; that is a live-table check, not made here (hard rule: no live Jev/model calls this worker).
 
 **Not done / left for the human:** a live table to confirm no duplicate/missing residual rows under the fix, and that `executed`/`shadow` read as designed on freshly recorded telemetry (this worker made no live Jev calls, per the hard rule); the `routeConsequences` "one Jev call per run" load-bearing assumption noted above, if anyone later wants the bypass-delivery path to also refresh D1 state via a live Jev ask.
+- Live (gate #18): 21 residual rows for 21 turns, no duplicates; executed rows carry `executed: true`.
