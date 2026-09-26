@@ -245,6 +245,9 @@ export async function openTable({
 	 * session runs the legacy model-first loop, as every other test here does.
 	 */
 	runDriver,
+	/** Contract §135.29's SL-69 addendum: the per-call cap and the callback told when it fires (forwarded to `createAgentSession`). */
+	keeperCallCapMs,
+	onKeeperCallCap,
 	/**
 	 * Real-kernel tables only: runs on the workspace after the campaign is created and before the session opens it,
 	 * so a test can put the table in a state through the kernel's own RPC (never by writing its files).
@@ -378,6 +381,8 @@ export async function openTable({
 		sessionManager,
 		settingsManager,
 		...(runDriver ? { runDriver } : {}),
+		...(keeperCallCapMs !== undefined ? { keeperCallCapMs } : {}),
+		...(onKeeperCallCap ? { onKeeperCallCap } : {}),
 	});
 
 	// session_start（也就是开桌）是 bindExtensions 发出来的，运行模式各自负责。

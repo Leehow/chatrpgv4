@@ -166,6 +166,18 @@ export function turnBudgetMs(env: Readonly<NodeJS.ProcessEnv>): number {
   return Number.isFinite(value) && value > 0 ? value : DEFAULT_TURN_BUDGET_MS;
 }
 
+/** §135.29's SL-69 addendum: the Keeper's own provider call is capped past `PI_COC_KEEPER_CALL_CAP_FLOOR_MS`
+ * (named default 20 s) or half the table's turn budget, whichever is larger -- never below the floor, so a
+ * short turn budget never turns the cap into something a fast, healthy call could still trip. */
+export const DEFAULT_KEEPER_CALL_CAP_FLOOR_MS = 20_000;
+export function keeperCallCapFloorMs(env: Readonly<NodeJS.ProcessEnv>): number {
+  const value = Number(env.PI_COC_KEEPER_CALL_CAP_FLOOR_MS?.trim() || NaN);
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_KEEPER_CALL_CAP_FLOOR_MS;
+}
+export function keeperCallCapMs(env: Readonly<NodeJS.ProcessEnv>): number {
+  return Math.max(keeperCallCapFloorMs(env), Math.floor(turnBudgetMs(env) / 2));
+}
+
 /** The Keeper verbs whose committed result is the turn's delivery (contract: real `narrate` / `ask` only). */
 const DELIVERY_VERBS: Readonly<Record<string, 'accepted' | 'awaiting_player'>> = Object.freeze({narrate: 'accepted', ask: 'awaiting_player'});
 /** Verbs whose success changes the table, so the run re-reads its state after them. */
@@ -366,7 +378,9 @@ interface RunState {
  * Build the engine: the session run driver Pi is given, plus the inline extension that hands it the kernel
  * bridge and the operation gateway (both go onto the bus at session_start, after the driver was created).
  */
-export function createHybridEngine(options: HybridEngineOptions): {runDriver: SessionRunDriver; extension: (pi: any) => void; bridge: () => KernelBridge | undefined} {
+export function createHybridEngine(options: HybridEngineOptions): {runDriver: SessionRunDriver; extension: (pi: any) => void; bridge: () => KernelBridge | undefined;
+  /** §135.29's SL-69 addendum: the per-call cap Pi's session should enforce on every Keeper provider call, and the callback told when it fires. */
+  keeperCallCapMs: number; onKeeperCallCap: (phase: 'first_byte' | 'streaming', capMs: number) => void} {
   let bridge: KernelBridge | undefined, gateway: OperationGateway | undefined, closer: TurnClosePort | undefined, api: any;
   let consultations: SourceAnswersPort | undefined;
   const now = options.now ?? (() => Date.now());
@@ -928,11 +942,20 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }};
   }
 
+  /** §135.29's SL-69 addendum: which run is current, for the `keeper_call_cap` telemetry row a cap firing
+   * writes -- `onKeeperCallCap` below has no run/step of its own to go on otherwise, since it is told by the
+   * session's own provider-call wrapper, outside any one run's own event stream. */
+  let currentRunId: string | undefined;
+  const onKeeperCallCap = (phase: 'first_byte' | 'streaming', capMs: number) => {
+    record({lane: 'run', event: 'keeper_call_cap', run: currentRunId ?? null, phase, cap_ms: capMs});
+  };
+
   const runDriver: SessionRunDriver = {
     engine: 'hybrid-v1',
     // The Jev scope comes from the run's own read step (a read artifact carries the binding), never from a read
     // outside a step; until a read has bound it, a route question carries no batch and degrades to the Keeper.
     prepare: context => {
+      currentRunId = context.runId;
       const allowance = readJevPreselectAllowanceMs(options.env as NodeJS.ProcessEnv), startedAt = now(), budgetMs = turnBudgetMs(options.env);
       const run: RunState = {runId: context.runId, rawInput: context.rawInput, inputRevision: context.inputRevision, session: context.session as unknown as Row,
         startedAt, prescreenAllowanceMs: allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
@@ -964,5 +987,5 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     pi.on('session_start', async () => { announce(); withoutPlanTool(); });
     pi.on('before_agent_start', async () => { withoutPlanTool(); });
   };
-  return {runDriver, extension, bridge: () => bridge};
+  return {runDriver, extension, bridge: () => bridge, keeperCallCapMs: keeperCallCapMs(options.env), onKeeperCallCap};
 }

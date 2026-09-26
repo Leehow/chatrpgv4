@@ -391,19 +391,29 @@ export class ModuleGraph {
     }
     /**
      * The ranked part of `candidates()` alone -- name overlap, then similarity -- never the roster
-     * `candidates()` appends afterwards (contract §11.5.7/SL-64). `personOfEffect`
-     * (`kernel-ts/apply/entities.ts`) consults this to decide whether to *refuse* an unmatched name
-     * instead of minting it a table person: the established roster is a list of this table's own
-     * people to resolve a name against (§87.4, §11.5.6/SL-62's Jev question), never a count that bars
-     * minting a person nobody has named before.
+     * `candidates()` appends afterwards (contract §11.5.7/SL-64, extended by §11.5.7's SL-70 addendum).
+     * `personOfEffect` (`kernel-ts/apply/entities.ts`) consults this to decide whether to *refuse* an
+     * unmatched name instead of minting it a table person: the established roster is a list of this
+     * table's own people to resolve a name against (§87.4, §11.5.6/SL-62's Jev question), never a count
+     * that bars minting a person nobody has named before.
+     *
+     * `opts.roster === false` excludes this table's own established people from the search *pool*
+     * itself, not only from the appended list `candidates()` adds afterwards (SL-70): `addTablePerson`
+     * indexes a newly minted person into `this.names` the same way a book name is indexed, so a person
+     * this table established -- a moment ago in the very same `apply` batch, or on any earlier turn --
+     * is otherwise still found here by name overlap or similarity and mistaken for the book/graph
+     * "having something to say", refusing a second, unrelated new name in the same call. Contract
+     * §11.5.7's own promise -- that this table's established people are never a bar to minting -- only
+     * holds once they are excluded from the ranked pool as well as the appended roster.
      */
-    private rankedCandidateIds(name: string, kinds?: string[], limit = 6): string[] {
+    private rankedCandidateIds(name: string, kinds?: string[], limit = 6, opts: { roster?: boolean } = {}): string[] {
         const key = normalize(name),
             pool = new Map<string, string>(),
             ranked: string[] = [];
         for (const [normalized, ids] of this.names)
             for (const id of ids)
-                if ((!kinds?.length || kinds.includes(this.nodes.get(id)!.node_kind)) && !pool.has(normalized))
+                if ((!kinds?.length || kinds.includes(this.nodes.get(id)!.node_kind)) && !pool.has(normalized)
+                    && (opts.roster !== false || !this.tableNames.has(id)))
                     pool.set(normalized, id);
         for (const [normalized, id] of pool)
             if (key && (key.includes(normalized) || normalized.includes(key)) && !ranked.includes(id))
@@ -417,7 +427,7 @@ export class ModuleGraph {
         return ranked;
     }
     candidates(name: string, kinds?: string[], limit = 6, opts: { roster?: boolean } = {}): Row[] {
-        const ranked = this.rankedCandidateIds(name, kinds, limit);
+        const ranked = this.rankedCandidateIds(name, kinds, limit, opts);
         // Last, and only after everything the query itself ranked: the people this table established
         // (see `read/table-people.ts`). A Keeper who has called one man the caretaker, the doorman,
         // superintendent and the janitor makes four of him: deciding those are one person is the open

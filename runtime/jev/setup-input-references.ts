@@ -87,7 +87,33 @@ function trimToWordBoundary(units:Array<{alias:string;text:string;start:number;e
     while(hi>=lo&&isPunctuationOrSpace(within[hi].text)) hi--;
     return lo>hi?{start,end}:{start:within[lo].start,end:within[hi].end};
 }
-function selected(snapshot:SetupInputSnapshot,selection:unknown,scope:ScopeBinding,options:{trimToWord?:boolean}={}):{value:string;ref:SourceRef} {
+/** §98 addendum 7 continuation (SL-68). After the punctuation/space trim above, the range's own first or last
+ * grapheme unit may still be a word the sentence puts beside the name -- a leading verb meaning "called" is
+ * not punctuation, so the trim above keeps it. Whether that boundary token belongs to the name is not a question
+ * a character-class test or a list of verbs can answer (open semantic judgement, forbidden by design); it is
+ * asked, one row per boundary, of Jev. This is exactly the two candidate tokens the caller needs to ask about --
+ * it decides nothing itself, and returns nothing when the range is one unit wide (nothing left to shrink without
+ * emptying it). */
+export interface NameBoundaryCheckInput {sentence:string;name:string;leading?:string;trailing?:string}
+export interface NameBoundaryDecision {leading:boolean;trailing:boolean}
+export type NameBoundaryChecker=(input:NameBoundaryCheckInput)=>Promise<NameBoundaryDecision>;
+function boundaryTokens(units:Array<{alias:string;text:string;start:number;end:number}>,start:number,end:number):{leading?:string;trailing?:string} {
+    const within=units.filter(unit=>unit.start>=start&&unit.end<=end);
+    if(within.length<=1) return {};
+    return {leading:within[0].text,trailing:within.at(-1)!.text};
+}
+/** Drop the leading and/or trailing unit `decision` says is not part of the name, then re-run the punctuation/
+ * space trim once (dropping a verb can expose a space or a comma that was between it and the name). A drop that
+ * would leave nothing is refused (the original range stands): there is no word left to bound to. */
+function dropBoundaryTokens(units:Array<{alias:string;text:string;start:number;end:number}>,start:number,end:number,drop:{leading:boolean;trailing:boolean}):{start:number;end:number} {
+    if(!drop.leading&&!drop.trailing) return {start,end};
+    const within=units.filter(unit=>unit.start>=start&&unit.end<=end);
+    let lo=0,hi=within.length-1;
+    if(drop.leading&&lo<=hi) lo++;
+    if(drop.trailing&&hi>=lo) hi--;
+    return lo>hi?{start,end}:trimToWordBoundary(units,within[lo].start,within[hi].end);
+}
+async function selected(snapshot:SetupInputSnapshot,selection:unknown,scope:ScopeBinding,options:{trimToWord?:boolean;checkBoundary?:NameBoundaryChecker}={}):Promise<{value:string;ref:SourceRef}> {
     if(!closed(selection,['source','range'],['source'])||typeof selection.source!=='string') fail('setup_input_requires_source_selection');
     const field=snapshot.fields.find(field=>field.alias===selection.source);if(!field) fail('unknown_or_stale_setup_input_source');
     let start=0,end=field.text.length;
@@ -101,13 +127,30 @@ function selected(snapshot:SetupInputSnapshot,selection:unknown,scope:ScopeBindi
         // is untouched -- it is not cut from a sentence and its exact bytes, including any leading/trailing
         // whitespace the player typed, are the contract.
         if(options.trimToWord) ({start,end}=trimToWordBoundary(issued,start,end));
+        // §98 addendum 7 continuation (SL-68): a token the trim above cannot remove (it is not punctuation or
+        // space) may still not be part of the name. Ask Jev, per boundary; a `no` answer trims that one unit and
+        // re-runs the punctuation/space trim once more. Any other outcome -- `yes`, `unclear`, no checker
+        // supplied, or a failure the checker itself already turned into a fail-safe default -- keeps the token:
+        // the player's own selection is trusted unless a boundary check clearly says otherwise.
+        if(options.trimToWord&&options.checkBoundary) {
+            const boundary=boundaryTokens(issued,start,end);
+            if(boundary.leading!==undefined||boundary.trailing!==undefined) {
+                let decision:NameBoundaryDecision;
+                try{decision=await options.checkBoundary({sentence:field.text,name:field.text.slice(start,end),...boundary});}
+                catch{decision={leading:true,trailing:true};}
+                ({start,end}=dropBoundaryTokens(issued,start,end,{leading:boundary.leading!==undefined&&!decision.leading,trailing:boundary.trailing!==undefined&&!decision.trailing}));
+            }
+        }
     }
     const source=sourceSnapshot(snapshot,field,scope),ref=issueSourceRef(source,{kind:'utf16',start,end});
     const value=resolveSourceRef(ref,{scope,mode:'active',read:()=>source,currentRevision:()=>source.revision});
     if(!nonempty(value)) fail('empty_setup_input_selection');return {value,ref};
 }
-/** Target-mode values are selections, or generated names. Copied strings never fall back to legacy. */
-export function materializeSetupInputs(catalog:SetupInputCatalog,input:{campaign:string;inputKey:string;values:Partial<Record<SetupInputField,unknown>>}):{values:Partial<Record<SetupInputField,string>>;envelope:SetupInputEnvelope} {
+/** Target-mode values are selections, or generated names. Copied strings never fall back to legacy.
+ * `checkBoundary` (SL-68, optional) is asked only for a `profile.name` range selection; omitting it (every
+ * existing caller before SL-68, and any caller Jev is unavailable to) keeps this to exactly SL-66's own
+ * punctuation/space trim, unamended. */
+export async function materializeSetupInputs(catalog:SetupInputCatalog,input:{campaign:string;inputKey:string;values:Partial<Record<SetupInputField,unknown>>},checkBoundary?:NameBoundaryChecker):Promise<{values:Partial<Record<SetupInputField,string>>;envelope:SetupInputEnvelope}> {
     checkSnapshot(catalog.snapshot);if(!nonempty(input.campaign)||catalog.snapshot.epoch!==input.inputKey) fail('stale_setup_input_epoch');
     const scope=scopeFor(input.campaign),values:Partial<Record<SetupInputField,string>>={},bindings:SetupInputEnvelope['bindings']={};
     for(const [field,value] of Object.entries(input.values)) {
@@ -116,7 +159,7 @@ export function materializeSetupInputs(catalog:SetupInputCatalog,input:{campaign
         if(closed(value,['generated'])) {
             if(key!=='profile.name'||!nonempty(value.generated))fail('invalid_generated_setup_name');
             values[key]=value.generated;bindings[key]={authority:'generated'};
-        } else {const resolved=selected(catalog.snapshot,value,scope,{trimToWord:key==='profile.name'});values[key]=resolved.value;bindings[key]={authority:'player_input',ref:resolved.ref};}
+        } else {const resolved=await selected(catalog.snapshot,value,scope,{trimToWord:key==='profile.name',checkBoundary:key==='profile.name'?checkBoundary:undefined});values[key]=resolved.value;bindings[key]={authority:'player_input',ref:resolved.ref};}
     }
     return {values,envelope:{version:1,protocol:SETUP_INPUT_PROTOCOL,epoch:input.inputKey,scope,snapshot:structuredClone(catalog.snapshot),bindings}};
 }

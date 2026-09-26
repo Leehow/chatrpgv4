@@ -1,0 +1,228 @@
+A Keeper provider call is capped past its own per-call total-duration ceiling, beside the idle-progress
+watchdog of 0003 (contract §135.29's SL-69 addendum).
+Base: 0003 applied. Apply with: git apply -p1 from the repository root.
+
+diff --git a/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts b/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts
+index 64291ea2f..b1d94fec7 100644
+--- a/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts
++++ b/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts
+@@ -64,6 +64,10 @@ export interface CreateAgentSessionFromServicesOptions {
+ 	customTools?: ToolDefinition[];
+ 	/** Forwarded to {@link createAgentSession}: drive runs through the RunDriver. */
+ 	runDriver?: CreateAgentSessionOptions["runDriver"];
++	/** Forwarded to {@link createAgentSession}: contract §135.29's SL-69 addendum, the per-call cap. */
++	keeperCallCapMs?: CreateAgentSessionOptions["keeperCallCapMs"];
++	/** Forwarded to {@link createAgentSession}: told when the cap above ends an attempt. */
++	onKeeperCallCap?: CreateAgentSessionOptions["onKeeperCallCap"];
+ }
+ 
+ /**
+@@ -220,5 +224,7 @@ export async function createAgentSessionFromServices(
+ 		customTools: options.customTools,
+ 		sessionStartEvent: options.sessionStartEvent,
+ 		runDriver: options.runDriver,
++		keeperCallCapMs: options.keeperCallCapMs,
++		onKeeperCallCap: options.onKeeperCallCap,
+ 	});
+ }
+diff --git a/vendor/pi/packages/coding-agent/src/core/sdk.ts b/vendor/pi/packages/coding-agent/src/core/sdk.ts
+index 6c00754c5..37800a212 100644
+--- a/vendor/pi/packages/coding-agent/src/core/sdk.ts
++++ b/vendor/pi/packages/coding-agent/src/core/sdk.ts
+@@ -17,7 +17,7 @@ import type { ResourceLoader } from "./resource-loader.ts";
+ import { DefaultResourceLoader } from "./resource-loader.ts";
+ import { getDefaultSessionDir, SessionManager } from "./session-manager.ts";
+ import { SettingsManager } from "./settings-manager.ts";
+-import { watchStreamProgress } from "./stream-progress.ts";
++import { watchCallCap, watchStreamProgress } from "./stream-progress.ts";
+ import { time } from "./timings.ts";
+ import {
+ 	createBashTool,
+@@ -90,6 +90,13 @@ export interface CreateAgentSessionOptions {
+ 	sessionStartEvent?: SessionStartEvent;
+ 	/** Drive runs through the RunDriver with the host's policy and ports instead of the model-first loop. */
+ 	runDriver?: SessionRunDriver;
++	/** Contract §135.29's SL-69 addendum: a per-call total-duration cap composed around the idle-progress
++	 * watchdog (`watchStreamProgress`) in every provider attempt this session makes. 0 or absent disables it. */
++	keeperCallCapMs?: number;
++	/** Told once per attempt the cap above ends, with the phase ("first_byte" before any event of the
++	 * attempt arrived, "streaming" after) it fired in. Never told anything else; a session without one set
++	 * simply is not told. */
++	onKeeperCallCap?: (phase: "first_byte" | "streaming", capMs: number) => void;
+ }
+ 
+ /** Result from createAgentSession */
+@@ -366,6 +373,17 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
+ 		});
+ 	};
+ 
++	// Contract §135.29's SL-69 addendum. `options` below is captured here under a distinct name because
++	// `streamFn`'s own parameter is also (confusingly, but matching the callback's established shape)
++	// named `options` -- reading `options.keeperCallCapMs` inside `streamFn` would read the wrong one.
++	const keeperCallCapMs = options.keeperCallCapMs ?? 0;
++	const onKeeperCallCap = options.onKeeperCallCap;
++	// Keyed by each infer step's own outer signal (stable across that step's internal retries, since a
++	// retry resends under the same step and thus the same caller-owned cancellation signal): how many
++	// times this step's cap has already fired. A step's signal is never reused by a later step, so this
++	// never needs clearing -- the entry is simply unreachable, and collected, once the step ends.
++	const keeperCallCapOverruns = new WeakMap<AbortSignal, number>();
++
+ 	const agent = new Agent({
+ 		initialState: {
+ 			systemPrompt: "",
+@@ -387,11 +405,29 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
+ 			}
+ 			// The same idle allowance, measured on the events the agent consumes rather than on bytes: a
+ 			// stream that answers and then produces no event ends as a retryable error (stream-progress.ts).
+-			return watchStreamProgress(
+-				(signal) => modelRuntime.streamSimple(model, context, { ...requestOptions, signal }),
+-				requestOptions.signal,
+-				settingsManager.getHttpIdleTimeoutMs(),
+-			);
++			const underIdleWatchdog = (signal: AbortSignal | undefined) =>
++				watchStreamProgress(
++					(innerSignal) => modelRuntime.streamSimple(model, context, { ...requestOptions, signal: innerSignal }),
++					signal,
++					settingsManager.getHttpIdleTimeoutMs(),
++				);
++			if (!(keeperCallCapMs > 0)) return underIdleWatchdog(requestOptions.signal);
++			const stepSignal = options?.signal;
++			return watchCallCap(underIdleWatchdog, requestOptions.signal, keeperCallCapMs,
++				{ api: model.api, provider: model.provider, id: model.id }, (phase) => {
++					const attempt = (stepSignal ? keeperCallCapOverruns.get(stepSignal) : undefined) ?? 0;
++					const next = attempt + 1;
++					if (stepSignal) keeperCallCapOverruns.set(stepSignal, next);
++					onKeeperCallCap?.(phase, keeperCallCapMs);
++					// First overrun: worded to match pi-ai's own retry patterns ("timed? out"), so the
++					// session's existing auto-retry resends this step once, under the same context, exactly
++					// as an idle-progress timeout already does. Second overrun of the *same* step: worded to
++					// match none of them, so the session's own retry check declines and the step ends through
++					// its existing no-delivered-evidence fallback -- never a second automatic resend.
++					return next <= 1
++						? `Keeper call timed out: exceeded its per-call cap of ${keeperCallCapMs} ms (phase: ${phase})`
++						: `Keeper call exceeded its per-call cap of ${keeperCallCapMs} ms a second time (phase: ${phase}); this step ends now.`;
++				});
+ 		},
+ 		onPayload: transformProviderPayload,
+ 		onResponse: handleProviderResponse,
+diff --git a/vendor/pi/packages/coding-agent/src/core/stream-progress.ts b/vendor/pi/packages/coding-agent/src/core/stream-progress.ts
+index 363b2e198..c8ae2433a 100644
+--- a/vendor/pi/packages/coding-agent/src/core/stream-progress.ts
++++ b/vendor/pi/packages/coding-agent/src/core/stream-progress.ts
+@@ -89,3 +89,91 @@ export function watchStreamProgress(
+ 	})();
+ 	return out;
+ }
++
++/** The phase a per-call cap fired in (contract §135.29's SL-69 addendum): before the attempt's first event
++ * ("first_byte" -- the idle watchdog above never fires here; the transport timeouts alone govern that gap),
++ * or after it ("streaming", the same gap `watchStreamProgress` also times out on its own, shorter, terms). */
++export type CallCapPhase = "first_byte" | "streaming";
++const EMPTY_USAGE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
++	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
++
++/**
++ * A Keeper call is abandoned once it runs past its own per-call cap, independent of and in addition to the
++ * idle-gap watchdog above (contract §135.29's SL-69 addendum): a per-call TOTAL-duration ceiling, a named
++ * default derived from the table's own turn budget, never below a floor (`runtime/jev/hybrid-engine.ts`
++ * computes the value; this function only enforces whatever it is handed). `capMs <= 0` disables it, exactly
++ * like `idleMs` above. `model` supplies what a synthetic failure message needs when the cap fires before any
++ * real message ever arrived (`first_byte`): `watchStreamProgress`'s own `stall()` has a real partial message
++ * to copy at that point; this one may not.
++ *
++ * `onCap` is asked for the error message to use, and is the caller's only chance to make this one
++ * retryable or not: pi-ai's retry patterns key on wording (`"timed? out"`, `"timeout"`, …), so a message
++ * that matches is retried by the session's existing mechanism exactly like an idle-progress timeout, and
++ * one that does not match ends the step there. This function never decides retryability itself and keeps
++ * no count across calls -- the caller (one per attempt) owns whatever counting "abandon and re-send once,
++ * a second overrun ends the step" needs.
++ */
++export function watchCallCap(
++	start: (signal: AbortSignal | undefined) => AssistantMessageEventStream,
++	outer: AbortSignal | undefined,
++	capMs: number,
++	model: { api: AssistantMessage["api"]; provider: AssistantMessage["provider"]; id: string },
++	onCap: (phase: CallCapPhase) => string,
++): AssistantMessageEventStream {
++	if (!(capMs > 0)) return start(outer);
++	const request = new AbortController();
++	const relay = () => request.abort(outer?.reason);
++	if (outer?.aborted) request.abort(outer.reason);
++	else outer?.addEventListener("abort", relay, { once: true });
++	const source = start(request.signal);
++	const out = createAssistantMessageEventStream();
++	let last: AssistantMessage | undefined;
++	let ended = false;
++	const settle = () => {
++		ended = true;
++		clearTimeout(timer);
++		outer?.removeEventListener("abort", relay);
++	};
++	const cap = () => {
++		if (ended || outer?.aborted) return;
++		const phase: CallCapPhase = last ? "streaming" : "first_byte";
++		settle();
++		const errorMessage = onCap(phase);
++		const base: AssistantMessage = last ?? {
++			role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
++			usage: EMPTY_USAGE, stopReason: "error", timestamp: Date.now(),
++		};
++		out.push({
++			type: "error",
++			reason: "error",
++			error: { ...base, content: last ? settledContent(last) : [], stopReason: "error", errorMessage },
++		});
++		out.end();
++		request.abort(new Error(errorMessage));
++	};
++	const timer = setTimeout(cap, capMs);
++	void (async () => {
++		try {
++			for await (const event of source) {
++				if (ended) break;
++				if ("partial" in event) last = event.partial;
++				out.push(event);
++				if (event.type === "done" || event.type === "error") {
++					settle();
++					out.end();
++					return;
++				}
++			}
++			if (!ended) {
++				settle();
++				out.end(await source.result());
++			}
++		} catch (error) {
++			// The cap's own abort surfaces here as the source iterator rejecting; `cap()` already pushed the
++			// error event and ended `out`, so a rejection after that point is discarded, never re-thrown.
++			if (!ended) { settle(); out.end(); }
++			void error;
++		}
++	})();
++	return out;
++}
+diff --git a/vendor/pi/packages/coding-agent/src/main.ts b/vendor/pi/packages/coding-agent/src/main.ts
+index 5664f351b..e44e899a2 100644
+--- a/vendor/pi/packages/coding-agent/src/main.ts
++++ b/vendor/pi/packages/coding-agent/src/main.ts
+@@ -564,6 +564,11 @@ export interface MainOptions {
+ 	extensionFactories?: InlineExtension[];
+ 	/** Drive the session's runs through the RunDriver (forwarded to the session factory). */
+ 	runDriver?: SessionRunDriver;
++	/** Contract §135.29's SL-69 addendum: the per-call total-duration cap (forwarded to the session
++	 * factory). 0 or absent disables it, exactly like `httpIdleTimeoutMs`'s own 0 convention. */
++	keeperCallCapMs?: number;
++	/** Told once per attempt the cap above ends, with the phase it fired in; never told anything else. */
++	onKeeperCallCap?: (phase: "first_byte" | "streaming", capMs: number) => void;
+ }
+ 
+ export async function main(args: string[], options?: MainOptions) {
+@@ -833,6 +838,8 @@ export async function main(args: string[], options?: MainOptions) {
+ 			noTools: sessionOptions.noTools,
+ 			customTools: sessionOptions.customTools,
+ 			runDriver: options?.runDriver,
++			keeperCallCapMs: options?.keeperCallCapMs,
++			onKeeperCallCap: options?.onKeeperCallCap,
+ 		});
+ 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
+ 		if (created.session.model && cliThinkingOverride) {

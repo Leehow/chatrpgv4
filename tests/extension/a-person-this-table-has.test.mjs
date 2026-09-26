@@ -136,6 +136,86 @@ test('two people this table meets each land their own npc-ledger entry once the 
 		`each distinct table person this table met gets their own ledger entry: ${JSON.stringify(ledger)}`);
 });
 
+/**
+ * §11.5.7's SL-70 addendum (2026-09-25; follows SL-64). SL-64 fixed `personOfEffect`'s gating check
+ * (`graph.candidates(name, ['npc'], 6, {roster: false})`) so an *already*-established table person is
+ * never a bar to minting a later, unrelated name. It did not fix the pool that check searches:
+ * `addTablePerson` (`kernel-ts/read/module-graph.ts`) indexes a newly minted person into `this.names`
+ * -- the same ranked pool a book name lives in -- the moment it is established, so a person this table
+ * mints from an *earlier effect in the very same batch* is not excluded by `{roster: false}` at all: it
+ * is found again by name overlap or similarity, exactly as a book NPC would be, and a later effect in
+ * the same batch refuses.
+ *
+ * The three names below are the batch-11 血色公路 table's own t17 batch, verbatim (ticket 29's batch-11
+ * entry, campaign `sl29ab11-xuese-2205`): `apply` placed 柜台前的老男人 ("the old man at the counter"),
+ * 穿工装的年轻人 ("the young man in overalls") and 饭馆柜台后面的女人 ("the woman behind the diner
+ * counter") in one call, none of them named anywhere before. The kernel refused the third,
+ * `unknown_entity`, with `details.candidates` naming six people including 柜台前的老男人 -- minted two
+ * effects earlier in the very same call. `difflib`-style `similarity('饭馆柜台后面的女人',
+ * '柜台前的老男人')` is exactly 0.5, the ranked pool's own threshold, and neither name is a book name:
+ * the graph was never "not silent" on 饭馆柜台后面的女人; a person this same batch had just minted was
+ * mistaken for one.
+ */
+test('three brand-new names in one batch mint three ledger entries, even when two of them are similar enough for one to shape the next one\'s candidates -- the batch-11 t17 shape', async t => {
+	const game = await table(t);
+	const OLD_MAN = '柜台前的老男人', YOUNG_MAN = '穿工装的年轻人', WOMAN = '饭馆柜台后面的女人';
+	const result = await game.apply([
+		{kind: 'npc', name: OLD_MAN, to: 'here', why: '他比调查员到得早，正坐在柜台前就着咖啡跟屋里的人说话'},
+		{kind: 'npc', name: YOUNG_MAN, to: 'here', why: '他在靠里的桌边吃午饭，跟柜台前的老人有一搭没一搭地说话'},
+		{kind: 'npc', name: WOMAN, to: 'here', why: '她是这家小饭馆的老板，正在柜台后面收拾锅灶'}]);
+	assert.equal(result.not_landed, undefined,
+		`all three brand-new names should mint; none of them is a reason another refuses: ${JSON.stringify(result.not_landed)}`);
+
+	const world = await game.world();
+	assert.deepEqual((world.table_people ?? []).map(person => person.name).sort(), [OLD_MAN, YOUNG_MAN, WOMAN].sort(),
+		'three distinct new names in one batch establish three table persons, independent of each other and of batch order');
+
+	await game.call('table.narrate', {call_id: game.next(), text: `{{say:${WOMAN}}}What'll it be?{{/say}}`});
+	const ledger = JSON.parse(await readFile(join(game.directory, 'npc-ledger.json'), 'utf8'));
+	const tablePeople = Object.keys(ledger).filter(id => id.startsWith('npc-table-'));
+	assert.equal(tablePeople.length, 3, `each of the three mints its own ledger entry once the turn closes: ${JSON.stringify(ledger)}`);
+});
+
+/**
+ * SL-70 scope 2: a batch is not one shape either way -- an already-established name inside it must
+ * resolve to the same person (never mint a second one), while the batch's other, genuinely new names
+ * still each mint, independent of the established one and of each other.
+ */
+test('a batch mixing one already-established name with two new ones resolves the established one and mints the other two', async t => {
+	const game = await table(t);
+	const OLD_MAN = '柜台前的老男人', YOUNG_MAN = '穿工装的年轻人', WOMAN = '饭馆柜台后面的女人';
+	await game.apply([{kind: 'npc', name: OLD_MAN, to: 'here', why: 'established on an earlier turn'}]);
+	assert.equal((await game.world()).table_people.length, 1, 'the fixture starts from exactly one established person');
+
+	const result = await game.apply([
+		{kind: 'npc', name: OLD_MAN, stance: 'wary', why: 'the same man, named again in this batch'},
+		{kind: 'npc', name: YOUNG_MAN, to: 'here', why: 'a second, new name in the same batch'},
+		{kind: 'npc', name: WOMAN, to: 'here', why: 'a third, new name in the same batch'}]);
+	assert.equal(result.not_landed, undefined, `nothing in this batch should refuse: ${JSON.stringify(result.not_landed)}`);
+
+	const world = await game.world();
+	assert.deepEqual((world.table_people ?? []).map(person => person.name).sort(), [OLD_MAN, YOUNG_MAN, WOMAN].sort(),
+		'the already-established name resolves to the one person it already has; the batch\'s other two new names each mint their own');
+});
+
+/**
+ * The b11 replay named in the ticket: the exact three `npc` effects of the t17 batch, verbatim and in
+ * the table's own order, land whole, on the fixture campaign in this suite.
+ */
+test('the b11 t17 batch replay lands whole', async t => {
+	const game = await table(t);
+	const OLD_MAN = '柜台前的老男人', YOUNG_MAN = '穿工装的年轻人', WOMAN = '饭馆柜台后面的女人';
+	const result = await game.apply([
+		{kind: 'npc', name: OLD_MAN, to: 'here', why: '他比调查员到得早，正坐在柜台前就着咖啡跟屋里的人说话'},
+		{kind: 'npc', name: YOUNG_MAN, to: 'here', why: '他在靠里的桌边吃午饭，跟柜台前的老人有一搭没一搭地说话'},
+		{kind: 'npc', name: WOMAN, to: 'here', why: '她是这家小饭馆的老板，正在柜台后面收拾锅灶'}]);
+	assert.equal(result.not_landed, undefined, `the b11 t17 batch should land whole, exactly as SL-70 rules: ${JSON.stringify(result.not_landed)}`);
+	assert.equal((result.receipts ?? []).length, 3, 'all three npc receipts are in the one call\'s receipts');
+
+	const world = await game.world();
+	assert.deepEqual((world.table_people ?? []).map(person => person.name).sort(), [OLD_MAN, YOUNG_MAN, WOMAN].sort());
+});
+
 test('a pin on an unknown name is still refused, with its candidates', async t => {
 	const game = await table(t);
 	// An archetype and a skill put numbers on a person. Establishing the person and pinning their

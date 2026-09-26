@@ -18,7 +18,8 @@ export async function piHybridMain(args: string[], env: NodeJS.ProcessEnv = proc
   const { main } = await import(pathToFileURL(join(root, PI_ENTRIES.piModule)).href);
   setupCli();
   const engine = createHybridEngine({ env });
-  await main(args, { extensionFactories: [{ name: 'coc-hybrid-engine', factory: engine.extension }], runDriver: engine.runDriver });
+  await main(args, { extensionFactories: [{ name: 'coc-hybrid-engine', factory: engine.extension }], runDriver: engine.runDriver,
+    keeperCallCapMs: engine.keeperCallCapMs, onKeeperCallCap: engine.onKeeperCallCap });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -1237,6 +1237,21 @@
       ]
     },
     {
+      "file": "extensions/onboarding/index.ts",
+      "symbol": "checkNameBoundaryFor",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "onboarding ext: setup name boundary check (98 addendum 8, SL-68)",
+      "path": "app-setup",
+      "role": "leaf",
+      "trace": "not observed yet (unit tests only, injected fake checker; see the SL-68 ticket's Comments)",
+      "note": "Gate: a Jev key and a profile.name range selection whose SL-66-trimmed boundary token survives (not punctuation/space). One bounded fan-out (maxRetries 0, PI_COC_NAME_BOUNDARY_TIMEOUT_MS) asked per boundary in question, before the ref is issued; a no-answer row drops that one unit, every other outcome keeps it (fail-safe). Never blocks setup on failure or a missing key.",
+      "lines_at_f305074c6": [
+        504
+      ]
+    },
+    {
       "file": "extensions/rerank/agent/vendors.js",
       "symbol": "rerankDocuments",
       "kind": "network",

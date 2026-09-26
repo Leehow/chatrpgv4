@@ -1,4 +1,5 @@
-/** Exact setup source protocol and kernel conformance. No model calls or gameplay acceptance. */
+/** Exact setup source protocol and kernel conformance. No model calls or gameplay acceptance, except the
+ * injected fake boundary checkers the SL-68 tests pass directly -- never a real Jev call. */
 import assert from 'node:assert/strict';
 import {before,after,test} from 'node:test';
 import {mkdir,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
@@ -13,83 +14,128 @@ before(async()=>{await mkdir(join(root,'.tmp'),{recursive:true});bundle=await mk
 });
 after(async()=>{if(bundle)await rm(bundle,{recursive:true,force:true});});
 const catalog=(epoch='epoch-1',generation=1,text='Alice')=>buildSetupInputCatalog({epoch,generation,branch:'branch-leaf',fields:[{occurrence:'message-1',field:0,text}]});
-const selected=(source,field,value,inputKey=source.snapshot.epoch)=>materializeSetupInputs(source,{campaign:'c1',inputKey,values:{[field]:value}});
+const selected=(source,field,value,inputKey=source.snapshot.epoch,checkBoundary)=>materializeSetupInputs(source,{campaign:'c1',inputKey,values:{[field]:value}},checkBoundary);
 const whole=source=>({source:source.public.sources[0].alias});
 
-test('only actual user text fields enter the catalog; equal occurrences remain independent',()=>{
+test('only actual user text fields enter the catalog; equal occurrences remain independent',async()=>{
     const fields=setupUserTextFields([{type:'message',id:'a',message:{role:'user',content:[{type:'text',text:'Same'},{type:'image',text:'not text',data:'private attachment'},{type:'text',text:'Same'}]}},
         {type:'message',id:'b',message:{role:'assistant',content:'Same'}},{type:'message',id:'c',message:{role:'toolResult',content:'Never source this'}},
         {type:'message',id:'d',message:{role:'user',content:'Same'}}],{occurrence:'pending-user',text:'Same'});
     assert.equal(fields.length,4);assert.deepEqual(fields.map(value=>value.field),[0,2,0,0]);
     const pinned=buildSetupInputCatalog({epoch:'epoch',generation:7,branch:'private-leaf',fields});
     assert.equal(new Set(pinned.public.sources.map(value=>value.alias)).size,4);
-    const first=selected(pinned,'profile.name',{source:pinned.public.sources[0].alias}),second=selected(pinned,'profile.name',{source:pinned.public.sources[1].alias});
+    const first=await selected(pinned,'profile.name',{source:pinned.public.sources[0].alias}),second=await selected(pinned,'profile.name',{source:pinned.public.sources[1].alias});
     assert.equal(first.values['profile.name'],second.values['profile.name']);assert.notEqual(first.envelope.bindings['profile.name'].ref.resource,second.envelope.bindings['profile.name'].ref.resource);
     assert.ok(!JSON.stringify(pinned.public).includes('private-leaf'));assert.ok(!JSON.stringify(pinned.public).includes('private attachment'));
 });
-test('whole fields and grapheme endpoint selections preserve CRLF, emoji and combining marks exactly',()=>{
-    const text='  E\u0301va \u674e 👩‍👩‍👧‍👦\r\n',source=catalog('epoch',1,text),all=selected(source,'profile.name',whole(source));
+test('whole fields and grapheme endpoint selections preserve CRLF, emoji and combining marks exactly',async()=>{
+    const text='  Éva 李 👩‍👩‍👧‍👦\r\n',source=catalog('epoch',1,text),all=await selected(source,'profile.name',whole(source));
     assert.equal(all.values['profile.name'],text);const units=source.public.sources[0].units;
-    assert.ok(units.some(unit=>unit.text==='E\u0301'));assert.ok(units.some(unit=>unit.text==='👩‍👩‍👧‍👦'));assert.ok(units.some(unit=>unit.text==='\r\n'));
-    const unit=units.find(value=>value.text==='E\u0301'),range={source:whole(source).source,range:{first:unit.alias,last:unit.alias}};
-    const exact=selected(source,'profile.name',range);assert.equal(exact.values['profile.name'],'E\u0301');
+    assert.ok(units.some(unit=>unit.text==='É'));assert.ok(units.some(unit=>unit.text==='👩‍👩‍👧‍👦'));assert.ok(units.some(unit=>unit.text==='\r\n'));
+    const unit=units.find(value=>value.text==='É'),range={source:whole(source).source,range:{first:unit.alias,last:unit.alias}};
+    const exact=await selected(source,'profile.name',range);assert.equal(exact.values['profile.name'],'É');
     assert.deepEqual(validateSetupInputs(exact.envelope,{campaign:'c1',inputKey:'epoch',values:exact.values}),exact.envelope);
     const split=structuredClone(exact.envelope);split.bindings['profile.name'].ref.selector.start++;
-    assert.throws(()=>validateSetupInputs(split,{campaign:'c1',inputKey:'epoch',values:{'profile.name':'\u0301'}}),/split_setup_input_grapheme/);
-    assert.throws(()=>selected(source,'profile.name',{source:whole(source).source,range:{first:units.at(-1).alias,last:units[0].alias}}));
-    assert.throws(()=>selected(source,'profile.name',{source:whole(source).source,range:{first:'input:other/u:0',last:unit.alias}}));
+    assert.throws(()=>validateSetupInputs(split,{campaign:'c1',inputKey:'epoch',values:{'profile.name':'́'}}),/split_setup_input_grapheme/);
+    await assert.rejects(selected(source,'profile.name',{source:whole(source).source,range:{first:units.at(-1).alias,last:units[0].alias}}));
+    await assert.rejects(selected(source,'profile.name',{source:whole(source).source,range:{first:'input:other/u:0',last:unit.alias}}));
 });
-test('§98 addendum 7 (SL-66) a selected name range stops at the word, never at the punctuation or space after/before it',()=>{
+test('§98 addendum 7 (SL-66) a selected name range stops at the word, never at the punctuation or space after/before it',async()=>{
     // The b10 setup turn-4 fixture: "...名字叫雷·卡特，现在就做卡吧。" -- the selected range's last grapheme was the
     // sentence's own trailing comma, one past the name's own last character.
     const sentence='别人常找我跟丢了的人的线索，追踪失踪人口是我的老本行。名字叫雷·卡特，现在就做卡吧。';
     const source=catalog('name-epoch',4,sentence),units=source.public.sources[0].units;
     const nameStart=units.findIndex(unit=>unit.text==='雷'),nameEnd=units[nameStart+3],comma=units[nameStart+4];
     assert.deepEqual([nameEnd.text,comma.text],['特','，'],'the fixture: the grapheme right after the name is the trailing comma');
-    const trimmed=selected(source,'profile.name',{source:whole(source).source,range:{first:units[nameStart].alias,last:comma.alias}});
+    const trimmed=await selected(source,'profile.name',{source:whole(source).source,range:{first:units[nameStart].alias,last:comma.alias}});
     assert.equal(trimmed.values['profile.name'],'雷·卡特','the trailing comma never enters the stamped name');
     assert.deepEqual(validateSetupInputs(trimmed.envelope,{campaign:'c1',inputKey:'name-epoch',values:trimmed.values}),trimmed.envelope,'the recorded ref is the trimmed range: re-validation agrees without re-trimming');
     // A range ending on a letter (no trailing punctuation to trim) is unchanged.
-    const clean=selected(source,'profile.name',{source:whole(source).source,range:{first:units[nameStart].alias,last:nameEnd.alias}});
+    const clean=await selected(source,'profile.name',{source:whole(source).source,range:{first:units[nameStart].alias,last:nameEnd.alias}});
     assert.equal(clean.values['profile.name'],'雷·卡特');
     assert.deepEqual(clean.envelope.bindings['profile.name'].ref.selector,trimmed.envelope.bindings['profile.name'].ref.selector,'a clean range and a trimmed one land on the identical ref');
     // Leading punctuation and space are trimmed too, not only trailing.
     const leading=catalog('leading-epoch',1,'  ，雷·卡特，'),leadUnits=leading.public.sources[0].units;
-    const leadTrimmed=selected(leading,'profile.name',{source:whole(leading).source,range:{first:leadUnits[0].alias,last:leadUnits.at(-1).alias}});
+    const leadTrimmed=await selected(leading,'profile.name',{source:whole(leading).source,range:{first:leadUnits[0].alias,last:leadUnits.at(-1).alias}});
     assert.equal(leadTrimmed.values['profile.name'],'雷·卡特');
     // A range that is wholly punctuation/space has no word to bound to: it is left exactly as selected, not emptied.
     const blank=catalog('blank-epoch',1,'，， ，'),blankUnits=blank.public.sources[0].units;
-    const blankResult=selected(blank,'profile.name',{source:whole(blank).source,range:{first:blankUnits[0].alias,last:blankUnits.at(-1).alias}});
+    const blankResult=await selected(blank,'profile.name',{source:whole(blank).source,range:{first:blankUnits[0].alias,last:blankUnits.at(-1).alias}});
     assert.equal(blankResult.values['profile.name'],'，， ，');
     // A whole-field selection (no range) and every `pending_action` selection keep T14's exact-bytes contract unamended.
-    const untouched=selected(catalog('untouched-epoch',1,sentence),'profile.name',whole(catalog('untouched-epoch',1,sentence)));
+    const untouched=await selected(catalog('untouched-epoch',1,sentence),'profile.name',whole(catalog('untouched-epoch',1,sentence)));
     assert.equal(untouched.values['profile.name'],sentence,'a whole-field profile.name selection is never trimmed');
     const actionSource=catalog('action-epoch',1,'，Open the door，'),actionUnits=actionSource.public.sources[0].units;
-    const action=selected(actionSource,'pending_action',{source:whole(actionSource).source,range:{first:actionUnits[0].alias,last:actionUnits.at(-1).alias}});
+    const action=await selected(actionSource,'pending_action',{source:whole(actionSource).source,range:{first:actionUnits[0].alias,last:actionUnits.at(-1).alias}});
     assert.equal(action.values['pending_action'],'，Open the door，','pending_action ranges are never trimmed, only profile.name');
 });
-test('generated authority is name-only, stale epochs and copied strings never become references',()=>{
-    const source=catalog(),generated=selected(source,'profile.name',{generated:'Proposed Name'});
+/**
+ * §98 addendum 8 (SL-68). Addendum 7's punctuation/space trim cannot remove a boundary token that is itself a
+ * word -- the b11 setup turn-4 fixture selected `叫雷·卡特` out of "...名字叫雷·卡特，...", and the leading `叫`
+ * ("called") survives the punctuation-class test. `selected()` now asks an injected `checkBoundary` (never a
+ * real Jev call here: these are fake, synchronous-result functions, exactly as `person-resolution-domain`'s own
+ * tests inject a fake decision port rather than calling Jev) about a surviving boundary token before it stands as
+ * part of the name.
+ */
+test('§98 addendum 8 (SL-68) a boundary token the punctuation trim keeps is checked before it stands as part of the name',async()=>{
+    const sentence='别人常找我跟丢了的人的线索，追踪失踪人口是我的老本行。名字叫雷·卡特，现在就做卡吧。';
+    const source=catalog('boundary-epoch',5,sentence),units=source.public.sources[0].units;
+    const verb=units.findIndex(unit=>unit.text==='叫'),nameStart=verb+1,nameEnd=units[nameStart+3];
+    assert.equal(units[verb].text,'叫');assert.equal(nameEnd.text,'特');
+    const withVerb={source:whole(source).source,range:{first:units[verb].alias,last:nameEnd.alias}};
+
+    const drop=async(input)=>{assert.equal(input.leading,'叫');assert.equal(input.name,'叫雷·卡特');return {leading:false,trailing:true};};
+    const trimmed=await selected(source,'profile.name',withVerb,undefined,drop);
+    assert.equal(trimmed.values['profile.name'],'雷·卡特','a boundary check answering that the leading token is not part of the name drops it');
+
+    const keep=async()=>({leading:true,trailing:true});
+    const kept=await selected(source,'profile.name',withVerb,undefined,keep);
+    assert.equal(kept.values['profile.name'],'叫雷·卡特','a boundary check answering yes keeps the token exactly as selected');
+
+    const omitted=await selected(source,'profile.name',withVerb);
+    assert.equal(omitted.values['profile.name'],'叫雷·卡特','omitting the checker keeps addendum 7\'s own trim only -- the fail-safe default');
+
+    const throwing=async()=>{throw new Error('unreachable Jev')};
+    const failed=await selected(source,'profile.name',withVerb,undefined,throwing);
+    assert.equal(failed.values['profile.name'],'叫雷·卡特','a throwing checker is the same fail-safe "keep" default as any other failure');
+
+    // A range one unit wide has nothing left to shrink without emptying it, so no boundary is asked about at all.
+    const single=catalog('single-epoch',1,'陈'),singleUnits=single.public.sources[0].units;
+    const neverCalled=async()=>{throw new Error('should not be asked about a one-unit range')};
+    const soleUnit=await selected(single,'profile.name',{source:whole(single).source,range:{first:singleUnits[0].alias,last:singleUnits[0].alias}},undefined,neverCalled);
+    assert.equal(soleUnit.values['profile.name'],'陈');
+
+    // pending_action is never checked, even when a checker is supplied and would otherwise fire.
+    const actionSource=catalog('boundary-action-epoch',1,'叫Open the door'),actionUnits=actionSource.public.sources[0].units;
+    const action=await selected(actionSource,'pending_action',{source:whole(actionSource).source,range:{first:actionUnits[0].alias,last:actionUnits.at(-1).alias}},undefined,neverCalled);
+    assert.equal(action.values['pending_action'],'叫Open the door','pending_action selections are never boundary-checked, only profile.name ranges');
+
+    // A whole-field profile.name selection is never boundary-checked either (T14's byte-exact contract).
+    const wholeField=await selected(source,'profile.name',whole(source),undefined,neverCalled);
+    assert.equal(wholeField.values['profile.name'],sentence);
+});
+test('generated authority is name-only, stale epochs and copied strings never become references',async()=>{
+    const source=catalog(),generated=await selected(source,'profile.name',{generated:'Proposed Name'});
     assert.deepEqual(generated.envelope.bindings['profile.name'],{authority:'generated'});
-    assert.throws(()=>selected(source,'pending_action',{generated:'Invented action'}));
-    assert.throws(()=>selected(source,'profile.name','Alice'));assert.throws(()=>selected(source,'pending_action','Alice'));
-    assert.throws(()=>selected(source,'profile.name',{generated:'Alice',...whole(source)}));
-    assert.throws(()=>selected(source,'profile.name',whole(source),'new-epoch'));
-    assert.throws(()=>selected(catalog('new-epoch',2),'profile.name',whole(source)));
-    const valid=selected(source,'pending_action',whole(source));
+    await assert.rejects(selected(source,'pending_action',{generated:'Invented action'}));
+    await assert.rejects(selected(source,'profile.name','Alice'));await assert.rejects(selected(source,'pending_action','Alice'));
+    await assert.rejects(selected(source,'profile.name',{generated:'Alice',...whole(source)}));
+    await assert.rejects(selected(source,'profile.name',whole(source),'new-epoch'));
+    await assert.rejects(selected(catalog('new-epoch',2),'profile.name',whole(source)));
+    const valid=await selected(source,'pending_action',whole(source));
     assert.throws(()=>validateSetupInputs(valid.envelope,{campaign:'foreign',inputKey:'epoch-1',values:valid.values}));
     assert.throws(()=>validateSetupInputs(valid.envelope,{campaign:'c1',inputKey:'new-epoch',values:valid.values}));
     assert.throws(()=>validateSetupInputs(valid.envelope,{campaign:'c1',inputKey:'epoch-1',values:{pending_action:'Changed'}}));
     const tampered=structuredClone(valid.envelope);tampered.snapshot.fields[0].text='Changed';assert.throws(()=>validateSetupInputs(tampered,{campaign:'c1',inputKey:'epoch-1',values:valid.values}));
 });
-test('bounded coverage is explicit and omitted or unavailable history is never invented',()=>{
+test('bounded coverage is explicit and omitted or unavailable history is never invented',async()=>{
     const bounded=buildSetupInputCatalog({epoch:'e',generation:3,branch:'leaf',fields:[{occurrence:'old',field:0,text:'x'.repeat(SETUP_INPUT_LIMITS.text+1)},{occurrence:'current',field:0,text:'Available'}]});
     assert.deepEqual(bounded.public.coverage,{complete:false,omitted:1,unavailable:false});assert.equal(bounded.public.sources.length,1);
-    assert.throws(()=>selected(bounded,'profile.name',{source:'input:3:0'}));
+    await assert.rejects(selected(bounded,'profile.name',{source:'input:3:0'}));
     const unavailable=buildSetupInputCatalog({epoch:'e',generation:4,branch:'restart',fields:[],unavailable:true});
     assert.equal(unavailable.public.coverage.complete,false);assert.deepEqual(unavailable.public.sources,[]);
-    assert.throws(()=>selected(unavailable,'profile.name',{source:'input:1:0'}));
-    assert.deepEqual(materializeSetupInputs(unavailable,{campaign:'c1',inputKey:'e',values:{}}).values,{});
+    await assert.rejects(selected(unavailable,'profile.name',{source:'input:1:0'}));
+    assert.deepEqual((await materializeSetupInputs(unavailable,{campaign:'c1',inputKey:'e',values:{}})).values,{});
 });
 function profile(name){return {name,occupation:'Journalist',age:29,sex:'female',concept:'A cautious local reporter.',own_language:'English',
     occupation_skills:['Art and Craft (Photography)','History','Language (Own)','Library Use','Psychology','Persuade','Spot Hidden','Listen'],interest_skills:['Accounting','Law','First Aid','Drive Auto'],
@@ -101,19 +147,19 @@ async function kernelFixture(t){const base=join(root,'.coc/playtests/jev-setup-i
     t.after(()=>runtime.close());const call=(method,params={})=>runtime.handlers[method]({campaign:'c1',...params});await call('campaign.create',{id:'c1',module:'the-haunting',play_language:'en'});
     return {home,call,path:join(home,'.coc/campaigns/c1')};}
 test('kernel validates before writes and preserves exact names through draft, revision, receipt and handoff',async(t)=>{
-    const f=await kernelFixture(t),text='  E\u0301va \u674e 👩‍👩‍👧‍👦\r\n',source=catalog('create-epoch',1,text),bound=selected(source,'profile.name',whole(source));
+    const f=await kernelFixture(t),text='  Éva 李 👩‍👩‍👧‍👦\r\n',source=catalog('create-epoch',1,text),bound=await selected(source,'profile.name',whole(source));
     const before=await readFile(join(f.path,'campaign.json'),'utf8');
     await assert.rejects(f.call('setup.draft',{profile:profile('Wrong'),input_key:'create-epoch',setup_input:bound.envelope}),error=>error.code==='invalid_params');
     assert.equal(await readFile(join(f.path,'campaign.json'),'utf8'),before);
     const draft=await f.call('setup.draft',{profile:profile(bound.values['profile.name']),input_key:'create-epoch',setup_input:bound.envelope});
     assert.equal(draft.profile.name,text);assert.equal(draft.sheet.name,text);assert.equal(draft.name_source,undefined);
     const saved=JSON.parse(await readFile(join(f.path,'setup/drafts/1.json'),'utf8'));assert.equal(saved.receipt.name,text);assert.equal(saved.name_source.binding.authority,'player_input');
-    await assert.rejects(f.call('setup.confirm',{consent:'approved',input_key:'create-epoch',setup_input:materializeSetupInputs(source,{campaign:'c1',inputKey:'create-epoch',values:{}}).envelope}),error=>error.codeDetail==='confirmation_required');
-    const resumed=buildSetupInputCatalog({epoch:'revision-epoch',generation:2,branch:'restart',fields:[],unavailable:true}),empty=materializeSetupInputs(resumed,{campaign:'c1',inputKey:'revision-epoch',values:{}});
+    await assert.rejects(f.call('setup.confirm',{consent:'approved',input_key:'create-epoch',setup_input:(await materializeSetupInputs(source,{campaign:'c1',inputKey:'create-epoch',values:{}})).envelope}),error=>error.codeDetail==='confirmation_required');
+    const resumed=buildSetupInputCatalog({epoch:'revision-epoch',generation:2,branch:'restart',fields:[],unavailable:true}),empty=await materializeSetupInputs(resumed,{campaign:'c1',inputKey:'revision-epoch',values:{}});
     const revised=await f.call('setup.revise',{revision:draft.revision,profile:{age:30},input_key:'revision-epoch',setup_input:empty.envelope});assert.equal(revised.sheet.name,text);
     const stored=JSON.parse(await readFile(join(f.path,`setup/drafts/${revised.revision}.json`),'utf8'));assert.deepEqual(stored.name_source,saved.name_source);
     await f.call('setup.prologue',{scene:"Knott's Office",guide:'Steven Knott',text:'The meeting begins.',handoff:'Continue after introductions.'});
-    const action='Inspect the 🔒 door.\r\n',confirmSource=catalog('confirm-epoch',3,action),pending=selected(confirmSource,'pending_action',whole(confirmSource));
+    const action='Inspect the 🔒 door.\r\n',confirmSource=catalog('confirm-epoch',3,action),pending=await selected(confirmSource,'pending_action',whole(confirmSource));
     await assert.rejects(f.call('setup.confirm',{consent:'approved',input_key:'confirm-epoch',pending_action:action,setup_input:bound.envelope}),error=>error.code==='invalid_params');
     await f.call('setup.confirm',{consent:'approved',input_key:'confirm-epoch',pending_action:pending.values.pending_action,setup_input:pending.envelope});
     const meta=JSON.parse(await readFile(join(f.path,'campaign.json'),'utf8'));assert.equal(meta.setup.receipts.at(-1).name,text);assert.equal(meta.setup.prologue.pending_action,action);assert.equal(meta.setup.pending_action_source.binding.authority,'player_input');
