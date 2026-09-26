@@ -202,9 +202,9 @@ test("one deadline covers the retry: the second attempt gets only what is left o
 	assert.equal((await onlyRow(table)).reason, "timeout");
 });
 
-test("the deadline is npc_act.timeout_ms in host-budgets.json, read from the file, with the shipped default 8000", async (t) => {
+test("the deadline is npc_act.timeout_ms in host-budgets.json, read from the file, with the shipped value 12000 (the probe of ticket 07 measured p90 at the old 8000 cap)", async (t) => {
 	// §139.4 / §139.5 (ticket 03/04) grew the section by two named defaults beside the deadline.
-	assert.deepEqual(await npcActBudget(), { timeoutMs: 8000, maxPerTurn: 2, sameActRows: 5 }, "the shipped file");
+	assert.deepEqual(await npcActBudget(), { timeoutMs: 12000, maxPerTurn: 2, sameActRows: 5 }, "the shipped file");
 	assert.equal(NPC_ACT_FALLBACK.timeoutMs, 8000);
 	const content = await mkdtemp(join(tmpdir(), "npc-act-content-"));
 	t.after(() => rm(content, { recursive: true, force: true }));

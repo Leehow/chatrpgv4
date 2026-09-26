@@ -23606,7 +23606,9 @@ whether an act repeats one already made is §139.4.
 - **One retry, one deadline.** An answer of the wrong shape is asked for once more, the input carrying one English line
   that says why it was refused; a second wrong answer is `bad_output`. No other failure is retried. One deadline covers
   the whole generation, retry included: `npc_act.timeout_ms` in `content/rulesets/coc7/host-budgets.json` (named default
-  8000, `npcActBudget()` in `runtime/jev/host-budgets.ts`); the retry runs on what is left. The deadline is read off the
+  12000 since 2026-09-26 -- ticket 07's replay probe measured p50 4.8 s, p80 6.0 s and p90 at the original 8000 cap, 4 of 27
+  attempts timing out; the code fallback `NPC_ACT_FALLBACK` stays 8000; `npcActBudget()` in `runtime/jev/host-budgets.ts`);
+  the retry runs on what is left. The deadline is read off the
   call's own clock, so a round the lane's own budget lease cut at the same moment is `timeout`, not `model_error`.
 - **Reasons (closed).** `model_unavailable` (no model resolves, or no session context), `model_error` (the provider
   failed; not retried), `bad_output`, `timeout`, `cancelled` (the caller's signal ended it), `lane_error` (the host could
