@@ -23,6 +23,7 @@ import { array, row, number, string, truth, chars, clone, normalize, type Row } 
 import type { ModuleGraph } from "./module-graph.js";
 import {openResponseRows,responseHint} from '../npc/responses.js';
 import {openIntents} from '../npc/intents.js';
+import {allReceipts, coercionPressures} from '../resolve/coercion.js';
 /**
  * §135.11.1 (SL-50 re-ruling, 2026-09-25): writes are silent. Prose beside a write or read call is dropped before anyone
  * sees it (long gates #3-#5: 46 drops, the Keeper announcing its bookkeeping), and the run then asks for the turn again.
@@ -415,7 +416,9 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         // The body that cannot act goes first: `fitBudget(..., "last")` trims this section from the
         // end, and a Keeper who loses the threat clock still has a table, while a Keeper who loses
         // this one has the thirty hours of §89 back.
-        pressures: [...incapacitationClocks(party, id => campaign.healing(id), number(row(world.clock).minutes)), ...clocks, ...threatPressures(graph, world, scene, present)],
+        pressures: [...incapacitationClocks(party, id => campaign.healing(id), number(row(world.clock).minutes)), ...clocks, ...threatPressures(graph, world, scene, present),
+            // §138.13: an investigator pressed by a person present, with the penalty die their refusal would owe.
+            ...coercionPressures(graph, allReceipts(campaign.records, turn), party)],
         obligations,
         director,
         situations,

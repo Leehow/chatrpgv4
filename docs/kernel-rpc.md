@@ -23408,3 +23408,18 @@ cursor"). The result's `action` is `first_blow` with `first_blow: {attacker, tar
 not an investigator is refused `needs`; a manoeuvre still needs a running fight. `surprise` is read beside `defense`
 as a fact about the action, not a compiled slot. The engine's surprise attack now honours declared bonus and penalty
 dice (it read none before; it had no caller).
+
+**138.13 Pressing an investigator (CoC 7e, "When Used on Player Characters").** When Charm, Fast Talk, Intimidate or
+Persuade is used successfully on an investigator, by an NPC or another investigator, the player is not compelled to
+follow the other party's wishes; if the player refuses, the coercer can inflict one penalty die on one dice roll (of
+the coercer's choice) that investigator makes. An NPC's `resolve {actor: <npc>, intent: "social", skill: <one of the
+four>, target: <investigator>}` already settled as the NPC's own ordinary check (§11.5.9) -- with no difficulty from
+the rule and no consequence, so a pressed investigator was only prose. Now (`kernel-ts/resolve/coercion.ts`):
+- the difficulty is the rule's: the investigator's matching social skill or Psychology, whichever is higher, through
+  the same thresholds as the investigators' own social skills (`socialDifficulty`: under 50 regular, under 90 hard,
+  else extreme), with the opposing value as the modifier reason;
+- the roll receipt carries `coercion: {npc, investigator, skill, difficulty, pressed, rule}` (also on the result);
+- a pressed coercion not yet spent is a `pressures[]` row (`kind: "coercion"`, `name`, `receipt`, `cue`);
+- a later roll of that same investigator with `action.coercion: <receipt id>` takes one more penalty die (capped at
+  two) and its roll receipt carries `coercion_spent`; spent once; another actor's roll, an unknown or spent id is
+  refused `invalid_params` (`reason: "coercion_unavailable"`, `details.options`). Nothing decides what the player does.

@@ -31,6 +31,7 @@ import { bindRule, continuedRule, settleRule, type RuleClaim } from './rule.js';
 import { statedEndingReward } from '../read/stated.js';
 import { latestCheckReceipt as latestCheck } from './context.js';
 import { planRollIntent } from '../apply/intent.js';
+import { coercionDifficulty, coercionShape, coercionStamp, spendCoercion } from './coercion.js';
 export { CheckArithmetic, rollExpression, resourceDelta } from './arithmetic.js';
 export { SettleContext, continuableCheck, latestCheckReceipt, recordSkillTicks, skillTickEligible } from './context.js';
 export type { ResolveWriter, SettlementExecutor, ExecutionResult } from './context.js';
@@ -370,6 +371,20 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                 claim = continuedClaim(graph, claim, sourceReceipt);
                 ruleClaim = continuedRule(graph, ruleClaim, sourceReceipt);
             }
+            // Contract §138.13: a person present presses an investigator with a social skill -- the opposing skill sets the
+            // difficulty -- or a coerced investigator's roll carries the penalty die their refusal owed.
+            const pressure = coercionShape(snapshot.party, graph, actor.actingId, string(actor.actor.id), action);
+            let pressureDifficulty = 'regular', spent: Row | null = null;
+            if (pressure) {
+                const set = await coercionDifficulty((sheet, skill) => context.skillValue(sheet, skill), pressure);
+                pressureDifficulty = rollModifiers[2] = set.difficulty;
+                rollModifiers[3] ??= set.basis;
+            }
+            if (action.coercion != null) {
+                spent = spendCoercion(context.allReceipts(), action.coercion, string(actor.actor.id), actor.actingId);
+                rollModifiers[1] = Math.min(2, rollModifiers[1] + 1);
+                rollModifiers[3] ??= `the penalty die a refused coercion owed (${string(spent.id)})`;
+            }
             const pipeline = new ResolvePipeline(context, resolver, rollModifiers, actor.npcInSession, contributions);
             if (fold?.kind === 'fold')
                 pipeline.fold = { skill: fold.skill, modifiers: modifiers(fold.modifiers, arithmetic, action.intent), declared: fold.modifiers };
@@ -404,6 +419,11 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                 }
             }
             stampIntent?.(context.receipts);
+            if (pressure || spent) {
+                const roll = [...context.receipts].reverse().find(value => value.kind === 'roll' && value.form !== 'dice' && typeof value.passed === 'boolean');
+                if (roll && pressure) result.coercion = roll.coercion = coercionStamp(pressure, pressureDifficulty, roll.passed === true);
+                if (roll && spent) roll.coercion_spent = string(spent.id);
+            }
             await transaction.commitResolve({
                 callId: start.callId,
                 params,
