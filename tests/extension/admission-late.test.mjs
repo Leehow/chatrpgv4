@@ -18,6 +18,7 @@ import { createServer } from "node:net";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, waitFor } from "./harness.mjs";
+import { manualClock, runWaitsPastRound } from "./manual-clock.mjs";
 import {
 	ADMISSION_LATE_DEFAULT_MIN_CONFIDENCE,
 	DEFAULT_ADMISSION_TIMEOUT_MS,
@@ -101,40 +102,6 @@ function tricklingProvider(t) {
 function registerTrickle(table, port) {
 	table.session.modelRuntime.registerProvider("trickle", { baseUrl: `http://127.0.0.1:${port}/v1`, api: "openai-completions", apiKey: "unused",
 		models: [{ id: "trickle-1", name: "trickle", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 4096 }] });
-}
-/**
- * SL-87: a manual clock (the `TaskClock` shape: `now` and `schedule`) for a test whose subject is the review's wall-clock
- * budget. Time moves only when the test moves it; a timer scheduled on it fires when an advance reaches it. `reads()` counts
- * the readings taken, so the test can see that a waiter has taken its start.
- */
-function manualClock(start = 1_000_000) {
-	let t = start, reads = 0;
-	const timers = new Set();
-	const clock = {
-		now: () => { reads++; return t; },
-		schedule(callback, delayMs) {
-			const timer = { at: t + Math.max(0, delayMs), callback };
-			timers.add(timer);
-			return () => { timers.delete(timer); };
-		},
-		reads: () => reads,
-		/** When each timer still scheduled is due, in order. */
-		due: () => [...timers].map((timer) => timer.at).sort((a, b) => a - b),
-		advanceTo(target) {
-			for (;;) {
-				let next;
-				for (const timer of timers) if (timer.at <= target && (!next || timer.at < next.at)) next = timer;
-				if (!next) break;
-				timers.delete(next);
-				t = Math.max(t, next.at);
-				next.callback();
-			}
-			t = Math.max(t, target);
-		},
-		/** Resolves when the clock reaches `at`. */
-		until: (at) => new Promise((resolve) => { clock.schedule(resolve, at - t); }),
-	};
-	return clock;
 }
 async function promptWithin(table, text, limitMs) {
 	const prompt = table.session.prompt(text);
@@ -302,7 +269,7 @@ test("§32.12.2: the Keeper's resend collects the lane that answered after the c
 	// (`coc:test-admission-clock`, the kernel extension's test-only seam) and nothing sleeps. On a loaded box the real 1 s /
 	// 1.6 s version left the verdict 400 ms to land inside its round, and it did not (`review_timeout`).
 	const CAP_MS = 1000, VERDICT_MS = 1600, HARD_CAP_MS = admissionHardCapMs(CAP_MS);
-	const clock = manualClock(), T0 = clock.now();
+	const clock = manualClock(), T0 = clock.at();
 	let laneAsked = false, resendAt;
 	// The lane's verdict is due 1.6 s after the round began, on the clock.
 	const verdictOnClock = (row) => async () => { laneAsked = true; await clock.until(T0 + VERDICT_MS); return verdict(row); };
@@ -324,14 +291,8 @@ test("§32.12.2: the Keeper's resend collects the lane that answered after the c
 	// Keeper's resend and the resend taking its start, right before it waits on the round.
 	await waitFor(() => resendAt !== undefined && clock.reads() > resendAt, { timeoutMs: 60_000, label: "the resend waiting on the round" });
 	clock.advanceTo(T0 + VERDICT_MS);
-	// The rest of the run. A timer due past the round's end can only be a resend waiting longer than the round: once the
-	// round has settled (nothing of it is still scheduled), run it, so such a wait shows in `resend_wait_ms` instead of
-	// hanging the test. The round's own timers are never forced.
-	for (const deadline = Date.now() + 60_000; !ended && Date.now() < deadline;) {
-		const due = clock.due(), next = due.find((at) => at > T0 + HARD_CAP_MS);
-		if (next !== undefined && !due.some((at) => at <= T0 + HARD_CAP_MS)) clock.advanceTo(next);
-		await sleep(10);
-	}
+	// The rest of the run; a resend that waited longer than the round would show in `resend_wait_ms`.
+	await runWaitsPastRound(clock, T0 + HARD_CAP_MS, () => ended);
 	assert.ok(ended, "the run ended");
 	await prompt;
 	const rows = admissionRows(table);
@@ -344,6 +305,30 @@ test("§32.12.2: the Keeper's resend collects the lane that answered after the c
 	assert.equal(rows[1].grounds, "the player asked her for the clippings");
 	assert.equal(kernelCalls(table, "table.resolve").length, 1, "the resend landed");
 	assert.ok(!table.telemetry().some((entry) => entry.lane === "admission-late"), "a collected round leaves no late row");
+});
+
+test("§32.12.2 (SL-87): a cap timer that fires early is re-armed -- the call is returned pending at its cap on the review's clock, never before", async (t) => {
+	// Node's timers can fire early against the clock that measures the review (they run on the event loop's cached time,
+	// which lags `Date.now()` on a loaded machine: SL-87 saw a call returned pending at 999 ms of a 1000 ms cap). This clock
+	// fires every timer 1 ms early. The cap's timer fires at 999 ms; the review re-arms for the last 1 ms.
+	const CAP_MS = 1000;
+	const clock = manualClock({ early: 1 }), T0 = clock.at();
+	const table = await openTable({ env: { PI_COC_ADMISSION_TIMEOUT_MS: String(CAP_MS) }, responses: [call("resolve", persuade), ...close],
+		laneResponses: { admission: [async () => { await clock.until(T0 + 10 * CAP_MS); return verdict({ verdict: "authorized", grounds: "too late" }); }] } });
+	t.after(() => table.dispose());
+	table.emit("coc:test-admission-clock", clock);
+	let ended = false;
+	const prompt = table.session.prompt("我说明来意，请她帮忙调出科比特宅这些年的旧剪报。").finally(() => { ended = true; });
+	await waitFor(() => clock.due().includes(T0 + CAP_MS - 1), { timeoutMs: 60_000, label: "the review's cap, armed" });
+	clock.advanceTo(T0 + CAP_MS - 1);
+	assert.ok(clock.due().includes(T0 + CAP_MS), `fired 1 ms early, the cap is re-armed for the rest (${clock.due().map((due) => due - T0)})`);
+	clock.advanceTo(T0 + CAP_MS);
+	const pending = await waitFor(() => admissionRows(table).find((row) => row.verdict === REVIEW_PENDING), { timeoutMs: 60_000, label: "the pending row" });
+	assert.equal(pending.ms, CAP_MS, "returned pending at the cap, not before it");
+	assert.equal(pending.cap_ms, CAP_MS);
+	await waitFor(() => ended, { timeoutMs: 60_000, label: "the run's end" });
+	await prompt;
+	assert.equal(kernelCalls(table, "table.resolve").length, 0, "nothing settled");
 });
 
 // ---- telemetry --------------------------------------------------------------------------------------------------------------

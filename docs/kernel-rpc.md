@@ -8765,7 +8765,10 @@ slow every time: turns 6 and 7 (a move beside two or three `person` lines), 9.9�
 pre-registered rule; it is not below §32.12's 12 s). About one review in eleven passes it (11 of 123). It is the longest
 one call waits for its review, measured from the review's start. The lane round's own deadline is the **hard cap**, twice
 the cap (26 s by default): past the cap the lane keeps running, so the Keeper's resend can collect it. 3 of the 123 rounds
-passed 26 s. The variable still overrides the cap, and the hard cap follows it.
+passed 26 s. The variable still overrides the cap, and the hard cap follows it. *(SL-87, 2026-09-26: the cap is checked
+against the clock that measures the review when its timer fires. Node's timers run on the event loop's cached time, which
+lags `Date.now()` on a loaded machine, and a loaded box once returned a call pending at 999 ms of a 1 000 ms cap. A timer
+that fires before the cap has passed is re-armed for what is left, so no call is returned at the cap before its cap.)*
 
 **Concurrent reviewers; the first sufficient verdict wins.** For every call §32.1 puts to review, after §32.4's reuse and
 §32.12's compile admission, `reviewAdmissionPrimary` starts the §32.2 lane and the §32.10 typed family at the same moment.
@@ -8880,7 +8883,9 @@ suites updated for concurrency):
   start, cap, hard cap, every `ms`, the typed attempt's deadline), `runLane` takes it for its deadline, `ms` and
   `firstByteMs`, and the kernel extension times the resend's wait (`resend_wait_ms`, `concurrent_wait_ms`) on it. A test
   hands the extension its clock on the test-only bus event `coc:test-admission-clock`; nothing in the product emits it,
-  and without it each of these is the host's `Date.now()` and `setTimeout`, exactly as before;
+  and without it each of these is the host's `Date.now()` and `setTimeout`, exactly as before. The typed attempt's
+  decision adapter reads the same clock for what is left of its lease. A cap timer firing 1 ms early on that clock is
+  re-armed, not settled;
 - a resend past the hard cap is `review_timeout`, and a third identical call is refused from the turn's verdict;
 - the `admission-late` row.
 Mutations are in the SL-24 ticket.
@@ -9007,7 +9012,9 @@ mismatched lines, the remainder's typed reading); turn 14's shape (the threat le
 call), on the fake kernel and on the emitted kernel with its receipts; nothing cleared at 0.86 (the whole batch reviewed);
 the remainder reviewed alone with the cleared line shown as admitted in this call and no second typed call; a remainder the
 lane refuses (the cleared line alone lands, the `admission` block and note); a remainder past the cap returned pending
-alone and collected by its own resend; a whole-batch resend applying only what did not land; §78 for a delivery behind a
+alone and collected by its own resend (SL-87: on §32.12.2's manual clock -- the typed answer at 600 ms, the batch's cap at
+1 000, the rest's verdict at 1 700, its round's end at 2 000 -- asserting the split at 600, pending at exactly 1 000 and a
+resend that waited 700); a whole-batch resend applying only what did not land; §78 for a delivery behind a
 partial landing. Mutations are in the SL-30 ticket.
 
 #### 32.12.4 Addendum (2026-09-26, SL-88, "what needs no result does not wait"): the admission reviews of one response's write steps start together, as one round

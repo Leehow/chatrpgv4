@@ -682,7 +682,9 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 			// SL-84 (contract §122 addendum): the adapter's own trace, otherwise unrecorded, writes the
 			// `attempt_failed`/`batch_failed` rows through this call's own telemetry sink.
 			decision: options.decision ?? createDecisionAdapter({ env, maxConcurrency: 4, retryPolicies: {
-				[ADMISSION_JEV_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } }, trace: jevFailureTelemetry((row) => { void options.record(row); }) }),
+				[ADMISSION_JEV_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } }, trace: jevFailureTelemetry((row) => { void options.record(row); }),
+				// The adapter measures what is left of the lease's deadline, so it reads the clock the deadline is on.
+				...(options.clock ? { now: () => options.clock!.now() } : {}) }),
 			campaign: options.campaign, deadlineAt, signal, ...(options.providerBudget ? { parent: options.providerBudget } : {}),
 			owner: ADMISSION_JEV_FAMILY, goal: "Judge whether the player chose the proposed action", ...clocked,
 		});
@@ -747,8 +749,8 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	// Whether a typed answer could stand at all on this batch; when it could not, the row names no typed fallback.
 	const primary = fastMin !== undefined || reviewer === "jev" || lineMin !== undefined || options.typedAttempt !== undefined;
 	const stop = new AbortController();
-	// A review that began here waits its whole cap (timers may fire a millisecond early against the clock, so it is never
-	// shortened); a remainder resumed from a split waits only what is left of the batch's (§32.12.3).
+	// A review that began here waits its whole cap; a remainder resumed from a split waits only what is left of the batch's
+	// (§32.12.3).
 	const left = (ms: number) => options.startedAt === undefined ? ms : Math.max(1, ms - (clock.now() - began));
 	const lane = reviewAdmission({ ...options, signal: options.signal ? AbortSignal.any([options.signal, stop.signal]) : stop.signal,
 		timeoutMs: left(hardCapMs) });
@@ -814,7 +816,16 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	const waiting = new Map<string, Promise<Event>>([
 		["lane", lane.then((value): Event => ({ kind: "lane", value }))],
 		["typed", typed.then((value): Event => ({ kind: "typed", value }))],
-		["cap", new Promise<Event>((settle) => { cancelCap = clock.schedule(() => settle({ kind: "cap" }), left(capMs)); })],
+		["cap", new Promise<Event>((settle) => {
+			// SL-87: a timer can fire early against the clock that measures the review (Node's run on the event loop's cached
+			// time, which lags `Date.now()` on a loaded machine): the cap stands only once the review's clock says it has
+			// passed, and is re-armed for what is left otherwise, so no call is returned at the cap before its cap.
+			const arm = (ms: number) => { cancelCap = clock.schedule(() => {
+				const rest = capMs - (clock.now() - began);
+				if (rest > 0) arm(rest); else settle({ kind: "cap" });
+			}, ms); };
+			arm(left(capMs));
+		})],
 	]);
 	let laneDone: AdmissionOutcome | undefined, typedDone: TypedAttempt | undefined;
 	try {
