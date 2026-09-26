@@ -23471,7 +23471,7 @@ campaign reads as any `table.look` does (`campaign_not_ready` while setting up).
   happened: string[],                  // what was done to or said to this person, this turn and the last
   state: {hp, hp_max, conditions: string[], stance, in_session: boolean, my_turn: boolean},
   at_hand: {holdings: string[], objects: string[], exits: string[], present: string[]},
-  done: [{ref, text, status, since_turn, last_turn}],
+  done: [{ref, intent, status, since_turn, turn}],   // intentsView's row shape (§138.3)
   recent_speech: string[],
   constraints: string[],
   truncated: string[]
@@ -23514,10 +23514,10 @@ campaign reads as any `table.look` does (`campaign_not_ready` while setting up).
   investigators by label when it is the active scene, then everyone else placed there by label. A person placed
   nowhere has empty `objects`, `exits` and `present`.
 - **`done`** is every intention of their ledger entry (§138.3; the committed ledger with the open turn folded onto a
-  copy, exactly as `stanceNow` folds it), in the order `intentsView` gives the card -- under way first, then settled,
-  each newest first -- as `{ref, text, status, since_turn, last_turn}`. Unlike the card, settled rows are not capped at
-  three: the generation step reads this section to not do the same thing again, and the byte budget, not a count,
-  bounds it.
+  copy, exactly as `stanceNow` folds it), in `intentsView`'s row shape `{ref, intent, status, since_turn, turn}`
+  (`intent` the line, `turn` the turn of its latest result) and order -- under way first, then settled, each newest
+  first, a later row of the same turn counting as the newer. Unlike the card, settled rows are not capped at three: the
+  generation step reads this section to not do the same thing again, and the byte budget, not a count, bounds it.
 - **`recent_speech`** is `npcPerspective`'s last six committed own utterances, `turn <n>: <statement>`.
 - **`constraints`** are strings. First, every stated obligation of their scene (§134.9) that names them -- as `who`, as
   the person of its next step, or among the people it guards -- as the capsule's row reads it (`capsuleRow`):

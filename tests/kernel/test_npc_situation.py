@@ -110,8 +110,9 @@ def test_an_intention_under_way_is_in_done_and_not_in_happened(knott):
     assert not ledger.exists() or not read_json(ledger).get("npc-steven-knott", {}).get("intents")
     packet = situation(knott)
     first, second = packet["done"]
-    assert first == {"ref": ref, "text": line, "status": "attempted", "since_turn": 1, "last_turn": 1}, "under way first"
-    assert second["text"] == settled and second["status"] == "failed"
+    # intentsView's own row shape (the card's, §138.3).
+    assert first == {"ref": ref, "intent": line, "status": "attempted", "since_turn": 1, "turn": 1}, "under way first"
+    assert second["intent"] == settled and second["status"] == "failed"
     [declared] = packet["happened"]
     assert declared.endswith('(investigator) declared: "I tell Knott I will not take the job."'), \
         "an intention-only receipt is in done, not in happened"
@@ -129,8 +130,8 @@ def test_thirty_settled_intentions_fit_the_budget_and_the_newest_survives(knott)
     assert packet["truncated"] == ["constraints", "at_hand", "history"], "the ticket's order: constraints, what is at hand, the oldest done"
     assert packet["at_hand"] == {"holdings": [], "objects": [], "exits": [], "present": []}
     assert 1 <= len(packet["done"]) < 30
-    assert packet["done"][0]["text"] == lines[-1], "the newest row is the one kept"
-    assert [row["text"] for row in packet["done"]] == lines[::-1][:len(packet["done"])], "the oldest rows go first"
+    assert packet["done"][0]["intent"] == lines[-1], "the newest row is the one kept"
+    assert [row["intent"] for row in packet["done"]] == lines[::-1][:len(packet["done"])], "the oldest rows go first"
 
 
 def test_the_budget_is_the_named_default_in_host_budgets(tmp_path):

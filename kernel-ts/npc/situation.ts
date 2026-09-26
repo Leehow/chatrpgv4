@@ -156,12 +156,16 @@ function entryNow(graph: ModuleGraph, ledger: Row, table: Row, turn: Row, node: 
     return row(scratch[node.node_id]);
 }
 
-/** `done`: every intention, under way first, then settled, each newest first (a later row wins a tie). */
+/**
+ * `done`: every intention in `intentsView`'s row shape and order -- under way first, then settled, each newest first --
+ * without the card's cap of three settled rows (the byte budget bounds this section), and a later row of the same turn
+ * counts as the newer one.
+ */
 export function intentHistory(entry: Row): Row[] {
     const all = intentsOf(entry).map((item, index) => ({item, index}))
         .sort((a, b) => number(b.item.last_turn) - number(a.item.last_turn) || b.index - a.index).map(({item}) => item);
     return [...all.filter(item => !isSettled(item.status)), ...all.filter(item => isSettled(item.status))]
-        .map(item => ({ref: item.ref, text: item.text, status: item.status, since_turn: item.since_turn ?? null, last_turn: item.last_turn ?? null}));
+        .map(item => ({ref: item.ref, intent: item.text, status: item.status, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null}));
 }
 
 function stateOf(graph: ModuleGraph, world: Row, me: Person, session: Row | null, stance: string | null): Row {
