@@ -30,6 +30,15 @@ with the Noul's own `yes` probability (`confidence`). This is the number ticket 
 (`jev_steps.classes.clue_follow_up.row_min`) is meant to move; the section is a read of already-recorded
 telemetry, never a live re-ask.
 
+SL-85 (ticket 85, §135.32 addendum 2's own ruling) adds two fields to the per-class table and a duplicate-row
+section: `executed` (a row this run actually ran through the gateway, `COC_JEV_STEPS=on` and a listed class) and
+`shadow` (every row that was only routed and paired, including a listed class's own row on a turn it did not
+clear -- so under `on`, a class can show both `executed` and `shadow` rows over the campaign, never `on`'s
+`shadow` count wrongly reading 0 for a class that simply never executes, such as `npc_reaction` today). The
+duplicate-row section groups candidate rows by `(turn, class, key)` and names any group with more than one row --
+the shape SL-85 fixed at the write site (a steer leg, or a turn delivered by the Keeper's own `narrate` without
+ever proposing `turn_close`, each used to write the pairing/residual rows more than once, or not at all).
+
 Usage:
     python3 tests/play/jev-steps-report.py <root> <glob> [<glob> ...]
 
@@ -260,20 +269,37 @@ def report_campaign(campaign_dir):
     print(f'stranded (undelivered) turns: {sorted(stranded)} ({len(stranded)})')
 
     print('\n-- per class (candidate rows) --')
-    print(f'{"class":<16} {"offered":>7} {"cleared":>7} {"true":>5} {"false":>5} {"other":>5} {"null":>5} {"unpaired":>8} {"agreement(true/(true+false))":>28}')
+    print(f'{"class":<16} {"offered":>7} {"cleared":>7} {"executed":>8} {"shadow":>6} {"true":>5} {"false":>5} {"other":>5} {"null":>5} {"unpaired":>8} {"agreement(true/(true+false))":>28}')
     false_other_detail = collections.defaultdict(list)
     for cls in CLASSES:
         rows = [r for r in candidate_rows if r.get('class') == cls]
         paired = [r for r in rows if r.get('turn') not in stranded]
         unpaired = [r for r in rows if r.get('turn') in stranded]
         offered, cleared = len(rows), sum(1 for r in rows if r.get('cleared'))
+        # SL-85 (ticket 85, §135.32 addendum 2's own ruling): `executed` marks a row this run actually ran through
+        # the gateway (COC_JEV_STEPS=on, a listed class); `shadow` is carried by every row that was only routed
+        # and paired, including a listed class's row that did not clear -- so under `on`, `executed + shadow`
+        # need not sum to `offered` (a `direct` time_cost row, or a row from a table run under `off`, carries
+        # neither key at all).
+        executed = sum(1 for r in rows if r.get('executed') is True)
+        shadow_rows = sum(1 for r in rows if r.get('shadow') is True)
         counts = collections.Counter('null' if r.get('keeper_did') is None else str(r.get('keeper_did')).lower() for r in paired)
         t, f = counts.get('true', 0), counts.get('false', 0)
         agreement = f'{t}/{t + f} = {t / (t + f):.2f}' if (t + f) else 'n/a (no true+false rows)'
-        print(f'{cls:<16} {offered:>7} {cleared:>7} {t:>5} {f:>5} {counts.get("other", 0):>5} {counts.get("null", 0):>5} {len(unpaired):>8} {agreement:>28}')
+        print(f'{cls:<16} {offered:>7} {cleared:>7} {executed:>8} {shadow_rows:>6} {t:>5} {f:>5} {counts.get("other", 0):>5} {counts.get("null", 0):>5} {len(unpaired):>8} {agreement:>28}')
         for row in paired:
             if row.get('cleared') and str(row.get('keeper_did')).lower() in ('false', 'other'):
                 false_other_detail[cls].append(row)
+
+    # SL-85: a (turn, class, key) offered more than once is the duplicate this ticket's engine fix removes going
+    # forward; flagged here (never silently deduped) so a report against pre-fix telemetry says so plainly, and a
+    # report against post-fix telemetry shows none.
+    dupe_counts = collections.Counter((r.get('turn'), r.get('class'), r.get('key')) for r in candidate_rows)
+    dupes = {k: n for k, n in dupe_counts.items() if n > 1}
+    if dupes:
+        print(f'\n-- duplicate candidate rows for the same (turn, class, key) (SL-85: pre-fix telemetry, a steer leg or a bypassed turn_close) --')
+        for (turn, cls, key), n in sorted(dupes.items()):
+            print(f'  turn {turn} [{cls}] key={key!r}: {n} rows')
 
     recall_precision_section(candidate_rows, stranded)
 
