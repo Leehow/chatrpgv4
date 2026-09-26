@@ -119,9 +119,11 @@ test("SL-93: apply {effects, narrate: 'text'} lands the effect but delivers noth
 	const embeddedRefusal = table.telemetry().find((entry) => entry.lane === "delivery" && entry.reason === "narrate_in_apply" && entry.ok === false);
 	assert.ok(embeddedRefusal, "the embedded narrate was refused, not delivered");
 	assert.equal(embeddedRefusal.code, "needs");
-	// The floor's own row: below the floor, on the embedded path, with the draft's own count.
+	// The floor's own row: below the floor, on the embedded path, with the draft's own count. Since §138.1 (SL-96)
+	// "text" is the serialization's own label and is removed where the arguments enter the host, so the floor counts
+	// what is left of the draft: nothing.
 	assert.deepEqual(floorRows(table).map((row) => ({ reason: row.reason, path: row.path, chars: row.chars })),
-		[{ reason: "below_floor", path: "embedded", chars: 4 }], "one floor steer, naming the embedded path and the draft's own length");
+		[{ reason: "below_floor", path: "embedded", chars: 0 }], "one floor steer, naming the embedded path and the draft's own length");
 
 	// The apply's own tool result: isError, the refusal names below_floor, the landed effect still named in it.
 	const applyResult = table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "apply");
@@ -129,7 +131,7 @@ test("SL-93: apply {effects, narrate: 'text'} lands the effect but delivers noth
 	const details = JSON.parse(applyResult.content.map((block) => block.text ?? "").join(""));
 	assert.equal(details.narrate_in_apply, false);
 	assert.equal(details.coc_error?.details?.reason, "below_floor");
-	assert.equal(details.coc_error?.details?.chars, 4);
+	assert.equal(details.coc_error?.details?.chars, 0);
 	assert.ok(Array.isArray(details.effects) || Array.isArray(details.receipts), "the landed effect is still named in the result: it is not undone");
 
 	// This path never reaches `turn_close` the way the implicit close does -- the refused call's own `fix` field
@@ -286,19 +288,20 @@ function contentRootWithFloor(t, minProseChars) {
 test("SL-93: lowering delivery_floor.min_prose_chars lets an apply.narrate the shipped default would steer deliver on its first leg", async (t) => {
 	resetDeliveryFloorBudgetCache();
 	t.after(() => resetDeliveryFloorBudgetCache());
+	// A four-code-point draft that is prose, not the serialization label §138.1 removes before the floor counts.
 	const table = await realHybridTable({ env: { PI_COC_CONTENT_ROOT: contentRootWithFloor(t, 2) }, responses: [
 		fauxAssistantMessage([fauxToolCall("apply", {
 			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],
-			narrate: "text",
+			narrate: "门开了。",
 		})], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
 	await waitForIdle(table.session);
 
-	assert.equal(keeperCalls(table), 1, "at a floor of 2 code points, 'text' (4) clears it -- no steer");
+	assert.equal(keeperCalls(table), 1, "at a floor of 2 code points, a draft of 4 clears it -- no steer");
 	assert.equal(floorRows(table).length, 0);
-	assert.ok(turnRecord(table.workspace, 2).rendered_text.includes("text"));
+	assert.ok(turnRecord(table.workspace, 2).rendered_text.includes("门开了"));
 });
 
 test("SL-93: raising delivery_floor.min_prose_chars steers an apply.narrate the shipped default would deliver", async (t) => {

@@ -23,6 +23,7 @@ import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { argumentLimitRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
+import { stripDialectPrefixes } from "./dialect-prefix.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
 import { createCanonicalOperationDispatcher } from './canonical-operation-dispatcher.ts';
@@ -4275,13 +4276,18 @@ export default function (pi: ExtensionAPI) {
 			// kernel-shaped refusal whose fix says to shorten it (the schema's own maxLength message carries no fix).
 			// Contract §138: an argument that carries the model's own tool-call markup (`</text>`, a swallowed
 			// `<parameter name="workpad_patch">`) is unwrapped here, before anything reads it, and the repair is recorded.
+			// Contract §138.1: a field that carries another tool's argument (`apply.narrate`, the narrate tool's `text`)
+			// loses the serialization's own leading label (`text intermediate…`, `text`), after the unwrapping; a value
+			// that was only the label goes on empty, to the embedded narrate's floor and the kernel's refusal.
 			prepareArguments: (args: unknown) => {
 				const unwrapped = unwrapArgumentMarkup(spec.name, spec.parameters, args);
 				if (!unwrapped.ok) throw new Error(new KernelError(unwrapped.refusal).toToolText());
 				if (unwrapped.repairs.length) void record({ lane: "tool_arguments", event: "markup_unwrapped", tool: spec.name, repairs: unwrapped.repairs });
-				const refusal = argumentLimitRefusal(spec.name, unwrapped.args);
+				const stripped = stripDialectPrefixes(spec.name, unwrapped.args);
+				for (const { field, prefix } of stripped.strips) void record({ lane: "arguments", event: "dialect_prefix_stripped", tool: spec.name, field, prefix });
+				const refusal = argumentLimitRefusal(spec.name, stripped.args);
 				if (refusal) throw new Error(new KernelError(refusal).toToolText());
-				return unwrapped.args as never;
+				return stripped.args as never;
 			},
 			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
 			executionMode: "sequential",
