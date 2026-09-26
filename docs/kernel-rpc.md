@@ -19014,3 +19014,99 @@ controlled typed endpoint: the pin under `t1-c2` and the retry under `t1-c1`; th
 `tests/play/test_kpi.py` (the basis section). The fake kernel refuses an unpinned person (`FAKE_KERNEL_UNPINNED`) and a
 wrong profile against its own table (`FAKE_KERNEL_WEAPON_PROFILES`), accepts the pin, and answers `look focus=npc`
 with the person's row.
+
+### 138.8 The shadow lane: Jev's band beside the Keeper's own `time` and `damage` (2026-09-26, BR-04 of `docs/specs/band-then-roll.md`, decision D9; extends §138.1 and §138.2, adds the read method `rules.bands`)
+
+Whether a clerk may land a banded `time` or `damage` (BR-06) is calibrated with numbers in hand. This section produces
+them: for every number the Keeper still writes for those two kinds, the band Jev would have named, recorded beside it
+and executed nowhere.
+
+**Trigger.** After a model-origin `apply` succeeds (`dispatcher.hostOrigin(toolCallId)` is undefined, and the result is
+not a replay), each of its effects that carries the Keeper's own number — `time` with numeric `minutes`, `damage` with a
+`dice` string, and neither `stated` nor `band` — is one shadow question. A host-origin (clerk) write, a `stated` or
+`band` effect, every other kind, a refused call, and a replayed call (`replayed: true`: it was asked when it first
+landed) are never asked. `runTool` schedules the lane after the tool's own telemetry row, right before it returns the
+result, with `setTimeout(0)` (the verifier lane's pattern, §12.5), on the table's lane signal; the effects of one call
+are asked in order. The lane never holds the tool result, the turn or the delivery; its failures are rows, never
+refusals, and its last-resort catch writes the row itself (`reason: "lane_crashed"`).
+
+**The rows: `rules.bands`.** A kernel read method: `rules.bands {field: "time.band" | "damage.band"}` →
+`{field, table, rows}`, the rows of that band table exactly as `bandRows` lists them (§138.2) — `{handle, min, max,
+default?}` for `time-costs.categories`, `{handle, dice, note?}` for `hazards.severity` — in the table's order. It takes
+no campaign (the rows are the rules', read from `content/`) and writes nothing. Any other field (the registry's
+`npc.archetype` and `item.weapon`, an unknown one, none) is `invalid_params` with `details: {field: "field", options:
+["time.band", "damage.band"]}` and a `fix` naming `details.options`; a malformed row is `campaign_not_ready` naming the
+table and the row, as for `apply … {band}`. The extension reads each field once per session and keeps it; a failed or
+unusable read is not kept, so the next landed effect reads again. The fake kernel answers it from the shipped rules-json.
+
+**The two questions** (`runtime/jev/band-shadow-domain.ts`, family `band-shadow` version 1; asked through `askBand` in
+`extensions/kernel/band-recovery.ts`, which stays the one inventoried `createDecisionAdapter` site, under a lease of
+its own, capped by `PI_COC_BAND_JEV_TIMEOUT_MS`, default 4000, one request):
+
+- **time** — one Choice (key `time_cost`) over the time-cost categories **without** `local_travel` and `long_travel`
+  (a road's time is the route edge's, spec D2/D6, §138.2), each criterion the row's name and its minute range
+  ("single room search: 10 to 45 minutes"), plus an `unknown` exit.
+- **damage** — one Score (key `severity`) over the severity rungs in the table's order, lowest first, each level the
+  rung's name, dice and rulebook note ("minor, 1D3: A person could survive numerous occurrences …"). No exit: the harm
+  happened (the Keeper wrote it); the question is only how bad. A ladder of more than ten rows cannot be a Score and is
+  recorded `schema_error` without a request.
+- **state, both** — `{declaration, settled_this_turn}`: the player's declaration of the turn (600 code points at most)
+  and the host's own "already settled this turn" lines (`state.landed`, the list the admission review reads: `apply
+  landed: <receipt ids>`, `resolve settled (<outcome>)`), taken before this call's own line joins them, the last
+  sixteen. **Never** the Keeper's `why`, `minutes`, `dice` or anything else of the call being measured: the answer must
+  not be read off the number it is compared with.
+- **the band** is the argmax of the distribution (the first row in the table's order on a tie); on the time question
+  an argmax on `unknown` is an answer with no band. No gate is applied anywhere: `PI_COC_BAND_MIN_CONFIDENCE` (default
+  0.5, §138.6's placeholder) is read only to be written on the row as `gate`.
+
+**The row.** One `lane: "band-shadow"` telemetry row per asked effect:
+
+| field | value |
+| --- | --- |
+| `turn`, `call_id`, `index` | the settled call and the effect's position in its batch |
+| `kind`, `table` | `time` / `time-costs`; `damage` / `hazards` |
+| `keeper_value` | the Keeper's `minutes` (a number) or `dice` (a string), as the kernel received them |
+| `ok` | Jev answered: a distribution exists |
+| `band` | the argmax row's handle; `null` on the `unknown` exit (then `reason: "unknown"`) or without an answer |
+| `range` | the time row's `{min, max}`; the rung's dice for damage; `null` without a band |
+| `inside` | time: `min ≤ minutes ≤ max`; damage: the Keeper's dice equal the rung's, case and spacing ignored; `null` without a band |
+| `confidence`, `distribution` | Jev's confidence and its distribution by row handle (the time question's includes `unknown`); `null` without an answer |
+| `score` | damage only: the Score's probability-weighted level |
+| `gate` | the configured gate, recorded for the report |
+| `ms`, `jev_calls` | the question's Jev time and requests (0 when refused before sending) |
+| `reason` | with `ok: false`: the adapter's failure (`timeout`, `service_error`, `schema_error`, `budget_exhausted`, …), `answer_unknown`, `no_answer`, `shadow_owner_error` |
+
+A question never asked writes its reason and nothing else — `{lane, turn, call_id, index, kind, ok: false, reason}` —
+with `unconfigured` (no Jev key: nothing is read either), `no_declaration` (a turn without player text, such as the
+opening) or `rows_unavailable` (the kernel could not list the rows). Below-gate answers are written like every other.
+The row is telemetry only: no session entry, no bus event, nothing in the capsule, the Keeper's context or any later
+turn (§13.7's rule: a measurement never feeds back into what it measures).
+
+**What it never does.** It executes nothing: no kernel write, no receipt, no card, no prose, no clock; the Keeper's tool
+result is the kernel's, untouched. It is not admission (§32) and not a clerk (§135.3): it binds nothing, and no
+consequence boundary moves here (BR-06 amends them).
+
+**The report.** `tests/play/band_shadow_report.py` (importable, with a `main`) over one or several campaigns'
+`telemetry.jsonl` (`--campaign` repeatable, `--all` under `--workspace`, or files; `--json`): per kind (and so per
+table) — rows; unasked and failed by reason; answered, banded, unknown; hits and hit rate (`inside` over the banded
+rows); for each candidate gate 0.5 / 0.6 / 0.7 / 0.8 the banded rows at or above it, their share of the answered rows
+(`rate`: how often a clerk would have bound) and their hit rate; the Jev seconds (calls, mean, total over the rows that
+sent a request); the argmax rows by count. It is the owner's evidence and BR-06's calibration; running it over real
+tables is the integrator's.
+
+*Writer:* the kernel extension (`shadowBands` in `extensions/kernel/index.ts`; the pure glue in
+`extensions/kernel/band-shadow.ts`). *Reader:* the report; `kpi.py`'s lanes section counts the rows by `ok`. *Actor:*
+the owner and BR-06, away from the table; nothing at the table acts on a shadow row, by design.
+
+**Tests.** `tests/kernel/test_rules_bands.py` (the read over the emitted kernel: rows in the table's order with ranges,
+dice and notes, no campaign; the other fields refused with the options; a malformed row loud);
+`tests/extension/jev-band-shadow-domain.test.mjs` (the questions over a stub port: rows, ranges and the exit, the road
+rows absent, the state, the argmax and its tie, the Score's levels by handle, every non-answer's reason; the glue: own
+numbers only, never a host-origin call, `inside` at both ends, the rows); `tests/extension/band-shadow.test.mjs` (the
+extension over the fake kernel with a controlled typed endpoint: one row per effect with every field; the state exactly
+the declaration and the settled lines, the Keeper's `why` never sent; the rows read once; no write the Keeper did not
+send; a damage Score below the gate still recorded; no row for `stated` or `band`; the turn delivered while Jev is held,
+and Jev asked only after the apply's result existed; no key; no rows; and over the real kernel: the question built
+from the kernel's own `rules.bands`, and the turn record the same, timestamps and commit aside, with the shadow asking
+and without a key); `tests/play/test_band_shadow_report.py` (the report's numbers from a fixture of rows);
+`tests/extension/ts-kernel-foundation.test.mjs` lists `rules.bands` among the methods newer than the frozen reference.
