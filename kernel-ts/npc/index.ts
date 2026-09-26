@@ -14,7 +14,6 @@ import {array,clone,number,row,string,type Row} from '../read/values.js';
 import {readNpcLedger} from '../write/contributions.js';
 import {personalitySources,personalitySourceRevision,personalityView} from './material.js';
 import {npcViews} from './read.js';
-import {createResponseHandlers} from './responses.js';
 import {createSituationHandlers} from './situation.js';
 
 const INSTRUCTION='Describe this person\'s stable values, habits of judgment and nuanced tradeoffs in two or three concise sentences. ' +
@@ -53,11 +52,10 @@ export function createNpcHandlers(context:KernelContext,writer:ReturnType<typeof
         const memory=await context.snapshots.isFile(memoryPath)?(await context.snapshots.readJsonl(memoryPath)).map(row):[];
         const records=await campaign.records(),turn=await campaign.readTurn(),ledger=await readNpcLedger(campaign);
         return npcViews({campaign:campaign.id,graph,world,meta:loaded.meta,turn,memory,records,ledger,
-            ...(params.name!=null?{name:required(params,'name')!}:{}),read:async file=>await context.snapshots.isFile(campaign.path(file))?campaign.read(file):null});
+            ...(params.name!=null?{name:required(params,'name')!}:{})});
     }
 
     return {
-        ...createResponseHandlers(load,readJob),
         ...createSituationHandlers(context),
         'npc.perspectives':async params=>({views:await perspectives(params)}),
         'npc.perspective':async params=>{

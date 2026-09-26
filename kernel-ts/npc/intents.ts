@@ -2,8 +2,9 @@
  * What a person is trying to do, and how it went (docs/specs/npc-as-actor.md D1, contract §138).
  *
  * An intention is one line of Keeper-facing English -- "shout for help and get the man thrown out" -- that belongs to
- * one person. Its identity is the person's handle and a digest of the line itself, so a line of the NPC's response bank
- * and the same line written by the Keeper are one intention, and the ledger can be rebuilt from the turn records alone.
+ * one person. Its identity is the person's handle and a digest of the line itself, so the same line written twice, by
+ * the Keeper or by the table's own act of that person (§139), is one intention, and the ledger can be rebuilt from the
+ * turn records alone.
  *
  * The truth of where an intention stands is the receipts: every receipt that carries `intent: {ref, npc, text, outcome}`
  * folds into the person's ledger entry (`intents`), exactly as every other ledger field is a fold of receipts (§17.4).
@@ -16,7 +17,7 @@ import {array, normalizeText, number, row, string, type Row} from '../read/value
 /** Where an intention stands. `attempted` is under way with no result yet; the other three are settled. */
 export const INTENT_OUTCOMES: readonly string[] = Object.freeze(['attempted', 'done', 'failed', 'abandoned']);
 export const SETTLED_OUTCOMES: readonly string[] = Object.freeze(['done', 'failed', 'abandoned']);
-/** How long an intention line may be: the response bank's own row bound (`kernel-ts/npc/responses.ts`). */
+/** How long an intention line may be. */
 export const INTENT_TEXT_LIMIT = 400;
 /** How many results of one intention the ledger keeps, and how many intentions a present person's card shows. */
 const ATTEMPTS_KEPT = 4, SETTLED_SHOWN = 3;
@@ -41,14 +42,27 @@ export function intentOf(entry: Row, ref: string): Row | null {
     return intentsOf(entry).find(item => item.ref === ref) ?? null;
 }
 
-/** Fold one receipt's `intent` into a ledger entry. A fold, not a check: the writer refused anything unlawful. */
-export function foldIntent(item: Row, intent: Row, turn: number, receipt: unknown): void {
+/**
+ * §139.6: whether a receipt is the table's own act of a person -- one the generation step wrote and the host bound
+ * (§139, ticket 03), not one the Keeper wrote. Read from `basis.generated`; any other shape of `basis` (the string
+ * `"stated"` / `"keeper"` of §136.22) is not.
+ */
+export function receiptGenerated(receipt: unknown): boolean {
+    return row(row(receipt).basis).generated === true;
+}
+
+/**
+ * Fold one receipt's `intent` into a ledger entry. A fold, not a check: the writer refused anything unlawful.
+ * `generated` (§139.6) marks the row when the receipt that opens it is the table's own act; it says who set the
+ * intention out, so a later result -- the Keeper settling it, or the table continuing it -- never changes it.
+ */
+export function foldIntent(item: Row, intent: Row, turn: number, receipt: unknown, generated = false): void {
     const ref = intent.ref, outcome = intent.outcome, text = intent.text;
     if (typeof ref !== 'string' || !ref || typeof outcome !== 'string' || !INTENT_OUTCOMES.includes(outcome) || typeof text !== 'string') return;
     const list: Row[] = Array.isArray(item.intents) ? item.intents : (item.intents = []);
     let found = list.find(entry => row(entry).ref === ref);
     if (!found) {
-        found = {ref, text, status: outcome, since_turn: turn, last_turn: turn, attempts: []};
+        found = {ref, text, status: outcome, since_turn: turn, last_turn: turn, attempts: [], ...(generated ? {generated: true} : {})};
         list.push(found);
     }
     found.status = outcome;
@@ -57,33 +71,17 @@ export function foldIntent(item: Row, intent: Row, turn: number, receipt: unknow
 }
 
 /**
- * A response bank's rows with their references and where each stands. A row whose intention is settled is still
- * listed with its status (the author reads it); `openRows` is what the advice lane may choose among.
- */
-export function bankRows(rows: Row[], handle: string, entry: Row): Row[] {
-    return rows.map(value => {
-        const ref = intentRef(handle, string(value.intent)), known = intentOf(entry, ref);
-        return {...value, ref, ...(known ? {status: known.status} : {})};
-    });
-}
-export function openRows(rows: Row[], handle: string, entry: Row): Row[] {
-    return bankRows(rows, handle, entry).filter(value => !isSettled(value.status)).map(({status: _status, ...value}) => value);
-}
-
-/**
  * The card's view (§138.3): every intention still under way, then the most recently settled ones, newest first. The
- * `ref` is what a writer names to report the next result.
+ * `ref` is what a writer names to report the next result. `by: "table"` (§139.6) marks one the table's own act of
+ * this person set out; one the Keeper set out carries no `by`.
  */
 export function intentsView(entry: Row): Row[] {
     const all = intentsOf(entry).sort((a, b) => number(b.last_turn) - number(a.last_turn));
     const shown = [...all.filter(item => !isSettled(item.status)), ...all.filter(item => isSettled(item.status)).slice(0, SETTLED_SHOWN)];
-    return shown.map(item => ({ref: item.ref, intent: item.text, status: item.status, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null}));
+    return shown.map(item => ({ref: item.ref, intent: item.text, status: item.status, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null,
+        ...(item.generated === true ? {by: 'table'} : {})}));
 }
 /** Intentions under way with no result yet. */
 export function openIntents(entry: Row): Row[] {
     return intentsOf(entry).filter(item => item.status === 'attempted');
-}
-/** How many intentions of this person have settled: the response bank's staleness count (§138.4). */
-export function settledCount(entry: Row): number {
-    return intentsOf(entry).filter(item => isSettled(item.status)).length;
 }

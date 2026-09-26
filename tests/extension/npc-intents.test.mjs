@@ -1,7 +1,8 @@
 /**
  * Contract §138 (docs/specs/npc-as-actor.md tickets 01-02): what a person sets out to do is a receipt-folded ledger row,
- * the card and the Director's offer carry the ones still under way, a settled one is never tried again, and the NPC
- * response bank neither offers a settled row to the advice lane nor loops its author. Real kernel over its RPC surface.
+ * the card and the Director's offer carry the ones still under way, and a settled one is never tried again. With the
+ * NPC response bank retired (§139.6) the ledger is the only place an intention is known from, and a row the table's
+ * own act of a person set out is marked `by: "table"` on the card. Real kernel over its RPC surface.
  *
  * Evidence this answers: campaign game-26d5a671 (2026-09-23), where the advice lane handed the Keeper "end the
  * arrangement, reclaim the key" on four turns after Knott had already done it, and Knott announced "I'll call for help"
@@ -9,7 +10,7 @@
  */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdir,mkdtemp,readFile,rm,symlink} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,rm,symlink,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {build} from 'esbuild';
 import {KernelClient} from '../../extensions/kernel/client.ts';
@@ -96,41 +97,58 @@ test('the writer refuses what is not an intention of this person, and the varian
  await assert.rejects(apply(client,'t1-c6',{intends:SHOUT}),e=>e.code==='invalid_params');
 });
 
-test('the response bank offers the advice lane only open rows, renews itself once when it runs dry, and never loops',async t=>{
+test('with the bank retired the ledger alone names an intention, and the card, the options and the perspective read it (§139.6)',async t=>{
  const {client,home}=await opened(t);
  const persona=await client.call('npc.job',{campaign,name:KNOTT});
  await client.call('npc.submit',{campaign,job_id:persona.job_id,claim:persona.claim,personality:{description:'Practical and money-minded.'}});
- const job=await client.call('npc.responses.job',{campaign,name:KNOTT});
- const rows=[{intent:'End the arrangement on the spot and reclaim the key.',when:'The visitor turns violent.'},
-  {intent:SHOUT,when:'The visitor raises a hand again.'},
-  {intent:'Offer the key back if the visitor steps away from the desk.',when:'The visitor pauses.'}];
- await client.call('npc.responses.submit',{campaign,job_id:job.job_id,claim:job.claim,responses:rows});
- const before=await client.call('npc.perspective',{campaign,name:KNOTT});
- assert.equal(before.responses.length,3);
- for(const value of before.responses)assert.match(value.ref,/^intent:steven-knott:[0-9a-f]{12}$/);
- assert.deepEqual(before.responses.map(({ref:_ref,...value})=>value),rows);
- // Knott ends the arrangement: the Keeper reports the row's result by its ref.
  await begin(client);
- await apply(client,'t1-c1',{intent_ref:before.responses[0].ref,outcome:'done',why:'he sweeps the key and the wages off the desk'});
+ await apply(client,'t1-c1',{intends:SHOUT,outcome:'attempted',why:'he backs toward the stairwell'});
  await nextTurn(client,1);
- const after=await client.call('npc.perspective',{campaign,name:KNOTT});
- assert.deepEqual(after.responses.map(value=>value.intent),[rows[1].intent,rows[2].intent],'a settled row is no longer a choice');
- assert.deepEqual(after.tried.map(value=>[value.intent,value.status]),[[rows[0].intent,'done']]);
- assert.equal(knott(await capsuleOf(client)).response_options.count,2);
- // Two open rows is below the default minimum of three and one intention settled since acceptance: renewed once.
- const renewal=await client.call('npc.responses.job',{campaign,name:KNOTT});
- assert.ok(renewal.job_id,'the kernel opens a renewal without being asked');
- assert.notEqual(renewal.job_id,job.job_id);
- assert.deepEqual(renewal.npc.tried.map(value=>[value.intent,value.status]),[[rows[0].intent,'done']]);
- assert.equal(renewal.npc.previous_responses.find(value=>value.intent===rows[0].intent).status,'done');
- const pending=await client.call('npc.perspective',{campaign,name:KNOTT});
- assert.deepEqual(pending.responses.map(value=>value.intent),[rows[1].intent,rows[2].intent],'the old open rows stay readable while the new set is written');
- await client.call('npc.responses.submit',{campaign,job_id:renewal.job_id,claim:renewal.claim,
-  responses:[rows[0],{intent:'Bargain: the wages for the visitor leaving now.',when:'The visitor hesitates.'}]});
- const renewed=await client.call('npc.perspective',{campaign,name:KNOTT});
- assert.deepEqual(renewed.responses.map(value=>value.intent),['Bargain: the wages for the visitor leaving now.'],'a re-offered settled row is filtered, not chosen');
- assert.equal((await client.call('npc.responses.job',{campaign,name:KNOTT})).job_id,null,'no second renewal for the same settled count');
- assert.ok((await knottLedger(home)).intents.length===1);
+ const ref=(await knottLedger(home)).intents[0].ref;
+ const under=knott(await capsuleOf(client));
+ assert.deepEqual(under.history.intents.map(value=>[value.ref,value.status]),[[ref,'attempted']],'the card carries the attempted row');
+ assert.equal(under.response_options,undefined,'no advice hint beside it');
+ const unknown='intent:steven-knott:0123456789ab';
+ await assert.rejects(apply(client,'t2-c1',{intent_ref:unknown,outcome:'done'}),e=>e.code==='invalid_params'&&e.details?.reason==='unknown_intent'
+  &&JSON.stringify(e.details.options.map(value=>[value.ref,value.status]))===JSON.stringify([[ref,'attempted']]),'the options are the ledger rows under way, nothing else');
+ await apply(client,'t2-c2',{intent_ref:ref,outcome:'failed',why:'nobody comes up the stairs'});
+ await nextTurn(client,2);
+ const perspective=await client.call('npc.perspective',{campaign,name:KNOTT});
+ assert.equal(perspective.responses,undefined,'a perspective carries no bank rows');
+ assert.deepEqual(perspective.tried.map(value=>[value.intent,value.status]),[[SHOUT,'failed']],'and what was tried comes from the ledger');
+ assert.deepEqual(knott(await capsuleOf(client)).history.intents.map(value=>[value.ref,value.status,value.by]),[[ref,'failed',undefined]],'the Keeper set it out: no by');
+});
+
+test('the row the table\'s own act set out carries by: table on the card, through the rebuild and a later Keeper result (§139.6)',async t=>{
+ const {client,connect,home}=await opened(t);
+ const OTHER='Offer the key back if the visitor steps away from the desk.';
+ await begin(client);
+ await apply(client,'t1-c1',{intends:SHOUT,outcome:'attempted'});
+ await apply(client,'t1-c2',{intends:OTHER,outcome:'attempted'});
+ await nextTurn(client,1);
+ // Ticket 03's binding writes this stamp on the receipts of an act the table generated; the committed turn record is
+ // the fold's only input, so the stamp is put where that writer will put it.
+ const path=join(home,'.coc','campaigns',campaign,'turns','0001.json'),turn1=JSON.parse(await readFile(path,'utf8'));
+ const receipt=turn1.receipts.find(value=>value.intent?.text===SHOUT);
+ assert.equal(receipt.basis,undefined,'an npc receipt has no basis of its own to collide with');
+ receipt.basis={generated:true};
+ await writeFile(path,JSON.stringify(turn1,null,2));
+ await client.close();
+ await rm(join(home,'.coc','campaigns',campaign,'npc-ledger.json'));
+ const fresh=connect();t.after(()=>fresh.close());
+ await fresh.call('table.open',{campaign});
+ const folded=(await knottLedger(home)).intents;
+ assert.equal(folded.find(value=>value.text===SHOUT).generated,true,'the fold carries the mark into the ledger row');
+ assert.equal(folded.find(value=>value.text===OTHER).generated,undefined);
+ const card=knott(await capsuleOf(fresh)).history.intents;
+ const shout=card.find(value=>value.intent===SHOUT),other=card.find(value=>value.intent===OTHER);
+ assert.equal(shout.by,'table','the table set it out');
+ assert.equal(other.by,undefined,'the Keeper set it out');
+ await fresh.call('table.apply',{campaign,call_id:'t2-c1',effects:[{kind:'npc',name:KNOTT,intent_ref:shout.ref,outcome:'failed',why:'nobody comes'}]});
+ await fresh.call('table.apply',{campaign,call_id:'t2-c2',effects:[{kind:'npc',name:KNOTT,intent_ref:other.ref,outcome:'abandoned'}]});
+ await nextTurn(fresh,2);
+ const after=knott(await capsuleOf(fresh)).history.intents.find(value=>value.ref===shout.ref);
+ assert.deepEqual([after.status,after.by],['failed','table'],'a later result from the Keeper settles it and leaves who set it out');
 });
 
 test('the intention ledger is a fold of the turn records and is rebuilt from them',async t=>{

@@ -82,7 +82,7 @@ const WorkpadPatch = Type.Optional(Type.Unknown({
  * stairs (npc) or the clock moves (threat) because Knott shouted -- and the receipt says whose intention it settled.
  */
 const IntentResult = {
-	intent_ref: Type.Optional(Type.String({ description: "when this effect is the result of what someone set out to do: the ref of that intention (present[].history.intents, director.offer, the NPC advice). The intention may be someone else's than the effect's subject" })),
+	intent_ref: Type.Optional(Type.String({ description: "when this effect is the result of what someone set out to do: the ref of that intention (present[].history.intents, director.offer). The intention may be someone else's than the effect's subject" })),
 	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "where that intention stands after this effect; default done (the effect is what happened)" })),
 };
 
@@ -328,7 +328,7 @@ const NpcEffect = Type.Object({
 		description: "a new thing this person sets out to do, in one short sentence: what they try, not what they say (\"shout down the stairs for the porter\", \"back to the door and bolt\", \"offer the key back if he stops\"). Write it the turn they start or announce it; every later result names it by intent_ref. This variant stands alone in one npc effect, with outcome",
 	})),
 	intent_ref: Type.Optional(Type.String({
-		description: "the ref of an intention (present[].history.intents, director.offer, the NPC advice). With outcome and nothing else: this person's own intention, and its next result. Beside to, stance or another change: that change is the result of the intention named, which may be someone else's (the porter comes up because Knott shouted)",
+		description: "the ref of an intention (present[].history.intents, director.offer). With outcome and nothing else: this person's own intention, and its next result. Beside to, stance or another change: that change is the result of the intention named, which may be someone else's (the porter comes up because Knott shouted)",
 	})),
 	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "with intent_ref: where the named intention stands -- alone, as that intention's result; beside another change, after that change (default done)" })),
 	spend_turn: Type.Optional(Type.Literal(true, {
@@ -428,7 +428,7 @@ const MapEffect = Type.Object({
 const ResolveAction = Type.Object({
 	coercion: Type.Optional(Type.String({ description: "on a roll of an investigator a person present pressed (Charm, Fast Talk, Intimidate or Persuade; pressures lists it): the player refused to do what was wanted, so the coercer puts one penalty die on this roll. Name the pressure's receipt; each is spent once" })),
 	surprise: Type.Optional(Type.Literal(true, { description: "with a person present as actor, intent combat and an investigator as target, when no fight is running: they strike the first blow, and the investigator did not see it coming (your ruling, usually after their Listen, Spot Hidden or Psychology). No dodge, no fighting back, one bonus die. Without it the investigator saw it coming and answers with a defence. The rounds then run in DEX order" })),
-	intent_ref: Type.Optional(Type.String({ description: "when this roll is the result of what an NPC set out to do: the ref of that intention (present[].history.intents, director.offer, the NPC advice). A passed check makes it done and a failed one failed, unless intent_outcome says otherwise; a settled intention is refused before any die is thrown" })),
+	intent_ref: Type.Optional(Type.String({ description: "when this roll is the result of what an NPC set out to do: the ref of that intention (present[].history.intents, director.offer). A passed check makes it done and a failed one failed, unless intent_outcome says otherwise; a settled intention is refused before any die is thrown" })),
 	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "with intent_ref: where the intention stands after this roll, when the pass or failure alone does not say (a first step that leaves it under way)" })),
 	actor: Type.Optional(
 		Type.String({
@@ -566,7 +566,6 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 				}),
 			),
 			name: Type.Optional(Type.String({ description: "the entity name to look at when focus is npc, object, or map" })),
-			evaluate_responses: Type.Optional(Type.Boolean({description:"With focus npc, optionally weigh prepared response intentions against the current player input, personality and relationships. Use a name for one NPC or omit it for those present. No authoring is awaited and no action is executed; ordinary direct conversation need not call this."})),
 		}),
 	},
 	{

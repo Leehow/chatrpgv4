@@ -19,6 +19,7 @@ export const DIAGNOSTIC_TYPE = 'coc-context-status';
 /** Transport-only KIC workspace (contract §19.2): injected per request, never persisted. */
 export const WORKSPACE_TYPE = 'coc-workspace';
 export const PRESCREEN_TYPE = 'coc-prescreen';
+/** Retired (contract §139.6): no session writes it any more; a copy an older session recorded is dropped, never sent. */
 export const NPC_ADVICE_TYPE = 'coc-npc-advice';
 /** The single-loop run's own note to the Keeper (contract §135.8): the clerk's steps of this turn and what it asks. */
 export const CLERK_TYPE = 'coc-clerk';
@@ -212,7 +213,6 @@ function closedNoise(message: Row): boolean {
 export interface Projection {
     messages: Row[]; start: number; protectedBytes: number; unknownBytes: number;
     degraded?: string; droppedTail?: number; droppedUnknown?: number; overCeiling?: boolean; workspaceKept?: boolean; prescreenKept?: boolean;
-    npcKept?: boolean;
 }
 /**
  * The one request projection, and the one place the ceiling is enforced. Every exit fits
@@ -221,7 +221,7 @@ export interface Projection {
  */
 export function projectedMessages(input: {
     messages: Row[]; binding: ContextBinding; history: Row; brief?: Row; answering?: string[]; budget?: number;
-    workspace?: Row; prescreen?: Row; npc?:Row;
+    workspace?: Row; prescreen?: Row;
 }): Projection {
     const {messages, binding} = input, budget = input.budget ?? requestBudget();
     const fallback = (degraded: string): Projection => {
@@ -254,21 +254,21 @@ export function projectedMessages(input: {
     // Current capsule, the player's words, pending context, tool pairing and the ceiling all
     // precede it (contract §19.2); a missing workspace is a miss, never a degraded request.
     const optional: Row[] = [];
-    let workspaceKept = false, prescreenKept = false, npcKept=false;
+    let workspaceKept = false, prescreenKept = false;
     // Preselection may have excluded bodies supplied by the workspace. Reserve that dependency
     // first, so adding the supplement never removes evidence the ordinary request would retain.
-    for (const [kind, message] of [['workspace', input.workspace], ['prescreen', input.prescreen], ['npc',input.npc]] as const) {
+    for (const [kind, message] of [['workspace', input.workspace], ['prescreen', input.prescreen]] as const) {
         if (!message || cut.over || cut.dropped) continue;
         const widened = boundedTail(working, room([...optional, message]));
         if (!widened.over && !widened.dropped) {
             cut = widened; optional.push(message);
-            if (kind === 'prescreen') prescreenKept = true; else if(kind==='npc')npcKept=true;else workspaceKept = true;
+            if (kind === 'prescreen') prescreenKept = true; else workspaceKept = true;
         }
     }
     while (unknown.length && cut.over) {unknown = unknown.slice(1); droppedUnknown++; cut = boundedTail(working, room(optional));}
     const projected = [...fixed(optional), ...cut.messages];
     const over = cut.over || requestSize(projected) > budget;
-    return {messages: projected, start, ...(workspaceKept ? {workspaceKept} : {}), ...(prescreenKept ? {prescreenKept} : {}), ...(npcKept?{npcKept}:{}),
+    return {messages: projected, start, ...(workspaceKept ? {workspaceKept} : {}), ...(prescreenKept ? {prescreenKept} : {}),
         protectedBytes: requestSize(opening) + requestSize(cut.messages) + (brief.length ? requestSize(brief) : 0), unknownBytes: unknown.length ? requestSize(unknown) : 0,
         ...(cut.dropped ? {droppedTail: cut.dropped} : {}), ...(droppedUnknown ? {droppedUnknown} : {}),
         ...(over ? {overCeiling: true} : {}),

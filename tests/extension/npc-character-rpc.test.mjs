@@ -1,7 +1,8 @@
 /** Core NPC material through the real kernel RPC surface; deterministic contract evidence, not play. */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdir,mkdtemp,symlink} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,symlink,writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {join,resolve} from 'node:path';
 import {build} from 'esbuild';
 import {KernelClient} from '../../extensions/kernel/client.ts';
@@ -17,7 +18,7 @@ async function opened(t){
  const client=connect();t.after(()=>client.close());
  await client.call('campaign.create',{id:'npc-test',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});
  await client.call('table.open',{campaign:'npc-test'});
- return {client,connect};
+ return {client,connect,home};
 }
 
 test('accepted personality reaches the actual NPC view and survives a fresh kernel',async t=>{
@@ -87,28 +88,28 @@ test('NPC relationships are directed and own speech remains available before mem
  assert.equal(perspective.recent_speech.at(-1).statement,spoken);
 });
 
-test('a prepared response bank is readable advice, accepts once, and never establishes world effects',async t=>{
- const {client}=await opened(t),campaign='npc-test';
+test('the response bank is retired: its methods are unknown and an older campaign\'s bank is neither read nor deleted (§139.6)',async t=>{
+ const {client,home}=await opened(t),campaign='npc-test';
  const persona=await client.call('npc.job',{campaign,name:'Steven Knott'});
  await client.call('npc.submit',{campaign,job_id:persona.job_id,claim:persona.claim,personality:{description:'Practical and attentive to evidence.'}});
- const job=await client.call('npc.responses.job',{campaign,name:'Steven Knott'});
- const responses=[{intent:'Ask for verifiable evidence before accepting a supernatural explanation.',when:'The visitor offers a supernatural explanation without supporting evidence.'},
-   {intent:'Acknowledge the agreed departure and return to work.',when:'The visitor has chosen to leave and no urgent issue remains.'}];
- await client.call('npc.responses.submit',{campaign,job_id:job.job_id,claim:job.claim,responses});
+ for(const method of ['npc.responses.job','npc.responses.submit'])
+  await assert.rejects(client.call(method,{campaign,name:'Steven Knott'}),e=>e.code==='unknown_method',`${method} is no longer a method`);
+ // A ready bank as an older build wrote it, at the path it used: npc/responses/<digest of {npc, scope}>.json.
+ const row='Ask for verifiable evidence before accepting a supernatural explanation.';
+ const digest=createHash('sha256').update(JSON.stringify({npc:'npc-steven-knott',scope:{loop:0,worldline:'main'}})).digest('hex');
+ const dir=join(home,'.coc','campaigns',campaign,'npc','responses'),file=join(dir,`${digest}.json`);
+ await mkdir(dir,{recursive:true});
+ await writeFile(file,JSON.stringify({status:'ready',responses:[{intent:row,when:'The visitor offers a supernatural explanation.'}],settled_seen:0},null,2));
+ const bytes=await readFile(file,'utf8');
  const view=await client.call('npc.perspective',{campaign,name:'Steven Knott'});
- // Contract §138.4: each row carries the reference its result is reported against.
- assert.deepEqual(view.responses.map(({ref:_ref,...row})=>row),responses);
- for(const row of view.responses)assert.match(row.ref,/^intent:steven-knott:[0-9a-f]{12}$/);
- const group=await client.call('npc.perspectives',{campaign});
- assert.deepEqual(group.views.find(row=>row.name==='Steven Knott'),view);
- const capsule=await client.call('table.capsule',{campaign});
- assert.deepEqual((capsule.capsule??capsule).present.find(p=>p.name==='Steven Knott').response_options.next,
-   {tool:'look',focus:'npc',name:'Steven Knott',evaluate_responses:true});
- assert.equal((await client.call('npc.responses.submit',{campaign,job_id:job.job_id,claim:job.claim,responses})).replayed,true);
- assert.equal((await client.call('npc.responses.job',{campaign,name:'Steven Knott'})).job_id,null);
- const changed=await client.call('npc.responses.job',{campaign,name:'Steven Knott',refresh:true});
- await assert.rejects(client.call('npc.responses.submit',{campaign,job_id:job.job_id,claim:job.claim,responses}),e=>e.details?.reason==='npc_bank_stale');
- assert.notEqual(changed.job_id,job.job_id);
+ assert.equal(view.responses,undefined,'a perspective carries no bank rows');
+ assert.deepEqual((await client.call('npc.perspectives',{campaign})).views.find(value=>value.name==='Steven Knott'),view);
+ const capsule=await client.call('table.capsule',{campaign}),knott=(capsule.capsule??capsule).present.find(p=>p.name==='Steven Knott');
+ assert.equal(knott.response_options,undefined,'the card has no advice hint');
+ assert(!JSON.stringify(capsule).includes(row),'no bank row reaches the capsule');
+ await client.call('table.narrate',{campaign,call_id:'t0-c1',text:'Knott waits.'});
+ await client.call('table.player_input',{campaign,text:'I ask him about the house.'});
+ assert.equal(await readFile(file,'utf8'),bytes,'the old file is left where it was, untouched');
 });
 
 test('a reunion is generated at an actual return, accepted once, and survives reload without simulated intermediate turns',async t=>{

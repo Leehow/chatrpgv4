@@ -1,13 +1,18 @@
-/** Shared preparation through real NPC publication, the host bridge and final request validation. */
+/**
+ * Contract §139.6: the per-turn NPC response advice and its bank are retired. Through the real kernel, the NPC
+ * extension and the table's context policy: a table played for three turns sends the Keeper no `coc-npc-advice`, asks
+ * Jev nothing about a person and writes no advice telemetry, while the material prescreen still reaches the provider
+ * payload; a copy of the retired message recorded by an older session never reaches the model; and a replaced player
+ * input still cannot resume the old input's discovery on the new signal.
+ */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {EventEmitter} from 'node:events';
-import {mkdir,mkdtemp} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import npc from '../../extensions/npc/index.ts';
-import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
 import {supportWire} from './support-agent-helpers.mjs';
 
 const root=resolve(import.meta.dirname,'../..'),evidence=join(root,'.pi/npc-prescreen-integration/tests');
@@ -22,82 +27,75 @@ async function readyNpc(t){
  await call('campaign.create',{id:campaign,module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});await call('table.open');
  await call('table.player_input',{text:'Thank you. I am leaving now.'});
  const personality=await call('npc.job',{name:'Steven Knott'});await call('npc.submit',{job_id:personality.job_id,claim:personality.claim,personality:{description:'Practical and attentive to verifiable evidence.'}});
- const bank=await call('npc.responses.job',{name:'Steven Knott'});await call('npc.responses.submit',{job_id:bank.job_id,claim:bank.claim,responses:[{intent:'Accept the farewell and return to work.',when:'The visitor has chosen to end the exchange.'}]});
  return {campaign,home,call};
 }
-function externalAnswer(_url,init){
- const body=JSON.parse(init.body);return Promise.resolve(Response.json({model:body.model,usage:{input_tokens:200,output_tokens:20},answers:Object.fromEntries(Object.entries(body.questions).map(([key,q])=>{
-  const choice=key==='choose'?'response:1':key==='respond'?'respond':'supported';
-  return [key,{type:'choice',choice,confidence:1,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===choice?1:0]))}];
- }))}));
-}
 function host(t,table,integrated=false){
- const events=new EventEmitter(),hooks=new Map(),records=[];let bridge;
+ const events=new EventEmitter(),hooks=new Map(),records=[];
  const old={PI_COC_MODE:process.env.PI_COC_MODE,PI_COC_NPC_BACKFILL:process.env.PI_COC_NPC_BACKFILL,EXT_JEV_APIKEY:process.env.EXT_JEV_APIKEY};
  Object.assign(process.env,{PI_COC_MODE:'play',PI_COC_NPC_BACKFILL:'0',EXT_JEV_APIKEY:'test-only-credential'});
  t.after(async()=>{for(const fn of hooks.get('session_shutdown')??[])await fn({});for(const[k,v]of Object.entries(old)){if(v===undefined)delete process.env[k];else process.env[k]=v;}});
- events.on('coc:npc-bridge',value=>{bridge=value;});const pi={events,on:(name,fn)=>{const list=hooks.get(name)??[];list.push(fn);hooks.set(name,list);},appendEntry:(...row)=>records.push(row),getActiveTools:()=>[],getAllTools:()=>[]};npc(pi);
+ const pi={events,on:(name,fn)=>{const list=hooks.get(name)??[];list.push(fn);hooks.set(name,list);},appendEntry:(...row)=>records.push(row),getActiveTools:()=>[],getAllTools:()=>[]};npc(pi);
  if(integrated)api.installContextPolicy(pi,row=>records.push(row));
  events.emit('coc:kernel-bridge',{campaign:table.campaign,call:table.call});
- return {events,hooks,records,get bridge(){return bridge;},start:async()=>{for(const fn of hooks.get('session_start')??[])await fn({}, {cwd:table.home,model:{provider:'test',id:'author'},modelRegistry:{}});}};
+ return {events,hooks,records,start:async()=>{for(const fn of hooks.get('session_start')??[])await fn({}, {cwd:table.home,model:{provider:'test',id:'author'},modelRegistry:{}});}};
 }
+/** Every telemetry row the session wrote, whichever writer: lane rows ride `coc-telemetry` entries, context rows are bare. */
+const rows=records=>records.map(value=>Array.isArray(value)?(value[0]==='coc-telemetry'?value[1]:undefined):value).filter(Boolean);
 
-test('an early NPC intention is rechecked after other preparation and cannot survive a newly recorded death',async t=>{
- const table=await readyNpc(t),session=host(t,table);await session.start();
- const decision=createDecisionAdapter({env:process.env,fetcher:externalAnswer}),signal=new AbortController().signal;
- const prepared=await session.bridge.prepare({campaign:table.campaign,decision,signal,automatic:true,deadlineAt:Date.now()+2000});
- assert.equal(prepared.result.advice[0].status,'ready');
- await table.call('table.apply',{call_id:'t1-c1',effects:[{kind:'npc',name:'Steven Knott',dead:true}]});
- const final=await session.bridge.finalize(prepared,{campaign:table.campaign,signal,deadlineAt:Date.now()+1000});
- assert.equal(final.advice[0].status,'stale');assert.equal(final.advice[0].selected,undefined);
- assert(!JSON.stringify(final).includes('view_revision'),'revision checkpoints never become Keeper content');
-});
-
-test('actual Keeper preparation overlaps NPC and material decisions and delivers both in one provider payload',async t=>{
+test('a table played three turns sends no NPC advice, asks Jev nothing about a person, and the prescreen still arrives (§139.6)',async t=>{
  const table=await readyNpc(t),session=host(t,table,true),oldFlag=process.env.PI_COC_JEV_PRESELECT,oldFetch=globalThis.fetch;
  process.env.PI_COC_JEV_PRESELECT='1';t.after(()=>{globalThis.fetch=oldFetch;if(oldFlag===undefined)delete process.env.PI_COC_JEV_PRESELECT;else process.env.PI_COC_JEV_PRESELECT=oldFlag;});
- let npcActive=0,materialActive=0,overlap=false;const waiting=new Set();
- globalThis.fetch=async(url,init)=>{
-  const body=JSON.parse(init.body),isNpc=Boolean(body.state.npc);if(isNpc)npcActive++;else materialActive++;
-  let release,abort;const gate=new Promise((resolve,reject)=>{release=resolve;abort=()=>reject(init.signal.reason);init.signal?.addEventListener('abort',abort,{once:true});});
-  waiting.add(release);
-  if(npcActive&&materialActive){overlap=true;for(const resolve of waiting)resolve();waiting.clear();}
-  try{
-   if(!overlap)await gate;
-   if(isNpc)return externalAnswer(url,init);
-   return Response.json(supportWire(body,candidate=>candidate.kind==='npc'&&candidate.label==='Steven Knott'?'necessary':'skip'));
-  }finally{waiting.delete(release);init.signal?.removeEventListener('abort',abort);if(isNpc)npcActive--;else materialActive--;}
- };
- await session.start();const opened=await table.call('table.open'),capsule=await table.call('table.capsule',{rehydrate:true}),{_context,...view}=capsule;
- session.events.emit('coc:table-open',{campaign:table.campaign,open:opened});
- session.events.emit('coc:capsule',{campaign:table.campaign,epoch:'integrated-input',capsule:view,context:_context});
+ const batches=[];
+ globalThis.fetch=async(_url,init)=>{const body=JSON.parse(init.body);batches.push(body);
+  return Response.json(supportWire(body,candidate=>candidate.kind==='npc'&&candidate.label==='Steven Knott'?'necessary':'skip'));};
+ await session.start();
+ session.events.emit('coc:table-open',{campaign:table.campaign,open:await table.call('table.open')});
  const ctx={cwd:table.home,model:{contextWindow:1000000},getSystemPrompt:()=>'',getContextUsage:()=>undefined,sessionManager:{getBranch:()=>[]}};
- const messages=[{role:'user',content:'Thank you. I am leaving now.'}];
- for(const fn of session.hooks.get('before_agent_start')??[]){const result=await fn({prompt:messages[0].content},ctx);if(result?.message)messages.push({role:'custom',...result.message,timestamp:Date.now()});}
+ const lines=['Thank you. I am leaving now.','I ask Knott who else has a key.','I ask Knott about the last tenant.'],supported=[];
+ for(const [index,line] of lines.entries()){
+  const turn=index+1;
+  if(turn>1){for(const fn of session.hooks.get('input')??[])await fn({text:line});await table.call('table.player_input',{text:line});}
+  const {_context,...view}=await table.call('table.capsule',{rehydrate:true});
+  session.events.emit('coc:capsule',{campaign:table.campaign,epoch:`input-${turn}`,capsule:view,context:_context});
+  const messages=[{role:'user',content:line}];
+  for(const fn of session.hooks.get('before_agent_start')??[]){const result=await fn({prompt:line},ctx);if(result?.message)messages.push({role:'custom',...result.message,timestamp:Date.now()});}
+  let current=messages;for(const fn of session.hooks.get('context')??[]){const result=await fn({messages:current},ctx);if(result?.messages)current=result.messages;}
+  assert(!current.some(message=>message.customType==='coc-npc-advice'),`turn ${turn}: no NPC advice message`);
+  const converted=JSON.stringify(api.convertToLlm(current));
+  assert(!converted.includes('npc_response_advice'),`turn ${turn}: no advice packet reaches the provider conversion`);
+  supported.push(converted.includes('keeper_support'));
+  await table.call('table.narrate',{call_id:`t${turn}-c1`,text:'Knott answers what he knows and goes back to his ledger.'});
+ }
+ assert(supported[0],'the material prescreen still reaches the provider payload');
+ assert(batches.length>0,'the prescreen asked Jev, so an NPC lane had its chance to ask too');
+ assert(!batches.some(body=>body.state?.npc!==undefined),'no decision batch is about a person\'s response');
+ const file=await readFile(join(table.home,'.coc','campaigns',table.campaign,'telemetry.jsonl'),'utf8').catch(()=>'');
+ const telemetry=[...rows(session.records),...file.split('\n').filter(Boolean).map(line=>JSON.parse(line))];
+ const advice=telemetry.filter(row=>row.lane==='npc'&&(['advice','responses','decision'].includes(row.kind)||['finalized','delivered'].includes(row.event)));
+ assert.deepEqual(advice,[],'no advice, finalize, delivery or bank rows');
+ assert(!telemetry.some(row=>row.lane==='preparation'),'no NPC-only preparation allowance');
+});
+
+test('a coc-npc-advice an older session recorded never reaches the model',async t=>{
+ const table=await readyNpc(t),session=host(t,table,true);await session.start();
+ session.events.emit('coc:table-open',{campaign:table.campaign,open:await table.call('table.open')});
+ const {_context,...view}=await table.call('table.capsule',{rehydrate:true});
+ session.events.emit('coc:capsule',{campaign:table.campaign,epoch:'legacy-input',capsule:view,context:_context});
+ const legacy=api.customMessage('coc-npc-advice',{kind:'npc_response_advice',advice:[{npc:'Steven Knott',selected:{intent:'Accept the farewell and return to work.',when:'The visitor leaves.'}}]});
+ const messages=[{role:'user',content:'Thank you. I am leaving now.'},{role:'custom',...legacy,timestamp:Date.now()}];
+ const ctx={cwd:table.home,model:{contextWindow:1000000},getSystemPrompt:()=>''};
  let current=messages;for(const fn of session.hooks.get('context')??[]){const result=await fn({messages:current},ctx);if(result?.messages)current=result.messages;}
- assert.equal(overlap,true,'independent NPC and material decisions must coexist rather than taking serial wait windows');
- const converted=JSON.stringify(api.convertToLlm(current));
- assert(converted.includes('npc_response_advice'),'NPC intentions reach the actual Keeper message conversion: '+JSON.stringify(session.records));
- assert(converted.includes('keeper_support'),'the fixed support packet is delivered alongside the NPC intention');
- const support=JSON.parse(current.find(row=>row.customType==='coc-prescreen').content);
- assert(support.materials.some(row=>row.kind==='npc'&&row.label==='Steven Knott'),'actual selected dossier is delivered');
- assert(converted.includes('Accept the farewell and return to work.'));
+ assert(!current.some(message=>message.customType==='coc-npc-advice'));
+ assert(!JSON.stringify(current).includes('Accept the farewell and return to work.'));
+ assert(current.some(message=>message.role==='user'&&message.content==='Thank you. I am leaving now.'),'the player\'s words stay');
 });
 
-test('the host material snapshot can supply the same limited NPC perspectives without substituting Keeper dossiers',async t=>{
- const table=await readyNpc(t);
- const catalog=await table.call('table.workspace.read',{preselect:{version:2,mode:'catalog',limit:48},query:'I speak to Knott.',npc_perspectives:true});
- const ordinary=await table.call('npc.perspectives');
- assert.deepEqual(catalog.npc_perspectives,ordinary.views);
- assert(!JSON.stringify(catalog.npc_perspectives).includes('keeper_note'));
- assert.equal(catalog.npc_perspectives[0].availability.present,true);
-});
-
-test('a replaced player input cannot resume old shared discovery on the new cancellation signal',async t=>{
+test('a replaced player input cannot resume old discovery on the new cancellation signal',async t=>{
  const table=await readyNpc(t),entered=Promise.withResolvers(),release=Promise.withResolvers(),originalCall=table.call;
- const delayed={...table,call:async(method,params)=>{const result=await originalCall(method,params);if(method==='table.workspace.read'&&params.npc_perspectives){entered.resolve();await release.promise;}return result;}};
+ let held=false;
+ const delayed={...table,call:async(method,params)=>{const result=await originalCall(method,params);if(method==='table.workspace.read'&&params?.preselect&&!held){held=true;entered.resolve();await release.promise;}return result;}};
  const session=host(t,delayed,true),oldFlag=process.env.PI_COC_JEV_PRESELECT,oldFetch=globalThis.fetch;let dispatches=0;
- process.env.PI_COC_JEV_PRESELECT='1';globalThis.fetch=async(url,init)=>{dispatches++;return externalAnswer(url,init);};
+ process.env.PI_COC_JEV_PRESELECT='1';globalThis.fetch=async(_url,init)=>{dispatches++;return Response.json(supportWire(JSON.parse(init.body),()=>'skip'));};
  t.after(()=>{release.resolve();globalThis.fetch=oldFetch;if(oldFlag===undefined)delete process.env.PI_COC_JEV_PRESELECT;else process.env.PI_COC_JEV_PRESELECT=oldFlag;});
  await session.start();
  const publish=async epoch=>{const {_context,...capsule}=await originalCall('table.capsule',{rehydrate:true});session.events.emit('coc:capsule',{campaign:table.campaign,epoch,capsule,context:_context});};
@@ -108,47 +106,4 @@ test('a replaced player input cannot resume old shared discovery on the new canc
  for(const fn of session.hooks.get('input')??[])await fn({text:'I pause at the door.'});
  release.resolve();await pending;
  assert.equal(dispatches,0,'a retired request cannot spend the new input\'s provider capacity');
-});
-
-test('optional NPC advice fits around paired current evidence and cannot remove it to make room',()=>{
- const binding={version:1,campaign:'c1',worldline:'main',loop:0,turn:1,source_revision:'a'.repeat(64)};
- const fact='Verified promise and its conditions. '+'.'.repeat(2400),intent='Conditional intention. '+'.'.repeat(2000);
- const messages=[{role:'user',content:'What did Knott promise?'},{role:'custom',customType:'coc-capsule',content:JSON.stringify({turn:{number:1}}),details:{context:binding}},
-  {role:'assistant',content:[{type:'toolCall',id:'known-read',name:'look',arguments:{focus:'npc',name:'Steven Knott'}}]},
-  {role:'toolResult',toolCallId:'known-read',toolName:'look',content:[{type:'text',text:fact}]}];
- const npc=api.customMessage('coc-npc-advice',{kind:'npc_response_advice',advice:[{npc:'Steven Knott',selected:{intent,when:'The player asks about the promise.'}}]});
- for(const [budget,expected]of [[4096,false],[8192,true]]){
-  const result=api.projectedMessages({messages,binding,history:{},budget,npc});
-  assert(result.messages.some(row=>row.role==='toolResult'&&row.content[0].text===fact));
-  assert.equal(Boolean(result.npcKept),expected);
-  assert.equal(result.messages.some(row=>row.customType==='coc-npc-advice'),expected);
- }
-});
-
-test('compatible simultaneous NPC preparation shares provider work and a canonical state change invalidates reuse',async t=>{
- const table=await readyNpc(t),session=host(t,table);await session.start();let calls=0;
- const decision=createDecisionAdapter({env:process.env,fetcher:async(url,init)=>{calls++;return externalAnswer(url,init);}});
- const request={campaign:table.campaign,automatic:true,decision,signal:new AbortController().signal,deadlineAt:Date.now()+4000};
- const [first,second]=await Promise.all([session.bridge.prepare(request),session.bridge.prepare(request)]);
- assert.equal(first.result.advice[0].status,'ready');assert.equal(second.result.advice[0].status,'ready');assert.equal(calls,1);
- await table.call('table.apply',{call_id:'t1-c1',effects:[{kind:'time',minutes:1}]});
- const old=await session.bridge.finalize(first,{campaign:table.campaign,signal:request.signal,deadlineAt:Date.now()+1000});
- assert.equal(old.advice[0].status,'stale');
- await session.bridge.prepare({...request,deadlineAt:Date.now()+2000});assert.equal(calls,2);
-});
-
-test('automatic NPC preparation stops after canonical delivery closes the player input',async t=>{
- const table=await readyNpc(t),session=host(t,table);await session.start();let dispatched=0;
- await table.call('table.narrate',{call_id:'t1-c1',text:'Knott accepts the farewell.'});
- const decision=createDecisionAdapter({env:process.env,fetcher:async(url,init)=>{dispatched++;return externalAnswer(url,init);}});
- const prepared=await session.bridge.prepare({campaign:table.campaign,automatic:true,decision,signal:new AbortController().signal,deadlineAt:Date.now()+2000});
- assert.equal(prepared.result.status,'unavailable');assert.equal(dispatched,0);
-});
-
-test('foreign shared NPC views are refused before provider dispatch',async t=>{
- const table=await readyNpc(t),session=host(t,table);await session.start();let dispatched=0;
- const {views}=await table.call('npc.perspectives');views[0].scope.campaign='another-campaign';
- const decision=createDecisionAdapter({env:process.env,fetcher:async(url,init)=>{dispatched++;return externalAnswer(url,init);}});
- const prepared=await session.bridge.prepare({campaign:table.campaign,automatic:true,decision,snapshots:views,signal:new AbortController().signal,deadlineAt:Date.now()+2000});
- assert.equal(prepared.result.reason,'perspective_campaign_mismatch');assert.equal(dispatched,0);
 });

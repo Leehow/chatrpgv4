@@ -39,51 +39,36 @@ test('background authors overlap and never block session readiness while only ch
  for(const fn of hooks.get('session_shutdown')??[])await fn({});
 });
 
-test('automatic advice has a soft foreground deadline and cannot wait for a blocked context read',async t=>{
- const hooks=new Map(),events=new EventEmitter();
- const values={PI_COC_MODE:'play',EXT_JEV_APIKEY:'test-only-credential',PI_COC_NPC_ADVICE_WAIT_MS:'15'};
- const previous=new Map(Object.keys(values).map(k=>[k,process.env[k]]));Object.assign(process.env,values);
- t.after(()=>{for(const[k,v]of previous){if(v===undefined)delete process.env[k];else process.env[k]=v;}});
- npc({events,on:(name,fn)=>{const list=hooks.get(name)??[];list.push(fn);hooks.set(name,list);},appendEntry:()=>{}});
- events.emit('coc:kernel-bridge',{campaign:'test',call:async()=>new Promise(()=>{})});
- for(const fn of hooks.get('session_start')??[])await fn({}, {cwd:process.cwd(),model:{provider:'author',id:'test'},modelRegistry:{}});
- let timer;
- try{
-  const results=await Promise.race([Promise.all((hooks.get('before_agent_start')??[]).map(fn=>fn({prompt:'Hello'}))),
-   new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('optional advice blocked foreground play')),250);})]);
-  assert(results.every(value=>value===undefined));
- }finally{clearTimeout(timer);for(const fn of hooks.get('session_shutdown')??[])await fn({});}
-});
-
-test('shared-auth typed advice enters current Keeper context once and expires after a game tool',async t=>{
- const hooks=new Map(),events=new EventEmitter(),values={PI_COC_MODE:'play',PIPIUI_SPAWN_CONTRACT:'{}',PIPIUI_MOUNTED_EXTENSIONS:'kernel,npc,jev',PIPIUI_EXT_SETTINGS_JEV:'{}',EXT_JEV_APIKEY:'test-only-credential',PI_COC_NPC_ADVICE_WAIT_MS:'200'};
- const previous=new Map(Object.keys(values).map(k=>[k,process.env[k]])),originalFetch=globalThis.fetch;
- Object.assign(process.env,values);let calls=0;
+test('with a Jev key the NPC lane authors personalities only: no advice hook, no Jev call, no bank method (§139.6)',async t=>{
+ const parent=resolve(import.meta.dirname,'../../.pi/npc-implementation/lane-tests');await mkdir(parent,{recursive:true});
+ const cwd=await mkdtemp(join(parent,'retired-')),hooks=new Map(),events=new EventEmitter(),entries=[];
+ const values={PI_COC_MODE:'play',EXT_JEV_APIKEY:'test-only-credential'};
+ const previous=new Map(Object.keys(values).map(k=>[k,process.env[k]])),originalFetch=globalThis.fetch;Object.assign(process.env,values);
+ let fetched=0;globalThis.fetch=async()=>{fetched++;throw new Error('the NPC lane has no Jev call left to make');};
  t.after(()=>{globalThis.fetch=originalFetch;for(const[k,v]of previous){if(v===undefined)delete process.env[k];else process.env[k]=v;}});
- globalThis.fetch=async(_url,init)=>{
-  calls++;assert.equal(init.headers.Authorization,'Bearer test-only-credential');const body=JSON.parse(init.body);
-  assert(!init.body.includes('test-only-credential'));
-  const answers=Object.fromEntries(Object.entries(body.questions).map(([key,q])=>{
-   if(q.type==='choice'){const chosen=key==='choose'?'response:1':key==='respond'?'respond':'supported';return [key,{type:'choice',choice:chosen,confidence:1,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===chosen?1:0]))}];}
-   return [key,{type:'score',score:3,confidence:1,legend:Object.fromEntries(q.criteria.map((v,i)=>[String(i),v])),probabilities:Object.fromEntries(q.criteria.map((_,i)=>[String(i),i===3?1:0]))}];
-  }));
-  return new Response(JSON.stringify({model:body.model,answers,usage:{input_tokens:200,output_tokens:100}}));
+ npc({events,on:(name,fn)=>{const list=hooks.get(name)??[];list.push(fn);hooks.set(name,list);},appendEntry:(...row)=>entries.push(row)});
+ assert.deepEqual(['before_agent_start','context','tool_result'].filter(name=>hooks.has(name)),[],'nothing of the NPC lane rides the Keeper request');
+ const methods=[];let published=0;
+ const runtime={home:cwd,runTask:async task=>{
+  await writeFile(join(task.request.cwd,'draft.json'),JSON.stringify({personality:{description:'Anna keeps her own counsel but answers plainly.'}}));
+  return {ok:true,code:0,timedOut:false,ms:1,stderr:'',command:['author/test']};
+ }};
+ const call=async(method,params)=>{
+  methods.push(method);
+  if(method==='table.look')return {present:[{name:'Anna'}]};
+  if(method==='npc.job')return published?{job_id:null}:{job_id:'job-anna',claim:'claim-anna',npc:{name:params.name},instruction:'Describe the person.'};
+  if(method==='npc.submit'){published++;return {};}
+  throw new Error('Unexpected RPC '+method);
  };
- npc({events,on:(name,fn)=>{const list=hooks.get(name)??[];list.push(fn);hooks.set(name,list);},appendEntry:()=>{}});
- const view={name:'Anna',scope:{worldline:'main',loop:0},view_revision:'current-view',input:{turn:1,player_input:'Goodbye.'},responses:[{intent:'Offer a brief farewell and return to work.',when:'The visitor has chosen to leave.'}]};
- events.emit('coc:kernel-bridge',{campaign:'test',call:async method=>method==='table.look'?{present:[{name:'Anna'}]}:method==='npc.perspectives'?{views:[view]}:view});
- const ctx={cwd:process.cwd(),model:{provider:'author',id:'test'},modelRegistry:{}};
- for(const fn of hooks.get('session_start')??[])await fn({},ctx);
- const before=await hooks.get('before_agent_start')[0]({prompt:'Goodbye.'},ctx);
- assert.equal(calls,1);assert.equal(JSON.parse(before.message.content).advice[0].selected.intent,view.responses[0].intent);
- const message={role:'custom',...before.message,timestamp:Date.now()};
- assert.equal(hooks.get('context')[0]({messages:[message]}).messages.length,1);
- const previousProcess={...message,details:{...message.details,session:'previous-process'}};
- assert.equal(hooks.get('context')[0]({messages:[previousProcess,message]}).messages.length,1,'a reused numeric epoch cannot revive advice retained by an older process');
- for(const fn of hooks.get('tool_result')??[])await fn({toolName:'apply'});
- assert.equal(hooks.get('context')[0]({messages:[message]}).messages.length,0);
- assert.equal(await hooks.get('before_agent_start')[0]({prompt:'A host continuation.'},ctx),undefined);
- assert.equal(calls,1,'the same canonical player input is not evaluated again on a host continuation');
+ events.emit('coc:kernel-bridge',{campaign:'test',call,runtime});
+ for(const fn of hooks.get('session_start')??[])await fn({}, {cwd,model:{provider:'author',id:'test'},modelRegistry:{}});
+ await waitFor(()=>published===1);
+ events.emit('coc:turn-committed',{campaign:'test',turn:1});
+ await waitFor(()=>methods.filter(method=>method==='table.look').length===2&&methods.at(-1)==='npc.job');
+ assert.deepEqual([...new Set(methods)].sort(),['npc.job','npc.submit','table.look'],'no bank job and no perspective read');
+ assert.equal(fetched,0);
+ const kinds=entries.filter(([type])=>type==='coc-telemetry').map(([,row])=>row.kind);
+ assert.deepEqual([...new Set(kinds)],['personality'],'the lane writes personality rows only');
  for(const fn of hooks.get('session_shutdown')??[])await fn({});
 });
 
@@ -104,7 +89,6 @@ test('a failed background author can retry a new claim on the next committed tur
   if(method==='npc.job')return published?{job_id:null}:{job_id:'stable-job',claim:`claim-${failed}`,npc:{name:'Anna'},instruction:'Describe the person.'};
   if(method==='npc.fail'){failed++;return {};}
   if(method==='npc.submit'){assert.equal(params.claim,'claim-1');published++;return {};}
-  if(method==='npc.responses.job')return {job_id:null};
   throw new Error(method);
  };
  events.emit('coc:kernel-bridge',{campaign:'test',call,runtime});
