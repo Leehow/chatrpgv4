@@ -25126,3 +25126,27 @@ the next turn's packet's holdings; six existing tests changed, the two D9 table 
 Mutation record (copy and restore): the step always allowing `produces` fails the no-surprise table case (two bind
 batches where one was expected); `mayProduce` always true fails it and five generation cases; the table object never
 written fails the photograph case and the writes seam.
+
+**139.22 A thing brought out is matched to the book by kind, and near kin splitting the answer do not unmake a weapon
+(2026-09-26, ticket 23 of `docs/specs/npc-acts-first-tickets/`, `23-produced-by-kind.md`; amends §139.19's record
+reading; §135.2's gates unchanged for every other question).**
+**Evidence.** Ticket 20's live probe (gate-a, T3, dangerous/escalates): the generator's `produces` was "藏在旧账本下的短管左轮手枪"
+(a snub revolver hidden under an old ledger); the part question cleared `weapon_table`, no single record of that part
+cleared, and the thing was minted the table's own -- a revolver with no numbers, which no attack can fire. The owner's
+D10 is that a person pushed far enough may pull a gun and shoot; a gun the rules cannot fire is not that.
+**The question asks by kind.** `produce` and `produce_part` now ask for the record (the part) of the same kind of thing,
+whose rules are that thing's: a make, a size, a finish or a hiding place the record does not name does not make it
+another thing; `none` is "no record of the price list is that kind of thing". Before, both asked for the record that
+*is* the thing, so any detail the book's name lacks pushed the answer toward `none`.
+**Which record, once it is a record.** The thing already exists -- the stakes die allowed it and the generator named it
+(§139.19) -- so the record only gives it rules. A `produce` answer is taken when it clears its own gate (§135.2, as
+before); otherwise, when its leading choice is a record and the answer's summed probability on records (everything but
+`none`) meets the gate, that leading record is taken, and the bind row's `answers.produce` carries `cleared_by: "kind"`
+and `on_records`. `none` leading, or less than the gate on records, leaves the thing the table's own as before. The same
+reading applies to the one-question list and to the second batch of a long one. The part question is unchanged in its
+gate. The second batch's `stage: "produce"` route row adds `answer.top`: the leading five `{choice, label, p}`.
+**Tests.** `tests/extension/single-loop-npc-act.test.mjs`, "§139.22 which record, once it is a record at all": two
+revolvers at 0.45/0.40 with `none` 0.15 bind the leading one and the attack fires it (`cleared_by: "kind"`); a record at
+0.9 is taken on its own gate with no mark; `none` leading, and 0.59 on records under a 0.6 gate, stay the table's own
+with no weapon; the one-question list reads the same. One existing assertion changed (the `none` criterion's words).
+Mutation (copy and restore): the kind reading disabled fails the near-kin case. **Not verified live.**

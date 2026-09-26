@@ -26,7 +26,7 @@
  */
 import {createHash} from 'node:crypto';
 import type {DecisionBatch, DecisionResult, Json, ReadSet, ScopeBinding} from './contracts.ts';
-import {answerOf, clears} from './decision-gate.ts';
+import {answerOf, clears, leadOf} from './decision-gate.ts';
 import {JEV_MODEL, PROVIDER_CHOICE_LIMIT} from './question-packing.ts';
 import type {NpcActBudget} from './host-budgets.ts';
 import {mayProduce, type NpcActInput, type NpcActResult, type NpcSituation} from './npc-act.ts';
@@ -147,12 +147,17 @@ export const SAME_QUESTION = Object.freeze({
   none: 'The act is aimed at something none of these is aimed at.',
 });
 
-/** §139.19's question over price-list records: which one is the thing the act brings out, or none. */
+/**
+ * §139.19's question over price-list records: which one gives the thing the act brings out its rules, or none. Asked by
+ * kind since §139.22 (ticket 23): a record is the thing's kind, and the words' make, size or hiding place do not make it
+ * another thing -- asked "which record is that thing", a snub revolver under a ledger was no record and could not fire.
+ */
 function produceQuestion(records: Record<string, ActOption>): DecisionBatch['questions'][number] {
-  return {key: PRODUCE, target: 'the record of the rulebook\'s price list that is the thing the act brings out', type: 'choice',
+  return {key: PRODUCE, target: 'the record of the rulebook\'s price list whose rules are those of the thing the act brings out', type: 'choice',
     instructions: 'This act has this person bring out something no one at the table knew they had; state.produces names it. Select the '
-      + 'record of the rulebook\'s price list that is that thing. Select none when no record is that thing.',
-    criteria: {...Object.fromEntries(Object.entries(records).map(([alias, option]) => [alias, option.label])), [NONE]: 'No record of the price list is that thing.'}};
+      + 'record of the rulebook\'s price list that is the same kind of thing, so its rules are that thing\'s: a make, a size, a finish or '
+      + 'where it was hidden that the record does not name does not make it another thing. Select none when no record is that kind of thing.',
+    criteria: {...Object.fromEntries(Object.entries(records).map(([alias, option]) => [alias, option.label])), [NONE]: 'No record of the price list is that kind of thing.'}};
 }
 /**
  * §139.19: how the price list is asked. One question when its records fit one (the provider's choice limit, `none`
@@ -201,10 +206,10 @@ export function npcActBatch(input: {runId: string; person: string; act: string; 
   else if (plan.produce?.categories && Object.keys(plan.produce.categories).length)
     questions.push({key: PRODUCE_PART, target: 'the part of the rulebook\'s price list that holds the thing the act brings out', type: 'choice',
       instructions: 'This act has this person bring out something no one at the table knew they had; state.produces names it. Each part of '
-        + 'the rulebook\'s price list lists its records. Select the part that holds a record which is that thing. Select none when no record '
-        + 'of any part is that thing.',
+        + 'the rulebook\'s price list lists its records. Select the part that holds a record of the same kind of thing (a make, a size or '
+        + 'where it was hidden that no record names does not make it another thing). Select none when no record of any part is that kind of thing.',
       criteria: {...Object.fromEntries(Object.entries(plan.produce.categories).map(([alias, part]) => [alias, {part: part.category, records: part.records.map(entry => entry.label)}])),
-        [NONE]: 'No record of the price list is that thing.'}});
+        [NONE]: 'No record of the price list is that kind of thing.'}});
   if (input.rows.length) {
     plan.same = Object.fromEntries(input.rows.map((entry, index) => [`row_${index + 1}`, entry]));
     questions.push({key: 'same', target: 'whether the act is something this person already set out to do, for the same purpose', type: SAME_QUESTION.type,
@@ -247,9 +252,10 @@ export function producePart(plan: BindPlan, result: DecisionResult | undefined, 
 }
 
 /**
- * §139.19: what the act brought out. `catalog`: the price-list record Jev cleared (`record`, named by the book);
- * `table`: no record cleared -- `none`, below the gates, or no answer -- so the thing is the table's own, named by the
- * generator's `produces` and given no number.
+ * §139.19: what the act brought out. `catalog`: the price-list record Jev cleared (`record`, named by the book), or since
+ * §139.22 the leading record when the answer's mass on records cleared though near kin split it; `table`: no record --
+ * `none`, too little on records, or no answer -- so the thing is the table's own, named by the generator's `produces`
+ * and given no number.
  */
 export interface Produced {name: string; source: 'catalog' | 'table'; record?: ActOption}
 export interface BoundAct {
@@ -277,19 +283,29 @@ export function interpretNpcAct(plan: BindPlan, result: DecisionResult | undefin
     return choice !== undefined && choice !== 'unknown' && clears(from, key, choice, confidence, gate) ? choice : undefined;
   };
   const pick = (key: string): string | undefined => pickFrom(result, key);
+  // §139.22 (ticket 23): which record, once it is a record at all. The thing exists already -- the die allowed it and the
+  // generator named it -- so the question is only which of the book's records gives it rules. When the leading answer is a
+  // record and the answer's mass on records (off `none`) meets the gate, the leading record is taken though near kin (two
+  // revolvers) split the rest; `none` leading, or too little mass on records, leaves the thing the table's own.
+  const pickRecord = (from: DecisionResult | undefined, records: Record<string, ActOption>): ActOption | undefined => {
+    const cleared = pickFrom(from, PRODUCE);
+    if (cleared) return cleared === NONE ? undefined : records[cleared];
+    const {choice, probabilities} = answerOf(from, PRODUCE);
+    if (!choice || !records[choice] || !probabilities || !leadOf(from, PRODUCE, choice)) return undefined;
+    const onRecords = Object.entries(probabilities).reduce((sum, [alias, value]) => sum + (records[alias] ? value : 0), 0);
+    if (onRecords < gate) return undefined;
+    answers[PRODUCE] = {...(answers[PRODUCE] as Record<string, Json>), cleared_by: 'kind', on_records: Math.round(onRecords * 100) / 100};
+    return records[choice];
+  };
   const produced = ((): Produced | null => {
     if (!plan.produce) return null;
     const own: Produced = {name: plan.produce.produces, source: 'table'};
     const catalog = (record: ActOption | undefined): Produced => record ? {name: record.label, source: 'catalog', record} : own;
-    if (plan.produce.records && Object.keys(plan.produce.records).length) {
-      const alias = pick(PRODUCE);
-      return alias && alias !== NONE ? catalog(plan.produce.records[alias]) : own;
-    }
+    if (plan.produce.records && Object.keys(plan.produce.records).length) return catalog(pickRecord(result, plan.produce.records));
     if (plan.produce.categories && Object.keys(plan.produce.categories).length) {
       pick(PRODUCE_PART);
-      if (!follow) return own;
-      const alias = follow.result?.status === 'complete' ? pickFrom(follow.result, PRODUCE) : undefined;
-      return alias && alias !== NONE ? catalog(follow.records[alias]) : own;
+      if (!follow || follow.result?.status !== 'complete') return own;
+      return catalog(pickRecord(follow.result, follow.records));
     }
     return own;
   })();
@@ -524,9 +540,12 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: 'turn' 
         try { answered = await deps.decide(second.batch); } catch { answered = undefined; }
         follow = {records: second.records, result: answered};
         const chosen = answerOf(answered, PRODUCE);
+        // §139.22: the leading five of the distribution with the book's names, so a split between near kin can be read.
+        const top = Object.entries(chosen.probabilities ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 5)
+          .map(([alias, value]) => ({choice: alias, label: second.records[alias]?.label ?? alias, p: value}));
         deps.record({lane: 'route', purpose: 'npc-act', stage: 'produce', run: deps.runId, step: deps.stepId, npc: base.handle, status: answered?.status ?? 'unavailable',
           ms: Date.now() - secondBegan, part: part.part, offered: part.records.length,
-          answer: chosen.choice !== undefined ? {choice: chosen.choice, confidence: chosen.confidence ?? null} : null});
+          answer: chosen.choice !== undefined ? {choice: chosen.choice, confidence: chosen.confidence ?? null, ...(top.length ? {top} : {})} : null});
       }
       const bound = interpretNpcAct(plan, result, deps.gate, follow);
       deps.record({lane: 'route', purpose: 'npc-act', run: deps.runId, step: deps.stepId, npc: base.handle, status: result?.status ?? 'unavailable',
