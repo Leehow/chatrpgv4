@@ -779,3 +779,22 @@ Reading: guidance alone does not make grok batch (SL-92 makes the batch one tool
 20/20; **median 30 s; ≤ 60 s 20/20; max 53 s** (#21: 39 / 16 of 20 / 89; #18: 49 / 18 / 68). Keeper calls 1.75/turn (from 2.8); `apply.narrate` used 18 times (17 delivered); standalone apply 4 (from 20); generated 852 tokens/turn (from 1,040). Admission: lane p50 1.2 s / p90 2.1 s / max 2.4 s (from 5–13 s), consequence steps on their own evidence 6, compile 25, one policy resolve still on the lane (t13 ordinary check), verdicts authorized 20 / entailed 2 / not_authorized 2 (t4 a first impression with the Hall of Records clerk; t6 time + `vittorio-bible-weapon` when the player visited and questioned Vittorio — the second reads as a false refusal by the 4.3 reviewer; watch). Cap rows 0; cuts 0; refusals needs 3; no markup leak; prose median 254.
 **P0 defect:** turns 1 and 8 delivered `apply.narrate` placeholders ("text thriftily-placeholder", "text") to the player — the floor covers only the implicit path (SL-93).
 
+
+### Long gate #23 (2026-09-26, 13ce6a7dd; batch 17 live: SL-93 re-scoped to apply.narrate, SL-94, SL-95 fold, SL-87 parts 2–3, setup-play-language; every model grok-4.5 low)
+20/20 delivered; no strand; cap rows and cuts 0; floor rows 0.
+
+**First visible prose** (owner's metric: `agent_start` to the first `coc-mechanics` entry; `first-prose.py`): **median 50.3 s, max 72.9, ≤ 60 s on 16 of 20.** #22 had 29.7 / 53.0 / 20 of 20.
+
+Cause: the admission lane is back on grok-4.5 low, the lowest effort that model offers.
+- 33 reviews: p50 6.8 s, p90 13.0 s.
+- **6 stalled at the 13 s cap** (`review_pending` t2, t5, t8, t13, t15, t20), each followed by a resend.
+- Keeper calls 2.45 per turn, from 1.75.
+
+The typed Jev reviewer ran first on 19 batches, taking about 0.5 s, but settled only one. The rest fell back on low confidence (t2 `[not_authorized 0.24, entailed 0.57]`) → SL-97.
+
+Other results:
+- `apply.narrate` delivered 9.
+- Prose median 251; one thin turn (t18, 108 chars, a door the book does not have).
+- ASCII only in an in-fiction inscription ("W. Corbitt").
+- **Defect:** t6 delivered `"text intermediate"` glued to the story. This is the provider's label prefix, and the floor cannot see it → SL-96.
+- Text beside tool calls: 15 drops. SL-95 folds them in the App; this is checked in the App, not by the driver.
