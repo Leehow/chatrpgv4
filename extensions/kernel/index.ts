@@ -39,6 +39,7 @@ import { isSpeechOnlyDraft, learnSpeechMarks, sayableName, type SpeechMarks, sur
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
+import { jevStepsBudget } from "../../runtime/jev/host-budgets.ts";
 import { startupRecord } from "../../runtime/startup-record.ts";
 import {
 	SPEECH_ATTRIBUTION_DEFAULT_MIN_CONFIDENCE,
@@ -78,6 +79,7 @@ import {
 	admissionTimeoutMs,
 	admissionUnavailable,
 	compileAdmission,
+	consequenceAdmission,
 	type ClerkEvidence,
 	effectSignature,
 	remainderAttempt,
@@ -2337,6 +2339,13 @@ export default function (pi: ExtensionAPI) {
 		// Not kept for the turn: it is this call's evidence, so a Keeper's identical proposal is reviewed.
 		const compiled = compileAdmission(evidence);
 		const refusedCompile = compiled && !compiled.ok ? { compile_refused: compiled.reason } : {};
+		// SL-90 (§32.12 addendum): an executed consequence step is admitted on the consequence route's own evidence,
+		// the same seam -- no lane call, no typed call. `jevStepsBudget()` is read once per process and cached, so
+		// this costs nothing beyond the first admission of the table's life; `execute` is the same data
+		// `hybrid-engine.ts`'s `routeConsequencesAfterWrite` read when it decided whether to execute this candidate
+		// at all, so a class the table stopped listing falls back to the lane on its own, fail closed.
+		const consequenced = consequenceAdmission(evidence, (await jevStepsBudget()).execute);
+		const refusedConsequence = consequenced && !consequenced.ok ? { consequence_refused: consequenced.reason } : {};
 		const ctx = sessionCtx;
 		const context = (): AdmissionContext => admissionContextFor(state);
 
@@ -2383,8 +2392,16 @@ export default function (pi: ExtensionAPI) {
 					reviewer: "compile", path: "compile" }, false, Date.now() - began, undefined,
 					{ predicate: compiled.predicate, features: compiled.features, binding_paths: compiled.bindingPaths }, false);
 			}
+			// SL-90 (§32.12 addendum): the executed consequence step's own evidence, the same seam as the compile's.
+			if (!part && consequenced?.ok) {
+				const began = Date.now();
+				return settle({ verdict: "authorized", grounds: `consequence: ${consequenced.class} cleared at ${consequenced.confidence} (gate ${consequenced.gate.rowMin}/${consequenced.gate.rowRatio})`,
+					reviewer: "consequence", path: "consequence" }, false, Date.now() - began, undefined,
+					{ class: consequenced.class, key: consequenced.key, confidence: consequenced.confidence, distribution: consequenced.distribution,
+						gate: { row_min: consequenced.gate.rowMin, row_ratio: consequenced.gate.rowRatio } }, false);
+			}
 			if (!ctx) {
-				await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, path: "none", ms: 0, ...refusedCompile, ...partRows, ...origin, ...who });
+				await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, path: "none", ms: 0, ...refusedCompile, ...refusedConsequence, ...partRows, ...origin, ...who });
 				throw admissionUnavailable(proposal, "session_gone", "the session was gone before the review could start");
 			}
 			const base = context();
@@ -2431,13 +2448,13 @@ export default function (pi: ExtensionAPI) {
 				if (outcome.ok === "late") watchLate(outcome.lane, REVIEW_TIMEOUT);
 				return settle({ verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${pending.hardCapMs} ms hard cap`, reviewer: "lane", path: "lane", capMs: pending.hardCapMs },
 					false, Date.now() - began, outcome.ok === "late" ? undefined : outcome.model,
-					{ ...(outcome.ok === "late" ? {} : outcome.meta ?? {}), ...resent, ...(outcome.ok === false ? { lane_no_grounds: true } : {}), ...refusedCompile });
+					{ ...(outcome.ok === "late" ? {} : outcome.meta ?? {}), ...resent, ...(outcome.ok === false ? { lane_no_grounds: true } : {}), ...refusedCompile, ...refusedConsequence });
 			}
 			if (outcome.ok === "late") {
 				// §32.12.2: the cap passed with nothing sufficient. A bookkeeping-only batch the typed reviewer admitted at the late
 				// threshold lands on it; anything else goes back to the Keeper pending, the lane still running for its one resend.
 				const late = lateAdmission(proposal, outcome.typed);
-				const meta = { ...outcome.meta, ...refusedCompile, late_rule: late.ok ? "typed_late" : late.reason,
+				const meta = { ...outcome.meta, ...refusedCompile, ...refusedConsequence, late_rule: late.ok ? "typed_late" : late.reason,
 					...(late.ok ? { late_min_confidence: late.minConfidence, confidence: outcome.typed?.confidence ?? null } : {}) };
 				if (late.ok) {
 					watchLate(outcome.lane, "typed_late");
@@ -2455,7 +2472,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (!outcome.ok) {
 				await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}),
-					...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), path: "lane", ...outcome.meta, ...resent, ...refusedCompile, ...partRows, ...origin, ...who });
+					...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), path: "lane", ...outcome.meta, ...resent, ...refusedCompile, ...refusedConsequence, ...partRows, ...origin, ...who });
 				state.admissionOutage += 1;
 				const streak = state.admissionOutage;
 				if (streak >= 2 && !state.admissionOutageNotified) {
@@ -2486,7 +2503,7 @@ export default function (pi: ExtensionAPI) {
 				state.admissionOutage = 0;
 				state.admissionOutageNotified = false;
 			}
-			await settle(outcome.verdict, false, pending ? Date.now() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile, ...partRows });
+			await settle(outcome.verdict, false, pending ? Date.now() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile, ...refusedConsequence, ...partRows });
 		};
 
 		const split = await admitOne(proposal);
@@ -2513,7 +2530,7 @@ export default function (pi: ExtensionAPI) {
 		evidence.onVerdict?.(clearedVerdict.verdict);
 		await record({ lane: "admission", verb: tool, ok: true, verdict: clearedVerdict.verdict, admitted: true, reused: false, ms: split.ms, key: digest,
 			model: ADMISSION_JEV_MODEL, reviewer: "jev", path: "typed", line_level: "admitted", lines: lineNumbers(cleared), of_lines: shown.length,
-			confidence: Math.min(...lineVerdicts.map((line) => line.confidence)), ...split.meta, ...refusedCompile, ...origin, ...who,
+			confidence: Math.min(...lineVerdicts.map((line) => line.confidence)), ...split.meta, ...refusedCompile, ...refusedConsequence, ...origin, ...who,
 			grounds: clearedVerdict.grounds, proposed: clearedLinesText });
 		const partRows = { line_level: "remainder", lines: lineNumbers(rest), of_lines: shown.length, batch_key: digest };
 		const remainder = admissionRequest(tool, { effects: restEffects }, scopeFor(restEffects));

@@ -935,3 +935,40 @@ export function compileAdmission(evidence: ClerkEvidence | undefined): CompileAd
 	}
 	return { ok: true, predicate: predicate.name, features, bindingPaths };
 }
+
+export type ConsequenceAdmission =
+	| { ok: true; class: string; key: string; confidence: number; distribution: { true: number; false: number }; gate: { rowMin: number; rowRatio: number } }
+	| { ok: false; reason: string };
+
+/** A finite probability in `[0, 1]`. */
+const isProbability = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+
+/**
+ * Contract §32.12 addendum (SL-90): an executed consequence step is admitted on the consequence route's own
+ * evidence -- its class, its Noul's confidence and distribution, and the class's own gate -- exactly as a
+ * compile selection is admitted on `basis.compile` (`compileAdmission`, above). `undefined` when the call carries
+ * no consequence evidence at all (not this call's business: the review runs, nothing to say); otherwise the
+ * exemption or the reason it is refused. `executeClasses` is `jevStepsBudget().execute` (data, read by the
+ * caller, never a literal here): a class the table does not currently list as executed is refused even when its
+ * evidence is otherwise well-formed, because a shadow-only row was never meant to write at all (§135.32 addendum
+ * 2's "only the listed classes execute"). Pure, and it fails closed: every missing or malformed field is a
+ * refusal of the exemption, which means an ordinary lane review.
+ */
+export function consequenceAdmission(evidence: ClerkEvidence | undefined, executeClasses: readonly string[]): ConsequenceAdmission | undefined {
+	if (evidence?.origin !== "policy") return undefined;
+	const consequence = record(record(evidence.basis)?.consequence);
+	if (!consequence) return undefined;
+	const cls = consequence.class;
+	if (typeof cls !== "string" || !cls) return { ok: false, reason: "class_unrecorded" };
+	const key = consequence.key;
+	if (typeof key !== "string" || !key) return { ok: false, reason: "key_unrecorded" };
+	if (!executeClasses.includes(cls)) return { ok: false, reason: "class_not_executed" };
+	const confidence = consequence.confidence;
+	if (!isProbability(confidence)) return { ok: false, reason: "confidence_unrecorded" };
+	const distribution = record(consequence.distribution);
+	if (!distribution || !isProbability(distribution.true) || !isProbability(distribution.false)) return { ok: false, reason: "distribution_unrecorded" };
+	const gate = record(consequence.gate), rowMin = gate?.row_min, rowRatio = gate?.row_ratio;
+	if (typeof rowMin !== "number" || !Number.isFinite(rowMin) || rowMin <= 0 || rowMin >= 1) return { ok: false, reason: "gate_unrecorded" };
+	if (typeof rowRatio !== "number" || !Number.isFinite(rowRatio) || rowRatio <= 0) return { ok: false, reason: "gate_unrecorded" };
+	return { ok: true, class: cls, key, confidence, distribution: { true: distribution.true, false: distribution.false }, gate: { rowMin, rowRatio } };
+}

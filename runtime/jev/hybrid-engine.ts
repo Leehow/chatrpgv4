@@ -48,7 +48,7 @@ import type { HostOperationContext, OperationIdentity } from '../../extensions/k
 import { buildCandidates, buildConsequenceCandidates, keeperCall, NPC_REACTION_DECISION, type ConsequenceCandidate, type ConsequenceClass } from './candidates.ts';
 import { compileRows } from './compile-rows.ts';
 import { interpretCompile, interpretReask, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput } from './route-compile.ts';
-import { CONSEQUENCE_FAMILY, consequenceBatch, interpretConsequenceResult, type ConsequenceExistsRow, type ConsequenceRow, type ConsequenceView } from './consequence-route.ts';
+import { candidateWithConsequenceBasis, CONSEQUENCE_FAMILY, consequenceBatch, interpretConsequenceResult, type ConsequenceExistsRow, type ConsequenceRow, type ConsequenceView } from './consequence-route.ts';
 import { firstStepThinkingBudget, jevStepsBudget, thresholdsForClass } from './host-budgets.ts';
 import { firstStepCallCapMs, firstStepThinkingEnabled } from '../../extensions/kernel/first-step-thinking.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
@@ -625,9 +625,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     for (const key of consequenceKeysToExecute(mode, outcome.rows, run.consequenceExecuted, thresholds.execute)) {
       run.consequenceExecuted.add(key);
       const candidate = candidates.find(value => value.key === key);
-      if (!candidate) continue;
+      const row = outcome.rows.find(value => value.key === key);
+      if (!candidate || !row) continue;
       run.consequenceCalls = (run.consequenceCalls ?? 0) + 1;
-      await clerkStep(run, {candidate}, {runId: run.runId, stepId, operationId: `consequence:${candidate.key}`, signal}).catch(() => undefined);
+      // SL-90 (§32.12 addendum, §135.32 addendum 5): the executed candidate carries the route's own evidence
+      // (`basis.consequence`) into the gateway, so admission can admit it on this evidence -- `path: "consequence"`,
+      // no lane round -- exactly as a compile selection carries `basis.compile` into the same seam.
+      const executed = candidateWithConsequenceBasis(candidate, row, classThresholds[candidate.consequenceClass]);
+      await clerkStep(run, {candidate: executed}, {runId: run.runId, stepId, operationId: `consequence:${candidate.key}`, signal}).catch(() => undefined);
     }
   }
 

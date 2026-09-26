@@ -112,6 +112,21 @@ export interface ConsequenceRow {
   /** A stated `time_cost`: never asked, always reported cleared (§135.28's `stated` path; D4). */
   direct?: true;
 }
+
+/**
+ * SL-90 (contract §32.12 addendum, §135.32 addendum 5): the evidence an executed consequence step carries into
+ * the gateway, on the executed candidate's own `basis.consequence` -- the class, the row's own key, its Noul's
+ * confidence and distribution, and the class's own gate (`thresholdsForClass`) -- so admission can admit the
+ * write on this evidence (`path: "consequence"`, no lane round), exactly as a compile selection is admitted on
+ * `basis.compile` (`route-compile.ts`'s `interpretCompile`, `basis: {...basisOf(candidate), compile: {...}}`).
+ * Pure: the candidate's own basis (its read provenance -- `read`/`path`/`row`) is kept; `consequence` rides
+ * beside it, never replacing it.
+ */
+export function candidateWithConsequenceBasis<C extends ConsequenceCandidate>(candidate: C, row: ConsequenceRow, gate: ConsequenceThresholds): C {
+  const basis = candidate.basis && typeof candidate.basis === 'object' && !Array.isArray(candidate.basis) ? candidate.basis as Record<string, Json> : {};
+  return {...candidate, basis: {...basis, consequence: {class: row.class, key: row.key, confidence: row.confidence, distribution: row.distribution,
+    gate: {row_min: gate.rowMin, row_ratio: gate.rowRatio}}} as Json};
+}
 export interface ConsequenceExistsRow {class: ConsequenceClass; cleared: boolean | null; confidence: number | null; distribution: {true: number; false: number} | null}
 export interface ConsequenceOutcome {rows: ConsequenceRow[]; exists: ConsequenceExistsRow[]; reason: string}
 
