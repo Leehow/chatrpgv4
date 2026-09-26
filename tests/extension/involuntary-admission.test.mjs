@@ -51,10 +51,11 @@ for (const verdict of ['not_player_action', 'not_authorized', 'uncertain', 'forc
         call('narrate', {text: 'You have a moment to take stock.'}),
         fauxAssistantMessage('after'),
       ],
-      laneResponses: {admission: [fauxAssistantMessage(JSON.stringify({
+      // §139.15: an unrecognized verdict is a malformed answer, which the round asks for once more; `forced` answers twice.
+      laneResponses: {admission: Array.from({length: verdict === 'forced' ? 2 : 1}, () => fauxAssistantMessage(JSON.stringify({
         verdict, grounds: 'Scripted boundary check, not a semantic judgment',
         ...(['not_authorized', 'uncertain'].includes(verdict) ? {missing: 'whether to accept the commitment'} : {}),
-      }))]},
+      })))},
     });
     t.after(() => table.dispose());
     await table.session.prompt('I try to keep my balance.');
@@ -62,7 +63,7 @@ for (const verdict of ['not_player_action', 'not_authorized', 'uncertain', 'forc
     assert.equal(applied.length, verdict === 'not_player_action' ? 1 : 0);
     if (applied.length) assert.deepEqual(applied[0].params.effects, effects);
     const requests = table.lanes.admission.requests();
-    assert.equal(requests.length, 1, 'even a claimed consequence is reviewed, and refusals cannot be reworded away');
+    assert.equal(requests.length, verdict === 'forced' ? 2 : 1, 'even a claimed consequence is reviewed, and refusals cannot be reworded away');
     assert.match(requests[0], /to="lower-chamber"/);
     assert.match(requests[0], /minutes=2/);
     const telemetry = table.telemetry().filter(row => row.lane === 'admission');

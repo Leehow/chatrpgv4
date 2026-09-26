@@ -179,7 +179,8 @@ test("with both reviewers down the review still refuses as unavailable, and a re
 			fauxAssistantMessage("after"),
 		],
 		env: JEV_ENV,
-		laneResponses: { admission: [failing(), failing()] },
+		// §139.15: each lane round asks a malformed answer once more, so two failed reviews are four answers.
+		laneResponses: { admission: [failing(), failing(), failing(), failing()] },
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("我去剪报室");

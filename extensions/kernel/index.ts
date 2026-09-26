@@ -77,6 +77,9 @@ import {
 	admissionUnavailable,
 	compileAdmission,
 	type ClerkEvidence,
+	declaredAction,
+	admissionHardCapMs,
+	admissionTimeoutMs,
 	effectSignature,
 	remainderAttempt,
 	keyDigest,
@@ -2349,6 +2352,8 @@ export default function (pi: ExtensionAPI) {
 					if (entry?.collected) return;
 					await record({ lane: "admission-late", verb: tool, key: digest, answered, ms: value.ms, ...(value.model ? { model: value.model } : {}),
 						...(value.ok === true ? { verdict: value.verdict.verdict, grounds: value.verdict.grounds.slice(0, 200) } : value.ok === false ? { reason: value.reason } : {}),
+						// §139.15: how many completions the round sent (a malformed first answer is asked once more).
+						...(value.ok !== "late" && value.ok !== "split" && typeof value.meta?.attempts === "number" ? { attempts: value.meta.attempts } : {}),
 						...partRows, ...origin, ...who });
 				}, () => {});
 			};
@@ -2360,15 +2365,41 @@ export default function (pi: ExtensionAPI) {
 				pending.collected = true;
 			}
 			const began = Date.now();
-			const outcome = pending?.lane ? await pending.lane : await review();
+			let outcome = pending?.lane ? await pending.lane : await review();
 			// §32.12.3: the typed answer admitted some lines and not the rest; the caller reviews the rest.
 			if (outcome.ok === "split") return outcome;
-			const resent = pending ? { resend: true, resend_wait_ms: Date.now() - began, lane_ms: outcome.ms } : {};
+			// §139.15 (ticket 16): the lane failed (its round already asked twice for a malformed answer) on the investigator's own
+			// declared action, as the clerk carries it out. That is not refused as an outage at once: §32.12.2's no-verdict path
+			// runs -- a bookkeeping-only write whose typed reading clears the late threshold is admitted `typed_late`; anything
+			// else gets the one resend, which the host runs here because the clerk cannot (a refused clerk step is dropped for
+			// the run, §135.26, and the Keeper is never shown its fix). The resend is a fresh review; a verdict with grounds
+			// settles, and another failure is §32.2's outage. A Keeper-origin or host call keeps §32.2's refusal unchanged.
+			let resentBy: "keeper" | "host" | undefined = pending ? "keeper" : undefined, resendBegan = began, hostCap: number | undefined;
+			// A call whose own signal ended is not resent: the failure is the cancellation's, and it refuses as before.
+			if (!pending && outcome.ok === false && outcome.reason !== NO_GROUNDS && declaredAction(evidence) && !signal?.aborted) {
+				const failed = outcome, late = lateAdmission(proposal, failed.typed);
+				await record({ lane: "admission", verb: tool, ok: false, reason: failed.reason, detail: failed.detail.slice(0, 200), ms: failed.ms, key: digest,
+					...(failed.model ? { model: failed.model } : {}), ...(failed.reviewer ? { reviewer: failed.reviewer } : {}), path: "lane", ...failed.meta,
+					...refusedCompile, ...partRows, ...origin, ...who, declared: true, late_rule: late.ok ? "typed_late" : late.reason, then: late.ok ? "typed_late" : "resend" });
+				if (late.ok) {
+					await settle(late.verdict, false, failed.ms, undefined, { ...failed.meta, ...refusedCompile, ...partRows, cause: "unavailable", declared: true,
+						late_rule: "typed_late", late_min_confidence: late.minConfidence, confidence: failed.typed?.confidence ?? null, path: "typed_late" });
+					return;
+				}
+				resentBy = "host";
+				resendBegan = Date.now();
+				hostCap = part?.hardCapMs ?? admissionHardCapMs(admissionTimeoutMs());
+				outcome = await review();
+				if (outcome.ok === "split") return outcome;
+			}
+			const resent = resentBy ? { resend: true, ...(resentBy === "host" ? { resend_by: "host", declared: true } : {}), resend_wait_ms: Date.now() - resendBegan, lane_ms: outcome.ms } : {};
 			const noVerdict = outcome.ok === "late" || outcome.ok === false && outcome.reason === NO_GROUNDS
 				|| outcome.ok === true && outcome.verdict.verdict === REVIEW_TIMEOUT;
-			if (pending && noVerdict) {
+			if (resentBy && noVerdict) {
+				// There is one resend (§32.12.2): what it does not answer with grounds is `review_timeout`, never pending twice.
+				const hardCapMs = pending?.hardCapMs ?? (outcome.ok === "late" ? outcome.hardCapMs : hostCap!);
 				if (outcome.ok === "late") watchLate(outcome.lane, REVIEW_TIMEOUT);
-				return settle({ verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${pending.hardCapMs} ms hard cap`, reviewer: "lane", path: "lane", capMs: pending.hardCapMs },
+				return settle({ verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${hardCapMs} ms hard cap`, reviewer: "lane", path: "lane", capMs: hardCapMs },
 					false, Date.now() - began, outcome.ok === "late" ? undefined : outcome.model,
 					{ ...(outcome.ok === "late" ? {} : outcome.meta ?? {}), ...resent, ...(outcome.ok === false ? { lane_no_grounds: true } : {}), ...refusedCompile });
 			}
@@ -2425,7 +2456,7 @@ export default function (pi: ExtensionAPI) {
 				state.admissionOutage = 0;
 				state.admissionOutageNotified = false;
 			}
-			await settle(outcome.verdict, false, pending ? Date.now() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile, ...partRows });
+			await settle(outcome.verdict, false, resentBy ? Date.now() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile, ...partRows });
 		};
 
 		const split = await admitOne(proposal);
@@ -3578,7 +3609,7 @@ export default function (pi: ExtensionAPI) {
 			: readArgs && fromStep ? { origin: "model", run: fromStep.run, step: fromStep.step } : {};
 		// §32.12: admission's view of the same frame -- the clerk's compile evidence and bind records, or who else proposed it.
 		let admissionVerdict: string | undefined;
-		const evidence = { ...(host ? { origin: host.origin, basis: host.basis, bindings: host.bindings }
+		const evidence = { ...(host ? { origin: host.origin, basis: host.basis, bindings: host.bindings, ...(host.clerk ? { clerk: host.clerk } : {}) }
 			: { label: dispatcher.tracksMutation(toolCallId) ? "host" : "model" }), onVerdict: (verdict: string) => { admissionVerdict = verdict; } };
 		const readRow: Record<string, unknown> = readArgs ? { args: readArgs.args, ...(readArgs.cut.length ? { args_cut: readArgs.cut } : {}),
 			...(readArgs.withheld.length ? { args_withheld: readArgs.withheld } : {}) } : {};
