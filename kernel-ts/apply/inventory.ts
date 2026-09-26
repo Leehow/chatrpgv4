@@ -32,7 +32,10 @@ async function weaponProfile(context:ApplyContext,sheet:Row,query:any,catalog:Ma
     const options=[...catalog].filter(([,entry])=>!era||!truth(entry.eras)||array(entry.eras).includes(era)).map(([id])=>id),close:string[]=[];
     const matching=[...byName.keys()].map(name=>({name,score:similarity(key,name)})).filter(value=>value.score>=0.5).sort((a,b)=>b.score-a.score||compareUnicode(b.name,a.name)).slice(0,12);
     for(const {name} of matching)if(!close.includes(byName.get(name)!))close.push(byName.get(name)!);
-    throw new RpcError('needs',`${repr(query)} is not a weapon profile in the rules tables`,{fix:'set weapon to one of details.needs.options (a weapons.json id or its display name), for an improvised weapon, keep the object name in name and choose the closest rulebook profile in weapon; later resolve.weapon uses that object name. Leave weapon out only for non-weapons',details:{needs:{field:'weapon',options,close:close.slice(0,6),source:'content/rulesets/coc7/rules-json/weapons.json'}}});
+    // Contract §138.6: the profiles behind the options ride as host-only detail (never named by `fix`, so never shown to
+    // the model): the host's band question reads a profile's skill and dice without a second catalog read.
+    const profiles=options.map(id=>{const entry=row(catalog.get(id));return {id,name:string(entry.display_name||id),skill:string(entry.skill||''),damage:typeof entry.damage_die==='string'?entry.damage_die:null,range:typeof entry.base_range_yards==='number'?entry.base_range_yards:null};});
+    throw new RpcError('needs',`${repr(query)} is not a weapon profile in the rules tables`,{fix:'set weapon to one of details.needs.options (a weapons.json id or its display name), for an improvised weapon, keep the object name in name and choose the closest rulebook profile in weapon; later resolve.weapon uses that object name. Leave weapon out only for non-weapons',details:{needs:{field:'weapon',options,close:close.slice(0,6),profiles,source:'content/rulesets/coc7/rules-json/weapons.json'}}});
 }
 function addItem(sheet:Row,name:string,quantity:Int,turn:number,source:string|null,label:string|null,profile:Row|null):void{
     const key=normalize(name);if(!Array.isArray(sheet.equipment))sheet.equipment=[];

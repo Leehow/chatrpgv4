@@ -35,6 +35,8 @@ import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
 import { learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
+import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds } from "./band-recovery.ts";
+import type { BandResult } from "../../runtime/jev/band-recovery-domain.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
 import { startupRecord } from "../../runtime/startup-record.ts";
@@ -2846,6 +2848,89 @@ export default function (pi: ExtensionAPI) {
 		return settleStandingDefense(state, state.session, signal);
 	}
 
+	/** §138.6: one band question per person or thing per turn; a second refusal goes to the Keeper without a question. */
+	const bandRecoveries = new WeakMap<TableState, Map<string, number>>();
+	/**
+	 * Contract §138.6 (BR-02): the kernel refused `needs {field}` for a band field. Ask Jev the band question from the
+	 * kernel's own rows and the person's or the thing's material; above the gate, pin the tier as a host write under its
+	 * own minted call id (archetype) or hand back the profile for the Keeper's own effect (weapon, model-origin only:
+	 * a tracked clerk request may not change). Every outcome writes its bind row; below the gate, on a spent budget or
+	 * without Jev the refusal stands exactly as it was.
+	 */
+	async function recoverBandNeeds(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, needs: BandNeeds,
+		options: { signal?: AbortSignal; providerBudget?: TaskProviderBudget; origin: Record<string, unknown>; tracked: boolean },
+	): Promise<{ band: string; note: string; summary: Record<string, unknown> } | undefined> {
+		const began = Date.now(), env = process.env, refused = String(payload.call_id ?? "");
+		const action = (payload.action ?? {}) as Record<string, unknown>;
+		const effects = Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : [];
+		const effect = needs.index !== undefined ? effects[needs.index] : undefined;
+		const name = needs.field === "archetype" ? asString(action.target) : asString(effect?.name);
+		if (!name) return undefined;
+		if (needs.field === "archetype" && tool !== "resolve") return undefined;
+		if (needs.field === "weapon" && (tool !== "apply" || !effect || options.tracked)) return undefined;
+		let asked = bandRecoveries.get(state);
+		if (!asked) bandRecoveries.set(state, asked = new Map());
+		const key = `${needs.field}:${name.trim().toLowerCase()}`, table = BAND_TABLES[needs.field];
+		const common = { turn: state.turn, tool, field: needs.field, table, name, refused_call_id: refused, ...options.origin };
+		if (asked.get(key) === state.turn) {
+			await record({ lane: "band-recovery", ok: false, reason: "already_asked", ...common });
+			return undefined;
+		}
+		asked.set(key, state.turn);
+		const ask = { env, campaign: state.campaign, turn: state.turn, declaration: state.playerText ?? "", signal: options.signal,
+			...(options.providerBudget ? { parent: { deadlineAt: options.providerBudget.deadlineAt, signal: options.providerBudget.signal } } : {}) };
+		let result: BandResult | undefined;
+		if (needs.field === "archetype") {
+			let view: unknown = {};
+			try { view = await state.kernel.call("table.look", { campaign: state.campaign, focus: "npc", name, _context_read: true }); } catch { view = {}; }
+			result = await askBand(ask, { field: "archetype", person: { name, dossier: dossierOf(view) }, options: needs.options });
+		} else {
+			let profiles = needs.profiles ?? [];
+			if (!profiles.length) {
+				try { profiles = weaponProfilesOf(await state.kernel.call("table.lookup", { campaign: state.campaign, kind: "catalog", query: name, kinds: ["weapon"], limit: 256 })); } catch { profiles = []; }
+			}
+			const why = asString(effect!.why);
+			result = await askBand(ask, { field: "weapon", thing: { name, ...(why ? { why } : {}) }, options: needs.options, close: needs.close, profiles });
+		}
+		if (!result) {
+			await record({ lane: "band-recovery", ok: false, reason: "unconfigured", ...common });
+			return undefined;
+		}
+		const bindings = [{ name: needs.field, path: "banded", value: result.status === "decided" ? result.band : null, table,
+			...(result.status !== "decided" && result.band ? { band: result.band } : {}), confidence: result.confidence ?? null, distribution: result.distribution ?? null,
+			...(result.status === "decided" && result.family ? { family: result.family } : {}) }];
+		const cost = { jev_calls: result.calls, jev_ms: result.elapsedMs };
+		if (result.status !== "decided") {
+			await record({ lane: "run", event: "bind", clerk: "band_recovery", outcome: "keeper", cause: result.reason, bindings, ...cost, ...common });
+			await record({ lane: "band-recovery", ok: false, reason: result.reason, ...(result.confidence === undefined ? {} : { confidence: result.confidence }), ...cost, ...common });
+			return undefined;
+		}
+		let pinCallId: string | undefined;
+		if (needs.field === "archetype") {
+			pinCallId = mintCallId(state);
+			const pin = { campaign: state.campaign, call_id: pinCallId,
+				effects: [{ kind: "npc", name, archetype: result.band, why: pinWhy(name, result.band, result.confidence, ask.declaration) }] };
+			try {
+				// A pin is bookkeeping the declared check needs (§135.3): admission passes it, the Mod gates and the kernel judge it.
+				await admitAction(state, "apply", pin, options.signal, options.providerBudget, { ...options.origin, clerk: "band_recovery" });
+				if (mods) await mods.prepare("apply", pin, options.signal, options.providerBudget);
+				const written = await state.kernel.call<Record<string, unknown>>("table.apply", pin);
+				applyToolSuccess(state, "apply", `band-recovery:${pinCallId}`, written);
+				if (mods?.after) await mods.after("apply", pin, options.signal, options.providerBudget);
+			} catch (error) {
+				const cause = `pin_refused:${isKernelError(error) ? error.code : "internal"}`;
+				await record({ lane: "run", event: "bind", clerk: "band_recovery", outcome: "keeper", cause, call_id: pinCallId, bindings, ...cost, ...common });
+				await record({ lane: "band-recovery", ok: false, reason: cause, call_id: pinCallId, ...cost, ...common });
+				return undefined;
+			}
+		}
+		const pinned = pinCallId ? { call_id: pinCallId } : {};
+		await record({ lane: "run", event: "bind", clerk: "band_recovery", status: "succeeded", ...pinned, bindings, ...cost, ...common });
+		await record({ lane: "band-recovery", ok: true, band: result.band, confidence: result.confidence, ...pinned, ...cost, ms: Date.now() - began, ...common });
+		return { band: result.band, note: recoveryNote(needs.field, name, result.band, result.confidence, pinCallId),
+			summary: { field: needs.field, name, band: result.band, table, confidence: result.confidence, ...pinned } };
+	}
+
 	async function runTool(
 		spec: CocToolSpec,
 		toolCallId: string,
@@ -3025,6 +3110,18 @@ export default function (pi: ExtensionAPI) {
 					state.skillRun.diverged = true;
 					if (!state.skillRun.refusal_classes.includes("material_pending")) state.skillRun.refusal_classes.push("material_pending");
 				}
+				// §138.6: a `needs` for a band field (archetype, weapon) is the host's to answer before it is the Keeper's.
+				const band = (spec.name === "resolve" || spec.name === "apply") && isKernelError(failure) ? bandNeeds(failure) : undefined;
+				const recovered = band ? await recoverBandNeeds(state, spec.name, payload, band, { signal, providerBudget, origin, tracked: dispatcher.tracksMutation(toolCallId) }) : undefined;
+				if (recovered) {
+					if (band!.field === "weapon") (payload.effects as Array<Record<string, unknown>>)[band!.index!].weapon = recovered.band;
+					// The same identity, retried once; admission and the Mod gates run again, as after a source preparation.
+					await admitAction(state, spec.name, payload, signal, providerBudget, origin);
+					if (mods) await mods.prepare(spec.name, payload, signal, providerBudget);
+					result = (await invokeOperation()) ?? {};
+					result.band_recovery = recovered.summary;
+					result.note = recovered.note;
+				} else {
 				if (!(isKernelError(failure)) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
 				const read = { ...(failure.details.read as Record<string, unknown>), foreground: true };
 				const ownedPreparation=dispatcher.tracksMutation(toolCallId);
@@ -3061,6 +3158,7 @@ export default function (pi: ExtensionAPI) {
 					if(spec.name==='narrate'||spec.name==='ask'){prepared=again;notePrepared(state,again);}
 				}
 				result = (await invokeOperation()) ?? {};
+				}
 			}
 			if (spec.name === "recall") result = state.recallPages.accept(result);
 			// Deferred Mod bookkeeping completes after the verb that opened this turn, never before it.
@@ -3088,9 +3186,10 @@ export default function (pi: ExtensionAPI) {
 					continuations: defense.continuations, session: defense.session, pending_choice: defense.pending_choice,
 					effects: [...(Array.isArray(result.effects) ? result.effects : []), ...(Array.isArray(defense.effects) ? defense.effects : [])],
 					receipts: [...new Set([...(Array.isArray(result.receipts) ? result.receipts : []), ...(Array.isArray(defense.receipts) ? defense.receipts : [])])],
-					note: 'The attack was declared and its investigator defense settled under the standing preference. Do not ask for or repeat this defense.'};
+					// §138.6: a note the band recovery already wrote on this result stays in front of the defence's.
+					note: [result.note, 'The attack was declared and its investigator defense settled under the standing preference. Do not ask for or repeat this defense.'].filter(Boolean).join(' ')};
 				else if (result.replayed) result = {...result, session: current.session, pending_choice: current.pending_choice,
-					note: 'This is a replay of the recorded action, not a new attack. Use the current session state; do not repeat settled defenses.'};
+					note: [result.note, 'This is a replay of the recorded action, not a new attack. Use the current session state; do not repeat settled defenses.'].filter(Boolean).join(' ')};
 			}
 			if (completedCombatMove) state.combatSceneMoves.delete(completedCombatMove);
 			if (closesOpening && sessionCtx) {

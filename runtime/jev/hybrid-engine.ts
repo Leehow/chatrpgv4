@@ -389,7 +389,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const refusal = ok ? undefined : object(result.coc_error).code ?? result.code ?? packet.status;
     const {goal: _goal, method: _method, ...shown} = object(tool === 'resolve' ? args.action : {}) as Row;
     const obligation = obligationClerkLine(candidate, ok, result, packet.receipts), crossed = ok ? obligationCrossing(candidate, result, packet.receipts) : undefined;
-    const binding = defaultLine(candidate);
+    // §138.6: a `needs` the host answered inside this write (a tier pinned, a profile read) is said beside the defaults.
+    const recovery = object(result.band_recovery), bandLine = text(recovery.band)
+      ? `band: ${text(recovery.name)} ${recovery.field === 'archetype' ? 'pinned as' : 'read as the profile'} ${text(recovery.band)} (${text(recovery.table)}, confidence ${Number(recovery.confidence ?? 0).toFixed(2)}); the host answered the kernel's needs before this write. To rule otherwise, settle it with your own operation.`
+      : undefined;
+    const binding = [defaultLine(candidate), bandLine].filter((line): line is string => !!line).join(' ') || undefined;
     // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
     record({lane: 'run', event: 'bind', run: run.runId, step: invocation.stepId, candidate: candidate.key, clerk: candidate.clerk, call_id: callId, status: packet.status,
       bindings: bindRecords(candidate, extra, array(params.bindings) as BindRecord[])});

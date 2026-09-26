@@ -18951,3 +18951,63 @@ exactly as a Keeper's minutes would. `tests/extension/band-operations.test.mjs`:
 fake kernel's `band_conflict` and `band_none` reach the Keeper. `tests/kernel/test_rules_tables_register.py` drops
 `time-costs` from the unread list. Every starter's capsule, `table.apply.options` and `table.resolve.options` are
 byte-identical to the parent commit `dbc502675` (no read changes; checked in the ticket's Comments).
+
+### 138.6 The host pins a tier or a profile on the kernel's own `needs` (2026-09-26, BR-02 of `docs/specs/band-then-roll.md`; extends §138.1 and §135.4)
+
+Two kernel refusals name a band table's rows in `details.needs.options`: `needs {field: "archetype"}` (a combat or a
+check against a person the book gave no numbers, `kernel-ts/combat`) and `needs {field: "weapon"}` (an item whose
+`weapon` is no rulebook profile, `kernel-ts/apply/inventory.ts`). Until now both came back to the Keeper as one more
+model round trip whose only content was a closed choice. The kernel extension answers them first.
+
+**Where.** In the execute stage every Keeper call and every clerk call passes through (`runTool`, the same catch that
+retries a call after a source preparation), so the legacy loop and hybrid-v1 take one path. When the kernel refuses a
+`resolve` or an `apply` with such a `needs`, the host:
+
+1. reads the state the question needs — the person's own view (`table.look focus=npc`, reduced to the dossier fields
+   a tier is judged by: role, wants, fears, summary, voice, and so on, never a handle or an id) with the player's
+   declaration of the turn; or the thing's name and `why` with the profiles behind the options (the refusal now
+   carries them as host-only detail, `details.needs.profiles: [{id, name, skill, damage, range}]`, a key no `fix`
+   names and so never shown to the model; a kernel without them is read through `table.lookup kind=catalog`);
+2. asks Jev the band question (`runtime/jev/band-recovery-domain.ts`, family `band-recovery`): the tier as one
+   Choice over the options with the tier descriptors and an `unknown` exit; the profile in two levels — the weapon
+   skill family first (Choice over the families the options span, with `none`), then one Choice per family kept
+   (the best three, spec D2's beam) over that family's profiles with `none`; the pinned profile is the best
+   family-weighted answer and its confidence is the weakest of the two judgments, never their product;
+3. above the table's gate (`PI_COC_BAND_MIN_CONFIDENCE` in (0, 1], default 0.5 for both tables until the bind
+   rows calibrate them; the cap `PI_COC_BAND_JEV_TIMEOUT_MS`, default 4000): for a tier, writes `apply npc {name,
+   archetype, why}` as a host operation under a call id minted from the one ordinal (§135.4; a self-made id is
+   refused), its `why` composed by code from the answer and the player's words (§135.28), through admission (a
+   pin is bookkeeping the declared check needs, §135.3: the batch has no triggering kind), the Mod gates and the
+   kernel, which rolls the tier once (§34.10); for a profile, sets the one field of the Keeper's own effect; then
+   retries the refused call once under its own identity (same `call_id`, admission and Mod gates run again);
+4. writes the §135.28 bind row — `lane: "run"`, `event: "bind"`, `clerk: "band_recovery"`, `status: "succeeded"`
+   or `outcome: "keeper"` with its `cause`, `bindings: [{name, path: "banded", value, table, confidence,
+   distribution, family?}]`, the pin's `call_id`, the `refused_call_id` — and one `lane: "band-recovery"` row with
+   `ok` and `reason`, so `kpi.py`'s lanes section counts it; nothing is written for a question never asked
+   (`unconfigured`: no key).
+
+The Keeper sees the retried result with `band_recovery: {field, name, band, table, confidence, call_id?}` and a
+`note` (Keeper-only, system language): "The host pinned <name>'s stat block as <tier> before this call ran ...; to
+rule otherwise, settle it with your own apply npc" / "The host read <thing> as the rulebook profile <id> ... and this
+call ran with it". The standing-defence and replay notes follow it rather than replace it. On hybrid-v1 the
+`coc-clerk` note's `clerk_did[].binding` gains the same line for a clerk write recovered this way.
+
+**Boundaries.** One question per person or thing per turn: the second refusal for the same name goes to the Keeper
+without a question (`reason: "already_asked"`). One retry, never a loop. Below the gate, on `unknown` or `none`, on
+a spent lease, with Jev unavailable or unconfigured, or when the pin itself is refused (`pin_refused:<code>`), the
+Keeper sees the original refusal byte for byte and the bind row says why. A profile is set only on a model-origin
+call: a tracked clerk request may not change after it was prepared (`operation_prepared_request_changed`), so a
+clerk item write with a wrong profile stays refused and is the Keeper's. A tier is pinned for the `target` of a
+`resolve` only; a `needs archetype` from any other shape is the Keeper's.
+
+**kpi.** `tests/play/kpi.py` gains `basis`: receipts by `basis` per kind from the turn records, and `pins` — archetype
+tiers and weapon profiles split into `banded` (a `band_recovery` bind row names the call) and `keeper`.
+
+**Tests.** `tests/extension/jev-band-recovery-domain.test.mjs` (the questions over a stub port: rows as criteria with
+their descriptors and an exit on every question; the tier's exits; the family beam, the weakest confidence, an answer
+outside its family never pinned); `tests/extension/band-recovery.test.mjs` (the extension over the fake kernel with a
+controlled typed endpoint: the pin under `t1-c2` and the retry under `t1-c1`; the note; the bind rows; below the gate,
+`unknown`, the same person twice, no key; the profile in two levels under the same call id; `none`);
+`tests/play/test_kpi.py` (the basis section). The fake kernel refuses an unpinned person (`FAKE_KERNEL_UNPINNED`) and a
+wrong profile against its own table (`FAKE_KERNEL_WEAPON_PROFILES`), accepts the pin, and answers `look focus=npc`
+with the person's row.

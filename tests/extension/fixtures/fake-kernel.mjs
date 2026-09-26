@@ -351,6 +351,11 @@ function capsule(playerText, params = {}) {
  * - push 为 true：推骰结果
  * - 其余：切片 0 的普通检定
  */
+/** Contract §138.6 fixtures: people the book gave no numbers, and the weapon table a `needs weapon` refusal lists. */
+const UNPINNED = process.env.FAKE_KERNEL_UNPINNED ? JSON.parse(process.env.FAKE_KERNEL_UNPINNED) : [];
+const WEAPON_PROFILES = process.env.FAKE_KERNEL_WEAPON_PROFILES ? JSON.parse(process.env.FAKE_KERNEL_WEAPON_PROFILES) : [];
+const pinnedArchetypes = new Map();
+
 function resolve(params) {
 	const action = params.action ?? {};
 	if (typeof action.goal === "string" && action.goal.includes("歧义") && !action.decision) {
@@ -366,6 +371,19 @@ function resolve(params) {
 						{ name: "psychology:observe-concealed", when: "想读出他藏着的情绪，失败会被他察觉" },
 					],
 				},
+			},
+		};
+	}
+	// Contract §138.6: a person the book gave no numbers cannot be fought until a tier is pinned (the real kernel's
+	// `combat/index.ts`); FAKE_KERNEL_UNPINNED names them.
+	if (action.intent === "combat" && !action.defense && typeof action.target === "string" && UNPINNED.includes(action.target) && !pinnedArchetypes.has(action.target)) {
+		return {
+			ok: false,
+			error: {
+				code: "needs",
+				message: `${action.target} has no stat block in the module`,
+				fix: "pin a stat block first: apply npc with archetype (one of details.needs.options, chosen from who this person is — ordinary_adult, capable_adult or dangerous_actor), then resolve again",
+				details: { needs: { field: "archetype", options: ["ordinary_adult", "capable_adult", "dangerous_actor"], fightable: [] } },
 			},
 		};
 	}
@@ -883,9 +901,17 @@ function handle(method, params) {
 			if (process.env.FAKE_KERNEL_LOOK_MAPS) {
 				return { ok: true, result: { map_views: JSON.parse(process.env.FAKE_KERNEL_LOOK_MAPS) } };
 			}
+			// Contract §138.6: the person's own view, which the host's tier question reads; the present row stands in for it.
+			if (params.focus === "npc" && typeof params.name === "string") {
+				const person = capsule(null).present.find((row) => row.name === params.name);
+				return person ? { ok: true, result: { ...person } } : { ok: false, error: { code: "unknown_entity", message: `${params.name} is not on stage` } };
+			}
 			return { ok: true, result: { where: capsule(null).where, present: capsule(null).present } };
 		case "table.lookup":
 			if (state === "open") state = "acting";
+			// Contract §138.6: the weapon profiles behind a `needs weapon` refusal, as the real catalog projects them.
+			if (params.kind === "catalog") return { ok: true, result: { records: WEAPON_PROFILES.map((profile) => ({ kind: "weapon", entity_id: profile.id, name: profile.name,
+				table: "weapons.json", summary: { skill: profile.skill, damage_die: profile.damage }, params: { skill: profile.skill, damage_die: profile.damage, base_range_yards: profile.range ?? null } })) } };
 			return { ok: true, result: { entities: [{ name: params.query ?? "科比特", display_name: params.query ?? "科比特",
 				kind: params.expected_kind ?? "npc", summary: params.expected_kind === 'scene' ? `Registered scene ${params.query}` : "旧主人" }] } };
 		case "table.recall":
@@ -908,6 +934,14 @@ function handle(method, params) {
 				const effect = effects[index];
 				if (effect.kind === "item" && !effect.name) {
 					return { ok: false, error: { code: "invalid_params", message: "item 要物品名", details: { index } } };
+				}
+				// Contract §138.6: a weapon that is no rulebook profile is refused with the era's profile ids (the real
+				// kernel's `apply/inventory.ts`); FAKE_KERNEL_WEAPON_PROFILES names the fixture's table.
+				if (effect.kind === "item" && effect.weapon != null && WEAPON_PROFILES.length && !WEAPON_PROFILES.some((profile) => profile.id === effect.weapon)) {
+					return { ok: false, error: { code: "needs", message: `${JSON.stringify(effect.weapon)} is not a weapon profile in the rules tables`,
+						fix: "set weapon to one of details.needs.options (a weapons.json id or its display name), for an improvised weapon, keep the object name in name and choose the closest rulebook profile in weapon",
+						details: { index, needs: { field: "weapon", options: WEAPON_PROFILES.map((profile) => profile.id), close: WEAPON_PROFILES.slice(0, 2).map((profile) => profile.id),
+							profiles: WEAPON_PROFILES.map((profile) => ({ id: profile.id, name: profile.name, skill: profile.skill, damage: profile.damage ?? null, range: profile.range ?? null })), source: "content/rulesets/coc7/rules-json/weapons.json" } } } };
 				}
 				// Contract §136.22: the book's amount or the Keeper's own, never both.
 				const amounts = { damage: ["dice"], time: ["minutes"], threat: ["name", "clock", "segments"], flag: ["name", "value"], cash: ["delta", "currency"] }[effect.kind];
@@ -942,6 +976,8 @@ function handle(method, params) {
 			// lines and looks for no number in the prose: the prose is the Keeper's, and the front end
 			// and the driver read this JSON.
 			for (const effect of effects) {
+				// Contract §138.6: a pinned archetype makes the person fightable from here on (the real kernel rolls the tier).
+				if (effect.kind === "npc" && typeof effect.archetype === "string") pinnedArchetypes.set(effect.name, effect.archetype);
 				if (effect.kind === "item") {
 					const quantity = typeof effect.quantity === "number" ? effect.quantity : 1;
 					mechanic(
