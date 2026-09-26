@@ -36,6 +36,13 @@ const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value
  * of another parameter of the same candidate (the approach per actor when the actor is itself still to bind).
  */
 export interface RuleDefault {rule: 'highest_offered_skill' | 'no_modifier'; value?: string; by?: {name: string; values: Record<string, string>}}
+/**
+ * §138.10: a closed parameter whose vocabulary is the rows of a band table (§138.2): the value the clerk writes is the
+ * row's handle and the kernel rolls the number. Its gate is the table's own (`PI_COC_BAND_MIN_CONFIDENCE`), never the
+ * run's route gate; a Score band (an ordered ladder) is asked by level and read back as the argmax row. A band has no
+ * rules default (spec D4): below its gate the candidate is the Keeper's.
+ */
+export interface BandParameter {table: string; field: string; primitive: 'choice' | 'score'; gate?: number}
 /** closed: the host can issue the complete vocabulary; open: only a language model can produce the value. */
 export interface Unbound {name: string; required: boolean; vocabulary: 'closed' | 'open'; options?: string[]; binder?: 'ordinary-resolve';
   /** What each closed option means, from the contract or the kernel row that issued it (the bind's criteria). */
@@ -43,7 +50,9 @@ export interface Unbound {name: string; required: boolean; vocabulary: 'closed' 
   /** The bind question's own instruction, when the generic one (the player's declaration, else the actor's choice) does not fit. */
   instruction?: string;
   /** §135.28: what the parameter is when Jev does not bind it. Absent: no default (a target, a weapon, an actor): the Keeper's. */
-  ruleDefault?: RuleDefault}
+  ruleDefault?: RuleDefault;
+  /** §138.10: the band table this parameter names a row of; bound `banded`, gated by the table. */
+  band?: BandParameter}
 /** How one parameter of a clerk step got its value (contract §135.28, §138): the five ways, none of them a model call. */
 export type BindingPath = 'jev' | 'rule-default' | 'stated' | 'composed' | 'banded';
 /**
@@ -66,10 +75,14 @@ export interface CandidateVariant {label: string; bound: Record<string, Json>; u
  * - `disposition_inference`: writing the combat disposition Jev inferred, once per campaign, for an NPC whose turn
  *   has come and who has none (the ruling "An NPC's fight behaviour follows the NPC's own parameters"; §11.5.3);
  * - `stated_obligation` (e): the next step of a scene obligation the module states, as the kernel issues it
- *   (`table.apply.options.obligations`; contract §135.26): its meeting, or its check with a closed approach binder.
+ *   (`table.apply.options.obligations`; contract §135.26): its meeting, or its check with a closed approach binder;
+ * - `declared_time` (f, §138.10): the time the player's own declared action takes, as a row of the time-costs table the
+ *   kernel rolls inside (never a road's time, which the move carries; never inside a session, whose time is rounds);
+ * - `stated_hazard` (g, §138.10): the harm a book-stated step this turn reached leaves unstated
+ *   (`table.apply.options.unstated_damage`), as a rung of the severity ladder the kernel rolls.
  * Fetching data (d) is the read step itself, not a candidate. Everything else is the Keeper's.
  */
-export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step', 'disposition_inference', 'stated_obligation'] as const;
+export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step', 'disposition_inference', 'stated_obligation', 'declared_time', 'stated_hazard'] as const;
 export type ClerkAuthority = typeof CLERK_AUTHORITY[number];
 /** A host-issued step candidate (design §5.1): what the host can perform now, and what it still needs. */
 export interface Candidate {
@@ -119,6 +132,8 @@ export function bindingOf(candidate: Candidate): Binding {
 }
 
 export const ROUTE_FAMILY = 'single-loop-route';
+/** §138.10: the one time-band candidate of a run, keyed without the band (consumed once time is charged, by anyone). */
+export const TIME_CANDIDATE_KEY = 'apply:time:declared';
 export const BIND_FAMILY = 'single-loop-bind';
 /** The fixed exits every route question carries after the host-issued candidates. */
 export const EXITS = ['ask_llm', 'read_more', 'finish', 'none_of_above'] as const;
@@ -278,7 +293,9 @@ const clears = (result: DecisionResult | undefined, key: string, choice: string,
  * impression before its demand) and before an ordinary check. This ranks families the host already knows; it
  * never reads prose.
  */
-const PRECEDENCE: Record<string, number> = {person: 0, mod_check: 1, obligation_check: 2, 'core-check': 3, clue: 4, handout: 4, move: 5};
+const PRECEDENCE: Record<string, number> = {person: 0, mod_check: 1, obligation_check: 2, 'core-check': 3, clue: 4, handout: 4, move: 5,
+  // §138.10: the declared action's time last, so its bind is judged with everything the turn settled in front of it.
+  time: 6};
 const rank = (candidate: Candidate): number => PRECEDENCE[candidate.family] ?? PRECEDENCE['core-check'];
 
 /**
@@ -378,11 +395,17 @@ export function bindBatch(view: RunView, candidate: Candidate, scope: ScopeBindi
     now: {scene: view.context.scene, present: view.context.present}, done_this_turn: doneThisTurn(view),
     chosen: candidateView(candidate), policy: ROUTE_POLICY} as Json;
   return {id: digest([BIND_FAMILY, view.runId, view.observations.length, state]), model: JEV_MODEL, family: BIND_FAMILY, familyVersion: '1',
-    scope, readSet, state, questions: closed.map(value => ({key: value.name, target: `${value.name} of the chosen operation`, type: 'choice' as const,
+    scope, readSet, state, questions: closed.map(value => value.band?.primitive === 'score'
+      // §138.10: an ordered ladder is a Score over its rows in the table's order, lowest first; the answer is read back as the argmax row.
+      ? {key: value.name, target: `${value.name} of the chosen operation`, type: 'score' as const,
+        instructions: value.instruction ?? `Rate the ${value.name} of the chosen operation on the ladder given, from the lowest level to the highest.`,
+        criteria: value.options!.map(option => value.descriptions?.[option] ?? option)}
+      : {key: value.name, target: `${value.name} of the chosen operation`, type: 'choice' as const,
       instructions: value.instruction ?? `Select the ${value.name} of the chosen operation. When the player's input declares it, select that. When it is the own choice of `
         + `the person acting in the chosen operation (an NPC's defence or action), select the option that fits that person in the current situation `
         + `shown in the chosen operation's detail. Choose unknown when it cannot be told.`,
-      criteria: {...Object.fromEntries(value.options!.map(option => [option, value.descriptions?.[option] ?? option])), unknown: 'Cannot be determined from the supplied state.'}}))};
+      criteria: {...Object.fromEntries(value.options!.map(option => [option, value.descriptions?.[option] ?? option])),
+        unknown: value.descriptions?.unknown ?? 'Cannot be determined from the supplied state.'}})};
 }
 
 /**
@@ -415,6 +438,20 @@ export function interpretBind(candidate: Candidate, batch: DecisionBatch, result
 
 /** The closed parameters a bind settles: required, closed, with the options the kernel issued. */
 const closedParameters = (candidate: Candidate): Unbound[] => candidate.unbound.filter(value => value.required && value.vocabulary === 'closed' && value.options?.length && !value.binder);
+/**
+ * A bind answer as a choice among the parameter's options: a Choice's own, or a Score's argmax level read back as the
+ * row at that index (the first in the table's order on a tie), with the distribution keyed by row (§138.10).
+ */
+function boundAnswer(result: DecisionResult | undefined, parameter: Unbound): {choice?: string; confidence?: number; distribution: Record<string, number> | null} {
+  const answered = result?.status === 'complete' ? result.answers?.[parameter.name] : undefined;
+  if (!answered || answered.status !== 'answered') return {distribution: null};
+  if (answered.type === 'choice') return {choice: answered.choice, confidence: answered.confidence, distribution: answered.probabilities ?? null};
+  if (answered.type !== 'score') return {distribution: null};
+  const options = parameter.options ?? [], distribution = Object.fromEntries(options.map((option, index) => [option, answered.probabilities?.[String(index)] ?? 0]));
+  let best: string | undefined, top = -Infinity;
+  for (const option of options) if (distribution[option] > top) { best = option; top = distribution[option]; }
+  return {choice: best, confidence: answered.confidence, distribution};
+}
 /** A rules default for one parameter, given the values bound so far (a `by` default reads the parameter it depends on). */
 function ruleDefaultOf(parameter: Unbound, candidate: Candidate, extra: Record<string, Json>): string | undefined {
   const rule = parameter.ruleDefault;
@@ -434,18 +471,18 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
   const extra: Record<string, Json> = {}, bindings: BindRecord[] = [], later: Unbound[] = [];
   let lowest = 1, cause = complete ? '' : 'jev_unavailable';
   for (const parameter of closedParameters(candidate)) {
-    const answered = complete ? result!.answers?.[parameter.name] : undefined;
-    const {choice, confidence} = answerOf(result, parameter.name);
-    const distribution = answered?.status === 'answered' && answered.type === 'choice' ? answered.probabilities ?? null : null;
-    if (choice && choice !== 'unknown' && parameter.options!.includes(choice) && (confidence === undefined || confidence >= gate)) {
+    const {choice, confidence, distribution} = boundAnswer(result, parameter);
+    // §138.10: a band is bound `banded`, named with its table, and gated by the table's own gate, never the run's.
+    const band = parameter.band, path: BindingPath = band ? 'banded' : 'jev', table = band ? {table: band.table} : {};
+    if (choice && choice !== 'unknown' && parameter.options!.includes(choice) && (confidence === undefined || confidence >= (band?.gate ?? gate))) {
       extra[parameter.name] = choice; lowest = Math.min(lowest, confidence ?? 1);
-      bindings.push({name: parameter.name, path: 'jev', value: choice, confidence: confidence ?? null, distribution});
+      bindings.push({name: parameter.name, path, value: choice, confidence: confidence ?? null, distribution, ...table, ...(band ? {band: choice} : {})});
       continue;
     }
     if (!cause) cause = !choice || choice === 'unknown' ? 'unknown_binding' : 'low_confidence';
     later.push(parameter);
     // The Jev answer that did not clear stays on record beside the default that replaced it.
-    if (complete) bindings.push({name: parameter.name, path: 'jev', value: null, confidence: confidence ?? null, distribution});
+    if (complete) bindings.push({name: parameter.name, path, value: null, confidence: confidence ?? null, distribution, ...table});
   }
   const defaults: Record<string, Json> = {}, unresolved: string[] = [];
   for (const parameter of later) {
@@ -666,7 +703,9 @@ export function consumedByEffects(effects: Row[] | undefined): string[] {
   const keys: string[] = [];
   for (const effect of effects ?? []) {
     const key = effect?.kind === 'move' ? `apply:move:${effect.to}` : effect?.kind === 'person' ? `apply:person:${effect.who}`
-      : effect?.kind === 'clue' ? `apply:clue:${effect.clue}` : effect?.kind === 'handout' ? `apply:handout:${effect.name}` : undefined;
+      : effect?.kind === 'clue' ? `apply:clue:${effect.clue}` : effect?.kind === 'handout' ? `apply:handout:${effect.name}`
+        // §138.10: the Keeper's own time charges the declared action's time; the clerk's band is not offered after it.
+        : effect?.kind === 'time' ? TIME_CANDIDATE_KEY : undefined;
     if (key) keys.push(key);
   }
   return keys;

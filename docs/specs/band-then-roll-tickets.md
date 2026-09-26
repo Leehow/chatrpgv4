@@ -143,7 +143,7 @@ overwrite); the default replaced by a roll; each caught.
 
 ## BR-06 — Execute time and damage bands as clerk writes
 
-Status: ready-for-agent (the owner lifted the three rulings on 2026-09-26, recorded in the spec's Further Notes)
+Status: ready-for-human (implemented 2026-09-26 on `claude/br06-band-clerk-20260926`; contract §138.10; see Comments)
 Depends on: BR-01 (merged), BR-05 (a move carries its road's time before a time band is offered), BR-04's shadow
 rows (the gates are calibrated from them, not guessed).
 
@@ -153,8 +153,19 @@ turn reached (§136.20); both bind `banded` and run direct above the gate; below
 contract amends §135.3's clerk authority list and §136.24 by a new section. If ruled no, close this ticket
 `wontfix` and leave the shadow lane running as the measurement.
 
-**Acceptance (to be written with the ruling).** The loop's bind rows and receipts; the turn-3 and fight
-replays' LLM step counts before and after; a live gate.
+**Acceptance.**
+- The single loop issues one `apply:time:declared` candidate per run outside a session, from the kernel's own
+  `rules.bands` rows without the road rows; its route question is a fact about the declaration (does it cost table
+  time), its bind is the shadow lane's own time question, and above the table's gate the clerk writes
+  `apply time {band, why}`; the receipt lands `basis: banded` with the kernel's roll, the `lane: "run"` bind row
+  carries `{path: "banded", table, band, confidence, distribution, roll}`, and the Keeper's note carries the line.
+- The kernel issues `table.apply.options.unstated_damage` for a stated step this turn reached whose damage the page
+  leaves unstated (the roll's actor, the level, the book line), until harm on that actor lands; the loop turns it into
+  a forced `apply:damage:<rule>:<actor>` candidate bound to a severity rung by the shadow's Score.
+- Below the table's gate, on `unknown`, without Jev or past the budget the candidate is the Keeper's
+  (`left_to_you`), never an `infer(bind)`; a stated dice never reaches the clerk (P6); a road's time never does.
+- The gates are `PI_COC_BAND_MIN_CONFIDENCE`'s placeholder (0.5) until the shadow's rows say otherwise; the
+  turn-3 replay's LLM step count with and without the branch is recorded under Comments.
 
 ## Comments
 

@@ -16,8 +16,10 @@ import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts'
 export const BAND_RECOVERY_FAMILY = 'band-recovery';
 export const BAND_RECOVERY_VERSION = '1';
 export type BandField = 'archetype' | 'weapon';
+/** The band tables a gate is configured for: the two `needs` recoveries (§138.6) and the two clerk bands (§138.10). */
+export type BandGateField = BandField | 'time' | 'damage';
 /** Placeholders until the bind rows exist (spec D4, Further Notes): low enough to measure, one per band table. */
-export const BAND_DEFAULT_MIN_CONFIDENCE: Readonly<Record<BandField, number>> = Object.freeze({archetype: 0.5, weapon: 0.5});
+export const BAND_DEFAULT_MIN_CONFIDENCE: Readonly<Record<BandGateField, number>> = Object.freeze({archetype: 0.5, weapon: 0.5, time: 0.5, damage: 0.5});
 /** How many skill families the profile question keeps from the first level (the skill's beam: 3 beats greedy). */
 export const WEAPON_FAMILY_BEAM = 3;
 

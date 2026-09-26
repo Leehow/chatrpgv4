@@ -169,6 +169,9 @@ function shapes(clerk) {
 			variants: { "d:attack": { label: "attack", bound: { decision: "d:attack" }, unbound: [{ name: "target", required: true, vocabulary: "closed", options: ["a", "b"] }] },
 				"d:maneuver": { label: "maneuver", bound: { decision: "d:maneuver" }, unbound: [{ name: "goal", required: true, vocabulary: "open" }] } } },
 		{ ...base, key: `${clerk}:carried`, unbound: [{ name: "goal", required: true, vocabulary: "open" }], before: { ...base, key: `${clerk}:before`, unbound: [{ name: "name", required: true, vocabulary: "open" }] } },
+		// §138.10: a band row (a Choice with the table's gate) and a ladder rung (a Score), neither with a rules default.
+		{ ...base, key: `${clerk}:banded`, unbound: [{ name: "band", required: true, vocabulary: "closed", options: ["a", "b"], band: { table: "t", field: "x.band", primitive: "choice", gate: 0.5 } }] },
+		{ ...base, key: `${clerk}:ladder`, unbound: [{ name: "band", required: true, vocabulary: "closed", options: ["a", "b"], band: { table: "t", field: "x.band", primitive: "score" } }], forced: true },
 	];
 }
 const inferBind = (items) => items.filter((item) => item.kind === "infer" && item.purpose === "bind");
@@ -180,6 +183,9 @@ test("§135.28 structure: no transition of the policy turns a clerk candidate in
 		answer({ target: ["a", 0.3], skill: ["A", 0.3], decision: ["d:attack", 0.3] }),
 		answer({ target: ["a", 0.9], skill: ["A", 0.9], decision: ["d:maneuver", 0.9] }),
 		answer({ target: ["unknown", 0.9], skill: ["A", 0.9], decision: ["d:attack", 0.9] }),
+		answer({ band: ["a", 0.55] }),
+		answer({ band: ["unknown", 0.9] }),
+		{ batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] }, answers: { band: { status: "answered", type: "score", score: 0.7, confidence: 0.4, legend: {}, probabilities: { 0: 0.3, 1: 0.7 } } } },
 	];
 	const dispositions = ["ordinary", "no_roll", "needs_player", "incumbent", "unknown", "unavailable"];
 	let checked = 0;

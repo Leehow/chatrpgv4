@@ -43,7 +43,10 @@ import { bindingOf, CLERK_TYPE, customMessage, PRESCREEN_TYPE, type ContextBindi
 import { prepareKeeperSupport, prescreenEnabled } from '../../extensions/table/prescreen.ts';
 import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev/agent/config.js';
 import type { HostOperationContext, OperationIdentity } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
-import { buildCandidates, keeperCall } from './candidates.ts';
+import { buildCandidates, keeperCall, type BandReads } from './candidates.ts';
+import { SHADOW_FIELDS, type DamageBandRow, type TimeBandRow } from './band-shadow-domain.ts';
+import { readBandRows } from '../../extensions/kernel/band-shadow.ts';
+import { bandMinConfidence } from '../../extensions/kernel/band-recovery.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import {
@@ -96,6 +99,34 @@ const DELIVERY_VERBS: Readonly<Record<string, 'accepted' | 'awaiting_player'>> =
 const WRITE_VERBS = new Set(['apply', 'resolve']);
 /** The prescreen packet's byte ceiling (the same cap the context hook's own prescreen used). */
 const PRESCREEN_BYTES = 16 * 1024;
+
+/** §138.10: the kernel's roll inside a band, as the clerk's note says it: minutes inside the row, or a total on the dice. */
+function rollText(roll: Row): string {
+  return roll.min !== undefined && roll.max !== undefined ? `${roll.total} minutes inside ${roll.min}-${roll.max}` : `${roll.total} on ${text(roll.expression) || 'the rung\'s dice'}`;
+}
+/**
+ * §138.10: the kernel's roll inside the band the clerk named, read back from the turn's receipts onto the bind record:
+ * the time receipt's `band_roll`, the damage roll receipt's expression and total. A record whose roll no receipt shows
+ * keeps its band without one.
+ */
+export function bandRolls(bindings: BindRecord[], receiptIds: readonly string[], receipts: readonly Row[]): BindRecord[] {
+  const minted = receipts.filter(receipt => receiptIds.includes(text(receipt.id)));
+  return bindings.map(entry => {
+    if (entry.path !== 'banded' || entry.value === null) return entry;
+    const receipt = minted.find(row => text(row.band) === String(entry.value) && (row.band_roll || row.kind === 'roll'));
+    const roll = receipt?.band_roll ? object(receipt.band_roll) : receipt?.kind === 'roll' ? {expression: receipt.expression ?? null, total: receipt.total ?? null} : undefined;
+    return roll ? {...entry, roll: roll as Json} : entry;
+  });
+}
+/** The Keeper's line for a clerk write that landed a band (§138.10), or none. */
+function bandedLine(candidate: Candidate, bindings: BindRecord[]): string | undefined {
+  const lines = bindings.filter(entry => entry.path === 'banded' && entry.value !== null).map(entry =>
+    `band: ${entry.name} ${String(entry.value)} (${entry.table ?? 'band'}, confidence ${Number(entry.confidence ?? 0).toFixed(2)})`
+    + (entry.roll ? `, the kernel rolled ${rollText(object(entry.roll))}` : '')
+    + (candidate.clerk === 'stated_hazard' ? '; the host read the stated harm\'s severity as this rung.' : '; the host read the player\'s declared action as this row.')
+    + ' To rule otherwise, settle it with your own operation.');
+  return lines.join(' ') || undefined;
+}
 
 export function emptyTurnContext(): TurnContext {
   return {scene: '', clock: null, present: [], receipts: []};
@@ -230,13 +261,26 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (!bridge?.call || !bridge.campaign) throw new Error('kernel_bridge_unavailable');
     return object(await bridge.call(method, {campaign: bridge.campaign, ...params}));
   };
-  const quiet = async (method: string) => {
-    try { return await call(method); } catch (error) { record({lane: 'run', event: 'read_failed', method, error: String((error as Error).message).slice(0, 200)}); return {}; }
+  const quiet = async (method: string, params: Record<string, unknown> = {}) => {
+    try { return await call(method, params); } catch (error) { record({lane: 'run', event: 'read_failed', method, error: String((error as Error).message).slice(0, 200)}); return {}; }
   };
+  /**
+   * §138.10: the two band tables' rows, read once per engine from `rules.bands` (they are the rules', not the campaign's);
+   * a read that failed or came back unusable is not kept, so the next read tries again. The gates ride beside them.
+   */
+  const bandRows: {time?: TimeBandRow[]; damage?: DamageBandRow[]} = {};
+  async function bandReads(): Promise<BandReads> {
+    for (const kind of ['time', 'damage'] as const) {
+      if (bandRows[kind]) continue;
+      const read = readBandRows(kind, await quiet('rules.bands', {field: SHADOW_FIELDS[kind]}));
+      if (read?.kind === 'time') bandRows.time = read.rows; else if (read?.kind === 'damage') bandRows.damage = read.rows;
+    }
+    return {...bandRows, gates: {time: bandMinConfidence(options.env as NodeJS.ProcessEnv, 'time'), damage: bandMinConfidence(options.env as NodeJS.ProcessEnv, 'damage')}};
+  }
 
   /** The kernel reads a step needs and the candidates they issue. Read-only. */
   async function tableReads(run: RunState): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]}> {
-    const [capsule, status, applyOptions, resolveOptions] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options')]);
+    const [capsule, status, applyOptions, resolveOptions, bands] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options'), bandReads()]);
     const table = readTable(capsule, status);
     run.fight = object(object(resolveOptions.context).session ?? object(capsule.where).session);
     // §11.5.3: an NPC's turn without a standing action reads that NPC's card, which says whether a disposition is
@@ -247,9 +291,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // The pending choice this input answers is the one open when the run began (§135.2); one opened later is the Keeper's.
     run.answering ??= [text(object(object(resolveOptions.context).pending_choice).name), text(object(object(capsule.turn).pending_choice).name)].filter(Boolean);
     return {capsule, status, table,
-      candidates: () => buildCandidates({capsule, applyOptions, resolveOptions, located: run.located, answering: run.answering, ...(fighter ? {fighter} : {})}, run.rawInput)};
+      candidates: () => buildCandidates({capsule, applyOptions, resolveOptions, located: run.located, answering: run.answering, bands, ...(fighter ? {fighter} : {})}, run.rawInput)};
   }
-  const freshOf = (run: RunState) => tableReads(run).then(read => ({context: read.table.context, candidates: read.candidates()}), () => undefined);
+  /** The fresh read after a write: the context and candidates the policy folds in, and the turn's receipts as rows (§138.10). */
+  const freshOf = (run: RunState) => tableReads(run).then(read => ({fresh: {context: read.table.context, candidates: read.candidates()}, receipts: array(read.status.receipts) as Row[]}), () => undefined);
 
   function makePorts(run: RunState): RunDriverPorts {
     return {
@@ -336,7 +381,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const delivery = !toolResult.isError ? DELIVERY_VERBS[proposal.operation] : undefined;
     const fell = toolResult.isError ? `${proposal.operation}_refused` : proposal.operation === 'resolve' && failedCheck(toolResult.details) ? 'check_failed' : undefined;
     if (fell) { batch.fell = fell; batch.fellAt = proposal.toolCall?.id; }
-    const fresh = !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? await freshOf(run) : undefined;
+    const fresh = !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? (await freshOf(run))?.fresh : undefined;
     return {status: toolResult.isError ? 'refused' as const : 'ok' as const, toolResult, ...(delivery ? {delivery} : {}),
       artifact: {kind: 'execute', executed: {ok: !toolResult.isError, summary: {tool: proposal.operation}}, ...(fresh ? {fresh} : {}), ...(fell ? {fell} : {})}};
   }
@@ -393,18 +438,19 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const recovery = object(result.band_recovery), bandLine = text(recovery.band)
       ? `band: ${text(recovery.name)} ${recovery.field === 'archetype' ? 'pinned as' : 'read as the profile'} ${text(recovery.band)} (${text(recovery.table)}, confidence ${Number(recovery.confidence ?? 0).toFixed(2)}); the host answered the kernel's needs before this write. To rule otherwise, settle it with your own operation.`
       : undefined;
-    const binding = [defaultLine(candidate), bandLine].filter((line): line is string => !!line).join(' ') || undefined;
-    // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
-    record({lane: 'run', event: 'bind', run: run.runId, step: invocation.stepId, candidate: candidate.key, clerk: candidate.clerk, call_id: callId, status: packet.status,
-      bindings: bindRecords(candidate, extra, array(params.bindings) as BindRecord[])});
+    const read = await freshOf(run);
+    // §138.10: a band the clerk named carries the kernel's roll on its record, read back from the turn's receipts.
+    const bindings = bandRolls(bindRecords(candidate, extra, array(params.bindings) as BindRecord[]), ok ? packet.receipts : [], read?.receipts ?? []);
+    const binding = [defaultLine(candidate), bandLine, bandedLine(candidate, bindings)].filter((line): line is string => !!line).join(' ') || undefined;
+    // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed, banded); none was a model call.
+    record({lane: 'run', event: 'bind', run: run.runId, step: invocation.stepId, candidate: candidate.key, clerk: candidate.clerk, call_id: callId, status: packet.status, bindings});
     run.clerkDid.push({step: invocation.stepId, operation: tool, label: candidate.label, clerk: candidate.clerk, call_id: callId, status: packet.status,
       receipts: packet.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
       result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null, ...(result.obligation ? {obligation: result.obligation} : {})} : {effects: args.effects}) as Json,
       ...(obligation ? {obligation} : {}), ...(crossed ? {obligation_open: crossed} : {}), ...(binding ? {binding} : {})});
-    const read = await freshOf(run);
     return {status: ok ? 'ok' as const : 'refused' as const, ...(ok ? {} : {reason: String(refusal)}),
       artifact: {kind: 'execute', executed: {ok, summary: {origin: 'policy', tool, call_id: callId, status: packet.status, receipts: packet.receipts,
-        clerk: candidate.clerk ?? null, basis: candidate.basis ?? null, ...(ok ? {} : {refusal: String(refusal)})} as Json}, ...(read ? {fresh: read} : {})}};
+        clerk: candidate.clerk ?? null, basis: candidate.basis ?? null, ...(ok ? {} : {refusal: String(refusal)})} as Json}, ...(read ? {fresh: read.fresh} : {})}};
   }
 
   /**

@@ -19338,3 +19338,83 @@ reprojection diff and allows them in the-haunting's pre-RD-04 diff, on `route-to
 `table.capsule`, `table.apply.options` and `table.resolve.options` at the start scene and after one move are identical to
 the parent commit's except the exits' travel minutes in their two projections and the three digests that fold the
 graph's bytes (checked in the ticket's Comments).
+
+### 138.10 The clerk lands a banded time and a banded hazard damage (2026-09-26, BR-06 of `docs/specs/band-then-roll.md`; amends §135.3, §136.24 and §135.28's precedence in §138.1; extends §138.8's questions and §5's `table.apply.options`)
+
+The owner lifted the three consequence rulings on 2026-09-26 (the spec's Further Notes): the clerk may land the banded
+time of the player's own declared action, and the banded damage of a book-stated step whose amount the book leaves
+unstated, when the rung clears its gate. This section is that amendment. It changes nothing about how a band is rolled
+(§138.3) or measured (§138.8): the questions the clerk asks are the shadow lane's own, so the shadow's rows are the
+clerk's calibration.
+
+**§135.3 amended.** `CLERK_AUTHORITY` gains two entries. `declared_time` (f): the time the player's own declared action
+takes, as a row of the time-costs table the kernel rolls inside; never a road's time (the move carries it, §138.9), never
+inside a combat or chase session (its time is rounds), never after the turn already holds a `time` receipt (the Keeper's
+own, a stated cost, a clerk's earlier band: time is charged once a turn). `stated_hazard` (g): the harm a book-stated
+step this turn reached leaves unstated, as a rung of the severity ladder the kernel rolls. §135.3's "consequences
+(damage, sanity, cash beyond what was declared)" are boss-only **except** these two; §136.24's "never for a hazard or a
+consequence" reads "never for a hazard the Keeper has not rolled, and for no consequence but §138.10's two". Sanity,
+cash, threat clocks and a hazard's other effects stay the Keeper's. A stated dice is not the clerk's either: the Keeper
+applies what it chooses with `stated` (§136.21, spec P6); only the amount the page leaves out is read as a band.
+
+**`table.apply.options.unstated_damage`** (`unstatedDamage`, `kernel-ts/read/stated.ts`; issued beside `obligations`,
+absent when there is none, folded into `revision`). For each node the turn's latest `action.rule` roll named
+(`basis.rule` on a `roll` receipt with a level; a push replaces the roll it continues, as §136.22 reads it), the level's
+`damage` effects recorded `dice_unstated` issue one row -- `{alias: "unstated:<n>", rule, step?, level, actor, actor_label,
+book?, receipt}`, the actor being the roll's own -- until a hit-point `delta` on that actor follows the roll in the turn's
+receipts, whoever wrote it (a band, the Keeper's own dice). A stated dice, a passed step, a roll with no damage effect
+issue nothing. Read-only, nothing classified: the row is the receipt's basis and the shape's own `dice_unstated`.
+
+**The two candidates** (`runtime/jev/candidates.ts`; `StateReads.bands` carries the two tables' rows and the gates):
+
+- *time* -- one candidate per run, key `apply:time:declared` (`TIME_CANDIDATE_KEY`), family `time`, source `rules.bands`,
+  issued outside a session when the turn has a declaration, the rows are known and no `time` receipt is on the turn
+  (`table.apply.options.context.current_receipts`). Its route question is a **fact about the declaration**, not
+  now/later (`routeFact`, §135.26): is the declared action an activity that costs table time (`costs` selects it; `none`
+  -- movement between places, a glance or a word, an action inside a fight -- and `unknown` leave it to the Keeper for
+  the run). Its one closed parameter is `band` over the time-cost rows **without** the road rows, with the shadow lane's
+  time question as its instruction and its criteria (§138.8, `timeQuestion`), so the clerk asks exactly what the shadow
+  measured. `why` is composed (`composeSentence`) from the row's purpose and the player's words. It ranks last among
+  the selected candidates (`PRECEDENCE.time`), so its bind is judged with everything the turn settled in front of it;
+  a model-origin `time` effect consumes it (`consumedByEffects`).
+- *damage* -- one candidate per `unstated_damage` row, key `apply:damage:<rule>:<actor>`, family `damage`, source
+  `table.apply.options`, **forced** (the book says the harm happened; only its severity is open), `subject` the roll's
+  actor (stated), `why` composed from the rule, step, level and the player's words, `detail` the rule, step, level and the
+  level's `book` line. Its `band` is a Score over the severity ladder in the table's order (the shadow's `damageQuestion`),
+  read back as the argmax rung, the first in the table's order on a tie. No candidate without the rows.
+
+**The binding** (`runtime/jev/step-policy.ts`). `Unbound.band = {table, field, primitive, gate?}` marks a band parameter:
+`bindBatch` asks a `score` band as a Score (criteria the rows' descriptions in order; no exit) and a `choice` band as a
+Choice whose `unknown` text is the row's own; `clerkBind` reads a Score's answer as the row at the argmax level, gates
+the answer by **the table's gate** (`PI_COC_BAND_MIN_CONFIDENCE`, §138.6's placeholder 0.5 for both tables until the
+shadow's rows say otherwise; the run's route gate never applies to a band), and records it `path: "banded"` with `table`
+and `band`. A band has no rules default (spec D4): `unknown`, below the gate, an unavailable Jev or a spent budget hand
+the candidate to the Keeper (`keeperOwns`, an `infer(adjudicate)` with `clerk_unbound`), the answer on the record. Never
+an `infer(bind)`: the structural test covers both band shapes for every authority. Precedence (§138.1) is unchanged:
+`stated` beats `banded` -- a stated dice never reaches this path.
+
+**The engine** (`runtime/jev/hybrid-engine.ts`). The two tables are read once per engine (`rules.bands`, kept only when
+usable; the gates read per read) and ride on `StateReads.bands`. After a clerk write lands, the kernel's roll is read
+back from the turn's receipts onto the banded record (`bandRolls`: the time receipt's `band_roll`, the damage roll's
+expression and total), so the `lane: "run"`, `event: "bind"` row carries `{name: "band", path: "banded", value, table,
+band, confidence, distribution, roll}`. The Keeper's `coc-clerk` note carries one `binding` line per band: "band: band
+single_room_search (time-costs, confidence 0.80), the kernel rolled 23 minutes inside 10-45; the host read the player's
+declared action as this row. To rule otherwise, settle it with your own operation." (for damage: "the host read the
+stated harm's severity as this rung"). The shadow lane (§138.8) never asks about a clerk's write (host origin, `band`
+effect): the clerk's bind row is that write's measurement.
+
+**Three ends.** *Writer:* the kernel's `unstated_damage` projection and the builder (rows, facts, composed `why`);
+`clerkBind` (the row above the table's gate). *Reader:* the clerk's execution through the canonical gateway, the bind
+row, the Keeper's note; `kpi.py`'s `basis` section counts the landed receipts by `banded`. *Actor:* the kernel, which
+rolls inside the row; the Keeper, who reads the line and may settle otherwise with an operation of its own.
+
+**Tests.** `tests/kernel/test_apply_options_unstated_damage.py` (the projection over the emitted kernel on a derived
+haunting: the row after a failed ledge step, its fields, read-only and stable; the band landed on the actor settles it;
+a stated dice and a passed step issue nothing; the Keeper's own dice settle it; a passed push withdraws it);
+`tests/extension/single-loop-band-clerk.test.mjs` (the builder: the time candidate's rows, fact, question, gate and
+exclusions; the forced damage candidate and its Score; the policy: the table's gate against the run's, banded records,
+the Keeper below the gate, the argmax and its tie, consumption by a model-origin time; the driver: route → bind → the
+clerk's `apply time {band}`, `unknown` to the Keeper, a declaration judged `none` never bound; the engine: the rows read
+once, the roll on the bind row, the note's line); `tests/extension/single-loop-binding.test.mjs` (the structural test
+over both band shapes); `tests/extension/single-loop-run-driver.test.mjs` (the fake kernel's opening turn now routes the
+time band's fact beside the exit).

@@ -215,17 +215,24 @@ def basis(rows: list[dict[str, Any]], workspace: str, campaign: str) -> dict[str
 
     Receipts are read from the turn records; a pin is `banded` when a `band_recovery` bind row names its
     call (the pin's own call id for a tier; the refused-then-retried call id for a profile), and the
-    Keeper's otherwise. Counting only, as everywhere here: "how many numbers does the model still invent"
-    is one line per table, and a kind that never carried a basis is simply absent.
+    Keeper's otherwise. Contract §138.10: the clerk's own band writes (`declared_time`, `stated_hazard`)
+    are counted from their bind rows -- landed, or left to the Keeper (`outcome: keeper`) -- so a banded
+    time receipt can be told apart from the Keeper naming a band itself. Counting only, as everywhere here:
+    "how many numbers does the model still invent" is one line per table, and a kind that never carried a
+    basis is simply absent.
     """
     directory = Path(workspace) / "campaigns" / campaign / "turns"
     banded_calls: set[str] = set()
+    clerk_bands: dict[str, dict[str, int]] = {}
     for row in rows:
         if row.get("lane") == "run" and row.get("event") == "bind" and row.get("clerk") == "band_recovery" \
                 and row.get("status") == "succeeded":
             for key in ("call_id", "refused_call_id"):
                 if isinstance(row.get(key), str) and row[key]:
                     banded_calls.add(str(row[key]))
+        if row.get("lane") == "run" and row.get("event") == "bind" and row.get("clerk") in ("declared_time", "stated_hazard"):
+            counts = clerk_bands.setdefault("time" if row["clerk"] == "declared_time" else "damage", {"landed": 0, "refused": 0, "keeper": 0})
+            counts["keeper" if row.get("outcome") == "keeper" else "landed" if row.get("status") == "succeeded" else "refused"] += 1
     kinds: dict[str, dict[str, int]] = {}
     pins: dict[str, dict[str, int]] = {}
     for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
@@ -247,10 +254,10 @@ def basis(rows: list[dict[str, Any]], workspace: str, campaign: str) -> dict[str
             if kind == "item" and receipt.get("weapon"):
                 counts = pins.setdefault("weapon", {"keeper": 0, "banded": 0})
                 counts["banded" if call in banded_calls else "keeper"] += 1
-    if not kinds and not pins:
+    if not kinds and not pins and not clerk_bands:
         return {}
     return {"by_kind": {kind: dict(sorted(counts.items())) for kind, counts in sorted(kinds.items())},
-            **({"pins": pins} if pins else {})}
+            **({"pins": pins} if pins else {}), **({"clerk_bands": clerk_bands} if clerk_bands else {})}
 
 
 def admission(rows: list[dict[str, Any]]) -> dict[str, Any]:

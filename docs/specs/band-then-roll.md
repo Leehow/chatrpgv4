@@ -400,8 +400,9 @@ shadow); the tool schema seam (that a field exists). No new seam is introduced.
 
 ## Out of Scope
 
-- Executing time or damage bands as clerk writes, or offering them as loop candidates: BR-06, blocked on the
-  owner's ruling (Further Notes). This spec only measures them.
+- ~~Executing time or damage bands as clerk writes, or offering them as loop candidates: BR-06, blocked on the
+  owner's ruling (Further Notes). This spec only measures them.~~ Ruled and done: BR-06, contract §138.10 (the
+  declared action's time; a stated step's unstated harm). A stated dice, sanity, cash and threat clocks stay out.
 - Money: no band, no roll, ever (§58).
 - Threat clocks (§30.9), sanity loss ladders (a consequence; the sanity table carries no sample-loss ladder as
   data today), NPC stance and movement, note, ruling, flag values.

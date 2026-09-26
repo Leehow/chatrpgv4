@@ -19,7 +19,7 @@ import {TaskLease} from '../../runtime/jev/task-context.ts';
 import type {Json} from '../../runtime/jev/contracts.ts';
 import {composeSentence} from '../../runtime/jev/composed-arguments.ts';
 import {BAND_DEFAULT_MIN_CONFIDENCE, BAND_RECOVERY_FAMILY, bindingsFor, runArchetypeBand, runWeaponBand,
-  type ArchetypeBandInput, type BandField, type BandResult, type WeaponBandInput, type WeaponProfile} from '../../runtime/jev/band-recovery-domain.ts';
+  type ArchetypeBandInput, type BandField, type BandGateField, type BandResult, type WeaponBandInput, type WeaponProfile} from '../../runtime/jev/band-recovery-domain.ts';
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {BAND_SHADOW_FAMILY, runBandShadow, shadowBindings, type DamageBandRow, type ShadowInput, type ShadowResult,
   type TimeBandRow} from '../../runtime/jev/band-shadow-domain.ts';
@@ -34,8 +34,8 @@ export function bandJevTimeoutMs(env: NodeJS.ProcessEnv): number {
   const value = Number(env.PI_COC_BAND_JEV_TIMEOUT_MS?.trim() || NaN);
   return Number.isFinite(value) && value > 0 ? value : DEFAULT_BAND_JEV_TIMEOUT_MS;
 }
-/** The gate a band answer must clear, `PI_COC_BAND_MIN_CONFIDENCE` in (0, 1]; a placeholder per table until calibrated. */
-export function bandMinConfidence(env: NodeJS.ProcessEnv, field: BandField): number {
+/** The gate a band answer must clear, `PI_COC_BAND_MIN_CONFIDENCE` in (0, 1]; a placeholder per table until calibrated (§138.6, §138.10). */
+export function bandMinConfidence(env: NodeJS.ProcessEnv, field: BandGateField): number {
   const value = Number(env.PI_COC_BAND_MIN_CONFIDENCE?.trim() || NaN);
   return Number.isFinite(value) && value > 0 && value <= 1 ? value : BAND_DEFAULT_MIN_CONFIDENCE[field];
 }

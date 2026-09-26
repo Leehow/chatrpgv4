@@ -531,6 +531,11 @@ def test_basis_counts_whose_number_each_receipt_carried_and_the_pins_a_band_name
          "refused_call_id": "t3-c1", "field": "weapon", "bindings": []},
         {"turn": 3, "lane": "run", "event": "bind", "clerk": "band_recovery", "outcome": "keeper",
          "cause": "low_confidence", "refused_call_id": "t3-c4", "field": "archetype", "bindings": []},
+        # §138.10: the clerk's own bands -- one time band landed, one left to the Keeper, one damage band refused.
+        {"turn": 2, "lane": "run", "event": "bind", "clerk": "declared_time", "status": "succeeded", "call_id": "t2-c3",
+         "bindings": [{"name": "band", "path": "banded", "value": "single_room_search", "table": "time-costs"}]},
+        {"turn": 4, "lane": "run", "event": "bind", "clerk": "declared_time", "outcome": "keeper", "cause": "unknown_binding", "bindings": []},
+        {"turn": 4, "lane": "run", "event": "bind", "clerk": "stated_hazard", "status": "refused", "call_id": "t4-c2", "bindings": []},
     ])
     turns = campaign / "turns"
     turns.mkdir(parents=True)
@@ -551,6 +556,7 @@ def test_basis_counts_whose_number_each_receipt_carried_and_the_pins_a_band_name
     assert kpi.basis(rows, str(tmp_path), "synth") == {
         "by_kind": {"delta": {"stated": 1}, "roll": {"stated": 1}, "time": {"banded": 1, "keeper": 1}},
         "pins": {"archetype": {"keeper": 1, "banded": 1}, "weapon": {"keeper": 1, "banded": 1}},
+        "clerk_bands": {"time": {"landed": 1, "refused": 0, "keeper": 1}, "damage": {"landed": 0, "refused": 1, "keeper": 0}},
     }
     # No turn records and no basis anywhere: the section is absent, not empty.
     assert kpi.basis([], str(tmp_path), "nowhere") == {}
