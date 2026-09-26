@@ -1,4 +1,4 @@
-Status: ready-for-agent（2026-09-26 用户追加；「自己的表 vs 幸运骰」一处待确认，按推荐先做自己的表）
+Status: ready-for-agent（2026-09-26 用户追加；同日裁定用自己的表，不用幸运骰）
 Spec: docs/specs/npc-acts-first.md（D9）
 
 # 09 — 无准备局面的威胁骰
