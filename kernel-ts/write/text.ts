@@ -108,7 +108,8 @@ export function droppedMarkers(binding: MarkerBinding, receipts: Row[]): Row | n
 /** Player-visible text: say tokens and mechanics markers gone (§40.4), and a marker that stood alone on its line
  *  takes its blank paragraph with it, so the reader never sees an empty paragraph where a card was placed. */
 /** Anything else left in braces goes too, the same rule the frontend applies (`LOOSE_TOKEN` in pipicoc/mechanics.js, §40.4):
- *  a model that translated a marker (`{{时间}}`) must not leave it in the record the history card, memory and remote web read. */
+ *  a model that translated a marker name into the play language must not leave it in the record the history card, memory and
+ *  remote web read. */
 const LOOSE_TOKEN = /\{\{[^{}\n]*\}\}/g;
 export const stripMarkers = (text: string): string => text.replace(SAY_TOKENS, '').replace(MARKER, '').replace(LOOSE_TOKEN, '').replace(/[ \t]{2,}/g, ' ')
     .replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
