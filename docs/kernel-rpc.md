@@ -23365,3 +23365,16 @@ director said `SUBSYSTEM` every time with nothing else. The session still overri
 `override: "session"`, the same reason and grounding), but every other beat is scored as ever and the two best
 non-zero ones ride in `scores` beside `SUBSYSTEM: 1.0`. The offer keeps SUBSYSTEM's order (consequence first), whose
 pool now carries the intentions under way (138.3). `dying`, `fumble` and `pending_choice` overrides are unchanged.
+
+**138.9 A clock this table starts (amends §30.9).** `apply threat` knew only the book's threats, so a consequence the
+book never paced -- the neighbours who heard the fight, the telephone call Knott made -- had nothing it could move.
+`{kind: "threat", mint: true, name, length: 2..12, on_full: <one line>, segments?: 0..length (default 1), why?}` starts
+one: `world.table_threats[<handle>] = {name, length, on_full, minted_turn, why}` (`handle` is `table-threat-` and twelve
+hex of the name's digest) and its count `world.threat_clocks[<handle>] = {clock: n}`; the module graph is never touched.
+Refused: the name of one of the book's threats, a name this table already started, a length or `segments` out of range,
+an empty or marked `on_full` (all `invalid_params` with `details.field`). It is advanced by its name with the ordinary
+effect (`segments` a non-zero step within its length), its receipt carries `minted: true` and `name`, and a full clock
+hands back `on_full`. Projection: `pressures[]` lists it (`kind: "threat"`, `name`, `state`, `minted`, `on_full`) until
+it is full; `mods.pacing.threat_clocks` lists it always (`threat`, `name`, `clock: "clock"`, `state`, `minted`,
+`on_full`, and while not full `next`: what a full clock means), so the offer can hand it over like the book's. A name
+that misses lists the table's clocks beside the book's threats. `intent_ref` stamps it like any effect (138.2).

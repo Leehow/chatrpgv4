@@ -231,11 +231,14 @@ const CashEffect = Type.Object({
 /** The Keeper's pacing instrument (contract §30.9): the book writes the clock, only this moves it. */
 const ThreatEffect = Type.Object({
 	...IntentResult,
-	kind: StringEnum(["threat"] as const, { description: "advance a threat's clock: the danger has come one step closer because of what just happened" }),
-	name: Type.Optional(Type.String({ description: "the threat, as pressures names it; required unless stated names it" })),
+	kind: StringEnum(["threat"] as const, { description: "advance a threat's clock: the danger has come one step closer because of what just happened; or start a clock of this table's own for a consequence the book never paced (mint)" }),
+	name: Type.Optional(Type.String({ description: "the threat, as pressures names it; required unless stated names it. With mint: the name you give this table's new clock, the word you advance it by afterwards" })),
 	stated: StatedAmount,
 	clock: Type.Optional(Type.String({ description: "which of its clocks; only needed when the threat has more than one" })),
-	segments: Type.Optional(Type.Integer({ description: "omitted means one segment forward; a negative number gives ground back" })),
+	segments: Type.Optional(Type.Integer({ description: "omitted means one segment forward; a negative number gives ground back. With mint: how far it starts advanced (default 1, 0 allowed)" })),
+	mint: Type.Optional(Type.Literal(true, { description: "start a clock of this table's own: something set in motion that will land if it keeps being fed -- the neighbours who heard the fight, the telephone call someone made. Needs length and on_full; the book's own threats are advanced, never minted" })),
+	length: Type.Optional(Type.Integer({ minimum: 2, maximum: 12, description: "with mint: how many segments until it lands" })),
+	on_full: Type.Optional(Type.String({ description: "with mint: one Keeper-facing line saying what a full clock means (\"a patrolman comes up the stairs\")" })),
 	why: Type.Optional(Sentence("what moved it")),
 });
 

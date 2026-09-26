@@ -1,11 +1,12 @@
 /** Staged Keeper flags, continuity notes and rule-anchored rulings. */
 import {join} from 'node:path';
 import {RpcError} from '../errors.js';
-import {canonicalJson,isJsonObject,orderedObject} from '../json.js';
+import {canonicalJson,isJsonObject,jsonDigest,orderedObject} from '../json.js';
 import {EntityIndex} from '../read/memory.js';
 import {RuleObservations,semanticName} from '../read/rule-facts.js';
 import {array,entries,kebab,length,normalize,number,repr,row,sorted,string,truth,words,type Row} from '../read/values.js';
 import {recordOf} from '../read/module-graph.js';
+import {tableThreats} from '../read/pressures.js';
 import {SkillResolver} from '../rules/skills.js';
 import {RuleTables} from '../rules/tables.js';
 import {asciiSlug} from '../write/text.js';
@@ -29,16 +30,67 @@ function names(value:any,field:string):string[]{
     if(!Array.isArray(value)||!value.every(name=>typeof name==='string'&&name.trim()))throw new RpcError('invalid_params',`${field} must be a list of names`);
     return value.map(name=>name.trim());
 }
+function tableThreat(world:Row,name:string):Row|null{
+    const wanted=normalize(name);
+    return tableThreats(world).find(value=>normalize(string(value.name))===wanted||value.handle===name.trim())??null;
+}
+const MINT_LIMITS={length:[2,12],text:200} as const;
+/**
+ * §138.9: a consequence the book never paced -- the commotion someone downstairs might hear, the police a neighbour
+ * might call -- as a clock of this table. The Keeper states its length and what a full clock means; the kernel keeps the
+ * count beside the book's clocks (`world.threat_clocks`) and never touches the module graph. It is advanced by its name
+ * with the ordinary effect, and shows in pacing and pressures like the book's.
+ */
+function mintThreat(context:ApplyContext,effect:Row):StagedEffect{
+    if(effect.mint!==true)throw new RpcError('invalid_params','threat.mint is true or absent',{details:{field:'threat.mint'}});
+    const name=string(effect.name).trim(),{length,on_full:full}=effect;
+    if(Array.from(name).length>MINT_LIMITS.text||name.includes('{{'))throw new RpcError('invalid_params','a minted clock\'s name is one short line',{details:{field:'threat.name'}});
+    if(context.graph.find(name,['threat']))throw new RpcError('invalid_params',`the book already paces ${repr(name)}`,{fix:'advance the book\'s clock by its name, without mint',details:{field:'threat.name'}});
+    if(tableThreat(context.world,name))throw new RpcError('invalid_params',`this table already started a clock named ${repr(name)}`,{fix:'advance it by its name, without mint',details:{field:'threat.name'}});
+    if(!Number.isInteger(length)||length<MINT_LIMITS.length[0]||length>MINT_LIMITS.length[1])throw new RpcError('invalid_params',`threat.length must be a whole number of segments from ${MINT_LIMITS.length[0]} to ${MINT_LIMITS.length[1]}`,{fix:'how many steps until it lands: a few for something close, more for something slow',details:{field:'threat.length'}});
+    if(typeof full!=='string'||!full.trim()||Array.from(full.trim()).length>MINT_LIMITS.text||full.includes('{{'))throw new RpcError('invalid_params','threat.on_full says in one Keeper-facing line what a full clock means',{fix:'e.g. "the neighbours call the police and a patrolman comes up the stairs"',details:{field:'threat.on_full'}});
+    let step=1;
+    if(effect.segments!=null){
+        if(!Number.isInteger(effect.segments)||effect.segments<0||effect.segments>length)throw new RpcError('invalid_params','segments is how far it starts advanced, 0 to its length',{details:{field:'threat.segments'}});
+        step=effect.segments;
+    }
+    const handle=`table-threat-${jsonDigest(normalize(name)).slice(0,12)}`;
+    context.world.table_threats=orderedObject([...entries(row(context.world.table_threats)),[handle,{name,length,on_full:full.trim(),minted_turn:number(context.turn.turn),why:why(effect)}]]);
+    const live=row(context.world.threat_clocks);
+    context.world.threat_clocks=orderedObject([...entries(live).filter(([key])=>key!==handle),[handle,{clock:step}]]);
+    const receipt:Row={id:effectId(context,'threat',handle),kind:'threat',call_id:context.callId,threat:handle,name,clock:'clock',minted:true,
+        before:0,after:step,segments:length,full:step>=length,why:why(effect),visibility:'keeper',at:nowIso()};
+    if(step>=length)receipt.on_full=full.trim();
+    return {receipt,event:null};
+}
+function advanceTableThreat(context:ApplyContext,effect:Row,minted:Row):StagedEffect{
+    const handle=string(minted.handle),total=Math.trunc(number(minted.length));
+    let step=1;
+    if(effect.segments!=null){
+        if(!Number.isInteger(effect.segments)||effect.segments===0||Math.abs(effect.segments)>total)throw new RpcError('invalid_params','segments must be a non-zero whole number of segments, at most the clock\'s length',{details:{segments:effect.segments,length:total}});
+        step=effect.segments;
+    }
+    const live=row(context.world.threat_clocks),current=row(live[handle]),before=Math.min(total,Math.max(0,Math.trunc(number(current.clock??0)))),after=Math.min(total,Math.max(0,before+step));
+    context.world.threat_clocks=orderedObject([...entries(live).filter(([key])=>key!==handle),[handle,{clock:after}]]);
+    const receipt:Row={id:effectId(context,'threat',handle),kind:'threat',call_id:context.callId,threat:handle,name:string(minted.name),clock:'clock',minted:true,
+        before,after,segments:total,full:after>=total,why:why(effect),visibility:'keeper',at:nowIso()};
+    if(after>=total)receipt.on_full=string(minted.on_full);
+    return {receipt,event:null};
+}
 /** A threat clock is the Keeper's pacing instrument (Agents.md: the module is a reference, the clock is theirs).
  *  The book writes the segments, what each one shows and what a full clock means; only this effect moves one, so
  *  `on_tick_visible` finally has a reader. The runtime count lives in `world.threat_clocks`, never on the graph. */
 export function stageThreat(context:ApplyContext,effect:Row):StagedEffect{
     const {name,clock:clockName,segments,why:reason}=effect;
     if(typeof name!=='string'||!name.trim())throw new RpcError('invalid_params','a threat effect names the threat to advance',{fix:'{"kind": "threat", "name": "<a threat from pressures>", "clock": "<its clock>", "why": "..."}'});
+    if(effect.mint!=null)return mintThreat(context,effect);
     const threat=context.graph.find(name.trim(),['threat']);
     if(!threat){
-        const known=context.graph.kind('threat').map(node=>context.graph.handle(node));
-        throw new RpcError('invalid_params',`no threat named ${repr(name)}`,{fix:known.length?`use one of ${repr(known)}`:'this module declares no threat',details:{options:known}});
+        // §138.9: a clock this table started is advanced by the name it was started under.
+        const minted=tableThreat(context.world,name);
+        if(minted)return advanceTableThreat(context,effect,minted);
+        const known=[...context.graph.kind('threat').map(node=>context.graph.handle(node)),...tableThreats(context.world).map(value=>string(value.name))];
+        throw new RpcError('invalid_params',`no threat named ${repr(name)}`,{fix:known.length?`use one of ${repr(known)}, or start a new clock with mint: true, length and on_full`:'this module declares no threat: start a clock of this table with mint: true, length and on_full',details:{options:known}});
     }
     const clocks=array(recordOf(threat).clocks).map(row).filter(clock=>truth(clock.clock_id||clock.id||clock.name));
     if(!clocks.length)throw new RpcError('invalid_params',`the threat ${repr(context.graph.handle(threat))} has no clock`,{fix:'this threat paces through its dangers, not a clock; narrate the pressure or use apply time'});

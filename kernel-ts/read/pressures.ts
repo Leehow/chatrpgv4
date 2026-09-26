@@ -1,6 +1,6 @@
 /** Existing structural pressure and obligation projections; source prose is never classified. */
 import { ModuleGraph, recordOf } from "./module-graph.js";
-import { values, array, row, number, string, truth, normalize, sorted, type Row } from "./values.js";
+import { values, entries, array, row, number, string, truth, normalize, sorted, type Row } from "./values.js";
 const CLOCKS: Row = {
     "healing:first-aid-ordinary": "wound_hour",
     "healing:dying-hour-clock": "dying_hour",
@@ -105,9 +105,21 @@ export function bookAdvances(graph: ModuleGraph, record: Row): string | null {
     });
     return lines.length ? lines.join("; ") : null;
 }
+/** Contract §138.9: the clocks this table started, `world.table_threats`: `{<handle>: {name, length, on_full, minted_turn, why}}`. */
+export function tableThreats(world: Row): Row[] {
+    return entries(row(world.table_threats)).map(([handle, value]) => ({ ...row(value), handle }));
+}
+/** Where a clock this table started stands (the count lives beside the book's, under `clock`). */
+export function tableThreatSegment(world: Row, handle: string): number {
+    return Math.trunc(number(row(row(world.threat_clocks)[handle]).clock ?? 0));
+}
 export function threatPressures(graph: ModuleGraph, world: Row, scene: Row, present: Row[]): Row[] {
     const moves = array(recordOf(scene).pressure_moves).map(string);
-    return relatedThreats(graph, scene, present).flatMap(threat => {
+    // §138.9: a clock of this table presses wherever the table is until it is full; its name is how it is advanced.
+    const minted = tableThreats(world).filter(value => tableThreatSegment(world, string(value.handle)) < number(value.length)).map(value => ({
+        kind: "threat", name: string(value.name), state: `${tableThreatSegment(world, string(value.handle))}/${string(value.length)}`, minted: true, on_full: string(value.on_full)
+    }));
+    return [...relatedThreats(graph, scene, present).flatMap(threat => {
         const record = recordOf(threat);
         const clock = array(record.clocks).find(c => c && typeof c === "object" && !Array.isArray(c));
         const advances = bookAdvances(graph, record);
@@ -118,7 +130,7 @@ export function threatPressures(graph: ModuleGraph, world: Row, scene: Row, pres
                 ...(moves.length ? { cue: moves.join("; ") } : {}),
                 ...(advances ? { advances } : {})
             }];
-    });
+    }), ...minted];
 }
 export function unansweredContinuations(previous: Row | null | undefined, receipts: Row[]): Row[] {
     if (!previous)

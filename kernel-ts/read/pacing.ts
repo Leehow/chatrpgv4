@@ -2,7 +2,7 @@
  *  what the related threat clocks show at their current segment. Rule-derived where a page exists; never a
  *  judgement of prose. */
 import { ModuleGraph, recordOf } from "./module-graph.js";
-import { relatedThreats, clockSegment } from "./pressures.js";
+import { relatedThreats, clockSegment, tableThreats, tableThreatSegment } from "./pressures.js";
 import { playedRecords } from "./director.js";
 import { array, row, number, integer, string, truth, type Row } from "./values.js";
 /** Keeper Rulebook p.209, fair warning: the ladder counts a blow that would be a major wound (p.119, half of
@@ -26,7 +26,14 @@ export function pacingThreats(graph: ModuleGraph, scene: Row, present: Row[]): R
     return [...related, ...graph.kind("threat").filter(threat => !seen.has(threat.node_id) && string(recordOf(threat).scope) === "scenario")];
 }
 export function threatSymptoms(graph: ModuleGraph, world: Row, scene: Row, present: Row[]): Row[] {
-    return pacingThreats(graph, scene, present).flatMap(threat => array(recordOf(threat).clocks).flatMap(clock => {
+    // §138.9: this table's own clocks, beside the book's. The book writes no symptoms for them; `next` names what a full
+    // clock means, so the offer can put one in the Keeper's hand the way it does the book's.
+    const minted = tableThreats(world).map(value => {
+        const handle = string(value.handle), current = tableThreatSegment(world, handle), total = number(value.length);
+        return { threat: handle, name: string(value.name), clock: "clock", state: `${current}/${total}`, minted: true, on_full: string(value.on_full),
+            ...(current < total ? { next: `${string(value.name)} -- when full: ${string(value.on_full)}` } : {}) };
+    });
+    return [...pacingThreats(graph, scene, present).flatMap(threat => array(recordOf(threat).clocks).flatMap(clock => {
         if (!clock || typeof clock !== "object" || Array.isArray(clock))
             return [];
         const current = clockSegment(world, graph.handle(threat), row(clock)),
@@ -42,7 +49,7 @@ export function threatSymptoms(graph: ModuleGraph, world: Row, scene: Row, prese
         if (typeof clock.on_full === "string" && clock.on_full)
             entry.on_full = clock.on_full;
         return [entry];
-    }));
+    })), ...minted];
 }
 /** `records` are closed turns only, so every one of them is before the open turn. */
 export function pacingSection(graph: ModuleGraph, world: Row, scene: Row, present: Row[], party: Row[], records: Row[]): Row {
