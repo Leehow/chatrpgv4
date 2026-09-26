@@ -181,3 +181,14 @@ def test_a_marker_alone_on_its_line_leaves_no_blank_paragraph(kernel):
     result = kernel.table("narrate", call_id="t1-c2", text=text)
     assert result["rendered_text"] == "你翻过桌上的纸。\n\n窗外的光挪到了另一面墙上。"
     assert "\n\n\n" not in result["rendered_text"]
+
+
+def test_a_translated_marker_never_reaches_the_rendered_text(kernel):
+    """2026-09-26, table prose-mod-c t5: the Keeper wrote {{时间}} for {{time}}. The frontend strips any braces
+    (§40.4); the kernel's rendered_text, which the history card, memory and remote web read, must agree."""
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 10}])
+    result = kernel.table("narrate", call_id="t1-c2", text="她朝上应了一声。{{时间}}脚步一阶一阶响上去。")
+    assert "{{" not in result["rendered_text"] and "}}" not in result["rendered_text"]
+    assert result["rendered_text"] == "她朝上应了一声。脚步一阶一阶响上去。"
+
