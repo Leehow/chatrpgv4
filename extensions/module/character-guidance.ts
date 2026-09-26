@@ -1,7 +1,7 @@
 /** Module-owned, reviewed guidance shared by character creation sessions. */
 import {createHash, randomUUID} from 'node:crypto';
 import {access, mkdir, readFile, writeFile, rename} from 'node:fs/promises';
-import {join, resolve, relative, isAbsolute} from 'node:path';
+import {basename, join, resolve, relative, isAbsolute} from 'node:path';
 import {resourceRootFrom} from '../../runtime/deployment.mjs';
 import {coded} from '../ui/errors.ts';
 import {reasoned, readerFailureReason} from './reader.ts';
@@ -106,6 +106,19 @@ async function json(path:string) {
   if(Buffer.byteLength(raw)>64*1024)throw coded('guidance_unavailable','Character guidance exceeds the file limit');
   return JSON.parse(raw);
 }
+/**
+ * An agent's required file, read after the agent ended. An agent that ends without writing it (contract §140: a
+ * reviewer on deepseek-v4.1-flash spent its whole response reasoning and stopped at the output limit) is a coded
+ * preparation failure that says which one, never a bare ENOENT.
+ */
+async function produced(path:string, who:string) {
+  try { return await json(path); }
+  catch(error) {
+    if((error as NodeJS.ErrnoException)?.code==='ENOENT')
+      throw coded('preparation_failed',`Character guidance ${who} ended without writing ${basename(path)}. Retry preparation.`);
+    throw error;
+  }
+}
 export async function prepareCharacterGuidance(options:Options):Promise<Guidance> {
   const content = options.contentRoot ?? join(root, 'content');
   const promptPath = join(content, 'setup/character-guidance.md');
@@ -166,7 +179,7 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
         'Revise guidance.json using the independent review findings in review.json. Preserve source facts and obey the original instructions.'});
     if(!authored.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'interrupted':'preparation_failed',
       reasoned('Character guidance could not be prepared. Retry preparation.',options.signal?.aborted?undefined:readerFailureReason(authored)));
-    rawGuidance=await json(join(attempt,'guidance.json'));
+    rawGuidance=await produced(join(attempt,'guidance.json'),'author');
     guidance=validateGuidanceReference(rawGuidance,opening,guides);
     await writeFile(join(attempt,'guidance.json'),JSON.stringify(rawGuidance,null,2));
     await writeFile(join(attempt,`guidance-round-${round}.json`),JSON.stringify(rawGuidance,null,2));
@@ -174,7 +187,7 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
     const reviewed=await runner({...request,systemPrompt:reviewPath,eventLog:join(attempt,'reviewer.jsonl'),
       brief:'Independently review packet.json and guidance.json. Write review.json.'});
     if(!reviewed.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'interrupted':'preparation_failed','Character guidance review interrupted. Retry preparation.');
-    review=await json(join(attempt,'review.json'));
+    review=await produced(join(attempt,'review.json'),'reviewer');
     await writeFile(join(attempt,`review-round-${round}.json`),JSON.stringify(review,null,2));
     if(JSON.stringify(await json(join(attempt,'guidance.json')))!==JSON.stringify(rawGuidance))throw coded('preparation_failed','Character guidance changed during review');
     if(review.approved===true && Array.isArray(review.issues) && !review.issues.length)break;
