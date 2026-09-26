@@ -434,6 +434,16 @@
       "id": "SL-86",
       "file": "86-the-clue-question-under-recalls.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-88",
+      "file": "88-what-needs-no-result-does-not-wait.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-89",
+      "file": "89-the-keeper-context-is-rebuilt-every-turn.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
