@@ -35,11 +35,11 @@ import { randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { disableStepThinking, isFirstStepOfTurn } from "./first-step-thinking.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
-import { isSpeechOnlyDraft, learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
+import { isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease, type TaskClock } from "../../runtime/jev/task-context.ts";
-import { jevStepsBudget } from "../../runtime/jev/host-budgets.ts";
+import { deliveryFloorBudget, jevStepsBudget } from "../../runtime/jev/host-budgets.ts";
 import { startupRecord } from "../../runtime/startup-record.ts";
 import {
 	SPEECH_ATTRIBUTION_DEFAULT_MIN_CONFIDENCE,
@@ -3652,6 +3652,10 @@ export default function (pi: ExtensionAPI) {
 		params: Record<string, unknown>,
 		signal?: AbortSignal,
 		onUpdate?: AgentToolUpdateCallback<Record<string, unknown>>,
+		// SL-93 (§135.11.4.1): which delivery path this narrate call is on, for the floor's telemetry. Never set by
+		// the ordinary tool dispatcher (a model-issued call is always "explicit"); the apply.narrate recursion below
+		// is the one caller that passes "embedded".
+		narratePath: "explicit" | "embedded" = "explicit",
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
 		const providerBudget = dispatcher.providerBudget(toolCallId) ?? foregroundProviderBudget?.();
 		delete params._standing_defense;
@@ -3782,6 +3786,32 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (state.reviewUnavailable) throw new KernelError({code: 'needs', message: 'The review is paused until new player input',
 				details: {reason: 'continuity_review_unavailable', cause: state.reviewUnavailable}});
+			// §135.11.4.1 (SL-93): the floor now runs on this path too -- an explicit narrate, or apply's embedded one
+			// (this same function, called recursively under narratePath "embedded"), not only the implicit close
+			// message_end builds when the Keeper calls no tool at all. Checked before admission, attribution or any
+			// Mod hook spends anything on a draft that is about to be refused; skipped once the turn's one steer is
+			// already spent (a second leg below the count still closes the turn, never stranding it) and while this
+			// call closes the opening (`closesOpening`), the same exemption the implicit floor and the beginner's
+			// fold already read.
+			// This path never reaches `takeTurnCloseSteer` the way the implicit close does: the refused tool call
+			// itself is Pi's ordinary retry loop (the model reads this refusal's own `fix`, which is `FLOOR_STEER`'s
+			// text, and tries again in its next step), never the driven run's `turn_close` operation, because a
+			// batch that made a tool call -- refused or not -- is not "no pending model proposals". So the one-steer
+			// budget is spent here, synchronously, the moment the floor refuses: without it, a Keeper that keeps
+			// writing short drafts would be refused every time, never once, and a turn could run forever short of
+			// the floor instead of being handed back after one steer.
+			if (spec.name === "narrate" && typeof payload.text === "string" && !closesOpening && !state.steeredThisTurn) {
+				const chars = proseCharCount(payload.text);
+				const { minProseChars } = await deliveryFloorBudget();
+				if (chars < minProseChars) {
+					await record({ lane: "floor", turn: state.turn, steered: true, reason: "below_floor", path: narratePath, chars, min_chars: minProseChars });
+					state.steeredThisTurn = true;
+					state.deliveryFix = { kind: "floor", text: FLOOR_STEER };
+					throw new KernelError({ code: "needs",
+						message: `This draft is ${chars} character${chars === 1 ? "" : "s"} of prose once markers and say tokens are removed, under this turn's floor of ${minProseChars}.`,
+						fix: FLOOR_STEER, details: { reason: "below_floor", chars, min_chars: minProseChars } });
+				}
+			}
 			let sourceAnswer: Record<string, unknown> | undefined;
 			let memoryAnswer: Record<string, unknown> | undefined;
 			let supportAnswer: Record<string, unknown> | undefined;
@@ -4091,7 +4121,7 @@ export default function (pi: ExtensionAPI) {
 			// then `table.narrate`, it always has; only their one model tool call is new.
 			if (spec.name === "apply" && embeddedNarrateText !== undefined && !partial?.notLanded) {
 				const narrateSpec = COC_TOOLS.find((tool) => tool.name === "narrate")!;
-				const embedded = await runTool(narrateSpec, `${toolCallId}:narrate`, { text: embeddedNarrateText }, signal, onUpdate);
+				const embedded = await runTool(narrateSpec, `${toolCallId}:narrate`, { text: embeddedNarrateText }, signal, onUpdate, "embedded");
 				const embeddedError = (embedded.details as { coc_error?: Record<string, unknown> } | undefined)?.coc_error;
 				if (embeddedError) {
 					// Nothing is delivered: the effects above already landed and stand (a receipt cannot be
@@ -5617,12 +5647,22 @@ export default function (pi: ExtensionAPI) {
 			// span and marker syntax, never the words. Not a second floor: the same floorDraft/deliveryFix/
 			// steeredThisTurn machinery, the same FLOOR_STEER text, so the one-steer budget and the dropped-
 			// draft fallback of the gate #4 addendum apply exactly as they do to the no-tool-call case.
+			// §135.11.4.1 (SL-93): nor is the length check a third floor. `belowFloor` shares the same
+			// machinery again, on the same `prose` this path already holds; `speechOnly` keeps its own
+			// `reason` even on a draft that also happens to be short (SL-80's case is not retired by this
+			// one), and the classic no-tool-call turn keeps its unreasoned row unless nothing else explains
+			// why it fired.
 			const opening = state.state === "awaiting_player" && state.openingPending;
 			const speechOnly = !opening && !state.steeredThisTurn && isSpeechOnlyDraft(prose);
-			if ((state.toolCallsThisTurn === 0 || speechOnly) && !opening && !state.steeredThisTurn) {
+			const floorCheck = !opening && !state.steeredThisTurn ? { chars: proseCharCount(prose), min: (await deliveryFloorBudget()).minProseChars } : undefined;
+			const belowFloor = !speechOnly && floorCheck !== undefined && floorCheck.chars < floorCheck.min;
+			if ((state.toolCallsThisTurn === 0 || speechOnly || belowFloor) && !opening && !state.steeredThisTurn) {
 				state.floorDraft = prose;
 				state.deliveryFix = { kind: "floor", text: FLOOR_STEER };
-				await record({ lane: "floor", turn: state.turn, steered: true, round_trips: state.roundTrips, ...(speechOnly ? { reason: "speech_only" } : {}) });
+				await record({ lane: "floor", turn: state.turn, steered: true, round_trips: state.roundTrips,
+					...(speechOnly ? { reason: "speech_only" }
+						: belowFloor ? { reason: "below_floor", path: "implicit", chars: floorCheck!.chars, min_chars: floorCheck!.min }
+						: {}) });
 				return dropText("floor_steer");
 			}
 			// §40 (2026-09-15): people are on stage and the draft carries no say token. Once, the host drops

@@ -44,10 +44,12 @@ const hybridTable = ({ responses, env }) => {
 };
 
 test("apply {effects, narrate}: settles the effect, delivers the narrate and closes the turn in one model step", async (t) => {
+	// SL-93 (§135.11.4.1): the embedded narrate now carries its own length floor too, so this fixture's
+	// prose clears it (45 code points once the marker is removed) -- unrelated to what this test is about.
 	const table = await hybridTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("apply", {
 			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],
-			narrate: "你翻了十分钟剪报，找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。",
+			narrate: "你在剪报室里翻了十分钟，指尖沾了灰，纸页边缘已经发黄发脆，终于找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。",
 		})], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
@@ -76,12 +78,15 @@ test("apply {effects, narrate}: settles the effect, delivers the narrate and clo
 });
 
 test("a refused effect leaves nothing delivered; the run returns to the Keeper (§135.5 unaffected by the embedded text)", async (t) => {
+	// SL-93: the second message's explicit narrate now needs to clear the length floor too (it is the one that
+	// actually reaches the kernel here; the first message's embedded narrate is never even attempted, since the
+	// apply itself is refused first, so its own text does not need to clear anything).
 	const table = await hybridTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("apply", {
 			effects: [{ kind: "clue", clue: "no-such-clue-in-this-book", why: "found while going through the clippings" }],
 			narrate: "你翻了十分钟剪报，找到了那篇被压下的旧闻。",
 		})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "你翻了半天，什么都没找到。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "你翻了大半天剪报，指尖都沾了灰，纸页边缘也磨得发毛，可翻来翻去，还是什么都没找到，一无所获。" })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
@@ -101,10 +106,14 @@ test("a narration-audit refusal of the embedded text is reported like an explici
 	// The refused apply still falls the batch (§135.5): the run asks the Keeper once more (`batch_fallen`), and
 	// that leg's own prose is what the paused review then holds too -- the same shape a refused explicit
 	// narrate's second leg already has, unrelated to this ticket's own change.
+	// SL-93: the embedded narrate's text must clear the new length floor first, or this test would exercise that
+	// refusal instead of the audit-pause one it is actually about; the second leg's plain text is short too, but
+	// by the time it runs `state.reviewUnavailable` is already set, so it drops for `review_unavailable` before
+	// the floor is ever consulted -- unaffected either way.
 	const table = await hybridTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("apply", {
 			effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }],
-			narrate: "你翻了十分钟剪报。",
+			narrate: "你翻了十分钟剪报，指尖都沾了灰，纸页边缘也磨得发毛，可惜还没能把这一段理出个头绪来。",
 		})], { stopReason: "toolUse" }),
 		fauxAssistantMessage("你还是没找到那份档案。"),
 	] });
@@ -133,9 +142,11 @@ test("a narration-audit refusal of the embedded text is reported like an explici
 });
 
 test("an apply with no narrate field behaves exactly as before: no embedded dispatch, no narrate_in_apply row", async (t) => {
+	// SL-93: the second message's explicit narrate now needs to clear the length floor too, unrelated to what
+	// this test is actually about (no embedded dispatch when apply carries no narrate field).
 	const table = await hybridTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }] })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "你翻了十分钟剪报。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "你翻了十分钟剪报，指尖沾了灰，纸页边缘都磨得发毛了，才把角落里那几张慢慢理出个头绪来。" })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
