@@ -73,3 +73,40 @@ test("§135.11.3: a run already delivered by the floor steer's own recovery is n
 	assert.equal(calls.length, 1, `exactly one narrate reached the kernel -- no second, this-section delivery on top of the existing recovery's: ${JSON.stringify(table.kernelRequests())}`);
 	assert.equal(calls[0].params.text, draft, "the dropped draft was delivered verbatim, not a generic notice, and not replaced by this section's own");
 });
+
+/**
+ * §139.11: the fallback narrate is dispatched on the kernel refusal's `details.reason`. A refusal the kernel lets through
+ * on the same turn's next delivery of the same text -- §138.7's owed result, like §139.10's markup -- sends the same text
+ * again, once, and it lands; §113 D's `repeated_line` is refused every time, so it is never sent again and the ordinary
+ * undelivered path stands. Both refusals carry the kernel's reason on the row.
+ */
+const kernelRefusal = (reason) => ({ code: "needs", message: `refused for ${reason}`, fix: "deliver again", details: { reason } });
+const fallbackRows = (table) => table.telemetry().filter((row) => row.event === undefined && row.tool === "narrate" && row.lane === "delivery");
+
+test("§135.11.3 + §139.11: a fallback narrate refused intent_result_owed is sent again once, and lands", async (t) => {
+	const table = await openTable({ env: { FAKE_KERNEL_ERRORS: JSON.stringify({ "table.narrate": kernelRefusal("intent_result_owed") }), FAKE_KERNEL_ERRORS_ONCE: "1" },
+		responses: [barrage] });
+	t.after(() => table.dispose());
+	await table.session.prompt("我拔枪就打，什么都不管了");
+	await waitForIdle(table.session);
+
+	assert.deepEqual(fallbackRows(table).map((row) => [row.ok, row.reason, row.kernel_reason ?? null]),
+		[[false, "intent_result_owed_resent", "intent_result_owed"], [true, "refusal_budget_fallback", null]], JSON.stringify(fallbackRows(table)));
+	const calls = narrateCalls(table);
+	assert.equal(calls.length, 2, "the refused fallback and its one re-send");
+	assert.equal(calls[1].params.text, calls[0].params.text, "the same text, sent again");
+	assert.notEqual(calls[1].params.call_id, calls[0].params.call_id, "under a call id of its own");
+	assert.equal(releaseCalls(table).some((row) => row.params?.release === "stranded"), false, "delivered, never stranded");
+});
+
+test("§135.11.3 + §139.11: a fallback narrate refused repeated_line is not sent again", async (t) => {
+	const table = await openTable({ env: { FAKE_KERNEL_ERRORS: JSON.stringify({ "table.narrate": kernelRefusal("repeated_line") }), FAKE_KERNEL_ERRORS_ONCE: "1" },
+		responses: [barrage] });
+	t.after(() => table.dispose());
+	await table.session.prompt("我拔枪就打，什么都不管了");
+	await waitForIdle(table.session);
+
+	assert.deepEqual(fallbackRows(table).map((row) => [row.ok, row.reason, row.kernel_reason ?? null]),
+		[[false, "refusal_budget_fallback_refused", "repeated_line"]], JSON.stringify(fallbackRows(table)));
+	assert.equal(narrateCalls(table).length, 1, "one fallback narrate, not re-sent");
+});

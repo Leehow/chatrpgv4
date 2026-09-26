@@ -24187,3 +24187,82 @@ delivered with the finding and both counted; the spent-steer resend; the held dr
 leg; the dash-dialogue boundary), `tests/kernel/test_markup_in_prose.py` (the refusal's details and `markup_gate`, the
 finding and both telemetry rows, a fresh gate on the next turn, lines named, ordinary prose and the host's markers
 passing).
+
+**139.11 A refused implicit draft is not lost to a spent steer: the three second-time behaviours side by side (2026-09-26,
+ticket 12; the spec's section 七; amends §135.11's gate #4 addendum and §135.11.3).**
+**Evidence.** Found by ticket 11's worker while building 139.10, not at a table. A turn has one steer (§135.11). Once it is
+spent, a kernel refusal of an implicit draft (prose that closes the turn without an explicit `narrate`) sets a repair that
+nothing can hand back: `takeTurnCloseSteer` answers `steer_spent` before it reaches the fix. Unless a floor, speech or wait
+steer's draft was still held, the draft was dropped and the turn closed undelivered (`turn_close` `none`, `steer_spent`,
+`unsent_fix: "audit-repair"`; the run `turn_close_steer_spent:no_delivered_evidence`) over prose the Keeper had written.
+139.10 closed that for `markup_in_prose` alone; §138.7's `intent_result_owed` and §113 D's `repeated_line` still lost it,
+and a draft the kernel refused for an owed result before the steer was not held, so a repair leg that brought nothing, or
+one the kernel refused, had nothing to fall back to.
+
+**The kernel's second time, per reason** (`kernel-ts/write/index.ts`, unchanged by this ticket; the gates run in this
+order on every `table.narrate`):
+
+| `details.reason` | first delivery of the turn | a later delivery in the same turn |
+| --- | --- | --- |
+| `repeated_line` (§113 D) | refused `needs` (a line the Keeper wrapped that repeats the same person) | refused again, every time: a verbatim repeat never lands. A line the host wrapped (§128.3) is never refused; it is delivered with its finding |
+| `intent_result_owed` (§138.7) | refused `needs`; `turn.json` keeps the owed set (`intent_gate.refs`) | the same owed set is delivered, one `warnings` row per owed intention (`lane: "intents"`, `ref`); a different set is refused once more |
+| `markup_in_prose` (139.10) | refused `needs`; `turn.json` keeps `markup_gate` | delivered as written, one `warnings` row (`lane: "delivery"`) |
+
+The same draft sent again at once meets the owed gate with the same set: nothing is written between the refusal and the
+re-send, so the kernel delivers it.
+
+**The host's side, per reason** (`extensions/kernel/index.ts`, the implicit close in `message_end`). One closed table,
+`RESENT_ON_SECOND_DELIVERY`, keyed on the refusal's `details.reason` (a contract enum), never on its message: the reasons
+the kernel lets through on the same turn's next delivery of the same draft, each with the reason its re-send is counted
+under -- `markup_in_prose` → `markup_resent` (139.10's name, kept), `intent_result_owed` → `intent_result_owed_resent`.
+`repeated_line` is deliberately not in it.
+
+| `details.reason` | steer unspent | steer spent |
+| --- | --- | --- |
+| `markup_in_prose`, `intent_result_owed` | the draft is dropped (`implicit_narrate_refused`, never shown) and **held** as the turn's dropped draft; the kernel's fix rides the ordinary `audit-repair` steer. A repair leg that brings nothing, or one the kernel refuses, falls back to the held draft, and the spent gate lets it through with its finding | the **same draft is sent again**, once per reason, in the same `message_end` (a new `call_id`, the attribution it already had), with a `lane: "delivery"`, `ok: false` row carrying the table's reason and `code`, `kernel_reason`, `call_id` (the refused call's); it is delivered with its finding. Tried before the dropped-draft fallback: the steered leg's own words win over the earlier draft |
+| `repeated_line` | the draft is dropped (`implicit_narrate_refused`) and **not held**: the kernel would refuse it again. The fix rides the `audit-repair` steer | **never sent again**. The draft falls back, once, to the dropped first draft (the gate #4 addendum's shape: a `steered_leg_refused` row, `fallback: "dropped_draft"`), which is now also a draft the kernel refused for an owed result or markup and the host held, not only a floor, speech or wait steer's |
+
+Once per reason is the bound: a draft can meet the owed gate and then the markup gate (the order the kernel checks them),
+so a message costs at most one re-send per once-per-turn gate plus the one fallback, and never a model step. The
+fallback draft is itself re-sent under the same rule. The gate #4 addendum's "if it is refused too ... nothing more is
+tried" now excepts these re-sends; a fallback refused for `repeated_line`, or for a reason whose re-send is spent, is
+dropped with the repair set exactly as there.
+
+**The refusal-budget fallback (§135.11.3)** dispatches on the same table: `deliverRefusalBudgetFallback`'s narrate refused
+for a reason in it sends the same text again, once per reason (the `tool: "narrate"`, `lane: "delivery"` row carries the
+table's reason and `kernel_reason`); any other refusal, `repeated_line` among them, ends it as before
+(`refusal_budget_fallback_refused`, which now carries `kernel_reason` too), and §38's notice stands behind it.
+
+**Every drop says so.** A refused implicit draft leaves its `tool: "narrate"`, `ok: false` row with the kernel's `reason`
+and one `lane: "delivery"`, `ok: false` row for what became of it: `implicit_narrate_refused` (dropped, the repair set),
+`steered_leg_refused` (followed by the fallback), or the re-send's reason (sent again). The `turn_close` row for `none`
+carries `unsent_fix` when a repair was set and the spent steer could not carry it, and now also `kernel_reason` when that
+repair was the kernel's for a refused implicit draft, so the three reasons are told apart on it. With the re-sends, an
+owed or markup refusal leaves an unsent repair only when its re-send was refused for something else; `repeated_line` is
+the one of the three that ordinarily does (its draft refused and no dropped draft to fall back to, or the fallback refused
+too).
+
+**What is unchanged.** Explicit `narrate` and `ask` (the tool's refusal reaches the Keeper as before); the kernel's gates
+and their order; one steer per turn and one extra model step per run; a `continuity_review_unavailable` refusal pauses and
+is never retried; Mod refusals and every other kernel reason drop the draft with the repair as before.
+
+**Not covered.** `ask`'s text; a new kind of refusal. A future gate the kernel lets through on the same turn's second
+delivery joins by one row in `RESENT_ON_SECOND_DELIVERY` and one case in the test file below.
+
+**Three ends (§31).** *Writer:* the kernel's refusal (`details.reason`, and the gate state it keeps in `turn.json`); the
+host's hold of the draft, its re-send and its rows. *Reader:* `message_end`'s delivery loop, `deliverRefusalBudgetFallback`
+and `turnCloseVerdict`. *Actor:* the player, who reads the Keeper's draft rather than the unfinished notice; the Keeper,
+whom the next capsule's `warnings` show the owed result or the markup finding (§12.5).
+
+Tests: `tests/extension/refused-draft-after-steer.test.mjs` (real kernel, each case on the legacy engine and on the hybrid
+engine's driven run, asserting the turn delivered, the player shown the rendered text, no unfinished notice and, on the
+driven run, the last `turn_close` `delivered` on the landed call with no `unsent_fix` on any row: the steer spent and the
+steered leg refused `intent_result_owed`, sent again once and delivered with its `warnings` row; a draft refused
+`intent_result_owed` before the steer held, and a repair leg that brings nothing delivering it; a repair leg refused
+`repeated_line` falling back to that held draft; a speech-steered first draft delivered after the steered leg is refused
+`repeated_line`; and, on the driven run, a draft refused `repeated_line` twice, undelivered, with `turn_close` naming
+`unsent_fix: "audit-repair"` and `kernel_reason: "repeated_line"`), `tests/extension/refusal-budget-fallback.test.mjs`
+(fake kernel: the fallback narrate refused `intent_result_owed` sent again once and landing; refused `repeated_line`, not
+sent again), and 139.10's `tests/extension/markup-in-prose.test.mjs`, unchanged. Mutation (ticket 12's acceptance):
+the table cut back to `markup_in_prose` alone fails the owed re-send case on both engines (and the hold and held-fallback
+cases), while the markup file stays green.
