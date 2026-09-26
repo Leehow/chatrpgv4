@@ -343,17 +343,17 @@
     {
       "id": "SL-68",
       "file": "68-a-selected-name-starts-at-the-name.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-69",
       "file": "69-a-keeper-call-has-a-watchdog.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-70",
       "file": "70-several-new-persons-in-one-batch-mint.md",
-      "status": "ready"
+      "status": "ready-for-human"
     }
   ],
   "relatedSpecs": [
