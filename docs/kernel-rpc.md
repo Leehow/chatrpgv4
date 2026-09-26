@@ -20092,6 +20092,72 @@ executed and returns the run to the Keeper (`batch_fallen`), exactly as §135.5 
 (gate #21, grok-4.5 low, the ticket's own number): Keeper calls per turn ≤ 2.0 (from 2.8); median wall ≤ 40 s (from 49 s);
 ≤ 60 s on 20 of 20 turns.
 
+#### 135.5.2 Addendum (2026-09-26, SL-92, "apply carries the narration that closes the turn"): `apply` takes an optional `narrate` -- one tool call where the model insists on one
+
+**Evidence.** §135.5.1's own batching guidance did not make the model batch: long gate #21 ran it live (grok-4.5 low,
+same Keeper and lanes as gate #18) and measured `[apply…, narrate]` batches at 4 (from 1 with no guidance at all) against
+standalone `apply` calls at 20 (from 18) -- Keeper calls per turn held at 2.8, unchanged. The model emits one tool call
+per message as a habit guidance does not reach; each separate `narrate` call after a non-blocking write still costs
+≈1.4 s fixed plus a fresh reasoning pass (≈160 tokens at ≈52 tok/s) plus prefill, ≈4-5 s a turn that a batched call would
+not pay. The fix §135.5.1 could not be is at the tool's own shape: give the model one tool call to make, not two to
+remember to combine.
+
+**Owner ruling (filed for the owner from gate #21; the owner approved the aim, "不需要等结果的写入和 narrate 合进同一次调用" --
+the same ruling that opened §135.5.1).** `apply` gains an optional `narrate` field: the same shape and rules as the
+`narrate` tool's own `text` (play_language, `{{marker}}`/`{{kind:handle}}` placement per §34.13.1, `{{say:Name}}…{{/say}}`
+spans). When present, the host settles the apply's own lines exactly as §135.5 already does -- admission, the kernel,
+receipts, the failure branch unchanged -- and only once every line landed does it run the `narrate` text through the
+same path the `narrate` tool itself uses: rendering, marker resolution, the narration audit, delivery, turn close. One
+model call closes the whole turn. If any line was refused, or the narration audit refuses the embedded text, nothing is
+delivered: the Keeper reads the refusal exactly as an explicit `narrate` call's own (§34.14: only a rendered delivery
+counts), and the effects that did land already stand -- they are not undone, and are not re-attempted by resending the
+call. `resolve`/`look`/`lookup`/`recall` gain no such field; §135.5.1 already makes them blocking, so there is nothing
+of theirs for a later call to carry. The standalone `narrate` tool is unchanged, for a turn with no write to carry it.
+
+**How it is the same path, not a parallel one.** `extensions/kernel/index.ts`'s `runTool` is the one function every
+tool call -- model-issued or policy-issued -- runs through (`createCanonicalOperationDispatcher`'s `execute` stage is a
+bare passthrough to it, §32's own dispatcher). An `apply` whose every line lands, and that carries `narrate`, calls
+`runTool` again, recursively, for a synthetic `narrate` call under `${toolCallId}:narrate` -- never a hand-written
+second implementation of rendering, the audit, or delivery. The recursive call is indistinguishable from an ordinary
+model-issued `narrate` to every seam that matters: `createCanonicalOperationDispatcher`'s per-call frame is populated
+only by a policy-origin's own `bindReadScope`/`bindIncumbentScope`/`dispatch`, never by a plain model call, so a
+synthetic id that was never registered reads exactly as an ordinary Keeper call does (`hostOrigin`, `tracksMutation`,
+`requireCapability`, `beforeKernelInvoke`, `bindKernelCallId` all no-op or default exactly as they already do for the
+Keeper's own top-level calls). The embedded narrate's own success path runs `applyToolSuccess(state, "narrate", …)`
+unchanged, so `state.closedThisRun`, `state.renderedText`, `state.deliveredTurn`, the mechanics/commit/standing
+projections and the narration audit's own post-delivery review all land exactly as they do for an explicit call; the
+one correction the host makes afterward is `state.deliveryToolCallId`, restored to the outer apply's own toolCallId (the
+one the transcript actually shows), since the synthetic id never appears there. A refusal from any stage the recursive
+call reaches -- admission, the kernel, the narration audit -- returns the same `{content, details: {coc_error}}` shape
+an explicit `narrate` call's own refusal would, which the outer `apply` call then reports as its own refusal (with the
+already-landed effects still named in the result), so `extensions/kernel/index.ts`'s `finalizeOperation` (`tool_result`)
+marks it `isError` and the refusal budget (§34.12) counts it exactly as a refused `narrate` would be counted.
+
+**What the driven run is told (`runtime/jev/hybrid-engine.ts`, `modelStep`).** `DELIVERY_VERBS` named only the two real
+delivery verbs (`narrate: 'accepted'`, `ask: 'awaiting_player'`); an `apply` whose result now carries
+`narrate_in_apply: true` is read beside it, so the run's own delivery bookkeeping (`closeConsequences`, the step's
+`delivery` field the driver reads to end the run `delivered`) treats it exactly as an explicit `narrate` would, never as
+a plain write that leaves the run still waiting on a delivery it already has.
+
+**Telemetry.** `{lane: "delivery", reason: "narrate_in_apply", ok, call_id}`: `ok: true` when the embedded narrate
+delivered, `ok: false, code` when it was refused. Every other admission/kernel/narration-audit row this call reaches is
+unchanged -- the two writes it does (`table.apply`, then `table.narrate`) are the ones the kernel has always taken,
+recorded exactly as it already records them.
+
+**Three ends (§31).** *Writer:* `runTool`'s own recursive call (the same writer as an explicit `narrate`, on a synthetic
+id). *Reader:* `modelStep`'s `narrate_in_apply` check; `finalizeOperation`'s `coc_error` check. *Actor:* the Keeper, who
+now has one tool call to make where it used to need two; the operator, through the `narrate_in_apply` telemetry row and
+the unchanged `table.apply`/`table.narrate` kernel rows underneath it.
+
+*Tests* (`tests/extension/apply-narrate-combined.test.mjs`, fake pi, the emitted kernel, the hybrid engine): `apply
+{effects, narrate}` settles the effects and delivers the narrate in one model step, closing the turn (an effect-key
+marker naming one of the same call's own effects resolves in it); a refused effect leaves nothing delivered, the
+refusal returned to the Keeper, and the run's failure branch (§135.5) unaffected by the embedded text ever having been
+written; a narration-audit refusal of the embedded text is reported the same way an explicit `narrate` call's own
+refusal is, with the landed effects still named in the result; an `apply` with no `narrate` behaves exactly as before
+(no embedded dispatch, no `narrate_in_apply` telemetry). *Acceptance* on gate #22: Keeper calls per turn ≤ 2.0;
+`narrate_in_apply` deliveries ≥ 8 (the ticket's own numbers).
+
 ### 135.6 Read first, re-read after a scene change; the prescreen is the run's read
 
 The first step of every run, and the step after every scene change, is the read. It runs the kernel reads above
