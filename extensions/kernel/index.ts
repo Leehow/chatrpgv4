@@ -1573,7 +1573,10 @@ export default function (pi: ExtensionAPI) {
 		});
 		table.scene = { ...(asString(open.scene?.name) ? { handle: asString(open.scene?.name) } : {}),
 			...(asString(open.scene?.display_name) ? { label: asString(open.scene?.display_name) } : {}) };
-		table.prologue = asString(open.setup_prologue);
+		// §32.3: what the player was told before play is the prologue's opening, the words the setup host
+		// showed (§14.18). The kernel sends the whole record; read as a string it was always dropped, and
+		// its handoff is Keeper-facing, so only the opening goes to the review.
+		table.prologue = asString((open.setup_prologue as { opening?: unknown } | null | undefined)?.opening);
 		table.playerText = asString(open.pending_turn?.player_text);
 		table.interruptedPlayerText = undefined;
 		table.admission = new Map();

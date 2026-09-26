@@ -2109,6 +2109,8 @@ The guide never writes the prologue: `prompts/setup.md` and the prologue label s
 
 **14.18.4 The three ends (§31).** Writer: `shownPrologue` (host) and `setup.prologue` (kernel). Readers: the player (the message), the guide (the message in its context), the Keeper's opening (`table.open` `setup_prologue`), the driver. Tests: `tests/extension/setup.test.mjs`, the two "shows the accepted opening" cases, on a real kernel read the session order and the kernel's record for both non-App paths; `tests/play/test_driver.py` the `setup_opening` capture. The fake kernel gained `setup.prologue`: before this, nothing on the fake path ever reached it except `agent_end`, where a failure went unseen.
 
+**14.18.5 The review reads it too.** §32.3 names the setup prologue among what the player was already told. `table.open` carries it (only while `opening_needed`) as the whole record, and the host read it with a string accessor, so the reviewer never received it on any table -- including the first player turns, when the player is answering what the guide asked in it. The host now takes the record's `opening` (`extensions/kernel/index.ts`, `table.prologue`); the `handoff` is Keeper-facing and stays out. Test: `tests/extension/admission.test.mjs`, "the review reads the setup prologue the player was shown", on a campaign built through the kernel's setup RPC and a real opening turn.
+
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
 一条世界线就是战役 sidecar 仓库里的一条分支。玩家在一个战役里同一时刻只玩一条线；可以分叉、回溯、切换、汇流；所有线都留着（证据永不删除）。什么跨线留下、谁记得别的线、汇流时怎么合，由模组图声明、内核确定性地算；守秘人只在胶囊里看到这是第几圈、锚点在哪、留下了什么、谁记得、有哪些回声可投放。世界线操作是世界的改变，所以走 `apply`（法则二），并在那一回合提交之后由内核执行——守秘人仍然只有七个动词。旧树世界线系统的双时态断言、九种记忆状态、跨战役转移、自动合并策略都不回来。
@@ -8210,7 +8212,7 @@ and refusal/retry boundary only, not that a live model always judges the bargain
 The input is the exact current player text (the `table.player_input` prompt; on a recovered turn,
 `pending_turn.player_text` from `table.open`), the investigators' names and occupations, the scene's
 player-facing name and the names on stage, what the player was already told — the setup prologue
-(`table.open`'s `setup_prologue`) and the last four deliveries as the host delivered them (`rendered_text`
+(`table.open`'s `setup_prologue`, its `opening`; *§14.18.5: read as a string it was always dropped*) and the last four deliveries as the host delivered them (`rendered_text`
 of `narrate`/`ask`), with the capsule's `recent` heads standing in after a restart — what this turn has
 already settled through the kernel, what this turn has already refused, and the proposal itself, one
 line per `resolve` field or `apply` effect. Nothing Keeper-only travels: no scene summary, no
