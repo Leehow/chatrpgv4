@@ -51,7 +51,9 @@ const INSTRUCTION = 'Write how this person is heard, in the play language and in
     'someone says, an arrow, and this person answering those actual words in natural connected speech. The first is ordinary ' +
     'first contact, not a mandatory brush-off. Courtesy, uncertainty, agreement and direct answers fit every register. Vary ' +
     'the responses, not three versions of an agenda; examples illustrate a voice, never a phrase bank or a script to recite. ' +
-    'Let the situation decide cooperation, emotion and length. The book\'s voice and facts govern. The investigator block is ' +
+    'Let the situation decide cooperation, emotion and length. The book\'s voice and facts govern. coarse_language is the ' +
+    'table\'s permission, not a trait: write swearing into the mask only when the source says this person swears or their ' +
+    'station plainly makes coarse talk their everyday speech; nobody else gets a swearing habit. The investigator block is ' +
     'the listener: respect the given sex and address, invent no name or relationship, and use only supplied visible facts ' +
     'for an address term. Where those facts do not settle the language\'s form, use wording that fits anyone. Never leak ' +
     'secrets, undiscovered facts, other people\'s names or rules: hides informs the person, not what they say aloud. ' +

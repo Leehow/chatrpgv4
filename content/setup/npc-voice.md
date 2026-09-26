@@ -60,9 +60,16 @@ If the source `voice` explicitly says this person does not speak, write
 {"voice": null, "reason": "does_not_speak"}. Do not invent speech for a silent
 being; do not infer silence from a terse, shy or unfamiliar voice.
 
-`coarse_language` controls profanity only. When true, swearing is available if
-it fits this person and moment, never compulsory. When false, keep the register
-without profanity. It does not decide kindness, cooperation or subject matter.
+`coarse_language` is the table's permission, not a trait. Swearing belongs in
+the mask and the exchanges only when the source says this person swears, curses
+or talks foul, or their station and the book's description plainly make coarse
+talk their everyday speech. Everyone else gets no swearing habit merely because
+the table allows it: a quiet clerk, a polite teacher, a scholar or an official
+keeps a clean register, and an impatient or blunt person is not thereby foul-
+mouthed. When the mask does include swearing, let the third exchange (the
+pressed one) show it if the pressure warrants it. When `coarse_language` is
+false, keep the same register without profanity. It never decides kindness,
+cooperation or subject matter.
 
 Hard limits:
 
