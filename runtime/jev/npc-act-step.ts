@@ -183,9 +183,9 @@ export function interpretNpcAct(plan: BindPlan, result: DecisionResult | undefin
     ? {alias: sameAlias, row: plan.same![sameAlias], confidence: answerOf(result, 'same').confidence ?? null} : null;
   const fallback = (reason: string): BoundAct => ({judged: complete, way: 'intention_only', params: {}, draw, same, reason, answers});
   if (!complete) return fallback(`jev_${result?.status ?? 'unavailable'}`);
-  const way = pick('way');
+  const way = pick('way'), asked = answerOf(result, 'way').choice;
   const found = plan.ways.find(entry => entry.way === way);
-  if (!way || !found) return fallback(answerOf(result, 'way').choice && answerOf(result, 'way').choice !== 'unknown' ? 'way_below_gate' : 'way_unknown');
+  if (!found) return fallback(!asked || asked === 'unknown' ? 'way_unknown' : !way ? 'way_below_gate' : 'way_not_offered');
   const params: Record<string, ActOption> = {};
   for (const [param, list] of Object.entries(found.params)) {
     const question = plan.params.find(entry => entry.way === found.way && entry.param === param);
