@@ -69,3 +69,4 @@ superseded by a direct, parameterised test of the same mechanism (a `look` budge
 9th call) rather than a recorded-transcript replay of that one table's exact call sequence.
 
 Status: **ready-for-human**.
+- Live (gate #13, 91ed5fee0): max 2 reads in a turn, table looks 14 (#12: 22), `look_budget` never fired — the budget does not trip a normal table; the runaway shape (#11 t6, 12 reads) is what it is for.

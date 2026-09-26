@@ -62,3 +62,4 @@ under box load -- `keeper-call-cap`, `single-loop-prescreen-budget`, `admission-
 on an immediate re-run of its own file alone, none touching a file any of these three tickets changed.)
 
 Status: **ready-for-human**.
+- Live (gate #13, 91ed5fee0): no `apply npc` on an unknown name this table, so the new shapes were not exercised live; unit tests cover the three.

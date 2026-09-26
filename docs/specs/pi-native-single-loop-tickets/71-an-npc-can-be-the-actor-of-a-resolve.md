@@ -78,3 +78,4 @@ instead of a recorded-transcript replay -- faster to write, and it pins the mech
 recorded transcript's exact bytes.
 
 Status: **ready-for-human**.
+- Live (gate #13, 91ed5fee0): 0 `unknown_entity` on `resolve` (gate #11: 9); t4 first impression written with the clerk as actor settled oriented (`oriented_from` on the receipt).
