@@ -25228,6 +25228,17 @@ at a zh-Hans table.
 
 - `addressed`: the declaration was said to this person -- the run's compile cleared `addressee` on them, or they are in
   the conversation (§139.20's `engaged`).
+  *Amended 2026-09-26 (integration review of ticket 22):* the scan passes `addressed: false` only when the compile
+  cleared `addressee` on someone else; a person acted on while the words named no one hears them too. As first written,
+  first contact lost the words: the investigator grabs Knott and says "give me the key" without his name, the compile
+  reads `unclear`, Knott is acted on but neither named nor yet in a conversation, and his packet held only the receipts.
+  Only a named other is evidence the words were someone else's; `declared_before_move` is the other. Tests
+  (`single-loop-npc-act.test.mjs`, "§139.21 as amended"): the grab with no name puts the demand last in his `happened`;
+  the words to Edna by name reach her packet and not the packet of Knott, acted on in the same turn (`addressed: false`
+  on his row). Mutation: the scan's reading put back to named-or-engaged fails the first. The widening surfaced an older defect:
+  the opening turn has no player text, and the packet's `flat()` rendered the null through `string()` as Python's
+  `"None"`, so every opening packet closed on `<investigator> (investigator) declared: "None"` until ticket 22's first
+  reading happened to drop it. Absent is now empty; the opening case (`§139.21 at the opening`) fails without it.
 - `declared_before_move`: a `move` receipt is among this turn's receipts (the declaration precedes every write of its
   turn) and they were not among the people present at the run's first read (`RunState.firstPresent`: who was there when
   the declaration was put). A person who came along with the party was there, and heard it.

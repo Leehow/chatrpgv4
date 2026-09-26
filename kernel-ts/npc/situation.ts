@@ -39,7 +39,9 @@ const SENTENCE_MAX = 400, WHY_MAX = 160, ELLIPSIS = '...';
 /** The turn states whose receipts the committed ledger has not folded yet (as `stanceNow` reads them). */
 const OPEN_STATES = ['open', 'acting'];
 
-const flat = (value: unknown): string => string(value).replace(/\s+/g, ' ').trim();
+// Absent is empty: `string()` renders null as Python's "None", which an opening turn with no player words once put in the
+// packet as the investigator's declaration (`declared: "None"`, found 2026-09-26 when §139.21's reading widened).
+const flat = (value: unknown): string => (value == null ? '' : string(value)).replace(/\s+/g, ' ').trim();
 function clip(value: unknown, max: number): string {
     const text = flat(value), points = Array.from(text);
     return points.length <= max ? text : `${points.slice(0, Math.max(0, max - ELLIPSIS.length)).join('')}${ELLIPSIS}`;
@@ -148,8 +150,8 @@ function kindClause(receipt: Row, me: Person, world: Row): string | null {
 
 /**
  * §139.21 (ticket 22): what the host read about the player's words and this person -- the optional inputs of
- * `npc.situation`. `addressed`: the declaration was said to them (the compile's addressee cleared on them, or they are in
- * the conversation, §139.20). `declaredBeforeMove`: the declaration was put before a move of this turn brought the
+ * `npc.situation`. `addressed`: the declaration was said to them -- the scan passes false only when the compile named
+ * someone else (as amended 2026-09-26: named, in the conversation, or acted on with no one named all hear it). `declaredBeforeMove`: the declaration was put before a move of this turn brought the
  * investigator to where they are, so it was said somewhere else. Absent, the declaration is theirs, as §139.1 had it.
  */
 export interface Heard { addressed?: boolean; declaredBeforeMove?: boolean }

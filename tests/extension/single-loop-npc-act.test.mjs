@@ -981,6 +981,36 @@ test("§139.20 at the table: both spoke last turn, the compile names Edna -- onl
 	assert.ok(!rows.some((row) => row.npc === "steven-knott"), "not even a skipped row: the declaration was said to someone else");
 });
 
+test("§139.21 as amended: acted on while the words named no one, the line is his", async (t) => {
+	// First contact: the investigator grabs Knott and demands the key without saying his name. Nothing named anyone else,
+	// so the words are his to answer; ticket 22 as first written kept them only for the named or the engaged.
+	const npcAct = createFixtureNpcActPort({ "*": "他往后缩了一下，手按住了抽屉。" });
+	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
+	await call0(game);
+	const GRAB = "我一把揪住他的领子：钥匙交出来。";
+	await game.say(GRAB);
+	await game.write("table.apply", { effects: [{ kind: "cash", subject: "Thomas Hayes", delta: 1, source: "found", with: "Steven Knott", why: "a coin changes hands" }] });
+	await game.run(scan());
+	assert.deepEqual(acts(game).map((row) => [row.npc, row.trigger, row.addressed]), [["steven-knott", "acted_on", true]]);
+	assert.ok(npcAct.calls[0].packet.happened.at(-1).endsWith(`declared: "${GRAB}"`), `the demand is in his packet: ${npcAct.calls[0].packet.happened.at(-1)}`);
+});
+
+test("§139.21 as amended: the compile names another person -- the one acted on does not hear the words as his", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "*": "他往后缩了一下，手按住了抽屉。" });
+	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
+	await call0(game);
+	const TO_EDNA = "埃德娜，你别插手。";
+	await game.say(TO_EDNA);
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "Edna Hale", to: "here", why: "test fixture: she comes in" }] });
+	await game.write("table.apply", { effects: [{ kind: "cash", subject: "Thomas Hayes", delta: 1, source: "found", with: "Steven Knott", why: "a coin changes hands" }] });
+	await game.run(scan(["Edna Hale"]));
+	const packets = Object.fromEntries(npcAct.calls.map((call) => [call.packet.npc.name, call.packet.happened]));
+	assert.deepEqual(Object.keys(packets).sort(), ["Edna Hale", "Steven Knott"]);
+	assert.ok(packets["Edna Hale"].at(-1).endsWith(`declared: "${TO_EDNA}"`), "said to her by name: hers");
+	assert.ok(!packets["Steven Knott"].some((line) => line.includes(TO_EDNA)), `said to her, not to him: ${JSON.stringify(packets["Steven Knott"])}`);
+	assert.deepEqual(acts(game).map((row) => [row.npc, row.addressed]).sort(), [["Edna Hale", true], ["steven-knott", false]], "a walk-on is named by her name");
+});
+
 test("§139.20 on the emitted kernel: the party left the room where he spoke -- he came along, stands beside them, and is not in a conversation there", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "*": "他跟在后面，一句话也不说。" });
 	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });

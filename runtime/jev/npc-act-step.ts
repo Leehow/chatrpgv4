@@ -664,15 +664,16 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
  * carries who already acted (or was skipped) this turn, across scans.
  *
  * §139.21 (ticket 22): each read of the situation says whether the declaration was said to this person (`addressed`:
- * addressed, or in the conversation) and whether it was put before a move brought the investigator to them
+ * false only when the compile named someone else -- addressed, in the conversation, or acted on while the words named no
+ * one all hear it, as amended 2026-09-26) and whether it was put before a move brought the investigator to them
  * (`declared_before_move`: a move landed this turn, `moved`, and they were not among the people present when the run
  * began, `firstPresent`).
  */
 export async function runNpcScan(deps: NpcActDeps, input: {present: readonly string[]; addressees: readonly string[]; seen: Set<string>; count: {acted: number};
   firstPresent?: readonly string[]; moved?: boolean}): Promise<NpcActOutcome[]> {
   const out: NpcActOutcome[] = [];
-  type Due = {name: string; handle: string; names: string[]; options: ActOptions; addressed: boolean; engaged: boolean; trigger: NpcActTrigger;
-    conversation: {turn: number; order: number} | null};
+  type Due = {name: string; handle: string; names: string[]; options: ActOptions; addressed: boolean; engaged: boolean; elsewhere: boolean;
+    trigger: NpcActTrigger; conversation: {turn: number; order: number} | null};
   const due: Due[] = [];
   for (const name of input.present) {
     let options: ActOptions;
@@ -686,7 +687,7 @@ export async function runNpcScan(deps: NpcActDeps, input: {present: readonly str
     const engaged = conversation !== null && !elsewhere;
     const actedOn = array(options.acted_on).length > 0;
     if (!actedOn && !addressed && !engaged) continue;
-    due.push({name, handle, names, options, addressed, engaged, trigger: actedOn || addressed ? 'acted_on' : 'engaged', conversation});
+    due.push({name, handle, names, options, addressed, engaged, elsewhere, trigger: actedOn || addressed ? 'acted_on' : 'engaged', conversation});
   }
   const latest = (a: Due, b: Due) => (b.conversation?.turn ?? -1) - (a.conversation?.turn ?? -1) || (b.conversation?.order ?? -1) - (a.conversation?.order ?? -1);
   const ranked = [...due.filter(entry => entry.trigger === 'acted_on'), ...due.filter(entry => entry.trigger === 'engaged').sort(latest)];
@@ -699,7 +700,10 @@ export async function runNpcScan(deps: NpcActDeps, input: {present: readonly str
     }
     input.count.acted++;
     const arrived = input.moved === true && input.firstPresent !== undefined && !input.firstPresent.some(value => entry.names.includes(value));
-    out.push(await runNpcAct(deps, entry.name, entry.trigger, {addressed: entry.addressed || entry.engaged, declared_before_move: arrived}));
+    // Heard unless the compile named another person: a person acted on while the words named no one was the one they were
+    // said to more often than not (the investigator grabs Knott and says "give me the key"), so only a named other takes
+    // the line away (§139.21 as amended 2026-09-26).
+    out.push(await runNpcAct(deps, entry.name, entry.trigger, {addressed: !entry.elsewhere, declared_before_move: arrived}));
   }
   return out;
 }
