@@ -399,6 +399,16 @@
       "id": "SL-79",
       "file": "79-narrator-only-keeper.md",
       "status": "blocked"
+    },
+    {
+      "id": "SL-80",
+      "file": "80-a-speech-only-implicit-delivery-is-not-a-turn.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-81",
+      "file": "81-the-lane-thinks-at-low-on-a-model-where-low-is-full.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [

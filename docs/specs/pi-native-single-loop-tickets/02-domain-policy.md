@@ -695,3 +695,18 @@ Pre-registration `live-gate-long12-preregistration.md`; structural table `longga
 Walls (s): 23, 40, 39, 37, 38, 33, 32, 37, 35, 62, 32, 34, 27, 62, 26, 19, 57, 28, 57, 38 → median 37, ≤ 60 s 18/20, max 62. Delivered 20/20, no stranded turn. Model calls 82, p50 5.0 s, p90 8.5 s, **max 15.0 s; `keeper_call_cap` rows 0** (SL-69's cap did not fire on a normal table, as the line required; the live proof of a cap firing waits for the next slow provider call). Reasoning tokens 0 on 82/82. Looks 22 (scene 6, clues 5, recall 3, …). Admission: 26 clerk writes on `path: compile`, 29 lane reviews, three `review_pending` at the cap (t14, t19 ×2), no timeout. Compile selections: core-check 11, move 9, clue 8, obligation 1 + 1. Guarded rows 0; `material_pending` 0. Prescreen prepared 31, no fallback. Drops: implicit_narrate_refused 1, text_beside_tool_calls 1. SL-62: one resolution, 杜利先生 → Mr. Dooley. SL-63: two refusal-budget cuts, both delivered. Prose zh-Hans 20/20. Provider errors 0.
 
 Class lines: all met (median 37 ≤ 45, 18/20; t1 commission settled with keys/leads/item/cash and the move; t9 unguarded; moves by the compile 9/12 with the diaries at t15 and the basement at t16; no material_pending; review_pending 3 ≤ 4). Verdict: batch 11 is clean on the starter; the twelve-gate line stands at 240/240 turns delivered with every batch's fix verified on the table it was filed from.
+
+### Long gate #13 (2026-09-26, 91ed5fee0, batch 12 live)
+1. Delivery 20/20 ✓ (no stranded turn).
+2. Wall: median 42 s (line ≤ 40 ✗ by 2 s); ≤ 60 s 17/20 ✓; max 89 (t4: 5 model calls 64.5 s; t6: lane review_pending 13 s + a review_timeout; t18: 4 calls 57 s) — all model/lane time, no host stall; reasoning tokens 0 on 69/71 calls (one call 1003 reasoning tokens, one 1); cap rows 0 ✓.
+3. SL-71 ✓: `unknown_entity` refusals 0 (gate #11: 9). t4 the Keeper wrote `actor: "the Hall of Records clerk", target: 托马斯·海斯` on a first impression and the kernel settled it oriented (`oriented_from` on the receipt) instead of refusing.
+4. SL-72 ✓ (no false fire): max reads in a turn 2 (looks 14 for the table, #12: 22), `look_budget` rows 0.
+5. Refusal budget: `class_limit`/`turn_budget` rows 0 ✓ (#11/#12: 2 each).
+6. Routing ✓: compile selected 12 core-checks, 11 moves, 6 clues, 1 obligation; t16 guarded destination reported.
+7. Admission ✗: `review_timeout` 4, `review_pending` 5 — the lane runs deepseek at `low` = full reasoning (SL-81 filed).
+8. Prescreen ✓ prepared 32, no fallback; `infer(bind)` 0 ✓.
+9. Quality: t6/t12/t16 prose coherent, zh-Hans, in fiction (the sanatorium, the bed lifting in the master bedroom, the basement boards with Arty on the stairs); **t1 ✗**: 41 chars, a single `{{say}}` line via the implicit narrate (SL-80 filed).
+10. Stalls: none; provider errors none ✓.
+Model-layer notes: t14 three `invalid_params` (move to the current scene; offer with adopt; an unaccepted definition name) each with a usable fix, no class limit. Refusal codes for the table: needs 27, invalid_params 3, internal 10 (all `usage-prefetch runtime_closed` cancellations, not Keeper refusals).
+Batch 12 verdict: SL-71/72/73 do what they were filed for; two new tickets (SL-80 P2, SL-81 P1) for batch 13 with SL-76/SL-74.
+
