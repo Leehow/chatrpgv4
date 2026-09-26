@@ -47,7 +47,7 @@ import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev
 import type { HostOperationContext, OperationIdentity } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 import { buildCandidates, buildConsequenceCandidates, keeperCall, NPC_REACTION_DECISION, type ConsequenceCandidate, type ConsequenceClass } from './candidates.ts';
 import { compileRows } from './compile-rows.ts';
-import { interpretCompile, interpretReask, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput } from './route-compile.ts';
+import { actGated, interpretCompile, interpretReask, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput } from './route-compile.ts';
 import { CONSEQUENCE_FAMILY, consequenceBatch, interpretConsequenceResult, type ConsequenceExistsRow, type ConsequenceRow, type ConsequenceView } from './consequence-route.ts';
 import { jevStepsBudget, npcActBudget } from './host-budgets.ts';
 import { createNpcActLane, type NpcActPort } from './npc-act.ts';
@@ -947,7 +947,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       // Every answer's distribution is retained (spec user story 28): the gates can be re-read from a live table.
       const offered = array(question.offered) as Candidate[];
       const settled = array(question.settled).map(String);
-      const routed = request.purpose === 'route' ? interpretRoute({located: question.located === true, settled} as RunView, offered, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE) : undefined;
+      // §139.16 (NAF-17): the acts the run's compiles cleared, so the row's `selected` is the policy's (a gated fight step selects nothing).
+      const declaredActs = array(question.declaredActs).map(String);
+      const routed = request.purpose === 'route' ? interpretRoute({located: question.located === true, settled, declaredActs} as RunView, offered, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE) : undefined;
+      const actGatedKeys = request.purpose === 'route' ? offered.filter(candidate => actGated(candidate, declaredActs)).map(candidate => candidate.key) : [];
       // §135.30: the compile row carries each feature's distribution and which predicates fired, as the policy will read them.
       // §135.30.8 (SL-43): with the run's settled acts, so the row's `decided` is the policy's.
       const actsSettled = array(question.actsSettled).map(String);
@@ -965,7 +968,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       }
       record({lane: 'route', purpose: request.purpose, run: run.runId, step: request.stepId, status: result.status, ms: Date.now() - began,
         ...(request.purpose === 'route' ? {offered: offered.map(candidate => candidate.key), selected: routed?.selected ?? [], exit: routed?.exit ?? null, reason: routed?.reason ?? null,
-          ...(settled.length ? {settled} : {})}
+          ...(settled.length ? {settled} : {}), ...(actGatedKeys.length ? {act_gated: actGatedKeys} : {})}
           : compiled ? {features: compiled.features, fired: compiled.selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
             selected: compiled.selected.map(entry => entry.candidate.key), decided: compiled.decided, fell_through: compiled.fellThrough, reason: compiled.reason,
             // §135.30.9 (SL-52): the sought `ask` rows, in row order.

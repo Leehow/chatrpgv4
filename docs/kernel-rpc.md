@@ -21319,6 +21319,14 @@ records of the features the predicate fired on, §32.12; since SL-21 it survives
 is re-applied to the check the fresh read re-issues, §32.12.1), which every row of the
 call and the Keeper's `clerk_did` carry (§135.7, §135.8).
 
+*Note, 2026-09-26 (§139.16, NAF-17): an investigator's fight step falls through only to a gated route.* The attack the
+compile leaves undecided (its `act` below the gate or `unclear`, or `act` on the attack with no cleared target), and the
+flight (now read by the compile's `fight_step` predicate, which neither decides nor selects), still reach the route's `need`
+question, but a `now` selects one only when a compile of the run cleared `act` on that step's own decision
+(`RunView.declaredActs`); otherwise the answer is recorded, the step selects nothing and after a complete route it is the
+Keeper's for the run (`actGated` in `runtime/jev/route-compile.ts`). A demand, a question or an aside in a fight is never
+the clerk's punch, whatever `need` answered.
+
 **It replaces the first fan-out.** When the compile selects, its candidates are the run's pending steps in the route's
 precedence (§135.26), and no route question is asked before them: the next route comes after them, over what the fresh
 read then offers less what the run consumed, and carries the exit question (after a settled declaration the exit leans to
@@ -24601,3 +24609,76 @@ review now script two (`admission.test.mjs` 2, `admission-jev.test.mjs` 1, `obje
 (one request, not two); `declaredAction` returning false fails the first-blow resend case; `declaredAction` returning true
 for every call fails the Keeper's two-malformed case. **Not verified live:** whether the table's lane answers valid JSON on
 the second attempt as often as the generation step's does, and the host-run resend on a real table.
+
+**139.16 A declaration in a fight is not a punch: the clerk takes the investigator's fight step only when the compile read
+the declaration as it (2026-09-26, ticket 17 of `docs/specs/npc-acts-first-tickets/`, spec section 九 "C4 桌"; amends
+§135.30 and the investigator's session steps of §135.2).** *Evidence, read row by row.* Live table C4 (`npc-acts-c4`), turn 8,
+「钱呢？你说的二十块，现在就给我。」, run `run-01a0de09-8e42-744b-84fe-d29a0e017d59`. s1 read: the handout, Knott's first-impression
+check, the commission's accept, `resolve:combat:attack:thomas-hayes` and `resolve:combat:flee:thomas-hayes`. s2 compile: `act`
+`none` 0.91 (none 0.93 / unclear 0.07), cleared; `target` `none` 0.55 (none 0.70 / target 0.17), cleared on the margin; the
+attack **decided** (consumed: the Keeper's for the run), the flight fell through. s3 route over the handout, the check and the
+flight: every `need` `later` (0.80–0.96), exit `ask_llm` 0.69 -- the route never saw the attack. s4–s7, origin `model`: the
+Keeper resolved `combat:maneuver` (goal 「要求诺特当着面付清说好的二十块日薪」, method 「挥拳威逼，逼他把钱交出来」), the kernel refused it
+(`needs`: a manoeuvre names one of the rulebook's four), and the refusal's `fix` line reads "to simply hit instead, resolve the
+attack rather than the maneuver" (`kernel-ts/combat/index.ts`, the maneuver's goal check); the Keeper's next call was its own
+`resolve combat:attack` (ok). s8: the clerk bound only Knott's forced standing defence (`resolve:combat:defend:steven-knott:thomas-hayes:r5`,
+bind row `t8-c3`), which rolled the opposed Fighting; s9 his own act. So the punch the player never declared was the
+Keeper's, invited by the kernel's refusal; the campaign's only clerk bind rows for the investigator's attack are turns 5, 7
+and 10, each 「……又是一拳……」. Turn 9's aside (「对了，我其实是个大学生……」) read `act` `none` 0.62 -- two hundredths above the gate -- and
+the Keeper's `resolve` there was `intent: meta` (nothing rolled).
+
+*The clerk-side path the ticket names, one step removed.* §135.30's `attack` predicate decides the attack only when `act`
+clears. An `act` below the gate or `unclear` (or `act` on the attack with no cleared target) leaves it undecided; it falls
+through to the route's `need` question (§135.2), and a `now` there selects and binds it -- a question about whether a
+candidate is due, with nothing in it reading what the player declared (the owner's ruling of §135.30). The flight had no
+compile reader at all: `need` alone selected it. Turn 9 was that path's near miss.
+
+*The rule.* On the investigator's own turn of a running fight, an issued fight step -- clerk `session_step`, family `combat`,
+not forced, no `actor` (`fightStep` in `runtime/jev/route-compile.ts`; today the attack and the flight: a manoeuvre and an
+ending are never issued to the clerk, §135.28) -- is the clerk's only when a compile of the run cleared `act` on that step's
+own decision.
+
+1. The compile selects the attack exactly as before (§135.30: `act` and `target` cleared); its `decided` is unchanged.
+2. The route's `need` may still select a fight step, but only when the run's compiles cleared `act` on its decision:
+   `RunView.declaredActs`, written by `settleCompile` from the compile's `act` record when it cleared on a row (a cleared
+   `none` writes nothing). C4's turns 7 and 10 (`act` `combat:attack` 1.0, `target` unclear 0.28 / 0.41, the route's `now`
+   0.92 / 0.96) select the attack as they did, bound with its stated target and weapon.
+3. Otherwise the step is **gated** (`actGated`): its `need` question is asked and its answer recorded, it selects nothing, and
+   after a complete route it is consumed for the run, as a compile-only candidate is (§135.30.1). That covers `act` not
+   cleared, `unclear`, `none`, another act, and no compile at all (a spent Jev budget, no scope binding, a failed compile,
+   `compile: false`): no read of the declaration as the step, no clerk step.
+4. The compile reads the flight: a predicate `fight_step` (features `act`; it never decides and never fires) reads the
+   investigator's fight steps other than the attack, so a read that issues only a flight owes a compile. `act` on
+   `combat:flee` opens the route to the flight; the attack is then decided by `attack` as before.
+
+*What does not change.* The Keeper's view: the session still issues `combat:attack` and the rest in the capsule and the
+session view, and a gated step is the Keeper's to take (`hold`, a social check, `combat:end`, or the attack if it rules the
+line one). The NPC side: a pending defence and a person's own turn (§139.4, `npc_act`) are forced and never gated; a
+chase's steps are family `chase` and are untouched. The gates, the `attack` and `first_blow` predicates' fire rules, the binds
+(§135.28) and admission (§32.12, §139.15).
+
+*Telemetry.* The route rows -- the engine's `lane: "route"`, `purpose: "route"` row and the policy's route step detail --
+gain `act_gated` (the keys gated on that route) when there are any; the route question carries `declaredActs`, so the
+engine's row re-interprets the route exactly as the policy did (its `selected` never names a gated step).
+
+*Three ends (§31).* Writer: Jev (the compile's `act`), `settleCompile` (`declaredActs`). Reader: `interpretRoute` and
+`settleRoute` (`actGated`), the engine's route row. Actor: the clerk, which executes only a step the compile's act opened;
+the Keeper, whose turn a gated step is; the operator, through `act_gated`.
+
+*Not fixed here (outside this ticket's files, for the owner).* The turn-8 punch itself was the Keeper's. Two things invited
+it: the kernel's refusal of a manoeuvre without a named kind offers the attack as the alternative, and a `fix` line is
+followed literally by the Keeper; and the Keeper is not told that the compile read the declaration as no fight action (the
+decided attack is consumed silently). Both are Keeper-side and kernel-side, and this change does not touch them.
+
+*Tests.* `tests/extension/single-loop-domain-policy.test.mjs` (emitted kernel, hybrid engine, stub Jev port; the fight opened
+on turn 1, Knott dodged and held, so the player speaks on the investigator's turn): the turn-8 replay (`act` `none` 0.91) --
+the attack decided, no clerk attack, no bind row, the Keeper's `ask_llm` step; the demand whose `act` does not clear (`none`
+0.50 / attack 0.30) with the route's `now` 0.92 on the attack -- `selected` empty, `act_gated` naming it, no bind row, the
+Keeper's step, and the Keeper's request still carrying the session's attack row; 「我又是一拳。」 (`act` `combat:attack` 1.0,
+`target` unclear, `now` 0.96) -- the attack's bind row (target and weapon `stated`) and the clerk's resolve as before, the
+flight gated. `tests/extension/single-loop-candidates.test.mjs` (the kernel's own reads, the pure policy): Knott's turn is
+one forced `npc_act` and nothing of his is a fight step; on the investigator's turn the attack and the flight are the fight
+steps; the demand gates both and hands the turn to the Keeper, the punch opens the attack only, `combat:flee` opens the
+flight only; a flight issued alone owes a compile. Mutations (copy and restore): dropping `actGated` from `interpretRoute`
+fails the demand-below-the-gate case with the bind row of the C4 shape (`resolve:combat:attack:thomas-hayes`, goal 「钱呢？你说的
+二十块，现在就给我。」) and the policy case; `fight_step` reading nothing fails the flight-alone case. No existing test changed.

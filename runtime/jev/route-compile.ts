@@ -185,6 +185,23 @@ const acceptAllows = (cleared: Cleared, people: string[]): boolean => !cleared.a
 /** The clues an accept's settlement files (its kernel effects), by handle. */
 const acceptClues = (candidate: Candidate): string[] => isAccept(candidate)
   ? (Array.isArray(candidate.bound.effects) ? candidate.bound.effects : []).map(object).filter(effect => effect.kind === 'clue').map(effect => text(effect.clue)).filter(Boolean) : [];
+/**
+ * §139.16 (NAF-17): the investigator's own step of a running fight -- an action the session issues for the investigator on
+ * their turn (clerk `session_step`, family `combat`, not forced, no `actor`: the actor a resolve defaults to). Its decision is
+ * one of the compile's `act` rows there (§135.30's table). An NPC's steps carry their actor; a pending defence is forced.
+ */
+export function fightStep(candidate: Candidate): boolean {
+  return candidate.clerk === 'session_step' && candidate.family === 'combat' && !candidate.forced && candidate.bound.actor === undefined
+    && typeof candidate.bound.decision === 'string';
+}
+/**
+ * §139.16: the route may select an investigator's fight step only when a compile of this run cleared `act` on that step's own
+ * decision (`acts`: the act rows the run's compiles cleared, `RunView.declaredActs`). Otherwise the step is gated: its `need`
+ * question is asked and recorded, it selects nothing, and after a complete route it is the Keeper's for the run.
+ */
+export function actGated(candidate: Candidate, acts: readonly string[]): boolean {
+  return fightStep(candidate) && !acts.includes(String(candidate.bound.decision));
+}
 /** The attack's issued targets: the one the kernel bound, else the closed options it issued. */
 const attackTargets = (candidate: Candidate): string[] => typeof candidate.bound.target === 'string'
   ? [candidate.bound.target] : candidate.unbound.find(value => value.name === 'target')?.options ?? [];
@@ -230,14 +247,22 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
       return sought(cleared, obligationRow(candidate)) && addresseeAllows(cleared, people) ? {} : undefined;
     }},
   {name: 'attack', features: ['act', 'target'], askable: rows => has(rows, 'act') && has(rows, 'target'),
-    reads: candidate => candidate.clerk === 'session_step' && candidate.family === 'combat' && candidate.bound.decision === 'combat:attack' && !candidate.forced && candidate.bound.actor === undefined,
-    // An act other than the attack settles it; the attack with no cleared target is left to the route and the attack's own bind.
+    reads: candidate => fightStep(candidate) && candidate.bound.decision === 'combat:attack',
+    // An act other than the attack settles it; the attack with no cleared target is left to the route and the attack's own bind
+    // -- since §139.16 only when the act cleared on the attack (`actGated`): the route never punches for a declaration the
+    // compile did not read as one.
     decided: cleared => !!cleared.act && (cleared.act.row !== 'combat:attack' || !!cleared.target),
     fires: (candidate, cleared) => {
       const target = cleared.target?.row;
       if (cleared.act?.row !== 'combat:attack' || !target || !attackTargets(candidate).includes(target)) return undefined;
       return typeof candidate.bound.target === 'string' ? {} : {bound: {target}};
     }},
+  // §139.16 (NAF-17): the investigator's other issued fight steps (the flee; a manoeuvre or an ending is never issued to the
+  // clerk, §135.28). The compile reads them so a read that issues one owes a compile over it; this predicate neither decides nor
+  // selects: a step whose own act the compile cleared is the route's to select as before, any other is gated (`actGated`).
+  {name: 'fight_step', features: ['act'], askable: rows => has(rows, 'act'),
+    reads: candidate => fightStep(candidate) && candidate.bound.decision !== 'combat:attack',
+    decided: () => false, fires: () => undefined},
   // §135.30.2 (SL-19): the first blow outside a fight. Outside a session the `act` rows are the resolve intents, so the act
   // is the row's own intent (`combat`); the target rows are the people present, and only one the kernel can fight fires it.
   {name: 'first_blow', features: ['act', 'target'], askable: rows => has(rows, 'act') && has(rows, 'target'), sole: true,

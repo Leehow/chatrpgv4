@@ -83,8 +83,11 @@ const DEFENSE_OPTIONS: Readonly<Record<string, string>> = Object.freeze({
  * order says it acts now -- and it is the person's own act (§139.4, `npc_act`): generated from their situation, then
  * bound to what the kernel settles (`runtime/jev/npc-act-step.ts`); the standing action of §11.5.3 no longer binds
  * anything. An NPC's turn of a chase is a closed Jev bind over its issued actions (`variants`); a Jev "unknown" hands
- * the choice to the Keeper. The investigator's turn offers each issued action to the route question, keyed without
- * the round, so the action the player declared is carried out once per turn.
+ * the choice to the Keeper. The investigator's turn offers each issued action to the compile and the route question, keyed
+ * without the round, so the action the player declared is carried out once per turn. Offered is not selected (§139.16,
+ * NAF-17): the clerk takes one only when the compile's `act` read the declaration as that action (`actGated` in
+ * `route-compile.ts`); a demand, a question or an aside in a fight is the Keeper's turn, and these rows stay in the
+ * session view the Keeper reads.
  */
 function sessionCandidates(session: Row, rawInput: string, answering: readonly string[], pendingChoice: Row, fighter: Row = {}, relationships: Row[] = []): Candidate[] {
   const kind = text(session.kind);

@@ -390,6 +390,133 @@ test("SL-19: the first blow outside a fight is the clerk's when the compile read
 	assert.ok(calls.some((call) => call.phase === "call" && call.id.startsWith("clerk:") && call.input.action?.decision === "combat:defend"));
 });
 
+/**
+ * §139.16 (NAF-17, live table C4 turn 8): the investigator's own turn of a fight, the way C4 met it -- the fight opened on turn 1,
+ * Knott dodged the punch and held (the Keeper's hold passes his turn, §138.5), so the player speaks on their own turn with the
+ * session issuing the attack (one target, one weapon: nothing to bind) and the flight.
+ */
+const hayesTurn = (campaign) => (workspace) => kernelSteps(workspace, campaign, [
+	["table.open", {}], ["table.player_input", { text: "我揍他" }],
+	["table.apply", { call_id: "t1-c1", effects: [{ kind: "npc", name: "Steven Knott", archetype: "ordinary_adult", why: "test fixture" }] }],
+	["table.resolve", { call_id: "t1-c2", action: { intent: "combat", goal: "hit him", method: "fists", target: "Steven Knott", weapon: "unarmed" } }],
+	["table.resolve", { call_id: "t1-c3", action: { intent: "combat", decision: "combat:defend", actor: "steven-knott", defense: "dodge", goal: "combat:defend", method: "combat:defend" } }],
+	["table.apply", { call_id: "t1-c4", effects: [{ kind: "npc", name: "Steven Knott", action: "hold", why: "He backs to the window, hands up." }] }],
+	["table.narrate", { call_id: "t1-c5", text: "他举着手退到窗边。" }],
+]);
+const INVESTIGATOR_ATTACK = "resolve:combat:attack:thomas-hayes";
+/** One Jev answer with its own confidence and distribution: `pick(question)` returns `[choice, confidence, probabilities?]`. */
+function jev(batch, pick) {
+	const answers = {};
+	for (const question of batch.questions) {
+		const [choice, confidence, probabilities] = pick(question);
+		answers[question.key] = { status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } };
+	}
+	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
+}
+/**
+ * The fixture decision port for these turns. The compile answers `act` and `target` with the case's own answers (the alias read
+ * from the question, never assumed) and `unclear` elsewhere; the route answers each candidate's `need` -- `attackNeed` for the
+ * investigator's attack, `later` for the rest, `not` for a fact question -- and the exit.
+ */
+const fightTurnPort = ({ act, target, attackNeed, exit }) => (batch) => {
+	const alias = (question, row) => Object.entries(question.criteria).find(([, value]) => value === row || JSON.stringify(value).includes(row))?.[0] ?? row;
+	const own = (question, [choice, ...rest]) => [choice === "none" || choice === "unclear" ? choice : alias(question, choice), ...rest];
+	if (batch.family === COMPILE_FAMILY) return jev(batch, (question) => question.key === "act" ? own(question, act)
+		: question.key === "target" ? own(question, target) : ["unclear", 0.9]);
+	if (batch.family === ROUTE_FAMILY) return jev(batch, (question) => {
+		if (question.key === "exit") return exit;
+		if (!("now" in question.criteria)) return ["not", 0.9];
+		const candidate = batch.state?.candidates?.[`candidate_${question.key.split("_")[1]}`];
+		return candidate?.bound?.decision === "combat:attack" ? attackNeed : ["later", 0.9];
+	});
+	return answered(batch, () => "unknown");
+};
+const clerkAttacks = (calls) => calls.filter((call) => call.phase === "call" && call.id.startsWith("clerk:") && call.tool === "resolve"
+	&& call.input.action?.decision === "combat:attack" && call.input.action?.actor === undefined);
+const attackBinds = (telemetry) => telemetry.filter((row) => row.lane === "run" && row.event === "bind" && row.candidate === INVESTIGATOR_ATTACK);
+const DEMAND = "钱呢？你说的二十块，现在就给我。";
+const HANDS_UP = "他举起双手：「钱在抽屉里，你先退开，我数给你。」";
+
+test("§139.16 (C4 T8 replay): the demand in a fight, read as no fight action (act none 0.91) -- no clerk punch, the turn is the Keeper's", async (t) => {
+	const campaign = "test-camp";
+	const table = await hybridTable({
+		realKernel: true, prepareWorkspace: hayesTurn(campaign),
+		// The live compile row: act none 0.91 (none 0.93 / unclear 0.07), target none 0.55; the route's exit ask_llm 0.69.
+		decide: fightTurnPort({ act: ["none", 0.91, { none: 0.93, unclear: 0.07 }], target: ["none", 0.55, { none: 0.7, unclear: 0.13 }],
+			attackNeed: ["now", 0.92], exit: ["ask_llm", 0.69, { ask_llm: 0.76, continue: 0.16, finish: 0.07, read_more: 0.01 }] }),
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: HANDS_UP })], { stopReason: "toolUse" })],
+	});
+	t.after(() => table.dispose());
+	await table.table.session.prompt(DEMAND);
+	const { events, calls } = table;
+	const telemetry = table.table.telemetry(campaign);
+
+	const compile = telemetry.find((row) => row.lane === "route" && row.purpose === "compile");
+	assert.deepEqual([compile.features.act.row, compile.features.act.cleared], [null, true], "the compile read no fight action");
+	assert.ok(compile.decided.includes(INVESTIGATOR_ATTACK), "the attack is decided by the compile: the Keeper's for the run");
+	assert.equal(clerkAttacks(calls).length, 0, "no clerk punch");
+	assert.equal(attackBinds(telemetry).length, 0, "no bind row for the investigator's attack");
+	const infers = events.filter((event) => event.type === "step_end" && event.kind === "infer");
+	assert.deepEqual(infers.map((event) => event.reason), ["ask_llm"], "the turn is the Keeper's");
+	assert.equal(calls.find((call) => call.phase === "result" && call.tool === "narrate")?.isError, false);
+});
+
+test("§139.16: the demand whose act does not clear (none 0.50 / attack 0.30) -- the route's now on the attack selects nothing, the turn is the Keeper's", async (t) => {
+	const campaign = "test-camp";
+	const table = await hybridTable({
+		realKernel: true, prepareWorkspace: hayesTurn(campaign),
+		// Below the gate and the margin (0.50 < 0.6; 0.50 < 1.8 x 0.30): the attack falls through to the route, whose need says now.
+		decide: fightTurnPort({ act: ["none", 0.5, { none: 0.5, act_1: 0.3, unclear: 0.2 }], target: ["unclear", 0.5],
+			attackNeed: ["now", 0.92], exit: ["ask_llm", 0.76] }),
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: HANDS_UP })], { stopReason: "toolUse" })],
+	});
+	t.after(() => table.dispose());
+	await table.table.session.prompt(DEMAND);
+	const { events, calls } = table;
+	const telemetry = table.table.telemetry(campaign);
+
+	assert.deepEqual(attackBinds(telemetry), [], "no bind row for the investigator's attack");
+	assert.equal(clerkAttacks(calls).length, 0, "no clerk punch");
+	const compile = telemetry.find((row) => row.lane === "route" && row.purpose === "compile");
+	assert.equal(compile.features.act.cleared, false);
+	assert.ok(compile.fell_through.includes(INVESTIGATOR_ATTACK), "undecided: the attack reaches the route");
+	const route = telemetry.find((row) => row.lane === "route" && row.purpose === "route");
+	const index = route.offered.indexOf(INVESTIGATOR_ATTACK);
+	assert.equal(route.answers[`need_${index + 1}`]?.choice, "now", "the route did say now");
+	assert.deepEqual(route.selected, [], "and selected nothing");
+	assert.ok(route.act_gated?.includes(INVESTIGATOR_ATTACK), "the row says why: no compile read the declaration as the attack");
+	const infers = events.filter((event) => event.type === "step_end" && event.kind === "infer");
+	assert.deepEqual(infers.map((event) => event.reason), ["ask_llm"], "the turn is the Keeper's");
+	// Only the clerk's automatic binding changed: the Keeper's own read still carries the session's issued attack.
+	assert.ok(requestText(table.requests[0]).replaceAll("\\", "").includes('"decision":"combat:attack","actor":"thomas-hayes","targets":["steven-knott"]'),
+		"the Keeper still sees the attack the session issues");
+});
+
+test("§139.16 (C4 T7/T10 replay): \"我又是一拳\" -- act combat:attack cleared, target unclear, the route's now binds the attack as before", async (t) => {
+	const campaign = "test-camp";
+	const table = await hybridTable({
+		realKernel: true, prepareWorkspace: hayesTurn(campaign),
+		// The live rows: act combat:attack 1.0, target unclear 0.41; the route's need now 0.96 on the attack, exit continue.
+		decide: fightTurnPort({ act: ["combat:attack", 1], target: ["unclear", 0.41], attackNeed: ["now", 0.96], exit: ["continue", 0.58] }),
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你又是一拳砸过去。" })], { stopReason: "toolUse" })],
+	});
+	t.after(() => table.dispose());
+	await table.table.session.prompt("我又是一拳。");
+	const { calls } = table;
+	const telemetry = table.table.telemetry(campaign);
+
+	const route = telemetry.find((row) => row.lane === "route" && row.purpose === "route");
+	assert.ok(route.selected.includes(INVESTIGATOR_ATTACK), "the route selected the attack the compile read");
+	assert.deepEqual(route.act_gated, ["resolve:combat:flee:thomas-hayes"], "the attack is not gated -- the declaration is the attack; the flight is");
+	const [bind] = attackBinds(telemetry);
+	assert.equal(bind?.status, "succeeded", "the attack's bind row, as today");
+	assert.deepEqual(["target", "weapon"].map((name) => bind.bindings.find((entry) => entry.name === name)?.path), ["stated", "stated"]);
+	const [attack] = clerkAttacks(calls);
+	assert.ok(attack, "the clerk throws the declared punch");
+	assert.deepEqual([attack.input.action.target, attack.input.action.weapon, attack.input.action.goal], ["steven-knott", "unarmed", "我又是一拳。"]);
+	assert.equal(calls.find((call) => call.phase === "result" && call.id === attack.id).isError, false);
+});
+
 test("SL-08: a model's apply cannot carry the host-only inference marker: the Keeper's write is basis keeper", async (t) => {
 	const campaign = "test-camp";
 	// Jev cannot tell (unknown): the Keeper completes the write, and tries to pass the marker itself.

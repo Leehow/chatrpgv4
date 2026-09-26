@@ -16,7 +16,9 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createRealCampaign } from "./harness.mjs";
 import { buildCandidates, keeperCall, obligationCandidates } from "../../runtime/jev/candidates.ts";
-import { bindBatch, bindingOf, CLERK_AUTHORITY, initialView, interpretBind, next, routeBatch, settleRead } from "../../runtime/jev/step-policy.ts";
+import { compileRows } from "../../runtime/jev/compile-rows.ts";
+import { actGated, compileBatch, compileReaches, fightStep } from "../../runtime/jev/route-compile.ts";
+import { bindBatch, bindingOf, CLERK_AUTHORITY, initialView, interpretBind, next, routeBatch, settleCompile, settleRead, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CAMPAIGN = "camp";
@@ -396,4 +398,91 @@ test("SL-08: an NPC's turn without a disposition is a forced closed bind that in
 	const inferred = withImpression.find((candidate) => candidate.clerk === "disposition_inference");
 	assert.deepEqual(inferred.detail.person.first_impression, impression);
 	assert.ok(inferred.basis.row.read.includes("first_impression"));
+});
+
+/** A complete Jev answer: `pick(question)` returns `[choice, confidence, probabilities?]`. */
+const jevAnswer = (batch, pick) => {
+	const answers = Object.fromEntries(batch.questions.map((question) => {
+		const [choice, confidence, probabilities] = pick(question);
+		return [question.key, { status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } }];
+	}));
+	return { batchId: batch.id, status: "complete", issues: [], coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, answers };
+};
+/** The alias the compile question gives a row, read from the question itself. */
+const rowAlias = (question, row) => Object.entries(question.criteria).find(([, value]) => value === row)?.[0];
+
+test("§139.16 (NAF-17): on the investigator's own turn the clerk takes a fight step only when the compile read the declaration as it; his own turn is untouched (§139.4)", async (t) => {
+	const { call } = kernel(t);
+	const turn = await fight(call);
+	await call("table.resolve", { call_id: `t${turn}-c3`, action: { intent: "combat", decision: "combat:defend", goal: "combat:defend", method: "combat:defend", actor: "steven-knott", defense: "dodge" } });
+	// His turn (§139.4): the forced act of his own is no investigator's fight step and is never gated, whatever the compile read.
+	const his = buildCandidates(await reads(call), "钱呢？你说的二十块，现在就给我。");
+	assert.deepEqual(his.filter((candidate) => candidate.forced).map((candidate) => candidate.clerk), ["npc_act"]);
+	assert.deepEqual(his.filter((candidate) => fightStep(candidate) || actGated(candidate, [])), [], "nothing of his is gated");
+	// The Keeper's hold passes his turn (§138.5): the investigator's own turn, the session issuing the attack and the flight.
+	await call("table.apply", { call_id: `t${turn}-c4`, effects: [{ kind: "npc", name: "Steven Knott", action: "hold", why: "He backs to the window, hands up." }] });
+	const state = await reads(call);
+	assert.equal(state.resolveOptions.context.session.turn_of, "thomas-hayes");
+	const DEMAND = "钱呢？你说的二十块，现在就给我。";
+	const candidates = buildCandidates(state, DEMAND);
+	assert.deepEqual(candidates.filter(fightStep).map((candidate) => candidate.key), ["resolve:combat:attack:thomas-hayes", "resolve:combat:flee:thomas-hayes"],
+		"the investigator's issued fight steps (a manoeuvre and an ending are never the clerk's)");
+	const rows = compileRows(state);
+
+	/** One run: the compile answers `act`, the route answers `now` on the listed steps, then `ask_llm`. */
+	const run = (act, now) => {
+		const view = initialView({ runId: "r", rawInput: DEMAND, context, candidates, rows, readFirst: false });
+		const compile = next(view);
+		assert.deepEqual([compile.kind, compile.purpose], ["decide", "compile"], "the fight steps owe a compile");
+		startStep(view, compile);
+		const batch = compileBatch(view, scope, [], []);
+		settleCompile(view, 1, batch, jevAnswer(batch, (question) => question.key === "act" ? [rowAlias(question, act[0]) ?? act[0], act[1], act[2]] : ["unclear", 0.9]), 5, 0.6);
+		const route = next(view);
+		assert.deepEqual([route.kind, route.purpose], ["decide", "route"]);
+		startStep(view, route);
+		const { batch: asked, offered } = routeBatch(view, scope, []);
+		const row = settleRoute(view, 2, asked, offered, jevAnswer(asked, (question) => {
+			if (question.key === "exit") return ["ask_llm", 0.76];
+			if (!("now" in question.criteria)) return ["not", 0.9];
+			return now.includes(offered[Number(question.key.split("_")[1]) - 1].key) ? ["now", 0.92] : ["later", 0.9];
+		}), 5, 0.6);
+		return { view, row };
+	};
+	const ATTACK = "resolve:combat:attack:thomas-hayes", FLEE = "resolve:combat:flee:thomas-hayes";
+
+	// The demand, its act below the gate and the margin: the route says now on the attack and on the flight, and selects neither.
+	const demand = run(["none", 0.5, { none: 0.5, act_1: 0.3, unclear: 0.2 }], [ATTACK, FLEE]);
+	assert.equal(demand.view.declaredActs, undefined, "no act cleared");
+	assert.deepEqual([demand.row.detail.selected, demand.row.detail.act_gated], [[], [ATTACK, FLEE]]);
+	assert.ok([ATTACK, FLEE].every((key) => demand.view.consumed.includes(key)), "the Keeper's for the run");
+	assert.ok(!demand.view.pending.some((item) => item.candidate && fightStep(item.candidate)), "no clerk fight step pending");
+	assert.deepEqual([next(demand.view).kind, next(demand.view).purpose, next(demand.view).reason], ["infer", "adjudicate", "ask_llm"], "the turn is the Keeper's");
+
+	// "我又是一拳": the act cleared on the attack (the target left to the route and the attack's own bind): the route's now selects it;
+	// the flight is not what was declared.
+	const punch = run(["combat:attack", 1], [ATTACK, FLEE]);
+	assert.deepEqual(punch.view.declaredActs, ["combat:attack"]);
+	assert.deepEqual([punch.row.detail.selected, punch.row.detail.act_gated], [[ATTACK], [FLEE]]);
+	assert.deepEqual([punch.view.pending[0].kind, punch.view.pending[0].purpose, punch.view.pending[0].candidate.key], ["direct", "execute", ATTACK],
+		"one target and one weapon: the attack runs as it did");
+
+	// The flight read as the act opens the flight; the attack was already the compile's to decide (another act: the Keeper's).
+	const flight = run(["combat:flee", 0.9], [ATTACK, FLEE]);
+	assert.deepEqual([flight.row.detail.selected, flight.row.detail.act_gated], [[FLEE], undefined]);
+	assert.ok(flight.view.consumed.includes(ATTACK) && !flight.row.detail.offered_keys.includes(ATTACK), "decided by the compile, never offered to the route");
+});
+
+test("§139.16: a flight the session issues alone still owes a compile -- the only read that can open it to the clerk", () => {
+	// Nobody left to hit: the session issues the investigator no attack, only the flight.
+	const session = { kind: "combat", status: "active", round: 3, turn_of: "tom", pending_defense: null,
+		actions: [{ decision: "combat:flee", actor: "tom" }, { decision: "combat:end", actor: "tom" }],
+		participants: [{ name: "tom", label: "Tom", side: "investigator" }, { name: "knott", label: "Knott", side: "npc", conditions: ["unconscious"] }] };
+	const reads = { capsule: {}, applyOptions: {}, resolveOptions: { context: { session } } };
+	const candidates = buildCandidates(reads, "我跑");
+	assert.deepEqual(candidates.map((candidate) => candidate.key), ["resolve:combat:flee:tom"]);
+	const rows = compileRows(reads);
+	assert.deepEqual(rows.act.map((row) => row.id), ["combat:flee", "combat:end"]);
+	assert.equal(compileReaches(candidates, rows), true, "the flight is read by the compile (fight_step)");
+	assert.deepEqual([actGated(candidates[0], []), actGated(candidates[0], ["combat:flee"])], [true, false]);
+	assert.equal(next(initialView({ runId: "r", rawInput: "我跑", context, candidates, rows, readFirst: false })).purpose, "compile");
 });
