@@ -19,7 +19,8 @@
  * an authored person's record rather than stopping it.
  *
  * No assertion below reads a name to decide anything, and none of them says who deserves a record.
- * The boundary is mechanical: the graph knew this name or it did not.
+ * The boundary is mechanical: the graph or the table's own record knew this name, or the Keeper
+ * declared a newcomer with `walk_on` (§87.7).
  */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
@@ -34,7 +35,7 @@ const receiptOf = (result, kind) => (result.receipts ?? []).find(id => String(id
 
 test('a person the book never had is established by the call that puts them in the scene', async t => {
 	const game = await table(t);
-	const result = await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', stance: 'wary',
+	const result = await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', stance: 'wary', walk_on: true,
 		why: 'he is standing at the boiler-room stair with one foot on the first step'}]);
 	assert.ok(receiptOf(result, 'npc'), 'the presence of a person the table just met settles into a receipt');
 
@@ -47,7 +48,7 @@ test('a person the book never had is established by the call that puts them in t
 
 test('an established person reads back, and says which of the three roads they came by', async t => {
 	const game = await table(t);
-	await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', why: 'he leads her down the cellar stair'}]);
+	await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', walk_on: true, why: 'he leads her down the cellar stair'}]);
 
 	// Turn 98's `look focus=npc name=门房` — the Keeper could not read back a person it had narrated
 	// the turn before.
@@ -72,7 +73,7 @@ test('an established person reads back, and says which of the three roads they c
  */
 test('the campaign roster (contract §11.5.8, SL-67) lists an established person, independent of scene presence', async t => {
 	const game = await table(t);
-	await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', why: 'he leads her down the cellar stair'}]);
+	await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', walk_on: true, why: 'he leads her down the cellar stair'}]);
 	const capsule = await game.call('table.look', {focus: 'scene'});
 	assert.ok(Array.isArray(capsule.roster), 'table.look {focus: "scene"} carries a roster field');
 	const entry = capsule.roster.find(row => row.name === DOORMAN);
@@ -82,7 +83,7 @@ test('the campaign roster (contract §11.5.8, SL-67) lists an established person
 
 test('the same person established twice is one person', async t => {
 	const game = await table(t);
-	await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', why: 'he is at the stair'}]);
+	await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', walk_on: true, why: 'he is at the stair'}]);
 	await game.apply([{kind: 'npc', name: DOORMAN, stance: 'wary', why: 'she has pushed him twice now'}]);
 	const world = await game.world();
 	assert.equal((world.table_people ?? []).filter(person => person.name === DOORMAN).length, 1);
@@ -107,8 +108,8 @@ test('a batch placing two distinct people this table meets mints them both, the 
 	const game = await table(t);
 	const FIRST = '卡尔', SECOND = '霍默';
 	const result = await game.apply([
-		{kind: 'npc', name: FIRST, to: 'here', why: 'the man at the pumps, talking to the investigator'},
-		{kind: 'npc', name: SECOND, to: 'here', why: 'the bar owner across the street, watching from over there'},
+		{kind: 'npc', name: FIRST, to: 'here', walk_on: true, why: 'the man at the pumps, talking to the investigator'},
+		{kind: 'npc', name: SECOND, to: 'here', walk_on: true, why: 'the bar owner across the street, watching from over there'},
 		{kind: 'person', who: FIRST, name: FIRST},
 		{kind: 'person', who: SECOND, name: SECOND}]);
 	assert.equal(result.not_landed, undefined,
@@ -122,8 +123,8 @@ test('a batch placing two distinct people this table meets mints them both, the 
 test('two people this table meets each land their own npc-ledger entry once the turn closes', async t => {
 	const game = await table(t);
 	const FIRST = '卡尔', SECOND = '霍默';
-	await game.apply([{kind: 'npc', name: FIRST, to: 'here', why: 'the man at the pumps'},
-		{kind: 'npc', name: SECOND, to: 'here', why: 'the bar owner across the street'}]);
+	await game.apply([{kind: 'npc', name: FIRST, to: 'here', walk_on: true, why: 'the man at the pumps'},
+		{kind: 'npc', name: SECOND, to: 'here', walk_on: true, why: 'the bar owner across the street'}]);
 	await game.call('table.narrate', {call_id: game.next(),
 		text: `{{say:${FIRST}}}Fill her up?{{/say}} ${SECOND} watches from across the street.`});
 
@@ -160,9 +161,9 @@ test('three brand-new names in one batch mint three ledger entries, even when tw
 	const game = await table(t);
 	const OLD_MAN = '柜台前的老男人', YOUNG_MAN = '穿工装的年轻人', WOMAN = '饭馆柜台后面的女人';
 	const result = await game.apply([
-		{kind: 'npc', name: OLD_MAN, to: 'here', why: '他比调查员到得早，正坐在柜台前就着咖啡跟屋里的人说话'},
-		{kind: 'npc', name: YOUNG_MAN, to: 'here', why: '他在靠里的桌边吃午饭，跟柜台前的老人有一搭没一搭地说话'},
-		{kind: 'npc', name: WOMAN, to: 'here', why: '她是这家小饭馆的老板，正在柜台后面收拾锅灶'}]);
+		{kind: 'npc', name: OLD_MAN, to: 'here', walk_on: true, why: '他比调查员到得早，正坐在柜台前就着咖啡跟屋里的人说话'},
+		{kind: 'npc', name: YOUNG_MAN, to: 'here', walk_on: true, why: '他在靠里的桌边吃午饭，跟柜台前的老人有一搭没一搭地说话'},
+		{kind: 'npc', name: WOMAN, to: 'here', walk_on: true, why: '她是这家小饭馆的老板，正在柜台后面收拾锅灶'}]);
 	assert.equal(result.not_landed, undefined,
 		`all three brand-new names should mint; none of them is a reason another refuses: ${JSON.stringify(result.not_landed)}`);
 
@@ -184,13 +185,13 @@ test('three brand-new names in one batch mint three ledger entries, even when tw
 test('a batch mixing one already-established name with two new ones resolves the established one and mints the other two', async t => {
 	const game = await table(t);
 	const OLD_MAN = '柜台前的老男人', YOUNG_MAN = '穿工装的年轻人', WOMAN = '饭馆柜台后面的女人';
-	await game.apply([{kind: 'npc', name: OLD_MAN, to: 'here', why: 'established on an earlier turn'}]);
+	await game.apply([{kind: 'npc', name: OLD_MAN, to: 'here', walk_on: true, why: 'established on an earlier turn'}]);
 	assert.equal((await game.world()).table_people.length, 1, 'the fixture starts from exactly one established person');
 
 	const result = await game.apply([
 		{kind: 'npc', name: OLD_MAN, stance: 'wary', why: 'the same man, named again in this batch'},
-		{kind: 'npc', name: YOUNG_MAN, to: 'here', why: 'a second, new name in the same batch'},
-		{kind: 'npc', name: WOMAN, to: 'here', why: 'a third, new name in the same batch'}]);
+		{kind: 'npc', name: YOUNG_MAN, to: 'here', walk_on: true, why: 'a second, new name in the same batch'},
+		{kind: 'npc', name: WOMAN, to: 'here', walk_on: true, why: 'a third, new name in the same batch'}]);
 	assert.equal(result.not_landed, undefined, `nothing in this batch should refuse: ${JSON.stringify(result.not_landed)}`);
 
 	const world = await game.world();
@@ -206,9 +207,9 @@ test('the b11 t17 batch replay lands whole', async t => {
 	const game = await table(t);
 	const OLD_MAN = '柜台前的老男人', YOUNG_MAN = '穿工装的年轻人', WOMAN = '饭馆柜台后面的女人';
 	const result = await game.apply([
-		{kind: 'npc', name: OLD_MAN, to: 'here', why: '他比调查员到得早，正坐在柜台前就着咖啡跟屋里的人说话'},
-		{kind: 'npc', name: YOUNG_MAN, to: 'here', why: '他在靠里的桌边吃午饭，跟柜台前的老人有一搭没一搭地说话'},
-		{kind: 'npc', name: WOMAN, to: 'here', why: '她是这家小饭馆的老板，正在柜台后面收拾锅灶'}]);
+		{kind: 'npc', name: OLD_MAN, to: 'here', walk_on: true, why: '他比调查员到得早，正坐在柜台前就着咖啡跟屋里的人说话'},
+		{kind: 'npc', name: YOUNG_MAN, to: 'here', walk_on: true, why: '他在靠里的桌边吃午饭，跟柜台前的老人有一搭没一搭地说话'},
+		{kind: 'npc', name: WOMAN, to: 'here', walk_on: true, why: '她是这家小饭馆的老板，正在柜台后面收拾锅灶'}]);
 	assert.equal(result.not_landed, undefined, `the b11 t17 batch should land whole, exactly as SL-70 rules: ${JSON.stringify(result.not_landed)}`);
 	assert.equal((result.receipts ?? []).length, 3, 'all three npc receipts are in the one call\'s receipts');
 
@@ -241,7 +242,7 @@ test('a pin on an unknown name is still refused, with its candidates', async t =
 test('an appellation is an identity, and the word the player sees is the one this table gave', async t => {
 	const game = await table(t);
 	const appellation = 'the clerk at the archive window';
-	await game.apply([{kind: 'npc', name: appellation, to: 'here', why: 'he is behind the counter'}]);
+	await game.apply([{kind: 'npc', name: appellation, to: 'here', walk_on: true, why: 'he is behind the counter'}]);
 	await game.apply([{kind: 'person', who: appellation, name: '档房窗口的职员',
 		why: 'this is what the table has been calling him'}]);
 
@@ -333,7 +334,7 @@ test('a span that stayed a label is passed over, because who counts as a person 
 
 test('a miss offers the people this table already has, so the Keeper can reuse a handle', async t => {
 	const game = await table(t);
-	await game.apply([{kind: 'npc', name: '门房', to: 'here', why: 'he is at the stair'}]);
+	await game.apply([{kind: 'npc', name: '门房', to: 'here', walk_on: true, why: 'he is at the stair'}]);
 	// The Keeper reaches for the same man under a second appellation. Nothing decides they are one
 	// person -- that is the judgement this project forbids -- but the roster is offered.
 	let refused = null;
@@ -367,7 +368,7 @@ test('a name the book has something to say about is refused, not quietly turned 
 
 test("an authored person's record is not where a table person ends up", async t => {
 	const game = await table(t);
-	await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', why: 'he is at the stair'}]);
+	await game.apply([{kind: 'npc', name: DOORMAN, to: 'here', walk_on: true, why: 'he is at the stair'}]);
 	const authored = await game.call('table.look', {focus: 'npc', name: 'Steven Knott'});
 	assert.notEqual(authored.origin?.kind, 'table',
 		'the book\'s own person is untouched by anything the table established');

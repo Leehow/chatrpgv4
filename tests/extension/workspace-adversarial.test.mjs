@@ -100,7 +100,7 @@ test('evidence storage stays off the formal campaign, world files and Git', asyn
 test('a table-minted person carries campaign_adaptation authority while authored nodes stay module_source', async t => {
   const table = await openTable(t);
   await table.call('table.player_input', {text: 'I walk into the hotel lobby.'});
-  await table.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'npc', name: 'Madame Vashta', to: 'here'}]});
+  await table.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'npc', name: 'Madame Vashta', to: 'here', walk_on: true}]});
   await table.call('table.narrate', {call_id: 't1-c2', text: 'Madame Vashta slides a brass key across the counter without a word.'});
   const snapshot = await table.call('table.workspace.read');
   assert.equal(snapshot.status, 'valid');

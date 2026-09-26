@@ -40,6 +40,17 @@ export const sceneLabel = (graph: ModuleGraph, world: Row, scene: Row): string =
  * inferred: nothing here reads a name to decide anything about the person who carries it.
  */
 export const personRecord = (world: Row, id: string): Row => row(row(world.person_labels)[id]);
+/**
+ * Whose name at this table `name` is (§79.2): every id whose record carries this word as `name`,
+ * by the normalization every other name lookup uses. The table's word for a person is one of that
+ * person's names wherever a person is named, as `world.scene_labels` is for a place. It is a record
+ * the table wrote with `apply person`, so reading it back judges nothing about anyone; two ids
+ * sharing one word come back as two, and the caller refuses rather than picks.
+ */
+export function calledOwners(world: Row, name: string): string[] {
+    const key = normalize(name);
+    return key ? entries(row(world.person_labels)).filter(([, record]) => normalize(string(row(record).name)) === key).map(([id]) => id) : [];
+}
 /** The table's name for a person, and the sheet's or the book's only until one exists (§79). */
 export const personLabel = (world: Row, id: string, authored: string): string => string(personRecord(world, id).name || authored);
 /**

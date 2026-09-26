@@ -161,15 +161,36 @@ const phraseWithin = (phrase: string[], key: string[]): boolean => {
  * `graph.candidates` turns up as an exact name match once the person-only search has already failed --
  * both closed, structural facts the kernel already has, never a semantic guess about the name's text.
  */
+/**
+ * The refusals `resolve` gave because a word names more than one entity, by an exact key or as a run
+ * inside two names. A caller that may establish a newcomer on a miss must never do so on such a word
+ * (contract §87.7), and must tell the two refusals apart without reading the message. The mark rides
+ * beside the error rather than in it: `resolve`'s error JSON is compared field for field against the
+ * frozen Python oracle, which never had one.
+ */
+const ambiguities = new WeakSet<RpcError>();
+const markAmbiguity = (error: RpcError): RpcError => (ambiguities.add(error), error);
+export const isAmbiguity = (error: unknown): boolean => error instanceof RpcError && ambiguities.has(error);
 export function personRefusal(error: unknown, name: string, graph: ModuleGraph, party: readonly Row[]): unknown {
     if (!(error instanceof RpcError) || error.code !== "unknown_entity" || typeof name !== "string")
         return error;
     if (array((error.details as Row | undefined)?.candidates).length)
         return error; // today's answer already has something to act on.
+    return notAPerson(name, graph, party, error.message) ?? new RpcError("unknown_entity", error.message, {
+        fix: `${repr(name)} is not in the module graph or this table's roster; establish them first (an npc effect with walk_on: true and why, or the carried text's own person) or look npc to check the name before trying again`,
+        details: { query: name }
+    });
+}
+/**
+ * SL-73's two structural answers on their own: the word is the investigator at this table, or exactly
+ * the name of something else the graph holds. Either way it is not a person anybody may establish, so
+ * `apply npc` asks this before it would ever offer `walk_on` (contract §87.7), whatever the candidates.
+ */
+export function notAPerson(name: string, graph: ModuleGraph, party: readonly Row[], message: string): RpcError | null {
     const key = normalize(name);
     const investigator = party.find(sheet => [normalize(string(sheet.id)), normalize(string(sheet.name))].includes(key));
     if (investigator)
-        return new RpcError("unknown_entity", error.message, {
+        return new RpcError("unknown_entity", message, {
             fix: `${repr(name)} is the investigator at this table (${repr(string(investigator.name || investigator.id))}), not an npc; write the investigator's own sheet or effect instead of an npc one`,
             details: { query: name, is_investigator: true }
         });
@@ -180,14 +201,11 @@ export function personRefusal(error: unknown, name: string, graph: ModuleGraph, 
     // it is skipped here the same way `graph.actor` already looks past a scene to find an npc.
     const other = graph.candidates(name, undefined, 6).find(candidate => string(candidate.kind) !== "beat" && normalize(string(candidate.name)) === key);
     if (other)
-        return new RpcError("unknown_entity", error.message, {
+        return new RpcError("unknown_entity", message, {
             fix: `${repr(name)} is a ${other.kind} in the module graph, not a person; use the effect or lookup for a ${other.kind} instead of an npc one`,
             details: { query: name, matched_kind: other.kind }
         });
-    return new RpcError("unknown_entity", error.message, {
-        fix: `${repr(name)} is not in the module graph or this table's roster; establish them first (an npc effect with why, or the carried text's own person) or look npc to check the name before trying again`,
-        details: { query: name }
-    });
+    return null;
 }
 export class ModuleGraph {
     /** Source queue/asset routing only; never authored graph data. */
@@ -370,13 +388,13 @@ export class ModuleGraph {
             exact = [...this.nodes.values()].filter(n => wanted(n.node_id) && key === normalize(this.handle(n)));
         if (exact.length === 1)
             return exact[0];
-        const ambiguous = (ids: string[]) => new RpcError("unknown_entity", `${what} ${repr(name)} is ambiguous`, {
+        const ambiguous = (ids: string[]) => markAmbiguity(new RpcError("unknown_entity", `${what} ${repr(name)} is ambiguous`, {
             fix: "use one of details.candidates by its exact name",
             details: {
                 query: name,
                 candidates: sorted(ids).map(id => this.describe(this.nodes.get(id)!))
             }
-        });
+        }));
         const ids = [...(this.names.get(key) ?? [])].filter(wanted);
         if (ids.length === 1)
             return this.nodes.get(ids[0])!;

@@ -1177,6 +1177,11 @@ reverting `personOfEffect`'s two `throw personRefusal(...)` calls back to the ba
 gate #12's `candidates: []` shape for all three new cases and is caught by them; the fourth test is
 unaffected by that mutation, proving the ordinary-candidates path was never touched.
 
+*Amended by §87.7 (2026-09-26):* "a name with no candidates and none of the three shapes still falls through to
+minting" no longer holds. An `npc` effect on a word nobody at the table carries establishes a person only with
+`walk_on: true`. Without it the refusal lists who is present and hands back the effect with the flag. The
+investigator and exact-kind answers above are asked first, flag or no flag.
+
 #### 11.5.9 An NPC the table knows can be the actor of an ordinary resolve: the NPC's own roll (2026-09-26, SL-71 of `docs/specs/pi-native-single-loop-tickets/71-an-npc-can-be-the-actor-of-a-resolve.md`; amends this section, §16.2 and §17.9)
 
 **Evidence** (long gate #11 `longgate11-haunting-1515`, ticket 02's entry). Five `resolve` calls with an
@@ -14969,6 +14974,108 @@ unadvertised, which is harmless. Text ahead of the kernel would point the Keeper
 still refused, and a `fix` is executed literally (§34.7). **Splitting these two across branches is
 what would break it**, in either direction: the text alone is a lie, and the kernel alone is a road
 the Keeper has been told not to take.
+### 87.7 A table name is a name, and a newcomer is declared (2026-09-26, amends §87.2, §87.4, §79.2, §11.5.7 and its SL-73 addendum)
+
+**Evidence** (`.coc/playtests/prose-npc-temper-20260926/home-c`, campaign `temper-c`, module voice-bench, Keeper
+`opencode-go/deepseek-v4.1-flash` low; turns `0004.json`–`0008.json`). At turn 4 the dock labourer 王铁柱
+(`wang-tiezhu`) was in `capsule.present` with `untold` (label 靠门条凳上湿褂子贴肩的扛包汉子, `use`: "apply person,
+then called.name and say token"). The turn's two rolls targeted him by name. Then the Keeper sent one batch, `t4-c4`:
+
+```
+[{kind: "person", who: "王铁柱", name: "扛包的汉子", why: ...},
+ {kind: "npc",    name: "扛包的汉子", stance: "wary", why: ...}]
+```
+
+That is exactly what `untold.use` says to do. The person effect wrote `person_labels["wang-tiezhu"].name`; the npc
+effect resolved through `graph.npc` alone, found nothing, and minted `npc-table-681e26f1f827f9427144`, established
+`table`, placed in the teahouse. From then on the say token `{{say:扛包的汉子}}` resolved to the duplicate, because
+`speakerResolver` tries the present people before the table's names, so turns 4–5 carried his stance and his lines
+on a man who does not exist. At turn 6 the Keeper wrote the book's name, `王铁柱`, and from then on the table has
+both: turn 8's `capsule.voices` lists 王铁柱 and 扛包的汉子, two masks for one person. §11.5.6's host resolution never ran: it follows an `unknown_entity`, and a mint is not one.
+It could not have helped either, because its question reads committed state, where the word had not been written yet.
+
+Two causes, two rules.
+
+**1. The table's word for a person is one of their names in `apply npc`.** §79.2 already says this for
+`apply person.who`, and §79.3 for the say token; `personOfEffect` was the one person entrance that read the book's
+names and not the table's. The order is now: the graph (handle, aliases, the anchored run of §2), a creature with a
+stat block (§136.12), then `world.person_labels` by the same normalization (`calledOwners`,
+`kernel-ts/read/capsule.ts`). Exactly one owner is that person. Two owners are `unknown_entity` naming both as
+candidates, never a pick. Within one batch a `person` effect's word is visible to a later `npc` effect, because both
+read the staged world. This reads back a record the table wrote; it compares no word to any other word.
+
+**2. Minting a table person takes `walk_on: true`.** A word no record carries can as well be an authored person
+the Keeper has not introduced yet as someone the book never had, and deciding which is the semantic judgement §87.4
+forbids. So the Keeper declares it: `apply {kind: "npc", name, walk_on: true, ...}`, ticket 07's ruled shape
+(`docs/specs/npc-as-actor-tickets/07-walk-on-person.md`). Without the flag the word is refused, and the refusal
+carries the calls, because a `fix` is executed literally (§34.7):
+
+| field | what it holds |
+| --- | --- |
+| `code`, message | `unknown_entity`, with the graph's own sentence (`no npc named ...`), which is still true |
+| `details.present` | everyone in the scene as `{name, called?, introduce?}`, when anyone is. `introduce` is `{kind: "person", who: <name>, name: <the word>}`, on an authored person with no §79 word whom the player has not been told (§103's `untold`): the effect to put first in the same batch |
+| `details.candidates` | the graph's near names, then §87.4's roster; only when non-empty (SL-73) |
+| `details.walk_on` | the Keeper's own effect with `walk_on: true` (host-only `_` keys stripped): the effect to send instead |
+| `fix` | names only the lists that are there; `introduce` first and this effect after it, or `details.walk_on` in its place |
+
+This is also the `unknown_entity` §11.5.6 follows, so a plain miss now gets one Jev question against the scene's
+known people before the Keeper sees the refusal. A Keeper who declares the newcomer up front spends neither.
+
+What `walk_on: true` does, case by case:
+
+- **A word nobody carries** is established under that word (§87.1's record, `established: "table"`). A pin
+  (`skill`, `archetype`) or `conditions` rides on the establishing call; this amends §87.2, whose typo guard is now the
+  declaration itself plus the ambiguity rule below.
+- **A word that resolves to someone the table has** (the book's, an adaptation's, a §79 word, a creature) is
+  `invalid_params` with `field: "npc.walk_on"`, and nothing is written. Accepting it would write the "newcomer" onto
+  that person's record, which is §87's turn-106 substitution. A table person already established is accepted
+  idempotently: no second row, and no `established` on the receipt.
+- **A word the graph calls ambiguous**, by an exact key or as a run inside two names, keeps the graph's refusal,
+  flag or no flag: a third person under it would shadow both. `ModuleGraph.resolve` marks its own ambiguity
+  refusals (`isAmbiguity`), so no caller reads the message to tell the two refusals apart. The mark rides beside the
+  error, not in it: `resolve`'s error JSON is compared field for field against the frozen Python oracle.
+- **The investigator's own name, or exactly the name of a place or a clue**, keeps SL-73's answer
+  (`is_investigator`, `matched_kind`; `notAPerson`, `kernel-ts/read/module-graph.ts`), flag or no flag. It is
+  asked before any road to minting.
+- `reunion` on a word nobody carries is refused as before; a non-boolean `walk_on` is `invalid_params`.
+- A passage the source text carried this turn (§11.5.4) vouches for its person, who is established without the
+  flag unless the same call pins numbers.
+
+**Resemblance no longer refuses.** Before this, any ranked candidate made a miss the graph's refusal, "pick a name
+from details.candidates". For a newcomer whose word resembles someone (SL-70's 0.5 similarity; "the constable"
+beside "the porter") that pointed the Keeper at another person's record. §11.5.7 and its SL-70 addendum took the
+table's own people out of that count; this removes the count. Near names now lead the refusal's list, and a declared
+newcomer is established. The phrase and fold guards (`ts-kernel-name-phrase`, `ts-kernel-name-fold`) still hold:
+nothing near is ever silently picked, and nothing ambiguous is minted.
+
+**What this does not do.** It merges no existing duplicates: temper-c keeps both rows, because deciding that two
+records are one person is §87.4's open judgement. It migrates nothing: a table person already established resolves
+by its word with no flag. `resolve`'s `action.target`, `look focus=npc` and `apply clue from` still read only the
+graph, so a §79 word there is still a miss or a label; that is the same gap at three other entrances, left for its
+own change.
+
+**Deployment (§87.6's rule).** `NpcEffect.walk_on` ships in `extensions/kernel/tools.ts` on the same branch. The
+dispatcher closes every schema (`additionalProperties: false`), so a kernel without the schema would refuse every
+newcomer with no way to declare one. The text ships with it: the `name` and `walk_on` descriptions, the adaptation
+`purpose` line, lookup's not-found note, `apply person`'s `unknown_entity` fix, combat's needs-target fix and
+`personRefusal`'s generic fix all say `walk_on: true` where they send the Keeper to establish someone.
+
+**Three ends (§31).** *Writer:* `personOfEffect` (`kernel-ts/apply/entities.ts`), one row in
+`world.table_people[]` per declared newcomer; `apply person` for the §79 word. *Reader:* the same `personOfEffect`
+on every later `npc` effect, the graph projection (§87.1) and every node-typed consumer after it. *Actor:* the
+Keeper, who either declares a newcomer or gives an untold authored person the word, and whose refusal hands back
+both calls ready to send.
+
+*Tests.* `tests/kernel/test_walk_on_gate.py` over the emitted kernel: the t4-c4 batch lands on the authored person
+and establishes nobody; a word nobody carries is refused without `walk_on`, and its `introduce` followed by the
+same effect, sent as written, lands on the authored person; two declared newcomers in a row are both established;
+`walk_on` on the book's name or on a §79 word is refused; a pin rides on the declaring call; one word given to two
+people is refused and not picked; `walk_on` never establishes the investigator's name or a scene's. The extension
+guards (`a-person-this-table-has`, `npc-effect-refusal-shape`, `workspace-adversarial`) declare their newcomers, and
+`ts-kernel-name-phrase` adds a declared newcomer under an ambiguous run, refused. Mutations, each caught: the silent
+mint restored; the §79 lookup removed; `introduce` dropped; the ambiguity mark ignored; `walk_on` accepted on
+someone the table has; resemblance restored as a bar; `notAPerson` moved after the flag.
+
 ## 88. An offer is not a delivery (2026-09-17, extends §19's object model and §31)
 
 > **Section number is a placeholder.** The integrator assigns the real number at

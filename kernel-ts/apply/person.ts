@@ -12,8 +12,8 @@
  */
 import { RpcError } from '../errors.js';
 import type { DomainEvent } from '../transactions.js';
-import { personRecord } from '../read/capsule.js';
-import { entries, normalize, repr, row, string, type Row } from '../read/values.js';
+import { calledOwners, personRecord } from '../read/capsule.js';
+import { normalize, repr, string, type Row } from '../read/values.js';
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
 import { passageOf } from '../read/table-people.js';
@@ -40,15 +40,14 @@ async function personOf(context: ApplyContext, who: any, effect: Row = {}): Prom
     const node = context.graph.find(who, ['npc']);
     if (node)
         return { id: context.graph.handle(node), name: context.graph.displayName(node), is_investigator: false };
-    for (const [id, record] of entries(row(context.world.person_labels)))
-        if (normalize(string(row(record).name)) === key) {
-            const named = context.graph.find(id, ['npc']);
-            if (named)
-                return { id: context.graph.handle(named), name: context.graph.displayName(named), is_investigator: false };
-            const sheet = (await context.campaign.party() as Row[]).find(value => string(value.id) === id);
-            if (sheet)
-                return { id: string(sheet.id), name: string(sheet.name || sheet.id), is_investigator: true };
-        }
+    for (const id of calledOwners(context.world, who)) {
+        const named = context.graph.find(id, ['npc']);
+        if (named)
+            return { id: context.graph.handle(named), name: context.graph.displayName(named), is_investigator: false };
+        const sheet = (await context.campaign.party() as Row[]).find(value => string(value.id) === id);
+        if (sheet)
+            return { id: string(sheet.id), name: string(sheet.name || sheet.id), is_investigator: true };
+    }
     // §11.5.4 (SL-51): a person the source text carried this turn names is not invented. Established from that passage
     // exactly as `apply npc` establishes one (§87's record with `from_passage`), so the label is written on them.
     const passage = passageOf(effect, who);
@@ -57,7 +56,7 @@ async function personOf(context: ApplyContext, who: any, effect: Row = {}): Prom
         return { id: context.graph.handle(node), name: context.graph.displayName(node), is_investigator: false, established: 'passage', from_passage: passage };
     }
     throw new RpcError('unknown_entity', `${repr(who)} is nobody at this table`, {
-        fix: 'name an investigator of the party or an NPC this table has; someone the book never had is established first by apply npc under that name, and goes through lookup kind adaptation only when they must persist as a source-connected figure',
+        fix: 'name an investigator of the party or an NPC this table has; someone the book never had is established first by apply npc under that name with walk_on: true, and goes through lookup kind adaptation only when they must persist as a source-connected figure',
         details: { field: 'person.who', who },
     });
 }

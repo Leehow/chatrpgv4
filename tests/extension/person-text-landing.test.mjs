@@ -102,7 +102,7 @@ const world = (workspace) => JSON.parse(readFileSync(join(workspace, ".coc/campa
 const check = (target, call_id, extra = {}) => ["table.resolve", { campaign: CAMPAIGN, call_id, ...extra, action: { intent: "investigate", goal: "size them up",
 	method: "watch them for a while", skill: "Spot Hidden", decision: "core-check:ordinary-check", target } }];
 
-const place = (name, call_id, extra = {}) => ["table.apply", { campaign: CAMPAIGN, call_id, ...extra, effects: [{ kind: "npc", name, to: "here", why: "the page puts them here" }] }];
+const place = (name, call_id, extra = {}, declared = {}) => ["table.apply", { campaign: CAMPAIGN, call_id, ...extra, effects: [{ kind: "npc", name, to: "here", ...declared, why: "the page puts them here" }] }];
 
 test("§22.4.7.1 on the emitted kernel: a table person is not held; a book person lands on the text the host found, once", async (t) => {
 	const workspace = await mkdtemp(join(tmpdir(), "person-text-kernel-"));
@@ -111,7 +111,7 @@ test("§22.4.7.1 on the emitted kernel: a table person is not held; a book perso
 	ok(workspace, [["table.open", { campaign: CAMPAIGN }], ["table.player_input", { campaign: CAMPAIGN, text: "I watch the man at the end of the bench." }]]);
 
 	// t10's shape: a man the book has not named, established by the table, then checked. Nothing is read for him.
-	ok(workspace, [place("the man at the far end", "t1-c1")]);
+	ok(workspace, [place("the man at the far end", "t1-c1", {}, { walk_on: true })]);
 	const [tablePerson] = rpc(workspace, [check("the man at the far end", "t1-c2")]);
 	assert.equal(tablePerson.ok, true, `a table person is not book material: ${JSON.stringify(tablePerson.error)}`);
 
