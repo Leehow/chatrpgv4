@@ -40,10 +40,12 @@ export const FAST_MODEL_KEY = "ext.coc-keeper.laneModel";
 export const FAST_THINKING_KEY = "ext.coc-keeper.laneThinking";
 
 /**
- * The reasoning effort a fast lane runs at when nobody has chosen one (contract §37.11).
+ * The reasoning effort a `mod` child runs at when nobody has chosen one (contract §37.11), and the
+ * literal a zero-tool `runLane` lane falls back to only once its own table has nothing to say either
+ * (SL-81, contract §12.8.1 addendum, 2026-09-26: `resolveFastThinking`'s `table` argument).
  *
- * Not the table's. The table's reasoning effort is a Keeper-quality choice with no relation to a
- * background lane. Before §110 the reviewer had a 40 s wall-clock allowance, so `high` could spend
+ * Not the table's, for a `mod` child. The table's reasoning effort is a Keeper-quality choice with no
+ * relation to a background lane. Before §110 the reviewer had a 40 s wall-clock allowance, so `high` could spend
  * the entire allowance inside one unfinished thinking stream; two campaigns died of exactly this on
  * 2026-09-14 (§37.11). §110 removed that interactive deadline in favour of an hour-scale process safety
  * ceiling, but the efforts remain separate: changing Keeper quality must not silently change lane
@@ -112,7 +114,20 @@ export function resolveFastModel(input: { override?: string; choice: FastModelCh
   return { ...(table ? { model: table } : {}), source: "table" };
 }
 
-/** The effort a fast lane runs at: the operator's variable, then the setting, then the lane's own level. */
-export function resolveFastThinking(input: { override?: string; choice: FastModelChoice }): string {
-  return input.override?.trim() || input.choice.thinking || LANE_THINKING_DEFAULT;
+/**
+ * The effort a fast lane runs at: the operator's variable, then the setting, then -- for a caller
+ * that has one to give -- the table's own level, then the lane's own literal default.
+ *
+ * `table` is new as of SL-81 (contract §12.8.1 addendum, 2026-09-26) and optional: a `mod` child's
+ * effort never inherits the table's by design (§37.11 -- its wall-clock budget has no relation to a
+ * Keeper-quality choice), so `runtime/tasks.ts`'s `mod` task and `presentationLaneChoice` still call
+ * this with no `table`, and their resolution is unchanged bit for bit. A `runLane` zero-tool lane
+ * (`extensions/lanes/subsession.ts`'s `laneThinkingLevel`) does have a table to ask -- the session's
+ * own `ctx.thinkingLevel`, read fresh at the moment the lane runs -- and passes it here rather than
+ * falling straight to the literal default the way it used to: long gate #13 ran the admission lane
+ * at the literal `"low"` on a table sitting at `off` for 100 calls straight, because nothing between
+ * the lane and `LANE_THINKING_DEFAULT` ever looked at the table at all.
+ */
+export function resolveFastThinking(input: { override?: string; choice: FastModelChoice; table?: string }): string {
+  return input.override?.trim() || input.choice.thinking || input.table?.trim() || LANE_THINKING_DEFAULT;
 }
