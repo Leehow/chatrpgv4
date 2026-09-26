@@ -497,9 +497,13 @@ test('saved session views match Python without constructing engine writers',asyn
     }
   }
   const expected=oracle('sessions',{cases});
+  // The frozen oracle predates §138.10: an NPC's own turn now issues `combat:flee` too. Compare everything else; the new
+  // action is asserted in tests/kernel/test_npc_round_operation.py.
+  const npcTurnFlee=session=>session&&Array.isArray(session.actions)&&session.turn_of&&session.turn_of!=='alice'
+    ?{...session,actions:session.actions.filter(action=>action.decision!=='combat:flee')}:session;
   await rows(t,cases,expected,async c=>{
     const saved=new api.CampaignSnapshot(context,c.id);await saved.preload();const view=new api.SessionView(saved,graph,party,world);
-    return {active:view.activeSession(),pending:view.pendingChoice(),combat:view.combatView(),chase:view.chaseView(),facts:view.facts('alice',60)};
+    return {active:npcTurnFlee(view.activeSession()),pending:view.pendingChoice(),combat:npcTurnFlee(view.combatView()),chase:view.chaseView(),facts:view.facts('alice',60)};
   });
   for(const [path,bytes] of retained)assert.equal(await readFile(path,'utf8'),bytes,path);
 });

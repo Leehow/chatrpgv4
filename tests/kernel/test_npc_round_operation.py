@@ -117,3 +117,17 @@ def test_any_effect_can_be_the_result_of_someone_elses_intention(fight):
     assert refused["details"]["reason"] == "intent_settled"
     bad = fight.table_err("apply", call_id=f"t1-c{n + 3}", effects=[{"kind": "threat", "name": "corbitt-haunting", "clock": "corbitt-awareness", "intent_ref": ref, "intent_outcome": "maybe"}])
     assert bad["details"]["field"].endswith("intent_outcome")
+
+
+def test_an_npc_who_flees_flees_and_the_pursuit_is_the_investigators_choice(fight):
+    """§138.10: the view issues flee on an NPC's turn, and a Keeper's `intent: flee` for him settles as a flight --
+    before this it settled as `decision:coc7:combat:attack`, a punch instead of a run."""
+    n = corbitts_turn(fight)
+    actions = fight.table("look", focus="session")["session"]["actions"]
+    assert {"decision": "combat:flee", "actor": CORBITT} in actions
+    fled = resolve(fight, f"t1-c{n}", actor="Walter Corbitt", intent="flee", goal="get away", method="run for the stairs")
+    assert fled["decision"].endswith("combat:flee")
+    assert any("chase:start" in hint and CORBITT in hint for hint in fled["hints"]), fled["hints"]
+    assert fight.table("look", focus="session")["session"] is None, "he was the only one fighting them: the fight is over"
+    assert not [c for c in fled.get("continuations", []) if "chase" in str(c.get("decision", "")) and c.get("executed")], \
+        "a pursuit is the investigators' choice, never started for them"

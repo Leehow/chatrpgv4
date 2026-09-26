@@ -274,7 +274,9 @@ export class ResolvePipeline {
             if(!truth(action.spell))throw new RpcError('needs',"casting needs the spell's name",{fix:'set action.spell',details:{needs:{field:'spell',options:knownSpells(await readMagicState(this.context,this.context.actorId),this.context.clockMinutes)}}});
             return ['decision:coc7:magic:cast-spell'];
         }
-        if (this.intent === 'combat' || this.npcInSession)
+        // §138.10: an NPC in the fight who flees flees. The session's default (an attack) came first here, so a Keeper's
+        // `intent: flee` for Corbitt settled as `decision:coc7:combat:attack` and he threw a punch instead of running.
+        if (this.intent === 'combat' || this.npcInSession && this.intent !== 'flee')
             return this.withSanityOffer(['decision:coc7:combat:attack']);
         if (this.intent === 'flee')
             return [active(this.sessions.combat) ? 'decision:coc7:combat:flee' : 'decision:coc7:chase:start'];
@@ -653,7 +655,7 @@ export class ResolvePipeline {
                 throw new RpcError('campaign_not_ready', error.message);
             throw error;
         }
-        let effectiveIntent = this.action.defense != null || this.npcInSession ? 'combat' : this.intent;
+        let effectiveIntent = this.action.defense != null || this.npcInSession && this.intent !== 'flee' ? 'combat' : this.intent;
         if(active(this.sessions.chase)&&this.intent==='flee')effectiveIntent=candidates.length===1&&candidates[0]==='decision:coc7:chase:attack'?'combat':'move';
         const runtimeFor=(intent:string)=>new RuleGraph(context.observations, {
             campaignId: context.campaignId,

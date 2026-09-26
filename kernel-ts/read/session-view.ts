@@ -81,11 +81,12 @@ export class SessionView {
             actor,
             targets
         });
-        if (this.isInvestigator(actor))
-            actions.push({
-                decision: "combat:flee",
-                actor
-            });
+        // §138.10: anyone whose turn it is can try to get away -- an NPC's standing action can be `flee`, and before
+        // this the view issued no action it could bind to.
+        actions.push({
+            decision: "combat:flee",
+            actor
+        });
         actions.push({
             decision: "combat:end",
             actor

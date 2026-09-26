@@ -405,6 +405,10 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
             session.initiativeCursor++;
             if (conclusion(session, context, operation) === null)
                 normalizeCursor(session);
+            // §138.10: an NPC who got away is out of the fight but still where the fight was; where they went is a move
+            // the fiction decides, and a pursuit is a chase the investigators choose.
+            if (kind === 'flee' && session.participants[actor].side !== 'investigator')
+                hints.push(`${actor} fled the fight: if the investigators give chase, resolve chase:start with target ${actor}; otherwise say where they went with apply npc to: away (or the scene they ran to)`);
         }
         else {
             const options = sorted(['attack', 'defend', ...SELF_RESOLVING]);

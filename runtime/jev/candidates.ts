@@ -181,9 +181,13 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
   const standing = object(session.standing_action), word = text(standing.action), standingBasis = text(standing.basis);
   if (STANDING_ACTIONS.includes(word) && STANDING_BASES.includes(standingBasis)) {
     const named = {action: word, basis: standingBasis, ...(standing.disposition ? {disposition: standing.disposition as Json} : {})} as Json;
-    if (word !== 'attack') return [];
-    const attack = own.find(candidate => candidate.bound.decision === 'combat:attack');
-    if (attack) return [{...attack, forced: true, basis: {...object(attack.basis), standing: named} as Json}];
+    // §138.10: `flee` binds the NPC's own flee action now that the kernel issues one; `hold` still leaves the turn to the
+    // Keeper, who spends it on whatever the person does instead of a blow (§138.5).
+    const bound = word === 'attack' ? 'combat:attack' : word === 'flee' ? 'combat:flee' : null;
+    if (bound === null) return [];
+    const step = own.find(candidate => candidate.bound.decision === bound);
+    if (step) return [{...step, forced: true, basis: {...object(step.basis), standing: named} as Json}];
+    if (word === 'flee') return [];
   }
   // No standing because the NPC has no combat disposition yet (§11.5.3 source 2): its card, read for this turn, carries
   // the four closed words and its own parameters. Inferring one is a forced closed bind (Jev), written once for the

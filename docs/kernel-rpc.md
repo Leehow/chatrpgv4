@@ -23378,3 +23378,14 @@ hands back `on_full`. Projection: `pressures[]` lists it (`kind: "threat"`, `nam
 it is full; `mods.pacing.threat_clocks` lists it always (`threat`, `name`, `clock: "clock"`, `state`, `minted`,
 `on_full`, and while not full `next`: what a full clock means), so the offer can hand it over like the book's. A name
 that misses lists the table's clocks beside the book's threats. `intent_ref` stamps it like any effect (138.2).
+
+**138.10 An NPC who flees flees (amends §11.5.3 and §521's flee line).** Three things kept an NPC from ever running:
+the session view issued `combat:flee` only on an investigator's turn, so a standing action of `flee` had nothing to
+bind; the pipeline's session default (`decision:coc7:combat:attack` for an NPC in the fight) came before the flee
+check; and the effective intent for the rule graph was forced to `combat`, so `combat:flee` was not applicable. A
+Keeper's `resolve {actor: <npc>, intent: "flee"}` therefore settled as an attack. Now the view issues `combat:flee` on
+anyone's turn, flee precedes the session default and keeps its intent, and the single loop binds a standing `flee` to
+the NPC's own flee action as it binds `attack` (`hold` still hands the turn to the Keeper, §138.5). The engine's flight
+marks them `fled` and moves the initiative on; a fight with no one left standing on their side concludes as before.
+The result hints the two lawful next steps -- a chase the investigators choose (`chase:start` against them), or where
+they went (`apply npc to`) -- and nothing starts a pursuit for the investigators.
