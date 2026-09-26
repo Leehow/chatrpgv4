@@ -113,3 +113,34 @@ Mutations (box copy only, restored, sha256 equal):
 - post-delivery-continuity: the `recorded` row not written (`index.ts`) -> red (the row wait times out).
 
 Also seen failing in this round's loaded ext-suite runs, not changed: `admission-line-level.test.mjs` "§32.12.3 with §32.12.2: a rest past the cap is returned pending alone…" (2x); `runtime-assembly-lifetime.test.mjs` "exited parent with descendant inheriting pipes after timeout…"; `lanes.test.mjs` "等响应头时被砍…（#67）"; `long-campaign-context.test.mjs` "campaign length never reaches the provider…"; `real-kernel.test.mjs` "a source wait closes without creating a story action menu".
+
+**2026-09-26, fifth round: the admission resend test on a fake clock (Claude Opus 5.5, worktree `chatrpgv4-wt-admission-clock`, branch `claude/admission-clock-20260926` off `claude/integ-single-loop-2-20260926@890fe63b0`; code in `d913d117d`, then line-2 @ `92a8b0b42` merged in `97949e3f3`).** This fixes the fourth round's admission-late deviation, where the test was scaled x10 because the injection points were out of reach. `admission-late.test.mjs` "§32.12.2: the Keeper's resend collects the lane that answered after the cap…" now runs at the original numbers (cap 1 s, verdict 1.6 s, hard cap 2 s) on a manual clock the test drives. Nothing sleeps, and the clocked part takes about 65 ms of wall time (the test's ~0.4 s is `openTable`).
+
+The seam, all optional, and production does not change when absent:
+- `runtime/jev/task-context.ts` `hostClock`: `Date.now()` and an unref'd `setTimeout`, looked up at each call. Each optional `clock` below falls back to it, so code that used to call those globals directly behaves as before, including under a test's mocked `Date` or timers.
+- `extensions/kernel/admission.ts`: `clock` on `AdmissionReviewOptions`. The primary review's start, `left()`, the cap timer, every `ms`, the lane round's `timeoutMs` (hard cap), and the typed attempt's lease and `preparationBudget` run on it.
+- `extensions/lanes/subsession.ts` `runLane`: `clock` for its deadline, `ms`, `firstByteMs`, and the independent budget's deadline (`independentProviderBudget(..., clock)`). The `lane-call` transport rows stay on the host's clock.
+- `extensions/kernel/index.ts`: the test-only bus event `coc:test-admission-clock` hands the kernel extension a `TaskClock`. The review, the prefetch, and the resend's wait (`resend_wait_ms`, `concurrent_wait_ms`) use it. Nothing in the product emits it. The contract's §32.12.2 test list names the seam.
+
+How the test drives it:
+1. Once the lane has been asked, it asserts that the cap, the verdict and the round's end are timers on the clock.
+2. It moves the clock to the cap (the call returns pending).
+3. The Keeper's scripted resend marks the clock's read count. The test waits until the resend reads the clock for its start, which is the only read in between and comes right before it waits on the round.
+4. It moves the clock to the verdict.
+5. It then runs only timers due after the round's end, and only once nothing of the round is still scheduled, so a resend that waits too long shows in `resend_wait_ms` instead of hanging.
+
+Assertions: the original set, plus `rows[0].ms === 1000`, `resend_wait_ms === 600` and `lane_ms === 1600`, all exact on the clock.
+
+Proof on leehow-pc:
+- Alone: 3/3 at `d913d117d` (load ~105 from another session's load proof); 3/3 at `97949e3f3` (load ~25).
+- Under deliberate load (my ext suite plus my own burners beside 6 runs), three rounds: round 1 at `d913d117d`, 16 burners, 6/6 (load 34–46); round 2 at `d913d117d`, 24 burners, 6/6 (load 47–76); round 3 at `97949e3f3`, 24 burners, 6/6 (load 44–77).
+- The target test also passed inside each of the three loaded ext-suite runs.
+
+Mutations (box copy only, restored by copying the saved file, sha256 equal), each at `d913d117d` and again at `97949e3f3`:
+- (a) the resend starting a fresh review instead of collecting the running one (`index.ts`) -> red (`one review, collected by the resend`: 2).
+- (b) the resend waiting a full hard cap on the clock instead of the rest of the round -> red (`the resend waited only for the rest of the round (2000 ms)`).
+- (c) the cap timer on the host's `setTimeout` instead of the clock (`admission.ts`) -> red (`a timer due 1000 ms into the review (1600,2000,2000)`).
+
+Also seen failing in a loaded ext-suite run (round 2, load ~70), not changed: `jev-provider-budget.test.mjs` "real child IPC gates two calls before dispatch…" (the child `pi` hit its 5 s timeout; 3/3 alone).
+
+Round 3's loaded ext suite at `97949e3f3` failed 118 tests. `lanes.test.mjs` alone, fresh build on the box: 6 of 30 fail at line-2 `92a8b0b42` itself, and 30/30 pass at `d913d117d`. Those failures therefore come in with the line-2 head that was merged, not with this change.
