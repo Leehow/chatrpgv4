@@ -489,6 +489,21 @@
       "id": "SL-97",
       "file": "97-jev-admission-confident-enough-to-settle.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-98",
+      "file": "98-pdf-opening-choice-deadlock.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-99",
+      "file": "99-reader-idle-allowance-for-slow-image-steps.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-100",
+      "file": "100-setup-guide-speaks-to-the-player.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
