@@ -35,7 +35,7 @@ import { asciiSlug, facts, publicContext, directorAdoption, offerLedger } from '
 import { obligationByHandle, obligationState } from '../read/obligations.js';
 import { statedHandleOf } from '../read/stated.js';
 import { deliveryText, deliveryRecord, keeperReads } from './delivery.js';
-import { markupInProse, describeMarkup, MARKUP_STEER } from './markup.js';
+import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from './markup.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
@@ -991,8 +991,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         report?.('load');
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
         await validateMods(snapshot.world);
-        const text = required(params, 'text')!, receipts = [...array(turn.receipts)];
-        const { placed, ...delivery } = deliveryText(text, receipts, speakerResolver(module.graph, snapshot.world, snapshot.party)), rendered = delivery.rendered_text;
+        const receipts = [...array(turn.receipts)], speakers = speakerResolver(module.graph, snapshot.world, snapshot.party);
+        // `let`: §139.17 may take a bare wrapper off the text on the turn's second delivery and render it again.
+        let text = required(params, 'text')!;
+        let { placed, ...delivery } = deliveryText(text, receipts, speakers), rendered = delivery.rendered_text;
         const hostRepeats = await refuseRepeatedLine(snapshot, campaign, delivery.speech, hostAttributed(params, delivery.speech));
         // Contract §138.7: someone present set out to do something on an earlier turn and nothing of this turn reports how
         // it went. Refused once per set of owed intentions; the same set a second time is delivered, with a finding.
@@ -1017,6 +1019,21 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 fix: 'Deliver the same turn again as plain prose: drop the tags, and write each list or heading line as sentences of the paragraph it belongs to. Keep the say tokens and mechanics markers where they stand and every settled fact; nothing else needs to change.',
                 details: { reason: 'markup_in_prose', tags: markup.tags, lines: markup.lines },
             });
+        }
+        // Contract §139.17: the gate is spent, so this delivery goes out. When all the markup is a bare wrapper -- a frame
+        // at the text's very start or end, never a tag inside the prose or a list or heading line -- it comes off the
+        // Keeper's text before rendering. Kept only when the new render is exactly the old one unwrapped and carries no
+        // markup; anything else is delivered as written, as before.
+        let stripped = false;
+        const wrapper = markup && typeof rendered === 'string' ? bareWrapper(rendered) : null;
+        if (wrapper) {
+            const bare = unwrap(text, wrapper), again = deliveryText(bare, receipts, speakers);
+            if (bare && typeof again.rendered_text === 'string' && again.rendered_text === unwrap(rendered, wrapper) && !markupInProse(again.rendered_text)) {
+                ({ placed, ...delivery } = again);
+                text = bare;
+                rendered = delivery.rendered_text;
+                stripped = true;
+            }
         }
         const language = await playLanguageOf(context, snapshot.meta);
         // Nothing is read out of the prose. Figures travel as the mechanics projection and the
@@ -1073,9 +1090,15 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                     fix: 'Settle it this turn: a roll or effect with its intent_ref, or apply npc with intent_ref and outcome done, failed or abandoned.',
                     ref: item.ref, at: nowIso() })),
                 // §139.10: delivered on the second try with markup still in it -- a finding for the next turn, not a second refusal.
+                // §139.17: a bare wrapper was taken off first; the row stays and says so.
                 ...(markup ? [{ lane: 'delivery', kind: 'markup_in_prose', quote: chars(markup.tags[0] ?? markup.lines[0] ?? '', 120),
-                    why: chars(`the delivery still carried markup after one refusal this turn (${describeMarkup(markup)}), so it went out as written`, 200),
-                    fix: `Already delivered: do not rewrite it. ${MARKUP_STEER}: no tags, no list or heading lines.`,
+                    why: chars(stripped
+                        ? `the delivery still carried markup after one refusal this turn (${describeMarkup(markup)}), a bare wrapper around the prose, so the kernel took it off and delivered the rest`
+                        : `the delivery still carried markup after one refusal this turn (${describeMarkup(markup)}), so it went out as written`, 200),
+                    fix: stripped
+                        ? `Already delivered without it: do not rewrite it. ${MARKUP_STEER}: no tags around the text or inside it.`
+                        : `Already delivered: do not rewrite it. ${MARKUP_STEER}: no tags, no list or heading lines.`,
+                    ...(stripped ? { stripped: true } : {}),
                     at: nowIso() }] : [])] } : {})
         };
         await campaign.writeTurnRecord(record);
@@ -1132,9 +1155,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         record.commit = sha;
         record.calls[started.callId].result.commit = sha;
         await campaign.writeTurnRecord(record);
-        // §139.10: the markup this delivery went out with is counted on the same lane as its refusal.
+        // §139.10: the markup this delivery went out with is counted on the same lane as its refusal; §139.17: `stripped`
+        // when it was a bare wrapper the kernel took off (the counts are what was found).
         if (markup) await campaign.telemetry({ lane: 'delivery', turn: n, ok: true, reason: 'markup_in_prose', outcome: 'delivered',
-            call_id: started.callId, implicit: truth(params.implicit), tags: markup.tags.length, lines: markup.lines.length }).catch(() => undefined);
+            call_id: started.callId, implicit: truth(params.implicit), tags: markup.tags.length, lines: markup.lines.length,
+            ...(stripped ? { stripped: true } : {}) }).catch(() => undefined);
         const postStep=async(step:string,action:()=>Promise<unknown>)=>{try{await action();}catch(error){await campaign.telemetry({lane:'kernel',step,turn:n,ok:false,error:internalError(error).message});}};
         const moves=isJsonObject(record.worldline)&&truth(record.worldline.operation);
         let checkpointRecord=record,checkpointWorld=world,moved:Row|null=null;

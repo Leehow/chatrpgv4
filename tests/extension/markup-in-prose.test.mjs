@@ -8,7 +8,8 @@
  * the same draft again and the kernel delivers it with its finding.
  *
  * Evidence: npc-actor-gate-a2 (2026-09-26), turn 6 (an explicit narrate whose own `text` argument ended in `</text>`)
- * and turn 7 (an implicit close with two markdown list lines).
+ * and turn 7 (an implicit close with two markdown list lines). §139.17 (ticket 18) takes a bare wrapper off the second
+ * delivery; its cases are at the end of this file.
  */
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
@@ -151,8 +152,11 @@ test("real kernel: with the turn's one steer already spent, an implicit draft re
 	assert.equal(table.telemetry().some((row) => row.lane === "delivery" && row.reason === "implicit_narrate_refused"), false, "nothing dropped");
 	const record = turnRecord(table, campaign, 1);
 	assert.equal(record.closed_by, "narrate");
-	assert.equal(record.text, TAGGED.trimEnd(), "the steered leg's own words, as the Keeper wrote them");
-	assert.equal((record.warnings ?? []).find((row) => row.kind === "markup_in_prose")?.quote, "</text>");
+	// §139.17: the trailing </text> is a bare wrapper, so the kernel took it off the resent draft.
+	assert.equal(record.text, REWRITTEN, "the steered leg's own words, its bare wrapper taken off");
+	const finding = (record.warnings ?? []).find((row) => row.kind === "markup_in_prose");
+	assert.equal(finding?.quote, "</text>");
+	assert.equal(finding?.stripped, true);
 	assert.deepEqual(markupRows(table).map((row) => [row.ok, row.outcome]), [[false, "refused"], [true, "delivered"]]);
 	assert.equal(shownText(table), record.rendered_text, "the player reads the delivered turn");
 });
@@ -202,4 +206,69 @@ test("real kernel, known boundary: dash dialogue typed with a hyphen at a line's
 	assert.equal(finding?.lane, "delivery");
 	assert.equal(finding?.quote, "- Siéntese, señor Hayes.");
 	assert.deepEqual(markupRows(table).map((row) => [row.ok, row.outcome, row.lines]), [[false, "refused", 2], [true, "delivered", 2]]);
+});
+
+/**
+ * Contract §139.17 (docs/specs/npc-acts-first-tickets/18-strip-a-bare-wrapper-tag-on-second-delivery.md): on the turn's
+ * second delivery, markup that is only a bare wrapper -- a tag at the text's very start or end, or a matching pair
+ * around all of it -- is a frame, not prose, and comes off before rendering; the warnings row stays with
+ * `stripped: true`. A tag inside the prose and a list line are content and go out as written, `stripped` absent.
+ * Evidence: npc-acts-c4 turn 3 (and C3 once), where the Keeper's resent narrate still ended in `</text>` and the player
+ * read it.
+ */
+const PAIRED = `<text>\n${REWRITTEN}\n</text>`;
+const INNER = `他咽了一口，<b>喉咙</b>响得比刚才更清楚。\n\n{{say:${KNOTT}}}“钥匙……钥匙你自己捡。”{{/say}}\n\n门外的走廊里没人来。`;
+
+async function deliveredTwice(t, campaign, text) {
+	const table = await playTurn(t, campaign, [
+		fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
+	]);
+	assert.deepEqual(narrateRows(table).map((row) => [row.ok, row.reason ?? null]), [[true, null], [false, "markup_in_prose"], [true, null]],
+		"refused once, then the same draft delivered");
+	const record = turnRecord(table, campaign, 1);
+	return { table, record, finding: (record.warnings ?? []).find((row) => row.kind === "markup_in_prose") };
+}
+
+test("real kernel, §139.17: a trailing </text> sent twice is taken off the second delivery, and the finding says stripped", async (t) => {
+	const { table, record, finding } = await deliveredTwice(t, "markup-strip-trailing", TAGGED);
+	assert.ok(!record.rendered_text.includes("</text>"), `the player never reads the tag: ${record.rendered_text}`);
+	assert.equal(record.text, REWRITTEN, "the Keeper's text, its wrapper taken off");
+	assert.ok(!(record.marked_text ?? "").includes("</text>"), "the marked text the frontend mounts carries no tag either");
+	assert.equal(record.speech.length, 1, "the say token still reads as speech");
+	assert.equal(finding?.lane, "delivery");
+	assert.equal(finding?.quote, "</text>");
+	assert.equal(finding?.stripped, true);
+	assert.ok(finding.fix.includes(STEER));
+	assert.deepEqual(markupRows(table).map((row) => [row.ok, row.outcome, row.tags, row.lines, row.stripped ?? null]),
+		[[false, "refused", 1, 0, null], [true, "delivered", 1, 0, true]]);
+	// An explicit narrate with no later leg: the host places the delivery as its own displayed message.
+	assert.equal(customMessages(table.session, "coc-delivery").at(-1)?.content, record.rendered_text, "the player reads the unwrapped turn");
+});
+
+test("real kernel, §139.17: a <text>…</text> pair around the whole prose sent twice is taken off", async (t) => {
+	const { table, record, finding } = await deliveredTwice(t, "markup-strip-pair", PAIRED);
+	assert.ok(!/<\/?text>/.test(record.rendered_text), `no tag reaches the player: ${record.rendered_text}`);
+	assert.equal(record.text, REWRITTEN);
+	assert.equal(finding?.quote, "<text>");
+	assert.equal(finding?.stripped, true);
+	assert.deepEqual(markupRows(table).map((row) => [row.outcome, row.tags, row.stripped ?? null]), [["refused", 2, null], ["delivered", 2, true]]);
+});
+
+test("real kernel, §139.17: a <b> inside a sentence sent twice is content, delivered as written with no stripped", async (t) => {
+	const { table, record, finding } = await deliveredTwice(t, "markup-inner-tag", INNER);
+	assert.ok(record.rendered_text.includes("<b>喉咙</b>"), "delivered as written");
+	assert.equal(record.text, INNER);
+	assert.equal(finding?.quote, "<b>");
+	assert.equal("stripped" in (finding ?? {}), false, "nothing was stripped");
+	assert.deepEqual(markupRows(table).map((row) => [row.outcome, "stripped" in row]), [["refused", false], ["delivered", false]]);
+});
+
+test("real kernel, §139.17: a markdown list line sent twice is content, delivered as written with no stripped", async (t) => {
+	const { table, record, finding } = await deliveredTwice(t, "markup-list-twice", LISTED);
+	assert.ok(record.rendered_text.includes("- 钥匙还躺在桌腿边的地板上，铜齿朝上。"), "delivered as written");
+	assert.equal(record.text, LISTED);
+	assert.equal(finding?.quote, "- 钥匙还躺在桌腿边的地板上，铜齿朝上。");
+	assert.equal("stripped" in (finding ?? {}), false, "nothing was stripped");
+	assert.deepEqual(markupRows(table).map((row) => [row.outcome, row.lines, "stripped" in row]), [["refused", 2, false], ["delivered", 2, false]]);
 });

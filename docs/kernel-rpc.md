@@ -24185,6 +24185,12 @@ delivery in the same turn that still carries markup is delivered as written, and
 `warnings` row `{lane: "delivery", kind: "markup_in_prose", quote, why, fix, at}` (`quote` is the first tag, else the
 first line), which the next capsule's warnings show the Keeper (§12.5).
 
+*Note, 2026-09-26 (§139.17, live tables C3 and C4):* "delivered as written" now has one exception. When all the markup
+the check found on that later delivery is a bare wrapper -- one tag at the rendered text's very start or end with only
+whitespace beyond it, or an opening tag first and its own closing tag last -- the kernel takes it off the Keeper's text
+before rendering and delivers the rest; the `warnings` row and the `outcome: "delivered"` row stay and add
+`stripped: true`. A tag inside the prose and a list or heading line are delivered as written, as here.
+
 **Counted.** The kernel appends a telemetry row for each: `{lane: "delivery", ok: false, reason: "markup_in_prose",
 outcome: "refused", turn, call_id, implicit, tags: <count>, lines: <count>}` on the refusal, and the same with `ok: true,
 outcome: "delivered"` after a delivery that carried markup has committed. The extension's own `tool: "narrate"` row
@@ -24714,3 +24720,60 @@ review now script two (`admission.test.mjs` 2, `admission-jev.test.mjs` 1, `obje
 (one request, not two); `declaredAction` returning false fails the first-blow resend case; `declaredAction` returning true
 for every call fails the Keeper's two-malformed case. **Not verified live:** whether the table's lane answers valid JSON on
 the second attempt as often as the generation step's does, and the host-run resend on a real table.
+
+**139.17 A bare wrapper tag comes off the turn's second delivery (2026-09-26, ticket 18 of
+`docs/specs/npc-acts-first-tickets/`, `18-strip-a-bare-wrapper-tag-on-second-delivery.md`; the spec's section 九, table
+C4; amends §139.10's "delivered as written").**
+**Evidence.** Table `npc-acts-c4`, turn 3 (KP `opencode-go/deepseek-v4.1-flash`): the Keeper's explicit `narrate` ended in
+`</text>`, §139.10's gate refused it once (`telemetry.jsonl`: `lane: "delivery"`, `reason: "markup_in_prose"`, `outcome:
+"refused"`, `call_id: "t3-c8"`), and the Keeper's second `narrate` (`t3-c9`, explicit again) still ended in `</text>\n`, so it was delivered as written:
+the turn record's `text`, `rendered_text` and `marked_text` all carry `</text>` (the last with the unplaced mechanics
+markers appended after it), and the player read it. The ticket records the same once on C3 (not re-read for this section). One steer does not break the model's habit of
+wrapping the argument (§139.10 names where the tag comes from).
+
+**The judgement (`bareWrapper` in `kernel-ts/write/markup.ts`).** Over the rendered text -- the same text §139.10 checks,
+after `deliveryText` has run §40.4's `stripMarkers`, unchanged -- the markup is a bare wrapper when:
+
+- no line opens with a list or heading marker (§139.10's line class), and
+- the text holds one or two tags of §139.10's tag class, none self-closing, each at the text's very start or very end
+  with nothing but whitespace beyond it: one lone opening or closing tag at either end, or an opening tag first and the
+  closing tag of the same name last (`<text>…</text>`), and
+- something is left between them.
+
+Position and pairing only: no tag name is listed or read for meaning. Two tags of different names at the two ends, a
+self-closing tag, a third tag anywhere, or a wrapper beside a list line are not a bare wrapper.
+
+**What the kernel does.** On a delivery that reaches §139.10's second-time branch (the turn's `markup_gate` already set)
+and whose markup is a bare wrapper, the handler removes the wrapper's leading tag (its first occurrence) and trailing tag
+(its last occurrence) from the Keeper's `text`, trims the ends, and runs `deliveryText` again on what is left. The strip
+is kept only when that new render equals the old rendered text with the same tags taken off, and carries no markup;
+otherwise the delivery goes out as written, as before (so a tag string that also sits inside a host token, or a list line
+the wrapper hid, never changes the draft). A kept strip is what the turn stores and shows: the record's `text`,
+`rendered_text` and `marked_text`, the transcript line, the commit subject and the result's `rendered_text` the host hands
+the player (§135.11's re-send path included, since the kernel's gate is the same). The mechanics projection and the
+placed markers are taken from the new render.
+
+**What it records.** The `warnings` row stays (`lane: "delivery"`, `kind: "markup_in_prose"`, `quote` the first tag found)
+and adds `stripped: true`; its `why` says the wrapper was taken off and its `fix` still carries §139.10's steer. The
+`outcome: "delivered"` telemetry row adds `stripped: true`; its `tags` and `lines` count what was found. When nothing was
+stripped, `stripped` is absent from both. The first delivery of a turn is unchanged: refused with the steer, never
+stripped, so the Keeper still learns the rule once per turn.
+
+**Not covered.** A wrapper on the first delivery; `ask`'s text; a tag with attributes (§139.10's class does not see it);
+a wrapper whose inside also holds other markup (delivered whole, as written). The host is unchanged: the kernel strips.
+
+**Three ends (§31).** *Writer:* `table.narrate`'s second-time branch (the stripped text and the `stripped` mark).
+*Reader:* the turn record, transcript and result the host shows the player; the next capsule's `warnings` (§12.5), where
+the Keeper sees the row. *Actor:* the player, who no longer reads the frame; the Keeper, who reads the finding.
+
+Tests: `tests/extension/markup-in-prose.test.mjs` (real kernel, legacy engine): a trailing `</text>` sent twice -- the second
+delivery's `rendered_text`, `text` and `marked_text` carry no tag, the say token still reads as speech, the player is
+shown the unwrapped text, the finding and the delivered row say `stripped: true`; a `<text>…</text>` pair around the whole
+prose sent twice, stripped; a `<b>` inside a sentence sent twice and a markdown list sent twice, delivered as written with
+no `stripped`; §139.10's spent-steer re-send case now expects its `</text>` draft unwrapped (one existing assertion
+changed). `tests/kernel/test_markup_in_prose.py` (RPC seam): §139.10's closing-tag case now expects the unwrapped
+delivery and `stripped` on the finding and the delivered row (one existing test changed); a pair; a lone opening tag first;
+a closing tag with a host marker beyond it in the Keeper's text; a tag inside the prose; a list line; a wrapper beside a
+list line; different names at the two ends, a self-closing tag last, and a tag first beside one inside -- the last five
+delivered as written with no `stripped`. Mutation (copy and restore): the strip removed from the handler fails the
+trailing-`</text>` cases in both files.
