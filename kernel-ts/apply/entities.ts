@@ -3,7 +3,7 @@ import {mkdir,writeFile} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
-import {recordOf} from '../read/module-graph.js';
+import {personRefusal,recordOf} from '../read/module-graph.js';
 import {handoutFile} from '../read/handout-document.js';
 import {npcsPresent,personLabel} from '../read/capsule.js';
 import {unsupported} from '../read/handlers.js';
@@ -95,7 +95,7 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
  * have something to say (line 91's rethrown `error` carries `graph.npc`'s own candidates, roster
  * included, exactly as before).
  */
-function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|null):{node:Row;established:false|'table'|'passage';from_passage?:Row}{
+async function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|null):Promise<{node:Row;established:false|'table'|'passage';from_passage?:Row}>{
     const {graph}=context;
     let passage:Row|null=null;
     try{return{node:graph.npc(name),established:false};}
@@ -105,10 +105,16 @@ function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|n
         // A creature that states a stat block is the book's body, not a new person (contract §136.12).
         const creature=graph.actor(name);
         if(creature)return{node:creature,established:false};
-        if(effect.skill!=null||effect.archetype!=null||effect.conditions!=null||effect.reunion!=null)throw error;
+        // SL-73 (§11.5.7 addendum, gate #12): before minting is even considered, or the graph's own
+        // refusal is repeated to the Keeper, say what the name actually is when the empty-candidates
+        // answer would otherwise be "pick from details.candidates" with nothing in it -- the
+        // investigator's own name, or some other kind the graph already knows, is not a person to mint.
+        if(effect.skill!=null||effect.archetype!=null||effect.conditions!=null||effect.reunion!=null)
+            throw personRefusal(error,name,graph,await context.campaign.party());
         // §11.5.4 (SL-51): a name the source text carried this turn holds is not invented, candidates or not.
         passage=passageOf(effect,name);
-        if(!passage&&graph.candidates(name,['npc'],6,{roster:false}).length)throw error;
+        if(!passage&&graph.candidates(name,['npc'],6,{roster:false}).length)
+            throw personRefusal(error,name,graph,await context.campaign.party());
     }
     const node=establishPerson(context,name,why,passage);
     return{node,established:passage?'passage':'table',...(passage?{from_passage:passage}:{})};
@@ -132,7 +138,7 @@ const establishedOf=(established:false|'table'|'passage',fromPassage:Row|undefin
 export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEffect>{
     const {graph,world}=context;
     const why=typeof effect.why==='string'&&effect.why.trim()?effect.why:null;
-    const {node,established,from_passage:fromPassage}=personOfEffect(context,effect,string(required(effect,'name')),why);
+    const {node,established,from_passage:fromPassage}=await personOfEffect(context,effect,string(required(effect,'name')),why);
     // §11.5.6 (SL-62): the host's `_resolved_from` -- the name the Keeper wrote, once a fan-out question against the
     // scene's known people cleared it to this person's handle and the host rewrote `name` before the retry. Host-only:
     // the model never sends it, and it never changes who the effect is about, only what the receipt says about it.

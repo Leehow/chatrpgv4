@@ -1123,6 +1123,60 @@ existing person and mints the other two; the b11 t17 batch replay lands whole. M
 `rankedCandidateIds` to ignore its `opts` parameter (searching the full pool regardless of `roster`) reproduces
 the batch-11 t17 refusal and is caught by all three tests.
 
+#### 11.5.7 addendum 2 -- an empty candidates list is not a fix (2026-09-26, SL-73 of `docs/specs/pi-native-single-loop-tickets/73-an-empty-candidates-list-is-not-a-fix.md`; amends this section)
+
+**Evidence** (long gate #12 `longgate12-haunting-2016`, campaign telemetry + run events). Four `apply npc`
+calls pinning a skill onto a name the graph and roster were both silent on -- `"turn 10-11 已交付"`,
+`"地下室木板"` (the basement boards, an object) twice, and `"托马斯·海斯"` (the investigator himself) --
+were all refused `unknown_entity`, `fix: "pick a name from details.candidates or look first"`,
+`candidates: []`. The Keeper did exactly what the fix said (retried, looked, narrated) and learned
+nothing: the fix names a list that has nothing in it, and nothing told it that one of those four names
+was the party's own investigator and another was a physical object, not an unmet person.
+
+**The ruling.** `ModuleGraph.resolve`'s own `unknown_entity` (`kernel-ts/read/module-graph.ts`, the
+generic "no `${what}` named … in the module graph" thrown by `npc`/`scene`/`find`) is unchanged: it is a
+real answer whenever `details.candidates` has entries, and every existing caller and test stands. A new
+`personRefusal(error, name, graph, party)` re-shapes that same error for a caller resolving a *person*
+specifically, only when the candidates it already carries are empty: an exact match against the party
+(`details.is_investigator: true`, a `fix` naming the investigator and pointing at the investigator's own
+sheet or effect, never `apply npc`); else an exact match against some other kind the graph already knows
+(`details.matched_kind`, the graph's own `node_kind`, a `fix` naming it instead of a person); else a `fix`
+saying the name is in neither the graph nor the roster and pointing at the two lawful ways to make it one
+(establish it with an npc effect and a `why`, or let the carried source text name it) or `look npc` to
+check the spelling first. No `candidates` key travels when it would be empty. No hard-coded name or kind
+list: the investigator match is a lookup against the campaign's own party sheets, and the kind comes from
+the graph's own `node_kind` enum on an exact-name candidate `graph.candidates` (unrestricted kind) turns
+up -- not `graph.find`, which throws (and is silently swallowed to null by design) on the common case of
+a scene sharing its exact name with the graph's own paired "beat" bookkeeping node; `candidates` ranks
+instead of resolving, so it survives that, and a `"beat"` hit is skipped the same way `graph.actor` already
+looks past a scene to find an npc -- a beat is the graph's own internal pacing record, never a thing an
+effect names.
+
+**The fix.** `kernel-ts/apply/entities.ts`'s `personOfEffect` (now `async`, for `context.campaign.party()`)
+routes both of its existing `throw error` moments -- a skill/archetype/condition/reunion pin on an
+unresolved name, and an unresolved name with real ranked candidates -- through `personRefusal`; a name
+with no candidates and none of the three shapes still falls through to minting exactly as before (an
+ordinary `apply npc {name, to, why}` with nothing else pinned is unaffected, and still establishes a new
+table person). Nothing about *when* a name mints or refuses changes; only what an already-refused,
+empty-candidates error says.
+
+**Three ends (§31).** *Writer:* `kernel-ts/read/module-graph.ts`'s new `personRefusal`, called only from
+`personOfEffect`'s two existing throw sites; it writes nothing. *Reader:* the same `unknown_entity` shape
+every caller already reads (`code`, `message`, `fix`, `details`); `is_investigator`/`matched_kind` are
+additive fields. *Actor:* the Keeper, who now learns from the refusal itself that a name it tried to pin a
+skill onto was the investigator, an object, or genuinely unmet, instead of repeating the same refusal to
+the class limit on advice with nothing to act on.
+
+*Tests* (mutation-killable, `tests/extension/npc-effect-refusal-shape.test.mjs`): a skill pin on the
+investigator's own name refuses with `is_investigator: true`, no `candidates` key, and a `fix` naming the
+investigator; a skill pin on a scene's exact name refuses with `matched_kind: "scene"`; a skill pin on a
+name genuinely unknown to the graph and the roster still refuses, with none of `is_investigator`,
+`matched_kind` or `candidates`, and a `fix` pointing at establishing the person or looking first; a skill
+pin on a name with real ranked similar candidates keeps today's `candidates` list unchanged. Mutation:
+reverting `personOfEffect`'s two `throw personRefusal(...)` calls back to the bare `throw error` reproduces
+gate #12's `candidates: []` shape for all three new cases and is caught by them; the fourth test is
+unaffected by that mutation, proving the ordinary-candidates path was never touched.
+
 #### 11.5.9 An NPC the table knows can be the actor of an ordinary resolve: the NPC's own roll (2026-09-26, SL-71 of `docs/specs/pi-native-single-loop-tickets/71-an-npc-can-be-the-actor-of-a-resolve.md`; amends this section, §16.2 and §17.9)
 
 **Evidence** (long gate #11 `longgate11-haunting-1515`, ticket 02's entry). Five `resolve` calls with an
