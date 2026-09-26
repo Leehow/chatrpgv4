@@ -9004,6 +9004,63 @@ lane refuses (the cleared line alone lands, the `admission` block and note); a r
 alone and collected by its own resend; a whole-batch resend applying only what did not land; §78 for a delivery behind a
 partial landing. Mutations are in the SL-30 ticket.
 
+#### 32.12.4 Addendum (2026-09-26, SL-88, "what needs no result does not wait"): the admission reviews of one response's write steps start together, as one round
+
+**Why.** Long gate #18 (grok-build/grok-4.5 low, 20 turns): every batch step's admission lane round ran strictly after the
+previous one settled -- 65 tool executions, 0 overlapping -- because each `apply`/`resolve` of a Keeper's batch only reaches
+`admitAction` when `runTool` is invoked for it, and pi's tool executor (`executeToolCalls`, `vendor/pi/packages/agent/src/
+agent-loop.ts`) awaits one call's whole result, admission included, before starting the next. A batch of two writes therefore
+paid two full lane rounds back to back even though nothing about the second write's review depends on the first write's
+having executed. Owner ruling, 2026-09-26 (the SL-88 ticket): the admission reviews of all write steps of one model response
+start together, as one lane round for the whole response (§32.12 already reviews the *batch* whole in meaning; the
+strictly sequential per-step rounds were only an implementation order, never a contract requirement); a later step's
+verdict is not reused if an earlier step of the batch was refused.
+
+**What changes, and what does not.** The kernel still executes the batch's steps in the model's order and stops at the
+first refusal exactly as §135.5 says; nothing here reorders a write, skips one, or admits a call the lane or the typed
+route would have refused. Only *when the review's own lane round starts* moves earlier: at `message_end`, the same hook
+that already reads the whole assistant message to find text beside a tool call (§135.11.1), a split delivery (§34.17) and
+an effect behind its own delivery (§78) -- because that is the one place in the host that sees every tool call of the
+Keeper's response before any of them has reached `runTool`. For every `apply`/`resolve` call of that response,
+`prefetchAdmission` (`extensions/kernel/index.ts`) clones and normalizes its raw arguments the same way `runTool` will,
+builds the identical proposal `admitAction` would (`admissionScopeBuilder`, the same destination lookups and the same
+scope, extracted so the two paths cannot drift), and -- when nothing is already decided or already running for that
+proposal's key -- starts `reviewAdmissionPrimary` at once and parks the promise in `state.admissionPending` under that key,
+tagged `prefetched: true`. This is the same map §32.12.2's one resend already collects a running round from: when the
+call's own turn actually comes and `admitAction` reaches it, it finds the parked entry exactly where a resend would and
+awaits it there, at whatever point it has reached -- often already answered, since it has been running since before the
+batch's first call even executed. A call the batch never reaches, because an earlier one fell (§135.5's failure branch),
+simply leaves its head start uncollected: wasted, never wrong, since a prefetch never writes kernel state or settles a
+verdict on its own, and a proposal key mismatch (the real call's normalization landed slightly differently) only costs the
+head start, never correctness -- the real call reviews fresh, exactly as it would without this section.
+
+**What the reviewer reads.** Each write's review reads the table (`admissionContextFor`, also extracted and shared) as it
+stood when the response arrived, before any step of this same batch has executed -- which is what "start together" has to
+mean: a prefetch cannot wait for an earlier step's effect without losing the concurrency the ruling is for. This is the
+same tradeoff §32.12.2's own pending/resend round already makes (a kept round's context is also from when it started, not
+from when it is collected); nothing here changes what §32.1 puts to review, what a verdict admits or refuses, or the batch's
+own execution order, which is still the only thing that decides what lands.
+
+**Telemetry (amends §32.7).** A call whose review `admitAction` collected from a prefetch, rather than starting fresh or
+resending a kept one, carries `concurrent: true` and `concurrent_wait_ms` (what it still had to wait once its own turn
+came) in place of the `resend`/`resend_wait_ms` pair a genuine §32.12.2 resend carries -- the Keeper never saw a
+`review_pending` refusal for a prefetched call, so it is not a resend, and a reader of the rows must be able to tell the two
+apart. Every other admission row is unchanged.
+
+**Three ends (§31).** *Writer:* `message_end`, which starts a review before any call of the batch has run; `prefetchAdmission`,
+which parks it. *Reader:* `admitAction`/`admitOne`, the one place a call is admitted or refused, which collects whatever it
+finds under the proposal's key regardless of who started it. *Actor:* the Keeper, whose batch executes in the same order and
+under the same refusals as before; the operator, through `concurrent`/`concurrent_wait_ms`.
+
+*Tests* (`tests/extension/admission-concurrent-batch.test.mjs`, a stub lane that records each call's start and end time so
+overlap can be asserted directly, never inferred from wall-clock margins): two writes of one Keeper response (`apply clue`,
+`apply time`) show overlapping lane calls -- the second call's review starts before the first call's review has answered;
+the kernel still lands both, in order; a batch whose first write is refused never starts the second write's own execution,
+and its parked prefetch (if any ran) is left uncollected without error; a prefetch whose proposal already has a kept verdict
+or a running round does not start a second lane call for the same key; a response with a `resolve` before a `narrate` still
+prefetches the `resolve`'s own review (concurrency does not depend on the blocking/non-blocking distinction, only on there
+being more than one write to review). Mutations in the SL-88 ticket's Comments.
+
 ## 33. Creation difficulty: an extension setting scaled into chargen (2026-09-11)
 
 A difficulty setting for character creation, owned by the COC Keeper extension's
@@ -9250,6 +9307,8 @@ comparison (or the increment in `runTool`'s success path) to a no-op reproduces 
 **34.13 The inline marker is not out-of-game text (2026-09-12, regression from §34.1).** §34.1 folded "tool names, English enum values and field names" into the immersion principle as things that must not enter the story text. That sentence reads over the `{{marker}}` the narrate description asks for — a marker looks exactly like a field name written into the prose — and on the App's model (deepseek-flash) the Keeper stopped placing them, so every roll, clue and item card fell to the end of the turn instead of being drawn where it happened (§16.6's `marked_text` is empty when no marker is bound). Law 4 now names the marker as the one machine token that belongs in the text, says the kernel strips it before delivery, and points at the Writing paragraph; Writing states the rule affirmatively for the first time in the base prompt, which until now carried it only in the `narrate` tool description. Nothing about what the player may see changes: markers never reach them.
 
 **34.14 A marker is a rendering hint, not a reason to refuse (2026-09-12).** After §34.13 the Keeper placed markers again and the player read them as text: `{{scene:corbitt-house-ground}}你站在人行道上…{{clue:nailed-windows}}`, twice in one turn. Two faults met. The kernel's `bindMarkers` threw `unknown_marker` when a marker named no receipt of the turn — and the Keeper had narrated an `apply` that was refused, so every marker named nothing. The host, on a refused *implicit* delivery, returned without replacing the assistant message, so the raw draft stayed on screen, and the Keeper wrote it again. Both are repaired. `bindMarkers` now returns `{placed, unknown, duplicate, text}`: an unknown marker and every repeat after the first are removed from the text, the rest stand, `rendered_text` is always stripped so no brace can reach the player, `marked_text` carries only bound markers, and `narrate`/`ask` report `dropped_markers` `{unknown?, duplicate?, markers, note}` so the Keeper learns without spending the turn. `unknown_marker` and `duplicate_marker` are retired as refusals. The host drops the text blocks of a refused implicit delivery: a refused delivery is a turn that did not happen, and `agent_end` steers it closed. The `narrate` description and the base prompt now say the names come back in each tool result's `markers`, and that a dropped marker means that mechanic never landed. Tests: `test_markers.py` (dropped, first-placement-stands, all-miss-still-delivers), `turn.test.mjs` (no draft on screen).
+
+**34.13.1 Addendum (2026-09-26, SL-88, "what needs no result does not wait"): an effect key names a write's receipt when its own marker has not come back yet.** §135.5.1 makes an `apply` whose landing is fixed by its own arguments non-blocking: it goes out in the same message as the `narrate` that describes it, writes first. That `narrate` cannot copy the write's own marker (the name `markersFor` gives its receipt, returned in the `markers` list of the write's *result*), because that result has not arrived yet -- the Keeper is still composing the message that contains both calls. Owner ruling (2026-09-26): a marker may instead name the effect directly, `{{<kind>:<handle>}}` (e.g. `{{clue:globe-fire-cutoff}}`, `{{move:newspaper-morgue}}`), and it resolves to this turn's receipt of that effect. Closed vocabulary, never a text search: `kind` is a receipt's own `kind` field -- not the placement family `markerName` groups it under for the ordinary scheme (a `move` receipt's ordinary marker is a `scene:` name, because its card is drawn as a scene change, but its own `kind` is `move`, and an effect key uses `move`) -- and `handle` is the value the write itself named for that effect (`to` for `move`, `clue` for `clue`, `name` for `item`, `handout` for `handout`, `map` for `map`), folded into a slug the same way `markerName` already folds a name into the ordinary scheme's marker (case and punctuation only, nothing else). An effect key naming nothing this turn is dropped exactly as an unknown marker is today (§34.14 unchanged: `dropped_markers`, no refusal, the prose still delivers); a receipt whose ordinary marker the effect key happens to duplicate (a lone `clue` receipt's ordinary marker is already `clue:<its own handle>`) resolves identically either way. Implemented in `kernel-ts/write/text.ts` (`effectKeyHandle`, `effectKeyReceipt`), read by `bindMarkers` only when the ordinary scheme's own lookup misses, so a receipt that already resolves through its placement marker keeps doing so unchanged. Tests: `tests/extension/narrate-non-blocking-batch.test.mjs` (the effect key resolves a same-batch `apply clue`'s receipt; `{{move:x}}` resolves a same-batch move whose ordinary marker would have been `scene:x`; an effect key naming no receipt of the turn is dropped and the prose still delivers).
 
 **34.15 A starting weapon could not be named at creation (2026-09-12, table G).** The player brought a .38 revolver and a single-shot sleeve derringer. `setup.draft` refused eight times on `weapons must use existing rulebook profile names`, and the Keeper gave up and put both guns in `equipment`, apologising to the player in the prose that "this version's weapon list only accepts its own names". Two faults. `validateProfile` accepted only an exact key of `weapons.json` — the ASCII slugs `revolver_38`, `knife_small` — while `apply item weapon` has always taken the id *or* the printable name (§19), so one table taught the Keeper a convention the other refused; and a Keeper drafting in the play language never writes either. Worse, the refusal named no legal value: the same `details` ships `skills`, `occupations`, `backstory_fields` and the aptitude vocabulary, and shipped nothing for the hundred and six weapons, so there was nothing to read and nothing to correct towards. Repaired in `kernel-ts/setup/drafts.ts`. One index, built whole from the table and keyed by both the id and the printable name, is what validation checks and what the sheet resolves through — what is accepted is exactly what can be written, so no draft can pass the gate and then fail to build. The card takes the printable name: a profile reached by its id is never written onto the sheet, or into `equipment`, as `revolver_38`. The refusal now carries `details.weapons`, the printable names, narrowed to the era the draft names (advisory only — which era's entry is legal here has not changed) and falling back to the whole table when the era matches nothing. The issue text names `details.weapons` and says where a weapon the rulebook does not print belongs: out of `weapons`, into `equipment` under the name the player used, which is where the object lane registers it. Nothing promises the Keeper that parameters will arrive — that depends on an active package, and a fix text is executed literally (§34.7). Tests: `test_a_starting_weapon_is_named_the_way_play_names_it`, `test_a_weapon_the_rulebook_never_printed_is_refused_with_the_profiles_and_a_place_to_put_it`.
 
@@ -19984,6 +20043,54 @@ as a `PlanArtifact` in the run view (`view.plan`: the steps, each with `onSucces
 session start and before every run. `bin/pi-coc` also refuses to start the S0/TaskRuntime private roles
 (`PI_COC_JEV_S0=1`, or `PI_COC_TASK_RUNTIME=1` in play) together with `PI_COC_LOOP_ENGINE=hybrid-v1`, instead
 of starting them on the legacy loop under a hybrid startup record.
+
+#### 135.5.1 Addendum (2026-09-26, SL-88, "what needs no result does not wait"): blocking and non-blocking steps; the non-blocking batch shape
+
+**Evidence** (long gate #18, grok-build/grok-4.5 low, 20 turns, 881 s input-to-delivery). Keeper inference is 55% of the
+wall: 56 calls, 2.8 per turn, 9.3 s each (a fit over the 56 calls, R² 0.90: call time ≈ 1.44 s fixed + 19.3 ms per
+generated token, ≈ 52 tok/s, generated includes reasoning, + 0.047 s per 1k uncached input). The Keeper issues one tool
+per call and waits: typical turns are `apply → narrate` or `apply → resolve → apply → narrate`; 18 standalone `apply`
+calls generated 7,092 tokens (≈ 382 each incl. reasoning) to say nothing at all. A clue reveal, a move, a time advance, a
+person staged -- their landing is fixed by their own arguments the moment the Keeper writes them, yet the Keeper paid a
+whole extra model step (fixed cost plus a fresh reasoning pass, ≈ 3–5 s) to write the prose it could have written
+alongside them.
+
+**Owner ruling (2026-09-26).** Anything that does not block does not wait. A step *blocks* only when the prose depends on
+a result the Keeper cannot know in advance from its own arguments: `resolve` (the roll's outcome, decided by dice),
+`look`, `lookup` and `recall` (information the Keeper has not read yet). Every other write is *non-blocking*: an `apply`
+whose landing is fixed by the arguments it carries -- a clue named, a move to a named destination, a time advance of a
+stated number of minutes, an item or handout given, a threat clock moved -- needs nothing back before the Keeper can
+narrate it, because the Keeper already knows, from its own call, exactly what it did.
+
+**The batch shape.** The normal shape of a batch, once nothing left in the turn is blocking, is one message:
+`[non-blocking write, non-blocking write, …, narrate]` -- every non-blocking write the turn still owes, in the order they
+happen, then the `narrate` that describes all of them, last, in the same model response. This section changes nothing
+about §135.5's own rules: the calls of one model response are still the Keeper's batch, they still run in their order,
+a step still fails when it is refused or a `resolve`'s check fails, and the steps after a failed step are still answered
+as not executed, with the run's next step still `infer(adjudicate)` reason `batch_fallen`. A `resolve`, `look`, `lookup`
+or `recall` may still sit anywhere in a batch, including just before a `narrate` -- nothing here refuses that shape or
+any other, because the distinction is guidance to the Keeper (stated in the `apply`/`narrate` tool descriptions and the
+turn-flow guidance, §135.11.1/§135.11.2's `SILENT_WRITES`/`CLERK_NOTE_HEAD`), never a host gate. §32.12.4 gives the
+admission side of the same ruling: the write steps of one such batch are reviewed concurrently, not one after another.
+
+**What a narrate in this shape cannot do.** A `narrate` that shares a batch with the writes it describes has not seen
+their results -- the writes' own `markers` are returned only when their tool call answers, which the Keeper's *next*
+turn to read would be, not this one. §34.13's addendum gives it another way to mark where a mechanic happened: an effect
+key naming the kind and the handle it itself wrote, which resolves to that write's receipt without needing the marker
+back first.
+
+**Three ends (§31).** *Writer:* none in the product -- this section is guidance, read by the Keeper model, never enforced
+by a host gate. *Reader:* the Keeper, from the `apply`/`narrate` tool descriptions and `SILENT_WRITES`/`CLERK_NOTE_HEAD`.
+*Actor:* the Keeper, who chooses the batch shape; the operator, reading `lane: "provider-call"` and `coc-clerk` note rows
+for calls per turn and wall time (the gate #21 acceptance below).
+
+*Tests* (`tests/extension/narrate-non-blocking-batch.test.mjs`, fake pi, the emitted kernel): a batch
+`[apply clue, apply time, narrate {{clue:x}}]` lands both writes, resolves the effect-key marker to the clue's receipt,
+and delivers in one model step; a batch whose first write is refused leaves the `narrate` of the same message not
+executed and returns the run to the Keeper (`batch_fallen`), exactly as §135.5 already required; a batch carrying a
+`resolve` before its `narrate` still runs to completion (guidance only, no host refusal). *Acceptance* on a live table
+(gate #21, grok-4.5 low, the ticket's own number): Keeper calls per turn ≤ 2.0 (from 2.8); median wall ≤ 40 s (from 49 s);
+≤ 60 s on 20 of 20 turns.
 
 ### 135.6 Read first, re-read after a scene change; the prescreen is the run's read
 
