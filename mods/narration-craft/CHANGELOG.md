@@ -1,5 +1,9 @@
 # Narration Craft
 
+## 2.0.4
+- Profanity is stated as what a person does, not as a limit: with `coarse_language` on, a person whose voice swears (their mask, their description in the book) swears when crossed, pushed or mocked, and a rough one tells an outrageous asker to get lost; nobody else swears. The brief said "Profanity only if apt", and on tables temper-b and temper-c a dock labourer whose mask and book description both say he curses when displeased swore once in six provoked turns.
+- The brief's full-name line is shorter, to keep the active briefs within 5000 bytes.
+
 ## 2.0.3
 - A demand for something for nothing no longer ends in a polite refusal: the asker is sent packing, as rudely as the person's station allows (a shopkeeper shows them the door, a labourer tells them to get lost). On table temper-b (deepseek-v4.1-flash low) a dock labourer who had just been mocked answered a demand for free portering with a shrug and "we're square"; the owner expects a real person to tell the asker to get lost.
 
