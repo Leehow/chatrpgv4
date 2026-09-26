@@ -20758,6 +20758,100 @@ move and whose Keeper's only reply is one say span is floor-steered once (not de
 say-only draft, and a reply with prose beside the say span delivers on the first leg; an explicit `narrate` of the
 same shape is unchanged, because the check never runs on that path.
 
+##### 135.11.4.1 Addendum (2026-09-26, SL-93, "one floor for every delivery path"): the explicit `narrate` and `apply.narrate` join the implicit close
+
+**Evidence** (long gate #22, `longgate22-haunting-1448`, `d64c7a7c4`, Keeper grok-4.5 low; filed P0, batch 17, because a
+placeholder reached the player). Turn 1: `apply {effects, narrate: "text thriftily-placeholder"}` — the effects
+landed, and the embedded narrate delivered that twenty-six-character fragment verbatim as the whole turn
+(`narrate_in_apply: true`, `closed_how: explicit`); the Keeper's real intent sat in the text beside its tool calls
+("受理委托与抵达已由书记结算。正在补登钥匙、称呼…"), dropped as `text_beside_tool_calls` and never recovered. Turn 8:
+`apply {effects, narrate: "text"}` delivered "text". This section's own floor (SL-80) runs only where `message_end`
+builds the implicit close (`toolCallsThisTurn === 0` or a speech-only draft): an explicit `narrate` call and
+`apply`'s embedded one both go through `runTool` directly and never meet that check, so four characters of prose
+passed every other gate — there is no admission for `narrate`, the Mod hooks ran on text that was about to be
+discarded, and the narration audit checks claims, not omissions — and delivered.
+
+**The ruling.** The floor is a property of the delivery, not of which of the three paths produced it. One shared
+structural count, `proseCharCount` (`extensions/kernel/unwrapped-speech.ts`), reads the draft the same way
+`isSpeechOnlyDraft` already does — `speechPass`'s own §40.1 repair, then every `{{...}}` token removed, a mechanics
+marker and a say span's open/close tokens alike, the spoken words a say span wraps left standing — and counts what
+is left in Unicode code points. That is exactly the shape of the kernel's own `rendered_text` (`stripMarkers`,
+`kernel-ts/write/text.ts`: `SAY_TOKENS` removes only the token, never the words between them), so the host
+anticipates the kernel's own rendering without waiting for a receipt to bind against. The threshold,
+`delivery_floor.min_prose_chars` in `content/rulesets/coc7/host-budgets.json` (default 40; never a word list, a
+structural length only), is read once per process through `runtime/jev/host-budgets.ts`'s `deliveryFloorBudget` —
+the same file and the same cached-promise shape `jevStepsBudget` and `firstStepThinkingBudget` already use — and
+compared against that count on all three paths:
+
+- **Implicit** (`message_end`, unchanged location). The existing `toolCallsThisTurn === 0 || speechOnly`
+  disjunction gains a third, `belowFloor`, computed from the same `prose` the speech-only check already reads
+  whenever the turn's steer is still unspent. `speechOnly` keeps its own `reason: "speech_only"` even on a draft
+  that also happens to be short — SL-80's own case is not retired by this one — and a draft that clears `speechOnly`
+  but not the count is `reason: "below_floor"`, carrying `path: "implicit"` and the count; the classic no-tool-call
+  turn keeps its unreasoned row when nothing else explains why it fired.
+- **Explicit `narrate` and `apply`'s embedded one** (`runTool`, `extensions/kernel/index.ts`). Both run through the
+  same code, because the embedded call is `runTool` calling itself recursively on a synthetic id (§135.5.2) — so
+  one check, placed once, at the top of `narrate`'s own try block (after the standing-defense recovery and the
+  continuity-review-unavailable checks, before admission, attribution or any Mod hook spends anything on a draft
+  that is about to be refused), covers both. It is skipped once the turn's one steer is already spent (a second
+  leg below the count still closes the turn, never stranding it) and while this call closes the opening
+  (`closesOpening`), the same exemption the implicit floor and the beginner's fold already read. Below the count,
+  the host sets `state.deliveryFix = {kind: "floor", text: FLOOR_STEER}` (the identical text §135.11's own
+  turn-close steer already sends) and throws a `needs` refusal (`details.reason: "below_floor"`, `chars`,
+  `min_chars`, `fix` carrying `FLOOR_STEER`'s own text) before the kernel is ever called: a genuine tool call needs a
+  result, and `table.narrate` must not be asked to commit a delivery the host is about to discard.
+  - This path never reaches `takeTurnCloseSteer`/`turn_close` the way the implicit close does. A batch that made a
+    tool call — refused or not — is not "no pending model proposals", so Pi's own agent loop simply hands the
+    refusal back to the Keeper and asks it again in the next step; the steer is the refusal's own `fix` field, read
+    directly, not a `coc-host` message. Because of this, the one-steer budget (`state.steeredThisTurn`) is set
+    `true` here synchronously, the moment the floor refuses — not deferred to a `turn_close` that this path may
+    never reach. Without it a Keeper that kept writing short drafts would be refused every time, never once, and a
+    turn could run short of the floor forever instead of being closed after one steer.
+  - For the **explicit** call this refusal reaches the Keeper exactly as a `repeated_line` or a narration-audit
+    refusal already do: an `isError` tool result, counted by the ordinary refusal budget (§34.12; `narrate` is
+    never shut by it) under its own class (`narrate`, `needs`, `below_floor`).
+  - For **`apply.narrate`** the recursive call's own refusal becomes `embedded.details.coc_error`, which the
+    existing SL-92 branch (`if (embeddedError)`) was already built to carry: `narrate_in_apply: false`, the effects
+    already landed still named in the result, and a message prefixed "This apply's effects landed and stand." — the
+    writes stand, only the embedded narrate is refused, and the refusal says what landed.
+- **Once the steer is spent**, `state.steeredThisTurn` guards every one of the three checks above the same way it
+  already guards the implicit floor and the speech steer: a second leg below the count still delivers, because the
+  alternative is a stranded turn.
+
+Telemetry: `{lane: "floor", reason: "below_floor", path: "explicit" | "embedded" | "implicit", chars}` (plus
+`min_chars`, and, for the implicit path, the existing `steered`/`round_trips`). The refused explicit/embedded call
+also leaves the ordinary tool-refusal row (`ok: false, code: "needs", reason: "below_floor"`) `finalizeOperation`
+already writes for any `coc_error`.
+
+`apply`'s own `narrate` field description (`extensions/kernel/tools.ts`) now says the field carries the turn's
+complete closing prose and is omitted when the Keeper means to narrate separately, on the same rules and the same
+floor an explicit call reads.
+
+**Three ends (§31).** *Writer:* `proseCharCount`'s structural read of the draft; `runTool`'s own
+`state.steeredThisTurn`/`state.deliveryFix` assignment before its throw (explicit/embedded), `message_end`'s
+`belowFloor` disjunct (implicit). *Reader:* `takeTurnCloseSteer`, unchanged, for the implicit path; Pi's own
+tool-refusal retry loop for the explicit/embedded path, which reads the refusal's `fix` field. *Actor:* the Keeper,
+whose second leg — however it arrives, an explicit `narrate`, an `apply.narrate`, or prose closed implicitly — is
+honoured however it comes, exactly as the implicit floor and SL-80's speech-only check already promise.
+
+*Tests* (`tests/extension/delivery-floor-every-path.test.mjs`; `proseCharCount`/`deliveryFloorBudget` directly, no
+table; the real `apply`/`narrate` tools over the emitted kernel and the hybrid engine; the fake kernel and the
+hybrid engine): `apply {effects, narrate: "text"}` lands the effects, delivers nothing, one floor steer
+(`path: "embedded"`, `chars: 4`), and the apply's own tool result names the landed effects; a second leg with real
+(40-plus-code-point) prose delivers; an explicit `narrate {text: "text"}` is steered the same way, its own refusal
+carrying `FLOOR_STEER`'s text as `fix`; once the steer is spent a second, equally short draft still closes the turn
+(never stranding it); a 40-plus-code-point Chinese draft delivers on the first leg on both the explicit and the
+embedded path; lowering or raising `delivery_floor.min_prose_chars` in a fixture content root (a symlinked overlay
+of the real `content/`, with only `rulesets/coc7/host-budgets.json` replaced) changes which of these delivers,
+proving the threshold is read at the actual use site and not a literal folded into the check. The existing
+floor/SL-80 suites (`single-loop-turn-close.test.mjs`, `unwrapped-speech.test.mjs`, `apply-narrate-combined.test.mjs`,
+`narrate-non-blocking-batch.test.mjs`, `gates.test.mjs`) were re-run in full; several of their own narrate fixtures
+were placeholder text under the new floor for a reason unrelated to length (batching, refusal-budget counting,
+runaway-abort accounting, an audit-refusal stub, a look-budget notice) and were lengthened past 40 code points
+without changing what each test is about, noted at each site; the opening's own exemption
+(`gates.test.mjs`'s "开桌回合") and the two implicit-path SL-80 tests that rely on a genuinely short say-only draft
+were left as they were.
+
 ### 135.20 The read hands the Keeper the bodies of what it issued (2026-09-23, SL-11 scope 1; the model-call diet)
 
 SL-11 takes §135.20–§135.24. §135.11 onward belongs to the SL-02 follow-ups in flight on the same base (§135.11 is
