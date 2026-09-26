@@ -90,19 +90,6 @@ def test_a_director_graph_whose_digest_disagrees_with_the_manifest_fails_closed(
         client.close()
 
 
-def test_a_beat_table_naming_an_unknown_directive_fails_closed(tmp_path):
-    table = json.loads((CONTENT_DIR / "craft" / "beat-directives.json").read_text(encoding="utf-8"))
-    table["beats"]["REVEAL"].append("write-purple-prose")
-    content = content_variant(tmp_path, rewrite={"craft/beat-directives.json": json.dumps(table, ensure_ascii=False)})
-    client = RpcClient(tmp_path / "ws", content=content)
-    try:
-        error = client.err("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "pregen": "thomas-hayes"})
-        assert error["code"] == "campaign_not_ready"
-        assert any("write-purple-prose" in p for p in error["details"]["craft"]["problems"])
-    finally:
-        client.close()
-
-
 def test_grounded_by_comes_only_from_the_registry(seeded_kernel):
     kernel = seeded_kernel  # the seed keeps the previous turn's roll ordinary (no fumble override)
     ontology = json.loads((CONTENT_DIR / "ontology" / "system-ontology.json").read_text(encoding="utf-8"))

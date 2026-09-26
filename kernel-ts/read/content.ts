@@ -7,7 +7,7 @@ import { REGISTERED_CONDITION_PATHS, RESOLVER_NAMES } from "../capabilities.js";
 import { array, row, number, string, sorted, type Row } from "./values.js";
 function contentError(kind: "director" | "craft", message: string, details: Row = {}): RpcError {
     return new RpcError("campaign_not_ready", `the ${kind === "director" ? "Director graph" : "craft content"} is not usable: ${message}`, {
-        fix: kind === "director" ? "restore content/director/director-graph.json and its manifest; the Director never falls back to literals" : "restore content/craft/text-graph.json, its manifest and beat-directives.json",
+        fix: kind === "director" ? "restore content/director/director-graph.json and its manifest; the Director never falls back to literals" : "restore content/craft/text-graph.json and its manifest",
         details: { [kind]: {
                 reason: message,
                 ...details
@@ -104,18 +104,13 @@ export class DirectorGraph {
         return new DirectorGraph(graph, manifest);
     }
 }
+/** The presentation graph: registers, segment types, render slots and the obligation plane. Since contract §137 it
+ *  carries no craft line: the axes, directives, beat table and floor a turn's `style` holds come from the one enabled
+ *  package that contributes `context.style.v1` (`read/style.ts`), and `style()` here is only what every table has. */
 export class TextGraph {
     readonly nodes: Map<string, Row>;
-    readonly directives: Map<string, Row>;
-    readonly axes: Row[];
-    readonly beats: Row;
-    readonly axisLines: Row;
-    readonly directiveLines: Row;
-    readonly briefDirectiveLines: Row;
-    /** The four content kinds every turn owes (docs/specs/turn-floor.md), sent as `style.floor` on every turn. */
-    readonly floorLines: string[];
     readonly digest: string;
-    constructor(graph: Row, manifest: Row, table: Row, beats: string[]) {
+    constructor(graph: Row, manifest: Row) {
         if (graph.contract_id !== "coc.text-graph.v1")
             throw contentError("craft", "text graph does not declare coc.text-graph.v1");
         if (manifest.contract_id !== "coc.text-graph-build-manifest.v1")
@@ -129,61 +124,21 @@ export class TextGraph {
                 actual: this.digest
             });
         this.nodes = new Map(graph.nodes.filter((n: any) => typeof row(n).node_id === "string").map((n: Row) => [n.node_id, n]));
-        this.axes = ordered(this.nodes, "style-axis");
-        this.directives = new Map(ordered(this.nodes, "craft-directive").map(n => [string(n.properties.directive_id), n]));
-        if (!ordered(this.nodes, "play-register").length || !this.axes.length || !this.directives.size)
-            throw contentError("craft", "text graph declares no registers, axes or directives");
-        if (table.contract_id !== "coc.beat-directives.v1")
-            throw contentError("craft", "beat-directives.json does not declare coc.beat-directives.v1");
-        this.beats = row(table.beats);
-        const problems: string[] = [];
-        for (const beat of beats) {
-            const ids = this.beats[beat];
-            if (!Array.isArray(ids)) {
-                problems.push(`beat ${beat} has no directive list`);
-                continue;
-            }
-            if (ids.length > 4)
-                problems.push(`beat ${beat} lists ${ids.length} directives (max 4)`);
-            const unknown = ids.filter(id => !this.directives.has(id));
-            if (unknown.length)
-                problems.push(`beat ${beat} names directives the text graph lacks: [${unknown.map(id => `'${id}'`).join(", ")}]`);
-        }
-        const extra = sorted(Object.keys(this.beats).filter(k => !beats.includes(k)));
-        if (extra.length)
-            problems.push(`beat table names beats the Director lacks: [${extra.map(id => `'${id}'`).join(", ")}]`);
-        if (problems.length)
-            throw contentError("craft", "beat-directives.json disagrees with the text graph", { problems });
-        this.axisLines = row(table.axis_lines);
-        this.directiveLines = row(table.directive_lines);
-        this.briefDirectiveLines = row(table.brief_directive_lines);
-        if (Object.hasOwn(table, 'brief_directive_lines') && (Object.keys(this.briefDirectiveLines).length !== this.directives.size
-            || [...this.directives.keys()].some(id => typeof this.briefDirectiveLines[id] !== 'string' || !this.briefDirectiveLines[id].trim())
-            || Object.keys(this.briefDirectiveLines).some(id => !this.directives.has(id))))
-            throw contentError('craft', 'brief_directive_lines must cover the current directive IDs with non-empty lines');
-        const floor = table.floor_lines;
-        if (!Array.isArray(floor) || floor.length !== 4 || floor.some(line => typeof line !== "string" || !line.trim()))
-            throw contentError("craft", "beat-directives.json must carry four non-empty floor_lines (turn floor)");
-        this.floorLines = floor.map(string);
+        if (!this.registers.length)
+            throw contentError("craft", "text graph declares no registers");
     }
-    style(language: string, register: string, beat: string, full: boolean): Row {
-        const ids = full ? [...this.directives.keys()] : array(this.beats[beat]);
-        return {
-            language,
-            register,
-            axes: this.axes.filter(n => ["all", language].includes(string(row(n.properties).language_applicability || "all"))).map(n => string(this.axisLines[n.node_id] || n.name || n.node_id)),
-            directives: ids.map(id => ({
-                id,
-                line: string((full ? undefined : this.briefDirectiveLines[id]) || this.directiveLines[id] || this.directives.get(id)?.rationale || id)
-            })),
-            floor: [...this.floorLines]
-        };
+    /** The registers a campaign may choose (`campaign.create`), in the graph's own order. */
+    get registers(): string[] {
+        return ordered(this.nodes, "play-register").map(n => string(row(n.properties).legacy_key));
     }
-    static async load(context: KernelContext, beats: string[]): Promise<TextGraph> {
+    style(language: string, register: string): Row {
+        return { language, register };
+    }
+    static async load(context: KernelContext): Promise<TextGraph> {
         try {
-            const paths = ["text-graph.json", "text-graph-manifest.json", "beat-directives.json"];
-            const [graph, manifest, table] = await Promise.all(paths.map(path => context.snapshots.readJson(join(context.content, "craft", path))));
-            return new TextGraph(row(graph), row(manifest), row(table), beats);
+            const paths = ["text-graph.json", "text-graph-manifest.json"];
+            const [graph, manifest] = await Promise.all(paths.map(path => context.snapshots.readJson(join(context.content, "craft", path))));
+            return new TextGraph(row(graph), row(manifest));
         }
         catch (error) {
             if (error instanceof RpcError)

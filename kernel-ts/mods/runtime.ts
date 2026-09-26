@@ -8,7 +8,8 @@ import { RpcError } from '../errors.js';
 import { writeJsonAtomic } from '../fileio.js';
 import { isJsonObject, orderedObject, PythonFloat } from '../json.js';
 import { MOD_CAPABILITIES, buildVocabulary, packageFiles, packageDigest, manifestFrom, runtimePackageFiles, readModCatalog, activeMods, modProviders, effectiveMods,
-  type ModCatalog, type UnavailablePackage } from '../read/mods.js';
+  compatibleManifest, type ModCatalog, type UnavailablePackage } from '../read/mods.js';
+import { providesStyle, secondProvider, validateStyleContribution } from '../read/style.js';
 import { array, row, values, entries, string, truth, clone, equal, sorted, type Row } from '../read/values.js';
 import { readZipPackage } from './zip.js';
 import {EXPRESSION_MOD, LEGACY_VOICE_MOD, isUnifiedExpression, newModDefault, inheritedVoiceSettings,
@@ -93,6 +94,14 @@ export class ModRuntime {
     for (const mod of [...catalog.values()].sort((a, b) => compareVersion(a.version, b.version))) if (mod.compatible) latest.set(mod.id, mod);
     return latest;
   }
+  /** Contract §137.4: the style providers a new world would enable. Two of them make the catalog itself invalid. */
+  private defaultStyleProviders(latest: Map<string, Row>, defaults: Row): Row[] {
+    return [...latest.values()].filter(mod => providesStyle(mod) && truth(newModDefault(mod, defaults, latest)));
+  }
+  private refuseTwoDefaultStyleProviders(latest: Map<string, Row>, defaults: Row): void {
+    const providers = this.defaultStyleProviders(latest, defaults);
+    if (providers.length > 1) throw secondProvider(providers[1], providers[0]);
+  }
   /** Contract 28.2: the words the installed packages add to the reader's dossier ask. The rule and
    *  its ordering live in `read/mods.ts` -- the module store calls it on every reading claim, and
    *  reaching it through this class would pull the installer's zip reader into every bundle that
@@ -117,7 +126,16 @@ export class ModRuntime {
     const expanded = source === '~' ? homedir() : source.startsWith('~/') ? join(homedir(), source.slice(2)) : source;
     const path = await realpath(resolve(expanded)).catch(() => resolve(expanded));
     const sourceFiles = await this.context.snapshots.isDirectory(path) ? await packageFiles(path) : await readZipPackage(path);
-    const manifest = manifestFrom(sourceFiles), files = runtimePackageFiles(sourceFiles, manifest), digest = packageDigest(files), previous = (await this.catalog()).get(`${manifest.id}\0${manifest.version}`);
+    const manifest = manifestFrom(sourceFiles), files = runtimePackageFiles(sourceFiles, manifest), digest = packageDigest(files), catalog = await this.catalog(), previous = catalog.get(`${manifest.id}\0${manifest.version}`);
+    if (compatibleManifest(manifest)) {
+      // Contract §137.2/§137.4: the lines are measured before the version is published, and a default-on
+      // provider beside another default-on provider would leave the catalog with two.
+      await validateStyleContribution(this.context, manifest, files, digest);
+      const defaults = await this.defaults(), latest = this.latest(catalog);
+      const existing = providesStyle(manifest) && truth(newModDefault(manifest, defaults, latest))
+        ? this.defaultStyleProviders(latest, defaults).find(mod => mod.id !== manifest.id) : undefined;
+      if (existing) throw secondProvider(manifest, existing);
+    }
     if (previous) {
       if (previous.digest !== digest) return invalid('An installed Mod version cannot be replaced with different bytes');
       await this.freeze(previous); return {id: manifest.id, version: manifest.version, reused: true};
@@ -129,7 +147,11 @@ export class ModRuntime {
     const path = join(this.root, 'defaults.json');
     const defaults = await this.context.snapshots.pathExists(path) ? clone(await this.context.snapshots.readJson(path)) as Row : {};
     if (id != null) {
-      if (![...(await this.catalog()).values()].some(mod => mod.id === id) || typeof enabled !== 'boolean') return invalid('Choose an installed Mod and a boolean default');
+      const catalog = await this.catalog();
+      if (![...catalog.values()].some(mod => mod.id === id) || typeof enabled !== 'boolean') return invalid('Choose an installed Mod and a boolean default');
+      const latest = this.latest(catalog), target = latest.get(id);
+      const existing = enabled && providesStyle(target) ? this.defaultStyleProviders(latest, defaults).find(mod => mod.id !== id) : undefined;
+      if (existing) throw secondProvider(target!, existing);
       defaults[id] = enabled; await writeJsonAtomic(path, defaults);
     }
     return defaults;
@@ -153,6 +175,7 @@ export class ModRuntime {
       return false;
     }
     const latest = this.latest(await this.catalog()), defaults = await this.defaults();
+    this.refuseTwoDefaultStyleProviders(latest, defaults);
     world.mods = {game_api: GAME_API, active: {}, state: {}, pending: {}};
     for (const [id, mod] of latest) { await this.freeze(mod); world.mods.active[id] = this.lock(mod, newModDefault(mod, defaults, latest)); }
     world.mods.order = topologicalOrder(await this.order(world), [...latest.values()].filter(mod => truth(world.mods.active[mod.id].enabled)));
@@ -205,6 +228,12 @@ export class ModRuntime {
     }
     const staged = clone(world); staged.mods.active[id] = this.lock(mod, enabled, settings);
     stageVoiceOwner(staged, mod);
+    // Contract §137.4: enabling a second style provider is refused, naming the one already enabled.
+    if (enabled && providesStyle(mod)) {
+      const existing = Object.entries(row(staged.mods.active)).filter(([other, lock]) => other !== id && truth(row(lock).enabled))
+        .map(([other, lock]) => catalog.get(`${other}\0${string(row(lock).version)}`)).find(other => providesStyle(other));
+      if (existing) throw secondProvider(mod, existing);
+    }
     staged.mods.order = await this.order(staged); await this.active(staged);
     if (busy) { world.mods.pending[id] = {id, version, enabled, settings}; return outcome; }
     let state = clone(present(staged.mods.state, id, {}));

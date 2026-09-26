@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const MODS = join(ROOT, 'mods');
-const FILE_CONTRIBUTIONS = ['instructions', 'brief', 'setup_instructions', 'setup_slots', 'materializer', 'auditor', 'craft_reference'];
+const FILE_CONTRIBUTIONS = ['instructions', 'brief', 'setup_instructions', 'setup_slots', 'materializer', 'auditor', 'style'];
 
 test('every shipped Mod declares the exact runtime package boundary', async () => {
   for (const id of await readdir(MODS)) {
@@ -15,15 +15,8 @@ test('every shipped Mod declares the exact runtime package boundary', async () =
     try { manifest = JSON.parse(await readFile(join(root, 'mod.json'), 'utf8')); }
     catch { continue; }
     assert.ok(manifest.requires.includes('mods.package-files.v1'), `${id} must require the scoped-package capability`);
-    const referenced = FILE_CONTRIBUTIONS.map(field => manifest.contributes?.[field]).filter(value => typeof value === 'string');
-    if (manifest.contributes?.craft_reference) {
-      assert.ok(manifest.requires.includes('context.craft-reference.v2'));
-      const descriptor = JSON.parse(await readFile(join(root, manifest.contributes.craft_reference), 'utf8'));
-      assert.deepEqual(Object.keys(descriptor).sort(), ['candidates', 'catalog', 'schema_version']);
-      assert.equal(descriptor.schema_version, 1);
-      referenced.push(descriptor.catalog, descriptor.candidates);
-    }
-    assert.deepEqual([...manifest.package_files].sort(), [...new Set(referenced)].sort(), `${id} packages exactly its referenced runtime files`);
+    const referenced = FILE_CONTRIBUTIONS.map(field => manifest.contributes?.[field]).filter(value => typeof value === 'string').sort();
+    assert.deepEqual([...manifest.package_files].sort(), referenced, `${id} packages exactly its referenced runtime files`);
     assert.ok(!manifest.package_files.includes('CHANGELOG.md'), `${id} must not ship its engineering changelog`);
   }
 });

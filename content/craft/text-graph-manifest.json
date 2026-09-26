@@ -2,7 +2,7 @@
   "contract_id": "coc.text-graph-build-manifest.v1",
   "schema_version": 1,
   "graph_id": "graph:text:production",
-  "graph_content_digest": "f971efa1856c83ded48fe59c89395cbc8b80807d562faca2d1d1cf842fc450bc",
+  "graph_content_digest": "3c8da146b5afc3bb3fdab0164313217d87198b4e87bb9eb15021f2c67a95c6e4",
   "shards": [
     "shard:text:craft-doctrine",
     "shard:text:obligation-vocabulary"
@@ -16,7 +16,6 @@
     "agency-claim-type": 8,
     "beat-type": 9,
     "coverage-field": 9,
-    "craft-directive": 4,
     "narration-budget-mode": 4,
     "narration-budget-trigger": 10,
     "obligation-kind": 3,
@@ -26,10 +25,8 @@
     "realization-mode": 2,
     "render-prohibition": 3,
     "render-slot": 7,
-    "review-rule": 9,
     "roll-visibility-class": 6,
     "segment-type": 5,
-    "style-axis": 6,
     "substantive-effect-status": 3,
     "text-threshold": 5
   }

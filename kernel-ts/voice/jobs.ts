@@ -1,6 +1,6 @@
 /** The npc-voice lane's job packets and the one write it makes (contract §40.7): a closed packet per
  *  person the source leaves silent, a shape-only check of a mask and three exchanges, and a write into
- *  the package's own §28.7 namespace so the book is never touched and the words die with the package.
+ *  the owning package's own §28.7 namespace so the book is never touched and the words die with the package.
  *  No model call here, no table mapping anyone to a way of speaking. */
 import { join } from 'node:path';
 import { RpcError } from '../errors.js';
@@ -11,6 +11,7 @@ import { readNpcLedger } from '../write/contributions.js';
 import { personRecord, APPEARANCE_CHARS } from '../read/capsule.js';
 import { FAILURE_REASONS, committedRecords } from '../memory/jobs.js';
 import { array, chars, clone, entries, integer, number, repr, row, string, truth, type Row } from '../read/values.js';
+import { EXPRESSION_MOD, isUnifiedExpression } from '../mods/voice-consolidation.js';
 import {MOD, MASK_KEY, EXCHANGES_KEY, KEYS, LEGACY_KEY, LABELS, SILENT_REASON} from './fields.js';
 export {MOD, MASK_KEY, EXCHANGES_KEY, KEYS, LABELS, SILENT_REASON} from './fields.js';
 /** The 1.0.x word; a record of it is deleted the moment the person is re-established under the two words. */
@@ -18,9 +19,27 @@ export const BUDGET = { mask_chars: 200, exchanges: 3, max_chars: 200 };
 const DOCUMENT_BYTES = 4096;
 const TAKEN_MASKS = 12;
 export const jobId = (campaign: string, handle: string, generation: Row | null = null) => `voice:${campaign}:${handle}${generation ? `@${generation.digest}` : ''}`;
+/** The capability a package declares to take the lane (contract §40.7 Owner, 2026-09-25). */
+export const GENERATION_CAPABILITY = 'npc.voice.generation.v2';
+/** Whose lock the lane reads and whose namespace, job folder and `mod` stamp it uses (§40.7 Owner). `enabled`
+ *  false is "no owner": nothing is offered and nothing is written. That case keeps the legacy identity (its
+ *  possibly disabled lock, `npc-voice/jobs`, its refusal) so a table without the unified owner sees exactly
+ *  the lane it saw before the ruling. */
+export type VoiceOwner = { readonly id: string; readonly lock: Row; readonly enabled: boolean };
+/** The enabled unified package whose locked manifest declares generation comes first; then the legacy lock
+ *  under its old rule (enabled, any version: frozen 1.0.x/1.1.x locks predate the capability). */
+export function voiceOwner(world: Row, catalog: ReadonlyMap<string, Row>): VoiceOwner {
+    const locks = row(row(world.mods).active), unified = row(locks[EXPRESSION_MOD]);
+    const manifest = catalog.get(`${EXPRESSION_MOD}\0${string(unified.version)}`);
+    if (truth(unified.enabled) && isUnifiedExpression(manifest) && manifest!.digest === unified.digest
+        && array(manifest!.requires).includes(GENERATION_CAPABILITY))
+        return { id: EXPRESSION_MOD, lock: unified, enabled: true };
+    const legacy = row(locks[MOD]);
+    return { id: MOD, lock: legacy, enabled: truth(legacy.enabled) };
+}
 /** Version-1 locks keep their original identity and storage. New identities come only from the lock. */
-export function generationOf(world: Row): Row | null {
-    const lock = packageState(world);
+export function generationOf(owner: VoiceOwner): Row | null {
+    const lock = packageState(owner);
     return lock && number(lock.state_version) >= 2 ? { version: lock.version, digest: lock.digest, state_version: lock.state_version } : null;
 }
 /** The fallback when `content/setup/npc-voice.md` cannot be read; the file is the instruction (§40.7). */
@@ -39,16 +58,16 @@ const INSTRUCTION = 'Write how this person is heard, in the play language. First
     'Lines under said were already spoken at this table: do not copy them or recycle example wording when a topic returns. ' +
     'Answer {"voice": {"mask": "…", "exchanges": ["…", "…", "…"]}}; only a source that says the person does not speak ' +
     'permits {"voice": null, "reason": "does_not_speak"}.';
-export function parseJobId(campaign: CampaignWriter, value: any, world: Row): { handle: string; generation: Row | null } {
+export function parseJobId(campaign: CampaignWriter, value: any, owner: VoiceOwner): { handle: string; generation: Row | null } {
     const found = typeof value === 'string' ? /^voice:([A-Za-z0-9][A-Za-z0-9._-]{0,63}):([^@]+)(?:@([a-f0-9]{64}))?$/.exec(value) : null;
-    const generation = generationOf(world), lock = row(row(row(world.mods).active)[MOD]);
+    const generation = generationOf(owner), lock = owner.lock;
     if (!found || found[1] !== campaign.id || (found[3] ? !generation || found[3] !== generation.digest : number(lock.state_version) >= 2))
         throw new RpcError('invalid_params', 'job_id must identify the current voice generation returned by voice.job', { details: { job_id: value ?? null } });
     return { handle: found[2], generation };
 }
 /** Check before idempotent replay too: stale results may never establish current words. */
-export function assertJobGeneration(campaign: CampaignWriter, world: Row, job: Row): void {
-    const { handle, generation } = parseJobId(campaign, job.job_id, world);
+export function assertJobGeneration(campaign: CampaignWriter, owner: VoiceOwner, job: Row): void {
+    const { handle, generation } = parseJobId(campaign, job.job_id, owner);
     const matches = (value: any): boolean => {
         const stored = row(value);
         return stored.version === generation?.version && stored.digest === generation?.digest &&
@@ -57,30 +76,31 @@ export function assertJobGeneration(campaign: CampaignWriter, world: Row, job: R
     if (handle !== job.npc || (generation ? !matches(job.generation) || !matches(row(job.packet).generation) || row(job.packet).job_id !== job.job_id : job.generation != null))
         throw new RpcError('invalid_params', 'voice job generation does not match the current enabled package lock', { details: { job_id: job.job_id } });
 }
-const jobPath = (handle: string, generation: Row | null = null) => join('npc-voice/jobs', ...(generation ? ['v2', string(generation.digest)] : []), handle.replace(/[^A-Za-z0-9._-]/g, '_') + '.json');
-export async function readJob(campaign: CampaignWriter, handle: string, generation: Row | null = null): Promise<Row | null> {
+/** `<owner>/jobs[/v2/<digest>]/<handle>.json`: the legacy lane's folder is `npc-voice/jobs` as it always was. */
+const jobPath = (owner: VoiceOwner, handle: string, generation: Row | null = null) => join(owner.id, 'jobs', ...(generation ? ['v2', string(generation.digest)] : []), handle.replace(/[^A-Za-z0-9._-]/g, '_') + '.json');
+export async function readJob(campaign: CampaignWriter, owner: VoiceOwner, handle: string, generation: Row | null = null): Promise<Row | null> {
     try {
-        const value = await campaign.context.snapshots.readJson(campaign.path(jobPath(handle, generation)));
+        const value = await campaign.context.snapshots.readJson(campaign.path(jobPath(owner, handle, generation)));
         return isJsonObject(value) ? clone(value) : null;
     }
     catch {
         return null;
     }
 }
-const writeJob = (campaign: CampaignWriter, handle: string, value: Row) => campaign.write(jobPath(handle, value.generation ?? null), value);
-/** The package's lock and settings, or null when it is not on: the lane has nothing to do then. */
-export function packageState(world: Row): Row | null {
-    const lock = row(row(row(world.mods).active)[MOD]);
-    return truth(lock.enabled) ? lock : null;
+const writeJob = (campaign: CampaignWriter, owner: VoiceOwner, handle: string, value: Row) => campaign.write(jobPath(owner, handle, value.generation ?? null), value);
+/** The owner's lock and settings, or null when nobody owns the lane: it has nothing to do then. */
+export function packageState(owner: VoiceOwner): Row | null {
+    return owner.enabled ? owner.lock : null;
 }
-const namespace = (world: Row): Row => row(row(row(row(world.mods).state)[MOD]).dossier);
-/** Established is a record under the exchanges key, lines or the `does_not_speak` answer: either way the person is settled. */
-const established = (world: Row, node: Row): boolean => Object.hasOwn(row(namespace(world)[string(node.node_id)]), EXCHANGES_KEY);
+const namespace = (world: Row, owner: VoiceOwner): Row => row(row(row(row(world.mods).state)[owner.id]).dossier);
+/** Established is a record under the exchanges key, lines or the `does_not_speak` answer: either way the person is
+ *  settled. Read in the owner's namespace, so cards the §30.7e handover copied in count. */
+const established = (world: Row, owner: VoiceOwner, node: Row): boolean => Object.hasOwn(row(namespace(world, owner)[string(node.node_id)]), EXCHANGES_KEY);
 /** The book's word stands (§28.7): a person whose speech the book prints under either key is never written. */
 const authored = (graph: ModuleGraph, node: Row): boolean => KEYS.some(key => truth(graph.npcProfile(node)[key]));
 /** A person needs a voice when the package is on, the source gives none and none is established (§40.7). */
-export function needsLines(graph: ModuleGraph, world: Row, node: Row): boolean {
-    return !!packageState(world) && !authored(graph, node) && !established(world, node);
+export function needsLines(graph: ModuleGraph, world: Row, owner: VoiceOwner, node: Row): boolean {
+    return !!packageState(owner) && !authored(graph, node) && !established(world, owner, node);
 }
 function npcNode(graph: ModuleGraph, value: any): Row | null {
     if (typeof value !== 'string' || !value.trim())
@@ -92,8 +112,8 @@ function npcNode(graph: ModuleGraph, value: any): Row | null {
  *  the start scene's people before the first player turn -- on the real module the employer's first two
  *  answers came before his mask), then present in the latest committed record, then met, then (with
  *  backfill) everyone else the graph names. */
-export async function nextPerson(campaign: CampaignWriter, graph: ModuleGraph, world: Row, backfill: boolean): Promise<Row | null> {
-    if (!packageState(world))
+export async function nextPerson(campaign: CampaignWriter, graph: ModuleGraph, world: Row, owner: VoiceOwner, backfill: boolean): Promise<Row | null> {
+    if (!packageState(owner))
         return null;
     const ordered: Row[] = [], seen = new Set<string>();
     const take = (node: Row | null) => {
@@ -116,13 +136,13 @@ export async function nextPerson(campaign: CampaignWriter, graph: ModuleGraph, w
             if (node.node_kind === 'npc')
                 take(node);
     for (const node of ordered)
-        if (needsLines(graph, world, node) && (await readJob(campaign, graph.handle(node), generationOf(world)))?.status !== 'done')
+        if (needsLines(graph, world, owner, node) && (await readJob(campaign, owner, graph.handle(node), generationOf(owner)))?.status !== 'done')
             return node;
     return null;
 }
 /** The masks other people of this campaign already wear -- the book's and the table's -- so the lane can keep
  *  this one apart from them. Masks only: no name travels with them. */
-export function takenMasks(graph: ModuleGraph, world: Row, node: Row): string[] {
+export function takenMasks(graph: ModuleGraph, world: Row, owner: VoiceOwner, node: Row): string[] {
     const masks: string[] = [], seen = new Set<string>();
     const add = (value: any) => {
         const first = Array.isArray(value) ? value[0] : value, mask = typeof first === 'string' ? first.trim() : '';
@@ -131,7 +151,7 @@ export function takenMasks(graph: ModuleGraph, world: Row, node: Row): string[] 
     for (const other of graph.nodes.values())
         if (other.node_kind === 'npc' && other.node_id !== node.node_id)
             add(graph.npcProfile(other)[MASK_KEY]);
-    for (const [id, words] of entries(namespace(world)))
+    for (const [id, words] of entries(namespace(world, owner)))
         if (id !== string(node.node_id))
             add(row(row(words)[MASK_KEY]).value);
     return masks.slice(0, TAKEN_MASKS);
@@ -152,8 +172,8 @@ export async function investigatorIdentity(campaign: CampaignWriter, world: Row)
     return { ...(sex ? { sex } : {}), ...(address ? { address } : {}), ...(appearance ? { appearance } : {}) };
 }
 /** The closed packet: the Keeper-side dossier as present[] shows it, the person's own documents bounded, the setting. */
-export function buildPacket(campaign: CampaignWriter, graph: ModuleGraph, world: Row, node: Row, language: string, dossier: Row, instruction: string = INSTRUCTION, said: string[] = [], investigator: Row | null = null): Row {
-    const handle = graph.handle(node), lock = packageState(world) ?? {};
+export function buildPacket(campaign: CampaignWriter, graph: ModuleGraph, world: Row, owner: VoiceOwner, node: Row, language: string, dossier: Row, instruction: string = INSTRUCTION, said: string[] = [], investigator: Row | null = null): Row {
+    const handle = graph.handle(node), lock = packageState(owner) ?? {};
     const documents: string[] = [];
     let bytes = 0;
     for (const document of array(row(row(node.properties).runtime_projection).documents)) {
@@ -180,17 +200,17 @@ export function buildPacket(campaign: CampaignWriter, graph: ModuleGraph, world:
     if (knowledge.length)
         npc.knowledge = knowledge.slice(0, 3);
     const era = recordOf(graph.moduleNode ?? null).era ?? recordOf(graph.moduleNode ?? null).period ?? null;
-    const generation = generationOf(world);
+    const generation = generationOf(owner);
     return { job_id: jobId(campaign.id, handle, generation), ...(generation ? { generation } : {}), play_language: language,
         module: { title: graph.title(), ...(typeof era === 'string' && era.trim() ? { era } : {}) },
         coarse_language: row(lock.settings).coarse_language !== false,
-        npc, documents, taken_masks: takenMasks(graph, world, node), said: said.slice(-SAID_LINES), budget: { ...BUDGET }, instruction,
+        npc, documents, taken_masks: takenMasks(graph, world, owner, node), said: said.slice(-SAID_LINES), budget: { ...BUDGET }, instruction,
         ...(investigator ? { investigator } : {}) };
 }
-export async function openJob(campaign: CampaignWriter, handle: string, packet: Row): Promise<Row> {
-    const existing = await readJob(campaign, handle, packet.generation ?? null);
+export async function openJob(campaign: CampaignWriter, owner: VoiceOwner, handle: string, packet: Row): Promise<Row> {
+    const existing = await readJob(campaign, owner, handle, packet.generation ?? null);
     if (!existing || !['done'].includes(string(existing.status)))
-        await writeJob(campaign, handle, { job_id: packet.job_id, ...(packet.generation ? { generation: clone(packet.generation) } : {}), npc: handle, status: 'open', opened_at: nowIso(), packet });
+        await writeJob(campaign, owner, handle, { job_id: packet.job_id, ...(packet.generation ? { generation: clone(packet.generation) } : {}), npc: handle, status: 'open', opened_at: nowIso(), packet });
     return packet;
 }
 const FIX = `a mask of one line (1-${BUDGET.mask_chars} characters) and exactly ${BUDGET.exchanges} exchanges, each one line of 1-${BUDGET.max_chars} characters, different from each other, no {{ in any of them`;
@@ -211,9 +231,9 @@ export function validateVoice(value: any): { mask: string; exchanges: string[] }
         throw new RpcError('invalid_params', 'the exchanges must differ from each other', { fix: FIX, details: { field: 'voice.exchanges' } });
     return { mask, exchanges };
 }
-/** The one write: into the package's §28.7 namespace, never the graph. Idempotent by digest. */
-export async function submit(campaign: CampaignWriter, graph: ModuleGraph, world: Row, job: Row, value: any, turn: number, reason?: any): Promise<[Row, boolean]> {
-    assertJobGeneration(campaign, world, job);
+/** The one write: into the owner's §28.7 namespace, never the graph. Idempotent by digest. */
+export async function submit(campaign: CampaignWriter, graph: ModuleGraph, world: Row, owner: VoiceOwner, job: Row, value: any, turn: number, reason?: any): Promise<[Row, boolean]> {
+    assertJobGeneration(campaign, owner, job);
     const handle = string(job.npc), digest = jsonDigest(value === null ? { reason: reason ?? null } : value ?? null);
     if (job.status === 'done') {
         if (job.voice_sha256 === digest)
@@ -224,8 +244,8 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, world
     for (const key of KEYS)
         if (truth(graph.npcProfile(node)[key]))
             throw new RpcError('invalid_params', `the source already gives ${graph.displayName(node)} ${key}`, { fix: 'the book\'s own words stand; the lane fills only where the source is silent', details: { field: 'voice', actor: handle, key, authored_value: graph.npcProfile(node)[key] } });
-    if (!packageState(world))
-        throw new RpcError('invalid_params', `${MOD} is not enabled on this campaign`, { fix: 'enable the package before establishing its words', details: { mod: MOD } });
+    if (!packageState(owner))
+        throw new RpcError('invalid_params', `${owner.id} is not enabled on this campaign`, { fix: 'enable the package before establishing its words', details: { mod: owner.id } });
     // §40.5: a person the book says does not speak (a swarm, a haunt that acts through knocks) has no
     // voice to write; the lane says so and the person is settled without one. The read side skips a
     // null value, so nothing reaches the capsule, and `nextPerson` never offers them again.
@@ -233,21 +253,21 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, world
     if (value === null && !silent)
         throw new RpcError('invalid_params', `voice null needs reason ${repr(SILENT_REASON)}`, { fix: `answer {"voice": null, "reason": "${SILENT_REASON}"} only for someone the book says does not speak`, details: { field: 'reason' } });
     const voice = silent ? null : validateVoice(value);
-    const state = ((world.mods.state ??= {})[MOD] ??= {}), dossier = (state.dossier ??= {}), recorded = (dossier[string(node.node_id)] ??= {});
+    const state = ((world.mods.state ??= {})[owner.id] ??= {}), dossier = (state.dossier ??= {}), recorded = (dossier[string(node.node_id)] ??= {});
     const values: Record<string, string[] | null> = { [MASK_KEY]: voice ? [voice.mask] : null, [EXCHANGES_KEY]: voice ? voice.exchanges : null };
     for (const key of KEYS)
-        recorded[key] = { value: values[key], label: LABELS[key], turn, mod: MOD, shape: 'lines', ...(silent ? { reason: SILENT_REASON } : {}) };
+        recorded[key] = { value: values[key], label: LABELS[key], turn, mod: owner.id, shape: 'lines', ...(silent ? { reason: SILENT_REASON } : {}) };
     delete recorded[LEGACY_KEY];
     await campaign.writeWorld(world);
     const result = { job_id: string(job.job_id), npc: handle, name: graph.displayName(node), voice, ...(silent ? { reason: SILENT_REASON } : {}) };
-    await writeJob(campaign, handle, { ...job, status: 'done', voice_sha256: digest, result, completed_at: nowIso() });
+    await writeJob(campaign, owner, handle, { ...job, status: 'done', voice_sha256: digest, result, completed_at: nowIso() });
     return [result, false];
 }
-export async function fail(campaign: CampaignWriter, job: Row | null, id: string, handle: string, reason: any, detail: any): Promise<Row> {
+export async function fail(campaign: CampaignWriter, owner: VoiceOwner, job: Row | null, id: string, handle: string, reason: any, detail: any): Promise<Row> {
     if (!FAILURE_REASONS.includes(reason))
         throw new RpcError('invalid_params', `reason ${repr(reason)} is not a failure reason`, { fix: `one of: ${FAILURE_REASONS.join(', ')}` });
     if (job && job.status !== 'done')
-        await writeJob(campaign, handle, { ...job, status: 'failed', failed_at: nowIso(), reason, detail: detail ?? null });
+        await writeJob(campaign, owner, handle, { ...job, status: 'failed', failed_at: nowIso(), reason, detail: detail ?? null });
     return { job_id: id, npc: handle, status: 'failed', reason };
 }
 export const isTurn = (value: any): boolean => integer(value) && number(value) >= 0;
