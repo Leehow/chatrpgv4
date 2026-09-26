@@ -135,7 +135,9 @@ test("SL-01 gate: a policy-origin read and a Jev decision run before one real mo
 		assert.ok(typeof event.scopeId === "string" && ["policy", "model", "user-command"].includes(event.origin) && ["internal", "keeper", "player"].includes(event.visibility));
 	}
 	const steps = run.filter((event) => event.type === "step_start").map((event) => event.kind);
-	assert.deepEqual(steps, ["operate", "decide", "infer", "operate", "finish"]);
+	// §139.20/§139.25: the fake kernel's capsule has one person present, so the scan of the people present (an operate step,
+	// no model) runs before the Keeper's turn-writing step.
+	assert.deepEqual(steps, ["operate", "decide", "operate", "infer", "operate", "finish"]);
 	assert.equal(run.filter((event) => event.type === "step_start").length, run.filter((event) => event.type === "step_end").length);
 	assert.ok(run.some((event) => event.type === "delivery_accepted" && event.delivery === "accepted"));
 
@@ -213,7 +215,8 @@ test("without a Jev key the hybrid engine degrades every decision to the Keeper 
 	const events = [];
 	table.session.subscribe((event) => { if (isRunEvent(event)) events.push(event); });
 	await table.session.prompt("我推开地窖门");
-	assert.deepEqual(events.filter((event) => event.type === "step_start").map((event) => event.kind), ["operate", "decide", "infer", "operate", "finish"]);
+	// §139.20/§139.25: the scan of the person present is an operate step before the Keeper's turn-writing step.
+	assert.deepEqual(events.filter((event) => event.type === "step_start").map((event) => event.kind), ["operate", "decide", "operate", "infer", "operate", "finish"]);
 	assert.equal(events.find((event) => event.type === "step_end" && event.kind === "decide").status, "unavailable");
 	assert.equal(events.at(-1).status, "delivered");
 	assert.deepEqual(log, ["provider"]);

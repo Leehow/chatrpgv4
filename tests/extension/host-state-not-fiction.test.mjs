@@ -253,6 +253,9 @@ test("a delivery made under an adaptation wait carries the host's own notice, be
 	t.after(() => table.dispose());
 	await table.session.prompt("我进门找值班的人。");
 	await waitFor(() => waitNotices(table).length > 0, { label: "the host's preparation-wait notice" });
+	// The notice is appended to the session before its telemetry row, which `record` writes after it (mkdir, then an append):
+	// wait for the decision too, as the file's other cases do, or the read below races that write.
+	await waitFor(() => table.telemetry().some((row) => NOTICE_DECISIONS.has(String(row.reason ?? ""))), { label: "the host's decision about the notice" });
 
 	const notice = waitNotices(table).at(-1);
 	assert.deepEqual(notice.details.preparation_wait, { kind: "adaptation", name: "roxbury-sanitarium" });

@@ -29,11 +29,12 @@ import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { createRealCampaign, openTable } from "./harness.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine, readTable } from "../../runtime/jev/hybrid-engine.ts";
+import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { createFixtureNpcActPort, npcActLaneInput } from "../../runtime/jev/npc-act.ts";
 import { NPC_ACT_BIND_FAMILY, SAME_QUESTION, interpretNpcAct, npcActBatch, npcActWrites, npcProduceBatch, npcScanCandidate, producePart, runNpcAct } from "../../runtime/jev/npc-act-step.ts";
-import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
-import { initialView, next, npcScanDue, settleExecute, startStep } from "../../runtime/jev/step-policy.ts";
+import { COMPILE_FAMILY, compileBatch } from "../../runtime/jev/route-compile.ts";
+import { initialView, next, npcScanDue, npcScanItem, settleCompile, settleExecute, startStep } from "../../runtime/jev/step-policy.ts";
 import { markNpcAct } from "../../extensions/kernel/npc-act-marks.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -960,8 +961,9 @@ test("§139.20 at the table: he spoke last turn, the player talks on and the com
 	assert.deepEqual(rows.map((row) => [row.npc, row.trigger, row.status, row.addressed, row.declared_before_move]),
 		[["steven-knott", "engaged", "bound", true, false]], "one act, by the conversation");
 	assert.equal(npcAct.calls.length, 1);
-	assert.equal(npcAct.calls[0].packet.happened.at(-1), `${npcAct.calls[0].packet.at_hand.present[0]} (investigator) declared: "${TALK}"`,
-		"§139.21: said to the person in the conversation, the line is his");
+	// §139.23 (ticket 24): the compile named no one, so the words reach him as said to no one by name (was `declared:`).
+	assert.equal(npcAct.calls[0].packet.happened.at(-1), `${npcAct.calls[0].packet.at_hand.present[0]} (investigator) declared (to no one by name): "${TALK}"`,
+		"§139.21, §139.23: in the conversation and no one named, the line is his to judge");
 	const receipts = turnRecord(table, 2).receipts;
 	assert.ok(receipts.some((receipt) => receipt.kind === "npc" && receipt.intent?.generated === true && receipt.intent.npc === "steven-knott"), "his act is on the turn");
 	const scan = telemetry.findIndex((row) => row.lane === "run" && row.event === "npc_act");
@@ -992,7 +994,8 @@ test("§139.21 as amended: acted on while the words named no one, the line is hi
 	await game.write("table.apply", { effects: [{ kind: "cash", subject: "Thomas Hayes", delta: 1, source: "found", with: "Steven Knott", why: "a coin changes hands" }] });
 	await game.run(scan());
 	assert.deepEqual(acts(game).map((row) => [row.npc, row.trigger, row.addressed]), [["steven-knott", "acted_on", true]]);
-	assert.ok(npcAct.calls[0].packet.happened.at(-1).endsWith(`declared: "${GRAB}"`), `the demand is in his packet: ${npcAct.calls[0].packet.happened.at(-1)}`);
+	// §139.23 (ticket 24): no one was named, so the demand is said to no one by name (was `declared:`); the grab is his.
+	assert.ok(npcAct.calls[0].packet.happened.at(-1).endsWith(`declared (to no one by name): "${GRAB}"`), `the demand is in his packet: ${npcAct.calls[0].packet.happened.at(-1)}`);
 });
 
 test("§139.21 as amended: the compile names another person -- the one acted on does not hear the words as his", async (t) => {
@@ -1047,6 +1050,161 @@ test("§139.21 at the opening: the table's first generation -- no player words, 
 	assert.deepEqual([bodies[0].play_language, bodies[0].play_language_name], ["zh-Hans", "Simplified Chinese"], "the campaign's tag, read from the campaign, and its name");
 	assert.ok(!bodies[0].situation.happened.some((line) => line.includes("declared:")), "the opening has no player words");
 	assert.ok((await game.receipts()).some((receipt) => receipt.kind === "npc" && receipt.intent?.text === ACT && receipt.intent.generated === true), "the act landed on the opening turn");
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Ticket 24 (§139.23): who the words were said to. Live table B2, turn 10: "then give me back my five dollars first" was
+// said to Arthur, who had the money; the compile answered `unclear` 0.83 -- its state held the sentence, the scene and
+// the names present, and nothing about who had just been talking with the investigator -- so Arthur and Ruth, both in
+// the conversation, both got the words, and Ruth answered them. The compile now reads the last exchange (the newest
+// committed turn's words and the lines its speech markers gave each person, `table.status.last_exchange`), and words
+// that named no one reach the people in the conversation as said to no one by name.
+// ---------------------------------------------------------------------------------------------------
+
+const KNOTT_LINE = "「那房子空了好些年。」", EDNA_LINE = "「钥匙在我这儿。」", ASKED = "我问诺特那栋房子的事。";
+const UNNAMED = "那你先把钥匙给我。";
+/** A talk table that records every Jev batch it answers. */
+async function exchangeTable(t, { addressee } = {}) {
+	const npcAct = createFixtureNpcActPort({ "*": "对方抬了抬眼，没有马上接话。" }), batches = [];
+	const answer = talkJev({ addressee });
+	const table = await talkTable(t, { prepareWorkspace: bothSpoke, npcAct, jev: (batch) => { batches.push(batch); return answer(batch); } });
+	return { table, npcAct, batches };
+}
+
+test("§139.23 at the table: the compile's state carries last turn's exchange -- the player's words and the line the markers gave Knott and the one they gave Edna", async (t) => {
+	const { table, batches } = await exchangeTable(t);
+	await table.session.prompt(UNNAMED);
+	const compile = batches.find((batch) => batch.family === COMPILE_FAMILY);
+	assert.ok(compile, "the compile was asked");
+	const record = turnRecord(table, 1);
+	assert.deepEqual(record.speech.map((line) => line.text), [KNOTT_LINE, EDNA_LINE], "the fixture: each said a line last turn");
+	assert.deepEqual(compile.state.last_exchange, { turn: 1, player_text: ASKED, speech: [
+		{ who: record.speech[0].who.name, line: KNOTT_LINE }, { who: record.speech[1].who.name, line: EDNA_LINE }] });
+	assert.deepEqual(compile.state.last_exchange.speech.map((line) => line.who), ["Steven Knott", "Edna Hale"], "each by the table's name for them");
+	const addressee = compile.questions.find((question) => question.key === "addressee");
+	assert.ok(addressee.instructions.includes("last_exchange"), "the addressee question reads a word that points at a person by it");
+});
+
+test("§139.23 on the emitted kernel: no committed turn before this one, or the party left the room it closed in -- the compile's state has no last_exchange", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "*": "……" });
+	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
+	const state = async () => {
+		// The engine's own reads (`tableReads`): the two option reads are quiet, as there (none before a player turn is open).
+		const [capsule, status, applyOptions, resolveOptions] = await Promise.all([game.call("table.capsule"), game.call("table.status"),
+			game.call("table.apply.options").catch(() => ({})), game.call("table.resolve.options").catch(() => ({}))]);
+		const { context } = readTable(capsule, status);
+		return compileBatch({ runId: "r", rawInput: "x", context, materials: [], candidates: [], observations: [],
+			rows: compileRows({ capsule, applyOptions, resolveOptions }) }, scope, [], []).state;
+	};
+	await game.call("table.open");
+	assert.ok(!Object.hasOwn(await state(), "last_exchange"), "the opening: nothing committed before it");
+	await game.say(ASKED);
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "Edna Hale", to: "here", why: "test fixture: the landlord's clerk" }] });
+	await game.close(`诺特靠回椅背。{{say:Steven Knott}}${KNOTT_LINE}{{/say}}埃德娜抬起头。{{say:Edna Hale}}${EDNA_LINE}{{/say}}`);
+	await game.say("我去《环球报》报馆翻旧报纸。");
+	assert.deepEqual((await state()).last_exchange?.speech?.map((line) => line.line), [KNOTT_LINE, EDNA_LINE], "still in the office: the exchange stands");
+	await game.write("table.apply", { effects: [{ kind: "move", to: MORGUE }] });
+	assert.ok(!Object.hasOwn(await state(), "last_exchange"), "the party moved to the morgue: the office's exchange is not this room's");
+});
+
+test("§139.23 at the table: both in the conversation and the words name no one -- each packet closes on them said to no one by name; named, only that person has them, as said", async (t) => {
+	const unnamed = await exchangeTable(t);
+	await unnamed.table.session.prompt(UNNAMED);
+	const rows = npcActRows(unnamed.table);
+	assert.deepEqual(rows.map((row) => [row.npc, row.trigger, row.addressed, row.named_no_one]).sort(),
+		[["Edna Hale", "engaged", true, true], ["steven-knott", "engaged", true, true]].sort(), "a walk-on is named by her name");
+	assert.equal(unnamed.npcAct.calls.length, 2, "both act");
+	for (const call of unnamed.npcAct.calls) {
+		const who = call.packet.at_hand.present[0];
+		assert.equal(call.packet.happened.at(-1), `${who} (investigator) declared (to no one by name): "${UNNAMED}"`, call.packet.npc.name);
+	}
+	const named = await exchangeTable(t, { addressee: "Edna" });
+	const TO_EDNA = "埃德娜，你先把钥匙给我。";
+	await named.table.session.prompt(TO_EDNA);
+	assert.deepEqual(named.npcAct.calls.map((call) => call.packet.npc.name), ["Edna Hale"], "the person named acts; Knott does not");
+	const packet = named.npcAct.calls[0].packet;
+	assert.equal(packet.happened.at(-1), `${packet.at_hand.present[0]} (investigator) declared: "${TO_EDNA}"`, "said to her by name: the words as said");
+	assert.deepEqual(npcActRows(named.table).map((row) => [row.npc, row.addressed, row.named_no_one]), [["Edna Hale", true, false]]);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Ticket 26 (§139.25): the scan does not act before the declaration. Live table D, turn 3: "我走过去，照他脸上就是一拳" --
+// the compile read `act` combat 1.0 and named no one (addressee none 0.28), no clerk step took the punch, and the scan
+// ticket 21 put before the Keeper's first model step ran Knott (in the conversation) on a punch that had not happened:
+// "侧身让开门口，抬脚朝外走去", bound as leave, done; the Keeper had to bring him back to hit him.
+// ---------------------------------------------------------------------------------------------------
+
+const PUNCH = "我走过去，照他脸上就是一拳。";
+/** The compile reads the declaration as the `combat` intent (1.0) and everything else as `otherAnswer` does: no clerk step. */
+const punchJev = (batch) => {
+	const answer = otherAnswer(batch);
+	if (batch.family === COMPILE_FAMILY) {
+		const act = batch.questions.find((question) => question.key === "act");
+		answer.answers.act = choice(aliasWhere(act, (value) => value === "combat" || String(value).startsWith("combat:")), 1);
+	}
+	return answer;
+};
+const heldRows = (telemetry) => telemetry.filter((row) => row.lane === "run" && row.event === "npc_held");
+
+test("§139.25 at the table (table D turn 3): the compile reads a punch, no clerk fight step landed, he is in the conversation -- he does not act before the Keeper's step", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "steven-knott": "他侧身让开门口，抬脚朝外走去。" });
+	const table = await talkTable(t, { prepareWorkspace: knottSpoke, npcAct, jev: punchJev });
+	await table.session.prompt(PUNCH);
+	const telemetry = table.telemetry(CAMPAIGN);
+	const compile = telemetry.find((row) => row.lane === "route" && row.purpose === "compile");
+	assert.deepEqual([compile.features.act.row, compile.features.act.cleared, compile.features.addressee.cleared], ["combat", true, false], "combat, and no one named");
+	assert.deepEqual(landedClerkSteps(telemetry), [], "no clerk step took the punch");
+	assert.deepEqual(npcActRows(table), [], "no npc_act row: he did not act on a punch that has not happened");
+	assert.equal(npcAct.calls.length, 0, "nothing was generated for him");
+	assert.deepEqual(heldRows(telemetry).map((row) => [row.npc, row.trigger, row.reason, row.named]), [["steven-knott", "engaged", "fight_pending", []]]);
+	// The telemetry file interleaves writers, so order is read from the step ids, not from line order.
+	const stepOf = (id) => Number(String(id).split(":s").at(-1));
+	const held = telemetry.find((row) => row.lane === "run" && row.event === "npc_held");
+	const model = telemetry.find((row) => row.lane === "run" && row.type === "step_start" && row.kind === "infer");
+	assert.ok(held && model && stepOf(held.step) < stepOf(model.stepId), "the scan ran before the Keeper's first model step and held him");
+});
+
+test("§139.25 policy: a cleared fight act holds the scan until a clerk fight step lands; a step that settles something else does not end it, and talk never starts it", () => {
+	const context = { scene: "office", clock: null, present: ["Steven Knott"], receipts: [] };
+	const rows = { act: [{ id: "social", describe: "social" }, { id: "combat", describe: "combat" }], addressee: [{ id: "Steven Knott", describe: { name: "Steven Knott" } }] };
+	const compiled = (act, addressee = "unclear") => {
+		const view = initialView({ runId: "r", rawInput: PUNCH, context, candidates: [], rows, readFirst: false });
+		const batch = compileBatch(view, scope, [], []);
+		settleCompile(view, 1, batch, complete(batch, { act: choice(act, 1), addressee: choice(addressee, addressee === "unclear" ? 0.4 : 0.9) }), 0, 0.6);
+		return view;
+	};
+	const pending = (view) => npcScanItem(view).candidate.bound.fight_pending;
+	const punch = compiled("act_2");
+	assert.deepEqual(pending(punch), { named: [] }, "combat cleared, no one named, nothing landed");
+	assert.deepEqual(pending(compiled("act_2", "addressee_1")), { named: ["Steven Knott"] }, "the person the compile named");
+	assert.equal(pending(compiled("act_1")), undefined, "talk holds no one");
+	const step = (family, key) => ({ key, verb: "apply", family, label: key, source: "t", bound: {}, unbound: [], clerk: "declared_bookkeeping", basis: {} });
+	settleExecute(punch, 2, { kind: "direct", purpose: "execute", candidate: step("clue", "apply:clue:keys") }, { ok: true, summary: {} }, { context, candidates: [] }, 0);
+	assert.deepEqual(pending(punch), { named: [] }, "a clue landed: the punch is still unresolved");
+	settleExecute(punch, 3, { kind: "direct", purpose: "execute", candidate: { ...step("combat", "resolve:combat:first-blow"), verb: "resolve", clerk: "first_blow" } },
+		{ ok: false, summary: {} }, { context, candidates: [] }, 0);
+	assert.deepEqual(pending(punch), { named: [] }, "a refused first blow did not land");
+	settleExecute(punch, 4, { kind: "direct", purpose: "execute", candidate: { ...step("combat", "resolve:combat:first-blow"), verb: "resolve", clerk: "first_blow" } },
+		{ ok: true, summary: {} }, { context, candidates: [] }, 0);
+	assert.equal(pending(punch), undefined, "the first blow landed: the scan after it runs as usual");
+});
+
+test("§139.25 on the emitted kernel: the punch named Knott and has not landed -- Edna, in the conversation and not the one it is aimed at, acts as engaged; once it lands, he acts", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "*": "对方往后缩了一下。" });
+	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
+	await call0(game);
+	await game.say(ASKED);
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "Edna Hale", to: "here", why: "test fixture: the landlord's clerk" }] });
+	await game.close(`诺特靠回椅背。{{say:Steven Knott}}${KNOTT_LINE}{{/say}}埃德娜抬起头。{{say:Edna Hale}}${EDNA_LINE}{{/say}}`);
+	await game.say(PUNCH);
+	// The scan as the policy issues it while the punch the compile aimed at Knott (its `target`) has no landed clerk step.
+	await game.run(npcScanCandidate(0, [], [], { named: ["Steven Knott"] }));
+	assert.deepEqual(acts(game).map((row) => [row.npc, row.trigger, row.status]), [["Edna Hale", "engaged", "bound"]], "she acts; he does not");
+	assert.deepEqual(game.rows.filter((row) => row.event === "npc_held").map((row) => [row.npc, row.trigger, row.named]), [["steven-knott", "engaged", ["Steven Knott"]]]);
+	assert.deepEqual(npcAct.calls.map((call) => call.packet.npc.name), ["Edna Hale"]);
+	// A fight step landed: the next scan carries no hold, and he acts as the conversation has it.
+	await game.run(scan());
+	assert.ok(acts(game).some((row) => row.npc === "steven-knott" && row.status === "bound"), JSON.stringify(acts(game).map((row) => [row.npc, row.status])));
 });
 
 // ---------------------------------------------------------------------------------------------------

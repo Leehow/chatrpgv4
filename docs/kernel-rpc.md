@@ -21343,6 +21343,15 @@ question, but a `now` selects one only when a compile of the run cleared `act` o
 Keeper's for the run (`actGated` in `runtime/jev/route-compile.ts`). A demand, a question or an aside in a fight is never
 the clerk's punch, whatever `need` answered.
 
+*Note, 2026-09-26 (§139.23, NAF-24): the compile's state carries the last exchange.* Besides `player_input`, `now`,
+`done_this_turn` and `materials`, the state has `last_exchange` when the read's `table.status` gives one: the newest
+committed turn's player words and the lines its delivery's speech markers attributed to each person, while the
+investigators still stand where that turn closed (`{turn, player_text, speech: [{who, line}]}`; the key is absent
+otherwise). The `addressee` question's instructions gain one sentence -- a word that points at a person without naming
+them is read by `last_exchange`, who was just talking with the investigator -- and the policy line lists the last exchange
+among the data that are never instructions. Nothing in code reads a pronoun; Jev answers over the rows as before. The
+rule and its reader are §139.23.
+
 **It replaces the first fan-out.** When the compile selects, its candidates are the run's pending steps in the route's
 precedence (§135.26), and no route question is asked before them: the next route comes after them, over what the fresh
 read then offers less what the run consumed, and carries the exit question (after a settled declaration the exit leans to
@@ -25220,6 +25229,14 @@ scan before the model step (one existing test changed). Mutation record (copy an
 (`engaged = false`) fails the first table case (no row); `npcScanDue` restored to "a landed step not yet followed" fails
 it too; both restored, green.
 
+*Note, 2026-09-26 (§139.25, ticket 26, table D turn 3):* the scan before the first model step no longer runs the person a
+declared fight action is aimed at while no clerk step has settled it. "照他脸上就是一拳" read `act` combat 1.0, named no one,
+and no clerk step took it; the scan ran Knott (engaged) on a punch that had not happened, and he walked out before it
+landed. While a compile of the run cleared `act` on a fight action and no clerk fight step has landed, the scan holds the
+person it is aimed at (`npc_held`, not an `npc_act` row); everyone else is scanned as above. And "before the run's first
+model step" is corrected to "before the Keeper's first turn-writing model step" (`adjudicate` or `compose`): the scan was
+issued before any `infer`, a clerk's bind handed to the model mid-flow (`infer` `bind`) included. The rule is §139.25.
+
 **139.21 The player's words reach the person they were said to, and the act is written in the table's language from the
 opening on (2026-09-26, ticket 22 of `docs/specs/npc-acts-first-tickets/`, spec D1 and section 九's table B; amends
 §139.1 and §139.2).**
@@ -25258,6 +25275,13 @@ open):* nothing, not a sentence that "something was said to someone else": the r
 them, and a line about words they did not hear invites an answer to them. With neither input, §139.1's reading is
 unchanged; a person's own turn of a fight passes neither (they are in that fight with the investigator). The scan
 (§139.20) passes both for every act it runs. The budget never cuts the closing sentence.
+
+*Note, 2026-09-26 (§139.23, ticket 24, table B2 turn 10):* the reading is three-state. A third optional boolean,
+`named_no_one`, says the compile named no one present (its `addressee` `none`, `unclear`, below the gate, or no compile);
+with it, and `addressed` not false, the closing sentence is `<investigator> (investigator) declared (to no one by name):
+"<player_text>"`, and the generator judges whether the words were said to this person. `addressed: false` still leaves
+nothing (a named other is evidence, a missing name is not), and `declared_before_move: true` still gives the arrival.
+The scan passes all three for every act it runs. The rule is §139.23.
 
 **The language** (`npcActLaneInput`, `runtime/jev/npc-act.ts`; `content/setup/npc-act.md`). *Finding:* the tag was not
 missing at table B's opening. `npc.act.options` reads `play_language` from `campaign.json`, which held `zh-Hans` from
@@ -25310,6 +25334,99 @@ revolvers at 0.45/0.40 with `none` 0.15 bind the leading one and the attack fire
 0.9 is taken on its own gate with no mark; `none` leading, and 0.59 on records under a 0.6 gate, stay the table's own
 with no weapon; the one-question list reads the same. One existing assertion changed (the `none` criterion's words).
 Mutation (copy and restore): the kind reading disabled fails the near-kin case. **Not verified live.**
+
+**139.23 Who the words were said to: the compile reads the last exchange, and words that named no one reach the people
+they may have been said to as such (2026-09-26, ticket 24 of `docs/specs/npc-acts-first-tickets/`,
+`24-who-the-words-were-said-to.md`; spec D4 and section 九's table B2; amends §135.30's compile state, §139.1's
+`npc.situation` inputs and §139.21's closing sentence; adds `last_exchange` to `table.status`).**
+
+*Evidence* (table B2, `npc-acts-b2`, mystery-house). Turn 10, "我举起双手：行行行，我不带走。那你先把我那五块钱还给我。": the money had
+been with Arthur since the turn before, whose three lines the speech markers gave him. The compile's `addressee` answered
+`unclear` 0.83; Arthur and Ruth were both in the conversation (§139.20's `engaged`), both got the words (§139.21 as
+amended gives them to the engaged when no one else is named), and Ruth generated "阿蒂，这人问我讨五块钱" -- words said to
+Arthur, answered as hers; on turn 8 she had restated Arthur's position. Table B's turns 3, 4, 6 and 10 read `unclear`
+too (0.52, 0.86, 0.43, 0.27). The compile's state held `player_input`, `now {scene, clock, present}`, `done_this_turn`
+and `materials`: nothing said who had just been talking with the investigator, so "you" had nothing to point at.
+
+**The kernel's read: `table.status.last_exchange`** (`lastExchange`, `kernel-ts/read/exchange.ts`): `{turn, player_text,
+speech: [{who, line}]} | null`.
+
+- The record is the newest committed turn record on the campaign's line before this turn (`committedOnLine`, the one
+  §139.1's `happened` and §139.20's conversation already read; moved from `kernel-ts/npc/situation.ts` to
+  `read/exchange.ts`, and `situation.ts` re-exports it).
+- Only while the investigators still stand where it closed: its record's `world.scene.name` is the active scene
+  (`stillWhereItClosed`, which §139.20's `conversationOf` now reads too, adding that the person was among the record's
+  `present`). No such record, or a party that has moved since, is `null`.
+- `player_text` is that record's player words, whitespace folded, at most `EXCHANGE_WORDS_MAX` (400) code points (a
+  longer one ends with `...`), `null` when it had none (the opening). `speech` is the record's `speech` (§40.3, §128)
+  lines whose speaker the markers resolved to a person -- `who.npc` or `who.investigator`; a `who.label` that matched
+  nobody is left out -- in delivery order, the last `EXCHANGE_LINES` (6), each `{who: the table's name for them now
+  (personLabel, §79), line: the text, whitespace folded, at most EXCHANGE_LINE_MAX (200) code points}`. A record with
+  neither words nor such lines is `null`.
+- Structure only: nothing reads what was said, and no prose is parsed; `speech` is what the delivery's say markers
+  already attributed. `table.status` stays a minimal read: it reads the turns directory for this field alone (the parsed
+  file cache makes the repeat cheap). A turns directory that cannot be read gives `null`, not a failed status: the card
+  of a turn that could not be delivered is drawn from `table.status` (§50), and this field is context for a model,
+  never a gate.
+
+**The compile** (`readTable`, `runtime/jev/hybrid-engine.ts`; `compileBatch`, `runtime/jev/route-compile.ts`). Every read
+carries `status.last_exchange`, when it is an object, onto the turn context (`TurnContext.lastExchange`), refreshed like
+the rest of it; the compile's `state` carries it as `last_exchange` after `now`, and leaves the key out otherwise -- so a
+compile asked after the clerk's move in the same run reads the fresh status and no longer has it. The `addressee`
+question's instructions gain: "Read a word that points at a person without naming them (you, he, this gentleman) by
+last_exchange when the state has it: who was just talking with the investigator, and about what." The policy line names
+the last exchange among the data that are never instructions. The family stays `single-loop-compile` version `1`, as
+through §135.30's earlier addenda.
+
+**Words that named no one** (`runNpcScan`, `runtime/jev/npc-act-step.ts`; `closingSentence`, `kernel-ts/npc/situation.ts`).
+`npc.situation` takes a third optional boolean, `named_no_one` (anything else is `invalid_params` naming the field): the
+compile named no one present -- the run's cleared addressees are empty (`none`, `unclear`, an answer below the gate, or no
+compile asked). The scan passes it, beside `addressed` and `declared_before_move`, for every act it runs, and the
+`npc_act` row carries it. The closing sentence by the compile's addressee:
+
+| the compile's addressee | `addressed` | `named_no_one` | the closing sentence |
+| --- | --- | --- | --- |
+| named this person | true | false | `<investigator> (investigator) declared: "<player_text>"` |
+| named someone else | false | false | nothing (§139.21 as amended) |
+| named no one; the person was acted on or is in the conversation | true | true | `<investigator> (investigator) declared (to no one by name): "<player_text>"` |
+
+`declared_before_move: true` still gives the arrival whatever the other two say, and `addressed: false` outranks
+`named_no_one`. With `named_no_one` absent or false, §139.21 is unchanged; a person's own turn of a fight passes none of
+the three. The budget never cuts the closing sentence, in either wording. *Decided (the ticket left the shape open):* a
+new boolean beside `addressed`, not a third value of it -- the field keeps its type and every reading its meaning, and
+"no one was named" is a fact about the compile, not about this person.
+
+**The generator** (`content/setup/npc-act.md`). One paragraph: the last sentence of `happened` may be the player's
+declaration; one marked `declared (to no one by name)` named no one present and may have been said to someone else here,
+so the person answers it only when it was said to them (what was just done to them, what they said most recently and
+who else is present tell), and otherwise does what they do while others talk.
+
+**Three ends (§31).** Writers: the delivery's speech markers (the record's `speech`) and the player's words
+(`player_text`), both existing; the compile's `addressee` answer. Readers: `table.status.last_exchange`, the compile's
+state, and Jev's `addressee` question over it; the scan's `named_no_one`, `npc.situation`'s closing sentence, and the
+generator that reads the packet whole. Actors: the compile's addressee picks who acts (a person named silences another
+person's conversation, §139.20), and the generated act answers the words or not.
+
+**Not covered.** Whether "you" now clears on the live table, and whether the bystander still answers words said to
+someone else, is table B3's question. A turn that moved and then closed keeps that turn's words and lines as the exchange
+where it closed, words said before the move included: the scene test reads where the turn closed, not where each line
+was said.
+
+*Tests.* `tests/kernel/test_last_exchange.py` (the emitted kernel): Knott and Edna Hale each said a line last turn -- the
+exchange is the player's words and both lines by the table's names; nothing committed before this turn, and a record
+with neither words nor attributed lines, are `null`; the opening is an exchange when someone spoke in it
+(`player_text: null`); a move this turn ends it; the delivery's last six lines, a long line cut to 200 code points, an
+unresolved speaker left out. `tests/kernel/test_npc_situation.py`: `named_no_one` gives `declared (to no one by name)`,
+`addressed: false` outranks it, the arrival outranks both, and a non-boolean is `invalid_params`.
+`tests/extension/single-loop-npc-act.test.mjs`: at the table, the compile's state carries last turn's exchange from the
+record's `speech` (Knott's line and Edna's) and the addressee question names it; on the emitted kernel with the engine's
+own `readTable` and `compileBatch`, no `last_exchange` at the opening or after the party moved; at the table, both in
+the conversation and the compile `unclear` -- both packets close on the words said to no one by name, the rows
+`named_no_one: true`; the compile naming Edna -- only she acts, and her packet closes on the words as said. Two
+existing assertions changed to the new wording (§139.20's engaged case and §139.21's "acted on while the words named no
+one"), because both are the no-one-named case. Mutation record (copy and restore): the compile state's `last_exchange`
+removed fails the first table case (and the emitted-kernel case); the closing sentence put back to the words unconditionally
+(the kernel rebuilt each way) fails the both-in-the-conversation case; restored, green.
 
 **139.24 The Keeper's added lines pass the same gate: a person's spoken line is held to the rows they never carried out
 (2026-09-26, ticket 25 of `docs/specs/npc-acts-first-tickets/`, `25-the-keepers-added-lines-pass-the-same-gate.md`; the
@@ -25430,3 +25547,101 @@ conversation not held, and a reading naming someone else's row refusing nothing;
 `tests/extension/ts-kernel-foundation.test.mjs`: `npc.threads` joins the current-only method set (one existing line
 changed). Mutations (copy and restore): the kernel's refusal removed (rebuilt) fails the B2 T9 case (the first refusal is
 then the owed result's) and two kernel cases; the host's reading not handed to `narrate` fails the B2 T9 case.
+
+**139.25 The scan does not act before the declaration: a declared fight action no clerk step has settled holds the person
+it is aimed at (2026-09-26, ticket 26 of `docs/specs/npc-acts-first-tickets/`,
+`26-the-scan-does-not-act-before-the-declaration.md` with its addendum; spec D4 and section 九's table D; amends §139.20's
+scan: when it runs, and whom it holds).**
+
+*Evidence* (table D, `npc-acts-d`, the-haunting, turn 3, run `run-01a0dea0-1323-75c2-adfc-677cc223bf08`). "我走过去，照他脸上就
+是一拳": the compile read `act` `combat` 1.0 (cleared) and `addressee` `none` 0.28 (not cleared), and asked no `target`
+(the kernel issued no first blow: Knott had no stat block yet); the route selected the ordinary check (`need` `now` 0.47,
+cleared on the margin, 0.64 against 0.33), and its binder left it unsettled, so it was the Keeper's (bind `outcome:
+keeper`, an `adjudicate` `clerk_unbound`): no clerk step took the punch. The scan §139.20 put before that adjudication ran
+Knott (`engaged`: he had spoken the turn before) with the unresolved declaration as the last line of his packet; he generated
+"诺特把折好的租房广告收回口袋，侧身让开门口，抬脚朝外走去", bound as `leave`, `to: away`, done. The Keeper then had to `apply npc ... to:
+here` to bring him back and hit him. On turn 4, his own turn of the fight, he generated the same thing again, which the
+row settled `done` let through. Table B2 was all talk and never showed it.
+
+**When the scan runs** (`next` and `turnWriting` in `runtime/jev/step-policy.ts`; the ticket's addendum of 2026-09-26,
+integration head c94b1d682). §139.20 said "before the run's first model step" and `next` implemented it as before the first
+`infer` of any purpose, so the scan also came before a clerk's bind handed to the model mid-flow -- an `infer` `bind`, the
+open parameters of a clerk step the model fills and the clerk then executes (§135.28). That put people's acts in the
+middle of the clerk's work on the declaration, ahead of the clerk steps still pending: the loop suite's "needs judged now
+run in structural order" had `npc_act:scan:0` before the model's bind of person A, and the pure time-budget case saw the
+scan where the head `infer` `bind` should run. The scan is now issued only before the Keeper's turn-writing model step,
+`infer` `adjudicate` or `compose` -- first when someone is present, and again after a later landed clerk step, as §139.20
+has it; still never taken from `pending`, still not past the run's time budget.
+
+**The hold** (`npcScanItem`, `settleCompile`, `settleExecute` in `runtime/jev/step-policy.ts`; `runNpcScan` in
+`runtime/jev/npc-act-step.ts`). The run's view records two facts:
+
+- `fightDeclared`: a compile of the run cleared `act` on a fight action (`fightAct`, `runtime/jev/route-compile.ts`): outside
+  a fight the `act` rows are the resolve tool's closed intents, of which `combat` and `flee` are the fight's
+  (`FIGHT_INTENTS`); in a running fight they are the session's decisions, and one is a fight action when the read issued it
+  as the investigator's fight step (`fightStep`, §139.16) or as the first blow (§135.30.2). The compile's cleared `target`
+  rows are recorded beside its addressees (`RunView.targets`).
+- `fightLanded`: a clerk step of the declaration landed (not forced, not a person's own act) whose candidate family is
+  `combat` or `chase` (`FIGHT_FAMILIES`: the first blow, the investigator's fight steps, a chase's steps). A refused step
+  did not land.
+
+While declared and not landed, the scan candidate carries `fight_pending: {named}` -- the compile's cleared addressees and
+targets -- and the scan holds the person the declaration is aimed at: the people it named, when it named anyone; else the
+people something of this turn was done to (`acted_on`); else, when nothing was, the people in the conversation
+(`engaged`), one of whom the blow is for and whom the structure cannot tell apart. Everyone else due is scanned as
+§139.20 has it (a person named silences another's conversation there, unchanged). A held person is not run, generates
+nothing and is not `seen`: a scan after a clerk fight step lands runs them as usual, and a person the landed step drew
+into the fight is a participant, whose reaction is their own turn of it (§139.4's forced step). A held person does not
+count against `npc_act.max_per_turn`.
+
+*Decided (the ticket's parenthesis lists the named, the addressee or target, "or acted_on"; the evidence is none of
+them).* On table D's turn 3 the compile named no one and nothing had been done to Knott; he was in the conversation. The
+ticket's own acceptance replays exactly that and requires him held, so the aimed-at person falls back, in order, from
+the named to the acted on to the conversation. The fallback is conservative: with two people in the conversation and a
+blow that names neither, neither acts before the Keeper's step this turn. Nothing reads the declaration's words; the
+criterion is the compile's closed `act` row and the landed-step record.
+
+**Telemetry.** A held person is one `lane: "run"`, `event: "npc_held"` row: `npc`, `trigger` (what they would have acted
+as), `reason: "fight_pending"`, `named`. It is not an `npc_act` row: nothing was generated or written. The scan step's
+summary adds `held` when there were any.
+
+**Three ends (§31).** Writers: the compile's `act` and `target` answers (`settleCompile`), the landed clerk steps
+(`settleExecute`). Reader: the scan (`runNpcScan`, through `npcScanItem`'s `fight_pending`). Actor: the person's reaction
+comes after the declaration is resolved -- their own fight turn, or the scan after the landed step; the Keeper, who takes
+the declared blow the clerk did not.
+
+**Not covered.** Ticket 27 (a person being chased is at the `calm` stakes rung) and 28 (a surprise produced from what is
+already on the table) are their own tickets. A fight action the Keeper resolves itself (a model-origin `resolve`) is not
+a landed clerk step and owes no scan (§139.4); the person's reaction then comes on their turn of the fight the Keeper's
+blow opened.
+
+*Tests.* `tests/extension/single-loop-npc-act.test.mjs`: at the table (the policy's own scheduling, the emitted kernel),
+table D's turn 3 replayed -- Knott spoke last turn, the compile reads `combat` 1.0 and names no one, no clerk step
+lands: no `npc_act` row, nothing generated, one `npc_held` row (`engaged`, `named: []`), by step id before the Keeper's
+first model step (the telemetry file interleaves writers, so line order is not evidence); the policy -- `combat` cleared
+puts `fight_pending` on the scan (with the named addressee when there is one), `social` never does, a landed clue and a
+refused first blow leave it, a landed first blow ends it; on the emitted kernel, the punch aimed at Knott (the compile's
+`target`) with Edna Hale also in the conversation -- she acts as `engaged`, he is held, and the scan after the blow
+lands runs him. Mutation (copy and restore): the hold disabled in `runNpcScan` fails the table-D replay (an `npc_act` row
+for him) and the Edna case; restored, green. The timing: with the scan issued before any `infer` again, the loop suite's
+"needs judged now run in structural order" and "after an LLM step the next step is direct or finish" and the time-budget
+suite's pure-policy case fail (all three unchanged); restored, green.
+
+*The cases §139.20 shifted* (the addendum's list, sixteen at the integration head; each read one by one). Three needed no
+change once the scan stopped preceding a clerk's bind: `loop.test.mjs` "needs judged now run in structural order" and
+"after an LLM step ...", `single-loop-turn-budget.test.mjs` "the pure policy: a spent time budget ...". The rest are the
+design: someone is present, so the scan of the people present runs once before the Keeper's first adjudication or
+compose. Where a case is about routing or binding and not the scan, its view sets `npcScanned: []` (the scan has already
+run), with a comment saying so: `loop.test.mjs` "a low-confidence need is not selected ...", "ask_llm with nothing
+selected ...", "the same question ... escalates to the LLM", "an exhausted Jev budget ...", "a closed choice among issued
+actions ..."; `single-loop-binding.test.mjs` "a target among several has no rules default ..." and "at the engine: the
+bind row names every parameter's path ...". Where a case asserts the step sequence, the sequence gains the scan:
+`single-loop-binding.test.mjs` "on the driver: a clerk candidate without a default ..." (the one clerk step is
+`npc_act:scan:0`, and the check is still not executed), `single-loop-prescreen-budget.test.mjs` "a spent decision budget
+composes once ..." and `single-loop-turn-budget.test.mjs` "a model step that crosses the budget ..." (`clerk:npc_act:scan:0`
+once, before the first `infer:adjudicate`), `single-loop-run-driver.test.mjs` "SL-01 gate ..." and "without a Jev key ..."
+(one more `operate` before the `infer`). `host-state-not-fiction.test.mjs` "a delivery made under an adaptation wait ..."
+is not the scan: that table runs the legacy loop (no RunDriver, so neither §139.20 nor this section runs there), and
+`said once per delivered turn: []` is the test reading `telemetry.jsonl` as soon as the notice is in the session, while
+`record` appends the notice's row after it (a `mkdir`, then an `appendFile`); the case now waits for the decision row, as
+the file's other cases do.

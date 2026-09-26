@@ -1,4 +1,4 @@
-Status: ready-for-agent（2026-09-26，真桌 B2 T10 发现；B 桌 T3–T10 的 `unclear` 同源）
+Status: landed @ 7c9317f21（2026-09-26；真桌 B2 T10 发现；B 桌 T3–T10 的 `unclear` 同源）
 Spec: docs/specs/npc-acts-first.md（D4；第九节「B2 桌」）
 Contract: §139.23（新）；修 §135.30 的 compile state 与 §139.21 的收尾句
 
@@ -25,3 +25,10 @@ Contract: §139.23（新）；修 §135.30 的 compile state 与 §139.21 的收
 - loop：两人在对话中、addressee `unclear` → 两人的包收尾句都是「to no one by name」形式；点名其中一人 → 只他有原话。
 - 变异：去掉 `last_exchange` → 第一条逮住；收尾句退回无条件原话 → 第二条逮住。
 - 真桌 B3 看：「你」类的话 addressee 是否过闸、在场旁人是否还接错话。
+
+## 落地记录（2026-09-26）
+
+- `table.status` 加 `last_exchange {turn, player_text, speech:[{who,line}]}|null`：最新已提交回合，调查员还在那个场景时才给；只取结构（原话与说话记号归属的台词），末 6 条、每条 200 字、原话 400 字封顶；读不到 turns 目录给 null。放在 `table.status` 而不是胶囊上，KP 的上下文与预算不动；代价是 `table.status` 多读一次 turns 目录。
+- compile 的 state 带 `last_exchange`，addressee 说明加一句「指人的词按 last_exchange 读」。
+- `npc.situation` 新输入 `named_no_one`：compile 没点名任何人时，收尾句写成「declared (to no one by name): "..."」；`addressed:false` 仍优先，`declared_before_move` 仍给到场句。车道说明加一段：没点名的话可能是说给别人的。
+- 测试：`test_last_exchange.py` 6、`test_npc_situation.py` 14、`single-loop-npc-act` 相关用例；两处既有断言改成「to no one by name」的形式。变异两处各被逮住。未真桌验证（B3）。

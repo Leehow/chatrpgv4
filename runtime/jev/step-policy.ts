@@ -24,7 +24,7 @@ import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
 import {answerOf, clears} from './decision-gate.ts';
 import {npcScanCandidate} from './npc-act-step.ts';
-import {actGated, askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, interpretReask, ORDINARY_CHECK,
+import {actGated, askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, FIGHT_FAMILIES, fightAct, interpretCompile, interpretReask, ORDINARY_CHECK,
   reachable, REASK_FAMILY, reaskBatch, reaskOf, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput} from './route-compile.ts';
 
 type Row = Record<string, any>;
@@ -178,7 +178,7 @@ export interface PendingItem {
   call?: {method: string; params: Record<string, Json>; label: string};
   /** §135.28: how each parameter the bind step settled got its value (`jev` or `rule-default`), carried to the clerk's row. */
   bindings?: BindRecord[];
-  /** §139.4/§139.20: the step `next` puts before the run's first model step and after a landed step; never in `pending` (see `npcScanDue`). */
+  /** §139.4/§139.20/§139.25: the step `next` puts before the Keeper's first turn-writing model step and after a landed step; never in `pending` (see `npcScanDue`). */
   scan?: true;
 }
 export interface Observation {
@@ -191,7 +191,11 @@ export interface Observation {
   reason?: string;
   summary?: Json;
 }
-export interface TurnContext {scene: string; clock: Json; present: string[]; receipts: string[]}
+/**
+ * The table as the latest read saw it. `lastExchange` (§139.23): `table.status.last_exchange` -- the newest committed
+ * turn's words and attributed lines while the investigators still stand where it closed; absent otherwise.
+ */
+export interface TurnContext {scene: string; clock: Json; present: string[]; receipts: string[]; lastExchange?: Json}
 /**
  * The Keeper's batch as an artifact of the run (spec Rulings, "Batches"; contract §135.5): the calls of one model
  * response in their order, each with one success branch (the next step) and one failure branch (back to the
@@ -256,9 +260,10 @@ export interface RunView {
   settledClues?: StagedClue[];
   /**
    * §139.4: the declaration's clerk steps the kernel took this run (not forced, not a person's own act), and those an
-   * `npc_act` scan already followed. A landed step not yet followed owes one scan before the next model step. §139.20:
-   * `npcScanned` is absent until the run's first scan, which is owed before its first model step whether or not a step
-   * landed (a person in the conversation acts on a turn of pure talk).
+   * `npc_act` scan already followed. A landed step not yet followed owes one scan before the next turn-writing model step.
+   * §139.20: `npcScanned` is absent until the run's first scan, which is owed before the Keeper's first turn-writing model
+   * step (§139.25: an `adjudicate` or a `compose`, never a clerk's `bind`) whether or not a step landed (a person in the
+   * conversation acts on a turn of pure talk).
    */
   landed?: string[];
   npcScanned?: string[];
@@ -269,6 +274,15 @@ export interface RunView {
    * does. An investigator's step of a running fight is the route's to select only when its decision is among them (`actGated`).
    */
   declaredActs?: string[];
+  /**
+   * §139.25 (NAF-26): a compile of the run cleared `act` on a fight action (`fightAct`), and whether a clerk step that settles
+   * one has landed since (`FIGHT_FAMILIES`). Declared and not landed, the person the declaration is aimed at does not act in
+   * a scan (`npcScanItem` carries `fight_pending`). `targets`: the compile's cleared `target` rows, the people a declared
+   * attack is aimed at (the addressees are the other half).
+   */
+  fightDeclared?: boolean;
+  fightLanded?: boolean;
+  targets?: string[];
 }
 export interface StagedClue {after: string; key: string; compile: Json}
 export interface StagedUnlock {after: string; to: string; compile: Json; guarded: GuardedDestination}
@@ -315,31 +329,43 @@ export function routeDigest(view: Pick<RunView, 'rawInput' | 'candidates' | 'mat
 }
 
 /**
- * §139.4 as §139.20 (ticket 21) amended it: before the run's first model step the people present are scanned once
- * (`npc_act` scan) -- every turn, not only after a landed step, because a turn of pure talk lands nothing and the person
- * in the conversation must still act -- and a step of the declaration that landed after it owes another scan before the
- * next model step. With nobody present and nothing landed there is no one to scan. Past the run's time budget it is not
- * run (the engine records `skipped_budget`).
+ * §139.4 as §139.20 (ticket 21) amended it: before the Keeper's first turn-writing model step (§139.25: an `adjudicate` or a
+ * `compose`, never a clerk's bind handed to the model) the people present are scanned once (`npc_act` scan) -- every turn,
+ * not only after a landed step, because a turn of pure talk lands nothing and the person in the conversation must still
+ * act -- and a step of the declaration that landed after it owes another scan before the next such step. With nobody
+ * present and nothing landed there is no one to scan. Past the run's time budget it is not run (the engine records
+ * `skipped_budget`).
  */
 export function npcScanDue(view: Pick<RunView, 'landed' | 'npcScanned'> & {context?: Pick<TurnContext, 'present'>}): boolean {
   const landed = view.landed ?? [];
   if (view.npcScanned === undefined) return landed.length > 0 || (view.context?.present?.length ?? 0) > 0;
   return landed.some(key => !view.npcScanned!.includes(key));
 }
-/** The scan step `next` issues when one is due: a clerk candidate of its own, never taken from `pending`. */
-export function npcScanItem(view: Pick<RunView, 'landed' | 'addressees'>): PendingItem {
+/**
+ * The scan step `next` issues when one is due: a clerk candidate of its own, never taken from `pending`. §139.25: while a
+ * declared fight action has no landed clerk step, it carries `fight_pending` with the people the compile named (its
+ * cleared addressees and targets), so the person the declaration is aimed at does not act before it is resolved.
+ */
+export function npcScanItem(view: Pick<RunView, 'landed' | 'addressees' | 'targets' | 'fightDeclared' | 'fightLanded'>): PendingItem {
   const landed = view.landed ?? [];
-  return {kind: 'direct', purpose: 'execute', scan: true, candidate: npcScanCandidate(landed.length, landed, view.addressees ?? [])};
+  const pending = view.fightDeclared === true && view.fightLanded !== true ? {named: [...new Set([...(view.addressees ?? []), ...(view.targets ?? [])])]} : undefined;
+  return {kind: 'direct', purpose: 'execute', scan: true, candidate: npcScanCandidate(landed.length, landed, view.addressees ?? [], pending)};
 }
 
 /**
- * The policy. Pure: it reads the view and returns one step request. §139.4/§139.20: the run's first model step, and a
- * model step a landed clerk step precedes, is preceded by the scan of the people present (`npcScanDue`), within the
- * run's time budget.
+ * The Keeper's turn-writing model step: the adjudication or the compose. §139.25 (NAF-26): the scan comes before it, never
+ * before a clerk's bind handed to the model mid-flow (`infer` `bind`), which is the clerk's work on the declaration and
+ * not yet the Keeper's turn.
+ */
+const turnWriting = (request: StepRequest): boolean => request.kind === 'infer' && (request.purpose === 'adjudicate' || request.purpose === 'compose');
+/**
+ * The policy. Pure: it reads the view and returns one step request. §139.4/§139.20: the Keeper's first turn-writing model
+ * step, and one a landed clerk step precedes, is preceded by the scan of the people present (`npcScanDue`), within the
+ * run's time budget (§139.25: not a clerk's bind handed to the model).
  */
 export function next(view: RunView): StepRequest {
   const request = routeNext(view);
-  if (request.kind === 'infer' && npcScanDue(view) && !overRun(view.budget)) return {kind: 'direct', item: npcScanItem(view)};
+  if (turnWriting(request) && npcScanDue(view) && !overRun(view.budget)) return {kind: 'direct', item: npcScanItem(view)};
   return request;
 }
 function routeNext(view: RunView): StepRequest {
@@ -719,6 +745,8 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
  */
 export function settleCompile(view: RunView, step: number, batch: DecisionBatch, result: DecisionResult, ms: number, gate: number): TelemetryRow {
   view.budget.jevCalls++;view.budget.jevMs += ms;
+  // §139.25: what the read issued when the compile was asked (a fight step the compile decided is filtered out below).
+  const issued = view.candidates;
   const outcome = interpretCompile(view, result, gate);
   for (const key of outcome.decided) if (!view.consumed.includes(key)) view.consumed.push(key);
   view.candidates = view.candidates.filter(value => !outcome.decided.includes(value.key));
@@ -741,6 +769,11 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
   const act = outcome.features?.act;
   if (act?.cleared && typeof act.row === 'string' && act.row && !(view.declaredActs ?? []).includes(act.row))
     view.declaredActs = [...(view.declaredActs ?? []), act.row];
+  // §139.25 (NAF-26): a declared fight action, and the person a declared attack is aimed at (a cleared `target` row).
+  if (act?.cleared && typeof act.row === 'string' && act.row && fightAct(act.row, issued)) view.fightDeclared = true;
+  const target = outcome.features?.target;
+  if (target?.cleared && typeof target.row === 'string' && target.row && !(view.targets ?? []).includes(target.row))
+    view.targets = [...(view.targets ?? []), target.row];
   // §135.30.8 (SL-43): the act an obligation check fired on is settled for the rest of the run.
   settleActs(view, outcome.actsSettled ?? []);
   // §135.30.9.2 (SL-52 stage 2): a compile that settles a step of the book re-asks the scene's clue rows once, before the batch.
@@ -1058,6 +1091,8 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     // on their act before the next model step.
     if (executed.ok && !item.candidate!.forced && item.candidate!.clerk !== 'npc_act' && !(view.landed ?? []).includes(item.candidate!.key))
       view.landed = [...(view.landed ?? []), item.candidate!.key];
+    // §139.25: a landed clerk step that settles a fight action ends the hold on the person the declaration is aimed at.
+    if (executed.ok && !item.candidate!.forced && item.candidate!.clerk !== 'npc_act' && FIGHT_FAMILIES.includes(item.candidate!.family)) view.fightLanded = true;
     // §135.30.8 (SL-43): the act an obligation check was executed with is settled for the run, taken or refused.
     const act = obligationAct(item);
     if (act) settleActs(view, [act]);

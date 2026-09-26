@@ -248,12 +248,16 @@ export function emptyTurnContext(): TurnContext {
   return {scene: '', clock: null, present: [], receipts: []};
 }
 
-/** The table context and the Jev scope binding from two read-only kernel reads. */
+/**
+ * The table context and the Jev scope binding from two read-only kernel reads. §139.23: the status's `last_exchange`, when
+ * the kernel gives one, rides on the context as it is (the compile's state carries it); nothing here reads what was said.
+ */
 export function readTable(capsule: Row, status: Row): {context: TurnContext; scope?: ScopeBinding; readSet?: ReadSet; turn?: number; binding?: ContextBinding} {
-  const where = object(capsule.where);
+  const where = object(capsule.where), exchange = status.last_exchange;
   const context: TurnContext = {scene: text(where.scene), clock: (where.clock ?? null) as TurnContext['clock'],
     present: array(capsule.present).map(person => text(object(object(person).called).name) || text(object(person).name)).filter(Boolean),
-    receipts: array(status.receipts).map(receipt => text(object(receipt).id) || JSON.stringify(receipt))};
+    receipts: array(status.receipts).map(receipt => text(object(receipt).id) || JSON.stringify(receipt)),
+    ...(exchange && typeof exchange === 'object' && !Array.isArray(exchange) ? {lastExchange: exchange as Json} : {})};
   const binding = bindingOf(capsule._context);
   if (!binding) return {context};
   return {context, turn: binding.turn, binding,
@@ -833,6 +837,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       runId: run.runId, stepId: invocation.stepId, turn: run.turn ?? 0, gate: DEFAULT_CONFIDENCE_GATE, budget, signal: invocation.signal,
     };
     let outcomes: NpcActOutcome[];
+    // §139.25: the people a pending fight action held back from this scan (never an npc_act row: they did not act).
+    const held: Json[] = [];
     if (trigger === 'turn') {
       const npc = text(candidate.bound.npc);
       run.npcSeen.add(npc);
@@ -840,9 +846,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       // An NPC's turn the act did not pass is the Keeper's; the next note says so once (§139.4).
       const [outcome] = outcomes, round = object(object(candidate.basis).row).round;
       if (outcome.passedTurn !== true) run.npcTurnLeft = {key: `${npc}:r${String(round ?? '')}`, npc, status: outcome.status, reason: outcome.reason ?? null, act: outcome.act ?? null};
-    } else outcomes = await runNpcScan(deps, {present: run.present, addressees: array(candidate.bound.addressees).map(text).filter(Boolean), seen: run.npcSeen, count: run.npcCount,
-      // §139.21: a move this turn (the declaration precedes every write of its turn) and who was here when it was put.
-      firstPresent: run.firstPresent ?? [], moved: run.turnReceipts.some(receipt => receipt.kind === 'move')});
+    } else {
+      const pending = object(candidate.bound.fight_pending);
+      outcomes = await runNpcScan(deps, {present: run.present, addressees: array(candidate.bound.addressees).map(text).filter(Boolean), seen: run.npcSeen, count: run.npcCount,
+        // §139.21: a move this turn (the declaration precedes every write of its turn) and who was here when it was put.
+        firstPresent: run.firstPresent ?? [], moved: run.turnReceipts.some(receipt => receipt.kind === 'move'),
+        // §139.25: a declared fight action no clerk step has settled yet.
+        ...(Object.hasOwn(object(candidate.bound), 'fight_pending') ? {fightPending: {named: array(pending.named).map(text).filter(Boolean)}} : {}), held: held as Row[]});
+    }
     // What the table's acts did this turn reaches the Keeper beside the clerk's other steps (§135.11's clerk_did).
     for (const outcome of outcomes) if (outcome.status !== 'failed')
       run.clerkDid.push({step: invocation.stepId, operation: 'npc_act', label: `${outcome.handle ?? outcome.npc}: ${outcome.act ?? '(no act)'}`, clerk: 'npc_act',
@@ -852,7 +863,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §139.20: a scan that ran nobody wrote nothing (the scan now runs every turn), so there is nothing to read again.
     const read = outcomes.length ? await freshOf(run) : undefined;
     return {status: 'ok' as const, artifact: {kind: 'execute', executed: {ok: true, summary: {origin: 'policy', clerk: 'npc_act', trigger,
-      acts: outcomes.map(outcome => ({npc: outcome.handle ?? outcome.npc, status: outcome.status, way: outcome.way ?? null, receipts: outcome.receipts}))} as Json},
+      acts: outcomes.map(outcome => ({npc: outcome.handle ?? outcome.npc, status: outcome.status, way: outcome.way ?? null, receipts: outcome.receipts})),
+      ...(held.length ? {held} : {})} as Json},
     ...(read ? {fresh: read} : {})}};
   }
 

@@ -115,9 +115,10 @@ export function npcTurnCandidate(actor: string, label: string, round: number, de
  * step reads who). `addressees` are the people the compile read the declaration as aimed at (§135.30's `addressee`), which
  * count as acted on; an addressee who is someone else ends another person's conversation for the turn.
  */
-export function npcScanCandidate(ordinal: number, landed: readonly string[], addressees: readonly string[]): Candidate {
+export function npcScanCandidate(ordinal: number, landed: readonly string[], addressees: readonly string[], fightPending?: {named: readonly string[]}): Candidate {
   return {key: `npc_act:scan:${ordinal}`, verb: 'apply', family: 'npc_act', source: 'run',
-    label: 'The people present who were acted on, addressed or are in the conversation act', bound: {trigger: 'acted_on', addressees: [...addressees]}, unbound: [],
+    label: 'The people present who were acted on, addressed or are in the conversation act', unbound: [],
+    bound: {trigger: 'acted_on', addressees: [...addressees], ...(fightPending ? {fight_pending: {named: [...fightPending.named]}} : {})},
     clerk: NPC_ACT_CLERK, basis: {read: 'run', path: 'landed', row: {landed: [...landed]}}};
 }
 export const isNpcAct = (candidate: Pick<Candidate, 'clerk'> | undefined): boolean => candidate?.clerk === NPC_ACT_CLERK;
@@ -451,9 +452,10 @@ export type NpcActTrigger = 'turn' | 'acted_on' | 'engaged';
 /**
  * §139.21: what the host read about the player's words and this person, passed to `npc.situation` as they are: the
  * declaration was said to them (`addressed`), or it was put before a move brought the investigator to them
- * (`declared_before_move`). Absent on a person's turn of a fight: §139.1's reading stands there.
+ * (`declared_before_move`). §139.23: the compile named no one present (`named_no_one`), so whether the words were said
+ * to this person is the generator's to judge. Absent on a person's turn of a fight: §139.1's reading stands there.
  */
-export interface HeardInput {addressed?: boolean; declared_before_move?: boolean}
+export interface HeardInput {addressed?: boolean; declared_before_move?: boolean; named_no_one?: boolean}
 export interface NpcActOutcome {
   npc: string; handle: string | null; trigger: NpcActTrigger;
   /** `dropped` (§139.14): the act repeats a thread they just gave up, with nothing to settle it; nothing is written. */
@@ -674,14 +676,16 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
  * false only when the compile named someone else -- addressed, in the conversation, or acted on while the words named no
  * one all hear it, as amended 2026-09-26) and whether it was put before a move brought the investigator to them
  * (`declared_before_move`: a move landed this turn, `moved`, and they were not among the people present when the run
- * began, `firstPresent`).
+ * began, `firstPresent`). §139.23 (ticket 24): and whether the compile named no one at all (`named_no_one`: the run's
+ * `addressees` is empty), so the words they hear say they were said to no one by name and the generator judges whether
+ * they were said to them.
  */
 export async function runNpcScan(deps: NpcActDeps, input: {present: readonly string[]; addressees: readonly string[]; seen: Set<string>; count: {acted: number};
-  firstPresent?: readonly string[]; moved?: boolean}): Promise<NpcActOutcome[]> {
+  firstPresent?: readonly string[]; moved?: boolean; fightPending?: {named: readonly string[]}; held?: Row[]}): Promise<NpcActOutcome[]> {
   const out: NpcActOutcome[] = [];
   type Due = {name: string; handle: string; names: string[]; options: ActOptions; addressed: boolean; engaged: boolean; elsewhere: boolean;
-    trigger: NpcActTrigger; conversation: {turn: number; order: number} | null};
-  const due: Due[] = [];
+    actedOn: boolean; trigger: NpcActTrigger; conversation: {turn: number; order: number} | null};
+  let due: Due[] = [];
   for (const name of input.present) {
     let options: ActOptions;
     try { options = await deps.call('npc.act.options', {name}) as unknown as ActOptions; } catch { continue; }
@@ -694,7 +698,24 @@ export async function runNpcScan(deps: NpcActDeps, input: {present: readonly str
     const engaged = conversation !== null && !elsewhere;
     const actedOn = array(options.acted_on).length > 0;
     if (!actedOn && !addressed && !engaged) continue;
-    due.push({name, handle, names, options, addressed, engaged, elsewhere, trigger: actedOn || addressed ? 'acted_on' : 'engaged', conversation});
+    due.push({name, handle, names, options, addressed, engaged, elsewhere, actedOn, trigger: actedOn || addressed ? 'acted_on' : 'engaged', conversation});
+  }
+  // §139.25 (ticket 26, live table D turn 3): the declaration is a fight action no clerk step has settled yet, so the person
+  // it is aimed at does not act before it is resolved -- their reaction comes on their own turn of the fight or in the scan
+  // after the step lands. Aimed at: the people the compile named (its cleared addressee and target rows); when it named no
+  // one, the people something of this turn was done to; when nothing was, the people in the conversation, one of whom the
+  // blow is for. Structure only. Held people are not `seen`: a later scan runs them.
+  const pending = input.fightPending;
+  if (pending) {
+    const named = due.filter(entry => pending.named.some(value => entry.names.includes(value)));
+    const aimed = pending.named.length ? named : due.some(entry => entry.actedOn) ? due.filter(entry => entry.actedOn) : due.filter(entry => entry.engaged);
+    for (const entry of aimed) {
+      const row = {npc: entry.handle, trigger: entry.trigger, reason: 'fight_pending'};
+      input.held?.push(row);
+      // Its own event, not an `npc_act` row: nothing was generated or written for them.
+      deps.record({lane: 'run', event: 'npc_held', run: deps.runId, step: deps.stepId, ...row, named: [...pending.named]});
+    }
+    due = due.filter(entry => !aimed.includes(entry));
   }
   const latest = (a: Due, b: Due) => (b.conversation?.turn ?? -1) - (a.conversation?.turn ?? -1) || (b.conversation?.order ?? -1) - (a.conversation?.order ?? -1);
   const ranked = [...due.filter(entry => entry.trigger === 'acted_on'), ...due.filter(entry => entry.trigger === 'engaged').sort(latest)];
@@ -710,7 +731,10 @@ export async function runNpcScan(deps: NpcActDeps, input: {present: readonly str
     // Heard unless the compile named another person: a person acted on while the words named no one was the one they were
     // said to more often than not (the investigator grabs Knott and says "give me the key"), so only a named other takes
     // the line away (§139.21 as amended 2026-09-26).
-    out.push(await runNpcAct(deps, entry.name, entry.trigger, {addressed: !entry.elsewhere, declared_before_move: arrived}));
+    // §139.23: named no one -- `none`, `unclear`, below the gate or no compile -- is not "said to them"; it is said to
+    // no one by name, and the generator reads it so.
+    out.push(await runNpcAct(deps, entry.name, entry.trigger, {addressed: !entry.elsewhere, declared_before_move: arrived,
+      named_no_one: input.addressees.length === 0}));
   }
   return out;
 }
