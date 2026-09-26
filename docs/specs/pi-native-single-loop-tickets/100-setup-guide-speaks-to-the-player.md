@@ -1,4 +1,4 @@
-Status: ready (filed 2026-09-26 from the Masks PDF table; batch 18; P2: the setup guide reads out host internals)
+Status: ready-for-human (filed 2026-09-26 from the Masks PDF table; batch 18; P2: the setup guide reads out host internals; implemented 2026-09-26 on claude/sl98-20260926 with SL-98)
 Stage: SL-100 (setup: waits and failures are told in the player's terms)
 Spec: prompts/setup.md, `extensions/onboarding/index.ts` (the error texts the guide paraphrases), docs/kernel-rpc.md §14.18 / §98
 
@@ -27,3 +27,24 @@ The guide paraphrases the host's machine-facing `error` and `fix` strings and jo
 - The live check is the Masks re-run's transcript.
 
 ## Comments
+
+- 2026-09-26, implementation with SL-98 (claude/sl98-20260926, from 6f1b2f5be): contract `978961a74` (§14.19.4),
+  code and tests `f87f79b0b`.
+  - Every setup wait or refusal the player can act on carries `player_reason`: a reading still running (by
+    `details.read.purpose`: the book's structure, the chosen opening, the character's introduction, plus roughly how
+    long this setup has waited on that same reading), a failed reading being retried, an opening to choose, a blocked
+    turn by kind and cause, a failed guidance preparation, `setup.complete`'s `opening_preparing`, an unreadable PDF,
+    a reader model without vision. Chosen by `extensions/onboarding/reasons.ts` `playerReason` from closed codes only
+    (never the result's prose); attached by `withReason` (`extensions/onboarding/index.ts:730`) and
+    `setupBlockRefusal` (`:104`). The machine half is unchanged. A refusal of the guide's own call has none.
+  - `prompts/setup.md` "Waits, refusals and the book's openings": say `player_reason` in play_language, never job
+    numbers, budgets, quotas, reviewers, the host, tools or step names; a result without it is the guide's own call.
+  - **Language.** There is no existing mechanism for guide-relayed reasons: the caption lane (§23) projects host-placed
+    words the player reads directly (notices, the status line), and a sentence the guide relays is the guide's to
+    write. So the reason is English-sourced and the guide writes it in play_language (§23's first leg), with no table
+    per language and no reading of the guide's output.
+  - Tests: `tests/extension/setup-player-reasons.test.mjs` (4, incl. the prompt names the emitted field), the wait,
+    block and question cases in `setup-opening-choice.test.mjs` (the reading-timeout reason names no job id, step or
+    op, and says "about 5 minutes" on a clock moved 5 minutes). Mutations M14-M16 and M18 killed.
+  - **Open.** The live check (the Masks re-run's transcript); `bad_pdf` / `vision_required` reasons are unit-tested
+    only, not driven through the setup tool.

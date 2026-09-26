@@ -1,4 +1,4 @@
-Status: ready (filed 2026-09-26 from the Masks PDF table; batch 18; P0: a PDF book with two openings can never be played)
+Status: ready-for-human (filed 2026-09-26 from the Masks PDF table; batch 18; P0: a PDF book with two openings can never be played; implemented 2026-09-26 on claude/sl98-20260926)
 Stage: SL-98 (setup: the opening choice survives a long read; a missing choice is asked for, never a dead end; the block never blocks its own remedy)
 Spec: docs/kernel-rpc.md §14.17/§14.18 (setup opening), §22 (reading waits), §98 addendum 4 (a blocked setup turn carries its cause); `extensions/module/reading-service.ts` (`prepare`: `needs_choice`, `start_scene`, `targeted`), `extensions/module/character-guidance.ts` (`openingNode`, `preparation_failed` at ~157), `extensions/onboarding/index.ts` (guidance at turn start / at create-campaign, `context.start_scene`), `kernel-ts/modules/reading.ts` (`chooseOpening`, `meta.opening_choice`); prompts/setup.md
 
@@ -31,3 +31,48 @@ The Masks PDF table (`masks-1350-20260926T175048Z`, gate worktree `chatrpgv4-wt-
 Re-run the Masks table: character creation completes on the opening the player chose.
 
 ## Comments
+
+- 2026-09-26, implementation (claude/sl98-20260926, from 6f1b2f5be): contract `978961a74` (§14.19, §98 addendum 9),
+  code and tests `f87f79b0b`. No kernel change (no `build:runtime`, no pytest).
+  - **Reconstructed sequence** (`events.jsonl`): `prepare-module {pdf}` waited out the skeleton six times (`read-1`,
+    then `read-3` x5) and failed once (review refusal at `/nodes/9`); 18:07:49 `needs_choice` with the two openings;
+    `prepare-module {start_scene: campaign-beginning-elias-message}` 18:08:26 `read-4` timeout, 18:10:49
+    `reading_failed` (the reader's input-token lease after a 60 s provider stall), 18:11:37 / 18:13:51 `read-5`,
+    18:16:06 `read-6`, 18:20:15 `ok`. The host never kept `start_scene` and `create-campaign`'s params carry none, so
+    18:20:17 `campaign.create` made `masks-nyarlathotep` with `opening_scene: null`, guidance threw
+    `preparation_failed` (`openingNode('')`) after creating its attempt folder, and every later call -- `create-campaign`,
+    `prepare-module {start_scene, retry}` for both openings with and without `pdf` -- was `setup_blocked`.
+  - **Recorded when made.** `extensions/onboarding/index.ts:929` records `start_scene` before the op runs; a rejoin
+    without it is filled by `fillParams`' same-named fallback; `:430` carries it into `campaign.create` (kernel pins
+    `opening_scene`, §22.9). A campaign that exists with no opening gets it from `afterPreparation` (`:777`,
+    `module.opening.choose {module_id, scene, campaign}`, campaign-scoped). The library is never written: the reading
+    service's "the player's opening must not be stored in the library" rule stands, which is why this is the
+    "equivalent" record and not an unscoped `module.opening.choose`.
+  - **A question, not a failure.** `extensions/module/character-guidance.ts:57` `selectedOpeningScene`: no opening, or
+    one the book does not offer, on a book whose `module.json` carries `opening.choice.candidates` is `needs_choice`
+    with them, decided before the attempt folder (`:179`); `preparation_failed` stays for a single-opening book whose
+    opening is missing. The create-campaign result (`guidanceFailure`, `index.ts:748`), the block and its refusal
+    (`setupBlockRefusal`, `:104`) carry `fix` and `details`; a `needs_choice` block keeps the guide's text
+    (`setupBlockHidesText`, `:84`) and raises no failure notice (`:1092`, `:1231`).
+  - **Host enforcement.** `unchosenOpenings` (`:763`) asks `module.status` before `campaign.create` on a book that came
+    through the preparation step with nothing recorded; >1 `opening_candidates` answers `needs_choice`, creates
+    nothing, and reopens the preparation step (`remedyOpen`, `:713`). Prompt rule in `prompts/setup.md`.
+  - **The block never blocks its remedy.** `index.ts:840`/`:903`: under a guidance block the preparation step runs
+    (only "already done" waived), records and pins the choice, and retries guidance in the same call; success clears
+    the block and shows the opening; card and campaign steps wait.
+  - Tests: `tests/extension/setup-opening-choice.test.mjs` (5: opening read times out, rejoin keeps the choice while
+    still reading, `campaign.create` pins it; create-campaign with no choice asks and creates nothing; a campaign
+    created without its opening -- the Masks state, via the fake kernel's `setup.steps` resume -- asks, keeps the
+    question on screen, refuses a scene the book does not offer, then records/pins/prepares on `prepare-module`;
+    single-opening book unchanged; the Haunting unchanged on the real kernel), `character-guidance.test.mjs` (+2).
+    19 mutations, all killed (table in the worker report). Existing files re-run green: setup, reading-service,
+    steps-table, runtime-onboarding, npc-journal-lane, npc-voice-lane, thinking-schedule, onboarding-worker-model,
+    onboarding-worker-unread-pdf, extension-words, host-state-not-fiction, reading-intent, review-refused-retry,
+    reading-provider-failure, preparation-failure-words, launch, ui-words, system-language, contract-section-numbers.
+  - **Open.** (1) Acceptance: the Masks re-run on a live table (integrator, after packaging). (2) A campaign that
+    already pins an opening and then receives a different `start_scene` is not refused: the kernel keeps its pinned
+    one, and the mismatch would surface as a `setup.prologue` refusal (the remedy stays open). (3) The kernel's
+    `campaign.create` refusal "start_scene must name an authored opening" carries no candidates (a §14.15 gap); the host
+    does not pre-validate the recorded scene. (4) The record is in-process before `create-campaign`: a setup process
+    restarted before then starts over from choose-source, as it always has, and the book, already read, asks again at
+    once. `manifest.json` untouched.
