@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 2.0.1
+- States the viewpoint in the package itself: the investigator is always "you", never a name or he/she, in both the full instruction and the per-turn brief; and the investigator's thoughts, feelings, hesitations and intentions are written only when declared or rules-settled. On the single-loop line table prose-mod-c (deepseek-v4.1-flash low) two of fifteen turns narrated the investigator in the third person; the opening sentence no longer invites a novelist's register ("as a writer writes").
+
 ## 2.0.0
 - The one prose package (docs/specs/prose-mod.md, owner ruling 2026-09-25). `agent.md`, `brief.md` and `style.json` are rewritten: open with the world's reply and never restate the player's words; whole sentences, one focus per paragraph, a thing's full name once; people answer what they heard in their own register and keep their position; nine per-beat directives replace the four that every beat shared; the floor's uptake line says the world answers, not that the words are received.
 - Declares `npc.voice.generation.v2`: the voice-mask lane now belongs to this package (contract §40.7 owner rule), so a new campaign gets masks again. `npc-voice` stays the legacy owner for old locks.
