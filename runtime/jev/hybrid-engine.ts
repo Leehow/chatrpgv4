@@ -49,7 +49,7 @@ import { buildCandidates, buildConsequenceCandidates, keeperCall, NPC_REACTION_D
 import { compileRows } from './compile-rows.ts';
 import { interpretCompile, interpretReask, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput } from './route-compile.ts';
 import { CONSEQUENCE_FAMILY, consequenceBatch, interpretConsequenceResult, type ConsequenceExistsRow, type ConsequenceRow, type ConsequenceView } from './consequence-route.ts';
-import { firstStepThinkingBudget, jevStepsBudget } from './host-budgets.ts';
+import { firstStepThinkingBudget, jevStepsBudget, thresholdsForClass } from './host-budgets.ts';
 import { firstStepCallCapMs, firstStepThinkingEnabled } from '../../extensions/kernel/first-step-thinking.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
@@ -583,7 +583,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     try { result = await jev.decide(built.batch, lease); } catch { result = undefined; } finally { lease.close(); }
     const ms = Date.now() - began;
     run.consequenceMs += ms;
-    const outcome = interpretConsequenceResult(candidates, result, thresholds);
+    // SL-86 (§135.32 addendum 3): each class offered this batch gets its own gate (`thresholdsForClass`), falling
+    // back to the shared `thresholds` for a class `content/rulesets/coc7/host-budgets.json`'s `jev_steps.classes`
+    // does not name.
+    const classThresholds = Object.fromEntries([...new Set(candidates.map(candidate => candidate.consequenceClass))]
+      .map(cls => [cls, thresholdsForClass(thresholds, cls)]));
+    const outcome = interpretConsequenceResult(candidates, result, thresholds, classThresholds);
     for (const row of outcome.rows) {
       const candidate = candidates.find(value => value.key === row.key);
       run.consequenceRows.set(row.key, {...row, label: candidate?.label ?? row.key,
