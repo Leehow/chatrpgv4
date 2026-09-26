@@ -542,6 +542,11 @@ The three ends are explicit: the sidebar writes a campaign-scoped value; the hos
   still stands or the investigator's intent is `move` or `combat`; `chase:start` answers `flee`, `move` and `combat`,
   and a quarry flees. The quarry's MOV and characteristics come from their stat block or the call is `needs`. The
   engine moves no quarry who got away: where an escaped person went is the Keeper's `apply npc to`.
+  *Note (2026-09-26, §139.18):* a combat refusal of the investigator's fight action names no other fight decision in its
+  `fix` -- its fix is executed literally -- and points back to what the player declared: a manoeuvre without one of the four
+  goals no longer says "resolve the attack rather than the maneuver", a defence with nothing to answer no longer says "declare
+  an attack first", a fight action with no fight running no longer says "start one", the stuck-turn refusal no longer ends "or
+  combat:end", and a held investigator's refused flight no longer names the escape manoeuvre (an NPC's still does, §139.9).
 - 理智：`sanity:check` 由守秘人在 `intent: investigate` 加 `stakes` 提到理智或 `action.decision: "sanity:check"` 时触发，`goal` 是来源；失败进入发作时结果带 `pending_choice`（守秘人的发作动作选择）与 `session.kind: "sanity_bout"`。
 - 推骰与幸运：失败的可推检定在结果 `continuations` 里列出 `pushed-roll` 与 `luck-spend` 及其需要的 `action` 字段；守秘人先 `ask` 玩家，再以 `push: true` 或 `luck` 调 `resolve`。
 
@@ -8066,6 +8071,14 @@ A batch is reviewed whole and refused whole *(amended by §32.12.3, 2026-09-24: 
 words authorise both. The review authorises the affected voluntary action, never its outcome, and never
 asks that the player knew or approved a hidden danger.
 
+*Note, 2026-09-26 (§139.18, ticket 19 of `docs/specs/npc-acts-first-tickets/`, live table C4 turn 8).* "An `actor` who is not
+an investigator" is decided against the investigators' names **and their sheets' handles** (`thomas-hayes`): the kernel takes
+either as the investigator and the session view prints the handle, and until this note a Keeper `resolve` naming the
+investigator by handle skipped review with no row (C4's unreviewed punch). And a Keeper-origin `resolve` of the investigator's
+attack or manoeuvre is refused `not_authorized` on the run's own typed evidence, with no lane call, when a compile of the run
+read the player's words as none of the fight actions (`act` `none`, cleared, over rows that include that act); otherwise it is
+reviewed as written here.
+
 ### 32.2 The review, its verdicts, and what a refusal says
 
 The review is the §12.5 pattern with a different remit: one zero-tool completion through `runLane`
@@ -8268,6 +8281,9 @@ verdict came from the lane adds `first_byte_ms` (from the lane request to the re
 arrived). A reused row carries the path of the verdict it reuses. A `review_timeout` row adds `timed_out: true` and
 `cap_ms`; a compile row adds `predicate`, `features` and `binding_paths`; a review of a compile-selected clerk write whose
 exemption was refused adds `compile_refused`.
+
+*Note, 2026-09-26 (§139.18).* A Keeper fight action refused on the compile's evidence writes `path: "compile"`,
+`reviewer: "compile"`, `origin: "model"`, `fight_act` and `compile_read: {run, step, act, confidence, cleared, rows}`, `ms: 0`.
 
 ### 32.8 The base prompt
 
@@ -24858,3 +24874,116 @@ a closing tag with a host marker beyond it in the Keeper's text; a tag inside th
 list line; different names at the two ends, a self-closing tag last, and a tag first beside one inside -- the last five
 delivered as written with no `stripped`. Mutation (copy and restore): the strip removed from the handler fails the
 trailing-`</text>` cases in both files.
+
+**139.18 The Keeper does not turn a demand into a blow: the fix names no other fight action, and the Keeper's fight action
+for the investigator is reviewed against the player's words (2026-09-26, ticket 19 of `docs/specs/npc-acts-first-tickets/`,
+spec section 九 "C4 桌"; amends §32.1, §32.7 and the combat family's refusals of §11.5; §139.16 is its clerk-side half).**
+*Evidence, read row by row.* Live table C4 (`npc-acts-c4`), turn 8, 「钱呢？你说的二十块，现在就给我。」 on the investigator's own
+turn of a running fight, run `run-01a0de09-8e42-744b-84fe-d29a0e017d59`. The compile (s2) read `act` `none` 0.91 (none 0.93 /
+unclear 0.07), cleared, over the rows `combat:attack`, `combat:maneuver`, `combat:flee`, `combat:end`; the attack was decided
+and the clerk threw nothing (§139.16). The Keeper (origin `model`) resolved `combat:maneuver` with `actor: "thomas-hayes"`
+and the demand as its goal; the kernel refused it (`needs`: a manoeuvre is one of the rulebook's four) with a `fix` ending
+"to simply hit instead, resolve the attack rather than the maneuver", and the Keeper's next call was exactly that:
+`combat:attack`, same actor, rolled (`t8-c2`, then Knott's standing dodge `t8-c3`). The turn's telemetry has **no
+`lane: "admission"` row**. The punch the player never declared was invented by the Keeper (§34 D2) at the kernel's invitation.
+
+*Why there was no admission row.* Neither of the two readings the ticket named. A combat resolve on the investigator's own
+turn is not exempt, and the declaration is not reviewed only at the defence: the same campaign's Keeper punches on turns 3,
+5 and 10 (`actor: "托马斯·海斯"`) were each reviewed by the lane. `admissionRequest` (`extensions/kernel/admission.ts`) skips a
+`resolve` whose `actor` is not an investigator (§32.1: NPC initiative is the Keeper's), and it compared `action.actor` with
+the investigators' **names** only (`table.open`'s `investigators[].name`). The kernel takes the sheet's handle as the
+investigator exactly as it takes the name (`sheetById`, `kernel-ts/resolve/context.ts`), and the session view prints the
+handle (`turn_of`, `participants[].name`, `pending_defense.attacker`), so a Keeper that copies it from the fight's view writes
+`actor: "thomas-hayes"`. Admission read that as an NPC and returned no proposal -- and a skipped proposal writes no row, so the
+skip was silent. Every Keeper `resolve` naming the investigator by handle, of any family, has skipped review this way.
+
+*1. The investigator by name or by handle.* The host's party (`TableState.party`) keeps each investigator's sheet `id` beside
+the name (from `table.open`'s `investigators[].id`, and from the capsule's `known.investigator.id` when the party is refreshed
+there), and admission's scope lists both: `action.actor` naming either is the investigator and the call is reviewed. Names
+compare as before (trimmed, whitespace folded, lower-cased); the reviewer's input still shows the name and occupation only.
+The standing defence (§11.5.1) calls the kernel directly and is untouched; a clerk's fight step names no actor for the
+investigator (§135.28) and the clerk's answered defence carries `action.choice` (§32.1), so neither changes path.
+
+*2. The Keeper's fight action against the run's compile.* When a Keeper-origin call -- no host origin, not host-tracked, the
+§32.12 `origin: "model"` -- proposes the investigator's attack or manoeuvre, and a compile of the same run already put the
+player's words to the question the review would ask and answered it, the call is refused on that typed evidence with **no
+lane call and no typed call**:
+
+- *The act.* `proposedFightAct` (pure): `action.decision` names `combat:attack` or `combat:maneuver` (with or without the
+  `decision:<ruleset>:` prefix; `KEEPER_FIGHT_ACTS`), or there is no decision, `intent` is `combat`, no `defense` is given and
+  none is owed (`state.session.pending_defense`) -- the kernel's default for that call is the attack (§11.3). Closed fields,
+  never the goal, method or stakes.
+- *The run.* The engine announces the run step each model tool call came from (`coc:model-step`, §135.31); the call's
+  admission evidence carries that `run`.
+- *The compile's reading.* The engine's compile row (`lane: "route"`, `purpose: "compile"`, §135.30) passes the kernel bridge's
+  `record` on its way to telemetry; the kernel extension keeps its `act` record per run for the turn (`compileActRead`,
+  pure: `rows`, `choice`, `row`, `confidence`, `cleared`; `TableState.compileActs`, cleared with the next player input).
+- *The rule* (`compileActRefusal`, pure). Refused when a compile of the run cleared `act` on `none` over rows that include this
+  act, and no compile of the run cleared `act` on any row. Anything else is not evidence and the lane reviews the call as any
+  Keeper proposal (§32.2): no compile (the legacy engine, a spent budget, `compile: false`), an `act` under the gate, `unclear`,
+  another act, a question that did not offer this act, or a run whose compiles disagree. Missing evidence is a review, never
+  a refusal and never an admit.
+
+The refusal is §32.2's `not_authorized`, exactly as the Keeper already reads it (`needs`, `details.reason:
+"action_not_authorized"`, the same `fix`): `grounds` names the compile (`compile: the player's words this turn were read as
+none of the fight actions (act none <confidence>, cleared), <act> among them`), `missing` says the fight action is the
+player's to declare, `details.reviewer: "compile"`. It is kept for the turn under §32.4's key like any refusal (the identical
+proposal is refused again at once, `reused: true`), joins the "already refused this turn" list the lane reads, counts against
+§8's identical-resend strike, and neither counts toward nor resets §32.2's outage streak (it is not a lane verdict). Ordering in
+`admitAction`: after the combat-scene and no-player-text skips, after verdict reuse and §32.12's compile admission (policy
+origin only), before any review. C4 turn 8 now reads: the manoeuvre refused `not_authorized` (before the kernel's goal check),
+the attack refused `not_authorized`, nothing rolled, and the Keeper closes with `narrate` taking up the demand.
+
+*3. The combat family's fixes follow the declaration (`kernel-ts/combat/`).* A refusal's `fix` is executed literally (C4
+turn 8 is one more instance), so a refusal of the investigator's fight action names no other fight decision --
+neither `combat:<name>` nor the bare name -- and points back to what the player declared:
+
+- a manoeuvre without one of the four goals (`index.ts`; and the engine's own manoeuvre refusal in `execution.ts`): set the
+  goal when the player declared one of the four; otherwise this is not a manoeuvre -- settle what the player declared, and a
+  blow is resolved only when the player declared one (`MANEUVER_ONLY_WHEN_DECLARED`);
+- a defence with nothing to answer (`index.ts` and `execution.ts`, which said "declare an attack first"): settle what was
+  declared, and strike no blow just to have something to answer (`NOTHING_TO_ANSWER`);
+- a fight action with no fight running (`execution.ts`, which said "start one: intent combat with a present target and a
+  weapon"): there is no fight turn to take; a fight opens only on a blow someone declared;
+- an action out of turn (`execution.ts`, §138.5's stuck-turn refusal): an NPC holder's turn is settled first, as before, and
+  the fix no longer ends "or combat:end" (the session still issues the ending); when the holder is an investigator, their
+  action is the player's to declare and nothing is proposed for them;
+- a held investigator's flight (`engine.ts`, §139.9): getting free is a turn of its own and the player's to declare; the hold
+  is put in front of the player in the fiction. For a person the Keeper plays the fix still names `combat:maneuver` with goal
+  `escape` (§139.9, unchanged: their initiative is the Keeper's, §32.1);
+- an NPC's manoeuvre with no fight running (`execution.ts`): a fight opens on someone's attack, the investigator's only when
+  the player declared the blow.
+
+*What this is not.* No new verdict, reviewer, threshold or verb, and no admit on any path. The clerk's fight steps keep
+§139.16's gate and §32.12's compile admission unchanged; NPC actors are still not reviewed (§32.1); the lane's prompt is
+unchanged; nothing reaches the next capsule.
+
+*Telemetry (amends §32.7).* The refusal's `lane: "admission"` row: `ok: true`, `verdict: "not_authorized"`, `admitted: false`,
+`reused: false`, `ms: 0`, `key`, `reviewer: "compile"`, `path: "compile"`, `origin: "model"`, `fight_act` (the act proposed),
+`compile_read: {run, step, act, confidence, cleared, rows}`, `grounds`, `missing`, `proposed`. A Keeper call reviewed because
+it named the investigator by handle writes the ordinary lane row.
+
+*Three ends (§31).* Writer: the compile's `act` (Jev), carried on the engine's compile row; the kernel's refusals (fix texts).
+Reader: `noteCompileAct` and `admitAction` (`compileActRefusal`), still the one place a call is admitted or refused. Actor: the
+Keeper, who reads an ordinary `not_authorized` refusal and a fix that no longer proposes a blow; the operator, through
+`fight_act` and `compile_read`.
+
+*Tests.* `tests/extension/keeper-fight-admission.test.mjs` (emitted kernel, the hybrid engine with a stub Jev, the harness's
+scripted admission lane; §139.16's fixture, the investigator's turn after Knott's dodge and hold): the C4 turn-8 replay (`act`
+`none` 0.91) -- the Keeper's manoeuvre and then its attack, both `actor: "thomas-hayes"`, refused `action_not_authorized` with
+rows `path: "compile"`, `reviewer: "compile"`, `fight_act`, `compile_read` naming the run, no lane request, no fight action
+settled and no investigator attack roll in the mechanics; the demand whose `act` does not clear (none 0.50) -- the Keeper's
+attack by handle reviewed by the lane (one request carrying the player's words), its scripted `not_authorized` standing;
+「我又是一拳。」 (`act` `combat:attack` 1.0, the route's `need` `later`, so the Keeper resolves it) -- reviewed by the lane,
+admitted, the Keeper's attack and the clerk's standing defence settle and the investigator's Fighting roll lands; and the pure
+`proposedFightAct`, `compileActRead`, `compileActRefusal`. `tests/kernel/test_combat_refusal_follows_the_declaration.py` (RPC
+seam): for six refusals of the investigator's fight action -- C4's manoeuvre, a defence with nothing to answer, a blow out of
+turn, a blow while a defence is owed, a flight while held, a flight with no fight -- the `fix` names no combat decision other
+than the refused one, the decisions read from the kernel's own list (`table.resolve.options` `decisions`, family `combat`);
+the manoeuvre refusal still lists the four goals and lands nothing; an NPC's held flight still names his way free. Mutations
+(copy and restore): the old manoeuvre fix put back fails the manoeuvre case ("resolve the attack" names `combat:attack`);
+`compileActRefusal` taken out of `admitAction` fails the C4 replay (the manoeuvre reaches the kernel); admission's party
+back to names only fails the three seam cases (no admission row for `actor: "thomas-hayes"`). No existing test changed.
+**Not verified live:** whether a Keeper, refused on the compile's evidence, closes with the demand taken up rather than
+another route to a blow; and the frequency of handle-named Keeper calls on other tables, which the rows' `origin` and the
+new review now make countable.

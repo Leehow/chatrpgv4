@@ -1046,9 +1046,14 @@ export class CombatSession {
         if (blocked.length) {
             const state = blocked[0], out = incapacitatedBy(blocked);
             throw new RpcError('needs', `${actor} is ${blocked.join(' and ')} and cannot flee`, {
+                // §139.18: a held person's way free is named for a person the Keeper plays (their initiative, §32.1); for an
+                // investigator it is the player's to declare, so the fix puts the hold in front of the player and names no
+                // other fight decision -- a refusal's fix is executed literally.
                 fix: out.length
                     ? `${actor} takes no action while ${out.join(' and ')}: nothing flees on their behalf. The fight goes on without them (the initiative skips them); narrate the state, and settle a flight only once they can act again.`
-                    : `${actor} has to get free first, and that is a turn of its own: on ${actor}'s turn resolve combat:maneuver with goal escape against whoever holds them (the held person's own manoeuvre breaks a hold). The flight is a later turn's action; the fight goes on meanwhile.`,
+                    : row(this.participants[actor]).side === 'investigator'
+                        ? `${actor} has to get free first, and that is a turn of its own -- the rulebook's way free from a hold, taken against whoever holds them -- which is the player's to declare: put the hold in front of the player in the fiction and settle what the player declares, as it is. The flight is a later turn's action; the fight goes on meanwhile.`
+                        : `${actor} has to get free first, and that is a turn of its own: on ${actor}'s turn resolve combat:maneuver with goal escape against whoever holds them (the held person's own manoeuvre breaks a hold). The flight is a later turn's action; the fight goes on meanwhile.`,
                 details: { reason: state, blocked_by: blocked, actor, rule: 'combat.json flee.flee_blocked_by' },
             });
         }

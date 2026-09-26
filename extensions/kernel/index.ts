@@ -76,6 +76,10 @@ import {
 	admissionTimedOut,
 	admissionUnavailable,
 	compileAdmission,
+	compileActRead,
+	compileActRefusal,
+	type CompileActRead,
+	proposedFightAct,
 	type ClerkEvidence,
 	declaredAction,
 	admissionHardCapMs,
@@ -527,7 +531,11 @@ interface TableState {
 	resend?: { text: string; turn: number };
 	/** The turn whose resend the player has already been told about: one sentence per turn, not per click. */
 	resendNoticeTurn?: number;
-	party: Array<{ name: string; occupation?: string }>;
+	/**
+	 * The investigators. `id` is the sheet's handle (`thomas-hayes`), which the kernel accepts as `action.actor` exactly as it
+	 * accepts the name and which the session view prints as `turn_of`: admission reads either as the investigator (§139.18).
+	 */
+	party: Array<{ name: string; occupation?: string; id?: string }>;
 	/** The scene underfoot as the player knows it; a `move` to it is a rename and is not reviewed. */
 	scene?: { handle?: string; label?: string };
 	present: string[];
@@ -563,6 +571,11 @@ interface TableState {
 	 */
 	admissionSplit: Map<string, string[]>;
 	admissionRefused: string[];
+	/**
+	 * §139.18: what each run's compiles read the player's words as, for the fight acts they asked over (`act`), by run id --
+	 * noted from the engine's compile row as it passes the kernel bridge's `record`. Cleared with the next player input.
+	 */
+	compileActs: Map<string, CompileActRead[]>;
 	/** §102: exact authored encounter destinations raised by a combat-start refusal in this turn. */
 	combatSceneMoves: Set<string>;
 	/** Consecutive failed reviews (contract §32.2's outage): the first failure reads as transient, a
@@ -1576,7 +1589,9 @@ export default function (pi: ExtensionAPI) {
 		table.party = (open.investigators ?? []).flatMap((sheet) => {
 			const name = asString(sheet.name);
 			const occupation = asString(sheet.occupation);
-			return name ? [{ name, ...(occupation ? { occupation } : {}) }] : [];
+			// §139.18: the sheet's handle too -- a Keeper's `actor: "thomas-hayes"` names the investigator (C4 turn 8).
+			const id = asString(sheet.id);
+			return name ? [{ name, ...(occupation ? { occupation } : {}), ...(id ? { id } : {}) }] : [];
 		});
 		table.scene = { ...(asString(open.scene?.name) ? { handle: asString(open.scene?.name) } : {}),
 			...(asString(open.scene?.display_name) ? { label: asString(open.scene?.display_name) } : {}) };
@@ -1587,6 +1602,7 @@ export default function (pi: ExtensionAPI) {
 		table.admissionPending = new Map();
 		table.admissionSplit = new Map();
 		table.admissionRefused = [];
+		table.compileActs = new Map();
 		table.combatSceneMoves.clear();
 		// A cold recovered turn still owes the consequences already written by
 		// its dead process. Feed those retained receipts into the same wait and
@@ -1986,11 +2002,12 @@ export default function (pi: ExtensionAPI) {
 			});
 		}
 		const sheet = view.known?.investigator;
-		const name = asString(sheet?.name);
-		if (name && !state.party.some((member) => member.name === name)) {
+		const name = asString(sheet?.name), id = asString(sheet?.id);
+		const member = name ? state.party.find((value) => value.name === name) : undefined;
+		if (name && !member) {
 			const occupation = asString(sheet?.occupation);
-			state.party.push({ name, ...(occupation ? { occupation } : {}) });
-		}
+			state.party.push({ name, ...(occupation ? { occupation } : {}), ...(id ? { id } : {}) });
+		} else if (member && id && !member.id) member.id = id;
 		if (Array.isArray(view.recent)) {
 			state.interruptedPlayerText = [...view.recent].reverse().flatMap((row) => {
 				const entry = row as Record<string, unknown> | null;
@@ -2171,6 +2188,19 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
+	 * §139.18: the engine's compile row, as it passes the kernel bridge's `record`, is the run's typed reading of the player's
+	 * words; its `act` record is kept by run for this turn's admission (`compileActRefusal`). Any other row is ignored, and a
+	 * row that never arrives leaves the Keeper's call to the lane: missing evidence is a review, never a refusal or an admit.
+	 */
+	function noteCompileAct(row: Record<string, unknown>): void {
+		const state = table, read = compileActRead(row);
+		if (!state || !read) return;
+		const reads = state.compileActs.get(read.run) ?? [];
+		reads.push(read);
+		state.compileActs.set(read.run, reads);
+	}
+
+	/**
 	 * §32.12.3: the tool result of a call admission narrowed. `admission` says which lines landed with the receipts above and
 	 * which did not, with the refusal their own review gave (its `fix` applies to those lines alone); the `note` says it in
 	 * one place the Keeper reads. A later resend of the whole call applies only what did not land (`admissionSplit`).
@@ -2216,7 +2246,8 @@ export default function (pi: ExtensionAPI) {
 		origin: Record<string, unknown> = {},
 		// §32.12: the dispatcher frame's host origin (never the tool arguments): who proposed this call, and for the clerk
 		// the compile's evidence and the bind records; `host` a host-dispatched call with no origin, `model` the Keeper's.
-		evidence: ClerkEvidence & { label?: string; onVerdict?: (verdict: string) => void } = {}): Promise<AdmissionPartial | undefined> {
+		// §139.18: `run` is the single-loop run a Keeper's own call came from (`coc:model-step`), never a tool argument.
+		evidence: ClerkEvidence & { label?: string; run?: string; onVerdict?: (verdict: string) => void } = {}): Promise<AdmissionPartial | undefined> {
 		// §32.12: every admission row says who proposed it, which path decided (`none` when no review ran) and how long it took.
 		const who = { origin: typeof origin.origin === "string" ? origin.origin : evidence.label ?? "model" };
 		const internalCombatMove = tool === "apply" ? combatSceneMove(state, payload) : undefined;
@@ -2242,7 +2273,9 @@ export default function (pi: ExtensionAPI) {
 		const scopeFor = (effects: Array<Record<string, unknown>>) => {
 			const targets = new Set(effects.filter((effect) => effect.kind === "move").map((effect) => effect.to));
 			const own = destinations.filter((value) => targets.has(value.requested));
-			return { party: state.party.map((member) => member.name), scene: state.scene,
+			// §139.18: the investigator by name or by the sheet's handle, as the kernel reads `action.actor`. Until 2026-09-26 only
+			// the name was here, so a Keeper's `actor: "thomas-hayes"` read as an NPC and its punch was never reviewed (C4 turn 8).
+			return { party: state.party.flatMap((member) => [member.name, ...(member.id ? [member.id] : [])]), scene: state.scene,
 				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}) };
 		};
 		const effectsOf = () => (Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : []);
@@ -2275,6 +2308,11 @@ export default function (pi: ExtensionAPI) {
 		// Not kept for the turn: it is this call's evidence, so a Keeper's identical proposal is reviewed.
 		const compiled = compileAdmission(evidence);
 		const refusedCompile = compiled && !compiled.ok ? { compile_refused: compiled.reason } : {};
+		// §139.18: the Keeper's own attack or manoeuvre for the investigator, against what this run's compile read the player's
+		// words as. When a compile of the run asked over this very act and cleared on `none`, the question the review would ask
+		// has been answered: refused on that typed evidence, no lane call. Otherwise the review below runs as for any Keeper call.
+		const fightAct = who.origin === "model" && !evidence.origin ? proposedFightAct(tool, payload, !!state.session?.pending_defense) : undefined;
+		const actRefusal = compileActRefusal(fightAct, evidence.run ? state.compileActs.get(evidence.run) ?? [] : []);
 		const ctx = sessionCtx;
 		const context = (): AdmissionContext => ({
 			turn: state.turn,
@@ -2335,6 +2373,12 @@ export default function (pi: ExtensionAPI) {
 				return settle({ verdict: "authorized", grounds: `compile: ${compiled.predicate} fired on ${Object.entries(compiled.features).map(([family, value]) => `${family}=${String(value.row)}`).join(", ")}`,
 					reviewer: "compile", path: "compile" }, false, Date.now() - began, undefined,
 					{ predicate: compiled.predicate, features: compiled.features, binding_paths: compiled.bindingPaths }, false);
+			}
+			if (!part && actRefusal) {
+				// Kept for the turn like any refusal (§32.4): the identical proposal is refused again at once, `reused: true`.
+				const { read, ...verdict } = actRefusal;
+				return settle(verdict, false, 0, undefined, { fight_act: fightAct, compile_read: { run: read.run, ...(read.step ? { step: read.step } : {}),
+					act: read.choice, confidence: read.confidence, cleared: read.cleared, rows: read.rows } });
 			}
 			if (!ctx) {
 				await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, path: "none", ms: 0, ...refusedCompile, ...partRows, ...origin, ...who });
@@ -3609,8 +3653,11 @@ export default function (pi: ExtensionAPI) {
 			: readArgs && fromStep ? { origin: "model", run: fromStep.run, step: fromStep.step } : {};
 		// §32.12: admission's view of the same frame -- the clerk's compile evidence and bind records, or who else proposed it.
 		let admissionVerdict: string | undefined;
+		// §139.18: a Keeper's own call carries the run it came from (the engine's `coc:model-step`), so admission can read that
+		// run's compile.
 		const evidence = { ...(host ? { origin: host.origin, basis: host.basis, bindings: host.bindings, ...(host.clerk ? { clerk: host.clerk } : {}) }
-			: { label: dispatcher.tracksMutation(toolCallId) ? "host" : "model" }), onVerdict: (verdict: string) => { admissionVerdict = verdict; } };
+			: { label: dispatcher.tracksMutation(toolCallId) ? "host" : "model", ...(fromStep ? { run: fromStep.run } : {}) }),
+			onVerdict: (verdict: string) => { admissionVerdict = verdict; } };
 		const readRow: Record<string, unknown> = readArgs ? { args: readArgs.args, ...(readArgs.cut.length ? { args_cut: readArgs.cut } : {}),
 			...(readArgs.withheld.length ? { args_withheld: readArgs.withheld } : {}) } : {};
 		const keepRead = (ok: boolean): void => {
@@ -4378,6 +4425,7 @@ export default function (pi: ExtensionAPI) {
 				admissionPending: new Map(),
 				admissionSplit: new Map(),
 				admissionRefused: [],
+				compileActs: new Map(),
 				combatSceneMoves: new Set(),
 				admissionOutage: 0,
 				reviewOutage: 0,
@@ -4408,7 +4456,9 @@ export default function (pi: ExtensionAPI) {
 				// The campaign's telemetry file (contract §12.8). The Mod bridge runs the continuity review
 				// inside the Keeper's own tool call, so its rows belong on this turn's line like any other;
 				// a bridge consumer that writes its own path would have to guess the turn as well.
-				record: (row: Record<string, unknown>) => void record(row),
+				// §139.18: the single-loop engine's compile row travels here too; what it read the player's words as, over the fight
+				// acts it asked about, is kept for the run so admission can hold a Keeper's fight action to it (`noteCompileAct`).
+				record: (row: Record<string, unknown>) => { noteCompileAct(row); void record(row); },
 			});
 			pi.events.emit("coc:table-open", { campaign, open });
 			const operationGate = bridgeGate;
@@ -4879,6 +4929,7 @@ export default function (pi: ExtensionAPI) {
 			state.admissionPending = new Map();
 			state.admissionSplit = new Map();
 			state.admissionRefused = [];
+			state.compileActs = new Map();
 			state.combatSceneMoves.clear();
 			state.landed = [];
 			// This input answers the ask that closed the last turn, if one did: a resolve settling one

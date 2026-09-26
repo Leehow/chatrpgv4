@@ -10,7 +10,7 @@ import { MANEUVER_ALIASES, MANEUVER_GOALS, VALID_OUTCOMES } from './engine.js';
 import { combatOperationFor, resolveInvestigatorWeapon, weaponOptions } from './profiles.js';
 import { archetypeIds } from '../apply/archetype.js';
 import {selectObjectWeapon, usageObject} from '../mods/usages.js';
-import { executeCombatEnd, executeCombatResolve, presentOpponents } from './execution.js';
+import { executeCombatEnd, executeCombatResolve, presentOpponents, MANEUVER_ONLY_WHEN_DECLARED, NOTHING_TO_ANSWER } from './execution.js';
 export { CombatSession, combatAttack, resolveOpposed, CLOCK_SAVE_PATHS, rebaseClock } from './engine.js';
 export type { CombatAttackPort, CombatTurnOptions, ParticipantOptions } from './engine.js';
 const DECISIONS: Readonly<Record<string, string>> = Object.freeze({
@@ -44,8 +44,9 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
             const done = () => ({ semantic, extras: { _host_session_binding: binding } });
             if (suffix === 'defend') {
                 const pending = snapshot?.pending_attack;
+                // §139.18: a refusal's fix is executed literally, so it never proposes a different fight action for the actor.
                 if (!isJsonObject(pending))
-                    throw new RpcError('turn_state', 'no attack awaits a defense', { fix: 'declare an attack first (intent combat)' });
+                    throw new RpcError('turn_state', 'no attack awaits a defense', { fix: NOTHING_TO_ANSWER });
                 const defender = string(pending.target_actor_id), options = defenseOptions(pending);
                 if (actor !== defender) {
                     const who = sessions.isInvestigator(defender) ? 'the player' : 'the keeper, acting as the NPC';
@@ -145,8 +146,10 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                     else if (MANEUVER_GOALS.has(wanted) || Object.hasOwn(MANEUVER_ALIASES, wanted))
                         semantic.goal = wanted;
                     else
+                        // §139.18 (C4 turn 8): this fix used to end "to simply hit instead, resolve the attack rather than the
+                        // maneuver", and the Keeper did exactly that to a player who had only demanded his money.
                         throw new RpcError('needs', 'a maneuver is one of the rulebook\'s four, and action.goal names which', {
-                            fix: 'set action.goal to one of details.needs.options, and put the sentence in action.method; to simply hit instead, resolve the attack rather than the maneuver',
+                            fix: MANEUVER_ONLY_WHEN_DECLARED,
                             details: { needs: { field: 'goal', options: sorted(MANEUVER_GOALS) } },
                         });
                 }

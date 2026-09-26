@@ -989,3 +989,77 @@ export function compileAdmission(evidence: ClerkEvidence | undefined): CompileAd
 	}
 	return { ok: true, predicate: predicate.name, features, bindingPaths };
 }
+
+// ---- §139.18: the Keeper's fight action for the investigator, against what the run's compile read ----------------------
+
+/**
+ * §139.18 (ticket 19 of docs/specs/npc-acts-first-tickets/, live table C4 turn 8): the investigator's fight actions a Keeper
+ * proposes that the run's compile may already have read the player's words against -- its `act` rows (§135.30). A closed
+ * set of the kernel's own decision names.
+ */
+export const KEEPER_FIGHT_ACTS: ReadonlySet<string> = new Set(["combat:attack", "combat:maneuver"]);
+
+/**
+ * Pure (§139.18). The fight action a `resolve` proposes, read off its closed fields the way the kernel reads them:
+ * `action.decision`, with or without the `decision:<ruleset>:` prefix; with no decision, `intent: "combat"` is the kernel's
+ * attack unless the call gives a defence or one is owed (then it is the defence). `undefined` for anything else. It reads
+ * no goal, method or stakes: those are the Keeper's words, not the call's shape.
+ */
+export function proposedFightAct(tool: string, payload: Record<string, unknown>, defenceOwed: boolean): string | undefined {
+	if (tool !== "resolve") return undefined;
+	const action = (payload.action ?? {}) as Record<string, unknown>;
+	const raw = norm(action.decision), parts = raw.split(":");
+	const decision = parts.length >= 4 && parts[0] === "decision" ? parts.slice(2).join(":") : raw;
+	if (decision) return KEEPER_FIGHT_ACTS.has(decision) ? decision : undefined;
+	return norm(action.intent) === "combat" && action.defense == null && !defenceOwed ? "combat:attack" : undefined;
+}
+
+/** What one compile of a run read the player's declaration as, over the fight acts its `act` question offered (§135.30). */
+export interface CompileActRead {
+	run: string;
+	step?: string;
+	/** The act rows the question offered: the fight steps the session issued (`combat:attack`, ...). */
+	rows: string[];
+	/** The row it read, `null` when it read `none` or `unclear`. */
+	row: string | null;
+	choice: string;
+	confidence: number | null;
+	cleared: boolean;
+}
+
+/**
+ * Pure (§139.18). The `act` record of a compile, as the engine writes it on its `lane: "route"`, `purpose: "compile"` row
+ * (`features.act`: `rows`, `choice`, `row`, `confidence`, `cleared`). `undefined` for any other row or a compile that asked
+ * no `act` question.
+ */
+export function compileActRead(entry: Record<string, unknown>): CompileActRead | undefined {
+	if (entry.lane !== "route" || entry.purpose !== "compile" || typeof entry.run !== "string") return undefined;
+	const act = record(record(entry.features)?.act);
+	if (!act || typeof act.choice !== "string") return undefined;
+	const rows = Object.values(record(act.rows) ?? {}).filter((value): value is string => typeof value === "string");
+	return { run: entry.run, ...(typeof entry.step === "string" ? { step: entry.step } : {}), rows, choice: act.choice,
+		row: typeof act.row === "string" && act.row ? act.row : null, confidence: typeof act.confidence === "number" ? act.confidence : null,
+		cleared: act.cleared === true };
+}
+
+/**
+ * Pure (§139.18). A Keeper's fight action for the investigator refused on the run's own typed evidence: a compile of this
+ * run asked whether the player's words declare this very act (its `act` rows include it) and cleared on `none`, and no
+ * compile of the run cleared `act` on any row. Then the words were already put to the question the review would ask, and
+ * answered: nothing to send to the lane. `undefined` otherwise -- no compile, an `act` that did not clear, `unclear`,
+ * another act, a question that did not offer this act -- and the lane reviews the call as any Keeper proposal.
+ */
+export function compileActRefusal(act: string | undefined, reads: readonly CompileActRead[]): (AdmissionVerdict & { read: CompileActRead }) | undefined {
+	if (!act || !reads.length || reads.some((read) => read.cleared && read.row)) return undefined;
+	const read = reads.find((value) => value.cleared && value.choice === "none" && value.rows.includes(act));
+	if (!read) return undefined;
+	const confidence = read.confidence === null ? "" : ` ${read.confidence}`;
+	return {
+		verdict: "not_authorized",
+		grounds: `compile: the player's words this turn were read as none of the fight actions (act none${confidence}, cleared), ${act} among them`,
+		missing: `a fight action the player declares; this turn's words declared none, so ${act} is the Keeper's choice, not the player's`,
+		reviewer: "compile",
+		path: "compile",
+		read,
+	};
+}
