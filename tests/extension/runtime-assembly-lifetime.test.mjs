@@ -46,9 +46,9 @@ async function tempRepo(t) {
   return repo;
 }
 
-async function workspaceFixture(t, signal) {
+async function workspaceFixture(t, signal, stopWindows) {
   const repo = await tempRepo(t);
-  const workspace = await createAssemblyWorkspace({ repo, output: '.tmp/runtime', signal });
+  const workspace = await createAssemblyWorkspace({ repo, output: '.tmp/runtime', signal, ...(stopWindows ? { stopWindows } : {}) });
   t.after(() => workspace.cleanup().catch(() => {}));
   return { repo, workspace };
 }
@@ -255,15 +255,30 @@ test('command success, failure, spawn error and timeout retire their child-group
   assert.equal(await readFile(join(workspace.evidence, 'native-smoke.log'), 'utf8'), 'ok\n');
 });
 
-for (const [inherited, timeout] of [[true, 6_000], [false, 6_000], [true, 1_000]]) test(`exited parent with descendant ${inherited ? 'inheriting pipes' : 'ignoring stdio'}${timeout === 1_000 ? ' after timeout' : ''} is stopped and confirmed before cleanup`, { timeout: 12_000 }, async t => {
-  const { repo, workspace } = await workspaceFixture(t);
+// SL-87: how long a loaded box takes to spawn the fixture is not the subject; what happens at the parent's exit and at the
+// timeout is. The command timeout was 1 s (and 6 s for the others): on a loaded box the run rejected with it while the test
+// was still waiting for `stopping.json`, so the rejection went unhandled and failed the test (38/96 at load ~110), and a 1 s
+// timeout can land before the stubborn descendant is even up. The timeout variant now fires its timeout itself, once the
+// descendant has received the stop the parent's exit began (`run`'s `timer`); the others give their command a minute. The
+// SIGKILL confirmation window is a minute too (its 2 s ran out once in 96 there). The stubborn descendant spends the whole
+// SIGTERM grace, so it stays 2 s, except in the timeout variant: its timeout must fire inside the grace, and 5 s leaves room.
+for (const [inherited, timeout] of [[true, 6_000], [false, 6_000], [true, 1_000]]) test(`exited parent with descendant ${inherited ? 'inheriting pipes' : 'ignoring stdio'}${timeout === 1_000 ? ' after timeout' : ''} is stopped and confirmed before cleanup`, { timeout: 90_000 }, async t => {
+  const afterTimeout = timeout === 1_000;
+  const { repo, workspace } = await workspaceFixture(t, undefined, { killMs: 60_000, ...(afterTimeout ? { graceMs: 5_000 } : {}) });
   reapFixtureGroup(t, repo);
-  const running = workspace.run(process.execPath, ['-e', orphanParent(workspace.work, repo, inherited)], { timeout });
-  await until(() => present(join(repo, 'stopping.json')), 'descendant shutdown');
-  const { pgid } = await handshake(join(repo, 'ready.json'), 'owned child ready');
+  let fireTimeout;
+  const timer = afterTimeout ? callback => { fireTimeout = callback; return () => { fireTimeout = undefined; }; } : undefined;
+  const running = workspace.run(process.execPath, ['-e', orphanParent(workspace.work, repo, inherited)],
+    afterTimeout ? { timeout, timer } : { timeout: 60_000 });
+  // The outcome is read below; until then it is held, so a rejection that lands while the waits are still polling is not an
+  // unhandled one that fails the test before `assert.rejects` sees it.
+  running.catch(() => {});
+  await until(() => present(join(repo, 'stopping.json')), 'descendant shutdown', 60_000);
+  if (afterTimeout) { assert.ok(fireTimeout, 'the timeout is still armed while the group is being stopped'); fireTimeout(); }
+  const { pgid } = await handshake(join(repo, 'ready.json'), 'owned child ready', 60_000);
   assert.equal(groupAlive(pgid), true, 'the descendant outlives its parent');
   assert.equal(await present(workspace.work), true);
-  if (timeout === 1_000) await assert.rejects(running, /timeout/);
+  if (afterTimeout) await assert.rejects(running, /timeout/);
   else assert.equal((await running).stdout, 'parent completed\n');
   assert.equal(groupAlive(pgid), false, 'group absence, not merely a sent SIGKILL, permits cleanup');
   assert.equal(workspace.children.size, 0);

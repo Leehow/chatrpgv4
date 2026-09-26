@@ -692,7 +692,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
-			narrate: Type.Optional(Type.String({ description: "this turn's complete closing prose, delivered only once every effect above lands (same rules as the narrate tool's text, including its floor: play_language, {{marker}}/{{kind:handle}} placement, {{say:Name}}…{{/say}} spans); omit it when you will narrate separately instead; if any effect is refused, or this text is refused on delivery (including a draft under the floor), nothing here is shown to the player and the effects above still stand — call narrate on your next step instead" })),
+			narrate: Type.Optional(Type.String({ description: "this turn's complete closing prose, delivered only once every effect above lands (same rules as the narrate tool's text: play_language, {{marker}}/{{kind:handle}} placement, {{say:Name}}…{{/say}} spans); omit it when you will narrate separately instead — a short stand-in here is refused as under the floor; if any effect is refused, or this text is refused on delivery, nothing here is shown to the player and the effects above still stand — call narrate on your next step instead" })),
 		}),
 	},
 	{

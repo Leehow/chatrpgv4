@@ -20888,6 +20888,27 @@ without changing what each test is about, noted at each site; the opening's own 
 (`gates.test.mjs`'s "开桌回合") and the two implicit-path SL-80 tests that rely on a genuinely short say-only draft
 were left as they were.
 
+**Re-scoped at integration (2026-09-26): the length floor is `apply.narrate`'s alone.** Merged into line-2 at `92a8b0b42`,
+the every-path floor turned the box suites red: ext 118 and loop 23 failures, found by the load-proof worker at `3d9204520`.
+Their common cause was not stale fixtures but legitimate short prose. `turn.test.mjs`'s ordinary question
+"门厅很安静，你准备怎么做？" (13 code points) is a line a Keeper writes on purpose. Both placeholders in the evidence were
+in `apply.narrate`: the optional field was filled when the Keeper meant to narrate separately, and its text beside the
+calls said so.
+
+The floor therefore runs only under `narratePath: "embedded"`.
+- An explicit `narrate` and the implicit close keep exactly their SL-80 rules (no tool call, or a speech-only draft)
+  and no length check.
+- `apply.narrate`'s schema description says a short stand-in is refused and the field is omitted when the Keeper will
+  narrate separately.
+- The data knob, the one-steer budget spent at the refusal, the never-strand rule and the telemetry row
+  (`path: "embedded"`) are unchanged.
+
+Tests in `delivery-floor-every-path.test.mjs`:
+- The explicit-path steer test now asserts the short explicit line delivers on its first leg. The mutation of dropping
+  the `embedded` condition turns it red.
+- The spent-steer test and both knob tests run on `apply.narrate`.
+- The fixtures lengthened earlier stay long; they are harmless.
+
 #### 135.11.5 The turn record says when the player first sees the turn's prose: `first_prose`, `durations.firstProseMs`, `firstProseVia` (2026-09-26, SL-94)
 
 **Why.** Owner, 2026-09-26: the latency target is 60 s from the player's input to **the first character of the prose

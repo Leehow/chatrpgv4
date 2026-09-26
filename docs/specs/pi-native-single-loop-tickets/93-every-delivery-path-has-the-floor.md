@@ -101,3 +101,9 @@ below 40 code points before the fix and is lengthened now, substrings any assert
 
 **Acceptance on gate #23** is the owner's/next playtest's to run; not attempted here (no live model calls, per the
 brief).
+
+- 2026-09-26 (integrator): **re-scoped to `apply.narrate` only.**
+  - After the merge at `92a8b0b42`, the box suites went red: ext 118, loop 23 failures, reported by the load-proof worker at `3d9204520`. The cause was legitimate short explicit narrates, e.g. `turn.test.mjs`'s "门厅很安静，你准备怎么做？".
+  - Both placeholders in the evidence were in `apply.narrate`, so the floor now runs only on the embedded path. The explicit path and the implicit close are back to SL-80.
+  - Contract note appended to §135.11.4.1. Tests reworked in `delivery-floor-every-path.test.mjs`; the mutation removing the `embedded` condition goes red.
+  - Local single-file runs green: turn 35/35, single-loop-turn-close 15/15, apply-narrate-combined 4/4, narrate-non-blocking-batch 3/3, gates 12/12, unwrapped-speech 13/13, delivery-floor-every-path 11/11. The box run follows.

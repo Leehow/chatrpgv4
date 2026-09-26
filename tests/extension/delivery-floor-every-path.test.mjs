@@ -199,53 +199,45 @@ const runEnd = (events) => events.filter((event) => event.type === "run_end").at
 const toolResults = (session, name) => session.messages.filter((message) => message.role === "toolResult" && message.toolName === name);
 const resultText = (message) => (message.content ?? []).filter((block) => block.type === "text").map((block) => block.text).join("");
 
-test("SL-93: an explicit narrate {text: 'text'} is steered, not delivered; a second leg with real prose delivers", async (t) => {
+test("SL-93 (re-scoped): an explicit narrate is not length-floored -- a short line the Keeper chose to write delivers on its first leg", async (t) => {
+	// Integration finding: turn.test.mjs's ordinary 13-code-point question ("门厅很安静，你准备怎么做？") went red under the
+	// every-path floor. A narrate the Keeper calls itself may be legitimately short; the floor is apply.narrate's alone.
 	const table = await fakeHybridTable({
 		env: { FAKE_KERNEL_PRESENT: "[]" },
-		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "text" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你把门推开一点，走廊里的灯光斜斜地照进来，尘土在光柱里缓缓打着旋，你听见楼上有脚步声。" })], { stopReason: "toolUse" }),
-		],
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅很安静，你准备怎么做？" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
-	await table.table.session.prompt("我推开门看一看。");
+	await table.table.session.prompt("我看看门厅。");
 
-	// The first leg never reached the kernel: it was refused before `table.narrate` was ever called. This path
-	// never reaches `turn_close`: the refusal's own `fix` field carries FLOOR_STEER's text straight back to the
-	// Keeper through Pi's ordinary retry loop, and the one-steer budget is spent by the refusal itself.
-	assert.equal(kernelCalls(table.table, "table.narrate").length, 1, "only the second leg's narrate reached the kernel");
-	assert.deepEqual(table.table.telemetry().filter((entry) => entry.lane === "floor").map((row) => ({ reason: row.reason, path: row.path, chars: row.chars })),
-		[{ reason: "below_floor", path: "explicit", chars: 4 }]);
-	const [firstNarrateResult] = toolResults(table.table.session, "narrate");
-	assert.equal(firstNarrateResult.isError, true);
-	assert.match(resultText(firstNarrateResult), /Use the ordinary narrate or mechanics ask delivery path/);
-	assert.equal(table.requests.length, 2, "one retried model step, inside the same run");
-	assert.equal(kernelCalls(table.table, "table.narrate")[0].params.text, "你把门推开一点，走廊里的灯光斜斜地照进来，尘土在光柱里缓缓打着旋，你听见楼上有脚步声。");
+	assert.equal(table.requests.length, 1, "no floor steer on the explicit path");
+	assert.equal(table.table.telemetry().filter((entry) => entry.lane === "floor").length, 0);
+	assert.equal(kernelCalls(table.table, "table.narrate").length, 1);
+	assert.equal(kernelCalls(table.table, "table.narrate")[0].params.text, "门厅很安静，你准备怎么做？");
 	assert.equal(runEnd(table.events).status, "delivered");
 });
 
-test("SL-93: once the turn's one steer is spent, the next draft closes the turn whatever its length -- a turn is never stranded", async (t) => {
-	const table = await fakeHybridTable({
-		env: { FAKE_KERNEL_PRESENT: "[]" },
-		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "text" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "still short" })], { stopReason: "toolUse" }),
-		],
-	});
+test("SL-93: once the turn's one steer is spent, the next apply.narrate closes the turn whatever its length -- a turn is never stranded", async (t) => {
+	const table = await realHybridTable({ responses: [
+		fauxAssistantMessage([fauxToolCall("apply", {
+			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],
+			narrate: "text",
+		})], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("apply", {
+			effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }],
+			narrate: "still short",
+		})], { stopReason: "toolUse" }),
+	] });
 	t.after(() => table.dispose());
-	await table.table.session.prompt("我推开门看一看。");
+	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
+	await waitForIdle(table.session);
 
-	assert.equal(table.requests.length, 2, "one retry after the floor's refusal, and no more");
-	const narrates = kernelCalls(table.table, "table.narrate");
-	assert.equal(narrates.length, 1, "the short second leg still closed the turn: the floor never strands it");
-	assert.equal(narrates[0].params.text, "still short");
-	assert.equal(narrates[0].params.implicit, undefined, "the Keeper's own explicit call, not the implicit close");
-	assert.equal(runEnd(table.events).status, "delivered");
-	// The floor fired once, on the first leg; the second, equally short leg was not refused a second time.
-	assert.equal(table.table.telemetry().filter((entry) => entry.lane === "floor").length, 1);
-	const [firstNarrateResult, secondNarrateResult] = toolResults(table.table.session, "narrate");
-	assert.equal(firstNarrateResult.isError, true);
-	assert.notEqual(secondNarrateResult.isError, true, "the second, equally short attempt is not refused again");
+	assert.equal(keeperCalls(table), 2, "one retry after the floor's refusal, and no more");
+	assert.deepEqual(floorRows(table).map((row) => ({ reason: row.reason, path: row.path })), [{ reason: "below_floor", path: "embedded" }],
+		"the floor fired once, on the first leg; the second, equally short leg was not refused a second time");
+	const record = turnRecord(table.workspace, 2);
+	assert.equal(record.closed_by, "narrate");
+	assert.ok(record.rendered_text.includes("still short"), "the short second leg closed the turn");
+	assert.equal(record.receipts.length, 2, "both legs' effects landed and stand");
 });
 
 test("SL-93: a 40-plus-code-point Chinese draft delivers on the explicit path's first leg", async (t) => {
@@ -291,43 +283,43 @@ function contentRootWithFloor(t, minProseChars) {
 	return overlay;
 }
 
-test("SL-93: lowering delivery_floor.min_prose_chars lets a draft the shipped default would steer deliver on its first leg", async (t) => {
+test("SL-93: lowering delivery_floor.min_prose_chars lets an apply.narrate the shipped default would steer deliver on its first leg", async (t) => {
 	resetDeliveryFloorBudgetCache();
 	t.after(() => resetDeliveryFloorBudgetCache());
-	const table = await fakeHybridTable({
-		env: { FAKE_KERNEL_PRESENT: "[]", PI_COC_CONTENT_ROOT: contentRootWithFloor(t, 2) },
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "text" })], { stopReason: "toolUse" })],
-	});
+	const table = await realHybridTable({ env: { PI_COC_CONTENT_ROOT: contentRootWithFloor(t, 2) }, responses: [
+		fauxAssistantMessage([fauxToolCall("apply", {
+			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],
+			narrate: "text",
+		})], { stopReason: "toolUse" }),
+	] });
 	t.after(() => table.dispose());
-	await table.table.session.prompt("我推开门看一看。");
+	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
+	await waitForIdle(table.session);
 
-	assert.equal(table.requests.length, 1, "at a floor of 2 code points, 'text' (4) clears it -- no steer");
-	assert.equal(table.table.telemetry().filter((entry) => entry.lane === "floor").length, 0);
-	assert.equal(kernelCalls(table.table, "table.narrate").length, 1);
-	assert.equal(runEnd(table.events).status, "delivered");
+	assert.equal(keeperCalls(table), 1, "at a floor of 2 code points, 'text' (4) clears it -- no steer");
+	assert.equal(floorRows(table).length, 0);
+	assert.ok(turnRecord(table.workspace, 2).rendered_text.includes("text"));
 });
 
-test("SL-93: raising delivery_floor.min_prose_chars steers a draft the shipped default would deliver", async (t) => {
+test("SL-93: raising delivery_floor.min_prose_chars steers an apply.narrate the shipped default would deliver", async (t) => {
 	resetDeliveryFloorBudgetCache();
 	t.after(() => resetDeliveryFloorBudgetCache());
-	const ordinary = "门在你身后合上，销栓落下的声响在寂静的走廊里回荡了很久，冷意顺着门缝钻了进来，让你打了个哆嗦。";
-	assert.ok([...ordinary].length > 40 && [...ordinary].length < 200, "the draft clears the shipped default comfortably");
-	const table = await fakeHybridTable({
-		env: { FAKE_KERNEL_PRESENT: "[]", PI_COC_CONTENT_ROOT: contentRootWithFloor(t, 200) },
-		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: ordinary })], { stopReason: "toolUse" }),
-			// The one steer is already spent by the first leg's refusal, so a short second leg still closes the
-			// turn (the same never-strand rule as the shipped default, now proven at a different threshold).
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "still short" })], { stopReason: "toolUse" }),
-		],
-	});
+	const ordinary = "你在剪报室里翻了十分钟，指尖沾了灰，纸页边缘已经发黄发脆，终于找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。";
+	const table = await realHybridTable({ env: { PI_COC_CONTENT_ROOT: contentRootWithFloor(t, 200) }, responses: [
+		fauxAssistantMessage([fauxToolCall("apply", {
+			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],
+			narrate: ordinary,
+		})], { stopReason: "toolUse" }),
+		// The one steer is already spent by the first leg's refusal; the Keeper's own short narrate closes the turn.
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "still short" })], { stopReason: "toolUse" }),
+	] });
 	t.after(() => table.dispose());
-	await table.table.session.prompt("我关上门。");
+	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
+	await waitForIdle(table.session);
 
-	assert.equal(table.requests.length, 2, "a draft that clears the shipped default is steered once at a floor of 200");
-	assert.deepEqual(table.table.telemetry().filter((entry) => entry.lane === "floor").map((row) => row.min_chars), [200]);
-	const narrates = kernelCalls(table.table, "table.narrate");
-	assert.equal(narrates.length, 1, "the first leg never reached the kernel; the second, short leg did -- the floor never strands a turn");
-	assert.equal(narrates[0].params.text, "still short");
-	assert.equal(runEnd(table.events).status, "delivered");
+	assert.equal(keeperCalls(table), 2, "a draft that clears the shipped default is steered once at a floor of 200");
+	assert.deepEqual(floorRows(table).map((row) => row.min_chars), [200]);
+	const record = turnRecord(table.workspace, 2);
+	assert.equal(record.rendered_text, "still short", "the floor never strands a turn");
+	assert.equal(record.receipts.length, 1, "the first leg's clue landed and stands");
 });
