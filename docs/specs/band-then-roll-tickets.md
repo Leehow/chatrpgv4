@@ -84,7 +84,7 @@ upstream); the guard removed; each caught.
 
 ## BR-03 — The item creator copies a host-chosen preset
 
-Status: ready-for-human (implemented 2026-09-26 on `claude/br03-creator-preset-20260926` at `4759ca090`; awaiting review and merge, see Comments)
+Status: ready-for-human (implemented 2026-09-26 on `claude/br03-creator-preset-20260926` at `4759ca090`; merged into `0.9.5a` by fast-forward via `claude/integ-band-20260926`; suites recorded under Comments; owner review pending)
 Depends on: BR-01 merged (the registry and the weapon band question shape); independent of BR-02.
 
 **What.** Spec D7. The kernel's definition and usage job packet gains `request.preset` (the weapon profile the
@@ -103,7 +103,7 @@ removed; the preset dropped from the packet; each caught.
 
 ## BR-04 — The shadow lane for the Keeper's `time` and `damage`, and its report
 
-Status: ready-for-human (implemented 2026-09-26 on `claude/br04-band-shadow-20260926` at `b21497dbf`, review fix `c1966c729`; awaiting review and merge, see Comments)
+Status: ready-for-human (implemented 2026-09-26 on `claude/br04-band-shadow-20260926` at `b21497dbf`, review fix `c1966c729`; merged into `0.9.5a` by fast-forward via `claude/integ-band-20260926`; suites recorded under Comments; owner review pending)
 Depends on: BR-01 merged (the registry and question shapes). Worker model: `sonnet` (measurement).
 
 **What.** Spec D9. After a model-origin `apply time {minutes}` or `apply damage {dice}` succeeds, ask the band
@@ -122,7 +122,7 @@ the Keeper's `why` leaked into the state; each caught.
 
 ## BR-05 — Travel minutes are data, filled once at build
 
-Status: ready-for-human (implemented 2026-09-26 on `claude/br05-travel-minutes-20260926` at `de2023d3b` — code `dd377c985`, starter data `de2023d3b`; awaiting review and merge, see Comments)
+Status: ready-for-human (implemented 2026-09-26 on `claude/br05-travel-minutes-20260926` at `de2023d3b` — code `dd377c985`, starter data `de2023d3b`; merged into `0.9.5a` by fast-forward via `claude/integ-band-20260926`; suites recorded under Comments; owner review pending)
 Depends on: BR-01 merged (the registry). Independent of BR-02–BR-04.
 
 **What.** Spec D6. Module registration fills `travel_minutes` on every `route-to` relation that lacks it:
@@ -181,6 +181,13 @@ Decisions the owner should see (taken inside the tickets' scope, reversible):
   in §138.7).
 Not run here: the turn-3 replay (`experiments/single-loop-routing`, live Jev) and a live PDF publication through the
 real reader; the band-shadow report has no real rows yet (no table has been played since).
+
+Suites on leehow-pc: `test:ext` at the pre-fix merge `3afa4818c` 2889 / 2891 (two `jev-source-domain` load reds,
+5 / 5 on the Mac); at the final `2fe0a1f81` full pytest 1745 passed / 2 skipped / 2 failed (both
+`tests/play/test_driver.py`, the box-only pair) and `test:ext` 2890 / 2891 — the one red is
+`post-delivery-continuity`'s implicit-narrate case, whose fixed 100 ms wait between the review's `table.warn`
+request and its `recorded` telemetry row expired under the 12-way load; the path is untouched by these tickets and
+the file is 3 / 3 on the Mac. Merged into `0.9.5a` by fast-forward.
 
 ### 2026-09-26 — BR-01 implemented (`claude/br01-band-then-roll-20260926`, `a8999b981` + review fixes `5b8ef9a6b`)
 
