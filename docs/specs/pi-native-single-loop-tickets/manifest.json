@@ -479,6 +479,16 @@
       "id": "SL-95",
       "file": "95-keeper-text-beside-calls-never-reaches-the-screen.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-96",
+      "file": "96-tool-call-label-prefix-in-narrate.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-97",
+      "file": "97-jev-admission-confident-enough-to-settle.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
