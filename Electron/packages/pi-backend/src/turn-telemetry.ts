@@ -684,11 +684,16 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
     if (arrival.prose) markProse(turn, "text", at);
   }
 
-  /** The assistant message ended and the host kept its streamed text: it counts from its first delta. */
-  function settleText(sessionId: string): void {
+  /**
+   * The assistant message ended and the host kept its streamed text. Where that text was on screen as
+   * it streamed, it counts from its first delta (`first_delta`). In a bound COC session the renderer
+   * holds a message's text in a folded working card until the message ends (§135.11.6), so the text
+   * becomes prose now, at this `message_end` (`settle`).
+   */
+  function settleText(sessionId: string, from: "first_delta" | "settle" = "first_delta"): void {
     const turn = active.get(sessionId);
     if (!turn || turn.textFirstAt === undefined) return;
-    const at = turn.textFirstAt;
+    const at = from === "settle" ? clock() : turn.textFirstAt;
     turn.textFirstAt = undefined;
     markProse(turn, "text", at);
   }
