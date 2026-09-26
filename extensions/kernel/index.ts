@@ -347,8 +347,9 @@ interface TableState {
 	/** §11.5.6 (SL-62): a person name already asked against the scene's known people this player turn -- the resolved
 	 * handle, or `null` for a name that cleared no row. Memoised so the same name never spends a second Jev call. */
 	personResolved: Map<string, string | null>;
-	/** A host note owed to the Keeper at agent_end rather than delivered as prose. */
-	deliveryFix?: { kind: string; text: string };
+	/** A host note owed to the Keeper at agent_end rather than delivered as prose. `kernel_reason` is the refusal's
+	 * `details.reason` when the fix is the kernel's repair of a refused implicit draft (§139.11: named on `turn_close`). */
+	deliveryFix?: { kind: string; text: string; kernel_reason?: string };
 	/** §47: the turn whose delivery already carried the host's preparation-wait notice. The wait
 	 * itself survives later inputs (§36.15); the sentence about it is said once per delivered turn. */
 	waitNoticeTurn?: number;
@@ -742,6 +743,18 @@ function needsPreparation(name: string, input: Record<string, unknown>, wait: { 
 	const effects = Array.isArray(input.effects) ? input.effects as Array<Record<string, unknown>> : [];
 	return effects.some((effect) => effect?.kind === "move" && destinationId(effect.to) === destinationId(wait.name));
 }
+/**
+ * §139.11: the kernel's refusals of a delivery that it lets through when the same draft comes again in the same turn --
+ * §139.10's markup gate (spent for the turn) and §138.7's owed-result gate (spent for the same owed set, which nothing
+ * changes between a refusal and an immediate re-send) -- each with the `lane: "delivery"` reason its one re-send is
+ * counted under. Keyed on the refusal's `details.reason`, a closed contract enum, never on its message. §113 D's
+ * `repeated_line` is deliberately absent: the kernel refuses a verbatim repeat every time, so the same draft again would
+ * only be refused again; after a spent steer that refusal falls back to the dropped first draft instead.
+ */
+const RESENT_ON_SECOND_DELIVERY: ReadonlyMap<string, string> = new Map([
+	["markup_in_prose", "markup_resent"],
+	["intent_result_owed", "intent_result_owed_resent"],
+]);
 /** The one host steer of the turn floor (docs/specs/turn-floor.md D4), sent when a turn is about to close on prose alone. */
 const FLOOR_STEER =
 	"Use the ordinary narrate or mechanics ask delivery path for this response. Complete only the player's already selected goal. " +
@@ -1452,11 +1465,12 @@ export default function (pi: ExtensionAPI) {
 			verdict = "none" in steer ? { status: "none", reason: steer.none }
 				: { status: "steer", kind: steer.kind, text: steer.text, message: hostSteerMessage(steer.text, steer.kind) };
 		}
-		// A repair the spent steer could not carry is named on the row, never lost silently (§135.11 addendum 2026-09-24).
-		const unsent = verdict.status === "none" && state.deliveryFix ? state.deliveryFix.kind : undefined;
+		// A repair the spent steer could not carry is named on the row, never lost silently (§135.11 addendum 2026-09-24),
+		// with the kernel's reason when it was the repair of a refused implicit draft (§139.11).
+		const unsent = verdict.status === "none" && state.deliveryFix ? state.deliveryFix : undefined;
 		void record({ lane: "turn", event: "turn_close", turn: state.turn, status: verdict.status,
 			...(verdict.kind ? { kind: verdict.kind } : {}), ...(verdict.reason ? { reason: verdict.reason } : {}),
-			...(unsent ? { unsent_fix: unsent } : {}),
+			...(unsent ? { unsent_fix: unsent.kind, ...(unsent.kernel_reason ? { kernel_reason: unsent.kernel_reason } : {}) } : {}),
 			...(verdict.implicit ? { implicit: true, call_id: verdict.call_id } : {}) });
 		return verdict;
 	}
@@ -4644,7 +4658,8 @@ export default function (pi: ExtensionAPI) {
 	 * honest service line when there is none -- never a fabricated fictional consequence. Tried at most once; a
 	 * refusal here is not retried, and the ordinary undelivered/stranding path stands exactly as before it: the
 	 * notice `agent_settled` already sends is this fallback's own fallback, never the whole delivery. The one
-	 * exception is §139.10's markup refusal, which the kernel makes once per turn: the same text goes again, once.
+	 * exception is a refusal the kernel lets through on the same turn's next delivery of the same text (§139.11:
+	 * §139.10's markup, §138.7's owed result): the same text goes again, once per such reason.
 	 */
 	async function deliverRefusalBudgetFallback(state: TableState): Promise<boolean> {
 		let text = state.floorDraft;
@@ -4653,7 +4668,8 @@ export default function (pi: ExtensionAPI) {
 			try { text = (await surface.words()).line("refusal_budget_fallback_notice"); }
 			catch { /* an unreadable content root still owes the player the English line */ }
 		}
-		for (let attempt = 0; ; attempt += 1) {
+		const resent = new Set<string>();
+		for (;;) {
 			const callId = mintCallId(state);
 			const payload: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text };
 			if (state.preparationWait) payload.preparation_wait = { kind: state.preparationWait.kind, ...(state.preparationWait.name ? { name: state.preparationWait.name } : {}) };
@@ -4671,10 +4687,13 @@ export default function (pi: ExtensionAPI) {
 				void record({ tool: "narrate", call_id: callId, ok: true, lane: "delivery", reason: "refusal_budget_fallback" });
 				return true;
 			} catch (error) {
-				const markup = attempt === 0 && isKernelError(error) && error.details?.reason === "markup_in_prose";
-				void record({ tool: "narrate", call_id: callId, ok: false, lane: "delivery", reason: markup ? "markup_resent" : "refusal_budget_fallback_refused",
-					code: isKernelError(error) ? error.code : "internal" });
-				if (!markup) return false;
+				// §139.11: dispatched on the refusal's `details.reason`, never its message.
+				const reason = isKernelError(error) ? asString(error.details?.reason) : undefined;
+				const resendAs = reason && !resent.has(reason) ? RESENT_ON_SECOND_DELIVERY.get(reason) : undefined;
+				void record({ tool: "narrate", call_id: callId, ok: false, lane: "delivery", reason: resendAs ?? "refusal_budget_fallback_refused",
+					code: isKernelError(error) ? error.code : "internal", ...(reason ? { kernel_reason: reason } : {}) });
+				if (!reason || !resendAs) return false;
+				resent.add(reason);
 			}
 		}
 	}
@@ -5484,11 +5503,12 @@ export default function (pi: ExtensionAPI) {
 			// still left outside every token go to the attribution family; the delivery waits at most its cap
 			// and, whatever it answers, goes out with the Keeper's words unchanged.
 			// A refused second leg after a spent floor or speech steer falls back to the draft that steer dropped
-			// (§135.11 addendum 2026-09-24); at most two implicit narrates, and the second only on that path.
+			// (§135.11 addendum 2026-09-24), once. §139.11: with the steer spent, a refusal the kernel lets through on
+			// the same turn's next delivery of the same draft re-sends that draft, once per such reason (below). So a
+			// message costs at most the fallback plus one re-send per once-per-turn gate, and no model step.
 			let draft = prose;
 			let fallback = state.steeredThisTurn && state.floorDraft && state.floorDraft !== prose ? state.floorDraft : undefined;
-			// §139.10: a markup refusal the spent steer could never hand back re-sends the same draft once (below).
-			let markupResent = false;
+			const resent = new Set<string>();
 			let attributed: { text: string; hostAttributed?: number[] } | undefined, attributedDraft: string | undefined;
 			for (;;) {
 				// The same draft sent again keeps the attribution it already has: no second Jev batch for the same words.
@@ -5552,12 +5572,15 @@ export default function (pi: ExtensionAPI) {
 						pauseReview(state, error);
 						return dropText("review_paused", refusal);
 					}
-					// §139.10: the kernel refuses markup once per turn, and with the turn's one steer spent that refusal's
-					// repair could never reach the Keeper. The same draft goes again, once, and the kernel delivers it with
-					// its finding: a check on form never costs the player the turn, and it costs no model step.
-					if (reason === "markup_in_prose" && state.steeredThisTurn && !markupResent) {
-						markupResent = true;
-						void record({ lane: "delivery", turn: state.turn, ok: false, reason: "markup_resent", ...refusal });
+					// §139.11 (generalising §139.10): the kernel lets markup and an owed result through on the same turn's
+					// next delivery of the same draft, and with the turn's one steer spent that refusal's repair could never
+					// reach the Keeper. The same draft goes again, once per reason, and the kernel delivers it with its
+					// finding: such a check never costs the player the turn, and it costs no model step. Dispatched on
+					// `details.reason`, never the message; `repeated_line` is refused every time and is not re-sent.
+					const resendAs = reason && !resent.has(reason) ? RESENT_ON_SECOND_DELIVERY.get(reason) : undefined;
+					if (reason && resendAs && state.steeredThisTurn) {
+						resent.add(reason);
+						void record({ lane: "delivery", turn: state.turn, ok: false, reason: resendAs, ...refusal });
 						continue;
 					}
 					// §135.11 addendum (2026-09-24, live gate #4): the turn's one steer is spent, so the repair set
@@ -5570,11 +5593,13 @@ export default function (pi: ExtensionAPI) {
 						fallback = undefined;
 						continue;
 					}
-					// §139.10: a draft refused only for its form is held like a floor or speech steer's dropped draft (never shown),
-					// so a steered leg that brings nothing, or one the kernel refuses, falls back to it and the spent gate lets it go.
-					if (reason === "markup_in_prose" && !state.steeredThisTurn) state.floorDraft = draft;
+					// §139.10/§139.11: a draft refused by a gate the kernel lets through the second time is held like a floor or
+					// speech steer's dropped draft (never shown), so a steered leg that brings nothing, or one the kernel refuses,
+					// falls back to it and the spent gate lets it go. A `repeated_line` draft is not held: it would be refused again.
+					if (resendAs && !state.steeredThisTurn) state.floorDraft = draft;
 					state.deliveryFix = {kind: "audit-repair", text: `This draft was not delivered. ${isKernelError(error) ? error.message : "Delivery preparation failed"}. ` +
-						`${isKernelError(error) ? error.fix ?? "" : ""} ${isKernelError(error) ? JSON.stringify(error.details ?? {}).slice(0, 8000) : detail ?? ""} Keep settled actions; repair with narrate, without rerolling or inventing a reconciliation.`};
+						`${isKernelError(error) ? error.fix ?? "" : ""} ${isKernelError(error) ? JSON.stringify(error.details ?? {}).slice(0, 8000) : detail ?? ""} Keep settled actions; repair with narrate, without rerolling or inventing a reconciliation.`,
+						...(reason ? { kernel_reason: reason } : {})};
 					return dropText("implicit_narrate_refused", refusal);
 				}
 			}
