@@ -3698,6 +3698,12 @@ export default function (pi: ExtensionAPI) {
 		const closesOpening = spec.name === "narrate" && state.openingPending;
 		if(spec.name==='ask' && params.kind!=='mechanics')throw new Error('Use narrate for ordinary story questions and await free input; ask only accepts mechanics');
     const payload: Record<string, unknown> = { ...params, campaign: state.campaign };
+		// SL-92 ("apply carries the narration that closes the turn"): apply's own optional closing prose is
+		// host-only -- table.apply's own schema never carries it. Captured before it is stripped; delivered, after
+		// every effect below lands, through the same path an explicit narrate call takes (see the end of this
+		// function). §135.5 addendum 2.
+		const embeddedNarrateText = spec.name === "apply" && typeof payload.narrate === "string" ? payload.narrate : undefined;
+		delete payload.narrate;
 		// §22.4.7.1 (SL-56): only the host asks the kernel to land a person on the book's text.
 		delete payload._land_on_text;
         if (dispatcher.tracksMutation(toolCallId)) payload._task_read_set = true;
@@ -4048,6 +4054,36 @@ export default function (pi: ExtensionAPI) {
 			// the bound patch published; every failure mode — abort, refusal, split delivery, revision
 			// conflict, quota — drops it inside publishWorkpadPatch without touching this result.
 			if (workpad) await publishWorkpadPatch({ record: (row) => record(row) }, workpad, signal);
+			// SL-92: every effect of this apply landed (a partial with `notLanded` never reaches here -- it took
+			// the throw/refusal path below), and the Keeper embedded a closing narrate. Deliver it through the
+			// exact same function a standalone narrate call runs -- on a synthetic call of its own, so rendering,
+			// marker resolution (an effect-key marker naming one of this apply's own effects included), the
+			// narration audit and turn close all run unchanged. The kernel sees the same two calls, `table.apply`
+			// then `table.narrate`, it always has; only their one model tool call is new.
+			if (spec.name === "apply" && embeddedNarrateText !== undefined && !partial?.notLanded) {
+				const narrateSpec = COC_TOOLS.find((tool) => tool.name === "narrate")!;
+				const embedded = await runTool(narrateSpec, `${toolCallId}:narrate`, { text: embeddedNarrateText }, signal, onUpdate);
+				const embeddedError = (embedded.details as { coc_error?: Record<string, unknown> } | undefined)?.coc_error;
+				if (embeddedError) {
+					// Nothing is delivered: the effects above already landed and stand (a receipt cannot be
+					// undone), but the turn stays open and the Keeper reads the narrate's own refusal, exactly as
+					// an explicit narrate call would report it (§135.11: only a rendered delivery counts). The
+					// text the Keeper wrote is still in its own context to hand to an explicit narrate, revised or
+					// not, on its next step -- nothing here needs to hold a separate draft for it.
+					await record({ lane: "delivery", turn: state.turn, ok: false, reason: "narrate_in_apply",
+						code: String(embeddedError.code ?? "error"), call_id: payload.call_id ?? null });
+					const refused = { ...result, narrate_in_apply: false,
+						coc_error: { ...embeddedError, message: `This apply's effects landed and stand. Its embedded narrate was not delivered: ${String(embeddedError.message ?? "")}` } };
+					return { content: [{ type: "text", text: JSON.stringify(refused) }], details: refused };
+				}
+				// The embedded delivery landed: one model call both settled the writes and closed the turn.
+				// `state.deliveryToolCallId` names the call the player's transcript actually shows -- this apply's
+				// own toolCallId, not the synthetic id the embedded narrate ran under.
+				state.deliveryToolCallId = toolCallId;
+				await record({ lane: "delivery", turn: state.turn, ok: true, reason: "narrate_in_apply", call_id: payload.call_id ?? null });
+				const delivered = { ...result, ...(embedded.details as Record<string, unknown>), narrate_in_apply: true };
+				return { content: [{ type: "text", text: JSON.stringify(delivered) }], details: delivered, terminate: true };
+			}
 			return {
 				content: [{ type: "text", text: JSON.stringify(result) }],
 				details: result,
