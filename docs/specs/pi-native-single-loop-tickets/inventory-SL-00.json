@@ -1535,6 +1535,19 @@
       "lines_at_0b729e8fb": []
     },
     {
+      "file": "extensions/kernel/band-recovery.ts",
+      "symbol": "askBand",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel ext: band recovery (138.6, BR-02)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "n/a (added at BR-02)",
+      "note": "Gate: a Jev key. Inside runTool's catch, only on a kernel needs refusal for archetype or weapon; one question per person or thing per turn, at most two requests, under its own lease and the refused call's provider budget; never drives a model run, never refuses (the refusal stands on every non-answer).",
+      "lines_at_0b729e8fb": []
+    },
+    {
       "file": "runtime/jev/memory-read-owner.ts",
       "symbol": "registerMemoryReadOperations.execute",
       "kind": "task-runtime",

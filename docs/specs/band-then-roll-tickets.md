@@ -59,7 +59,7 @@ say what the table is now (no row changes). `BindingPath` gains `'banded'` and t
 
 ## BR-02 — The dispatcher pins a tier or a profile on the kernel's `needs`
 
-Status: ready-for-human (implemented 2026-09-26 on `claude/br02-band-needs-recovery-20260926`; awaiting review and merge, see Comments)
+Status: ready-for-human (implemented 2026-09-26 on `claude/br02-band-needs-recovery-20260926`, merged into `0.9.5a` by fast-forward; suites recorded under Comments; owner review of §138.6 pending)
 Depends on: BR-01 merged.
 
 **What.** Spec D5. In the kernel extension's canonical operation dispatcher: on a `needs` refusal whose `field`
@@ -242,3 +242,11 @@ lease's parent; the catalog fallback capped at the kernel's 50; a retry refused 
 recovery note and `band_recovery` in its refusal; no kernel read before the key check; the pin-refused branch tested),
 one skipped (a third `clip`/`digest` copy), one recorded as a documented trace (the transcript keeps the Keeper's
 pre-correction profile; the note and the receipt carry the truth).
+
+Suites on leehow-pc at `ca6120cb5` (box load 9): `test:ext` 2853 / 2855 — one real red, the SL-00 control-flow
+inventory not yet listing the new Jev call site (`askBand`), registered in `inventory-SL-00.json` / `.md` in the
+follow-up commit and green; the other, `workspace-lifecycle`'s one-lock case, a 12-way parallel lock race that passes
+3 / 3 alone on the Mac. `pytest tests/kernel tests/play` 1721 passed, 2 skipped, 4 failed: two kernel cases that
+timed out waiting 30 s for a JSON line under `-n 12` (`test_table_branch` dormant line, `test_transactions`
+idempotent replay) and pass 2 / 2 on the Mac, and the two `test_driver.py` cases the box always fails (63 / 63 on
+the Mac, where the driver runs). Nothing red touches the recovery.
