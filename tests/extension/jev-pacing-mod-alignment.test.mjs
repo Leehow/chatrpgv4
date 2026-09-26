@@ -11,7 +11,7 @@ const ROOT=resolve(import.meta.dirname,"../..");
 const PACKAGES={
 	"keeper-pacing":{version:"1.3.0",state_version:1,requires:["context.pacing.v1","mods.package-files.v1"],settings:{stall_turns:2},
 		settings_schema:{stall_turns:{minimum:1,maximum:6}}},
-	"narration-craft":{version:"2.0.6",state_version:2,requires:["mods.package-files.v1","context.style.v1","npc.voice.generation.v2","npc.voice.consolidation.v1","graph.vocabulary.v1","graph.vocabulary.table.v1","context.npc.v1"],settings:{density_guide:"off",coarse_language:true},
+	"narration-craft":{version:"2.0.7",state_version:2,requires:["mods.package-files.v1","context.style.v1","npc.voice.generation.v2","npc.voice.consolidation.v1","graph.vocabulary.v1","graph.vocabulary.table.v1","context.npc.v1"],settings:{density_guide:"off",coarse_language:true},
 		settings_schema:{coarse_language:{title:{["zh-Hans"]:"允许粗话",en:"Coarse language"}},density_guide:{enum:["off","on"]}}},
 };
 

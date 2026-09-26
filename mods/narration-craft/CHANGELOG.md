@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 2.0.7
+- Words a speaker quotes inside their own line take the play language's inner quotation marks, never a second pair of the outer ones. On table temper-d (deepseek-v4.1-flash low) the scholar quoted the player inside his line with the same corner brackets twice over. Full instruction only; the brief is unchanged.
+
 ## 2.0.6
 - Restores "risk" to the brief's stopping boundary ("first outcome, obstacle, risk or fork"): it is the boundary docs/specs/prose-mod.md §6 shares with keeper-pacing, and `tests/extension/jev-pacing-mod-alignment.test.mjs` pins it. 2.0.5 had folded it away to save six bytes.
 
