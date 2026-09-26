@@ -8120,8 +8120,6 @@ also ending the campaign. The player gets the table back and may act again; the 
 same unresolved reentry, and — because a new player input is a new review context — a fresh review
 allowance in which to reach a lawful draft.
 
-**A preparation wait cannot discard every completed draft (2026-09-25).** Retained unified-expression turn 7 received two completed text responses after preparation returned pending, yet recorded no delivery: the implicit-close path discarded prose on every preparation wait, while the existing turn-close steer was available only once. A running `pending`/`reviewing` preparation now follows the same bounded handoff as a source wait: the first prose-only response requests an explicit closing `narrate`; after that one steer is spent, a completed Keeper draft may use the ordinary implicit `narrate` path. This preserves the original words, passes the same preparation context and all existing review/commit checks, and cannot execute movement, accept a proposal or fabricate a receipt. A retained `ready` result (or any other status requiring explicit control) is not a running wait and cannot use this fallback, including when a source wait is also present. Foreground adaptation `prepare`/`status` results and cold recovery retain the same `pending`/`reviewing`/`ready` set; reading `ready` must not clear the held proposal before an explicit control decision. Review unavailability, abandoned runs and an empty second response retain their existing no-delivery behavior. The host still owns service wording and re-reads it before display (§47); this change supplies no fictional waiting text.
-
 ### 38.4 The three ends (§31)
 
 - **Writer:** the host, at `agent_settled`, from the run's state/delivery facts regardless of cause, and at
