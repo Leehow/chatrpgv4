@@ -11,5 +11,8 @@
   },
   "npc_responses": {
     "min_open_rows": 3
+  },
+  "npc_act": {
+    "timeout_ms": 8000
   }
 }

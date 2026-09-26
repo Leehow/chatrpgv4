@@ -45,7 +45,7 @@ TaskRuntime, S0, `keeper-support`, `map-words`, `workspace-rerank` or reading ro
 
 ## 2. Counts
 
-127 call sites under 121 inventory keys (at SL-00; SL-01 adds one app-play-gated leaf, `runtime/jev/hybrid-engine.ts` `createDecisionAdapter`, listed below).
+127 call sites under 121 inventory keys (at SL-00; SL-01 adds one app-play-gated leaf, `runtime/jev/hybrid-engine.ts` `createDecisionAdapter`, listed below; NAF-02 adds one no-caller leaf, `runtime/jev/npc-act.ts` `runLane`, listed below).
 
 | role \ path | app-play | app-play-gated | child-process | app-setup | app-ui | settings-ui | source-only | no-caller | host-infra | total |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -245,6 +245,12 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 | `runtime/jev/s0-rpc.ts` | `startS0Rpc` | 42 | `createS0Decider` | S0 probe | source-only | n/a | Gate: PI_COC_JEV_S0=1 (or PI_COC_TASK_RUNTIME=1 in play), and startS0Rpc throws unless PI_COC_LAYOUT=source. |
 | `runtime/jev/s0-rpc.ts` | `startS0Rpc` | 58 | `createDecisionAdapter` | S0 task mode | source-only | n/a | Adapter for the task host. |
 | `runtime/jev/task-host-session.ts` | `createTaskHostAdapter.extension.on(tool_result)` | 481 | `incumbent.complete` | S0 task mode | source-only | n/a | Not a provider call: completes the incumbent (a scanner false positive kept so the key is stable). |
+
+#### Leaves (model-involving) — no-caller (1 site, added at NAF-02)
+
+| file | symbol | line(s) | call | owner | path | trace | note |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `runtime/jev/npc-act.ts` | `createNpcActLane.generate` | – | `runLane` | npc-act lane: the NPC's act, generated before it is bound (contract 139.2) | no-caller | n/a (added at NAF-02) | One zero-tool completion per NPC act, fast model (`PI_COC_NPC_ACT_MODEL`); a structurally bad answer is asked once more, one deadline (`npc_act.timeout_ms`) for both. No caller until NAF-03 wires the loop's `npc_act` step; reclassify then. |
 
 #### Infrastructure (no model) — app-play (16 sites)
 

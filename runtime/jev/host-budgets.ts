@@ -52,3 +52,34 @@ async function readJevStepsBudget(contentRoot?: string): Promise<JevStepsBudget>
 
 /** Test-only: forgets the cached value, so a test that swaps the content root sees its own fixture. */
 export function resetJevStepsBudgetCache(): void { cached = undefined; }
+
+/**
+ * §139.2 (docs/specs/npc-acts-first.md D2): the NPC act generation's named defaults, from the same file's `npc_act`
+ * section. `timeoutMs` is the deadline of one whole generation, its one retry included (`runtime/jev/npc-act.ts`).
+ */
+export interface NpcActBudget {
+  timeoutMs: number;
+}
+
+/** Used only if the file or its `npc_act` section cannot be read; the shipped file carries the real default. */
+export const NPC_ACT_FALLBACK: NpcActBudget = Object.freeze({timeoutMs: 8000});
+
+let npcActCached: Promise<NpcActBudget> | undefined;
+
+/** Read once per process and cached, like `jevStepsBudget`; `contentRoot` is for tests only and is never cached. */
+export function npcActBudget(contentRoot?: string): Promise<NpcActBudget> {
+  if (contentRoot !== undefined) return readNpcActBudget(contentRoot);
+  return npcActCached ??= readNpcActBudget();
+}
+
+async function readNpcActBudget(contentRoot?: string): Promise<NpcActBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      npc_act?: {timeout_ms?: unknown};
+    };
+    const timeoutMs = raw.npc_act?.timeout_ms;
+    return {timeoutMs: finite(timeoutMs) && timeoutMs > 0 ? timeoutMs : NPC_ACT_FALLBACK.timeoutMs};
+  } catch {
+    return NPC_ACT_FALLBACK;
+  }
+}

@@ -1595,6 +1595,19 @@
       ]
     },
     {
+      "file": "runtime/jev/npc-act.ts",
+      "symbol": "createNpcActLane.generate",
+      "kind": "lane",
+      "callee": "runLane",
+      "count": 1,
+      "owner": "npc-act lane: the NPC's act, generated before it is bound (contract 139.2)",
+      "path": "no-caller",
+      "role": "leaf",
+      "trace": "n/a (added at NAF-02)",
+      "note": "One zero-tool completion per NPC act, fast model (PI_COC_NPC_ACT_MODEL); a structurally bad answer is asked once more, one deadline (npc_act.timeout_ms) for both. No caller until NAF-03 wires the loop's npc_act step; reclassify then.",
+      "lines_at_0b729e8fb": []
+    },
+    {
       "file": "runtime/jev/s0-decision.ts",
       "symbol": "createS0Decider",
       "kind": "network",
