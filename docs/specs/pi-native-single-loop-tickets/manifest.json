@@ -449,6 +449,11 @@
       "id": "SL-90",
       "file": "90-a-consequence-step-is-admitted-on-its-own-evidence.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-91",
+      "file": "91-the-admission-lane-takes-its-own-thinking.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
