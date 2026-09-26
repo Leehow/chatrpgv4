@@ -117,7 +117,9 @@ export interface DecisionResult {
   usage?: DecisionUsage;
   elapsedMs?: number;
   attempts?: number;
-  failure?: { code: 'disabled' | 'unconfigured' | 'timeout' | 'cancelled' | 'rate_limited' | 'service_error' | 'schema_error' | 'budget_exhausted' | 'packing_limit'; retryable: boolean };
+  failure?: { code: 'disabled' | 'unconfigured' | 'timeout' | 'cancelled' | 'rate_limited' | 'service_error' | 'schema_error' | 'budget_exhausted' | 'packing_limit'; retryable: boolean;
+    /** SL-84: the last attempt's HTTP status, or its network/timeout code when no response ever arrived. Absent before any transport attempt (disabled/unconfigured/schema/packing/budget checks that never dispatch). */
+    status?: number | string };
 }
 
 function finite(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value); }
