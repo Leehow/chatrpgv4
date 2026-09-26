@@ -474,6 +474,11 @@
       "id": "SL-94",
       "file": "94-the-turn-record-says-when-the-player-first-sees-prose.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-95",
+      "file": "95-keeper-text-beside-calls-never-reaches-the-screen.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
