@@ -123,6 +123,58 @@ test('ask and narrate share delivery formatting while retaining their distinct r
   });
 });
 
+// ---- Effect-key markers (contract §34.13.1, SL-88 "what needs no result does not wait") ------------------------------
+//
+// A narrate sharing a batch with the writes it describes has not seen their own placement markers yet (the write's
+// result, carrying `markers`, only comes back on a later turn to read it). `{{kind:handle}}` names the effect by the
+// kernel's own receipt kind and the handle the write itself named, and resolves without needing that marker back.
+
+test('an effect key ({{kind:handle}}) resolves to this turn\'s receipt without copying its placement marker',async t=>{
+  const home=await mkdtemp(join(evidence,'effect-key-'));
+  const context=await api.createKernelContext({workspace:home,content:CONTENT,env:environment()});
+  t.after(()=>context.git.close());
+  const runtime=api.createWriteRuntime(context);
+  await runtime.handlers['campaign.create'](create);
+  await runtime.handlers['table.player_input']({campaign:'c1',text:'I go to the newspaper morgue and look through the clippings.'});
+  const action={campaign:'c1',call_id:'t1-c1'},transaction=await runtime.transaction(action);
+  // A move's ordinary placement marker is `scene:<to>` (markerName groups it under the card family it draws as),
+  // never `move:<to>` -- the effect key is a second, independent way to a receipt's marker, not an alias for the first.
+  const moveReceipt={kind:'move',id:'move:t1-c1',to:'newspaper-morgue'};
+  const clueReceipt={kind:'clue',id:'clue:t1-c1',clue:'globe-unpublished-story'};
+  await transaction.commitResolve({callId:action.call_id,params:action,result:{receipts:[moveReceipt,clueReceipt]},receipts:[moveReceipt,clueReceipt],events:[]});
+  const params={campaign:'c1',call_id:'t1-c2',
+    text:'You arrive at the Globe {{move:newspaper-morgue}} and turn up the spiked story {{clue:globe-unpublished-story}}.'};
+  const result=await runtime.handlers['table.narrate'](params);
+  assert.equal(Object.hasOwn(result,'dropped_markers'),false,'both effect keys resolved; nothing was dropped');
+  assert.ok(!result.rendered_text.includes('{{')&&!result.rendered_text.includes('}}'),'no brace reaches the player');
+  assert.ok(result.rendered_text.includes('You arrive at the Globe')&&result.rendered_text.includes('turn up the spiked story'));
+  // The token stands in the delivered structure exactly as written -- never translated to the ordinary scheme's name.
+  assert.ok(result.marked_text.includes('{{move:newspaper-morgue}}'));
+  assert.ok(result.marked_text.includes('{{clue:globe-unpublished-story}}'));
+  assert.equal(result.mechanics.length,2,'both receipts still project a mechanics card');
+  assert.deepEqual(result.mechanics.map(m=>m.receipt).sort(),[clueReceipt.id,moveReceipt.id].sort());
+});
+
+test('an effect key naming no receipt of this turn is dropped exactly like an unknown marker, and the prose still delivers',async t=>{
+  const home=await mkdtemp(join(evidence,'effect-key-unknown-'));
+  const context=await api.createKernelContext({workspace:home,content:CONTENT,env:environment()});
+  t.after(()=>context.git.close());
+  const runtime=api.createWriteRuntime(context);
+  await runtime.handlers['campaign.create'](create);
+  await runtime.handlers['table.player_input']({campaign:'c1',text:'I search the clippings for the story.'});
+  const action={campaign:'c1',call_id:'t1-c1'},transaction=await runtime.transaction(action);
+  const clueReceipt={kind:'clue',id:'clue:t1-c1',clue:'globe-unpublished-story'};
+  await transaction.commitResolve({callId:action.call_id,params:action,result:{receipts:[clueReceipt]},receipts:[clueReceipt],events:[]});
+  const params={campaign:'c1',call_id:'t1-c2',
+    text:'You find the story {{clue:globe-unpublished-story}}, but {{clue:nothing-landed-this-turn}} never turns up.'};
+  const result=await runtime.handlers['table.narrate'](params);
+  assert.deepEqual(result.dropped_markers.unknown,['clue:nothing-landed-this-turn']);
+  assert.equal(Object.hasOwn(result.dropped_markers,'duplicate'),false);
+  assert.ok(!result.rendered_text.includes('{{')&&!result.rendered_text.includes('}}'));
+  assert.ok(result.rendered_text.includes('You find the story')&&result.rendered_text.includes('never turns up'));
+  assert.equal(result.mechanics.length,1,'the mechanic that did land still projects; the dropped key cost nothing else');
+});
+
 test('a mechanics-only ask still allows no story text and keeps an empty delivery',async t=>{
   const home=await mkdtemp(join(evidence,'empty-ask-'));
   const context=await api.createKernelContext({workspace:home,content:CONTENT,env:environment()});
