@@ -1,4 +1,5 @@
-/** The npc-voice lane's RPCs (contract §40.7), sharing the campaign writer and its lock like the journal. */
+/** The npc-voice lane's RPCs (contract §40.7), sharing the campaign writer and its lock like the journal. The
+ *  lane's owner is resolved here, per request, from the campaign's locks and the installed catalog (§40.7 Owner). */
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
@@ -10,7 +11,8 @@ import { npcView } from '../read/capsule.js';
 import { array, number, repr, row, string, type Row } from '../read/values.js';
 import { createWriteRuntime } from '../write/index.js';
 import { readNpcLedger } from '../write/contributions.js';
-import { KEYS, assertJobGeneration, buildPacket, fail, investigatorIdentity, nextPerson, openJob, parseJobId, readJob, submit } from './jobs.js';
+import { readModCatalog } from '../read/mods.js';
+import { KEYS, assertJobGeneration, buildPacket, fail, investigatorIdentity, nextPerson, openJob, parseJobId, readJob, submit, voiceOwner } from './jobs.js';
 /** The lane instruction is authored content (`content/setup/npc-voice.md`, §40.7); the packet carries it whole.
  *  Until 1.1.0 nothing read the file and the model saw only the kernel's short fallback passage. */
 async function laneInstruction(context: KernelContext): Promise<string | undefined> {
@@ -32,36 +34,36 @@ export function createVoiceHandlers(context: KernelContext, writer: ReturnType<t
         snapshot.world = await campaign.readWorld();
         const module = await loadCampaignModule(context, string(snapshot.meta.module_id), snapshot.world, campaign.id);
         snapshot.jsonFiles.set('world.json', snapshot.world);
-        return { campaign, snapshot, module };
+        return { campaign, snapshot, module, owner: voiceOwner(snapshot.world, await readModCatalog(context)) };
     }
     return Object.freeze({
         'voice.job': async (params) => {
-            const { campaign, snapshot, module } = await load(params), graph = module.graph;
-            const node = await nextPerson(campaign, graph, snapshot.world, params.backfill === true);
+            const { campaign, snapshot, module, owner } = await load(params), graph = module.graph;
+            const node = await nextPerson(campaign, graph, snapshot.world, owner, params.backfill === true);
             if (!node)
                 return { job_id: null };
             const ledger = await readNpcLedger(campaign), dossier = npcView(graph, snapshot.world, node, ledger);
             const handle = graph.handle(node), said = (await campaign.records()).flatMap((record: Row) => array(record.speech).filter(line => row(row(line).who).npc === handle).map(line => string(row(line).text)));
-            const packet = buildPacket(campaign, graph, snapshot.world, node, await playLanguageOf(context, snapshot.meta), dossier, await laneInstruction(context), said, await investigatorIdentity(campaign, snapshot.world));
-            return openJob(campaign, graph.handle(node), packet);
+            const packet = buildPacket(campaign, graph, snapshot.world, owner, node, await playLanguageOf(context, snapshot.meta), dossier, await laneInstruction(context), said, await investigatorIdentity(campaign, snapshot.world));
+            return openJob(campaign, owner, graph.handle(node), packet);
         },
         'voice.submit': async (params) => {
-            const { campaign, snapshot, module } = await load(params), { handle, generation } = parseJobId(campaign, params.job_id, snapshot.world);
-            const job = await readJob(campaign, handle, generation);
+            const { campaign, snapshot, module, owner } = await load(params), { handle, generation } = parseJobId(campaign, params.job_id, owner);
+            const job = await readJob(campaign, owner, handle, generation);
             if (!job)
                 throw new RpcError('invalid_params', `no voice job for ${handle}`, { fix: 'call voice.job first', details: { job_id: params.job_id ?? null } });
             const turn = number(row(await campaign.readTurn()).turn);
-            const [result, replayed] = await submit(campaign, module.graph, snapshot.world, job, params.voice, turn, params.reason);
+            const [result, replayed] = await submit(campaign, module.graph, snapshot.world, owner, job, params.voice, turn, params.reason);
             if (replayed)
                 return { ...result, replayed: true };
             await campaign.appendEvent(turn, { type: 'dossier-established', data: { npc: handle, keys: [...KEYS] } });
             return result;
         },
         'voice.fail': async (params) => {
-            const { campaign, snapshot } = await load(params), { handle, generation } = parseJobId(campaign, params.job_id, snapshot.world);
-            const job = await readJob(campaign, handle, generation);
-            if (job) assertJobGeneration(campaign, snapshot.world, job);
-            return fail(campaign, job, string(params.job_id), handle, params.reason, params.detail);
+            const { campaign, owner } = await load(params), { handle, generation } = parseJobId(campaign, params.job_id, owner);
+            const job = await readJob(campaign, owner, handle, generation);
+            if (job) assertJobGeneration(campaign, owner, job);
+            return fail(campaign, owner, job, string(params.job_id), handle, params.reason, params.detail);
         }
     });
 }

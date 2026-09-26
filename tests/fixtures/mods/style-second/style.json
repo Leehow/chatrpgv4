@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "axes": [
+    "test axis 1: keep the fixture lines plain, bounded and in English so the measure is about bytes only",
+    "test axis 2: keep the fixture lines plain, bounded and in English so the measure is about bytes only"
+  ],
+  "directives": {
+    "second-full": {
+      "full": "test directive second-full, full form",
+      "brief": "test directive second-full, brief form"
+    },
+    "second-pace": {
+      "full": "test directive second-pace, full form",
+      "brief": "test directive second-pace, brief form"
+    }
+  },
+  "beats": {
+    "REVEAL": [
+      "second-full"
+    ],
+    "PRESSURE": [
+      "second-pace"
+    ],
+    "CHOICE": [
+      "second-full"
+    ],
+    "SUBSYSTEM": [
+      "second-full"
+    ],
+    "CHARACTER": [
+      "second-full"
+    ],
+    "RECOVER": [
+      "second-full"
+    ],
+    "CUT": [
+      "second-pace"
+    ],
+    "ADVANCE": [
+      "second-full"
+    ],
+    "MONTAGE": [
+      "second-pace"
+    ],
+    "DEEPEN": [
+      "second-full"
+    ],
+    "PAYOFF": [
+      "second-full"
+    ]
+  },
+  "floor": [
+    "test floor 1: the fixture carries four floor lines so the brief form measures what the shipped one carries",
+    "test floor 2: the fixture carries four floor lines so the brief form measures what the shipped one carries"
+  ]
+}

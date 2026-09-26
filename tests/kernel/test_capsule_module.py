@@ -10,7 +10,7 @@ import json
 import sys
 from pathlib import Path
 
-from conftest import CONTENT_DIR, KERNEL_DIR, RpcClient, campaign_dir, narrate, narrate_opening, open_turn, read_json
+from conftest import CONTENT_DIR, KERNEL_DIR, WORKTREE, RpcClient, campaign_dir, narrate, narrate_opening, open_turn, read_json
 
 sys.path.insert(0, str(KERNEL_DIR))
 
@@ -65,7 +65,11 @@ def test_a_new_process_briefs_again_under_the_same_condition_as_style_and_resume
         narrate(second, "t2-c1", "……")
         capsule = second.table("player_input", text="再来。")["capsule"]
         assert capsule["module"]["title"] == "The Haunting" and capsule["resume"]["turn"] == 1  # the checkpoint open found
-        assert len(capsule["style"]["directives"]) > 4  # the full style, the resume and the briefing: one condition
+        # contract §137: the enabled style provider's full lines, not its brief reminder
+        provider = read_json(WORKTREE / "mods" / "narration-craft" / "mod.json")
+        style = read_json(WORKTREE / "mods" / "narration-craft" / provider["contributes"]["style"])
+        full_lines = {id_: entry["full"] for id_, entry in style["directives"].items()}
+        assert {row["id"]: row["line"] for row in capsule["style"]["directives"]} == full_lines
     finally:
         second.close()
 

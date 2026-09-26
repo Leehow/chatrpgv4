@@ -17,7 +17,8 @@ from pathlib import Path
 from conftest import CAMPAIGN, MODULE, PREGEN, WORKTREE, open_turn
 
 GUARDED_DIRS = ("kernel-ts", "content/setup")
-GUARDED_FILES = ("content/craft/beat-directives.json",)
+# Contract §137: the craft lines a table's `style` carries are package system content, English like every instruction.
+GUARDED_FILES = ("mods/narration-craft/style.json",)
 GUARDED_GLOBS = ("bin/coc-*",)
 SKIP_PARTS = {"__pycache__", ".pytest_cache"}
 
@@ -57,7 +58,7 @@ def test_no_cjk_character_anywhere_in_code_or_system_content():
     hits: list[str] = []
     files = guarded_files()
     assert any(p.name == "handlers.ts" for p in files) and any(p.name == "visual-reader.md" for p in files)
-    assert any(p.name == "coc-source" for p in files) and any(p.name == "beat-directives.json" for p in files)
+    assert any(p.name == "coc-source" for p in files) and any(p.name == "style.json" for p in files)
     for path in files:
         try:
             text = path.read_text(encoding="utf-8")

@@ -259,7 +259,7 @@ test('ontology rejects invalid graph references against independent node and cap
   const directorGraph=await json(join(CONTENT,'director/director-graph.json'));
   const dg=new api.DirectorGraph(directorGraph,await json(join(CONTENT,'director/director-graph-manifest.json')));
   const textGraph=await json(join(CONTENT,'craft/text-graph.json'));
-  const craft=new api.TextGraph(textGraph,await json(join(CONTENT,'craft/text-graph-manifest.json')),await json(join(CONTENT,'craft/beat-directives.json')),dg.beats);
+  const craft=new api.TextGraph(textGraph,await json(join(CONTENT,'craft/text-graph-manifest.json')));
   const manifest=await json(join(CONTENT,'rulesets/coc7/manifest.json'));
   const ruleIds=(await json(join(CONTENT,'rulesets/coc7',manifest.entry_points.rule_graph))).nodes.map(node=>node.node_id);
   const valid={contract_id:'coc.system-ontology-registry.v1',graphs:[

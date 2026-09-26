@@ -15,6 +15,7 @@ KNOTT = "Steven Knott"
 KNOTT_HANDLE = "steven-knott"
 KNOTT_ID = "npc-steven-knott"
 MOD = "npc-voice"
+EXPRESSION = "narration-craft"
 VERSION = read_json(WORKTREE / "mods" / "npc-voice" / "mod.json")["version"]
 SHIPPED = read_json(WORKTREE / "mods" / "npc-voice" / "mod.json")["contributes"]["vocabulary"]["actor_profile_keys"]
 MASK = {"key": "voice_mask", "label": "mask", "shape": "lines", "ask": SHIPPED[0]["ask"]}
@@ -41,13 +42,19 @@ def package(tmp_path, *, vocabulary=MASK, name="voice-fixture"):
 
 
 def configure(client, **change):
-    """The shipped package is on by default; configuration lands only between turns (a change during a turn is pending until commit)."""
+    """Legacy lane only: turn the unified package off before an enabled voice lock. A change during a turn stays pending until commit."""
+    enabled = change.get("enabled", True)
+    if enabled:
+        client.ok("mods.configure", {"campaign": CAMPAIGN, "id": EXPRESSION, "enabled": False})
     return client.ok("mods.configure", {"campaign": CAMPAIGN, "id": MOD, "version": VERSION, "enabled": True, **change})
 
 
 def on(client):
-    """The shipped npc-voice package, on by default, with turn 1 open; returns the turn's capsule."""
-    return open_turn(client)["capsule"]
+    """Explicit legacy owner, unified package off, with turn 1 open; returns the turn's capsule."""
+    create_campaign(client)
+    configure(client)
+    narrate_opening(client)
+    return client.table("player_input", text="我仔细观察诺特。")["capsule"]
 
 
 def settle(client, call_id="t1-c1"):
@@ -78,13 +85,15 @@ def test_the_shape_is_checked_at_install(kernel, tmp_path):
 
 def test_the_shipped_package_declares_the_two_words_the_lane_writes(kernel):
     manifest = read_json(WORKTREE / "mods" / "npc-voice" / "mod.json")
-    assert manifest["default_enabled"] is True and manifest["settings"] == {"coarse_language": True}
+    assert manifest["default_enabled"] is False and manifest["superseded_by"] == "narration-craft"
+    assert manifest["settings"] == {"coarse_language": True}
     assert manifest["contributes"]["vocabulary"]["actor_profile_keys"] == [MASK, EXCHANGES]
 
 
 def test_nobody_needs_a_voice_while_the_package_is_off(kernel):
     create_campaign(kernel)
     narrate_opening(kernel)
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": EXPRESSION, "enabled": False})  # 2.0.0 owns the lane by default
     configure(kernel, enabled=False)
     kernel.table("player_input", text="我仔细观察诺特。")
     assert job(kernel) == {"job_id": None}
@@ -276,6 +285,7 @@ def test_a_record_left_by_the_two_line_word_is_replaced_not_kept_beside(kernel):
 def test_the_packet_carries_the_lines_this_person_already_said(kernel):
     """§113 D: the lane is told what this mouth has already said at this table."""
     create_campaign(kernel)
+    configure(kernel)
     narrate_opening(kernel, "开场。\n\n{{say:Steven Knott}}「钥匙在这儿，拿去就是。」{{/say}}诺特把钥匙拍在桌上。")
     kernel.table("player_input", text="我仔细观察诺特。")
     packet = job(kernel)
@@ -300,6 +310,7 @@ def legacy_campaign(kernel, tmp_path):
     installed_voice(kernel, tmp_path, "1.1.2", 1)
     create_campaign(kernel)
     narrate_opening(kernel)
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": EXPRESSION, "enabled": False})  # legacy lane only: 2.0.0 owns it by default
     # Model a save with no enrollment, then use the real activation path for its old lock.
     path = campaign_dir(kernel.workspace) / "world.json"
     world = read_json(path)
@@ -311,9 +322,9 @@ def legacy_campaign(kernel, tmp_path):
     return campaign_dir(kernel.workspace)
 
 
-def job_file(root, packet):
+def job_file(root, packet, owner=MOD):
     generation = packet.get("generation")
-    folder = root / "npc-voice" / "jobs"
+    folder = root / owner / "jobs"
     if generation:
         folder = folder / "v2" / generation["digest"]
     return folder / f"{packet['npc']['handle']}.json"
@@ -365,6 +376,7 @@ def test_upgrade_stays_pending_and_preserves_explicit_disable(kernel, tmp_path):
 
 def test_current_generation_is_unique_and_stale_submit_and_fail_are_read_only(kernel, tmp_path):
     create_campaign(kernel)
+    configure(kernel)
     narrate_opening(kernel)
     root = campaign_dir(kernel.workspace)
     old = job(kernel)
@@ -426,6 +438,7 @@ def test_source_authored_words_survive_real_package_upgrade(kernel, tmp_path):
     world = read_json(root / "world.json")
     world["mods"]["active"].pop(MOD)
     (root / "world.json").write_text(json.dumps(world), encoding="utf-8")
+    kernel.ok("mods.configure", {"campaign": campaign, "id": EXPRESSION, "enabled": False})
     kernel.ok("mods.configure", {"campaign": campaign, "id": MOD, "version": "1.1.2", "enabled": True})
     before = table_npcs(kernel, campaign)["Tenant"]
     module_root = kernel.workspace / ".coc" / "modules" / mid
@@ -443,3 +456,145 @@ def test_v2_identity_parser_rejects_invalid_suffixes(kernel):
     packet = job(kernel)
     for identity in [packet["job_id"].split("@")[0], packet["job_id"] + "extra", packet["job_id"] + "/../x"]:
         assert submit_err(kernel, identity, VOICE)["code"] == "invalid_params"
+
+
+# ---- The lane's owner (contract §40.7 Owner, 2026-09-25; docs/specs/prose-mod.md §4) -----------------
+
+GENERATION = "npc.voice.generation.v2"
+UNIFIED_VERSION = "90.0.0"
+
+
+def unified_package(kernel, tmp_path, *, generation=True, version=UNIFIED_VERSION):
+    """The shipped unified package under a fixture version above every shipped one, so a new world locks it.
+    With `generation` its manifest also declares the lane; the shipped `mods/` tree is never touched."""
+    path = tmp_path / f"{EXPRESSION}-{version}"
+    shutil.copytree(WORKTREE / "mods" / EXPRESSION, path)
+    manifest = read_json(path / "mod.json")
+    manifest["version"] = version
+    requires = [cap for cap in manifest["requires"] if cap != GENERATION]
+    manifest["requires"] = [*requires, GENERATION] if generation else requires
+    (path / "mod.json").write_text(json.dumps(manifest), encoding="utf-8")
+    kernel.ok("mods.install", {"path": str(path)})
+
+
+def task_world_revision(client):
+    return client.table("capsule")["_context"]["task_world_revision"]
+
+
+def test_a_new_world_gives_the_lane_to_the_unified_package(kernel, tmp_path):
+    unified_package(kernel, tmp_path)
+    create_campaign(kernel)
+    root = campaign_dir(kernel.workspace)
+    locks = read_json(root / "world.json")["mods"]["active"]
+    assert (locks[EXPRESSION]["version"], locks[EXPRESSION]["enabled"], locks[MOD]["enabled"]) == (UNIFIED_VERSION, True, False)
+    narrate_opening(kernel)
+    # The opening committed with Knott on stage: the owner's generation names the job and its folder.
+    packet = job(kernel)
+    lock = read_json(root / "world.json")["mods"]["active"][EXPRESSION]
+    assert packet["npc"]["handle"] == KNOTT_HANDLE
+    assert packet["generation"] == {key: lock[key] for key in ("version", "digest", "state_version")}
+    assert packet["job_id"] == f"voice:{CAMPAIGN}:{KNOTT_HANDLE}@{lock['digest']}"
+    assert packet["coarse_language"] is lock["settings"]["coarse_language"]
+    assert read_json(job_file(root, packet, EXPRESSION))["job_id"] == packet["job_id"]
+    assert not (root / MOD).exists(), "the unified owner's jobs never share the legacy folder"
+    revision = task_world_revision(kernel)
+    result = submit(kernel, packet["job_id"], VOICE)
+    assert result == {"job_id": packet["job_id"], "npc": KNOTT_HANDLE, "name": KNOTT, "voice": VOICE}
+    world = read_json(root / "world.json")
+    recorded = world["mods"]["state"][EXPRESSION]["dossier"][KNOTT_ID]
+    assert recorded["voice_mask"] == {**recorded["voice_mask"], "value": [VOICE["mask"]], "label": "mask", "mod": EXPRESSION, "shape": "lines"}
+    assert recorded["exchanges"] == {**recorded["exchanges"], "value": VOICE["exchanges"], "label": "in exchange", "mod": EXPRESSION, "shape": "lines"}
+    assert MOD not in world["mods"]["state"]
+    assert read_json(job_file(root, packet, EXPRESSION))["status"] == "done"
+    # A record stamped by the unified owner is presentation, not a rule fact: the task view does not move.
+    assert task_world_revision(kernel) == revision
+    assert [e for e in read_jsonl(root / "events.jsonl") if e["type"] == "dossier-established"][-1]["data"] == {"npc": KNOTT_HANDLE, "keys": ["voice_mask", "exchanges"]}
+    # The capsule seats him in `voices`; the lane replays the same answer and does not offer him again.
+    turn = kernel.table("player_input", text="我问诺特房子的事。")["capsule"]
+    assert turn["voices"] == [{"name": KNOTT, "mask": VOICE["mask"], "in exchange": VOICE["exchanges"]}]
+    assert submit(kernel, packet["job_id"], VOICE)["replayed"] is True
+    assert job(kernel).get("npc", {}).get("handle") != KNOTT_HANDLE
+
+
+def test_a_new_unified_generation_reads_who_is_settled_from_the_owners_namespace(kernel, tmp_path):
+    """An upgrade of the unified package is a new generation with no done job for anyone, and the old namespace
+    of the legacy lane is empty here: only the owner's own dossier can say Knott is settled and whose mask is taken."""
+    unified_package(kernel, tmp_path)
+    create_campaign(kernel)
+    narrate_opening(kernel)
+    first = job(kernel)
+    submit(kernel, first["job_id"], VOICE)
+    unified_package(kernel, tmp_path, version="90.0.1")
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": EXPRESSION, "version": "90.0.1"})
+    packet = job(kernel, backfill=True)
+    assert packet["generation"]["version"] == "90.0.1" and packet["generation"]["digest"] != first["generation"]["digest"]
+    assert packet["npc"]["handle"] != KNOTT_HANDLE, "Knott is on stage and first in line unless the owner's dossier settles him"
+    assert VOICE["mask"] in packet["taken_masks"]
+
+
+def test_a_handed_over_card_is_established_under_the_unified_owner(kernel, tmp_path):
+    unified_package(kernel, tmp_path)
+    create_campaign(kernel)
+    configure(kernel)
+    narrate_opening(kernel)
+    root = campaign_dir(kernel.workspace)
+    legacy = job(kernel)
+    assert legacy["npc"]["handle"] == KNOTT_HANDLE and job_file(root, legacy).exists()
+    submit(kernel, legacy["job_id"], VOICE)
+    before = read_json(root / "world.json")["mods"]["state"][MOD]["dossier"]
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": EXPRESSION, "version": UNIFIED_VERSION, "enabled": True})
+    world = read_json(root / "world.json")
+    assert world["mods"]["active"][MOD]["enabled"] is False
+    assert world["mods"]["state"][EXPRESSION]["dossier"][KNOTT_ID] == before[KNOTT_ID]
+    assert world["mods"]["state"][EXPRESSION]["voice_handover"]["copied_count"] == 1
+    digest = world["mods"]["active"][EXPRESSION]["digest"]
+    # The legacy job is no longer the owner's: it cannot even replay.
+    assert submit_err(kernel, legacy["job_id"], VOICE)["code"] == "invalid_params"
+    # Knott is on stage and would be first in line; backfill widens to everyone else. He is never offered.
+    offered = []
+    while (packet := job(kernel, backfill=True))["job_id"] is not None:
+        assert packet["generation"]["digest"] == digest and VOICE["mask"] in packet["taken_masks"]
+        offered.append(packet["npc"]["handle"])
+        mask = f"自称「{packet['npc']['handle']}」，句尾带「呗」。"
+        submit(kernel, packet["job_id"], {"mask": mask, "exchanges": [f"{mask}一", f"{mask}二", f"{mask}三"]})
+    assert offered and KNOTT_HANDLE not in offered
+    world = read_json(root / "world.json")
+    written = world["mods"]["state"][EXPRESSION]["dossier"]
+    assert all(record["exchanges"]["mod"] == EXPRESSION for npc, record in written.items() if npc != KNOTT_ID)
+    assert len(written) == len(offered) + 1
+    assert world["mods"]["state"][MOD]["dossier"] == before, "the old namespace is kept, not written"
+    turn = kernel.table("player_input", text="我问诺特房子的事。")["capsule"]
+    assert {"name": KNOTT, "mask": VOICE["mask"], "in exchange": VOICE["exchanges"]} in turn["voices"]
+
+
+def test_with_neither_package_on_the_lane_has_no_owner_and_no_job(kernel, tmp_path):
+    unified_package(kernel, tmp_path)
+    create_campaign(kernel)
+    narrate_opening(kernel)
+    root = campaign_dir(kernel.workspace)
+    stale = job(kernel)
+    assert stale["job_id"].endswith("@" + read_json(root / "world.json")["mods"]["active"][EXPRESSION]["digest"])
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": EXPRESSION, "enabled": False})
+    locks = read_json(root / "world.json")["mods"]["active"]
+    assert (locks[EXPRESSION]["enabled"], locks[MOD]["enabled"]) == (False, False)
+    kernel.table("player_input", text="我仔细观察诺特。")
+    assert job(kernel) == {"job_id": None}
+    assert job(kernel, backfill=True) == {"job_id": None}
+    # A job the unified package minted while it owned the lane writes nothing once it does not.
+    paths = [root / "world.json", job_file(root, stale, EXPRESSION)]
+    before = [path.read_bytes() for path in paths]
+    assert submit_err(kernel, stale["job_id"], VOICE)["code"] == "invalid_params"
+    assert kernel.err("voice.fail", {"campaign": CAMPAIGN, "job_id": stale["job_id"], "reason": "model_error"})["code"] == "invalid_params"
+    assert [path.read_bytes() for path in paths] == before
+
+
+def test_an_enabled_unified_package_that_does_not_declare_generation_owns_nothing(kernel, tmp_path):
+    unified_package(kernel, tmp_path, generation=False)
+    create_campaign(kernel)
+    narrate_opening(kernel)
+    root = campaign_dir(kernel.workspace)
+    locks = read_json(root / "world.json")["mods"]["active"]
+    assert (locks[EXPRESSION]["version"], locks[EXPRESSION]["enabled"], locks[MOD]["enabled"]) == (UNIFIED_VERSION, True, False)
+    assert job(kernel, backfill=True) == {"job_id": None}
+    assert not (root / EXPRESSION).exists() and not (root / MOD).exists()
+

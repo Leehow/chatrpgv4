@@ -1,16 +1,19 @@
-"""Turn floor (docs/specs/turn-floor.md), kernel side, through the RPC seam: the four floor lines
-ride in `style.floor` on every turn; an empty turn and a repeated input are structural RECOVER
+"""Turn floor (docs/specs/turn-floor.md), kernel side, through the RPC seam: the enabled style
+provider's floor lines (contract §137) ride in `style.floor` on every turn, and without a provider
+there is no floor; an empty turn and a repeated input are structural RECOVER
 signs with the recovery ladder in `director.offer`; how a turn closed is recorded and surfaces in
 `recent`; taking an offered route is recorded as adoption; and the combat refusal for a person
 with no stat block names the lawful route, never "narrate without dice"."""
 
 import json
 
-from conftest import CONTENT_DIR, campaign_dir, narrate, open_turn, read_json
+from conftest import CAMPAIGN, CONTENT_DIR, WORKTREE, campaign_dir, create_campaign, narrate, narrate_opening, open_turn, read_json
 from test_director_scoring import rule, threshold, weighted
 from test_rules_families import first_failure, first_success, resolve_err
 
-FLOOR_LINES = json.loads((CONTENT_DIR / "craft" / "beat-directives.json").read_text(encoding="utf-8"))["floor_lines"]
+PROVIDER = read_json(WORKTREE / "mods" / "narration-craft" / "mod.json")
+STYLE = read_json(WORKTREE / "mods" / "narration-craft" / PROVIDER["contributes"]["style"])
+FLOOR_LINES = STYLE["floor"]
 DIRECTOR_GRAPH = json.loads((CONTENT_DIR / "director" / "director-graph.json").read_text(encoding="utf-8"))
 
 
@@ -18,17 +21,31 @@ def director_of(client):
     return client.table("capsule")["director"]
 
 
-# ---- style.floor: every turn, full form and brief form alike -----------------------------------
+# ---- style.floor: every turn, full form and brief form alike, from the provider ----------------
 
-def test_style_carries_the_four_floor_lines_on_every_turn(kernel):
+def test_style_carries_the_providers_floor_lines_on_every_turn(kernel):
     first = open_turn(kernel, "我打量诺特。")["capsule"]
-    assert first["style"]["floor"] == FLOOR_LINES and len(FLOOR_LINES) == 4
-    assert all(line.split(":")[0] in {"uptake", "answer", "voice", "handoff"} for line in FLOOR_LINES)
+    assert FLOOR_LINES and first["style"]["floor"] == FLOOR_LINES
     narrate(kernel, "t1-c1", "诺特抬起头。")
     second = kernel.table("player_input", text="我坐下。")["capsule"]
-    assert second["style"]["floor"] == FLOOR_LINES, "the brief turns keep the floor; only the directive list shrinks"
-    assert len(second["style"]["directives"]) <= 4 < len(first["style"]["directives"])
+    assert second["style"]["floor"] == FLOOR_LINES, "the brief turns keep the floor"
+    assert {row["id"]: row["line"] for row in first["style"]["directives"]} == {id_: entry["full"] for id_, entry in STYLE["directives"].items()}
+    beat = second["director"]["beat"]
+    assert {row["id"]: row["line"] for row in second["style"]["directives"]} == {id_: STYLE["directives"][id_]["brief"] for id_ in STYLE["beats"][beat]}
     assert "director.offer" in second["head"] and "Director signals and offers remain advice" in second["head"]
+
+
+def test_without_a_style_provider_there_is_no_floor(kernel):
+    create_campaign(kernel)
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "narration-craft", "enabled": False})
+    narrate_opening(kernel)
+    first = kernel.table("player_input", text="我打量诺特。")["capsule"]
+    assert "floor" not in first["style"] and "directives" not in first["style"]
+    narrate(kernel, "t1-c1", "诺特抬起头。")
+    second = kernel.table("player_input", text="我坐下。")["capsule"]
+    assert "floor" not in second["style"] and set(second["style"]) == {"language", "register"}
+    # the rest of the floor machinery is the kernel's own and stays: the offer still rides the director section
+    assert "offer" in second["director"]
 
 
 # ---- structural signals: empty turn, repeated input, how the last turn closed -------------------

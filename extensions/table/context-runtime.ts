@@ -25,6 +25,16 @@ type KernelCall = (method: string, params: Row) => Promise<unknown>;
 type Prepared = {binding: ContextBinding; capsule: Row; history: Row; brief: Row; key: string; answering?: string[];
     workspace?: Row; workspaceMode: WorkspaceMode};
 const fingerprint = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const briefingKey = (binding: ContextBinding, capsule: Row): string => {
+    const instructions = object(capsule.mods).instructions;
+    // Frozen package versions bind their bytes. Ignore full/brief wording so ordinary turns reuse
+    // the full briefing, but never reuse an old effective provider or its settings after activation.
+    const providers = Array.isArray(instructions) ? instructions.map(value => {
+        const row = object(value);
+        return {mod: row.mod, version: row.version, settings: row.settings};
+    }) : [];
+    return fingerprint([sourceOf(binding), providers]);
+};
 function payloadContains(value:unknown,content:string,seen=new Set<object>()):boolean {
     if(typeof value==='string')return value===content||value.includes(content);
     if(!value||typeof value!=='object'||seen.has(value as object))return false;seen.add(value as object);
@@ -192,7 +202,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     if (!binding) return fail('context_binding_unavailable');
                     rawBinding = _context; capsule = view; rehydrated = true;
                 }
-                const source = sourceOf(binding);
+                const source = briefingKey(binding, current);
                 if (!brief || briefKey !== source) {
                     let full = current;
                     if (!rehydrated) {
@@ -209,7 +219,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     brief = {kind: 'context_brief', head: 'Keeper-only current book, full craft context and active package instructions. Use with the current turn capsule; this is not player input.',
                         module: full.module ?? null, style: full.style ?? null, instructions: object(full.mods).instructions ?? [],
                         truncated: Array.isArray(full.truncated) ? full.truncated.filter((section: string) => ['module', 'style'].includes(section)) : []};
-                    briefKey = sourceOf(binding);
+                    briefKey = briefingKey(binding, full);
                 }
                 const quotes: Quote[] = [];
                 let unavailable: string | undefined;

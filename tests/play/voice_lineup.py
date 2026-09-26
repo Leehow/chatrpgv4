@@ -78,7 +78,11 @@ def roster_of(campaign_dir: Path) -> dict[str, str]:
         parts = [str(record.get("relationship_to_investigators") or "").strip(),
                  str(record.get("agenda") or "").split("。")[0].split(". ")[0].strip()]
         station = "; ".join(part for part in parts if part) or str(node.get("summary") or "")
-        roster[node["name"]] = station
+        # The kernel's handle strips the kind prefix from the node id (`npc-arty-wilmot` -> `arty-wilmot`); a table
+        # name or semantic name may replace it, so the node id itself is accepted too.
+        node_id = str(node.get("node_id", ""))
+        for handle in {node_id, node_id.removeprefix("npc-"), node_id.removeprefix("npc:")}:
+            roster[handle] = {"name": node["name"], "station": station}
     return roster
 
 
@@ -90,7 +94,9 @@ def lines_of(campaign_dir: Path) -> list[dict[str, Any]]:
             who = span.get("who") or {}
             if not who.get("npc"):
                 continue
-            rows.append({"turn": record.get("turn"), "who": who.get("name") or who.get("npc"), "text": span.get("text", "")})
+            # Pair by handle: the roster is the graph's, the table speaks in play_language (a Chinese table's
+            # `who.name` never equals the English node name), so the name is only what the judge is shown.
+            rows.append({"turn": record.get("turn"), "who": who.get("npc"), "name": who.get("name") or who.get("npc"), "text": span.get("text", "")})
     return rows
 
 
@@ -98,8 +104,19 @@ def cmd_build(args: argparse.Namespace) -> int:
     campaign_dir = coc_home() / ".coc" / "campaigns" / args.campaign
     out = Path(args.out) if args.out else coc_home() / ".coc" / "playtests" / args.run / "lineup"
     out.mkdir(parents=True, exist_ok=True)
-    roster = roster_of(campaign_dir)
-    rows = [row for row in lines_of(campaign_dir) if row["who"] in roster]
+    stations = roster_of(campaign_dir)
+    rows = lines_of(campaign_dir)
+    # A person this table registered itself (`apply person`, an untold name given an epithet) has no graph node;
+    # they are still a mouth in the lineup, with only their table name for a station.
+    for row in rows:
+        stations.setdefault(row["who"], {"name": row["name"], "station": "（本桌登记的人）"})
+    # The judge sees each person under the name this table used for them, in its play language.
+    shown: dict[str, str] = {}
+    for row in rows:
+        shown.setdefault(row["who"], row["name"])
+    roster = {shown.get(handle, entry["name"]): entry["station"] for handle, entry in stations.items() if handle in shown}
+    for row in rows:
+        row["who"] = shown[row["who"]]
     rng = random.Random(args.seed)
     order = list(range(len(rows)))
     rng.shuffle(order)

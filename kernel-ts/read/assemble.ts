@@ -12,6 +12,7 @@ import { evidenceAcquired, evidenceDeliveryRecords } from "./continuity.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
 import { offerObligations } from "../mods/object-offer.js";
 import { modContext, activeMods } from "./mods.js";
+import { STYLE_BUDGET, styleProvider, styleSection } from "./style.js";
 import { obligationNodes, sceneObligations, capsuleRow } from "./obligations.js";
 import { mechanicsOf } from "./mechanics.js";
 import { directorOffer } from "./offer.js";
@@ -100,7 +101,8 @@ export const SLICE3_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     director: 3072,
     situations: 1024,
     // 1536 since the turn floor (docs/specs/turn-floor.md D1): the brief form carries the four floor lines beside the beat's directives.
-    style: 1536,
+    // Contract §137: the one number the load-time check of a `context.style.v1` package measures against.
+    style: STYLE_BUDGET.brief,
     // Contract §40.7: the lines-shaped words of everyone present, trimmed exchanges-first before a person is dropped.
     voices: 3072
 });
@@ -330,7 +332,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         scene = graph.scene(world.active_scene),
         present = npcsPresent(graph, world, scene);
     const dg = await DirectorGraph.load(context),
-        craft = await TextGraph.load(context, dg.beats),
+        craft = await TextGraph.load(context),
         ontology = await Ontology.load(context),
         rules = await RuleObservations.load(context);
     const language = await playLanguageOf(context, meta);
@@ -368,9 +370,10 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         memoryAnchors = [...presentNames, ...party.map(sheet => string(sheet.name)), graph.handle(scene), ...evidenceAnchors(graph, world, campaign.records)];
     // Contract §134.10: the scene's stated obligations, from the same projection the options read issues,
     // after the continuations and before the quests so a scene row outlives a quest row at the budget.
+    const active = await activeMods(context, world);
     const sceneRows = obligationNodes(graph, scene).length ? sceneObligations(graph, world, scene, {
         receipts: [...campaign.records.flatMap(record => array(record.receipts)), ...array(turn.receipts)],
-        modChecks: (await activeMods(context, world)).flatMap(mod => array(mod.contributes.checks).map(check => ({ mod: string(mod.id), check })))
+        modChecks: active.flatMap(mod => array(mod.contributes.checks).map(check => ({ mod: string(mod.id), check })))
     }).map(capsuleRow) : [];
     const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...continuationRows(continuations), ...sceneRows, ...questObligations(graph, world), ...promiseObligations(memory), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here), ...loopObligation(worldlines), ...offerObligations(world)];
     const sig = signals({
@@ -416,7 +419,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         worldlines,
         rulings: rulingsForCapsule(campaign.logs.get("rulings.jsonl") ?? [], session?.kind ?? null, present.map(n => graph.handle(n)), graph.handle(scene), graph.moduleId, party.map(sheet => `investigator:${string(sheet.id)}`)),
         memory: capsuleMemory(memory, new EntityIndex(graph, party, row(world.scene_labels)), memoryAnchors),
-        style: craft.style(language, string(meta.register || "purist"), director.beat, full),
+        // Contract §137.3: language and register on every table; the craft lines only from the enabled provider.
+        style: styleSection(craft, language, string(meta.register || "purist"), styleProvider(active), dg.beats, director.beat, full),
         recent: campaign.records.filter(record => number(record.turn) < number(turn.turn) && (truth(record.player_text) || truth(record.rendered_text))).slice(-2).map(record => ({
             turn: record.turn,
             player: record.player_text ?? null,
@@ -450,7 +454,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         if (fitBudget(sections[name], budget, "last"))
             truncated.push(name);
     for (const [name, budget] of Object.entries(SLICE3_BUDGETS))
-        if (fitBudget(sections[name], name === "style" && full ? 2048 : budget, "last"))
+        if (fitBudget(sections[name], name === "style" && full ? STYLE_BUDGET.full : budget, "last"))
             truncated.push(name);
     if (fitBudget(sections.rulings, 1024, "last"))
         truncated.push("rulings");

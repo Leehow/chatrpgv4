@@ -115,3 +115,48 @@ test('an unbound panel does not call a package absent from a campaign or permit 
   assert.equal(text(view.tree).includes(captions.notAdded),false);
   assert.equal(campaignToggle(view).props.disabled,true);
 });
+
+test('compatibility rows hide only on an explicit false flag, and moves still send the full order', async () => {
+  const hidden = {...row('1.3.0', {version:'1.3.0', enabled:false}), id:'npc-voice', name:'NPC Voice', superseded_by:'narration-craft', compatibility_visible:false};
+  const shown = {...row('1.2.0', {version:'1.2.0', enabled:true}), id:'npc-voice', name:'NPC Voice', superseded_by:'narration-craft', compatibility_visible:true};
+  const pending = {...row('1.3.0', {version:'1.3.0', enabled:false}, {version:'1.2.0', enabled:true}), id:'npc-voice', name:'NPC Voice', superseded_by:'narration-craft', compatibility_visible:false};
+  const plain = {...row('1.0.0', null), id:'shelf-mod', name:'Shelf'};
+  const craft = {...row('1.7.0', {version:'1.7.0', enabled:true}), id:'narration-craft', name:'Narration Craft'};
+  const answer = {campaign:'selected', mods:[plain, hidden, craft], order:['shelf-mod','npc-voice','narration-craft'], ui:{tag:'en', words:{mods:captions}}};
+  const hiddenView = panel(answer); await hiddenView.flush();
+  assert.equal(text(hiddenView.tree).includes('NPC Voice'), false);
+  assert.equal(text(hiddenView.tree).includes('Shelf'), true, 'missing metadata is not a compatibility hide');
+  assert.equal(text(hiddenView.tree).includes('Not added'), true, 'a null active lock is not the hide signal');
+  const visible = panel({...answer, mods:[plain, shown, craft]}); await visible.flush();
+  assert.equal(text(visible.tree).includes('NPC Voice'), true);
+  const moving = panel(answer); await moving.flush();
+  control(moving, 'button', `Narration Craft ${captions.earlier}`).props.onClick();
+  await moving.flush();
+  assert.deepEqual(moving.calls.find(call => call.method === 'mods.order').params.order,
+    ['narration-craft','npc-voice','shelf-mod']);
+  const queued = panel({...answer, mods:[plain, pending, craft]}); await queued.flush();
+  assert.equal(text(queued.tree).includes('NPC Voice'), true, 'a pending legacy change stays discoverable');
+});
+
+test('a move whose ids are absent from the order list does not submit undefined', async () => {
+  const plain = {...row('1.0.0', {version:'1.0.0', enabled:true}), id:'shelf-mod', name:'Shelf'};
+  const craft = {...row('1.7.0', {version:'1.7.0', enabled:true}), id:'narration-craft', name:'Narration Craft'};
+  const view = panel({campaign:'selected', mods:[plain, craft], order:['ghost'], ui:{tag:'en', words:{mods:captions}}});
+  await view.flush();
+  control(view, 'button', `Narration Craft ${captions.earlier}`).props.onClick();
+  await view.flush();
+  assert.equal(view.calls.some(call => call.method === 'mods.order'), false);
+  assert.equal(JSON.stringify(view.calls).includes('undefined'), false);
+});
+
+test('a suppressed default switch is disabled and named, and the campaign switch stays usable', async () => {
+  const voice = {...row('1.3.0', {version:'1.3.0', enabled:true}), id:'npc-voice', name:'NPC Voice', default_enabled:false, default_suppressed_by:'narration-craft'};
+  const craft = {...row('1.7.0', {version:'1.7.0', enabled:true}), id:'narration-craft', name:'Narration Craft', default_enabled:true};
+  const view = panel({campaign:'selected', mods:[voice, craft], order:['npc-voice','narration-craft'], ui:{tag:'en', words:{mods:captions}}});
+  await view.flush();
+  const boxes = nodes(view.tree, node => node.type === 'input' && node.props.type === 'checkbox');
+  assert.equal(boxes[0].props.disabled, false);
+  assert.equal(boxes[1].props.disabled, true);
+  assert.equal(boxes[1].props.title, '→ Narration Craft');
+  assert.equal(view.calls.some(call => call.method === 'mods.defaults'), false);
+});
