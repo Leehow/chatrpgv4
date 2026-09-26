@@ -122,7 +122,7 @@ the Keeper's `why` leaked into the state; each caught.
 
 ## BR-05 — Travel minutes are data, filled once at build
 
-Status: ready-for-agent
+Status: ready-for-human (implemented 2026-09-26 on `claude/br05-travel-minutes-20260926` at `de2023d3b` — code `dd377c985`, starter data `de2023d3b`; awaiting review and merge, see Comments)
 Depends on: BR-01 merged (the registry). Independent of BR-02–BR-04.
 
 **What.** Spec D6. Module registration fills `travel_minutes` on every `route-to` relation that lacks it:
@@ -250,3 +250,106 @@ follow-up commit and green; the other, `workspace-lifecycle`'s one-lock case, a 
 timed out waiting 30 s for a JSON line under `-n 12` (`test_table_branch` dormant line, `test_transactions`
 idempotent replay) and pass 2 / 2 on the Mac, and the two `test_driver.py` cases the box always fails (63 / 63 on
 the Mac, where the driver runs). Nothing red touches the recovery.
+
+### 2026-09-26 — BR-05 implemented (`claude/br05-travel-minutes-20260926`, code `dd377c985`, starter data `de2023d3b`)
+
+Contract: `docs/kernel-rpc.md` §138.9. What and where:
+- **Registry.** `kernel-ts/rules/bands.ts` gains `route-to.travel_minutes` → `time-costs` · `categories`, `supplies:
+  "default"`, rows restricted to `local_travel` / `long_travel`; `bandRows` refuses a default outside its range and a
+  registry row the table lacks.
+- **The one writer.** `kernel-ts/modules/route-travel.ts` (no imports; the kernel and the host load it):
+  `applyTravelFill` writes the row's `default` (or 0 for `adjacent`) and `travel: {basis: "banded", band, confidence}`
+  on every untimed `route-to` between the two scenes of an entry; `sameRoad` first times the other direction of a road
+  already timed one way (`{basis: "stated"}` when the source has no provenance); a relation with minutes is never
+  touched; an entry that does not fit is skipped with its reason. `preserveTravel` keeps a road's minutes when
+  `assembleVisual` rebuilds relations from claims at the next publication.
+- **The question.** `runtime/jev/travel-band-domain.ts` (family `travel-fill` v1): one Choice per road (an unordered
+  scene pair), criteria = `adjacent` + each travel row by its own name and range, state = the two scenes' name, summary,
+  places and place words (no ids), at most 12 roads per request, requests in parallel, gate `PI_COC_BAND_MIN_CONFIDENCE`
+  (default 0.5). Host glue `extensions/module/travel-fill.ts` (`askTravel`, the one new `createDecisionAdapter` site,
+  registered in the SL-00 inventory as an app-play-gated leaf; `createTravelFill`, `unfilledRoads`, `newRoads`).
+- **Seam (a), PDF books:** the reading service asks the roads a draft adds just before `module.read.finish`, which gains
+  `travel?: [{from, to, band, confidence}]` and applies it inside the same publication (result `travel: {filled,
+  skipped}`); wired in `extensions/module/index.ts` and `pipicoc/onboarding-worker.ts`. Not the registration fallback:
+  the pipeline has a host step after the reader, and Jev is there.
+- **Seam (b), starters:** `scripts/fill-starter-travel.ts`, run once with live Jev (key from the App vault through a
+  scratch preload, never written anywhere).
+
+Decisions taken inside the ticket's scope:
+- **One question per road, not per relation.** A road is an unordered scene pair; both directions (and duplicate
+  relations) take the one answer, so "the same road is the same length" holds in both directions. 141 relations were
+  asked as 89 roads.
+- **Inside the publication, not a second generation.** `module.read.finish` is the one publication entry (§22); a
+  separate generation would move the source revision under a turn's own source preparation (§122) between its advance
+  and its validation. The step never fails a reading: a throw leaves the publication as before, a bad entry is skipped,
+  a broken table is `table_unavailable`.
+- **`stated` today.** The reader emits no time on a road (claims carry no properties; `time_cost` is catalogued for
+  `rule` / `hazard` only, and reading a rule's time as a road's is a semantic judgement). So `stated` is minutes the
+  graph already carries, left alone and never asked, and the other direction of such a road (`sameRoad`).
+- **12 roads per request**, below the packing limit, because every question reads the shared state (the skill's "large
+  irrelevant state" failure). **Only new roads are asked at a publication** (a restated `known_claims` claim is not);
+  a road published while Jev was down stays at 0 until the book is rebuilt.
+- **Starter bytes and what is bound to them.** The script edits relation properties in place (the reviewed diff is the
+  roads only; it refuses to write if anything else in the parsed graph would change), updates mystery-house's manifest
+  digest, and re-keys the bundled character guidance of the-haunting and mystery-house (`graph_sha256`, `fingerprint`)
+  after reproducing each old fingerprint with the App's `guidanceFingerprint` — without that, both starters would
+  silently drop their reviewed guidance and regenerate it per install. The guidance text is untouched. **Owner to
+  confirm this re-keying is acceptable.**
+- `tests/play/fixtures/voice-bench/build.mjs` emits no minutes; rerunning it requires rerunning the fill.
+
+Per-starter fill (live Jev, `jev-1.13.0`, gate 0.5; 9 requests, ≈ $0.0019, 0.4–0.7 s per starter):
+
+| starter | `route-to` relations | roads asked | relations filled | `adjacent` (0) | `local_travel` (30) | `long_travel` (360) | left open |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| the-haunting | 56 | 36 | 54 | 6 (4 roads: house floors, basement, confrontation) | 48 | 0 | 2 — corbitt house ground ↔ previous tenants, 0.43 (adjacent 0.61 / local 0.38) |
+| mystery-house | 77 | 47 | 71 | 14 (8 roads) | 55 | 2 (the Costas' rooms ↔ Danvers visiting ward, 0.58) | 6 — Crane's Office ↔ the Costas' rooms 0.48, Crane's Office ↔ Crowe House ground floor 0.49, alley gossip ↔ the Costas' rooms 0.42, open street ↔ rotten wharf 0.32 |
+| voice-bench | 2 | 1 | 2 | 2 (teahouse ↔ dock, 0.75) | 0 | 0 | 0 |
+| the-haunting-rulebook | 6 | 5 | 6 | 4 (3 roads) | 2 | 0 | 0 |
+
+Every left-open road is below the gate (none unanswered, none unconfigured). One judgement worth a look: mystery-house's
+Danvers ward is `long_travel` (360 min) from the Costas' rooms but `local_travel` from the North End clinic (0.71) —
+Jev's answers as given; the band is data, correctable by a later run with a better state or by hand review.
+
+Tests (single files on the Mac; kernel rebuilt before each pytest; nothing run in parallel):
+- New: `tests/kernel/test_route_travel.py` 11/11 (every shipped road's minutes a banded default or absent, both
+  directions agreeing, ×4 starters; a move to a filled exit lands with the road's minutes and moves the clock in the one
+  call; `local_travel` 30 / `long_travel` 360 / `adjacent` 0 through `module.read.finish`; no `travel` leaves `{}`; five
+  bad entries skipped by reason while the reading publishes; a filled road survives the next publication and is never
+  overwritten). `tests/extension/travel-fill.test.mjs` 8/8.
+- Adjusted for the data (expectation only where travel is not the subject, or reading the edge where it is):
+  `test_starters.py` 8/8 (reprojection diff with the road keys stripped, asserting they sit on `route-to` only;
+  pre-RD-04 diff = RD04_CHANGES + exactly the filled roads' two keys), `test_apply.py` 20/20 (the default move now
+  asserts the edge's minutes), `test_narrate.py` 9/9 (the scene card's minutes read from the edge),
+  `test_rules_families.py` 16/16 and `test_worldline_due.py` 8/8 (the confrontation walk passes `travel_minutes: 0`, as
+  the parent's walk effectively was), `ts-kernel-read.test.mjs` 111/111 (the captured oracle outcomes answered the
+  graph before the data change, so the roads are read as they were; captures untouched).
+- Re-run green: 38 kernel files, 580 passed / 0 failed (including `test_worldline*`, `test_corpus`, `test_capsule*`,
+  `test_visual_reading`, `test_band_operations`, `test_system_language`, `test_rules_tables_register`); 44 extension
+  files, 652 passed / 0 failed (including `reading-service` 27, `band-recovery` 8, `control-flow-inventory` 4,
+  `system-language` 5, `turn` 32, `ts-kernel-modules` 78, `continuity-adaptation` 43). `npm run check:kernel` clean.
+- Golden walk (parent kernel `da64930f5` + parent content vs this branch, each starter, frozen clock, seed 5, the move
+  with `travel_minutes: 0`): 24/24 reads of `table.capsule`, `table.apply.options`, `table.resolve.options` at the start
+  scene and after one move identical except the exits' travel minutes in their two projections (`where.exits[]`, the
+  move candidates' `description.travel_minutes`) and the three digests that fold the graph's bytes
+  (`_context.source_revision`, `_context.task_source_revision`, `table.apply.options.revision`); 10/24 byte-identical
+  raw (all `resolve.options`, and the rulebook's `apply.options`, whose start scene has no `route-to`).
+
+Mutation record (each restored by copy afterwards):
+
+| mutation | caught by |
+| --- | --- |
+| the stated-minutes guard dropped (`unfilledRoad` true for any `route-to`: overwrite) | kernel `test_a_filled_road_survives_the_next_publication_and_is_never_overwritten`; node "the writer", "the roads asked", the gate test, the failed-request test |
+| the default replaced by a roll inside `[min, max]` | kernel `test_a_publication_lands_the_hosts_band_as_the_rows_default[local/long]` and the survive test; node "the writer" |
+| `adjacent` writes the category default instead of 0 | kernel `…rows_default[adjacent-0]`; node "the writer" |
+| the gate removed (below-gate answers written) | node "above the gate…" and "below the gate, without a key, or when the step throws…" |
+| the re-assembly drops the minutes (`preserveTravel` removed from `assembleVisual`) | kernel survive test |
+| `module.read.finish` ignores `travel` | kernel `…rows_default` ×3, the skipped test, the survive test |
+| the reading service does not send the bands | node "the reading service sends the named band…" |
+| `sameRoad` removed | node "the writer" |
+| the move ignores the edge (`minutes = 0`) | kernel `test_a_move_to_a_filled_exit_lands_with_the_roads_minutes` |
+
+Not covered here: the turn-3 replay (`experiments/single-loop-routing`: the clerk's move to the morgue carrying the edge's
+minutes, the recorded Keeper `time 25` reported as redundant) is the integrator's; the full `test:ext` and `pytest
+tests/kernel tests/play`; a live PDF book publication through the real reader (the reading-service seam is covered by the
+scripted-reader test and the kernel publication tests); whether the Keeper stops writing a road's `time` (no prompt
+change; the kpi and offer ledger will say).
