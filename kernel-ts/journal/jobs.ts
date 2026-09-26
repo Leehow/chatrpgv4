@@ -9,6 +9,7 @@ import { personRecord, sceneLabel } from '../read/capsule.js';
 import { occurs, nameWords, toldTurn } from './naming.js';
 import { array, row, clone, string, number, integer, truth, repr, sorted, length, normalize, type Row } from '../read/values.js';
 import { FAILURE_REASONS, committedRecords, logs, proseOf, writeLines } from '../memory/jobs.js';
+import { isStakesRoll } from '../npc/stakes-receipt.js';
 import {issueSourceRef,resolveSourceRef,type SourceSnapshot} from '../../runtime/jev/source-ref.ts';
 import type {SourceRef,ScopeBinding} from '../../runtime/jev/value-contracts.ts';
 export const JOURNAL_REFERENCE_PROTOCOL='journal-reference-v2';
@@ -97,7 +98,8 @@ function collectNamed(graph: ModuleGraph, record: Row, entries: Row): Array<[str
             add(npcNode(graph, receipt.from));
         else if (receipt.kind === 'npc')
             add(npcNode(graph, receipt.npc) || npcNode(graph, receipt.handle));
-        else if (receipt.kind === 'roll') {
+        // §139.8: the Keeper's stakes die is not a roll interaction; it names no one into the journal.
+        else if (receipt.kind === 'roll' && !isStakesRoll(receipt)) {
             add(npcNode(graph, receipt.npc));
             add(npcNode(graph, receipt.actor));
         }

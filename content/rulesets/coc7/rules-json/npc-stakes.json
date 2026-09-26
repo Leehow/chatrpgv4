@@ -1,0 +1,72 @@
+{
+  "contract_id": "coc.npc-stakes.v1",
+  "schema_version": 1,
+  "note": "Contract §139.8 (docs/specs/npc-acts-first.md D9): the Keeper's stakes die for a person who has no prepared reaction this turn. It is the table's die, not the CoC 7e Luck roll: Luck is the player's, per investigator, spent and recovered; this die is the Keeper's, per situation. Once per person per turn, before the table generates what that person does, the kernel takes a base rung (base_by_disposition over the person's combat disposition, else base_by_archetype over the rulebook archetype the table pinned for them, else default_rung), moves it by the step of every shift whose condition holds, clamps it to the first and last rung, and rolls 1d100: at most severe_at_most is `severe`, else at most escalates_at_most is `escalates`, else `nothing`. Rungs are listed from the least dangerous to the most, and neither number falls from one rung to the next. No rung makes `severe` certain. The line of the rung and outcome is what the generator is told: a degree, never an action. Every number lives here; the kernel writes no threshold of its own. Shift conditions: attacked_this_turn (this turn an attack roll was made against the person, or they lost hit points), hp_at_most_half (hit points at most hp_fraction_at_most of their maximum), table_clock_past_half (a threat clock of this table stands above clock_fraction_above of its segments), stance_friendly (the person's stance word from the ledger, §17.3, is one of stance_in). A shift absent from this table moves nothing.",
+  "rungs": [
+    {
+      "name": "calm",
+      "severe_at_most": 2,
+      "escalates_at_most": 12,
+      "lines": {
+        "severe": "This turn, against their usual way, this person does something more dangerous than anything they have done so far.",
+        "escalates": "This turn, this person goes a little further than they have so far."
+      }
+    },
+    {
+      "name": "tense",
+      "severe_at_most": 5,
+      "escalates_at_most": 25,
+      "lines": {
+        "severe": "This turn, this person does something more dangerous than anything they have done so far.",
+        "escalates": "This turn, this person goes a clear step further than they have so far."
+      }
+    },
+    {
+      "name": "dangerous",
+      "severe_at_most": 12,
+      "escalates_at_most": 40,
+      "lines": {
+        "severe": "This turn, this person does the most dangerous thing they could do right now.",
+        "escalates": "This turn, this person does something more dangerous than anything they have done so far."
+      }
+    },
+    {
+      "name": "lethal",
+      "severe_at_most": 25,
+      "escalates_at_most": 60,
+      "lines": {
+        "severe": "This turn, this person does the most dangerous thing they could do right now, and holds nothing back.",
+        "escalates": "This turn, this person does something more dangerous than anything they have done so far, and holds little back."
+      }
+    }
+  ],
+  "base_by_disposition": {
+    "fights_to_the_end": "dangerous",
+    "fights_then_flees": "tense",
+    "avoids_fighting": "calm",
+    "surrenders": "calm"
+  },
+  "base_by_archetype": {
+    "ordinary_adult": "calm",
+    "capable_adult": "tense",
+    "dangerous_actor": "dangerous"
+  },
+  "default_rung": "tense",
+  "shifts": {
+    "attacked_this_turn": {
+      "step": 1
+    },
+    "hp_at_most_half": {
+      "step": 1,
+      "hp_fraction_at_most": 0.5
+    },
+    "table_clock_past_half": {
+      "step": 1,
+      "clock_fraction_above": 0.5
+    },
+    "stance_friendly": {
+      "step": -1,
+      "stance_in": ["warm"]
+    }
+  }
+}

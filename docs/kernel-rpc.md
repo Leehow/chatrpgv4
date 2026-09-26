@@ -23900,3 +23900,121 @@ an empty `flee_blocked_by` (the grappled Corbitt is stamped `fled` and the fight
 shape), the continuation restored, the escape change reverted, `prone` kept on the fled person, the view's filter
 removed and the old NPC-flight hint restored each turn their tests red. `rule-graph-table-digests.json` carries the
 new bytes of `combat.json`.
+
+**139.8 The stakes die: where nothing is prepared, a person may go further (ticket 09, spec D9).** The owner's addition of
+2026-09-26: *where the story has nothing prepared, the table can roll for it -- a high roll, and the person may pull a gun.*
+Ruled the same day: the table's own die and table, not the CoC 7e Luck roll (Luck is the player's, per investigator,
+spent and recovered; this die is the Keeper's, per situation).
+
+- **Method.** `npc.stakes {campaign, name}` -- host-only, a write. The act step (§139.3) calls it before `npc.situation`
+  for the person it is about to generate an act for; nothing else calls it, and the Keeper has no tool for it. `name`
+  and the campaign read as for `npc.situation` (`invalid_params` without a name, `unknown_entity` for no one,
+  `campaign_not_ready` while setting up). A turn that is not `open` or `acting` is refused `turn_state` (fix: roll during
+  an open turn, after `player_input`, before the Keeper delivers); nothing is written. In order:
+  1. **Once per person per turn.** When the open turn already holds this person's stakes receipt (kind `roll`, family
+     `stakes`, `actor` naming them), the answer is that receipt's `{stakes: {rung, outcome, line}}` and nothing is
+     written -- the same answer as the call that wrote it.
+  2. **Prepared.** When the book preordains this person's reaction -- a stated obligation of their scene with
+     `reaction: "preordained"` (§134.5, the owner's Q2 shape), whose `who` is them and whose state is `open` or
+     `blocked` -- the answer is `{stakes: null, reason: "prepared"}` and nothing is written. It is read from the same
+     issued obligations as the packet's `constraints` (`placedConstraints` → `preordainedReaction`,
+     `kernel-ts/npc/situation.ts`), not a second computation: "nothing prepared" is structural.
+  3. **Otherwise** the rung is read, 1d100 is rolled on the kernel's seeded die (`context.rng.randint(1, 100)`: seeded per
+     turn at `player_input` from the line's seed, locked for the process by `COC_KERNEL_SEED`, as every die of the
+     engine), one receipt is appended to the open turn, and the answer is `{stakes: {rung, outcome, line}}`.
+  The turn's state is not changed (a receipt in an `open` turn is legal, as the late-map receipts of `player_input`).
+- **What counts as prepared, and why only that (coordinator, 2026-09-26, after the first build of this ticket).** The owner
+  asked for the die "when the story has nothing prepared", so the test is whether the book has already written how this
+  person reacts -- a preordained reaction, which the book states in place of the reaction roll -- and nothing else. A
+  Mod's first-contact row (`pending_contacts`, e.g. `natural-npc:first-impression`) is a generic mechanic every first
+  meeting carries, and an open obligation that names the person (Knott's commission) is plot the book wants to happen,
+  not a reaction to what was just done to them; counted as "prepared", the two made nearly everyone at a shipped table
+  read as prepared (every person not yet met, and Knott for as long as his commission stands), which defeats the owner's
+  intent. Both stay in the packet's `constraints`, so the generator still honours them; they do not suppress the die. A
+  preordained reaction whose obligation is settled or waived has been played; the book has nothing more prepared for the
+  person, and the die rolls.
+- **The table** is data: `content/rulesets/coc7/rules-json/npc-stakes.json`, `contract_id: "coc.npc-stakes.v1"`, the
+  convention of `npc-combat-disposition.json` (§11.5.3): every number is in the table and the kernel writes no threshold.
+  `rungs` are ordered from the least dangerous to the most, each `{name, severe_at_most, escalates_at_most, lines:
+  {severe, escalates}}`: a roll at most `severe_at_most` is `severe`, else at most `escalates_at_most` is `escalates`,
+  else `nothing`. The `lines` are English degree sentences for the generator -- how far this person goes, never an
+  action or an example of one. `base_by_disposition` maps the four disposition words to rungs, `base_by_archetype` the
+  archetype ids of `npc-stat-archetypes.json`, `default_rung` names one; `shifts` are `{attacked_this_turn,
+  hp_at_most_half, table_clock_past_half, stance_friendly}`, each `{step, <its parameter>}` with a signed integer step.
+  The shipped rungs are `calm`, `tense`, `dangerous`, `lethal`; the default is `tense`.
+- **Checked whole** (`stakesTable`, `kernel-ts/npc/stakes.ts`), before anything is rolled; a table that fails is
+  `campaign_not_ready` with `fix: restore content/rulesets/coc7/rules-json/npc-stakes.json` and the offending entry in
+  `details`: the contract id; at least one rung, each with its own name, only its four keys (and an optional `note`),
+  integers with `0 <= severe_at_most <= escalates_at_most <= 100` and `severe_at_most < 100` (no rung makes `severe`
+  certain: spec D9, "lethal is only likely"), neither number falling from one rung to the next, exactly one non-empty
+  line for `severe` and one for `escalates`; base maps whose keys are the closed words (the four dispositions; the
+  archetype ids) and whose values name rungs; a `default_rung` that names one; `shifts` an object whose keys are the four
+  the kernel reads (a shift left out moves nothing; an unknown one is refused), each with an integer `step` and its one
+  parameter: `hp_fraction_at_most` and `clock_fraction_above` numbers from 0 to 1, `stance_in` a non-empty list of
+  stance words of `npc-stance.json` (§17.3). The table is registered as every ruleset table is: the kernel names it, so
+  `tests/kernel/test_rules_tables_register.py` counts it read. It seats no module shape, so §136's catalog of mechanical
+  shapes and `mechanicsRefusals` do not change.
+- **The rung.** Base: the person's combat disposition (`dispositionOf`, §11.5.3: the Keeper's word, else the record's
+  authored one, else the inferred one) through `base_by_disposition`; else the archetype the table pinned for them
+  (`npcProfileOf(...).archetype`, §34.10) through `base_by_archetype`; else `default_rung`. Then the step of every shift
+  whose condition holds, in the table's order, summed, and the index clamped to the first and last rung. The conditions
+  are structure only:
+  - `attacked_this_turn`: a receipt of the open turn is a `roll` whose `combat_action` is `attack`, whose `npc` (the
+    person the roll was made against) is them and whose actor is not, or an `hp` `delta` whose `subject` is them with
+    `after` below `before`;
+  - `hp_at_most_half`: `state.hp / state.hp_max` as the §139.1 packet reads it (the fight's participant, else the stat
+    block) is at most `hp_fraction_at_most`; no hit points, no shift;
+  - `table_clock_past_half`: some threat clock of this table -- the book's (`clocks[]` of every threat, where `apply
+    threat` moved it, else where the book started it) or one the table started (§138.9) -- stands above
+    `clock_fraction_above` of its segments (a clock at exactly half is not past it);
+  - `stance_friendly`: their stance as it folds now (`stanceNow`, §17.3) is one of `stance_in` (the shipped table: `warm`).
+- **The receipt**, appended to `turn.receipts`:
+
+  ```
+  {id: "roll:stakes-<handle>-t<turn>", kind: "roll", family: "stakes", call_id: "t<turn>-stakes-<handle>",
+   actor: <handle>, actor_label: <the table's label>, actor_is_investigator: false,
+   rung: <name>, base: {rung, from: "disposition" | "archetype" | "default", word?}, shifts: [<names, table order>],
+   roll: 1..100, severe_at_most, escalates_at_most, outcome: "severe" | "escalates" | "nothing",
+   line: <the rung's line for the outcome> | null, visibility: "keeper", at}
+  ```
+
+  It is a `roll` because the die is a hidden die and §12.1's receipt kinds are closed; no canonical event is written
+  (the §12.1 event set is closed too), so the receipt and the turn record carry it, as a threat tick does. Telemetry
+  is the receipt itself: no lane row.
+- **Who sees it (§16.5).** `visibility: "keeper"`: the §16.2 projection carries the row for the log (`kind: "roll"`,
+  `skill: null`, `family: "stakes"`, `call`, `visibility: "keeper"`), and a surface that renders for the player hides it
+  entirely -- the player is never told the die was rolled. The Keeper sees the receipt in `table.status` and the turn's
+  receipts; the prose does not mention it (the Keeper-side wording is ticket 06's). The generation step never sees the
+  receipt, the thresholds or the roll: only `{rung, outcome, line}` in its packet.
+- **It is not a check.** It has no skill, target or pass, so every reader that takes a roll for a check skips it by one
+  predicate (`isStakesRoll`, `kernel-ts/npc/stakes-receipt.ts`): the NPC ledger's fold records no interaction from it
+  (`foldNpcTurn`), the committed facts state nothing from it (`committedFacts`), the Director's `last_roll` is the turn's
+  last check, not the die rolled after it (`lastRollOf`), the NPC journal names no one from it (`collectNamed`), and the
+  situation's `happened` has no sentence for it.
+- **`npc.situation` gains `stakes`** (amends §139.1's result shape): `stakes: {rung, outcome, line} | null`, after
+  `constraints` -- this turn's stakes receipt for this person read through the same view (`stakesView`), `null` when none
+  was rolled this turn (prepared, not yet called, or a new turn). The read never rolls, and the byte budget never cuts
+  it. The generation step (§139.2) receives it with the rest of the packet unchanged; the act step reads
+  `packet.stakes?.outcome === "severe"` (absent is not severe) to allow the weapon of spec D9's binding (§139.3).
+- **Three ends (§31).** Writer: `npc.stakes`, called by the act step (§139.3) once per person it generates for. Reader:
+  the §139.1 packet's `stakes`, sent whole to the generator (§139.2); the Keeper through the receipt. Actor: the act the
+  generator writes to that degree (`content/setup/npc-act.md` says what `stakes` means), bound by §139.3 -- and on
+  `severe`, the one weapon §139.3 may add. Until §139.3 lands the method has no product caller; it is exercised by
+  `tests/kernel/test_npc_stakes.py` over the emitted kernel.
+- **Not here.** No die for a scene without a person (a Director-level random event is another spec); no Jev choice of
+  the rung (band-then-roll is on `0.9.5a`; after the merge `default_rung` becomes Jev's choice among the rungs, the same
+  shape); the lines stay English data and are never shown to the player.
+
+Tests: `tests/kernel/test_npc_stakes.py` -- Corbitt with the Mod's first-contact row still to come and a landed punch:
+a rung one above the table's default, `shifts: ["attacked_this_turn"]`, with seeds 3, 2 and 1 giving `severe`,
+`escalates` and `nothing` exactly as the rung's thresholds read the roll; the receipt in `table.status` with
+`visibility: keeper`, absent from the player-facing rows, the same `{rung, outcome, line}` in `npc.situation` and no
+new `happened` sentence; Knott with an open commission obligation and a pending first-impression row rolls, both rows
+kept in his `constraints`; Arty Wilmot, whose reaction the book preordains, answers `prepared` and writes nothing until
+that obligation is waived, then rolls; a second call answers the same and writes nothing, a closed turn is
+`turn_state`, the next turn rolls anew; the ledger, the committed facts, the Director's `last_roll` and the journal do
+not read the die; the base from an authored disposition and from a pinned archetype; each shift, a clock at exactly
+half not past it, and the clamp at the last rung; four malformed tables refused before a roll. Mutation record (copy
+and restore): the table without `attacked_this_turn`, the kernel not reading it, the receipt without `visibility:
+keeper`, each reader's guard removed, the once-per-turn and the prepared checks removed, and contact rows and
+obligations counted as prepared again -- each fails its case.
