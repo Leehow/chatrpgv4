@@ -6,6 +6,7 @@ import { isKernelError } from "../kernel/client.ts";
 import { ReadingService } from "./reading-service.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
 import {createFreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
+import {createTravelFill} from './travel-fill.ts';
 
 type Row = Record<string, any>;
 type Call = (method: string, params: Row) => Promise<any>;
@@ -37,6 +38,7 @@ export default function (pi: ExtensionAPI) {
         const home = bridge.runtime.home, current = bridge;
         reading = new ReadingService({
             navigateFresh: createFreshSourceNavigator({runtime: current.runtime, call: (method, params) => current.call(method, params), env: {...process.env}}),
+            travel: createTravelFill({env: {...process.env}, contentRoot: current.runtime.contentRoot}),
             call: async (method, params) => {
                 const result = await current.call(method, params);
                 if (method === 'module.read.finish' && params.outcome === 'completed')

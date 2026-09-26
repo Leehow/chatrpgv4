@@ -19014,3 +19014,117 @@ controlled typed endpoint: the pin under `t1-c2` and the retry under `t1-c1`; th
 `tests/play/test_kpi.py` (the basis section). The fake kernel refuses an unpinned person (`FAKE_KERNEL_UNPINNED`) and a
 wrong profile against its own table (`FAKE_KERNEL_WEAPON_PROFILES`), accepts the pin, and answers `look focus=npc`
 with the person's row.
+
+### 138.9 Travel minutes are data, filled once at build (2026-09-26, BR-05 of `docs/specs/band-then-roll.md`; extends §138.2's registry, §5's `move` default and §22's `module.read.finish`)
+
+A move that names no minutes takes the minutes on its graph edge (§5: "omitted means the value on the graph edge"), and
+the capsule's `exits[].travel_minutes` projects them. No road carried any: the four shipped starters had 141 `route-to`
+relations and not one `travel_minutes`, 912 of 1,376 moves on the retained tables landed with 0 minutes, and the Keeper
+wrote the road's time again as a separate `time`. This section makes a road's minutes data on the graph, written once at
+build from a band the host names, so the move carries its own time. Nothing here runs per turn and nothing is rolled.
+
+**The registry row.** `BAND_FIELDS` (`kernel-ts/rules/bands.ts`) gains `route-to.travel_minutes` → `time-costs` ·
+`categories`, `supplies: "default"`, restricted to the rows `local_travel` and `long_travel` (the registry names them the
+way it names the table; §138.2 already keeps them out of the per-turn time question). `bandRows` lists only those rows,
+refuses a row whose `default` is missing or outside its `[min, max]`, and refuses a registry row the table lacks
+(`campaign_not_ready`, as every malformed band row).
+
+**The one writer** is `kernel-ts/modules/route-travel.ts` (no imports, so the kernel and the host load the same file).
+`applyTravelFill(graph, entries, rows)` takes entries `{from, to, band, confidence}` naming two scene node ids (order
+free: a road is the same both ways) and a band — a travel row, whose `default` becomes the minutes (never a roll: the
+same road is the same length every time), or the exit `adjacent`, which is 0 — and writes, on every `route-to` between
+the two that carries no `travel_minutes` yet, `properties.travel_minutes` and `properties.travel: {basis: "banded", band,
+confidence}`. Before any band is read, `sameRoad` times the other direction of a road already timed one way with the same
+minutes and that relation's provenance, `{basis: "stated"}` when it has none (two timed directions that disagree give
+nothing to copy). A relation that already carries minutes is never touched. An entry that does not fit writes nothing and
+is returned in `skipped` with its reason: `entry_shape` (a key other than the four, or a non-string id or band),
+`confidence` (not a number in [0, 1]), `not_two_scenes`, `band_unknown`, `row_without_default`, `no_unfilled_road` (the
+road is timed already, or there is none); `not_a_list` for a `travel` that is not a list.
+
+**What `stated` is today.** The reader emits no time on a road: a draft's claims carry no properties (`assembleVisual`
+builds every relation with `properties: {}`), and `time_cost` is catalogued for `rule` and `hazard` only (§136); taking a
+rule's time for a road's would be a semantic judgement the code may not make. So the book's own number for a road is
+whatever minutes a graph already carries (a hand-authored starter, or a future reader shape that states one); the fill
+leaves it alone, asks nothing about that road, and gives its other direction the same minutes as `stated`.
+
+**The question** (`runtime/jev/travel-band-domain.ts`, family `travel-fill`, version 1). One Jev Choice per road — an
+unordered pair of scenes with at least one untimed `route-to` and none timed — over the exit `adjacent` ("the two scenes
+are parts of one building or one place, so there is no road between them and no clock runs on the way") and each travel
+row by its own name and range ("local travel: 10 to 120 minutes on the way between the two"). The state is
+`roads.<key>: {a, b}`, each scene as the book describes it and never by an id: `name` (the record's `display_name`, else
+the node's name), `summary` (the node's, unless it only repeats the name, else the record's `dramatic_question`),
+`places` (the `location` nodes the scene sits in — `located-in` / `occurs-at` / `part-of` out of it, `contains` into it —
+and those locations' own), `place_words` (the record's `location_tags`). The instruction says to judge where the two
+scenes are, not what happens in them. The questions are fanned out, at most 12 roads per request
+(`TRAVEL_ROADS_PER_REQUEST`, below the packing limit on purpose: every question of a request reads the one shared state,
+and a state full of other roads is the "large irrelevant state" failure), the requests in parallel, one retry on a
+network failure. A road is named when its answer is a criterion and its confidence is at or above
+`PI_COC_BAND_MIN_CONFIDENCE` (the band gate, default 0.5, a placeholder until the rows calibrate it); below the gate, on a
+failed request, a road the packing limit left out, or without a key, the road keeps no minutes and the row says why. The
+whole step is capped by `PI_COC_TRAVEL_JEV_TIMEOUT_MS` (default 8000).
+
+**Seam (a): a PDF book.** A book is read and published piece by piece; there is no moment its graph is final. The host
+step after the reader is the reading service, between the reviewed draft and `module.read.finish`: there the service asks
+the step (`deps.travel`, `createTravelFill` in `extensions/module/travel-fill.ts`, wired in the module extension and in
+the App's onboarding worker) about the roads the draft adds — its `route-to` claims between two scenes that are not
+already among the job's `known_claims`, the scenes read from `known_nodes` overlaid by the draft's nodes — and sends the
+named bands with the same publication: `module.read.finish` gains `travel?: [{from, to, band, confidence}]`. The kernel
+applies them after `assembleVisual`, reading the rows through the registry, and the result (kept in `reading.completed`
+like the rest of it) carries `travel: {filled, skipped}`. It is not a second generation on purpose: `module.read.finish`
+is the one publication entry (§22), and a generation of its own would move the source revision under a turn's own source
+preparation (§122) between its advance and its validation. `assembleVisual` rebuilds every relation from its claim at every
+publication, so it now keeps a road's `travel_minutes` and `travel` when the same claim still joins the same two nodes
+(`preserveTravel`); nothing else of a relation's properties is carried. The step never fails a reading: a throw is caught
+and the publication goes out without `travel`, a band that does not fit is skipped, a broken table is `skipped:
+[{reason: "table_unavailable"}]`. A road a publication added while Jev was unavailable stays at 0 until the book is
+rebuilt, as every book built before this section does; a restated claim is not asked again.
+
+**Seam (b): the shipped starters.** Registration copies a starter's bytes as before. The four shipped starters were filled
+once by `scripts/fill-starter-travel.ts` (`node scripts/fill-starter-travel.ts [--dry-run] <id>...`: the same question and
+the same writer, the key from the environment, the App vault for the one run), a data change reviewed by diff. The
+script edits each filled relation's `properties` in place in the file's own formatting and refuses to write when any
+other byte of the parsed graph would change; it also moves what is bound to the graph's bytes: the projected starter's
+manifest `graph_content_digest` (mystery-house), and the `graph_sha256` and `fingerprint` of each bundled character
+guidance accepted for the old bytes, after first reproducing the old fingerprint with the App's own `guidanceFingerprint`
+(the guidance text is untouched; it reads nothing of a road). A second run asks only what the first left open. Campaigns
+created before keep their zero minutes (compile snapshots). `tests/play/fixtures/voice-bench/build.mjs` generates
+voice-bench with no minutes; after rerunning it, rerun the fill.
+
+| starter | `route-to` relations | roads asked | filled | of which `adjacent` (0 min) | `local_travel` (30) | `long_travel` (360) | left open (below the gate) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| the-haunting | 56 | 36 | 54 | 6 | 48 | 0 | 2 (1 road, 0.43) |
+| mystery-house | 77 | 47 | 71 | 14 | 55 | 2 | 6 (4 roads, 0.32–0.49) |
+| voice-bench | 2 | 1 | 2 | 2 | 0 | 0 | 0 |
+| the-haunting-rulebook | 6 | 5 | 6 | 4 | 2 | 0 | 0 |
+
+**Telemetry.** The step writes one `lane: "travel-fill"`, `event: "asked"` row per publication that adds a road
+(`module_id`, `job_id`, `campaign`, `roads`, `banded`, `adjacent`, `unfilled: {<reason>: n}`, `calls`, `ms`, `cost_usd`,
+`gate`, and per road `answers: [{a, b, outcome, band?, confidence?, distribution?, reason?}]`, the calibration evidence
+for the gate), and after a publication that carried bands one `event: "published"` row with the kernel's `filled` and
+`skipped`. Without a key the row still says `unfilled: {unconfigured: n}`.
+
+*Writer:* the host's band through the one writer, in the publication or the starter script; never the reader, never a
+turn. *Reader:* `ModuleGraph.exitEntry` (the capsule's `where.exits[].travel_minutes`, the move candidates'
+`description.travel_minutes` in `table.apply.options`) and `stageMove`'s edge default. *Actor:* the kernel's move — the
+clock and the `scene-moved` minutes move by the road's time in the one move call. No prompt tells the Keeper to stop
+writing a road's time; the offer ledger and the kpi say whether it does (the turn-3 replay is the integrator's).
+
+**SL-00.** The step's Jev adapter is a new call site, `extensions/module/travel-fill.ts` `askTravel`
+`createDecisionAdapter`, registered in `docs/specs/pi-native-single-loop-tickets/inventory-SL-00.json` / `.md` as an
+app-play-gated leaf (a build step of the book that the reading service runs in setup and in play readings alike; never a
+turn's decision, never a model run).
+
+**Tests.** `tests/kernel/test_route_travel.py` (over the emitted kernel: every shipped road's minutes are a travel row's
+default or 0 with their provenance, or absent, and the two directions of a road agree; a move to a filled exit lands with
+the road's minutes, the clock and the `scene-moved` event moving by them in the one call, and the Keeper's own minutes
+still win; a publication with `travel` lands `local_travel` → 30, `long_travel` → 360, `adjacent` → 0 with `basis:
+"banded"`; without `travel` the road stays `{}`; five entries that do not fit are skipped by reason while the reading
+publishes; a filled road survives the next publication's re-assembly and a later band for it is `no_unfilled_road`).
+`tests/extension/travel-fill.test.mjs` (the question's criteria and state; the roads asked; the writer, `sameRoad` and
+`preserveTravel`; the gate, no key and a failed request over the real decision adapter with a controlled endpoint; the
+roads a draft adds; the reading service sending the bands with `module.read.finish`, and publishing exactly as before
+below the gate, without a key, or when the step throws). `tests/kernel/test_starters.py` strips the road keys before the
+reprojection diff and allows them in the-haunting's pre-RD-04 diff, on `route-to` relations only. Every starter's
+`table.capsule`, `table.apply.options` and `table.resolve.options` at the start scene and after one move are identical to
+the parent commit's except the exits' travel minutes in their two projections and the three digests that fold the
+graph's bytes (checked in the ticket's Comments).

@@ -9,6 +9,7 @@ import { sourceAsset, closeSourceDocuments, sourceRenderVersion } from "./source
 import { publishableAssetNodes, validateMapRegions } from "./map-publication.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
 import type {FreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
+import type {PublicationTravel, TravelFill} from './travel-fill.ts';
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 export interface ReadingOptions {providerBudget?:TaskProviderBudget}
@@ -32,6 +33,11 @@ interface Dependencies {
 	home: string;
 	runtime?: HostRuntime;
 	navigateFresh?: FreshSourceNavigator;
+	/**
+	 * §138.9: the build step that names the length of every road a publication adds (`createTravelFill`). Asked
+	 * before `module.read.finish`, so the minutes land in the same generation; never a reason to fail the reading.
+	 */
+	travel?(input: PublicationTravel): Promise<TravelFill | undefined>;
 	model(): { id: string; vision: boolean; thinking?: string };
 	progress(row: Row): void;
 	record(row: Row): void;
@@ -800,10 +806,21 @@ export class ReadingService implements ReadingBridge {
 							assets.push({ node_id: node.node_id, ...asset });
 						}
 					}
+					let travel: TravelFill | undefined;
+					if (this.deps.travel && job.purpose !== "index" && job.purpose !== "answer") {
+						try {
+							travel = await this.deps.travel({ moduleId: job.module_id, ...(campaign !== undefined ? { campaign } : {}), job,
+								draft: JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")), signal });
+						} catch { travel = undefined; /* a road without minutes is the old behaviour, never a failed reading */ }
+						if (travel) this.deps.record({ ...travel.row, module_id: job.module_id, job_id: job.job_id, campaign });
+					}
 					publishing = true;
-					await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
-						outcome: "completed", draft_path: join(cwd, "draft.json"), review_path: join(cwd, "review.json"), assets }, campaign);
+					const published = await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
+						outcome: "completed", draft_path: join(cwd, "draft.json"), review_path: join(cwd, "review.json"), assets,
+						...(travel?.entries.length ? { travel: travel.entries } : {}) }, campaign);
 					publishing = false;
+					if (travel?.entries.length) this.deps.record({ lane: "travel-fill", event: "published", module_id: job.module_id, job_id: job.job_id, campaign,
+						filled: published?.travel?.filled ?? 0, skipped: published?.travel?.skipped ?? [] });
 					// The book turns its own pages next (spec thin-book-play B); never on the critical path, never a failure.
 					if (job.purpose === "index" || job.purpose === "opening") await this.call("module.read.ahead", { module_id: job.module_id, ...(job.purpose === "opening" && job.focus ? { focus: job.focus } : {}) }, campaign).catch(() => undefined);
 					return;
