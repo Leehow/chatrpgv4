@@ -364,6 +364,11 @@
       "id": "SL-72",
       "file": "72-a-look-budget-per-turn.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-73",
+      "file": "73-an-empty-candidates-list-is-not-a-fix.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
