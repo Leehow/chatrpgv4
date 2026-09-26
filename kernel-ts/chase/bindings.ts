@@ -7,8 +7,95 @@ import { array, integer, kebab, normalize, repr, row, string, truth, type Row } 
 import { SkillResolver } from '../rules/skills.js';
 import { presentOpponents, type SettleContext } from '../resolve/context.js';
 import { investigatorCombatParticipant, npcCombatParticipant } from '../combat/profiles.js';
+import { archetypeIds } from '../apply/archetype.js';
 import { CHASE_OUTCOMES, DEFAULT_GAP, DEFAULT_LOCATION_COUNT, generateLocationChain, get, int, or, participantFromCombatSpec } from './model.js';
 export { presentOpponents } from '../resolve/context.js';
+/**
+ * The intents a chase decision answers (§11.5): the rule graph gives every chase decision but the start `flee`, `move`
+ * and `combat`, and `restrict` admits the same three implicitly while a chase runs. Contract §139.12 admits them for
+ * `chase:start` too, read by the side the actor takes: a pursuer may declare any of them, a quarry flees.
+ */
+export const CHASE_INTENTS = ['flee', 'move', 'combat'];
+/**
+ * Contract §139.12: the flight of `handle` that still stands -- the last receipt that gained them `fled` (a combat
+ * flight, or the Keeper's `apply npc` condition), unless a fight or a chase began after it, they were moved since, or
+ * the acting investigator fled after them. Its receipt id, or null.
+ */
+export function standingFlight(context: SettleContext, handle: string): string | null {
+    let flight: string | null = null;
+    for (const receipt of context.allReceipts()) {
+        if (receipt.kind === 'condition' && array(receipt.gained).includes('fled')) {
+            if (receipt.subject === handle)
+                flight = string(receipt.id);
+            else if (receipt.subject === context.actorId)
+                flight = null;
+        }
+        else if (receipt.kind === 'session' && receipt.transition === 'start' && ['combat', 'chase'].includes(string(receipt.family)))
+            flight = null;
+        else if (receipt.kind === 'npc' && receipt.handle === handle && truth(receipt.to))
+            flight = null;
+    }
+    return flight;
+}
+export type ChaseRoles = {
+    quarry: 'investigator';
+} | {
+    quarry: 'npc';
+    handle: string;
+    node: Row;
+    basis: 'flight' | 'intent';
+    flight: string | null;
+};
+/**
+ * Contract §139.12: who runs in the chase this `chase:start` opens. A person other than an investigator acting is the
+ * pursuer and the investigator the quarry (§139.9, unchanged). An investigator acting against a person named in
+ * `action.target` runs after them -- that person is the quarry -- when their flight still stands, or when the
+ * investigator's own intent is not a flight (`move`, `combat`); an investigator who declares `flee` at a person with no
+ * standing flight runs from them, and with no one named the investigator flees whoever is here (both unchanged).
+ */
+export function chaseRoles(context: SettleContext): ChaseRoles {
+    const action = context.action;
+    if (!context.sheetById(context.actingId) || !truth(action.target) || context.sheetById(action.target))
+        return { quarry: 'investigator' };
+    const node = context.graph.actor(string(action.target));
+    if (!node)
+        return { quarry: 'investigator' };
+    const handle = context.graph.handle(node);
+    const flight = standingFlight(context, handle);
+    if (flight)
+        return { quarry: 'npc', handle, node, basis: 'flight', flight };
+    if (string(action.intent) === 'flee')
+        return { quarry: 'investigator' };
+    return { quarry: 'npc', handle, node, basis: 'intent', flight: null };
+}
+/**
+ * The chase participant of a person who runs from the investigators (§139.12), read through the same readers as a
+ * pursuer's (`npcCombatParticipant`, `participantFromCombatSpec`). Every number the chase reads of them that a reader
+ * would otherwise assume is required: the characteristics the builder needs (STR, CON, SIZ, DEX -- the speed roll is
+ * CON, the order DEX) and MOV, which the reader would set to 8. Dodge and Fighting fall to the rulebook's base chances
+ * and HP and Build are derived by the rulebook, as for any stat block. No stat block, or a number missing, is `needs`.
+ */
+export async function quarryParticipant(context: SettleContext, handle: string, node: Row): Promise<Row> {
+    const name = context.graph.displayName(node);
+    const profile = context.npcProfile(handle);
+    if (!profile)
+        throw new RpcError('needs', `${name} has no stat block: a chase of ${name} reads their MOV, CON and DEX`, {
+            fix: 'pin a stat block first: apply npc with archetype (one of details.needs.options, chosen from who this person is), then resolve again; when the module has a book that prints their numbers, read them with lookup kind=source instead. Or narrate the pursuit without dice: nothing without a receipt has happened',
+            details: { reason: 'quarry_has_no_stat_block', npc: handle, needs: { field: 'archetype', options: await archetypeIds(context.kernel) } }
+        });
+    const characteristics = row(profile.characteristics);
+    const missing = [
+        ...['STR', 'CON', 'SIZ', 'DEX'].filter(key => !integer(characteristics[key])).map(key => `characteristics.${key}`),
+        ...(integer(row(profile.derived).MOV) ? [] : ['derived.MOV'])
+    ];
+    if (missing.length)
+        throw new RpcError('needs', `${name}'s stat block has no ${missing.join(', ')}: a chase of ${name} reads ${missing.length > 1 ? 'them' : 'it'}, and none is assumed`, {
+            fix: 'read the printed numbers with lookup kind=source when the module has a book; otherwise narrate the pursuit without dice. Nothing without a receipt has happened',
+            details: { reason: 'quarry_numbers_missing', npc: handle, missing, needs: { field: missing[0], options: [] } }
+        });
+    return participantFromCombatSpec(await npcCombatParticipant(context.tables, handle, profile), 'quarry', 0);
+}
+const locationRefs = (locations: Row[]): string[] => locations.map(location => `${location.kind === 'scene' ? 'scene' : 'location'}:${location.label}`);
 export function chaseLocationChain(context: SettleContext): Row[] {
     const graph = context.graph;
     const scene = graph.scene(string(context.world.active_scene));
@@ -115,6 +202,42 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
             throw new RpcError('turn_state', 'a chase is already underway', {
                 fix: 'continue it with chase decisions'
             });
+        const roles = chaseRoles(context);
+        // Contract §139.12: the investigator runs after the person named in action.target. The pursuer is the acting
+        // investigator (the one named, or the table's only one when actor is absent: `resolveActor`'s rule).
+        if (roles.quarry === 'npc') {
+            const quarry = await quarryParticipant(context, roles.handle, roles.node);
+            const participants = [participantFromCombatSpec(await investigatorCombatParticipant(context.tables, context.actor, null), 'pursuer', 0), quarry];
+            const locations = chaseLocationChain(context);
+            Object.assign(semantic, {
+                pursuer_refs: [`investigator:${context.actorId}`],
+                quarry_refs: [`npc:${roles.handle}`],
+                location_refs: locationRefs(locations)
+            });
+            Object.assign(binding, {
+                chase_id: `chase:${context.activeScene}:${kebab(roles.handle)}-vs-${kebab(context.actorId)}-t${context.turnNumber}`,
+                participants,
+                locations
+            });
+            return {
+                semantic,
+                extras: {
+                    _host_session_binding: binding
+                }
+            };
+        }
+        // The acting investigator is the quarry, and a quarry flees: move or combat is a pursuit, which names whom.
+        if (context.sheetById(context.actingId) && string(action.intent) !== 'flee')
+            throw new RpcError('needs', `chase:start with no one named in action.target makes ${context.actorId} the quarry, and a quarry's intent is flee`, {
+                fix: 'to run after someone, name them in action.target; to run from whoever is here, set action.intent to flee',
+                details: {
+                    reason: 'quarry_does_not_flee',
+                    needs: {
+                        field: 'target',
+                        options: presentOpponents(context).filter(([, , profile]) => truth(profile)).map(([handle]) => handle).sort()
+                    }
+                }
+            });
         let opponents = presentOpponents(context).filter((value): value is [
             string,
             Row,
@@ -142,7 +265,7 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
         Object.assign(semantic, {
             pursuer_refs: opponents.map(([handle]) => `npc:${handle}`),
             quarry_refs: [`investigator:${context.actorId}`],
-            location_refs: locations.map(location => `${location.kind === 'scene' ? 'scene' : 'location'}:${location.label}`)
+            location_refs: locationRefs(locations)
         });
         Object.assign(binding, {
             chase_id: `chase:${context.activeScene}:${kebab(context.actorId)}-vs-${kebab(opponents[0][0])}-t${context.turnNumber}`,
