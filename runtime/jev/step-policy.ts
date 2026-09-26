@@ -24,7 +24,7 @@ import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
 import {answerOf, clears} from './decision-gate.ts';
 import {npcScanCandidate} from './npc-act-step.ts';
-import {askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, interpretReask, ORDINARY_CHECK,
+import {actGated, askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, interpretCompile, interpretReask, ORDINARY_CHECK,
   reachable, REASK_FAMILY, reaskBatch, reaskOf, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput} from './route-compile.ts';
 
 type Row = Record<string, any>;
@@ -262,6 +262,11 @@ export interface RunView {
   npcScanned?: string[];
   /** §139.4: the people the run's compiles read the declaration as aimed at (§135.30's cleared `addressee` rows). */
   addressees?: string[];
+  /**
+   * §139.16 (NAF-17): the `act` rows the run's compiles cleared -- what the compile read the player as declaring the investigator
+   * does. An investigator's step of a running fight is the route's to select only when its decision is among them (`actGated`).
+   */
+  declaredActs?: string[];
 }
 export interface StagedClue {after: string; key: string; compile: Json}
 export interface StagedUnlock {after: string; to: string; compile: Json; guarded: GuardedDestination}
@@ -411,7 +416,9 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
   for (const [index, candidate] of offered.entries()) {
     // §135.30 addendum (owner, 2026-09-24): an obligation check or a stated meeting is selected only by the compile's
     // predicates. Its own question (§135.26's `seeks`) is still asked and recorded; its answer selects nothing.
-    if (compileOnly(candidate)) continue;
+    // §139.16 (NAF-17): the same for an investigator's fight step whose own act no compile of the run cleared -- a demand,
+    // a question or an aside in a fight is never the clerk's punch, whatever `need` answered.
+    if (compileOnly(candidate) || actGated(candidate, view.declaredActs ?? [])) continue;
     const key = `need_${index + 1}`, {choice, confidence} = answerOf(result, key);
     const selects = candidate.routeFact?.selects ?? 'now';
     if (choice === selects && clears(result, key, selects, confidence, gate)) selected.push({candidate, confidence});
@@ -684,8 +691,9 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
   view.pending.push(...routed.pending);
   // §135.26: a candidate asked by its own fact and not selected (`not`, `unknown`, or below the gates) is the Keeper's for
   // the rest of the run: it is not asked again on the next route. §135.30 addendum: so is a candidate only the compile
-  // selects, whatever its route answer (it stays offered to the Keeper).
-  if (result.status === 'complete') for (const candidate of offered) if ((candidate.routeFact || compileOnly(candidate)) && !(routed.selected ?? []).includes(candidate.key)) {
+  // selects, whatever its route answer (it stays offered to the Keeper). §139.16: so is a gated fight step of the investigator.
+  const gated = offered.filter(candidate => actGated(candidate, view.declaredActs ?? [])).map(candidate => candidate.key);
+  if (result.status === 'complete') for (const candidate of offered) if ((candidate.routeFact || compileOnly(candidate) || gated.includes(candidate.key)) && !(routed.selected ?? []).includes(candidate.key)) {
     if (!view.consumed.includes(candidate.key)) view.consumed.push(candidate.key);
     view.candidates = view.candidates.filter(value => value.key !== candidate.key);
   }
@@ -693,7 +701,7 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
   const answers = result.status === 'complete' ? Object.fromEntries(Object.entries(result.answers ?? {}).map(([key, value]) => [key,
     value.status === 'answered' && value.type === 'choice' ? {choice: value.choice, confidence: value.confidence ?? null, probabilities: value.probabilities ?? null} : {status: value.status}])) : null;
   return {step, kind: 'decide', purpose: 'route', choice: routed.choice ?? null, confidence: routed.confidence ?? null, ms, jev_calls: 1,
-    reason: routed.reason, offered: offered.length, detail: {selected: routed.selected ?? null, exit: routed.exit ?? null, answers,
+    reason: routed.reason, offered: offered.length, detail: {selected: routed.selected ?? null, exit: routed.exit ?? null, answers, ...(gated.length ? {act_gated: gated} : {}),
       offered_keys: offered.map(candidate => candidate.key), batch_state: batch.state as Json} as Json};
 }
 
@@ -722,6 +730,10 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
   const addressee = outcome.features?.addressee;
   if (addressee?.cleared && typeof addressee.row === 'string' && addressee.row && !(view.addressees ?? []).includes(addressee.row))
     view.addressees = [...(view.addressees ?? []), addressee.row];
+  // §139.16 (NAF-17): the act the compile read the declaration as, when it cleared on a row; it opens the route to that fight step.
+  const act = outcome.features?.act;
+  if (act?.cleared && typeof act.row === 'string' && act.row && !(view.declaredActs ?? []).includes(act.row))
+    view.declaredActs = [...(view.declaredActs ?? []), act.row];
   // §135.30.8 (SL-43): the act an obligation check fired on is settled for the rest of the run.
   settleActs(view, outcome.actsSettled ?? []);
   // §135.30.9.2 (SL-52 stage 2): a compile that settles a step of the book re-asks the scene's clue rows once, before the batch.
@@ -1224,7 +1236,8 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       if (request.kind === 'decide' && request.purpose === 'route') {
         if (!binding) return {kind: 'decide', purpose: 'route', question: unbound};
         const {batch, offered} = routeBatch(state, binding.scope, binding.readSet);
-        return {kind: 'decide', purpose: 'route', question: {batch, offered, located: state.located, gate: driver.policyState.gate, settled: state.settled ?? []}};
+        return {kind: 'decide', purpose: 'route', question: {batch, offered, located: state.located, gate: driver.policyState.gate, settled: state.settled ?? [],
+          declaredActs: state.declaredActs ?? []}};
       }
       if (request.kind === 'decide' && request.purpose === 'compile') {
         if (!binding) return {kind: 'decide', purpose: 'compile', question: unbound};
