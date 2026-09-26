@@ -3939,7 +3939,6 @@ export default function (pi: ExtensionAPI) {
 			// `host_attributed` is the host's word about its own wraps; the Keeper never supplies it.
 			delete payload.host_attributed;
 			delete payload.keeper_reads;
-			delete payload.time_reading;
 			if (spec.name === "ask") state.speechAttribution = undefined;
 			if (spec.name === "narrate" && typeof payload.text === "string") {
 				const attributed = await attributeUnwrappedSpeech(state, payload.text, signal, providerBudget);
