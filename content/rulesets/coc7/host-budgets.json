@@ -14,5 +14,8 @@
   },
   "npc_act": {
     "timeout_ms": 8000
+  },
+  "npc_situation": {
+    "max_bytes": 6144
   }
 }

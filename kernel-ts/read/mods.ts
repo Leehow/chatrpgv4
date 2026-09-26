@@ -677,35 +677,9 @@ export function objectContext(world: Row): Row {
 export async function modContext(context: KernelContext, graph: ModuleGraph, world: Row, party: Row[], records: Row[] = [], full = true,
     evidence: {memory?: Row[]; story?: Row[]; worldline?: string; loop?: number} = {}): Promise<Row> {
     const active = await activeMods(context, world),
-        providers = modProviders(active),
-        checks = new Map<string, Row>();
-    for (const mod of active)
-        for (const check of array(mod.contributes.checks))
-            checks.set(check.name, check);
+        providers = modProviders(active);
     const present = npcsPresent(graph, world, graph.scene(world.active_scene)),
-        contacts: Row[] = [],
-        relationships: Row[] = [];
-    for (const [name] of checks)
-        for (const actor of party)
-            for (const npc of present) {
-                const pair = jsonDigest([name, actor.id, npc.node_id]),
-                    known = values(row(row(world.mods).state)).map(state => row(state.checks)[pair]).filter(Boolean).sort((a, b) => number(a.turn) - number(b.turn))[0];
-                if (known)
-                    relationships.push({
-                        actor: actor.name,
-                        target: graph.displayName(npc),
-                        decision: name,
-                        impression: row(row(known.result).outcome).impression ?? null,
-                        since_turn: known.turn
-                    });
-                else
-                    contacts.push({
-                        actor: actor.name,
-                        target: graph.displayName(npc),
-                        decision: name,
-                        when: "first meaningful contact, not merely appearing in this list"
-                    });
-            }
+        { contacts, relationships } = contactRows(graph, world, party, active, present);
     const effective = effectiveMods(active),
         required = new Set(active.flatMap(mod => array(mod.requires).map(string))),
         scene = graph.scene(world.active_scene);
@@ -745,6 +719,41 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
     if (required.has("context.pacing.v1"))
         result.pacing = pacingSection(graph, world, scene, present, party, records);
     return result;
+}
+/**
+ * The capsule's `mods.pending_contacts` and `mods.relationships` rows before their cap: for every check an active Mod
+ * contributes, every investigator and every one of `people`, either the first impression on record or the contact still
+ * to come. One computation for the capsule and for `npc.situation`'s constraints (§139.1).
+ */
+export function contactRows(graph: ModuleGraph, world: Row, party: Row[], active: Row[], people: Row[]): { contacts: Row[]; relationships: Row[] } {
+    const checks = new Map<string, Row>();
+    for (const mod of active)
+        for (const check of array(mod.contributes.checks))
+            checks.set(check.name, check);
+    const contacts: Row[] = [],
+        relationships: Row[] = [];
+    for (const [name] of checks)
+        for (const actor of party)
+            for (const npc of people) {
+                const pair = jsonDigest([name, actor.id, npc.node_id]),
+                    known = values(row(row(world.mods).state)).map(state => row(state.checks)[pair]).filter(Boolean).sort((a, b) => number(a.turn) - number(b.turn))[0];
+                if (known)
+                    relationships.push({
+                        actor: actor.name,
+                        target: graph.displayName(npc),
+                        decision: name,
+                        impression: row(row(known.result).outcome).impression ?? null,
+                        since_turn: known.turn
+                    });
+                else
+                    contacts.push({
+                        actor: actor.name,
+                        target: graph.displayName(npc),
+                        decision: name,
+                        when: "first meaningful contact, not merely appearing in this list"
+                    });
+            }
+    return { contacts, relationships };
 }
 export function publicItems(world: Row, ownerId: string, includeContainedDocuments = false): Row[] {
     const data = row(world.objects),

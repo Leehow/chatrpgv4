@@ -15,6 +15,7 @@ import {readNpcLedger} from '../write/contributions.js';
 import {personalitySources,personalitySourceRevision,personalityView} from './material.js';
 import {npcViews} from './read.js';
 import {createResponseHandlers} from './responses.js';
+import {createSituationHandlers} from './situation.js';
 
 const INSTRUCTION='Describe this person\'s stable values, habits of judgment and nuanced tradeoffs in two or three concise sentences. ' +
     'Use the supplied authored descriptions first. Where they are silent, a compatible personality supplement may add variety. ' +
@@ -57,6 +58,7 @@ export function createNpcHandlers(context:KernelContext,writer:ReturnType<typeof
 
     return {
         ...createResponseHandlers(load,readJob),
+        ...createSituationHandlers(context),
         'npc.perspectives':async params=>({views:await perspectives(params)}),
         'npc.perspective':async params=>{
             required(params,'name');return (await perspectives(params))[0];

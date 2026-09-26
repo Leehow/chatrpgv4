@@ -23452,7 +23452,92 @@ line gate A failed; the player prose stayed in zh-Hans throughout. Two lines fai
   check here could see it (§113 D's repeated-line refusal caught one literal repeat). This is the open-semantics half
   of the owner's ruling that 138.7 does not cover; it is reported, not changed here.
 
-## 139. NPC acts first: the act is generated, then bound (2026-09-26, `docs/specs/npc-acts-first.md`; builds on §138)
+## 139. NPC acts first: the situation is read, one act is generated, the kernel binds it (2026-09-26, `docs/specs/npc-acts-first.md`; amends §138)
+
+The owner's ruling (2026-09-26): *the LLM generates what the NPC does first, and the system binds it to parameters
+after -- not the other way round.* Each turn a person present is acted on, one generation step reads a code-composed
+account of their situation and answers one sentence of what they do; the kernel binds that sentence to a way it can
+settle. The subsections are the tickets under `docs/specs/npc-acts-first-tickets/`.
+
+**139.1 `npc.situation {campaign, name}`: what this person faces right now (ticket 01, D1).** A host-only read for the
+generation step (§139.2). Facts only, no advice, nothing written, nothing reviewed. `name` is the person as
+`look focus=npc` takes it (`graph.npc`; an unknown name is its `unknown_entity`, a missing one `invalid_params`); the
+campaign reads as any `table.look` does (`campaign_not_ready` while setting up). The result is exactly:
+
+```
+{
+  npc: {handle, name},                 // graph handle; the name `apply` takes
+  who: {personality, goals, fears, commitments, relationships},   // npcPerspective(...).view, unchanged shapes
+  happened: string[],                  // what was done to or said to this person, this turn and the last
+  state: {hp, hp_max, conditions: string[], stance, in_session: boolean, my_turn: boolean},
+  at_hand: {holdings: string[], objects: string[], exits: string[], present: string[]},
+  done: [{ref, intent, status, since_turn, turn}],   // intentsView's row shape (§138.3)
+  recent_speech: string[],
+  constraints: string[],
+  truncated: string[]
+}
+```
+
+- **`who`** is five fields of `npcPerspective(...).view` (`kernel-ts/npc/perspective.ts`, §123): `personality`,
+  `goals` (the profile's agenda), `fears`, `commitments`, `relationships`, as that view gives them. The spec's
+  §40.7 boundary holds: nothing here is an agent, a memory or a persona beyond those rows.
+- **`happened`** (`kernel-ts/npc/situation.ts`). The window is the receipts of the newest committed turn record before
+  this turn, then this turn's (`turn.json`), each receipt once by id. A receipt is this person's when its `subject`,
+  `actor`, `npc`, `handle`, `with` or `from` names them -- by handle, node id, the book's name or the table's label
+  (§79), after the kernel's name normalization; for a roll, `npc` is the person the roll was made against. The kinds
+  read are `roll` (their own, and one made against them), `delta` (their hp and other resources), `condition`, `item`
+  (from them or to them), `cash` (an exchange `with` them, the sign saying which way it went), and `npc` receipts
+  that set their `stance`, `disposition` or standing `action`; an `npc` receipt that only reports an intention is in
+  `done`, not here, and a pinned archetype or a move is bookkeeping, not something done to them. The receipts of one
+  call make one sentence, `turn <n>: <clause>; <clause>`, so an attack, its damage roll and the hp it cost are one
+  sentence. The clause wording is fixed per receipt kind and field: `<actor> rolled <skill> (<combat_action>) against
+  <them>: <level>`, `<them> rolled <skill>: <level>`, `<them>'s hp 8 -> 7`, `<them> gained prone`, `<item> went from
+  <them> to <investigator>`, `<investigator>'s cash +20 USD, with <them>`, `<them>'s stance set to hostile`; a Keeper's
+  `why` rides after the clause as `(why: ...)` (at most 160 code points), and closed engine words (`combat_action`,
+  `level`, a resource, a condition, a stance) are quoted as they are. Nothing reads what a line means and no verb is chosen from content. The
+  **last** item is always the player's declaration of this turn when the turn has one: `<investigator> (investigator)
+  declared: "<player_text>"` (`an investigator` at a table of several). Every sentence is at most 400 code points; a
+  longer one is cut at a code-point boundary and ends with `...`.
+- **`state`.** In a running combat or chase that has them as a participant (`SessionView.activeSession()`), `hp` and
+  `hp_max` are the participant's, `in_session` is true and `my_turn` is whether `turn_of` is their handle; otherwise
+  the stat block combat reads (`npcProfileOf`: the book's `mechanics.profile`, else the archetype the table pinned,
+  §34.10, with `world.npc_resources` laid over it) gives `hp_current` (else `derived.HP`) and `derived.HP`, and a person
+  with neither has `null` for both. `conditions` are the participant's and `world.npc_resources[handle].conditions`,
+  once each. `stance` is the ledger's word as it folds now (`stanceNow`, §17.3, §11.5.3: the open turn's receipts
+  folded onto a copy, the table's initial level without an entry).
+- **`at_hand`.** `holdings`: the weapon rows combat reads for them (`npcProfileOf(...).weapons` -- the profile's
+  `weapons`, then `weaponRows(world, handle)`, the weapon usages of managed objects they own), each by `name` else
+  `weapon_id`, then every managed object instance whose `owner` is `{kind: "npc", id: <handle>}`, by name, once each
+  by the kernel's name normalization; a person with no stat block and nothing owned has `[]`. Their place is
+  `world.npc_presence[handle]`; `objects` are the managed object instances owned by that scene (`owner.kind:
+  "scene"`) then its located places (`scenePlaces`), `exits` its exits by the table's place label (§76), `present` the
+  investigators by label when it is the active scene, then everyone else placed there by label. A person placed
+  nowhere has empty `objects`, `exits` and `present`.
+- **`done`** is every intention of their ledger entry (§138.3; the committed ledger with the open turn folded onto a
+  copy, exactly as `stanceNow` folds it), in `intentsView`'s row shape `{ref, intent, status, since_turn, turn}`
+  (`intent` the line, `turn` the turn of its latest result) and order -- under way first, then settled, each newest
+  first, a later row of the same turn counting as the newer. Unlike the card, settled rows are not capped at three: the
+  generation step reads this section to not do the same thing again, and the byte budget, not a count, bounds it.
+- **`recent_speech`** is `npcPerspective`'s last six committed own utterances, `turn <n>: <statement>`.
+- **`constraints`** are strings. First, every stated obligation of their scene (§134.9) that names them -- as `who`, as
+  the person of its next step, or among the people it guards -- as the capsule's row reads it (`capsuleRow`):
+  `scene obligation <handle> (<state>): <cue>`, where a preordained reaction's cue says the book skips their reaction
+  roll (§134.5). Then, when their place is the active scene, every contact check of an active Mod not yet made between
+  an investigator and them -- the same rows as the capsule's `mods.pending_contacts` (one helper, `contactRows`,
+  `kernel-ts/read/mods.ts`): `Mod check
+  <decision> between <investigator> and <them> is still to come: first meaningful contact, not merely appearing in
+  this list`.
+- **Budget.** At most `npc_situation.max_bytes` bytes (`content/rulesets/coc7/host-budgets.json`, 6144; a value
+  outside 1024..65536 or an unreadable file is the same 6144), the UTF-8 size of the packet's JSON (`jsonSize`). While over, the kernel cuts, in order: the last `constraints` row
+  (`constraints`); the last row of `at_hand`'s `objects`, `exits`, `holdings`, `present`, in that order
+  (`at_hand`); the oldest row of `done`, never its first (`history`); the oldest `recent_speech` (`recent_speech`); the
+  oldest `happened` sentence, never the player's declaration (`happened`); `who.relationships`, then
+  `who.commitments`, row by row (`who`). Each name enters `truncated` once, in the order cut. `history` is the name of
+  `done`'s cut, as the ticket's acceptance names it.
+
+Three ends (§31): the writers are the receipts and the ledger that already exist; the reader is the generation step
+(§139.2), whose packet is this object unchanged; what it acts on is the act it answers, bound by §139.3. Until those
+land the read has no product caller -- it is exercised by `tests/kernel/test_npc_situation.py` over the emitted kernel.
 
 **139.2 The generation step: one sentence of what this person does now (ticket 02, spec D2).** The owner's ruling of
 2026-09-26 -- *a model writes what the NPC does first, and the system binds it to parameters after* -- has its first
