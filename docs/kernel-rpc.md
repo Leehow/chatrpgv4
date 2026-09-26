@@ -10232,6 +10232,63 @@ through §38.2 instead of hitting `turn_state`. Any later completed assistant me
 terminal-failure mark, so the retained turn-3 shape above — one failed call, a 2.6 s successful retry, then
 a normal delivery — records and reports its outage but is never stranded.
 
+#### 38.7.1 Addendum (2026-09-26, SL-74): the `provider-request` row gains `step` and `first_step_thinking`
+
+Twelve long gates on the same script (evidence in `docs/specs/pi-native-single-loop-tickets/74-first-step-thinking-experiment.md`)
+showed a thinking Keeper paying roughly 35 s a call and a thinking-off one roughly 3 s, with every misuse from
+running thinking off in the plan (who acts, which handle, whether to read again) and none in the prose. The owner's
+ruling (2026-09-26): **an experiment, not a product setting.** With `COC_FIRST_STEP_THINKING=1` the session still runs
+at the driver's `--thinking` level throughout — nothing about the schedule (§135.27) changes — but the host's
+`before_provider_request` hook (`extensions/kernel/index.ts`, pi's own replacement-by-return-value contract in
+`vendor/pi/packages/coding-agent/src/core/extensions/runner.ts`'s `emitBeforeProviderRequest`) rewrites the request
+body pi-ai already built so that thinking is off for every provider call after the first of a turn. No UI, no
+settings key; the flag exists to compare gates, not to ship.
+
+**Which call is "the first of a turn" is not `roundTrips === 0`.** `table.roundTrips` resets to 0 on player input and
+increments once per `turn_start`. Pi's agent loop (`@earendil-works/pi-agent-core`'s `agent-loop.ts`, `runAgentLoop`)
+emits that first `turn_start` *before* the loop's first provider call, so by the time `before_provider_request` fires
+for that call the counter has already become 1 — the first call is observed at `roundTrips === 1`, the second at `2`,
+and so on. `extensions/kernel/first-step-thinking.ts`'s `isFirstStepOfTurn` is `roundTrips <= 1`; this was verified
+against a real Pi agent session (two scripted rounds, a synthetic `before_provider_request` on each `turn_start`,
+`tests/extension/first-step-thinking.test.mjs`), not read off the source alone — the filed ticket's `>= 1` was the
+naive, off-by-one reading.
+
+**The disabled shape follows the format already in the payload, not a provider name.** pi-ai's `openai-completions`
+provider writes one of several wire shapes for "thinking is on" depending on the model's `compat.thinkingFormat`
+(`node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js` `buildParams`, documented on
+`OpenAICompletionsCompat.thinkingFormat` in its `types.d.ts`) — and that field is frequently unset on a model,
+auto-detected from the provider/baseUrl inside pi-ai where no extension can see it. `first-step-thinking.ts`'s
+`disableStepThinking` therefore keys on the fields the enabled call actually wrote (`thinking: {type}`,
+`enable_thinking`, `chat_template_kwargs.enable_thinking`, `reasoning: {enabled}`, `reasoning: {effort}`,
+top-level `thinking: "<level>"`, `reasoning_effort`) and mirrors the exact off shape pi-ai's own generator would
+have written instead, using the model's own `thinkingLevelMap.off` (a static catalog field, not the auto-detected
+`compat`) only for the two formats whose off value is a configured string rather than a fixed shape. `deepseek`
+and `zai` share one disabled shape (`thinking: {type: "disabled"}`) and are handled by the same branch without
+naming either; sending it is not gated on `thinkingLevelMap.off` the way pi-ai's own code is, because §135.27.1's
+probe already proved a real opencode-go/deepseek endpoint accepts it regardless of what the catalog claims. A
+shape built from an arbitrary per-provider template (`chat-template`, `baseten`'s `chat_template_args`) cannot be
+inverted this way, and a payload with none of the known fields (a non-reasoning model, or the separate
+`openai-responses` API family xai/grok and OpenAI's o-series use, which has no `thinkingFormat` concept at all) is
+left untouched either way; both report `first_step_thinking: "unsupported_format"` rather than guess.
+
+**The row.** `lane: "provider-request"` gains, only when `COC_FIRST_STEP_THINKING=1` and a table is open (a lane
+call, or anything before `session_start` opens one, has no `roundTrips` to gate on and gains nothing — identical to
+the flag being off):
+
+| field | value |
+| --- | --- |
+| `step` | `table.roundTrips` at the moment of this call (1 on the first call of a turn, 2 on the second, …) |
+| `first_step_thinking` | `true` — this is the turn's first call, sent exactly as pi-ai built it; `false` — a later call, successfully rewritten to disabled; `"unsupported_format"` — a later call whose format this module could not invert, sent unchanged |
+
+Without the flag, or before a table exists, the row is exactly what §38.7 already specified — neither field appears.
+
+*Tests.* `tests/extension/first-step-thinking.test.mjs`: unit coverage of `disableStepThinking` across every format
+above (including the deepseek/zai shared shape, the qwen/qwen-chat-template pair, the openrouter/ant-ling ambiguity
+resolved by `thinkingLevelMap.off`, and both unsupported cases) plus `isFirstStepOfTurn`'s boundary; an extension-level
+scenario driving a real Pi agent session through two round trips confirms the first call's payload is untouched, the
+second's carries the disabled shape and `first_step_thinking: false`, a player-input reset turns the next turn's
+first call back to `true`, and the fields are entirely absent without the flag.
+
 ### 38.8 A stale review binding is retryable, and the review lane is observable (2026-09-15)
 
 Three retained `continuity_review_unavailable` turns from one browser playtest (2026-09-15) had three
@@ -20605,6 +20662,14 @@ launcher args carry the daemon's own `thinking` value, not the hardcoded default
 back to it. Mutation: drop the "user's own override wins" `continue`, drop the idempotency short-circuit, or drop the
 `$comment` strip, and the corrections tests fail; revert the driver's `self.thinking or DEFAULT_THINKING` to the bare
 constant and both driver tests fail (one of them on the omitted-flag case alone).
+
+**Note (2026-09-26, SL-74): `COC_FIRST_STEP_THINKING` is measurement only, not a third correction.** The gate #9
+evidence above is what motivated it, but the flag does not touch `thinkingLevelMap` or any other model data this
+section corrects — it runs the table at whatever thinking level was already resolved (schedule, override, or the
+plain `--thinking` level) and has the host's `before_provider_request` hook turn thinking off on the wire for every
+provider call after the first of a turn, so twelve-long-gate comparisons can isolate "thinking on the first step
+only" from "thinking off entirely." No settings key, no UI, no default; see §38.7.1 for the mechanism and the
+telemetry it adds.
 
 ### 135.28 Binding never goes to the LLM: rules defaults, stated and composed parameters, and the Keeper's turn (2026-09-23, SL-12; amends §135.2, §135.4, §135.25, §135.26)
 

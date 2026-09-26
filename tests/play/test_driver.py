@@ -720,3 +720,81 @@ def test_thinking_omitted_falls_back_to_default():
         assert args[args.index("--thinking") + 1] == module.DEFAULT_THINKING
     finally:
         shutil.rmtree(run_dir(run_id), ignore_errors=True)
+
+
+def test_first_step_thinking_sets_the_launcher_env():
+    """SL-74: `COC_FIRST_STEP_THINKING` is not a `pi` CLI concept (unlike `--thinking`) -- the kernel
+    extension reads it from its own process env, so `Daemon._start_pi` must deliver it as an
+    environment variable on the launcher subprocess, not a launch arg. `PiProcess`'s `env=None`
+    default inherits this process's own environment, which is how every other var already reaches
+    `pi`; `first_step_thinking=True` must build an explicit env dict carrying it (plus everything
+    this process already had, so provider keys and PI_COC_* still reach the launcher)."""
+    spec = importlib.util.spec_from_file_location("driver_first_step_thinking_env", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    captured: dict = {}
+
+    class FakePiProcess:
+        def __init__(self, launcher, args, stderr_log_path, events_path, log, cwd=None, env=None):
+            captured["args"] = args
+            captured["env"] = env
+            self.proc = SimpleNamespace(pid=999999)
+
+        def call(self, message, timeout=None):
+            return {"success": True}
+
+        def alive(self):
+            return True
+
+    module.PiProcess = FakePiProcess
+
+    run_id = f"fixture-first-step-thinking-{uuid.uuid4().hex[:10]}"
+    try:
+        module.Daemon(run_id=run_id, campaign="test-campaign", launcher=str(FAKE_PI),
+                      model=None, first_step_thinking=True)
+        env = captured["env"]
+        assert env is not None, "the flag must force an explicit env dict, not inherit silently"
+        assert env["COC_FIRST_STEP_THINKING"] == "1"
+        # Everything this process already had (provider keys, PI_COC_*) must still be there --
+        # this is additive, not a replacement environment.
+        for key, value in os.environ.items():
+            if key == "COC_FIRST_STEP_THINKING":
+                continue
+            assert env.get(key) == value
+        # The flag never touches --thinking's own CLI arg.
+        args = captured["args"]
+        assert args[args.index("--thinking") + 1] == module.DEFAULT_THINKING
+    finally:
+        shutil.rmtree(run_dir(run_id), ignore_errors=True)
+
+
+def test_first_step_thinking_omitted_leaves_env_untouched():
+    """Companion to the above: the default (`first_step_thinking=False`, argparse's `store_true`
+    default) must leave `env=None` exactly as before this ticket -- no explicit dict, plain
+    inheritance -- so a table run without the flag is byte-for-byte the pre-SL-74 launch."""
+    spec = importlib.util.spec_from_file_location("driver_first_step_thinking_default", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    captured: dict = {}
+
+    class FakePiProcess:
+        def __init__(self, launcher, args, stderr_log_path, events_path, log, cwd=None, env=None):
+            captured["env"] = env
+            self.proc = SimpleNamespace(pid=999999)
+
+        def call(self, message, timeout=None):
+            return {"success": True}
+
+        def alive(self):
+            return True
+
+    module.PiProcess = FakePiProcess
+
+    run_id = f"fixture-first-step-thinking-default-{uuid.uuid4().hex[:10]}"
+    try:
+        module.Daemon(run_id=run_id, campaign="test-campaign", launcher=str(FAKE_PI), model=None)
+        assert captured["env"] is None
+    finally:
+        shutil.rmtree(run_dir(run_id), ignore_errors=True)
