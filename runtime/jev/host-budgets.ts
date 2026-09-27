@@ -16,6 +16,7 @@
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {extensionContentRoot} from '../../extensions/ui/words.ts';
+import {ADMISSION_TYPED_DESIGNS, type AdmissionTypedDesign} from './admission-domain.ts';
 
 export interface JevStepsBudget {
   /** The row gate (§135.30.9.1's `ROW_MIN`): a Noul's leading answer clears at least this probability. */
@@ -218,3 +219,61 @@ async function readReadingIdleBudget(contentRoot: string): Promise<ReadingIdleBu
 
 /** Test-only: forgets the cached values, so a test that rewrites a content root sees its own fixture. */
 export function resetReadingIdleBudgetCache(): void { readingIdleCached.clear(); }
+
+/**
+ * SL-97 phase 2b (contract §32.12.3.2): the typed admission reviewer's design and the one rule by which its reading may
+ * settle a line alone -- `admission` in the same rules-data file as the other host budgets, so widening the classes after a
+ * new measurement is a data change, never a literal in `extensions/kernel/admission.ts`.
+ *
+ * - `typed_design`: which typed design reads every review (`roles-2a.3`, the measured one; `v1`, §32.10's, kept for
+ *   comparison: its reading is recorded and never settles).
+ * - `typed_settle.classes`: the line classes (closed effect kinds) whose typed admission may settle the line without the
+ *   lane -- the classes that met SL-97's pre-registered bar on the holdout. `admission.ts` keeps only those inside §32.11's
+ *   closed set (`FAST_PATH_KINDS`), so this list can narrow the rule and never reach `cash`, `item`, `object`, `usage`,
+ *   `map` or a `resolve`.
+ * - `typed_settle.min_confidence`: the line confidence at or above which such a line settles.
+ *
+ * Unlike the other budgets it fails closed: a file that cannot be read, or an `admission` entry without a valid class list,
+ * settles nothing by the typed reviewer (the lane decides every line), rather than falling back to a shipped list.
+ */
+export interface AdmissionTypedBudget {
+  /** `admission.typed_design`: the typed design every review reads. */
+  design: AdmissionTypedDesign;
+  /** `admission.typed_settle.classes`: the line classes a typed admission may settle alone. */
+  settleClasses: readonly string[];
+  /** `admission.typed_settle.min_confidence`: the line confidence, in (0, 1], at or above which such a line settles. */
+  settleMinConfidence: number;
+}
+
+/** Used when `content/rulesets/coc7/host-budgets.json` cannot be read: the measured design, and no class settles. */
+export const ADMISSION_TYPED_FALLBACK: AdmissionTypedBudget = Object.freeze({design: 'roles-2a.3', settleClasses: Object.freeze([]), settleMinConfidence: 0.87});
+
+let admissionTypedCached: Promise<AdmissionTypedBudget> | undefined;
+
+/**
+ * The typed admission budget, read once per process and cached like `jevStepsBudget`. `contentRoot` is for tests only;
+ * production code always calls this with no argument (the extensions' content root, `PI_COC_CONTENT_ROOT` when relocated).
+ */
+export function admissionTypedBudget(contentRoot?: string): Promise<AdmissionTypedBudget> {
+  if (contentRoot !== undefined) return readAdmissionTypedBudget(contentRoot);
+  return admissionTypedCached ??= readAdmissionTypedBudget();
+}
+
+async function readAdmissionTypedBudget(contentRoot?: string): Promise<AdmissionTypedBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      admission?: {typed_design?: unknown; typed_settle?: {classes?: unknown; min_confidence?: unknown}};
+    };
+    const design = raw.admission?.typed_design, classes = raw.admission?.typed_settle?.classes, min = raw.admission?.typed_settle?.min_confidence;
+    return {
+      design: typeof design === 'string' && (ADMISSION_TYPED_DESIGNS as readonly string[]).includes(design) ? design as AdmissionTypedDesign : ADMISSION_TYPED_FALLBACK.design,
+      settleClasses: Array.isArray(classes) ? Object.freeze([...new Set(classes.filter((value): value is string => typeof value === 'string' && value.length > 0))]) : ADMISSION_TYPED_FALLBACK.settleClasses,
+      settleMinConfidence: finite(min) && min > 0 && min <= 1 ? min : ADMISSION_TYPED_FALLBACK.settleMinConfidence,
+    };
+  } catch {
+    return ADMISSION_TYPED_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached value, so a test that swaps the content root sees its own fixture. */
+export function resetAdmissionTypedBudgetCache(): void { admissionTypedCached = undefined; }

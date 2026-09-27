@@ -8471,7 +8471,7 @@ question; the foreground wait on every `resolve`/`apply` is. Jev calls in this r
 (prescreen telemetry, 4 calls in 2.6 s `decision_ms`). The gate stays where it is and refuses what it refused;
 only who answers first changes.
 
-**Setting.** `PI_COC_ADMISSION_REVIEWER=jev|lane`, read per review. **Default `lane`**: the §32.2 completion,
+**Setting.** *(Amended by §32.12.3.2, 2026-09-27: the setting is read by nothing; the typed reading is the role-first design, and it settles a line only under §32.12.3.2's rule, never a refusal.)* `PI_COC_ADMISSION_REVIEWER=jev|lane`, read per review. **Default `lane`**: the §32.2 completion,
 unchanged. `jev` puts the typed family `action-admission` v1 (`runtime/jev/admission-domain.ts`) first through the
 shared decision adapter (§122 T06/T07, pinned `jev-1.13.0`, credential through the Jev extension's resolver), and
 runs the lane for every answer that is not a verdict. The default does not change until live agreement exists (the
@@ -8611,7 +8611,7 @@ Why these four and not the rest of §32.1's triggering kinds, by what §32 ties 
 Origin does not enter: the clerk's policy-origin writes (§135.4) and the Keeper's own are the same verb and the
 same batch, and origin is tracing only.
 
-**The rule** (`reviewAdmissionPrimary`). For a bookkeeping batch the typed family of §32.10 runs first, whatever
+**The rule** (`reviewAdmissionPrimary`). *(Amended by §32.12.3.2, 2026-09-27: a bookkeeping batch is settled by the typed reading only line by line, for the classes the data lists -- today `time` -- at the data's threshold.)* For a bookkeeping batch the typed family of §32.10 runs first, whatever
 `PI_COC_ADMISSION_REVIEWER` says, on exactly §32.3's input. It admits alone only when **every line's typed
 verdict admits** (so the batch verdict admits, §32.10's mapping) **and** the review confidence (the minimum line
 verdict confidence, §32.10) is at least `PI_COC_ADMISSION_FAST_MIN_CONFIDENCE` (default **0.87**, measured
@@ -8852,7 +8852,7 @@ outcome is what a cap expiry gives (below), except that nothing is left running,
 `not_player_action` verdicts, whose rows had no `grounds` column (see telemetry below). The rule closes the path by
 which a grounds-less answer could ever refuse.
 
-**At the cap.** No sufficient verdict by the cap, or a lane answer without grounds:
+**At the cap.** *(Amended by §32.12.3.2, 2026-09-27: only the line classes the typed reading may settle are admitted late; anything else is `review_pending` with `late_rule: "class_not_listed"`.)* No sufficient verdict by the cap, or a lane answer without grounds:
 
 1. **A late admission.** The batch is admitted on the typed verdict, `path: "typed_late"`, `reviewer: "jev"`, when all of
    these hold:
@@ -8991,7 +8991,7 @@ closed contract enums, never the prose). A line of an `apply` batch is **cleared
 
 A `resolve` is one line and is never split.
 
-**The split.** In `reviewAdmissionPrimary`, when the typed answer is in and no verdict stands for the whole batch (§32.12.2's
+**The split.** *(Retired by §32.12.3.2, 2026-09-27: `reviewAdmissionPrimary` no longer splits; a line the typed reading settles is that line's own outcome, and the batch lands whole or not at all.)* In `reviewAdmissionPrimary`, when the typed answer is in and no verdict stands for the whole batch (§32.12.2's
 sufficiency: the fast path, the family rule, a lane verdict with grounds), and some lines are cleared but not all, the
 review ends `ok: "split"` and the batch's lane round is aborted. It does not split after the lane has answered the batch,
 and a typed verdict that stands for the whole batch (every line cleared on a bookkeeping batch) is §32.11's fast path, not
@@ -9082,7 +9082,7 @@ ruling, 2026-09-26: a batch of more than one reviewed line sends one lane call p
 model; the batch's verdict is the existing line-level combination; the cap and pending apply per call, the batch is
 pending only on the lines still pending, and a resend re-joins only those; verdict reuse keys by line; each call gets the
 same §32.3 context and exactly one proposed line; lines settled on `basis.compile`, `basis.consequence` or the typed
-reviewer stay off the lane as before; a one-line batch is unchanged; the typed reviewer is not changed here (SL-97).
+reviewer stay off the lane as before; a one-line batch is unchanged; the typed reviewer is not changed here (SL-97; §32.12.3.2 changes it).
 
 **Which calls.** An `apply` proposal with more than one reviewed line (§32.12.3's owner amendment: the lines are its
 reviewed effects only) -- a Keeper's batch, a batch §32.12.4 prefetched, or a split's remainder of two lines or more.
@@ -9175,6 +9175,110 @@ line), and cleared by a new player input; one outage per call; a one-line batch 
 call per line; a §32.12.4 prefetch collected line by line, and none started for a batch one of whose lines is known; the pure rules (`reviewedPerLine`, `lineProposal`,
 `lineReading`, `batchRefusal`'s order). The suites whose premise was one lane call per batch now count one call per line.
 Mutations and the offline estimate for gate #23 are in the SL-101 ticket's Comments.
+
+#### 32.12.3.2 Addendum (2026-09-27, SL-97 phase 2b): the typed reviewer reads the measured role-first design and settles a line alone only of a class the measurement cleared (amends §32.7, §32.10, §32.11, §32.12.2, §32.12.3 and §32.12.3.1)
+
+**Why.** Long gate #23 (SL-97): the §32.10 v1 family answered in about 0.5 s but reached the fast path's 0.87 on 2 of
+371 bank cases, so the `grok-build/grok-4.5` lane (7–13 s) decided nearly every review. SL-97 phase 2a designed a
+role-first family offline (`experiments/admission-jev-bank/admission-roles.ts`, revisions 2a.1–2a.3, 1 895 live Jev
+calls, a pre-registered holdout), and the relabel re-scored the stored answers against today's lane (grok-4.5 `low`, two
+runs per case, 2 806 lane calls). Revision 2a.3 on the holdout at *T* = 0.87, a case counted refused when either run
+refused: `time` 23 settled / 0 false admits, `move` 6 / 0, `clue` 1 / 0. The pre-registered bar (at most 1.8% false admits
+with at least 10 settled, on the holdout) is met by `time` only. `resolve` keeps false admits in every revision. Today's
+lane flips against itself on 2.1% (`time`), 8.1% (`move`), 2.6% (`clue`) and 6.5% (`resolve`) of cases. The integrator's
+ruling, within the owner's "长线改 Jev" (2026-09-27): port 2a.3 as the product's typed design; the typed reviewer settles
+a line alone only when the line's class is on a data list of the classes that passed the bar and its confidence is at a
+data threshold; the typed call and the line's lane call run together and the line's lane call is cancelled when the typed
+reading settles it, so an escalation costs no wall time over the lane alone; a typed refusal never stands; each line's
+row says who decided. The numbers are in the SL-97 ticket's Comments and `experiments/admission-jev-bank/results/sl97b`,
+`results/sl97c`.
+
+**The design.** `runtime/jev/admission-roles-domain.ts` is revision 2a.3, behind §32.10's family interface: the same
+`AdmissionJevInput` (§32.3's input, the lane's windows), the same result shape (a lane-shaped verdict and a confidence per
+line), the same fallbacks. Its family is `action-admission-roles`, version `2a.3`, and its requests are the measured ones
+byte for byte (`tests/extension/admission-roles-domain.test.mjs` pins them against the experiment module). Per proposed
+line, independent Choices over one state: `role` (the investigator's act, the world's response, or time passing),
+`choice`, `result`, `span` (each read as if that role applied), `target`, `gate`, `order`, and §32.10's `missing` and
+`basis`. The host sums each question's admitting options (a closed membership) and combines them,
+`P(admit) = min( P(act)·min(A(choice), A(target)) + P(world)·A(result) + P(time)·A(span), A(gate), A(order) )`; the line's
+confidence is `|2·P(admit) − 1|`, and its lane-shaped verdict comes from the dominant role (grounds and telemetry only). The
+state is facts with a field legend, the newest delivery apart as `justTold`, each line with its closed effect kind: the
+input now carries `kinds` (the proposal's own, a contract enum), never read from the prose. All lines share one request
+while they fit the packing bound; a proposal of more than eight lines goes to the lane. §32.10's v1
+(`runtime/jev/admission-domain.ts`) stays available for comparison: selected in the data, its reading is recorded on every
+row and settles nothing.
+
+**The data.** `content/rulesets/coc7/host-budgets.json`, `admission`: `typed_design` (`roles-2a.3` | `v1`),
+`typed_settle.classes` (today `["time"]`) and `typed_settle.min_confidence` (0.87). Read once per process
+(`admissionTypedBudget`, `runtime/jev/host-budgets.ts`). It fails closed: an unreadable file, a missing entry or a class
+list that is not a list settles nothing by the typed reviewer. The list is kept only inside §32.11's closed set
+(`FAST_PATH_KINDS`: `move`, `clue`, `handout`, `time`), so the data can narrow the rule and never reach `cash`, `item`,
+`object`, `usage`, `map` or a `resolve`. `PI_COC_ADMISSION_FAST_MIN_CONFIDENCE` still overrides the threshold per review;
+`off` turns typed settling off.
+
+**The rule** (`typedSettles`, `reviewAdmissionPrimary` in `extensions/kernel/admission.ts`). For every call §32.1 puts to
+review, after §32.4's reuse and the compile's and the consequence route's exemptions, the lane -- one call per line for an
+`apply` batch of more than one reviewed line (§32.12.3.1) -- and one typed attempt over the whole proposal start at the
+same moment, as before. A line is settled by the typed reading, alone, exactly when all of these hold:
+- its class (the line's closed effect kind; `resolve` for a `resolve`) is on the data's list, and the design is
+  `roles-2a.3`;
+- the reading is a complete answer over the proposal's own lines;
+- the line's verdict admits and its confidence is at the threshold or above;
+- that line's lane has not given a verdict with grounds.
+
+That line's lane call is then cancelled -- its own abort signal, which every round now has beside the review's -- and no
+other line's call is touched. Every other line is the lane's: its verdict with grounds stands whatever the typed reading
+says. A typed refusal never stands; the lane decides refusals. A line whose lane failed is §32.2's outage unless the typed
+reading settles it. The review waits for the typed answer only where it can still matter (a line it could settle, or a
+lane answer without grounds, whose late admission and pending details read it); nowhere else, so a line the typed reading
+does not settle costs no wall time over the lane alone.
+
+**What lands.** A one-line call the typed reading settles lands as any admitted call. A batch of more than one reviewed line
+is §32.12.3.1's per-line review with a typed-settled line as that line's own outcome: the batch's verdict is the lines'
+combined verdict (§32.10's mapping), admitted only when every line is, and otherwise nothing of it lands. A typed-settled
+line never lands alone beside a refused one. Each line's verdict is kept under its own key (§32.4 keyed by line); a batch
+whose every line the typed reading settled keeps its combined verdict as `reviewer: "jev"`, `path: "typed"`.
+
+**The late admission (§32.12.2), narrowed.** At the cap only a batch whose triggering kinds are all on the list is admitted
+`typed_late` (`lateAdmission`'s `settleClasses`, carried on the `late` outcome); anything else goes back `review_pending`
+with `late_rule: "class_not_listed"`. The late threshold stays `PI_COC_ADMISSION_LATE_MIN_CONFIDENCE` (0.70): on the
+relabelled holdout 2a.3's `time` class at *T* = 0.70 settles 61 with no false admission, 51 / 0 on the main sample. Under
+design `v1` no class is listed, so nothing is admitted late.
+
+**What this retires.**
+- §32.10's family rule. `PI_COC_ADMISSION_REVIEWER` and `PI_COC_ADMISSION_JEV_MIN_CONFIDENCE` are read by nothing; no v1
+  verdict stands, refusals included; `jev_fallback: "numeric_commitment"` no longer occurs (`cash` is never a listed
+  class).
+- §32.11's whole-batch fast path over `move`, `clue`, `handout` and `time`: a bookkeeping batch is settled by the typed
+  reading only line by line, and only for the listed classes.
+- §32.12.3's split. `reviewAdmissionPrimary` never returns `ok: "split"`: it aborted every line's call and reviewed a fresh
+  remainder, which added wall time, and it landed the cleared lines alone. §32.12.3's owner amendment (lines no reviewer
+  reads land with the batch) stands. `lineClearable` and `clearedLines` are removed; the caller's remainder and
+  partial-landing machinery (`splitLines`, `state.admissionSplit`, the result's `admission` block) is no longer reached and
+  is left in place here.
+
+**Telemetry (amends §32.7, §32.11 and §32.12.3.1).** Every reviewed row carries `typed_design`, `line_class`,
+`typed_confidence` (that line's typed confidence, or `null`) and `lane_cancelled`. A line of a class the reading may settle
+adds `settle_min_confidence` and, when it was not settled, `jev_fallback` (`lane_first`, `typed_refusal`,
+`low_confidence`, or the typed non-verdict's reason); a line of another class names no fallback. A typed-settled row:
+`reviewer: "jev"`, `path: "typed"`, `model: "jev-1.13.0"`, `confidence`, `lane_cancelled: true` when its lane call was still
+running, and `ms` the typed answer's time from the review's start. `line_ms` is `null` for a cancelled call. `fast_path`,
+`fast_min_confidence` and `typed_rule` are no longer written; `kpi.py`'s `by_reviewer` counts the typed-settled share.
+
+**Three ends (§31).** *Writer:* the typed reading (`runAdmissionRoles`), the settle rule (`typedSettles` over
+`admissionTypedBudget`'s data), and the lines' lane rounds. *Reader:* `admitAction` (`extensions/kernel/index.ts`), still
+the one place a call is admitted or refused. *Actor:* the Keeper, through the unchanged admit and refusals; the operator,
+through the rows' `reviewer`, `line_class`, `typed_confidence` and `lane_cancelled`, and the data file.
+
+**What is verified and what is not.** Verified offline, with the controlled typed endpoint and the admission clock
+(`tests/extension/admission-roles-domain.test.mjs`, `admission-typed-settle.test.mjs`, and the admission suites updated
+for the rule): the measured request; the host arithmetic; a `time` line at 0.87 or above settled by `jev` with its lane
+call cancelled; a `move` line never, at 1.0; a low-confidence `time` line and a lane faster than Jev each ending at the
+lane's own time; a typed refusal escalating; a mixed batch landing whole or not at all, with only the settled line's call
+cancelled; the late admission confined to the list; the list and the threshold read from the data (a fixture listing
+`move` at 0.95); design `v1` settling nothing. Mutations are in the SL-97 ticket's Comments. **Not verified:** the live
+product path at a table -- the typed-settled share, admission's share of the critical path and first visible prose within
+60 s on 20 of 20 turns are long gate #24's acceptance; and agreement beyond the relabelled bank.
 
 #### 32.12.4 Addendum (2026-09-26, SL-88, "what needs no result does not wait"): the admission reviews of one response's write steps start together, as one round
 

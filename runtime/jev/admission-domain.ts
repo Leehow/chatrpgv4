@@ -10,6 +10,9 @@
  * Authority boundary: this module never admits by itself. It returns a typed decision or an
  * explicit fallback reason; the caller runs the incumbent lane for every fallback, and an
  * unavailable review still refuses there (§32.2).
+ *
+ * §32.12.3.2 (SL-97 phase 2b): this is design `v1`, kept for comparison. The product reads the role-first design
+ * (`admission-roles-domain.ts`) by default, and a `v1` reading never settles anything.
  */
 import {createHash} from 'node:crypto';
 import type {DecisionPort} from './decision-port.ts';
@@ -42,6 +45,11 @@ export interface AdmissionJevInput {
   tool: 'resolve' | 'apply';
   /** The §32.3 proposal lines exactly as the lane reads them. */
   proposal: string[];
+  /**
+   * §32.12.3.2 (SL-97 phase 2b): each `apply` line's closed effect kind, parallel to `proposal` (the proposal's own
+   * `kinds`, a contract enum). The role-first design shows it beside the line; v1 does not read it.
+   */
+  kinds?: string[];
   playerText: string;
   interruptedPlayerText?: string;
   investigators: Array<{name: string; occupation?: string}>;
@@ -54,7 +62,19 @@ export interface AdmissionJevInput {
   bookText?: Array<{where: string; text: string}>;
 }
 
-export interface AdmissionJevLine {verdict: AdmissionJevVerdict; confidence: number; missing: AdmissionMissingKind; basis?: string}
+/**
+ * One line of a typed reading, whatever the design (§32.10's v1, §32.12.3.2's role-first design). `verdict` is lane-shaped
+ * (it admits exactly when it is one of the three admitting verdicts), `confidence` the line's own. `pAdmit` is the
+ * role-first design's admit probability, absent from v1.
+ */
+export interface AdmissionJevLine {verdict: AdmissionJevVerdict; confidence: number; missing: AdmissionMissingKind; basis?: string; pAdmit?: number}
+/**
+ * §32.12.3.2 (SL-97 phase 2b): the typed designs behind this family interface. `roles-2a.3` is the measured role-first
+ * design (`admission-roles-domain.ts`) and the only one whose reading may settle a line; `v1` is this module's design,
+ * kept for comparison: its reading is recorded and never settles anything.
+ */
+export const ADMISSION_TYPED_DESIGNS = ['roles-2a.3', 'v1'] as const;
+export type AdmissionTypedDesign = typeof ADMISSION_TYPED_DESIGNS[number];
 export type AdmissionJevResult =
   | {status: 'decided'; verdict: AdmissionJevVerdict; grounds: string; missing?: string; confidence: number;
     lines: AdmissionJevLine[]; calls: number; elapsedMs: number; usage: {inputTokens: number; outputTokens: number; costUsd: number}}

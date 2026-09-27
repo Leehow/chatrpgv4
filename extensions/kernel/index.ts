@@ -2330,7 +2330,7 @@ export default function (pi: ExtensionAPI) {
 		const lane = reviewAdmissionPrimary({
 			campaign: state.campaign, ctx, proposal, context: admissionContextFor(state),
 			providerBudget: foregroundProviderBudget?.(), record: (row) => record({ verb: tool, ...row, prefetch: true }),
-			...(state.lanes.signal ? { signal: state.lanes.signal } : {}), lineLevel: tool === "apply", ...(admissionClock ? { clock: admissionClock } : {}),
+			...(state.lanes.signal ? { signal: state.lanes.signal } : {}), ...(admissionClock ? { clock: admissionClock } : {}),
 		}).catch((error): AdmissionOutcome => ({ ok: false, reason: "prefetch_error",
 			detail: error instanceof Error ? error.message : String(error), ms: 0, reviewer: "lane", meta: {} }));
 		state.admissionPending.set(proposal.key, { lane, capMs, hardCapMs, collected: false, prefetched: true });
@@ -2465,7 +2465,7 @@ export default function (pi: ExtensionAPI) {
 			const reviewContext = part?.landedLines?.length ? { ...base, landed: [...base.landed, ...part.landedLines.map((line) => `admitted in this same call: ${line}`)] } : base;
 			const review = () => reviewAdmissionPrimary({ campaign: state.campaign, ctx: ctx!, proposal, context: reviewContext, providerBudget,
 				record: (row) => record({ verb: tool, ...row, ...origin }), ...(signal ? { signal } : {}), ...(admissionClock ? { clock: admissionClock } : {}),
-				...(part?.attempt ? { typedAttempt: part.attempt, startedAt: part.startedAt, timeoutMs: part.capMs, hardCapMs: part.hardCapMs } : { lineLevel: tool === "apply" }) });
+				...(part?.attempt ? { typedAttempt: part.attempt, startedAt: part.startedAt, timeoutMs: part.capMs, hardCapMs: part.hardCapMs } : {}) });
 			// §32.12.2: what the lane of a review this call no longer waits for answered in the end, for the record only. A late
 			// lane refusal after a late admission changes nothing that landed; it is what the late admission is measured by.
 			const watchLate = (lane: Promise<AdmissionOutcome> | undefined, answered: string, entry?: AdmissionPendingEntry) => {
@@ -2515,7 +2515,8 @@ export default function (pi: ExtensionAPI) {
 			if (outcome.ok === "late") {
 				// §32.12.2: the cap passed with nothing sufficient. A bookkeeping-only batch the typed reviewer admitted at the late
 				// threshold lands on it; anything else goes back to the Keeper pending, the lane still running for its one resend.
-				const late = lateAdmission(proposal, outcome.typed);
+				// §32.12.3.2: only the line classes the typed reading may settle are admitted late on it.
+				const late = lateAdmission(proposal, outcome.typed, process.env, outcome.settleClasses);
 				const meta = { ...outcome.meta, ...refusedCompile, ...refusedConsequence, late_rule: late.ok ? "typed_late" : late.reason,
 					...(late.ok ? { late_min_confidence: late.minConfidence, confidence: outcome.typed?.confidence ?? null } : {}) };
 				if (late.ok) {
@@ -2601,10 +2602,13 @@ export default function (pi: ExtensionAPI) {
 			buffer: Array<Record<string, unknown>>): Promise<LineStatus[]> => {
 			let combined: LineStatus[] = statuses, batch: Record<string, unknown>;
 			if (statuses.every((status) => status.admitted)) {
-				const verdicts = lines.map((entry) => state.admission.get(entry.proposal.key)?.verdict).filter((value): value is string => !!value);
+				const kept = lines.map((entry) => state.admission.get(entry.proposal.key));
+				const verdicts = kept.map((value) => value?.verdict).filter((value): value is string => !!value);
 				const verdict = verdicts.length === lines.length ? batchVerdict(verdicts as Parameters<typeof batchVerdict>[0]) : undefined;
+				// §32.12.3.2: a batch whose every line the typed reading settled was decided by it; a reused row says so.
+				const typed = kept.every((value) => value?.reviewer === "jev" && value.path === "typed");
 				if (verdict) state.admission.set(p.key, { verdict, grounds: `each line admitted on its own review: ${verdicts.map((value, index) => `line ${frame.numbers[index]} ${value}`).join("; ")}`,
-					reviewer: "lane", path: "lane" });
+					reviewer: typed ? "jev" : "lane", path: typed ? "typed" : "lane" });
 				batch = { batch_admitted: true, ...(verdict ? { batch_verdict: verdict } : {}) };
 			} else {
 				const refused = statuses.flatMap((status, index) => "error" in status ? [{ line: p.lines[index]!, error: status.error }] : []);
