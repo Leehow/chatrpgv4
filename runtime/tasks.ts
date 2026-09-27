@@ -293,7 +293,9 @@ export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
       captured = { ...context, env: { ...context.env, PI_COC_READER_CMD: JSON.stringify(command) } };
     }
     // §20 addendum 3 (SL-41): a read raised during play carries its size (derived from the book by the reading service);
-    // each of its children opens a lease of that size. Anything else without an owner keeps the fixed lease.
+    // each of its children opens a lease of that size. Anything else without an owner keeps the fixed lease; since §140.2
+    // (SL-99b) every reading job carries a size, so what is left there are children handed no page images (character
+    // guidance, adaptation, `mod` lanes), whose text requests reserve their own bytes rather than a whole context window.
     const owned = !request.providerBudget && !context.env.PI_COC_READER_CMD?.trim();
     const independent = owned ? (request.readingLease ? openStageProviderBudget(request.readingLease, {signal})
       : independentProviderBudget(`standalone-${task.kind}`, signal, request.timeoutMs ?? 3600000)) : undefined;

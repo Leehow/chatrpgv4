@@ -176,3 +176,56 @@ resend is now dispatched; the typed refusal is kept for a *different* next reque
 reads a different page, its subject being distinct image calls), lane-idle-timeout (the reader child now carries
 `reading.idle_ms`). Acceptance (the Masks table re-run: reader timeouts 0 or near 0, no opening read dying on budget) is
 still owed; note the fixed-lease finding above can still end an opening round without any timeout.
+
+**SL-99b (2026-09-26, worker, branch `claude/sl99b-20260926`, base 7d8ff69e8): opening and guidance reads outside a stage lease are sized to the book.**
+One commit: `67515738d` fix(reading): an opening or guidance read that no stage lease owns is sized to the book like its stage (§140.2, SL-99b).
+Files: `runtime/jev/reading-stage-budget.ts` (`readingJobStage` names `opening` and `guidance`), `extensions/module/reading-service.ts`
+and `runtime/tasks.ts` (comments only), `docs/kernel-rpc.md` (§140.2, plus pointer notes in §20 addenda 3 and 5 and §140.1),
+`tests/extension/reading-opening-lease.test.mjs` (new), `tests/extension/reading-stage-budget.test.mjs`.
+
+*The fix and why this one.* The reading service already sizes every job `readingJobStage` names when no stage lease owns
+it, one lease per reader child (§20 addenda 3, 5, 6). Opening and guidance were the two purposes left on the fixed lease,
+and the table's setup, `/coc ingest` and the reading pump start them without a stage lease. Naming them sizes them as the
+stage of their own name: the shares already exist (`opening` 1, `guidance` 0.5), so no new number and nothing in
+`host-budgets.json`. I did not take the other route (reserving per call from a measured bound instead of the whole
+context window): image tokens cannot be bounded from bytes, and an under-estimate is an overrun, which cancels
+non-absorbing leases (the Keeper's turn and the lanes included). Sizing also lifts the fixed lease's other two traps on
+the same path: 16 actions (sized `detail` rounds on record used 30 calls, `answer` rounds 24) and 8,192 output tokens a
+call (§20 addendum 2's Masks draft call reported 10,933). The retained telemetry (19 `reading-telemetry.jsonl` files) has
+four provider refusals in all, every one a Masks opening round on the fixed lease.
+
+*Charging, before and after, with the Masks numbers* (`read-5` round 2, grok-4.5, 669-page book, each image call reserving 500,000):
+
+| | before (fixed lease) | after (opening lease, 669 pages) |
+|---|---|---|
+| input ceiling per child | 1,000,000 | 10,704,000 (669 x 16,000 x 1; the measured per-page cost was below the default) |
+| actions / output / USD | 16 / 65,536 / 10 | 335 / 669,000 / 20.07 |
+| output bound a call | 8,192 | 32,768 (capped by the model) |
+| after 11 image calls | used 536,114 | used 536,114 |
+| the 12th call asks 500,000 | 1,036,114 > 1,000,000: refused `budget_input_tokens`, round lost, 0 pages | granted; about 10.2M of real input left before any refusal |
+| `stage_budget` row | none | `{purpose: opening, stage: opening, inputTokens: 10704000, ...}` |
+
+A guidance read on Masks gets half (5,352,000 input, 168 actions). On a book under 250 pages the floor decides (4,000,000,
+eight whole-context reservations of this reader; 64 actions). Still per child, so a refusal in one round leaves the next a
+fresh lease. With SL-99's charging, the three stream-timeout refusals (`used` 562,341, 567,317, 562,428) no longer reach
+a refusal either: the resend rides on the kept reservation.
+
+*Mutations* (copy aside, one edit, the named files run, restored with `cp`; file hashes identical afterwards):
+
+| # | mutation | file | result |
+|---|---|---|---|
+| N1 | opening not named (not sized) | runtime/jev/reading-stage-budget.ts | killed: reading-opening-lease (opening), reading-stage-budget |
+| N2 | guidance not named | runtime/jev/reading-stage-budget.ts | killed: reading-opening-lease (guidance), reading-stage-budget |
+| N3 | opening sized as a detail read | runtime/jev/reading-stage-budget.ts | killed: reading-opening-lease (stage and 10,704,000) |
+| N4 | re-sized even under the import worker's stage lease | extensions/module/reading-service.ts | killed: reading-opening-lease (owned job keeps its lease) |
+| N5 | the child ignores the size (fixed lease) | runtime/tasks.ts | killed: reading-opening-lease (read-5 round 2's twelfth call refused) |
+
+*Tests, single files on this Mac at `67515738d`, all pass:* reading-opening-lease 4/4, reading-stage-budget 12/12,
+reading-play-lease 3/3, reading-provider-failure 4/4, reader-idle-allowance 7/7, provider-refusal 10/10,
+jev-provider-budget 12/12, lane-idle-timeout 4/4, runtime-reader 22/22, reading-priority 6/6, reading-service 27/27,
+map-publication 6/6, reading-intent 5/5, displaced-read-resumes 5/5, review-refused-retry 4/4,
+same-span-retranscription 11/11, scene-text-landing 6/6, contract-section-numbers 3/3, system-language 5/5. No full suite,
+no pytest. `build/` here is the stale copy; only `build/extensions/module/reader-context.mjs` was re-emitted (for SL-99's
+live-child test); SL-99b's own tests load TypeScript sources only.
+
+*Still owed:* the Masks re-run (reader timeouts 0 or near 0; no opening read dying on budget).
