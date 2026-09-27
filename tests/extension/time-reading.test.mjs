@@ -247,7 +247,10 @@ test("the implicit close is read too, and a refusal takes the turn's one steer (
 
 const ROOT = join(import.meta.dirname, "../..");
 
-/** Turn 1 walked into the newspaper morgue and closed at 10:00 on 1920-10-12; the player speaks next at turn 2. */
+/**
+ * Turn 1 walked into the newspaper morgue and closed at 10:00 on 1920-10-12 plus the road's minutes (a road's minutes are
+ * data since 0.9.5a's BR-05; this one records 30); the player speaks next at turn 2.
+ */
 function turnOneClosed(workspace) {
 	const input = [["table.open", {}], ["table.player_input", { text: "我去《环球报》报馆" }],
 		["table.apply", { call_id: "t1-c1", effects: [{ kind: "move", to: "newspaper-morgue" }] }],
@@ -260,6 +263,8 @@ function turnOneClosed(workspace) {
 }
 
 const record = (workspace, turn) => JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns", `${String(turn).padStart(4, "0")}.json`), "utf8"));
+/** The minutes turn 1's walk to the morgue put on the clock: the road's own, whatever the data says. */
+const travel = (workspace) => record(workspace, 1).receipts.filter((receipt) => receipt.kind === "move").reduce((sum, receipt) => sum + (receipt.minutes ?? 0), 0);
 const world = (workspace) => JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/world.json"), "utf8"));
 const kernelRows = (workspace) => readFileSync(join(workspace, ".coc/campaigns/test-camp/telemetry.jsonl"), "utf8").split("\n")
 	.filter((line) => line.trim()).map((line) => JSON.parse(line)).filter((row) => row.lane === "delivery" && row.reason === "time_unrecorded");
@@ -283,7 +288,8 @@ test("real kernel: the skip is refused with the call that closes it; the Keeper 
 	assert.equal(refusal?.reason, "time_unrecorded");
 	const turn = record(table.workspace, 2);
 	const time = turn.receipts.find((receipt) => receipt.kind === "time");
-	assert.deepEqual([time.minutes, time.until], [22 * 60, { days: 1, time: "08:00" }]);
+	// until names the next morning, 08:00: the minutes are what is left from where turn 1's walk left the clock.
+	assert.deepEqual([time.minutes, time.until], [22 * 60 - travel(table.workspace), { days: 1, time: "08:00" }]);
 	assert.equal((turn.warnings ?? []).filter((row) => row.kind === "time_unrecorded").length, 0, "the books agree: no finding");
 	assert.equal(world(table.workspace).clock.minutes, 22 * 60);
 	assert.deepEqual(kernelRows(table.workspace).map((row) => row.outcome), ["refused"]);
@@ -295,7 +301,7 @@ test("real kernel: a Keeper that delivers the skip again after the refusal gets 
 	const [finding] = (turn.warnings ?? []).filter((row) => row.kind === "time_unrecorded");
 	assert.equal(finding.cut, "next_day");
 	assert.deepEqual(finding.suggest, { until: { days: 1, time: "08:00" } });
-	assert.equal(world(table.workspace).clock.minutes, 0, "nothing landed: the clock did not move for prose");
+	assert.equal(world(table.workspace).clock.minutes, travel(table.workspace), "nothing landed this turn: the clock is where turn 1's walk left it");
 	assert.deepEqual(kernelRows(table.workspace).map((row) => row.outcome), ["refused", "delivered"]);
 });
 

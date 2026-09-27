@@ -499,9 +499,13 @@ def test_the_edit_control_can_change_the_age_and_the_age_table_reruns_on_the_sam
     assert older["sheet"]["derived"]["MOV"] < first["sheet"]["derived"]["MOV"]
 
 
-def test_a_bigger_budget_after_a_characteristic_edit_is_spent_not_left_on_the_table(kernel):
+def test_a_bigger_budget_after_a_characteristic_edit_is_spent_not_left_on_the_table(seeded_kernel):
     """The App preview showed 352 / 375 after DEX went to 90 (user, 2026-09-17): the raised budget
-    goes onto the skills nobody pinned, and the allocations already held only grow."""
+    goes onto the skills nobody pinned, and the allocations already held only grow.
+
+    The dice are seeded: an unseeded roll that already reaches the edited total leaves nothing to raise
+    (340 > 340 on the box, 2026-09-27), which is the draw failing, not the budget."""
+    kernel = seeded_kernel
     first = draft(kernel, criminal())
     dex = first["sheet"]["characteristics"]["DEX"]
     raised = kernel.ok("setup.override", {"campaign": CAMPAIGN, "revision": first["revision"], "edits": {"characteristics": {"DEX": 90, "EDU": 80}}})

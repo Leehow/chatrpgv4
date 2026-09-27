@@ -37,6 +37,9 @@ function installJev(t, answer) {
 	globalThis.fetch = async (url, init) => {
 		if (String(url) !== JEV_URL) return original(url, init);
 		const body = JSON.parse(init.body);
+		// §145.2: since keeper-time-skip was gathered, a delivery's time skip is read from the same endpoint. That family is
+		// not the band recovery's: it falls back (503) and is not counted with this file's requests.
+		if (body.questions?.cut) return new Response("unavailable", { status: 503 });
 		requests.push(body);
 		const answers = Object.fromEntries(Object.entries(body.questions).map(([key, question]) => {
 			const keys = Object.keys(question.criteria);
