@@ -159,3 +159,71 @@ the exact commands are in `experiments/admission-jev-bank/results/sl97c/` (`READ
 - Numbers only; no new recommendation is made. Phase 2a's recommendation ("no threshold is recommended", the
   pre-registered 1.8% bar) stands as written -- this data would change the picture if the owner asks for a new
   recommendation from it, but that is not done here.
+
+**Phase 2b: product integration, scoped by the measurement (2026-09-27, worktree `chatrpgv4-wt-sl97d`, branch
+`claude/sl97d-20260927`, base 5e88ba5b5; commit `788ceb17d`).** Contract §32.12.3.2 (new, stable id) with amendment
+pointers in §32.10, §32.11, §32.12.2, §32.12.3 and §32.12.3.1. No live Jev or lane call was made.
+
+- **The ruling implemented** (integrator, within the owner's "长线改 Jev"):
+  - Revision 2a.3 is ported to `runtime/jev/admission-roles-domain.ts` behind §32.10's family interface (same input, result
+    shape and fallbacks). Family `action-admission-roles`, version `2a.3`; the request is the measured one byte for byte
+    (`tests/extension/admission-roles-domain.test.mjs` compares the packed request with the experiment module's on six
+    inputs, the long-proposal split included). The input now carries each line's closed `kinds`; nothing reads the prose.
+  - v1 stays (`admission-domain.ts`), selectable as `typed_design: "v1"` for comparison; its reading is recorded and
+    settles nothing.
+  - Data, `content/rulesets/coc7/host-budgets.json` `admission`: `typed_design: "roles-2a.3"`, `typed_settle.classes:
+    ["time"]`, `typed_settle.min_confidence: 0.87`. Loader `admissionTypedBudget` fails closed (unreadable file or a bad
+    list: nothing settles by `jev`); the list is kept inside `FAST_PATH_KINDS`, so data can never reach cash / item /
+    object / usage / map / resolve. `PI_COC_ADMISSION_FAST_MIN_CONFIDENCE` still overrides the threshold; `off` disables.
+  - A line settles by `jev` alone only when its class is listed, it admits and its line confidence is at the threshold,
+    while its own lane has not given a verdict. Its lane call is then cancelled (each round has its own abort signal beside
+    the review's) and no other line's. Every other line is the lane's; a typed refusal never stands.
+  - The review waits for the typed answer only where it can still matter (a settleable line without a lane verdict, or a
+    lane answer without grounds), so an escalation costs no wall time over the lane alone.
+  - A batch partly typed-settled and partly lane-reviewed is §32.12.3.1's per-line review with the typed-settled line as
+    that line's own outcome: it lands whole or not at all.
+  - Telemetry per line row: `reviewer`, `typed_design`, `line_class`, `typed_confidence`, `lane_cancelled`, `ms`; for a
+    settleable class `settle_min_confidence` and, when not settled, `jev_fallback`.
+- **Decisions the integrator should see.**
+  - **§32.10's family rule is retired**: `PI_COC_ADMISSION_REVIEWER` and `PI_COC_ADMISSION_JEV_MIN_CONFIDENCE` are read
+    by nothing (a v1 verdict at 0.9 used to stand, refusals included). `numeric_commitment` no longer occurs.
+  - **§32.11's whole-batch fast path over move/clue/handout/time is gone**: today only a `time` line settles by `jev`.
+  - **§32.12.3's split no longer fires** (it aborted every line's call and started a fresh remainder round, adding wall
+    time, and landed the cleared lines alone). `lineClearable`/`clearedLines` are removed. The caller's remainder and
+    partial-landing machinery in `extensions/kernel/index.ts` (`splitLines`, `state.admissionSplit`, the result's
+    `admission` block, the §78 partial-landing refusal) is now unreachable and was **left in place**; removing it is a
+    separate cleanup.
+  - **The late admission (§32.12.2) is confined to the listed classes** (`late_rule: "class_not_listed"` otherwise), and
+    keeps its own 0.70 threshold. Basis: on the relabelled holdout 2a.3's `time` class at T = 0.70 settles 61 / 0 false
+    admits (51 / 0 on the main sample), so the bar holds at 0.70 for `time`. The literal alternative (late only at ≥ 0.87)
+    would make the late admission dead, since a `time` line at 0.87 settles before the cap.
+- **Mutations** (applied to a `cp` backup, the named files run, restored by `cp`; all 15 killed):
+
+| # | mutation | killed by |
+| --- | --- | --- |
+| M1 | class gate ignored (any §32.11 kind settles) | typed-settle "a move line never settles", mixed batches, late; fast-path "move and clue batch" |
+| M2 | threshold ignored | typed-settle "low-confidence time line", late, data 0.9 |
+| M3 | a typed refusal may settle | typed-settle "a typed refusal never stands" (both verdicts), pure `typedSettles` |
+| M4a | per-line: settled line's lane not cancelled | typed-settle mixed batches, "two time lines" |
+| M4b | single round: settled line's lane not cancelled | typed-settle "time line ≥ 0.87 cancels its lane call", data 0.96 |
+| M5 | settling one line cancels every lane call | typed-settle mixed batches |
+| M6a | single round: a lane verdict waits for the typed answer | typed-settle "a lane faster than the typed answer" |
+| M6b | per-line: all lines in still wait for the typed answer | typed-settle "ends at its slowest lane line" |
+| M7 | class list a literal, not data | typed-settle data tests (move listed; time not listed) |
+| M8 | threshold a literal, not data | typed-settle data tests, `typedSettlePolicy` |
+| M9 | late admission ignores the class list | typed-settle late (pure and seam); admission-late pure |
+| M10 | per-line review returns as soon as a line is typed-settled | typed-settle mixed batches |
+| M11 | a v1 design may settle | typed-settle "design v1 settles nothing", `typedSettlePolicy` |
+| M12 | role arithmetic drops `order` | roles-domain arithmetic |
+| M13 | a line's kind not carried into the state | roles-domain byte-identity and question shape |
+
+- **Tests run on this Mac, single files, all passing:** `admission-typed-settle` 20, `admission-roles-domain` 6,
+  `admission` 16, `admission-concurrent-batch` 2, `admission-fast-path` 7, `admission-jev-domain` 9, `admission-jev` 8,
+  `admission-late` 11, `admission-line-level` 9, `admission-lines-parallel` 18, `admission-within-turn` 33,
+  `consequence-admission` 6, `apply-narrate-combined` 4, `single-loop-turn-close` 15, `consequence-host-budgets` 13,
+  `system-language` 5, `contract-section-numbers` 3, `control-flow-inventory` 4; also `passage-person` 16,
+  `continuity-audit` 37, `jev-s0-decision` 5, `name-resolution` 6, `speech-attribution` 14, `involuntary-admission` 6,
+  `object-usages-admission` 5, `undisclosed-cost-admission` 5, and `experiments/admission-jev-bank/admission-roles.test.mjs`
+  16. No full suite was run.
+- **Not verified:** the live product path. Long gate #24 carries the acceptance (typed-settled share, admission's share of
+  the critical path, first visible prose ≤ 60 s on 20/20).
