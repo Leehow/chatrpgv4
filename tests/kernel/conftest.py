@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 import os
-import select
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
 import pytest
+from kernel_pool import POOL, KernelLink, PooledKernel, spawn_fresh
 from rpc_support import fixed_environment, read_command, typescript_command
 
 WORKTREE = Path(__file__).resolve().parents[2]
@@ -33,8 +32,12 @@ CAMPAIGN = "c1"
 
 
 class RpcClient:
+    """A kernel on `workspace`: a pooled retargetable process by default (contract §146,
+    `kernel_pool.py`), or its own `node build/kernel/rpc.mjs` when `fresh=True`, when the pool is
+    off (`COC_TEST_KERNEL_POOL=0`), or when `command` is not the emitted TypeScript kernel."""
+
     def __init__(self, workspace: Path, env: dict[str, str] | None = None, content: Path | None = None,
-                 *, command: list[str] | None = None, frozen_clock: bool = False) -> None:
+                 *, command: list[str] | None = None, frozen_clock: bool = False, fresh: bool = False) -> None:
         self.workspace = Path(workspace)
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.content = Path(content) if content is not None else CONTENT_DIR
@@ -44,33 +47,19 @@ class RpcClient:
             merged = fixed_environment(merged)
         entry = read_command(json.dumps(command)) if command is not None else read_command(merged.get("COC_TEST_KERNEL_CMD"))
         entry = entry if entry is not None else typescript_command()
-        self.proc = subprocess.Popen(
-            [*entry, "--workspace", str(self.workspace), "--content", str(self.content)],
-            cwd=WORKTREE, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, encoding="utf-8", bufsize=1, env=merged,
-        )
+        self.link: KernelLink | None
+        if not fresh and POOL.accepts(entry):
+            self.link = POOL.acquire(entry, merged, self.workspace, self.content, cwd=WORKTREE)
+        else:
+            self.link = spawn_fresh(entry, merged, self.workspace, self.content, cwd=WORKTREE)
+        self.proc = self.link.proc
+        self.pooled = isinstance(self.link, PooledKernel)
         self._n = 0
-        self._stdout = b""
         self.exchanges: list[dict[str, Any]] = []
 
     def raw(self, line: str) -> dict[str, Any]:
-        assert self.proc.stdin and self.proc.stdout
-        self.proc.stdin.write(line + "\n")
-        self.proc.stdin.flush()
-        deadline = time.monotonic() + 30
-        while b"\n" not in self._stdout:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or not select.select([self.proc.stdout], [], [], remaining)[0]:
-                raise AssertionError("kernel did not return a JSON line within 30 seconds")
-            chunk = os.read(self.proc.stdout.fileno(), 65536)
-            if not chunk:
-                break
-            self._stdout += chunk
-        reply, separator, self._stdout = self._stdout.partition(b"\n")
-        if not separator:
-            stderr = self.proc.stderr.read() if self.proc.poll() is not None and self.proc.stderr else ""
-            raise AssertionError(f"kernel stdout closed before a complete JSON line (rc={self.proc.poll()}):\n{stderr}")
-        response = json.loads(reply)
+        assert self.link is not None, "client already closed"
+        response = self.link.exchange(line)
         self.exchanges.append({"request": line, "response": response})
         return response
 
@@ -92,20 +81,13 @@ class RpcClient:
         return response["error"]
 
     def close(self) -> None:
-        if self.proc.stdin and not self.proc.stdin.closed:
-            try:
-                self.proc.stdin.close()
-            except BrokenPipeError:
-                pass
-        try:
-            self.proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
-            self.proc.wait(timeout=5)
-        if self.proc.stdout:
-            self.proc.stdout.close()
-        if self.proc.stderr:
-            self.proc.stderr.close()
+        link, self.link = self.link, None
+        if link is None:
+            return
+        if isinstance(link, PooledKernel):
+            POOL.release(link)
+        else:
+            link.terminate()
 
     # ---- table shortcuts (campaign fixed to CAMPAIGN) ----------------------
 
@@ -210,3 +192,15 @@ def seeded_kernel(tmp_path: Path):
     client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "7"})
     yield client
     client.close()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def kernel_pool_lifetime():
+    yield
+    POOL.close()
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    if POOL.stats:
+        counts = ", ".join(f"{name}={POOL.stats[name]}" for name in sorted(POOL.stats))
+        terminalreporter.write_line(f"kernel pool: {counts}")

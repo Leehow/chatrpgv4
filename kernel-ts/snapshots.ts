@@ -40,8 +40,19 @@ async function stamped(path: string): Promise<{ stamp: Stamp; text: () => Promis
   const info = await stat(path), stamp = { size: info.size, mtimeMs: info.mtimeMs, ino: info.ino };
   return { stamp, text: async () => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await readFile(path)) };
 }
-/** Test seam and the one lever a long-lived process has: forget every parsed file. */
-export function forgetParsedFiles(): void { parsedJson.clear(); parsedJsonl.clear(); parsedBytes = 0; }
+/**
+ * The one lever a long-lived process has: forget every parsed file, or every one `keep` does not
+ * claim (contract §146: a retargeted process keeps the entries under its unchanged content root).
+ */
+export function forgetParsedFiles(keep?: (path: string) => boolean): void {
+  for (const cache of [parsedJson, parsedJsonl] as Map<string, Parsed<unknown>>[]) {
+    for (const [path, entry] of cache) {
+      if (keep?.(path)) continue;
+      cache.delete(path); parsedBytes -= entry.bytes;
+    }
+  }
+  if (!parsedJson.size && !parsedJsonl.size) parsedBytes = 0;
+}
 
 /** These read-only primitives never import transaction or publication writers. */
 export async function readJson(path: string): Promise<ReadonlyJson> {

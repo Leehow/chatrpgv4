@@ -19,6 +19,7 @@ PDF 直接阅读与按需构图的现行契约见 §22。§14 与 §20 的旧 PD
 - 进度帧（本切片）：请求可带顶层字段 `"progress": true`（不进 `params`，不参与 `call_id` 的幂等哈希）。只在此标记存在时，内核才允许在最终响应之前发零或多条进度帧：`{"id": "<同请求>", "progress": {"stage": "<该方法小节的闭合枚举>", "detail"?: "<一句英文>", "at": "<iso>"}}`。进度帧不结算调用：客户端仍以 `ok`/`error` 帧为准；进度帧不得携带结果数据。未请求 `progress` 的调用永远收不到进度帧——旧客户端、驾驭器与 §23 的 Electron 桥的字节流形状不变。
 - 内核不并发处理请求：按到达顺序逐个执行。扩展负责序列化。
 - 内核崩溃或退出时扩展重新拉起并调用 `table.open`；所有状态都在磁盘上，内核进程无内存权威。
+- 测试专用换绑：以 `--retargetable` 启动的进程可经 `kernel.retarget` 换到另一对目录（§146）。宿主不用它：仍是一个会话一个进程，每桌一次拉起。
 
 错误码闭合枚举：`invalid_params`、`unknown_method`、`not_implemented`、`campaign_not_found`、`campaign_not_ready`、`turn_state`（当前回合状态不允许该方法）、`idempotency_conflict`、`needs`（缺少可补的输入，`details.needs` 给字段与可选值）、`needs_choice`（多个互斥候选，`details.candidates`）、`unknown_entity`（名字在模组图与世界状态中都找不到，`details.candidates` 给相近名字）、`not_reachable`（移动目的地不可达）、`not_here`（线索不在当前场景可得，也不在本回合离开的场景可得，§135.30.7）、`commit_failed`（git 提交失败，回合未关闭）、`internal`。
 
@@ -28366,3 +28367,72 @@ landed; refused once then delivered with the warning; `refusable: false` deliver
 is not read, fail-open rows, one read per text, a refusal spends the steer, an implicit close after a spent steer is
 not refusable; and over the emitted kernel, the refusal answered with `until` and a skip delivered again with its
 finding).
+
+## 146. A retargetable kernel process serves one workspace at a time and rebinds between two lines (2026-09-24)
+
+Evidence: the RPC suite (`tests/kernel`, `tests/play`; 1700 tests) started one `node build/kernel/rpc.mjs` per
+client, and most tests open one or two. Measured on the emitted kernel: node start to `kernel.hello` 0.23 s,
+the first `campaign.create` of a process 0.51 s against 0.25 s for the second (the 2.4 MB rule graph and the
+0.8 MB starter graph parsed once per process, §131), the first `player_input` 0.30 s against 0.11 s. Half of
+the suite's wall time was processes being born and warming up, not kernel behaviour under test.
+
+### 146.1 The flag and the method
+
+`--retargetable` is a startup flag beside `--workspace` and `--content`. Only a process started with it
+accepts `kernel.retarget {workspace, content}`; it answers `{workspace, content, generation}` with both
+paths resolved as `createKernelContext` resolves them and `generation` counting the rebinds since start.
+The method is in the closed vocabulary (`KNOWN_METHODS`) and always dispatched: a process started without
+the flag refuses it with `not_implemented` (`next: "stop"`, `fix` names the flag), so `details.methods` of
+an `unknown_method` error lists it on every process. A bad target is refused with `invalid_params` carrying
+the same message `createKernelContext` would have died with at startup (`--content X has no rulesets/coc7`),
+and the process keeps serving exactly what it served: the next binding is validated before the current one
+is released.
+
+The host never sends it. §1 stands: one Pi session, one kernel process, started on its workspace and
+closed at `session_shutdown`; a crashed process is replaced, not rebound.
+
+### 146.2 What a rebind releases and what it keeps
+
+On a successful `kernel.retarget` the process, in this order: closes the runtime of the binding it leaves
+exactly as stdin EOF closes it (`modules.close()` drains the reading jobs, `git.close()` waits for the
+active git children); forgets the process state that belongs to that binding; builds a new
+`KernelContext` and runtime on the target, with a new `PythonRandom` from `COC_KERNEL_SEED` and fresh
+advisory locks. The handler group is swapped between two request lines and never inside one: `serve`
+reads the group per line (`kernel-ts/transport.ts`), and the transport is sequential (§1).
+
+What is kept is exactly what the process would rebuild from the same bytes: the parsed files and
+published graphs under the content root it still serves (`forgetParsedFiles` / `forgetParsedGraphs` now
+take a `keep` predicate; the entries are keyed by path and re-validated by size, mtime and inode on every
+read, §131.1), and with them the per-graph-object indexes that hang off those frozen values (`RuleObservations`,
+§131.3's cuts). Everything else goes: parsed files under the old workspace, parsed graphs of the old
+workspace's modules, and the workspace-candidate lexical index (`forgetCandidateIndexes`), which is keyed by
+`moduleId:revision` rather than by file identity and could otherwise answer for a differently authored graph
+with the same name. A rebind onto a different content root keeps nothing.
+
+The invariant this buys: a rebound process is indistinguishable from a fresh process on the target by anything
+a client can observe except speed. `tests/kernel/test_kernel_pool.py` proves it against a fresh process, not
+against the rebound process's own earlier answer: a process that played a campaign, spent seeded rolls and
+parsed the very files of workspace `P` is parked, rebound onto `P` (emptied), and must reproduce every
+response and every stored byte (§-`snapshot`, git history included) of a process born on `P` under the same
+seed and frozen clock. Mutation evidence, each caught by that test: reuse without `kernel.retarget` (the pool
+handing the process over unbound); a rebind that carries the old `rng` into the new context (the roll at the
+first `table.resolve` differs). A rebind that forgets nothing is *not* caught, and is not meant to be: a
+stamp-validated entry is behaviourally a fresh parse (§131). The rewrite-in-place case is covered separately:
+a content pregen renamed between two tests on the same content root is read anew after the rebind.
+
+### 146.3 The test pool
+
+`tests/kernel/kernel_pool.py` keeps idle `--retargetable` processes per (command, environment) key; the key
+strips `PYTEST_CURRENT_TEST`, which pytest rewrites per test. `RpcClient` takes one on construction and
+returns it on `close()`, which parks the process on a scratch workspace through a rebind, so the runtime that
+served the test is closed at `close()` as before. A process whose client saw a timeout, left bytes on stdout,
+or died is not returned. A client asks for its own process with `fresh=True` when the test asserts on process
+start or exit itself (`test_read_projections.observe` records the exit code); a `command` other than the
+emitted kernel, or `COC_TEST_KERNEL_POOL=0`, spawns per test as before. stderr of a pooled process goes to a
+per-process log the client slices from the last rebind for its diagnostics.
+
+Measured on the same M1 Max, both runs serial under the machine-wide suite lock, at `ef8efdf97` plus this change,
+other sessions' suites queued behind the lock: per-test processes 1699 passed, 1 skipped in 1373.9 s (22:53, user
+CPU 1007 s); pooled 1705 passed, 1 skipped in 973.1 s (16:13, user CPU 525 s) -- 99 processes spawned for 1140
+client constructions, 1041 rebinds, 91 idle processes evicted by the pool's caps (2 per key, 6 in all). The six
+extra passes are `test_kernel_pool.py`. On leehow-pc the full extension suite passed 2821/2821 on this change.

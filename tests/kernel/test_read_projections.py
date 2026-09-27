@@ -57,7 +57,8 @@ READS = [
 
 def observe(workspace: Path, reads: list[tuple[str, dict]], content: Path | None = None) -> dict:
     before = state_bytes(workspace)
-    client = RpcClient(workspace, content=content, env={"COC_KERNEL_SEED": "7"}, frozen_clock=True)
+    # Its own process: the evidence records the exit code, which a pooled process never has.
+    client = RpcClient(workspace, content=content, env={"COC_KERNEL_SEED": "7"}, frozen_clock=True, fresh=True)
     failure = None
     try:
         for method, params in reads:

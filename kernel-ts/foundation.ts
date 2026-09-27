@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { KernelContext } from "./context.js";
-import { pythonTypeName } from "./errors.js";
+import { pythonTypeName, RpcError } from "./errors.js";
 import type { HandlerGroup, KernelResult } from "./handlers.js";
 import { isJsonObject, type JsonValue, type ReadonlyJson } from "./json.js";
 
@@ -13,9 +13,26 @@ function dictionary(value: ReadonlyJson): Readonly<Record<string, ReadonlyJson>>
   throw error;
 }
 
-export function foundationHandlers(context: KernelContext): HandlerGroup {
+/** Where a retargetable process should serve next (contract §146). */
+export interface RetargetTarget { readonly workspace: string; readonly content: string }
+/** Rebinds the process to `target` and answers with the binding it now serves. */
+export type Retarget = (target: RetargetTarget) => Promise<{ workspace: string; content: string; generation: number }>;
+
+export function foundationHandlers(context: KernelContext, options: { readonly retarget?: Retarget } = {}): HandlerGroup {
   const reads = context.snapshots;
   return Object.freeze({
+    "kernel.retarget": async (params): Promise<KernelResult> => {
+      for (const name of ["workspace", "content"] as const) {
+        const value = params[name];
+        if (typeof value !== "string" || !value || value.includes("\0")) throw new RpcError("invalid_params", `params.${name} must be a non-empty path`);
+      }
+      if (!options.retarget) {
+        throw new RpcError("not_implemented", "this kernel process was not started retargetable", {
+          fix: "start the process with --retargetable, or start a new process on the other workspace", next: "stop",
+        });
+      }
+      return options.retarget({ workspace: params.workspace as string, content: params.content as string });
+    },
     "kernel.hello": async (): Promise<KernelResult> => ({
       kernel_version: KERNEL_VERSION,
       content: {
