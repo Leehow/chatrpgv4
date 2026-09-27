@@ -27,5 +27,8 @@
   },
   "delivery_floor": {
     "min_prose_chars": 40
+  },
+  "reading": {
+    "idle_ms": 180000
   }
 }

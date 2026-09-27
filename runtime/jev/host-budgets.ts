@@ -171,3 +171,50 @@ async function readDeliveryFloorBudget(contentRoot?: string): Promise<DeliveryFl
 
 /** Test-only: forgets the cached value, so a test that swaps the content root sees its own fixture. */
 export function resetDeliveryFloorBudgetCache(): void { deliveryFloorCached = undefined; }
+
+/**
+ * SL-99 (contract §140.1): how long a **reader** child's provider stream may say nothing before its transport and
+ * the stream watchdog give up (`httpIdleTimeoutMs`, written into that child's own project settings by
+ * `extensions/module/reader.ts`). Only `runtime/tasks.ts`'s `reader` tasks take it: the Keeper keeps the agent home's
+ * value (`runtime/launch.ts`) and a `mod` lane child keeps `LANE_HTTP_IDLE_TIMEOUT_MS`.
+ *
+ * A grok-family reader writes its draft in one tool call whose arguments arrive in a single burst once the model has
+ * finished generating them, so the stream is silent for as long as that generation takes (§140.1's table). A named
+ * default in the same rules-data file as the other host budgets, so a slower reader model is a data change.
+ */
+export interface ReadingIdleBudget {
+  /** `reading.idle_ms`: the reader child's idle allowance in milliseconds, a positive whole number. */
+  idleMs: number;
+}
+
+/** Used only if `content/rulesets/coc7/host-budgets.json` cannot be read; the shipped file carries the real default. */
+export const READING_IDLE_FALLBACK: ReadingIdleBudget = Object.freeze({idleMs: 180_000});
+
+const readingIdleCached = new Map<string, Promise<ReadingIdleBudget>>();
+
+/**
+ * The reader's idle allowance, read once per content root and cached (the file does not change while a host runs).
+ * Unlike the table's readers above, `runtime/tasks.ts` passes its own captured `context.contentRoot`, so a packaged
+ * App reads the file it shipped with; with no argument the extensions' content root is used.
+ */
+export function readingIdleBudget(contentRoot?: string): Promise<ReadingIdleBudget> {
+  const root = contentRoot ?? extensionContentRoot();
+  let pending = readingIdleCached.get(root);
+  if (!pending) readingIdleCached.set(root, pending = readReadingIdleBudget(root));
+  return pending;
+}
+
+async function readReadingIdleBudget(contentRoot: string): Promise<ReadingIdleBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot, 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      reading?: {idle_ms?: unknown};
+    };
+    const idleMs = raw.reading?.idle_ms;
+    return {idleMs: finite(idleMs) && idleMs >= 1 ? Math.floor(idleMs) : READING_IDLE_FALLBACK.idleMs};
+  } catch {
+    return READING_IDLE_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached values, so a test that rewrites a content root sees its own fixture. */
+export function resetReadingIdleBudgetCache(): void { readingIdleCached.clear(); }

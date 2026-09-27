@@ -1,6 +1,7 @@
 /** Host-only accounting for nested provider calls. The main Keeper has its own owner hook. */
 import {TaskLease, BudgetRefusal, type BudgetSpend, type TaskClock} from './task-context.ts';
 import {ContractError} from './contracts.ts';
+import {createHash} from 'node:crypto';
 
 export interface ProviderModel {
   provider:string; id:string; api:string; maxTokens:number; contextWindow:number;
@@ -141,6 +142,25 @@ export function independentProviderBudget(owner:string, signal?:AbortSignal, tim
   return {budget:createTaskProviderBudget(lease),close:()=>lease.close()};
 }
 
+/** §140.1: one request's identity on the provider channel -- the bounded payload exactly as it is dispatched. */
+export function payloadDigest(payload:unknown):string {
+  return createHash('sha256').update(JSON.stringify(payload)??'').digest('hex');
+}
+/**
+ * §140.1: what a reservation shared by `attempts` identical requests is settled at, from the one of them that reported
+ * usage. Every attempt read the identical payload, so each is charged what the reporting one reported; that is an
+ * inference, so per dimension it never goes above the reservation (the inference alone never makes an overrun) and
+ * never below the report (a real overrun of the reporting call still is one). Unreadable usage, or a single attempt,
+ * passes through unchanged. Returns the provider-usage shape `providerUsage` reads.
+ */
+export function resentUsage(value:unknown, attempts:number, bound:ProviderBound):unknown {
+  const reported=providerUsage(value);
+  if(!reported||!Number.isSafeInteger(attempts)||attempts<=1)return value;
+  const reserved=providerSpend(bound);
+  const scaled=(one:number,ceiling:number)=>Math.max(one,Math.min(ceiling,one*attempts));
+  return {input:scaled(reported.inputTokens,reserved.inputTokens),output:scaled(reported.outputTokens,reserved.outputTokens),cacheRead:0,cacheWrite:0,
+    cost:{total:scaled(reported.costUsd,reserved.costUsd)}};
+}
 /** Child side of Node's private IPC channel, installed only by the host reader extension. */
 export function installChildProviderBudget(pi:any, enabled:boolean, outputLimit?:number):void {
   if(!enabled)return;
@@ -154,7 +174,9 @@ export function installChildProviderBudget(pi:any, enabled:boolean, outputLimit?
   pi.on('before_provider_request',async(event:any,ctx:any)=>{
     try {
       const prepared=boundProviderRequest(ctx.model,event.payload,...(outputLimit&&Number.isSafeInteger(outputLimit)&&outputLimit>0?[outputLimit]:[])),id=++sequence;
-      await new Promise<void>((resolve,reject)=>{process.channel?.ref();waiting.set(id,{resolve,reject});process.send!({type:'coc-provider-reserve',id,bound:prepared.bound},error=>{if(error){waiting.delete(id);reject(error);}});});
+      // §140.1: the digest of exactly what goes out, so the host can tell an identical resend from a new request.
+      const digest=payloadDigest(prepared.payload);
+      await new Promise<void>((resolve,reject)=>{process.channel?.ref();waiting.set(id,{resolve,reject});process.send!({type:'coc-provider-reserve',id,bound:prepared.bound,digest},error=>{if(error){waiting.delete(id);reject(error);}});});
       outstanding.push(id);return prepared.payload;
     }catch(error){
       process.send?.({type:'coc-provider-failure',error:String(error)});ctx.abort();
@@ -166,7 +188,10 @@ export function installChildProviderBudget(pi:any, enabled:boolean, outputLimit?
   pi.on('message_end',(event:any)=>{
     if(event.message?.role!=='assistant')return;
     const ids=outstanding.splice(0);
+    // §140.1: `failed` says the call ended on a provider error (a stream timeout, a dropped connection), which pi's own
+    // auto-retry may resend; an abort is a revoked run and is never resent, so it stays a plain call without usage.
     for(const [index,id] of ids.entries())process.send?.({type:'coc-provider-settle',id,
-      ...(index===ids.length-1&&!['error','aborted'].includes(event.message.stopReason)?{usage:event.message.usage}:{})});
+      ...(index===ids.length-1&&!['error','aborted'].includes(event.message.stopReason)?{usage:event.message.usage}:{}),
+      ...(index===ids.length-1&&event.message.stopReason==='error'?{failed:true}:{})});
   });
 }

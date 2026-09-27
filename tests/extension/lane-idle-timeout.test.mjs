@@ -90,12 +90,14 @@ test("a mod child carries its idle timeout while both child kinds disable hidden
   // question, and pi then loads the project scope as if it were empty.
   assert.ok(modArgs.includes("--approve"), JSON.stringify(modArgs));
 
-	// A reader round runs for up to an hour and needs no shorter idle timeout. It still uses the trusted
-	// project scope to disable hidden provider retries outside the host-owned provider budget.
+	// A reader round needs a *longer* idle allowance than the table's (SL-99, contract §140.1: a draft written in one
+	// tool call is silent while it is generated), read from the rules data. It also disables hidden provider retries
+	// outside the host-owned provider budget. `tests/extension/reader-idle-allowance.test.mjs` owns the reader's value.
 	const readerArgs = await launch(context, "reader", join(home, "reader"));
 	assert.equal(readerArgs.includes("--approve"), true, JSON.stringify(readerArgs));
+	const { reading } = JSON.parse(await readFile(join(ROOT, "content", "rulesets", "coc7", "host-budgets.json"), "utf8"));
 	assert.deepEqual(JSON.parse(await readFile(join(home, "reader", ".pi", "settings.json"), "utf8")),
-		{ retry: { provider: { maxRetries: 0 } } });
+		{ httpIdleTimeoutMs: reading.idle_ms, retry: { provider: { maxRetries: 0 } } });
 
   // The operator's own value is what the table runs on, and is neither read nor rewritten here.
   assert.deepEqual(JSON.parse(await readFile(join(agent, "settings.json"), "utf8")),
