@@ -4055,16 +4055,24 @@ export default function (pi: ExtensionAPI) {
 								signal, {allowanceMs: sourceAnswerAllowanceMs()})
 							: await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal,
 								{allowanceMs: sourceAnswerAllowanceMs(), blocking: true});
+					// §135.20.1 (SL-102): the scene the party is at when the Keeper asks; an answer handed here is held while it stays.
+					const askedAt = state.scene?.handle;
 					if (consult && response.state === 'pending') {
 						const read = { focus: String(params.query), question: String(params.question) };
-						pendingAnswers.register(state.campaign, read, state.turn, asString(response.job_id), response.settled);
+						pendingAnswers.register(state.campaign, read, state.turn, asString(response.job_id), response.settled, 'answer', askedAt);
 						sourceAnswer = pendingAnswer(response, read);
 					} else if (consult && Array.isArray(response.memo) && response.memo.length) {
 						sourceAnswer = memoAnswer(response.memo);
 						void record({ lane: 'reading', event: 'answer_memo', turn: state.turn, focus: String(params.query), answers: response.memo.length });
+						// The kernel lists the memo newest first; the shelf keeps the newest last, so it is held oldest first.
+						pendingAnswers.hold(state.campaign, askedAt, [...(response.memo as Array<Record<string, any>>)].reverse().map(entry => ({
+							focus: asString(entry?.focus) ?? String(params.query), question: String(entry?.question ?? ''), answer: entry?.source_answer })),
+						state.turn, fromStep?.run);
 					} else if (answerOnly) {
 						if (!response.source_answer || typeof response.source_answer !== 'object') throw new KernelError({code:'internal', message:'The source consultation returned no checked answer'});
 						sourceAnswer = response.source_answer;
+						pendingAnswers.hold(state.campaign, askedAt, [{ focus: String(params.query), question: String(params.question), answer: response.source_answer }],
+							state.turn, fromStep?.run);
 					} else if (!answerOnly && response.state === 'pending') {
 						// §22.4.3.1 (SL-58): past the allowance a `prepare` lookup answers `pending` too, with what the index holds;
 						// the reading goes on and its landing (material ready, unusable, or failed) is carried once on a later note.
@@ -4777,8 +4785,11 @@ export default function (pi: ExtensionAPI) {
 			}));
 			// §135.31.2 (SL-36): a consultation that went pending is carried to the Keeper once, when it lands, through this port.
 			// §22.4.4 (SL-37): a text read this turn is still waiting on rides as pending too, while the reading service says it is in flight.
-			pi.events.emit('coc:source-answers', Object.freeze({ campaign, take: () => {
-				const answers = pendingAnswers.take(campaign), wait = table?.campaign === campaign ? table.sourceWait : undefined;
+			pi.events.emit('coc:source-answers', Object.freeze({ campaign, take: (at?: { scene?: string; run?: string }) => {
+				// §135.20.1 (SL-102): where the engine's run is decides which held answers ride; without it, the table's own scene.
+				const here = at?.scene ?? (table?.campaign === campaign ? table.scene?.handle : undefined);
+				const answers = pendingAnswers.take(campaign, { ...(here ? { scene: here } : {}), ...(at?.run ? { run: at.run } : {}) });
+				const wait = table?.campaign === campaign ? table.sourceWait : undefined;
 				// §22.4.7 (SL-47): a scene entered on its index text -- its pages once, its pending read (naming the scene), its record once.
 				const scenes = sceneReadings.take(campaign);
 				const taken = { ...answers, pending: [...answers.pending, ...scenes.pending], texts: scenes.texts, records: scenes.records };
@@ -4786,7 +4797,12 @@ export default function (pi: ExtensionAPI) {
 				try { inFlight = !!(wait?.focus && readingModule && reading?.reading?.(readingModule, { focus: wait.focus, question: wait.question ?? "" })); }
 				catch { inFlight = false; }
 				return inFlight && wait?.focus ? { ...taken, pending: [...taken.pending, { focus: wait.focus, question: wait.question ?? "", since_turn: table!.turn, purpose: "detail" }] } : taken;
-			} }));
+			},
+			// §135.20.1 (SL-102): the next turn's first model step waits out what is left of one allowance (§22.4.3, the same
+			// named default and override) for this scene's consultations still being read; past it they ride as pending.
+			settle: (input: { scene: string; turn: number; elapsed_ms: number }) =>
+				pendingAnswers.settle(campaign, { scene: input.scene, turn: input.turn, ms: sourceAnswerAllowanceMs() - Math.max(0, input.elapsed_ms) }),
+			}));
 			// Contract §39.2: the module's own map labels, projected into this campaign's play
 			// language before the first arrival can need them.
 			warmMapWords(table, open);
