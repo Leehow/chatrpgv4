@@ -25668,6 +25668,14 @@ is not the scan: that table runs the legacy loop (no RunDriver, so neither §139
 `record` appends the notice's row after it (a `mkdir`, then an `appendFile`); the case now waits for the decision row, as
 the file's other cases do.
 
+*Note, 2026-09-26 (§139.28, ticket 29, table D2 turns 5, 10, 12 and 13):* "a fight action the Keeper resolves itself ...
+owes no scan" under **Not covered** above no longer holds while the hold holds someone. On those four turns the Keeper's own
+`resolve` opened the fight and the pending defence the kernel forced wrote the blow; the fight ended at its first exchange,
+no turn of it came, and the held person never acted. A blow of this turn done to a held person (the kernel's `acted_on`;
+a receipt whose `family` is `combat` or `chase`, or hit points they lost) now ends the hold, whoever wrote it, as a landed
+clerk fight step does, and the scan before the Keeper's next turn-writing model step runs them once. A person the blow
+drew into a running fight still reacts on their own turn of it. The rule is §139.28.
+
 **139.26 A person being fought is not calm between blows: the fight and last turn's blow are shifts of the stakes die,
 one group with this turn's blow (2026-09-26, ticket 27 of `docs/specs/npc-acts-first-tickets/`,
 `27-stakes-hold-in-a-fight.md`; spec D9, D10 and section 九, table D; amends §139.8's shifts and how they add up).**
@@ -25791,3 +25799,87 @@ gains a `known` option that defaults to `new`. Mutation record (copy and restore
 fails four of the five §139.27 cases -- the at-hand case on "no _produces and no draw was written", the happened case on
 "no second batch" (2 !== 1), the reading case on "no record, no object", the batch case on its question -- and the
 unchanged `new` case passes. **Not verified live.**
+
+**139.28 A held person acts after the blow: a blow done to them ends the hold, whoever wrote it (2026-09-26, ticket 29 of
+`docs/specs/npc-acts-first-tickets/`, `29-a-held-person-acts-after-the-blow.md`; spec D4 and section 九's table D2;
+completes §139.25's hold).**
+**Evidence.** Table `npc-acts-d2` (the-haunting), turns 5, 10, 12 and 13: the player punched Knott, no clerk step took it,
+and §139.25 held him (`npc_held`, `fight_pending`) -- rightly, he did not act before it. The Keeper then settled the punch
+itself: its own `resolve` (`combat:attack`, model-origin), then the pending defence the kernel forced (`combat:defend`, a
+forced clerk step), whose receipts are the attack roll against him and his dodge; the fight ended there (he carried the
+`fled` condition of turn 4's fight into each new one). The scan followed only a landed clerk step of the declaration
+(§139.4: not forced, not the model's), so nothing owed one: on the four most dangerous turns of the table he never acted,
+no stakes die was rolled for him, and his reaction was the Keeper's prose alone. The surprises of D10 had no chance there.
+**The rule.** While the hold stands (a declared fight action, no landed clerk fight step, §139.25), a blow of this turn
+done to a person the hold held back is the declared fight action landing, whoever wrote it -- the Keeper's resolve or
+damage, the defence the kernel forced after it, the clerk. It ends the hold for the run as a landed clerk fight step does,
+and the scan is owed before the Keeper's next turn-writing model step (`adjudicate` or `compose`, §139.25): the held
+person acts once, as usual (stakes die, generation, binding, writes), with the trigger their `npc.act.options` gives them
+-- `acted_on`, the blow being done to them. A blow that never lands leaves the hold as it was: no scan is owed, nothing
+is generated, the one `npc_held` row stands.
+- **Done to them** is the kernel's reading, not the host's: `npc.act.options`' `acted_on` for the held person (§139.3: an
+  attack roll made against them, a resource of theirs changed, a condition put on them, an investigator's flight from
+  them; the kernel's name matching, so a handle, a table label or a book name all count).
+- **A blow** is one of those receipts that a fight wrote -- its closed `family` is `combat` or `chase`, the resolve families
+  §139.25's `FIGHT_FAMILIES` names (a combat's hit-point delta carries the family of the resolve that wrote it) -- or that
+  is hit points they lost: an `hp` delta whose `after` is below its `before`, which the Keeper's `damage` effect writes with
+  no family (the same predicate §139.26's `attacked_this_turn` reads). A roll of another family made against them (an
+  Intimidate), a sanity loss, hit points regained are not.
+- **This turn, after the hold**: a receipt already on the table when the hold was put does not count. Nothing reads what
+  was said or done; the criterion is receipt ids and closed fields, and the hold record.
+- **Who reads it** (`struckHeld`, `runtime/jev/hybrid-engine.ts`; `struckReceipts`, `runtime/jev/npc-act-step.ts`). The
+  scan that holds someone records the hold on the run (`RunState.npcHeld`: the held handles, and the ids of this turn's
+  receipts then on the table); a scan that holds no one clears it. While it stands, every fresh read after a step -- a
+  Keeper write (`apply`, `resolve`), a clerk or forced step, a scan's acts -- reads `npc.act.options` for each held person
+  and keeps the `acted_on` receipts that are blows and new since the hold. The first such read ends the engine's hold and
+  puts the receipt ids on the fresh read (`Fresh.struck`). A read that fails reads as not struck. The cost is one kernel
+  read per held person per write, only while someone is held.
+- **The policy** (`settleStruck`, `runtime/jev/step-policy.ts`). A fresh read carrying `struck`, while the run's view has a
+  declared fight action and no landed one (`fightDeclared`, not `fightLanded`), sets `fightLanded` and adds the receipt
+  ids to `landed`; `npcScanDue` then owes the scan, `next` issues it before the next turn-writing model step, and it carries
+  no `fight_pending`. The scan's basis lists them (`landed`), so the record says which blow it followed. A struck read with
+  no declared fight changes nothing.
+- **Once, and the cap.** The held person was never `seen` (§139.25), so the scan runs them; after it they are, and no later
+  scan of the run runs them again. They count against `npc_act.max_per_turn` when they act, as anyone does; with the cap
+  already spent they are `skipped_cap`. Everyone else the scan finds due is run as §139.20 has it, as after a landed clerk
+  step (with two people held by the conversation fallback, a blow on one ends the hold on both: the hold is the run's).
+- **A fight still running.** A person the blow drew into a running fight is its participant: their reaction is their own
+  turn of it (§139.4's forced `npc_act:<handle>:r<round>`, unchanged), and the scan the blow owed skips them (in a session,
+  or already seen). Only a person the blow leaves outside a fight -- the Keeper ended it, it ended at once, or no fight was
+  opened -- acts by the scan.
+**Telemetry.** The release is one `lane: "run"`, `event: "npc_released"` row: `run`, `step` (the step whose fresh read
+found the blow), `npc` (the held handles), `reason: "struck"`, `receipts` (the blow's ids). The act that follows is the
+ordinary `npc_act` row.
+**Three ends (§31).** *Writer:* the receipts the Keeper's resolve or damage, the forced defence or the clerk write
+(existing) and the hold record the scan puts (`npcHeld`, from §139.25's `held`). *Reader:* `struckHeld` over
+`npc.act.options`' `acted_on` and the turn's receipts; the policy over `Fresh.struck`. *Actor:* the scan before the Keeper's
+next turn-writing step, and through it the held person's generated act; the Keeper reads it as a `clerk_did` row before
+it writes the turn.
+**Not covered.** A Keeper batch that lands the blow and delivers in the same response (`resolve` then `narrate`): a batch
+is never cut (§135.5), so the turn is delivered before any scan; the person's reaction waits for the next turn. A punch
+the Keeper settles as a check no fight writes and that costs no hit points (an opposed skill roll of another family) is
+not a blow here and does not end the hold. Past the run's time budget the owed scan is `skipped_budget` as every scan is.
+Table D2's stale `fled` condition, which ended each new fight at its first exchange, is the combat engine's, not this
+section's.
+**Tests.** `tests/extension/single-loop-npc-act.test.mjs`, at the table (the policy's own scheduling, the emitted kernel;
+Knott spoke last turn and has his numbers and `avoids_fighting`, the compile reads a punch and names no one, the route
+asks the Keeper): table D2's turn 5 replayed, the Keeper's first response its own attack, his dodge and the fight's end --
+one `npc_held` row before the Keeper's first model step, one `npc_released` row naming the attack roll against him, then
+exactly one `npc_act` row, his, `acted_on`, bound, after the blow and before the Keeper's next model step, one generation,
+his stakes die rolled; the Keeper rolls an Intimidate against him instead of the punch (a roll made against him that no
+fight wrote) -- still only the hold, no release, no act, nothing generated; the Keeper writes the punch as a `damage`
+effect with no roll -- the hit points he lost (no family) release him and he acts once; the Keeper's attack alone, the
+kernel's forced defence landing the blow and the fight going on -- one act, his own turn of the fight (`turn`), and the
+scan the blow owed ran after it and ran no one. The policy: a Keeper write that struck no one owes nothing and the hold
+stands; a resolve whose fresh read carries `struck` owes the scan before the next turn-writing step, with no hold and the
+receipts as its basis, once; a forced step's read counts the same; talk (no declared fight) owes nothing.
+`struckReceipts`: the combat roll, the combat hit-point delta, a chase condition and a family-less hit-point loss are kept;
+a social roll against him, a sanity loss, hit points regained, a receipt already there at the hold and an id no receipt
+has are not. Existing tests changed: none (the `talkTable` helper takes the Keeper's responses as an option, defaulting to
+the old one). Mutation record (copy and restore): the release taken out of the policy (`settleStruck` returns at once)
+fails the table-D2 replay ("one act, his": no `npc_act` row), the damage-effect case, the running-fight case (the owed
+scan never ran) and the policy case; the engine never reading a blow (`struckHeld` returns nothing) fails the three table
+cases that land one ("the blow ended the hold"); anything done to him counting as a blow fails the Intimidate case (the
+social roll released him) and the unit case; the hit-point clause dropped fails the damage-effect case and the unit case;
+the family clause dropped fails the table-D2 replay, the running-fight case and the unit case; the `before` test dropped
+fails the unit case; restored, green. **Not verified live.**
