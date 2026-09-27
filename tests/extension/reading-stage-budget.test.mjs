@@ -184,13 +184,16 @@ test('§20 addendum 3 a play read is sized from the book like a stage: detail a 
   assert.equal(readingStageBudget('answer', {pageCount: 669, perPage: {inputTokens: 90_000, outputTokens: 1_000, actions: 1, costUsd: 0}}).inputTokens, Math.ceil(669 * 90_000 * 0.1));
 });
 
-test('§20 addendum 3 and 5 which jobs without a stage lease are sized: detail, a map\'s pages, a consultation, the index, a skeleton; nothing else', () => {
+test('§20 addendum 3 and 5, §140.2 which jobs without a stage lease are sized: every reading purpose, each as its own stage', () => {
   assert.equal(readingJobStage({purpose: 'detail'}), 'detail');
   assert.equal(readingJobStage({purpose: 'detail', material: 'map'}), 'map');
   assert.equal(readingJobStage({purpose: 'answer'}), 'answer');
   assert.equal(readingJobStage({purpose: 'index'}), 'index');
   assert.equal(readingJobStage({purpose: 'skeleton'}), 'skeleton');
-  for (const purpose of ['opening', 'guidance', 'verify', undefined]) assert.equal(readingJobStage({purpose}), undefined, String(purpose));
+  // §140.2 (SL-99b): the table's setup and `/coc ingest` start these without a stage lease.
+  assert.equal(readingJobStage({purpose: 'opening'}), 'opening');
+  assert.equal(readingJobStage({purpose: 'guidance'}), 'guidance');
+  for (const purpose of ['verify', 'prepare', 'inspect', undefined]) assert.equal(readingJobStage({purpose}), undefined, String(purpose));
 });
 
 // ---------------------------------------------------------------------------------------------------
