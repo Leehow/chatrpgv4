@@ -43,12 +43,17 @@ function environment(extra={}) {
     GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_COUNT:'0',GIT_AUTHOR_DATE:'2000-01-02T03:04:05Z',GIT_COMMITTER_DATE:'2000-01-02T03:04:05Z',
     COC_TEST_CLOCK:'2000-01-02T03:04:05Z',NODE_OPTIONS:`--require ${JSON.stringify(join(ROOT,'tests/kernel/rpc_clock.cjs'))}`,TZ:'UTC',...extra};
 }
+// SL-87: none of these waits is a subject here. On a loaded box a kernel start outlasted the 15 s request timeout, a fixture
+// Git outlasted the 5 s wait for its pid file, and the host's 2 s SIGTERM-to-SIGKILL grace killed the kernel in the middle
+// of its own shutdown -- before it had put the working tree back -- so the next owner opened the unfinished narrate as
+// delivered. What this file asserts is what the kernel does on shutdown, not how fast: each wait is a minute.
+const WAIT_MS=60_000;
 async function until(read) {
-  const deadline=Date.now()+5000;
+  const deadline=Date.now()+WAIT_MS;
   while(Date.now()<deadline){const result=await read();if(result)return result;await new Promise(resolve=>setTimeout(resolve,10));}
   throw new Error('Owned process did not reach its expected state');
 }
-function client(home,env) {return new KernelClient({command:[process.execPath,RPC,'--workspace',home,'--content',CONTENT],cwd:ROOT,env,inheritEnv:false,timeoutMs:15000});}
+function client(home,env) {return new KernelClient({command:[process.execPath,RPC,'--workspace',home,'--content',CONTENT],cwd:ROOT,env,inheritEnv:false,timeoutMs:WAIT_MS,closeGraceMs:WAIT_MS});}
 async function stateBytes(home) {
   const result={};
   async function walk(path,relative='') {
@@ -121,6 +126,58 @@ test('ask and narrate share delivery formatting while retaining their distinct r
       assert.deepEqual(await runtime.handlers[`table.${method}`](params),{...result,replayed:true});
     } finally {await context.git.close();}
   });
+});
+
+// ---- Effect-key markers (contract §34.13.1, SL-88 "what needs no result does not wait") ------------------------------
+//
+// A narrate sharing a batch with the writes it describes has not seen their own placement markers yet (the write's
+// result, carrying `markers`, only comes back on a later turn to read it). `{{kind:handle}}` names the effect by the
+// kernel's own receipt kind and the handle the write itself named, and resolves without needing that marker back.
+
+test('an effect key ({{kind:handle}}) resolves to this turn\'s receipt without copying its placement marker',async t=>{
+  const home=await mkdtemp(join(evidence,'effect-key-'));
+  const context=await api.createKernelContext({workspace:home,content:CONTENT,env:environment()});
+  t.after(()=>context.git.close());
+  const runtime=api.createWriteRuntime(context);
+  await runtime.handlers['campaign.create'](create);
+  await runtime.handlers['table.player_input']({campaign:'c1',text:'I go to the newspaper morgue and look through the clippings.'});
+  const action={campaign:'c1',call_id:'t1-c1'},transaction=await runtime.transaction(action);
+  // A move's ordinary placement marker is `scene:<to>` (markerName groups it under the card family it draws as),
+  // never `move:<to>` -- the effect key is a second, independent way to a receipt's marker, not an alias for the first.
+  const moveReceipt={kind:'move',id:'move:t1-c1',to:'newspaper-morgue'};
+  const clueReceipt={kind:'clue',id:'clue:t1-c1',clue:'globe-unpublished-story'};
+  await transaction.commitResolve({callId:action.call_id,params:action,result:{receipts:[moveReceipt,clueReceipt]},receipts:[moveReceipt,clueReceipt],events:[]});
+  const params={campaign:'c1',call_id:'t1-c2',
+    text:'You arrive at the Globe {{move:newspaper-morgue}} and turn up the spiked story {{clue:globe-unpublished-story}}.'};
+  const result=await runtime.handlers['table.narrate'](params);
+  assert.equal(Object.hasOwn(result,'dropped_markers'),false,'both effect keys resolved; nothing was dropped');
+  assert.ok(!result.rendered_text.includes('{{')&&!result.rendered_text.includes('}}'),'no brace reaches the player');
+  assert.ok(result.rendered_text.includes('You arrive at the Globe')&&result.rendered_text.includes('turn up the spiked story'));
+  // The token stands in the delivered structure exactly as written -- never translated to the ordinary scheme's name.
+  assert.ok(result.marked_text.includes('{{move:newspaper-morgue}}'));
+  assert.ok(result.marked_text.includes('{{clue:globe-unpublished-story}}'));
+  assert.equal(result.mechanics.length,2,'both receipts still project a mechanics card');
+  assert.deepEqual(result.mechanics.map(m=>m.receipt).sort(),[clueReceipt.id,moveReceipt.id].sort());
+});
+
+test('an effect key naming no receipt of this turn is dropped exactly like an unknown marker, and the prose still delivers',async t=>{
+  const home=await mkdtemp(join(evidence,'effect-key-unknown-'));
+  const context=await api.createKernelContext({workspace:home,content:CONTENT,env:environment()});
+  t.after(()=>context.git.close());
+  const runtime=api.createWriteRuntime(context);
+  await runtime.handlers['campaign.create'](create);
+  await runtime.handlers['table.player_input']({campaign:'c1',text:'I search the clippings for the story.'});
+  const action={campaign:'c1',call_id:'t1-c1'},transaction=await runtime.transaction(action);
+  const clueReceipt={kind:'clue',id:'clue:t1-c1',clue:'globe-unpublished-story'};
+  await transaction.commitResolve({callId:action.call_id,params:action,result:{receipts:[clueReceipt]},receipts:[clueReceipt],events:[]});
+  const params={campaign:'c1',call_id:'t1-c2',
+    text:'You find the story {{clue:globe-unpublished-story}}, but {{clue:nothing-landed-this-turn}} never turns up.'};
+  const result=await runtime.handlers['table.narrate'](params);
+  assert.deepEqual(result.dropped_markers.unknown,['clue:nothing-landed-this-turn']);
+  assert.equal(Object.hasOwn(result.dropped_markers,'duplicate'),false);
+  assert.ok(!result.rendered_text.includes('{{')&&!result.rendered_text.includes('}}'));
+  assert.ok(result.rendered_text.includes('You find the story')&&result.rendered_text.includes('never turns up'));
+  assert.equal(result.mechanics.length,1,'the mechanic that did land still projects; the dropped key cost nothing else');
 });
 
 test('a mechanics-only ask still allows no story text and keeps an empty delivery',async t=>{
@@ -219,4 +276,83 @@ test('a deliberately incomplete writer rejects unavailable contributions but all
       assert.deepEqual(await stateBytes(home),before);
     }finally{await kernel.close();}
   });
+});
+
+/**
+ * §141: a kernel killed inside narrate's finalizing window. The Git wrapper SIGKILLs the kernel that called it (its
+ * parent) when narrate commits: before the real commit runs, or right after it succeeded. A fresh kernel then opens the
+ * campaign. Before §141 the first case reopened at {2,'awaiting_player'} with the undelivered narrate as delivered.
+ */
+async function crashAtCommit(t,when,{social=false}={}) {
+  const home=await mkdtemp(join(evidence,`narrate-crash-${when}-`)),armed=join(home,'arm-crash'),script=join(home,'git-crash.mjs'),executable=join(home,'crash-git');
+  await writeFile(script,`
+import {spawnSync} from 'node:child_process';import {existsSync,unlinkSync} from 'node:fs';
+const args=process.argv.slice(2),crash=args.includes('commit')&&existsSync(process.env.TEST_GIT_ARMED);
+if(crash)unlinkSync(process.env.TEST_GIT_ARMED);
+if(crash&&process.env.TEST_GIT_WHEN==='before'){process.kill(process.ppid,'SIGKILL');process.exit(1);}
+if(crash&&process.env.TEST_GIT_WHEN==='fail'){console.error('fixture: commit refused');process.exit(1);}
+const run=spawnSync('git',args,{stdio:'inherit'});
+if(crash&&run.status===0)process.kill(process.ppid,'SIGKILL');
+process.exit(run.status??1);
+`);
+  const quote=value=>"'"+value.replaceAll("'","'\\''")+"'";
+  await writeFile(executable,`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`);await chmod(executable,0o755);
+  const env=environment({PI_COC_GIT:executable,TEST_GIT_ARMED:armed,TEST_GIT_WHEN:when}),first=client(home,env);
+  t.after(()=>first.close());
+  await first.call('campaign.create',create);await first.call('table.open',{campaign:'c1'});
+  await first.call('table.narrate',{campaign:'c1',call_id:'t0-c1',text:'The case begins.'});
+  await first.call('table.player_input',{campaign:'c1',text:'I inspect the letter.'});
+  const campaign=join(home,'.coc/campaigns/c1'),journal=join(home,'.coc/narrate-journal/c1.json'),narrateId=social?'t1-c2':'t1-c1';
+  // §141.1: a settled social check against Knott, so narrate folds an interaction into the NPC ledger.
+  if(social)await first.call('table.resolve',{campaign:'c1',call_id:'t1-c1',action:{intent:'social',goal:'get the keys and the story',
+    method:'persuade him',target:'Steven Knott',stakes:'he clams up'}});
+  const ledgerBefore=await readFile(join(campaign,'npc-ledger.json'),'utf8').catch(()=>null);
+  await writeFile(armed,'arm');
+  const failed=await first.call('table.narrate',{campaign:'c1',call_id:narrateId,text:'The paper is dry.'}).then(()=>null,error=>error);
+  assert.ok(failed,when==='fail'?'the commit was refused':'the kernel died inside narrate');
+  if(when==='fail')return {home,campaign,journal,ledgerBefore,narrateId,second:first,failed};
+  assert.ok(JSON.parse(await readFile(journal,'utf8')).turn===1,'the killed narrate left its journal');
+  const second=client(home,env);t.after(()=>second.close());
+  return {home,campaign,journal,ledgerBefore,narrateId,second,reopened:await second.call('table.open',{campaign:'c1'})};
+}
+const exists=path=>readFile(path).then(()=>true,()=>false);
+const recoveries=async campaign=>(await readFile(join(campaign,'telemetry.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line)).filter(row=>row.step==='narrate-recovery');
+
+test('§141: a kernel killed before narrate commits reopens with the turn still owing its narrate, and the resent narrate lands once',async t=>{
+  const {campaign,journal,second,reopened}=await crashAtCommit(t,'before');
+  assert.deepEqual(reopened.turn,{number:1,state:'acting'});
+  assert.deepEqual(reopened.pending_turn.owed,['narrate']);
+  assert.equal(await exists(journal),false,'recovery clears the journal');
+  assert.deepEqual((await recoveries(campaign)).map(row=>[row.turn,row.outcome]),[[1,'rolled_back']]);
+  const transcript=(await readFile(join(campaign,'transcript.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
+  assert.equal(transcript.some(line=>line.role==='keeper'&&String(line.text).includes('The paper is dry.')),false,'the undelivered narration is not on the record');
+  const resent=await second.call('table.narrate',{campaign:'c1',call_id:'t1-c1',text:'The paper is dry.'});
+  assert.ok(resent.commit);
+  assert.equal(JSON.parse(await readFile(join(campaign,'turn.json'),'utf8')).turn,2);
+  assert.equal((await readFile(join(campaign,'transcript.jsonl'),'utf8')).split('The paper is dry.').length-1,1,'delivered exactly once');
+});
+
+test('§141: a kernel killed after narrate committed reopens past the turn with the commit stamped on its record',async t=>{
+  const {campaign,journal,second,reopened}=await crashAtCommit(t,'after');
+  assert.equal(reopened.turn.number,2);
+  assert.equal(await exists(journal),false,'recovery clears the journal');
+  const recovered=await recoveries(campaign);
+  assert.deepEqual(recovered.map(row=>[row.turn,row.outcome]),[[1,'completed']]);
+  const record=JSON.parse(await readFile(join(campaign,'turns/0001.json'),'utf8'));
+  assert.ok(record.commit&&record.commit===recovered[0].commit,'the record carries the commit that landed');
+  assert.equal(record.calls['t1-c1'].result.commit,record.commit);
+  const replayed=await second.call('table.narrate',{campaign:'c1',call_id:'t1-c1',text:'The paper is dry.'});
+  assert.equal(replayed.commit,record.commit,'the resent call replays the delivered turn; nothing is committed twice');
+});
+
+const knottTurnOne=async campaign=>JSON.parse(await readFile(join(campaign,'npc-ledger.json'),'utf8'))['npc-steven-knott'].interactions.filter(item=>item.turn===1);
+for(const when of ['before','fail'])test(`§141.1: a narrate ${when==='fail'?'whose commit is refused':'killed before its commit'} leaves the NPC ledger as it was, and the resent narrate folds the turn once`,async t=>{
+  const {campaign,journal,ledgerBefore,narrateId,second,failed}=await crashAtCommit(t,when,{social:true});
+  if(when==='fail')assert.equal(failed.code??failed.payload?.code??(/commit_failed/.test(String(failed.message))?'commit_failed':failed.message),'commit_failed');
+  assert.equal(await exists(journal),false,'the journal is gone after the rollback');
+  assert.equal(await readFile(join(campaign,'npc-ledger.json'),'utf8').catch(()=>null),ledgerBefore,'the ledger is back to what it was before narrate');
+  const resent=await second.call('table.narrate',{campaign:'c1',call_id:narrateId,text:'The paper is dry.'});
+  assert.ok(resent.commit);
+  const folded=await knottTurnOne(campaign);
+  assert.equal(folded.length,1,`one interaction for the one social check, not one per attempt: ${JSON.stringify(folded)}`);
 });

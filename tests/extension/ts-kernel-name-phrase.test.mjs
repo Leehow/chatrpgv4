@@ -108,12 +108,15 @@ test('the bare name reaches the titled node through a whole-word run, with or wi
 });
 
 test('two nodes holding the run are ambiguous with both candidates, never a silent pick', async t => {
-  const { apply } = await opened(t);
+  const { client, apply } = await opened(t);
   await refused(apply('Tomás Reyes'), 'unknown_entity', /ambiguous/);
   await assert.rejects(apply('Tomás Reyes'), error => {
     assert.deepEqual(error.details.candidates.map(row => row.name).sort(), ['the-abbot', 'the-novice']);
     return true;
   });
+  // Declaring a newcomer does not get past it (§87.7): a third Tomás Reyes would shadow both.
+  await refused(client.call('table.apply', { campaign: 'c1', call_id: 't1-c8', effects: [{ kind: 'npc', name: 'Tomás Reyes', to: 'here', walk_on: true }] }),
+    'unknown_entity', /ambiguous/);
 });
 
 test('the exact paths still win: a handle or alias that is also a run inside another name resolves exactly', async t => {

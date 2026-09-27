@@ -22,6 +22,8 @@ import { progressPartial } from "./progress.ts";
 import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view.ts';
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { argumentLimitRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
+import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
+import { stripDialectPrefixes } from "./dialect-prefix.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
 import { markNpcAct } from "./npc-act-marks.ts";
@@ -35,10 +37,11 @@ import { randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { disableStepThinking, isFirstStepOfTurn } from "./first-step-thinking.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
-import { isSpeechOnlyDraft, learnSpeechMarks, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
+import { isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
-import { TaskLease } from "../../runtime/jev/task-context.ts";
+import { TaskLease, type TaskClock } from "../../runtime/jev/task-context.ts";
+import { deliveryFloorBudget, jevStepsBudget } from "../../runtime/jev/host-budgets.ts";
 import { startupRecord } from "../../runtime/startup-record.ts";
 import {
 	SPEECH_ATTRIBUTION_DEFAULT_MIN_CONFIDENCE,
@@ -79,16 +82,19 @@ import {
 	type AdmissionOutcome,
 	type AdmissionProposal,
 	type TypedAttempt,
+	admissionHardCapMs,
 	admissionPending,
 	admissionRefusal,
 	admissionRequest,
 	admissionTimedOut,
+	admissionTimeoutMs,
 	admissionUnavailable,
 	compileAdmission,
 	compileActRead,
 	compileActRefusal,
 	type CompileActRead,
 	proposedFightAct,
+	consequenceAdmission,
 	type ClerkEvidence,
 	declaredAction,
 	admissionHardCapMs,
@@ -107,8 +113,12 @@ import {
 } from "./admission.ts";
 import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
 
-/** One review returned pending (§32.12.2): the lane still running, if it is, and the typed reading the Keeper was shown. */
-interface AdmissionPendingEntry { lane?: Promise<AdmissionOutcome>; typed?: TypedReading; capMs: number; hardCapMs: number; collected: boolean }
+/**
+ * One review returned pending (§32.12.2): the lane still running, if it is, and the typed reading the Keeper was shown.
+ * §135.5/SL-88: the same shape also holds a review `message_end` started early, for a write step of the Keeper's own
+ * batch whose turn to execute has not come yet (`prefetched: true`) -- `admitOne` collects either kind the same way.
+ */
+interface AdmissionPendingEntry { lane?: Promise<AdmissionOutcome>; typed?: TypedReading; capMs: number; hardCapMs: number; collected: boolean; prefetched?: boolean }
 /**
  * §32.12.3: what line-level admission did to one call. `landed` lines go to the kernel in this call; `notLanded` lines (with
  * the refusal their own review gave) do not. `alreadyLanded` lines were dropped from a resend of a split batch because an
@@ -1264,6 +1274,17 @@ export default function (pi: ExtensionAPI) {
 	let runtime: HostRuntime | undefined;
 	let foregroundProviderBudget: (() => TaskProviderBudget | undefined) | undefined;
 	pi.events.on('coc:task-provider-budget', value => { foregroundProviderBudget = typeof value === 'function' ? value as typeof foregroundProviderBudget : undefined; });
+	/**
+	 * SL-87, test-only seam: a test whose subject is the admission review's wall-clock budget (§32.12.2's cap, hard cap and
+	 * resend) emits a `TaskClock` on `coc:test-admission-clock`, and the review (`reviewAdmissionPrimary`'s `clock`) and the
+	 * resend's wait are timed on it. Nothing in the product emits it: without it both run on the host's own clock and timers.
+	 */
+	let admissionClock: TaskClock | undefined;
+	pi.events.on('coc:test-admission-clock', value => {
+		const clock = value as Partial<TaskClock> | undefined;
+		admissionClock = typeof clock?.now === 'function' && typeof clock.schedule === 'function' ? clock as TaskClock : undefined;
+	});
+	const admissionNow = (): number => admissionClock ? admissionClock.now() : Date.now();
 	let taskDeliveryGuard: ((message?: { provider?: unknown; model?: unknown }, phase?: 'auditing' | 'committing') => void | Promise<void>) | undefined;
 	pi.events.on('coc:task-delivery-guard', value => {
 		taskDeliveryGuard = typeof value === 'function' ? value as typeof taskDeliveryGuard : undefined;
@@ -1616,7 +1637,10 @@ export default function (pi: ExtensionAPI) {
 		});
 		table.scene = { ...(asString(open.scene?.name) ? { handle: asString(open.scene?.name) } : {}),
 			...(asString(open.scene?.display_name) ? { label: asString(open.scene?.display_name) } : {}) };
-		table.prologue = asString(open.setup_prologue);
+		// §32.3: what the player was told before play is the prologue's opening, the words the setup host
+		// showed (§14.18). The kernel sends the whole record; read as a string it was always dropped, and
+		// its handoff is Keeper-facing, so only the opening goes to the review.
+		table.prologue = asString((open.setup_prologue as { opening?: unknown } | null | undefined)?.opening);
 		table.playerText = asString(open.pending_turn?.player_text);
 		table.interruptedPlayerText = undefined;
 		table.admission = new Map();
@@ -2313,6 +2337,99 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
+	 * The reviewer's scope for one call's effects (§32/§32.4), shared by the real admission path and the concurrent
+	 * prefetch §135.5/SL-88 starts from `message_end` before any call of a Keeper batch has executed: the move targets
+	 * among this call's own effects, resolved from the graph once, and nothing else. Returning the `scopeFor` closure
+	 * (not just one scope) lets a caller ask it again for a narrowed set of effects, as the split (§32.12.3) and the
+	 * already-landed resend (§32.4) both do.
+	 */
+	async function admissionScopeBuilder(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>):
+		Promise<(effects: Array<Record<string, unknown>>) => { party: string[]; scene?: TableState["scene"]; destinations?: AdmissionDestination[]; answered?: string[] }> {
+		const destinations: AdmissionDestination[] = [];
+		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
+			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
+			try {
+				const found = await state.kernel.call<{entities?: Array<Record<string, unknown>>}>('table.lookup',
+					{campaign: state.campaign, kind: 'module', query: effect.to, expected_kind: 'scene', limit: 1});
+				const entity = found.entities?.[0];
+				// The place's authored names travel with the projection: without them the reviewer
+				// reads the handle's slug as the place and refuses a move into the building the
+				// player just named (contract 32; 2026-09-15, turns 83 and 86).
+				if (entity) destinations.push(registeredDestination(effect.to, entity));
+			} catch { /* The authoritative apply path will report a missing or invalid destination. */ }
+		}
+		// The reviewer's scope for a set of this call's effects: the move targets among them, and nothing else (a part of a
+		// batch has the key a call carrying only that part would have, §32.4).
+		return (effects: Array<Record<string, unknown>>) => {
+			const targets = new Set(effects.filter((effect) => effect.kind === "move").map((effect) => effect.to));
+			const own = destinations.filter((value) => targets.has(value.requested));
+			// §143.18: the investigator by name or by the sheet's handle, as the kernel reads `action.actor`. Until 2026-09-26 only
+			// the name was here, so a Keeper's `actor: "thomas-hayes"` read as an NPC and its punch was never reviewed (C4 turn 8).
+			return { party: state.party.flatMap((member) => [member.name, ...(member.id ? [member.id] : [])]), scene: state.scene,
+				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}) };
+		};
+	}
+
+	/**
+	 * The reviewer's picture of the table (§32), shared by the real admission path and the prefetch below. Read live
+	 * off `state` at call time -- a prefetch that started before an earlier step of the same batch landed reads the
+	 * table as it stood then, which is what the owner's ruling calls for (§32.12/SL-88: the reviews of one response's
+	 * write steps start together, from the same state, and settle in the batch's order).
+	 */
+	function admissionContextFor(state: TableState): AdmissionContext {
+		return {
+			turn: state.turn,
+			playerText: state.playerText!,
+			...(state.interruptedPlayerText ? { interruptedPlayerText: state.interruptedPlayerText } : {}),
+			investigators: state.party,
+			...(state.scene?.label ?? state.scene?.handle ? { scene: state.scene.label ?? state.scene.handle } : {}),
+			present: state.present,
+			delivered: [
+				...(state.prologue ? [{ turn: "setup", keeper: state.prologue }] : []),
+				...(state.delivered.length ? state.delivered : state.recent),
+			],
+			landed: state.landed,
+			refused: state.admissionRefused,
+			...(() => { const book = bookText(carriedText.of(state.campaign, state.turn)); return book.length ? { bookText: book } : {}; })(),
+		};
+	}
+
+	/**
+	 * §135.5/SL-88 ("what needs no result does not wait"): start this call's admission review now, ahead of the
+	 * `runTool` invocation that will eventually reach it. `message_end` calls this once for every `apply`/`resolve`
+	 * call of a Keeper's own batch, before any of them has executed (evidence, gate #18: 65 tool executions, 0
+	 * overlapping admission rounds) -- so their lane rounds run concurrently, one round for the whole response, instead
+	 * of strictly one after another. The kernel still executes the batch in the model's order (§135.5 is unchanged);
+	 * this only starts the wait earlier. It never decides anything on its own: `admitAction`, when it actually reaches
+	 * this call, is the one place a call is admitted or refused (§32.12's own line), and it collects what this started
+	 * through the same `state.admissionPending` map §32.12.2's resend already uses -- a prefetch a batch never reaches
+	 * (an earlier step fell, §135.5's failure branch) is simply never collected: wasted, never wrong, since nothing
+	 * here writes kernel state or settles a verdict by itself. A miss (the real call's own proposal key does not match,
+	 * because `runTool` normalizes the Keeper's raw arguments a little further before admission sees them) costs only
+	 * the head start: the real call reviews fresh, exactly as it would without this function.
+	 */
+	async function prefetchAdmission(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>): Promise<void> {
+		if (!state.playerText) return;
+		if (tool === "apply" && combatSceneMove(state, payload)) return;
+		const scopeFor = await admissionScopeBuilder(state, tool, payload);
+		const effects = Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : [];
+		const proposal = admissionRequest(tool, payload, scopeFor(effects));
+		// A verdict already kept for the turn, or a round already running (a genuine §32.12.2 pending resend, or an
+		// earlier call of this same batch proposing the identical thing) -- either way there is nothing to start.
+		if (!proposal || state.admission.has(proposal.key) || state.admissionPending.has(proposal.key)) return;
+		const ctx = sessionCtx;
+		if (!ctx) return;
+		const capMs = admissionTimeoutMs(), hardCapMs = admissionHardCapMs(capMs);
+		const lane = reviewAdmissionPrimary({
+			campaign: state.campaign, ctx, proposal, context: admissionContextFor(state),
+			providerBudget: foregroundProviderBudget?.(), record: (row) => record({ verb: tool, ...row, prefetch: true }),
+			...(state.lanes.signal ? { signal: state.lanes.signal } : {}), lineLevel: tool === "apply", ...(admissionClock ? { clock: admissionClock } : {}),
+		}).catch((error): AdmissionOutcome => ({ ok: false, reason: "prefetch_error",
+			detail: error instanceof Error ? error.message : String(error), ms: 0, reviewer: "lane", meta: {} }));
+		state.admissionPending.set(proposal.key, { lane, capMs, hardCapMs, collected: false, prefetched: true });
+	}
+
+	/**
 	 * Put a `resolve` or `apply` to review before it reaches a Mod hook or the kernel, and throw
 	 * the refusal the Keeper reads when it is not admitted. A call that is not a proposed voluntary
 	 * investigator action goes straight on; the opening turn, which has no player words, puts
@@ -2339,29 +2456,7 @@ export default function (pi: ExtensionAPI) {
 			await record({ lane: "admission", verb: tool, ok: true, skipped: "combat_scene_required", destination: internalCombatMove, path: "none", ms: 0, ...origin, ...who });
 			return;
 		}
-		const destinations: AdmissionDestination[] = [];
-		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
-			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
-			try {
-				const found = await state.kernel.call<{entities?: Array<Record<string, unknown>>}>('table.lookup',
-					{campaign: state.campaign, kind: 'module', query: effect.to, expected_kind: 'scene', limit: 1});
-				const entity = found.entities?.[0];
-				// The place's authored names travel with the projection: without them the reviewer
-				// reads the handle's slug as the place and refuses a move into the building the
-				// player just named (contract 32; 2026-09-15, turns 83 and 86).
-				if (entity) destinations.push(registeredDestination(effect.to, entity));
-			} catch { /* The authoritative apply path will report a missing or invalid destination. */ }
-		}
-		// The reviewer's scope for a set of this call's effects: the move targets among them, and nothing else (a part of a
-		// batch has the key a call carrying only that part would have, §32.4).
-		const scopeFor = (effects: Array<Record<string, unknown>>) => {
-			const targets = new Set(effects.filter((effect) => effect.kind === "move").map((effect) => effect.to));
-			const own = destinations.filter((value) => targets.has(value.requested));
-			// §143.18: the investigator by name or by the sheet's handle, as the kernel reads `action.actor`. Until 2026-09-26 only
-			// the name was here, so a Keeper's `actor: "thomas-hayes"` read as an NPC and its punch was never reviewed (C4 turn 8).
-			return { party: state.party.flatMap((member) => [member.name, ...(member.id ? [member.id] : [])]), scene: state.scene,
-				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}) };
-		};
+		const scopeFor = await admissionScopeBuilder(state, tool, payload);
 		const effectsOf = () => (Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : []);
 		let proposal = admissionRequest(tool, payload, scopeFor(effectsOf()));
 		if (!proposal) return;
@@ -2397,23 +2492,15 @@ export default function (pi: ExtensionAPI) {
 		// has been answered: refused on that typed evidence, no lane call. Otherwise the review below runs as for any Keeper call.
 		const fightAct = who.origin === "model" && !evidence.origin ? proposedFightAct(tool, payload, !!state.session?.pending_defense) : undefined;
 		const actRefusal = compileActRefusal(fightAct, evidence.run ? state.compileActs.get(evidence.run) ?? [] : []);
+		// SL-90 (§32.12 addendum): an executed consequence step is admitted on the consequence route's own evidence,
+		// the same seam -- no lane call, no typed call. `jevStepsBudget()` is read once per process and cached, so
+		// this costs nothing beyond the first admission of the table's life; `execute` is the same data
+		// `hybrid-engine.ts`'s `routeConsequencesAfterWrite` read when it decided whether to execute this candidate
+		// at all, so a class the table stopped listing falls back to the lane on its own, fail closed.
+		const consequenced = consequenceAdmission(evidence, (await jevStepsBudget()).execute);
+		const refusedConsequence = consequenced && !consequenced.ok ? { consequence_refused: consequenced.reason } : {};
 		const ctx = sessionCtx;
-		const context = (): AdmissionContext => ({
-			turn: state.turn,
-			playerText: state.playerText!,
-			...(state.interruptedPlayerText ? { interruptedPlayerText: state.interruptedPlayerText } : {}),
-			investigators: state.party,
-			...(state.scene?.label ?? state.scene?.handle ? { scene: state.scene.label ?? state.scene.handle } : {}),
-			present: state.present,
-			delivered: [
-				...(state.prologue ? [{ turn: "setup", keeper: state.prologue }] : []),
-				...(state.delivered.length ? state.delivered : state.recent),
-			],
-			landed: state.landed,
-			refused: state.admissionRefused,
-			// §11.5.4 (SL-51): the book's text the Keeper was shown this turn, for the typed reviewer's grounds.
-			...(() => { const book = bookText(carriedText.of(state.campaign, state.turn)); return book.length ? { bookText: book } : {}; })(),
-		});
+		const context = (): AdmissionContext => admissionContextFor(state);
 
 		/**
 		 * One proposal through reuse, the compile's evidence, a kept pending review and the review itself; throws the refusal
@@ -2458,6 +2545,14 @@ export default function (pi: ExtensionAPI) {
 					reviewer: "compile", path: "compile" }, false, Date.now() - began, undefined,
 					{ predicate: compiled.predicate, features: compiled.features, binding_paths: compiled.bindingPaths }, false);
 			}
+			// SL-90 (§32.12 addendum): the executed consequence step's own evidence, the same seam as the compile's.
+			if (!part && consequenced?.ok) {
+				const began = Date.now();
+				return settle({ verdict: "authorized", grounds: `consequence: ${consequenced.class} cleared at ${consequenced.confidence} (gate ${consequenced.gate.rowMin}/${consequenced.gate.rowRatio})`,
+					reviewer: "consequence", path: "consequence" }, false, Date.now() - began, undefined,
+					{ class: consequenced.class, key: consequenced.key, confidence: consequenced.confidence, distribution: consequenced.distribution,
+						gate: { row_min: consequenced.gate.rowMin, row_ratio: consequenced.gate.rowRatio } }, false);
+			}
 			if (!part && actRefusal) {
 				// Kept for the turn like any refusal (§32.4): the identical proposal is refused again at once, `reused: true`.
 				const { read, ...verdict } = actRefusal;
@@ -2465,13 +2560,13 @@ export default function (pi: ExtensionAPI) {
 					act: read.choice, confidence: read.confidence, cleared: read.cleared, rows: read.rows } });
 			}
 			if (!ctx) {
-				await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, path: "none", ms: 0, ...refusedCompile, ...partRows, ...origin, ...who });
+				await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, path: "none", ms: 0, ...refusedCompile, ...refusedConsequence, ...partRows, ...origin, ...who });
 				throw admissionUnavailable(proposal, "session_gone", "the session was gone before the review could start");
 			}
 			const base = context();
 			const reviewContext = part ? { ...base, landed: [...base.landed, ...part.landedLines.map((line) => `admitted in this same call: ${line}`)] } : base;
 			const review = () => reviewAdmissionPrimary({ campaign: state.campaign, ctx, proposal, context: reviewContext, providerBudget,
-				record: (row) => record({ verb: tool, ...row, ...origin }), ...(signal ? { signal } : {}),
+				record: (row) => record({ verb: tool, ...row, ...origin }), ...(signal ? { signal } : {}), ...(admissionClock ? { clock: admissionClock } : {}),
 				...(part ? { typedAttempt: part.attempt, startedAt: part.startedAt, timeoutMs: part.capMs, hardCapMs: part.hardCapMs } : { lineLevel: tool === "apply" }) });
 			// §32.12.2: what the lane of a review this call no longer waits for answered in the end, for the record only. A late
 			// lane refusal after a late admission changes nothing that landed; it is what the late admission is measured by.
@@ -2492,7 +2587,8 @@ export default function (pi: ExtensionAPI) {
 				state.admissionPending.delete(proposal.key);
 				pending.collected = true;
 			}
-			const began = Date.now();
+			// SL-87: the resend's wait is on the review's clock (a test's, or the host's own).
+			const began = admissionNow();
 			let outcome = pending?.lane ? await pending.lane : await review();
 			// §32.12.3: the typed answer admitted some lines and not the rest; the caller reviews the rest.
 			if (outcome.ok === "split") return outcome;
@@ -2502,40 +2598,53 @@ export default function (pi: ExtensionAPI) {
 			// else gets the one resend, which the host runs here because the clerk cannot (a refused clerk step is dropped for
 			// the run, §135.26, and the Keeper is never shown its fix). The resend is a fresh review; a verdict with grounds
 			// settles, and another failure is §32.2's outage. A Keeper-origin or host call keeps §32.2's refusal unchanged.
-			let resentBy: "keeper" | "host" | undefined = pending ? "keeper" : undefined, resendBegan = began, hostCap: number | undefined;
+			// §135.5/SL-88 (merged 2026-09-26): a collected prefetch is the call's first attempt, not a resend, so it can take
+			// the host's resend too; only a genuine Keeper resend (`pending`, not prefetched) is the resend already spent.
+			const firstAttempt = !pending || !!pending.prefetched;
+			let resentBy: "keeper" | "host" | undefined = firstAttempt ? undefined : "keeper", resendBegan = began, hostCap: number | undefined;
 			// A call whose own signal ended is not resent: the failure is the cancellation's, and it refuses as before.
-			if (!pending && outcome.ok === false && outcome.reason !== NO_GROUNDS && declaredAction(evidence) && !signal?.aborted) {
+			if (firstAttempt && outcome.ok === false && outcome.reason !== NO_GROUNDS && declaredAction(evidence) && !signal?.aborted) {
 				const failed = outcome, late = lateAdmission(proposal, failed.typed);
 				await record({ lane: "admission", verb: tool, ok: false, reason: failed.reason, detail: failed.detail.slice(0, 200), ms: failed.ms, key: digest,
 					...(failed.model ? { model: failed.model } : {}), ...(failed.reviewer ? { reviewer: failed.reviewer } : {}), path: "lane", ...failed.meta,
-					...refusedCompile, ...partRows, ...origin, ...who, declared: true, late_rule: late.ok ? "typed_late" : late.reason, then: late.ok ? "typed_late" : "resend" });
+					...refusedCompile, ...refusedConsequence, ...partRows, ...origin, ...who, declared: true, late_rule: late.ok ? "typed_late" : late.reason,
+					then: late.ok ? "typed_late" : "resend" });
 				if (late.ok) {
-					await settle(late.verdict, false, failed.ms, undefined, { ...failed.meta, ...refusedCompile, ...partRows, cause: "unavailable", declared: true,
-						late_rule: "typed_late", late_min_confidence: late.minConfidence, confidence: failed.typed?.confidence ?? null, path: "typed_late" });
+					await settle(late.verdict, false, failed.ms, undefined, { ...failed.meta, ...refusedCompile, ...refusedConsequence, ...partRows, cause: "unavailable",
+						declared: true, late_rule: "typed_late", late_min_confidence: late.minConfidence, confidence: failed.typed?.confidence ?? null, path: "typed_late" });
 					return;
 				}
 				resentBy = "host";
-				resendBegan = Date.now();
+				resendBegan = admissionNow();
 				hostCap = part?.hardCapMs ?? admissionHardCapMs(admissionTimeoutMs());
 				outcome = await review();
 				if (outcome.ok === "split") return outcome;
 			}
-			const resent = resentBy ? { resend: true, ...(resentBy === "host" ? { resend_by: "host", declared: true } : {}), resend_wait_ms: Date.now() - resendBegan, lane_ms: outcome.ms } : {};
+			// §135.5/SL-88: a round `message_end` started before this call's own turn came up is not a resend -- the
+			// Keeper never saw a `review_pending` refusal for it. `concurrent_wait_ms` is what this call still had to
+			// wait once its own turn actually arrived, which is the whole saving the ruling is for.
+			const resent = resentBy ? { resend: true, ...(resentBy === "host" ? { resend_by: "host", declared: true } : {}), resend_wait_ms: admissionNow() - resendBegan, lane_ms: outcome.ms }
+				: pending?.prefetched ? { concurrent: true, concurrent_wait_ms: admissionNow() - began, lane_ms: outcome.ms } : {};
 			const noVerdict = outcome.ok === "late" || outcome.ok === false && outcome.reason === NO_GROUNDS
 				|| outcome.ok === true && outcome.verdict.verdict === REVIEW_TIMEOUT;
+			// §135.5/SL-88: this shortcut is for a genuine §32.12.2 resend -- the Keeper already read a `review_pending`
+			// refusal for this exact call once (or the host resent a declared action, §143.15), so a second no-verdict answer is
+			// final. A collected *prefetch* has not been shown to the Keeper at all; from its seat this is the first attempt, so a
+			// still-unresolved outcome falls through to the ordinary late-admission/park-for-resend handling below, exactly as a
+			// fresh `review()` reaching its own cap would.
 			if (resentBy && noVerdict) {
 				// There is one resend (§32.12.2): what it does not answer with grounds is `review_timeout`, never pending twice.
-				const hardCapMs = pending?.hardCapMs ?? (outcome.ok === "late" ? outcome.hardCapMs : hostCap!);
+				const hardCapMs = resentBy === "keeper" ? pending!.hardCapMs : (outcome.ok === "late" ? outcome.hardCapMs : hostCap!);
 				if (outcome.ok === "late") watchLate(outcome.lane, REVIEW_TIMEOUT);
 				return settle({ verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${hardCapMs} ms hard cap`, reviewer: "lane", path: "lane", capMs: hardCapMs },
-					false, Date.now() - began, outcome.ok === "late" ? undefined : outcome.model,
-					{ ...(outcome.ok === "late" ? {} : outcome.meta ?? {}), ...resent, ...(outcome.ok === false ? { lane_no_grounds: true } : {}), ...refusedCompile });
+					false, admissionNow() - began, outcome.ok === "late" ? undefined : outcome.model,
+					{ ...(outcome.ok === "late" ? {} : outcome.meta ?? {}), ...resent, ...(outcome.ok === false ? { lane_no_grounds: true } : {}), ...refusedCompile, ...refusedConsequence });
 			}
 			if (outcome.ok === "late") {
 				// §32.12.2: the cap passed with nothing sufficient. A bookkeeping-only batch the typed reviewer admitted at the late
 				// threshold lands on it; anything else goes back to the Keeper pending, the lane still running for its one resend.
 				const late = lateAdmission(proposal, outcome.typed);
-				const meta = { ...outcome.meta, ...refusedCompile, late_rule: late.ok ? "typed_late" : late.reason,
+				const meta = { ...outcome.meta, ...refusedCompile, ...refusedConsequence, late_rule: late.ok ? "typed_late" : late.reason,
 					...(late.ok ? { late_min_confidence: late.minConfidence, confidence: outcome.typed?.confidence ?? null } : {}) };
 				if (late.ok) {
 					watchLate(outcome.lane, "typed_late");
@@ -2553,7 +2662,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (!outcome.ok) {
 				await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}),
-					...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), path: "lane", ...outcome.meta, ...resent, ...refusedCompile, ...partRows, ...origin, ...who });
+					...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), path: "lane", ...outcome.meta, ...resent, ...refusedCompile, ...refusedConsequence, ...partRows, ...origin, ...who });
 				state.admissionOutage += 1;
 				const streak = state.admissionOutage;
 				if (streak >= 2 && !state.admissionOutageNotified) {
@@ -2584,7 +2693,7 @@ export default function (pi: ExtensionAPI) {
 				state.admissionOutage = 0;
 				state.admissionOutageNotified = false;
 			}
-			await settle(outcome.verdict, false, resentBy ? Date.now() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile, ...partRows });
+			await settle(outcome.verdict, false, resentBy || pending ? admissionNow() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile, ...refusedConsequence, ...partRows });
 		};
 
 		const split = await admitOne(proposal);
@@ -2611,7 +2720,7 @@ export default function (pi: ExtensionAPI) {
 		evidence.onVerdict?.(clearedVerdict.verdict);
 		await record({ lane: "admission", verb: tool, ok: true, verdict: clearedVerdict.verdict, admitted: true, reused: false, ms: split.ms, key: digest,
 			model: ADMISSION_JEV_MODEL, reviewer: "jev", path: "typed", line_level: "admitted", lines: lineNumbers(cleared), of_lines: shown.length,
-			confidence: Math.min(...lineVerdicts.map((line) => line.confidence)), ...split.meta, ...refusedCompile, ...origin, ...who,
+			confidence: Math.min(...lineVerdicts.map((line) => line.confidence)), ...split.meta, ...refusedCompile, ...refusedConsequence, ...origin, ...who,
 			grounds: clearedVerdict.grounds, proposed: clearedLinesText });
 		const partRows = { line_level: "remainder", lines: lineNumbers(rest), of_lines: shown.length, batch_key: digest };
 		const remainder = admissionRequest(tool, { effects: restEffects }, scopeFor(restEffects));
@@ -3721,6 +3830,10 @@ export default function (pi: ExtensionAPI) {
 		params: Record<string, unknown>,
 		signal?: AbortSignal,
 		onUpdate?: AgentToolUpdateCallback<Record<string, unknown>>,
+		// SL-93 (§135.11.4.1): which delivery path this narrate call is on, for the floor's telemetry. Never set by
+		// the ordinary tool dispatcher (a model-issued call is always "explicit"); the apply.narrate recursion below
+		// is the one caller that passes "embedded".
+		narratePath: "explicit" | "embedded" = "explicit",
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
 		const providerBudget = dispatcher.providerBudget(toolCallId) ?? foregroundProviderBudget?.();
 		delete params._standing_defense;
@@ -3799,6 +3912,12 @@ export default function (pi: ExtensionAPI) {
 		const closesOpening = spec.name === "narrate" && state.openingPending;
 		if(spec.name==='ask' && params.kind!=='mechanics')throw new Error('Use narrate for ordinary story questions and await free input; ask only accepts mechanics');
     const payload: Record<string, unknown> = { ...params, campaign: state.campaign };
+		// SL-92 ("apply carries the narration that closes the turn"): apply's own optional closing prose is
+		// host-only -- table.apply's own schema never carries it. Captured before it is stripped; delivered, after
+		// every effect below lands, through the same path an explicit narrate call takes (see the end of this
+		// function). §135.5 addendum 2.
+		const embeddedNarrateText = spec.name === "apply" && typeof payload.narrate === "string" ? payload.narrate : undefined;
+		delete payload.narrate;
 		// §22.4.7.1 (SL-56): only the host asks the kernel to land a person on the book's text.
 		delete payload._land_on_text;
         if (dispatcher.tracksMutation(toolCallId)) payload._task_read_set = true;
@@ -3848,6 +3967,35 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (state.reviewUnavailable) throw new KernelError({code: 'needs', message: 'The review is paused until new player input',
 				details: {reason: 'continuity_review_unavailable', cause: state.reviewUnavailable}});
+			// §135.11.4.1 (SL-93, re-scoped at integration): the length floor runs on apply's embedded narrate only
+			// (this same function, called recursively under narratePath "embedded"). That optional field is where a
+			// placeholder reached the player ("text", "text thriftily-placeholder": the Keeper meant to narrate
+			// separately and filled the field anyway); a narrate the Keeper calls itself may be legitimately short
+			// (turn.test.mjs's thirteen-code-point hall question), so the explicit path and the implicit close keep
+			// their SL-80 rules.
+			// Checked before admission, attribution or any Mod hook spends anything on a draft that is about to be
+			// refused; skipped once the turn's one steer is already spent (a second leg below the count still closes
+			// the turn, never stranding it) and while this call closes the opening (`closesOpening`), the same
+			// exemption the implicit floor and the beginner's fold already read.
+			// This path never reaches `takeTurnCloseSteer` the way the implicit close does: the refused tool call
+			// itself is Pi's ordinary retry loop (the model reads this refusal's own `fix`, which is `FLOOR_STEER`'s
+			// text, and tries again in its next step), never the driven run's `turn_close` operation, because a
+			// batch that made a tool call -- refused or not -- is not "no pending model proposals". So the one-steer
+			// budget is spent here, synchronously, the moment the floor refuses: without it, a Keeper that keeps
+			// writing short drafts would be refused every time, never once, and a turn could run forever short of
+			// the floor instead of being handed back after one steer.
+			if (spec.name === "narrate" && narratePath === "embedded" && typeof payload.text === "string" && !closesOpening && !state.steeredThisTurn) {
+				const chars = proseCharCount(payload.text);
+				const { minProseChars } = await deliveryFloorBudget();
+				if (chars < minProseChars) {
+					await record({ lane: "floor", turn: state.turn, steered: true, reason: "below_floor", path: narratePath, chars, min_chars: minProseChars });
+					state.steeredThisTurn = true;
+					state.deliveryFix = { kind: "floor", text: FLOOR_STEER };
+					throw new KernelError({ code: "needs",
+						message: `This draft is ${chars} character${chars === 1 ? "" : "s"} of prose once markers and say tokens are removed, under this turn's floor of ${minProseChars}.`,
+						fix: FLOOR_STEER, details: { reason: "below_floor", chars, min_chars: minProseChars } });
+				}
+			}
 			let sourceAnswer: Record<string, unknown> | undefined;
 			let memoryAnswer: Record<string, unknown> | undefined;
 			let supportAnswer: Record<string, unknown> | undefined;
@@ -4150,6 +4298,36 @@ export default function (pi: ExtensionAPI) {
 			// the bound patch published; every failure mode — abort, refusal, split delivery, revision
 			// conflict, quota — drops it inside publishWorkpadPatch without touching this result.
 			if (workpad) await publishWorkpadPatch({ record: (row) => record(row) }, workpad, signal);
+			// SL-92: every effect of this apply landed (a partial with `notLanded` never reaches here -- it took
+			// the throw/refusal path below), and the Keeper embedded a closing narrate. Deliver it through the
+			// exact same function a standalone narrate call runs -- on a synthetic call of its own, so rendering,
+			// marker resolution (an effect-key marker naming one of this apply's own effects included), the
+			// narration audit and turn close all run unchanged. The kernel sees the same two calls, `table.apply`
+			// then `table.narrate`, it always has; only their one model tool call is new.
+			if (spec.name === "apply" && embeddedNarrateText !== undefined && !partial?.notLanded) {
+				const narrateSpec = COC_TOOLS.find((tool) => tool.name === "narrate")!;
+				const embedded = await runTool(narrateSpec, `${toolCallId}:narrate`, { text: embeddedNarrateText }, signal, onUpdate, "embedded");
+				const embeddedError = (embedded.details as { coc_error?: Record<string, unknown> } | undefined)?.coc_error;
+				if (embeddedError) {
+					// Nothing is delivered: the effects above already landed and stand (a receipt cannot be
+					// undone), but the turn stays open and the Keeper reads the narrate's own refusal, exactly as
+					// an explicit narrate call would report it (§135.11: only a rendered delivery counts). The
+					// text the Keeper wrote is still in its own context to hand to an explicit narrate, revised or
+					// not, on its next step -- nothing here needs to hold a separate draft for it.
+					await record({ lane: "delivery", turn: state.turn, ok: false, reason: "narrate_in_apply",
+						code: String(embeddedError.code ?? "error"), call_id: payload.call_id ?? null });
+					const refused = { ...result, narrate_in_apply: false,
+						coc_error: { ...embeddedError, message: `This apply's effects landed and stand. Its embedded narrate was not delivered: ${String(embeddedError.message ?? "")}` } };
+					return { content: [{ type: "text", text: JSON.stringify(refused) }], details: refused };
+				}
+				// The embedded delivery landed: one model call both settled the writes and closed the turn.
+				// `state.deliveryToolCallId` names the call the player's transcript actually shows -- this apply's
+				// own toolCallId, not the synthetic id the embedded narrate ran under.
+				state.deliveryToolCallId = toolCallId;
+				await record({ lane: "delivery", turn: state.turn, ok: true, reason: "narrate_in_apply", call_id: payload.call_id ?? null });
+				const delivered = { ...result, ...(embedded.details as Record<string, unknown>), narrate_in_apply: true };
+				return { content: [{ type: "text", text: JSON.stringify(delivered) }], details: delivered, terminate: true };
+			}
 			return {
 				content: [{ type: "text", text: JSON.stringify(result) }],
 				details: result,
@@ -4286,10 +4464,20 @@ export default function (pi: ExtensionAPI) {
 			parameters: spec.parameters,
 			// Contract §135.21: a `how`/`why` longer than one sentence is refused before Pi's schema check, with the
 			// kernel-shaped refusal whose fix says to shorten it (the schema's own maxLength message carries no fix).
+			// Contract §138: an argument that carries the model's own tool-call markup (`</text>`, a swallowed
+			// `<parameter name="workpad_patch">`) is unwrapped here, before anything reads it, and the repair is recorded.
+			// Contract §138.1: a field that carries another tool's argument (`apply.narrate`, the narrate tool's `text`)
+			// loses the serialization's own leading label (`text intermediate…`, `text`), after the unwrapping; a value
+			// that was only the label goes on empty, to the embedded narrate's floor and the kernel's refusal.
 			prepareArguments: (args: unknown) => {
-				const refusal = argumentLimitRefusal(spec.name, args);
+				const unwrapped = unwrapArgumentMarkup(spec.name, spec.parameters, args);
+				if (!unwrapped.ok) throw new Error(new KernelError(unwrapped.refusal).toToolText());
+				if (unwrapped.repairs.length) void record({ lane: "tool_arguments", event: "markup_unwrapped", tool: spec.name, repairs: unwrapped.repairs });
+				const stripped = stripDialectPrefixes(spec.name, unwrapped.args);
+				for (const { field, prefix } of stripped.strips) void record({ lane: "arguments", event: "dialect_prefix_stripped", tool: spec.name, field, prefix });
+				const refusal = argumentLimitRefusal(spec.name, stripped.args);
 				if (refusal) throw new Error(new KernelError(refusal).toToolText());
-				return args as never;
+				return stripped.args as never;
 			},
 			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
 			executionMode: "sequential",
@@ -5527,6 +5715,28 @@ export default function (pi: ExtensionAPI) {
 			? new Set(narrates.map((b) => String(b.id)))
 			: undefined;
 		state.effectRefusedBeforeDelivery = false;
+		// §135.5/§32.12 addendum (SL-88, "what needs no result does not wait"): the admission reviews of every
+		// write step of this response start together, here, before any of them has run `runTool` -- one concurrent
+		// round for the whole batch instead of the strictly sequential rounds gate #18 measured (65 tool executions,
+		// 0 overlapping). Only the Keeper's own calls reach this hook (a policy-origin dispatch is never an
+		// assistant-message tool call), so `prefetchAdmission` always reviews as a model-origin proposal. Each call's
+		// arguments are cloned and normalized the same way `runTool` will, so the prefetch's key matches the real
+		// one whenever it can; a call this batch never reaches after an earlier one is refused (§135.5's failure
+		// branch) simply leaves its head start uncollected. Never awaited: a slow or failed prefetch must not hold up
+		// this hook, which is on the critical path of every turn.
+		//
+		// Fewer than two reviewed calls has nothing to overlap with, so it is left alone: a lone `apply`/`resolve`
+		// gains no saving from starting its review one hook earlier, and every existing single-call admission
+		// timing (§32.12.2's cap/hard-cap/pending/resend ladder) stays exactly the shape it already is.
+		const reviewedCalls = calls.filter((call) => call.name === "apply" || call.name === "resolve");
+		if (reviewedCalls.length > 1) for (const call of reviewedCalls) {
+			const reviewedTool = call.name as "apply" | "resolve";
+			let cloned: Record<string, unknown> | undefined;
+			try { cloned = JSON.parse(JSON.stringify(call.arguments ?? {})) as Record<string, unknown>; } catch { cloned = undefined; }
+			if (!cloned) continue;
+			normalizeToolInput(reviewedTool, cloned);
+			void prefetchAdmission(state, reviewedTool, { ...cloned, campaign: state.campaign }).catch(() => {});
+		}
 		if (hasToolCalls) {
 			// An assistant message with tool calls keeps only the calls: the Keeper's process talk before a
 			// call ("let me check the clues first") is not a line, and player-visible text comes only from
@@ -5640,6 +5850,8 @@ export default function (pi: ExtensionAPI) {
 			// span and marker syntax, never the words. Not a second floor: the same floorDraft/deliveryFix/
 			// steeredThisTurn machinery, the same FLOOR_STEER text, so the one-steer budget and the dropped-
 			// draft fallback of the gate #4 addendum apply exactly as they do to the no-tool-call case.
+			// §135.11.4.1 (SL-93, re-scoped at integration): the length floor is apply.narrate's alone; this
+			// path keeps SL-80's two conditions and no length check.
 			const opening = state.state === "awaiting_player" && state.openingPending;
 			const speechOnly = !opening && !state.steeredThisTurn && isSpeechOnlyDraft(prose);
 			if ((state.toolCallsThisTurn === 0 || speechOnly) && !opening && !state.steeredThisTurn) {

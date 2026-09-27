@@ -1,4 +1,5 @@
 import { computeMove, renderBrief, type SetupSlot, type SetupNotes } from './brief.ts';
+import { playerReason } from './reasons.ts';
 /** Setup ordering comes from setup.steps; source preparation uses the shared visual reader. */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from 'node:crypto';
@@ -20,6 +21,7 @@ import type { HostRuntime } from "../../runtime/host.ts";
 import { type ExtensionWords, extensionContentRoot, extensionSurface } from "../ui/words.ts";
 import {
 	allowedSteps,
+	applies,
 	gate,
 	type GateState,
 	instructionFor,
@@ -62,29 +64,60 @@ interface SetupBlock {
 	/** The kernel's or the preparer's error code, when it had one. */
 	code?: string;
 	detail: string;
+	/** The actionable half of the cause (contract §14.15): it must survive into every refusal the block answers with. */
+	fix?: string;
+	details?: Record<string, unknown>;
 	/** The player has already been told this turn (turn-start causes notify as they block). */
 	noticed: boolean;
 }
 
-/** A failed guidance review keeps the Keeper's prose off the screen (§23.4); a failed package read does not (§26). */
-function setupBlockHidesText(block: SetupBlock): boolean {
-	return block.kind !== 'package_context';
+/** The two guidance kinds: the only blocks whose remedy is a setup step (§98 addendum 9). */
+function guidanceBlock(block: SetupBlock | undefined): boolean {
+	return block !== undefined && block.kind !== 'package_context';
 }
 
-/** The refusal every `setup` call gets while the turn is blocked: the actual cause and the fix that matches it. */
-function setupBlockRefusal(block: SetupBlock): Record<string, unknown> {
+/**
+ * A failed guidance review keeps the Keeper's prose off the screen (§23.4); a failed package read does
+ * not (§26), and neither does a missing opening choice: that one is a question the guide must ask
+ * (§14.19), and hiding its text was half of the Masks deadlock.
+ */
+function setupBlockHidesText(block: SetupBlock): boolean {
+	return guidanceBlock(block) && block.code !== 'needs_choice';
+}
+
+/** The actionable half of a thrown error, read structurally (contract §14.15). */
+function actionable(error: unknown): {fix?: string; details?: Record<string, unknown>} {
+	const fix = (error as {fix?: unknown} | null)?.fix, details = (error as {details?: unknown} | null)?.details;
+	return {...(typeof fix === 'string' && fix ? {fix} : {}), ...(details && typeof details === 'object' && !Array.isArray(details) ? {details: details as Record<string, unknown>} : {})};
+}
+
+/** The candidates of an opening question (`details.candidates`), or undefined when it carries none. */
+function openingCandidates(details: unknown): unknown[] | undefined {
+	const rows = (details as {candidates?: unknown} | null | undefined)?.candidates;
+	return Array.isArray(rows) && rows.length > 1 ? rows : undefined;
+}
+
+/**
+ * The refusal every `setup` call gets while the turn is blocked: the actual cause and the fix that
+ * matches it. `remedy` is the preparation step when this source has one (§98 addendum 9).
+ */
+function setupBlockRefusal(block: SetupBlock, remedy?: string): Record<string, unknown> {
 	const why = block.code ? `${block.code}: ${block.detail}` : block.detail;
 	let error: string;
 	if (block.kind === 'package_context') {
 		error = `The setup package context could not be read (mods.context: ${why}). Setup is blocked until it is restored: fix or disable the package the error names in the Mods panel, then wait for a new player input, which reads the context again; do not draft or continue setup on the core policy alone.`;
+	} else if (block.code === 'needs_choice') {
+		error = `Setup waits for the opening (${why}). Ask the player which opening to start from (details.candidates), then call ${remedy ?? 'the preparation step'} with that candidate's scene as start_scene: it records the choice and prepares the guidance again. Do not invent a setup scene or create a card.`;
 	} else {
 		const when = block.kind === 'guidance_at_create_campaign' ? 'when create-campaign ran' : 'at the start of this turn';
 		const fix = block.code === 'guidance_not_ready'
 			? 'A new player input will not repair it: the starter\'s bundled guidance is missing or stale and only the offline bundle builder replaces it. Tell the player setup cannot continue on this starter.'
-			: 'Wait for a new player input, which retries the preparation.';
+			: `Wait for a new player input, which retries the preparation${remedy ? `, or retry it now with ${remedy} (retry: true)` : ''}.`;
 		error = `Module guidance could not be prepared ${when} (${why}). ${fix} Do not invent a setup scene or create a card.`;
 	}
-	return { ok: false, code: 'setup_blocked', blocked_by: block.kind, ...(block.code ? { cause: block.code } : {}), error };
+	const reason = playerReason({code: 'setup_blocked', blockedBy: block.kind, cause: block.code});
+	return { ok: false, code: 'setup_blocked', blocked_by: block.kind, ...(block.code ? { cause: block.code } : {}), error,
+		...(block.fix ? {fix: block.fix} : {}), ...(block.details ? {details: block.details} : {}), ...(reason ? {player_reason: reason} : {}) };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -146,6 +179,12 @@ export default function (pi: ExtensionAPI) {
   let inputOrdinal=0;
   let inputCatalog:SetupInputCatalog|undefined;
   let setupBlock: SetupBlock | undefined;
+  /** §14.19: the openings the host last answered `needs_choice` with; the preparation step stays open until one is recorded. */
+  let openingQuestion: unknown[] | undefined;
+  /** §14.19: the opening the campaign itself pins -- campaign.create's, the resumed record's, or the one the remedy pinned. */
+  let campaignOpening: string | undefined;
+  /** §14.19.4: when this setup first waited on each reading, so the player hears roughly how long it has been. */
+  const readingSince = new Map<string, number>();
   let guidancePending: Promise<Guidance | undefined> | undefined;
   // Contract §26 Guided Creation: the package's slots, the kernel's notes and the cap; the move is computed, never remembered.
   let setupSlots: SetupSlot[] = [];
@@ -164,6 +203,18 @@ export default function (pi: ExtensionAPI) {
 	/** The campaign's play language as the kernel reported it; undefined until then, which reads as the data default. */
 	function playLanguage(): string | undefined {
 		return asString(context.play_language);
+	}
+	/**
+	 * The one sentence §16.1 relies on, with its value (§14.17). The setup process has no capsule, so
+	 * this is the only way the campaign's language reaches the guide; before a campaign names one
+	 * there is nothing to say, and nothing is guessed.
+	 */
+	function tableLanguage(): string {
+		const tag = playLanguage();
+		return tag
+			? `\n\nThis table's language: play_language=${tag}. Every word the player reads from you is written in it: each acknowledgement, question, example and reminder, the language notice, the card account and the close. ` +
+				"Everything else given to you here is English for you, not for the player: these instructions, the module advice, the setup packages' instructions and the tool results. Carry their sense into play_language, never their English words."
+			: "";
 	}
 	/** The captions for the language this setup is in right now; the tag is re-read every time, because it arrives mid-run. */
 	function speaking(): Promise<ExtensionWords> {
@@ -204,6 +255,26 @@ export default function (pi: ExtensionAPI) {
       return characterGuidance;
     })().finally(()=>{guidancePending=undefined;});
     return guidancePending;
+  }
+
+  /**
+   * The accepted opening is delivered once, directly, and booked as delivered (§23.4, §14.18). Every
+   * path that shows it comes through here -- the App's session start, a terminal or driver setup's
+   * first turn, and the turn a campaign is created in -- so the words the kernel records are the
+   * words the player was shown, never a reply that retold them.
+   */
+  async function shownPrologue(guidance: Guidance): Promise<{customType:string;content:string;display:true;details:Record<string,unknown>}> {
+    await bridge!.call('setup.prologue',{campaign:context.campaign,scene:guidance.scene,guide:guidance.guide,handoff:guidance.handoff,text:guidance.opening});
+    prologueRecorded=true;
+    // The prologue is the story and nothing else. What is happening here -- that this is the player's
+    // investigator being made, that a name and a trade is enough -- rides beside it as a help fold
+    // the host draws behind a "?" after the guide's question (user ruling 2026-09-16: immersion and
+    // guidance both; the pinned intro card that used to say this hid the transcript). Captions of the
+    // extension surface, so they arrive in the play language.
+    const words=await speaking();
+    // Open by itself the first time this home meets the moment, then only on the "?" (§4 of the spec).
+    const help=await openingHelp('setup-opening',words.line('setup_help_title'),[words.line('setup_help_1'),words.line('setup_help_2'),words.line('setup_help_3'),words.line('setup_help_4'),words.line('setup_help_skip')],{home:cocHome(ctx!.cwd),agentHome:agentHomeOf(ctx!.cwd)});
+    return {customType:'coc-setup-opening',content:guidance.opening,display:true,details:{kind:'setup-opening',help}};
   }
 
 	function state(): GateState {
@@ -275,6 +346,8 @@ export default function (pi: ExtensionAPI) {
       if(typeof restoredDraft.revision==='number')draftRevision=restoredDraft.revision;
       if(carried.notes && typeof carried.notes==='object')setupNotes=carried.notes as SetupNotes;
       prologueRecorded=!!carried.prologue;
+      // A resumed campaign's own opening (§14.19): null for a book created before its opening was chosen.
+      campaignOpening = asString(carried.start_scene) ?? campaignOpening;
       const carriedSource = asRecord(carried.source);
 			sourceKind = asString(carried.source_kind) ?? asString(carriedSource.kind) ?? sourceKind;
 		} catch (error) {
@@ -350,6 +423,12 @@ export default function (pi: ExtensionAPI) {
 			if (moduleId) params.module_id = moduleId;
 		}
 		if(op.method==='campaign.create' && context.campaign)params.id=context.campaign;
+		// §14.19: the opening prepare-module recorded is the campaign's; the kernel pins it (§22.9) and
+		// checks it names an authored opening. Carried by the host, never re-typed by the guide.
+		if (op.method === 'campaign.create') {
+			const chosen = asString(context.start_scene);
+			if (chosen) params.start_scene = chosen;
+		}
     const campaign = asString(context.campaign);
 		if (campaign && wantsCampaign(op.method) && params.campaign === undefined) params.campaign = campaign;
 		return { params, missing };
@@ -366,7 +445,13 @@ export default function (pi: ExtensionAPI) {
 		const campaign = asRecord(result.campaign);
 		const campaignId = asString(result.campaign_id) ?? asString(campaign.id) ?? asString(result.campaign);
 		if (campaignId) context.campaign = campaignId;
-    const language = asString(asRecord(result.campaign).play_language) ?? asString(context.play_language);
+    // `campaign.create` answers with the campaign record, the tag nested in it (§14.17). Left out of
+    // the context, a campaign made in this process prepared its guidance and spoke its captions in
+    // the data default, and its guide was never told the table's language.
+    if (asString(campaign.play_language)) context.play_language = asString(campaign.play_language);
+    // The opening the kernel pinned on the record it just created (§14.19), when it pinned one.
+    if (asString(campaign.opening_scene)) campaignOpening = asString(campaign.opening_scene);
+    const language = asString(context.play_language);
     if (ctx && context.campaign && language) {
       const data = {campaign: context.campaign, home: cocHome(ctx.cwd), play_language: language, mode: "setup"};
       const identity = JSON.stringify(data);
@@ -613,6 +698,114 @@ export default function (pi: ExtensionAPI) {
 		return { ok: true, ...results };
 	}
 
+	// ---- The opening choice and the block's remedy (contract §14.19, §98 addendum 9) ----
+
+	/** The step whose op is `method`: the table owns the step ids, the host knows the ops it runs. */
+	function stepWithOp(method: string): Step | undefined {
+		return steps?.find((row) => row.ops.some((op) => op.method === method));
+	}
+
+	/**
+	 * A block never blocks its own remedy. While setup is blocked on guidance, or (unblocked) the host has
+	 * asked for the opening, the preparation step stays open whether or not it is done: it is the step
+	 * that records the opening choice and retries the preparation. Card and campaign steps still wait.
+	 */
+	function remedyOpen(id: string | undefined): boolean {
+		const preparation = stepWithOp('module.prepare');
+		if (!preparation || id !== preparation.id) return false;
+		return setupBlock ? guidanceBlock(setupBlock) : openingQuestion !== undefined;
+	}
+
+	/** The preparation step's id when it is this source's remedy, for the refusal's fix. */
+	function remedyStep(): string | undefined {
+		const preparation = stepWithOp('module.prepare');
+		return preparation && applies(preparation, state()) ? preparation.id : undefined;
+	}
+
+	/**
+	 * The player's reason beside a result that did not go through (§14.19.4, SL-100), chosen from the
+	 * result's closed codes only. A reading wait also says how long this setup has waited on that same
+	 * reading, measured from the call that first waited on it.
+	 */
+	function withReason(outcome: Record<string, unknown>, startedAt: number): Record<string, unknown> {
+		const details = asRecord(outcome.details), read = asRecord(details.read), reason = asString(details.reason);
+		let minutes: number | undefined;
+		if (reason === 'reading_timeout') {
+			const key = JSON.stringify([asString(read.purpose) ?? '', asString(read.focus) ?? '']);
+			const since = readingSince.get(key) ?? startedAt;
+			readingSince.set(key, since);
+			minutes = Math.round((Date.now() - since) / 60_000);
+		}
+		const text = playerReason({code: asString(outcome.code), cause: asString(outcome.cause), reason, purpose: asString(read.purpose), minutes});
+		return text ? {...outcome, player_reason: text} : outcome;
+	}
+
+	/**
+	 * A guidance preparation that produced no guidance blocks setup with its cause (§98 addendum 4) and
+	 * answers actionably (§14.15): a missing opening is `needs_choice` with the candidates (§14.19),
+	 * anything else `guidance_failed` with the preparer's code as `cause`.
+	 */
+	function guidanceFailure(error: unknown, kind: SetupBlockKind, noticed: boolean, startedAt: number): Record<string, unknown> {
+		const code = errorCode(error), detail = errorText(error), {fix, details} = actionable(error);
+		setupBlock = {kind, ...(code ? {code} : {}), detail, ...(fix ? {fix} : {}), ...(details ? {details} : {}), noticed};
+		const question = code === 'needs_choice' ? openingCandidates(details) : undefined;
+		if (question) openingQuestion = question;
+		return withReason({ok: false, code: question ? 'needs_choice' : 'guidance_failed', ...(code ? {cause: code} : {}), message: detail,
+			...(fix ? {fix} : {}), ...(details ? {details} : {})}, startedAt);
+	}
+
+	/**
+	 * create-campaign never runs guidance without a recorded opening on a book with several (§14.19
+	 * ruling 4). Only a book that came through the preparation step is asked; its openings are the
+	 * kernel's `module.status` `opening_candidates`. A status that cannot be read leaves the step to
+	 * the kernel and the guidance preparer, which answer the same question themselves.
+	 */
+	async function unchosenOpenings(): Promise<unknown[] | undefined> {
+		const preparation = stepWithOp('module.prepare'), moduleId = asString(context.module_id);
+		if (!bridge || !preparation || !completed.has(preparation.id) || !moduleId || asString(context.start_scene)) return undefined;
+		try { return openingCandidates({candidates: asRecord(await bridge.call('module.status', {module_id: moduleId})).opening_candidates}); }
+		catch { return undefined; }
+	}
+
+	/**
+	 * After the preparation step succeeds on a campaign that already exists: the campaign's own opening
+	 * is pinned when it has none (a campaign created before its opening was chosen), with
+	 * `module.opening.choose` scoped to that campaign -- never the library, which other tables read --
+	 * and a guidance block is retried now instead of on the player's next line. Returns the refusal to
+	 * answer with, or undefined when the step's own success stands.
+	 */
+	async function afterPreparation(id: string, outcome: Record<string, unknown>, startedAt: number): Promise<Record<string, unknown> | undefined> {
+		const creation = stepWithOp('campaign.create'), campaign = asString(context.campaign);
+		if (!bridge || !creation || !completed.has(creation.id) || !campaign) return undefined;
+		const chosen = asString(context.start_scene), moduleId = asString(context.module_id);
+		if (chosen && moduleId && !campaignOpening) {
+			try {
+				campaignOpening = asString(asRecord(await bridge.call('module.opening.choose', {module_id: moduleId, scene: chosen, campaign})).start_scene) ?? chosen;
+			} catch (error) {
+				const code = errorCode(error) ?? 'internal', {fix, details} = actionable(error);
+				const question = code === 'needs_choice' ? openingCandidates(details) : undefined;
+				if (question) { openingQuestion = question; delete context.start_scene; }
+				return withReason({ok: false, step: id, failed_on: 'module.opening.choose', code, message: errorText(error),
+					...(fix ? {fix} : {}), ...(details ? {details} : {}), progress: progressLine(steps ?? [], state())}, startedAt);
+			}
+		}
+		const blocked = setupBlock;
+		if (!blocked || !guidanceBlock(blocked)) return undefined;
+		try {
+			const guidance = await ensureGuidance();
+			if (!guidance) return undefined;
+			setupBlock = undefined;
+			outcome.character_guidance = guidance;
+			if (!prologueRecorded) {
+				pi.sendMessage(await shownPrologue(guidance));
+				outcome.opening_shown = 'The host has shown character_guidance.opening to the player word for word, right after this result. Do not repeat, retell or translate it; continue after it as the host.';
+			}
+			return undefined;
+		} catch (error) {
+			return {...guidanceFailure(error, blocked.kind, blocked.noticed, startedAt), step: id};
+		}
+	}
+
 	/** A step is done: book it, update the source, and see whether it was the last one. */
 	function settle(step: Step, outcome: Record<string, unknown>): void {
 		completed.add(step.id);
@@ -643,7 +836,8 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function execute(raw: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if(setupBlock)return setupBlockRefusal(setupBlock);
+		const startedAt = Date.now();
+		if (setupBlock && !remedyOpen(asString(raw.step))) return setupBlockRefusal(setupBlock, remedyStep());
 		await ensureSteps();
 		if (!steps) {
 			return { ok: false, error: stepsError ?? "The setup table is not in hand yet." };
@@ -704,7 +898,10 @@ export default function (pi: ExtensionAPI) {
 				allowed: allowedSteps(steps, state()).map((row) => row.id),
 			};
 		}
-    const verdict = gate(steps, state(), id);
+		// The remedy step is reopened for the gate (§98 addendum 9): its prerequisites and its source
+		// still apply, and only "already done" is waived.
+		const gated = remedyOpen(id) ? {...state(), completed: new Set([...completed].filter((done) => done !== id))} : state();
+    const verdict = gate(steps, gated, id);
 		if (!verdict.ok) {
 			return { ok: false, step: id, rejected: verdict.reason, allowed: allowedSteps(steps, state()).map((row) => row.id) };
 		}
@@ -715,21 +912,55 @@ export default function (pi: ExtensionAPI) {
 			const move = computeMove(setupSlots, setupNotes, guidedCap);
 			if (move.move === 'ask') return { ok: false, step: id, code: 'brief_incomplete', missing: move.missing, brief: renderBrief(setupSlots, setupNotes, guidedCap) };
 		}
+		if (step.ops.some((op) => op.method === 'campaign.create')) {
+			const candidates = await unchosenOpenings();
+			if (candidates) {
+				openingQuestion = candidates;
+				return withReason({ok: false, step: id, code: 'needs_choice', message: 'this book has more than one opening and none is recorded for this campaign yet',
+					fix: `ask the player which opening to start from (details.candidates: name and summary), then call ${stepWithOp('module.prepare')?.id ?? 'the preparation step'} with that candidate's scene as start_scene; ${id} comes after it`,
+					details: {field: 'start_scene', candidates}, progress: progressLine(steps, state())}, startedAt);
+			}
+		}
+		// §14.19: the player's choice is recorded the moment the preparation step receives it, before any
+		// reading runs, so a reading that outlasts this call keeps it and a later call may leave it out.
+		const preparing = step.ops.some((op) => op.method === 'module.prepare');
+		const chosen = preparing ? asString(args.start_scene) : undefined, previousChoice = context.start_scene;
+		if (chosen) {
+			context.start_scene = chosen;
+			openingQuestion = undefined;
+		}
 		const outcome =
 			step.kind === "ask"
 				? await runAsk(step, args)
 				: await runOps(step, args);
 
 		if (outcome.ok !== true) {
+			const question = outcome.code === 'needs_choice' ? openingCandidates(outcome.details) : undefined;
+			if (question) {
+				openingQuestion = question;
+				// A scene the book does not offer is no choice: the one this call brought is not kept.
+				if (chosen && context.start_scene === chosen) context.start_scene = previousChoice;
+			}
 			// A step that did not succeed is not booked: the same step can be tried again with the parameters the hint names.
-			return { ...outcome, step: id, progress: progressLine(steps, state()) };
+			return withReason({ ...outcome, step: id, progress: progressLine(steps, state()) }, startedAt);
 		}
 		settle(step, outcome);
+		if (preparing) {
+			readingSince.clear();
+			const refused = await afterPreparation(id, outcome, startedAt);
+			if (refused) return refused;
+		}
     if(id==='create-campaign') {
       try {
         const guidance=await ensureGuidance();
         if(guidance)outcome.character_guidance=guidance;
-      } catch(error) {setupBlock={kind:'guidance_at_create_campaign',code:errorCode(error),detail:errorText(error),noticed:false};return {ok:false,code:'guidance_failed',message:errorText(error)};}
+        // Sent while the turn runs, the opening lands right after this result and before the guide's
+        // next step (§14.18); the guide only has to know it was shown.
+        if(guidance && !prologueRecorded) {
+          pi.sendMessage(await shownPrologue(guidance));
+          outcome.opening_shown='The host has shown character_guidance.opening to the player word for word, right after this result. Do not repeat, retell or translate it; continue after it as the host.';
+        }
+      } catch(error) {return guidanceFailure(error,'guidance_at_create_campaign',false,startedAt);}
     }
 		const next = nextStep(steps, state());
 		if (!next) await finish();
@@ -843,24 +1074,34 @@ export default function (pi: ExtensionAPI) {
     // the agent only owes the short prologue close, and agent_end will let the wrapper replace this
     // setup child with the play child.
     await refreshCompleted();
+    // Every reply below is read by the player, the blocked and closing ones included (§14.17).
+    const base=event.systemPrompt+tableLanguage();
     if(completed.has('complete')) {
       await finish();
-      return {systemPrompt:event.systemPrompt+'\nSetup is already complete. Do not call setup or continue character creation. Close the prologue briefly; the host will open the table.'};
+      return {systemPrompt:base+'\nSetup is already complete. Do not call setup or continue character creation. Close the prologue briefly; the host will open the table.'};
     }
     let guidance: Guidance | undefined;
     // The campaign id may be known before the campaign exists (PI_COC_CAMPAIGN); preparing guidance for a campaign that a
     // rejected create-campaign never made throws, and that used to poison every later turn with a guidance refusal.
     // Guidance is prepared by the create-campaign step itself and, on later turns, only once that step has run.
-    try {guidance=completed.has('create-campaign')||characterGuidance?await ensureGuidance():undefined;}
-    catch(error) {
+    const guidanceFailed=async(error:unknown)=>{
       // What the player is told is the campaign's sentence; the English message the preparation
       // threw stays in it as the detail, which is what a log and a bug report need (contract §23).
-      const detail=errorText(error);
-      setupBlock={kind:'guidance_at_turn_start',code:errorCode(error),detail,noticed:true};
+      const detail=errorText(error),code=errorCode(error),{fix,details}=actionable(error);
+      setupBlock={kind:'guidance_at_turn_start',...(code?{code}:{}),detail,...(fix?{fix}:{}),...(details?{details}:{}),noticed:true};
+      const question=code==='needs_choice'?openingCandidates(details):undefined;
+      if(question) {
+        // §14.19: a missing opening is the guide's question, not a failure: no error notice, the guide's
+        // text stays on screen, and the step that records the answer stays open (§98 addendum 9).
+        openingQuestion=question;
+        return {systemPrompt:base+'\nThis book has more than one opening and this campaign has none recorded yet. Ask the player which one to start from, naming each by its name and what it is about (the list below). When they answer, call setup '+(remedyStep()??'prepare-module')+' with that opening\'s scene as start_scene: it records the choice and prepares the module guidance. Until then do not invent a prologue or create an investigator.\nOpenings: '+JSON.stringify(question)};
+      }
       try {ctx?.ui.notify((await speaking()).line('setup_guidance_failed',{detail}),'error');}
       catch {ctx?.ui.notify(detail,'error');}
-      return {systemPrompt:event.systemPrompt+'\nModule guidance is unavailable. Do not invent a prologue, create an investigator or continue setup.'};
-    }
+      return {systemPrompt:base+'\nModule guidance is unavailable. Do not invent a prologue, create an investigator or continue setup.'};
+    };
+    try {guidance=completed.has('create-campaign')||characterGuidance?await ensureGuidance():undefined;}
+    catch(error) {return await guidanceFailed(error);}
     // Setup packages (contract §26): what the campaign's enabled Mods have to say about creation, refreshed every turn so a panel toggle lands on the next reply.
     // Consulted whether or not module guidance exists: a package speaks to setup, not to the prologue.
     let setupPackages='';
@@ -884,7 +1125,7 @@ export default function (pi: ExtensionAPI) {
         setupBlock={kind:'package_context',code:errorCode(error),detail,noticed:true};
         try {ctx?.ui.notify((await speaking()).line('setup_packages_failed',{detail}),'error');}
         catch {ctx?.ui.notify(detail,'error');}
-        return {systemPrompt:event.systemPrompt+'\nThe setup package context is unavailable. Do not draft or continue setup until it is restored.'};
+        return {systemPrompt:base+'\nThe setup package context is unavailable. Do not draft or continue setup until it is restored.'};
       }
     }
     // The catalog (§98): every trade, skill and printed weapon with the play language's label, once,
@@ -901,8 +1142,17 @@ export default function (pi: ExtensionAPI) {
           '\nWeapons the tables print (anything else is equipment): '+weapons.join(', ');
       } catch { /* a catalog that cannot be read is not a reason to stop setup; the kernel still resolves names */ }
     }
-    if(!guidance)return {systemPrompt:event.systemPrompt+setupPackages+catalogText+inputPrompt};
-    return {systemPrompt:event.systemPrompt+'\n\nPrepared module prologue ('+(prologueRecorded?'already delivered; continue from the player answer without repeating it':'use on the first setup reply only')+'):\n'+guidance.opening+
+    if(!guidance)return {systemPrompt:base+setupPackages+catalogText+inputPrompt};
+    // A terminal or driver setup shows the opening on its first turn, right after the player's first
+    // line (§14.18): the App showed it at session start, and a campaign created in this process right
+    // after create-campaign. Shown last, once nothing else can still block this turn; a draft on the
+    // table means the meeting is long past.
+    let shown: Awaited<ReturnType<typeof shownPrologue>> | undefined;
+    if(!prologueRecorded && draftRevision===undefined) {
+      try {shown=await shownPrologue(guidance);}
+      catch(error) {return await guidanceFailed(error);}
+    }
+    return {...(shown?{message:shown}:{}),systemPrompt:base+'\n\nPrepared module prologue ('+(prologueRecorded?'the host has shown it to the player word for word; never repeat, retell or translate it, and continue after it as the host':'context for the meeting already under way; do not narrate it')+'):\n'+guidance.opening+
       '\n\nModule-specific setup advice:\n'+guidance.advice+
       '\nBefore create-investigator, briefly explain useful or explicitly required languages from this advice or the public opening, and how lacking them can hinder conversation or reading. Distinguish authored requirements from contextual recommendations; do not invent a requirement or expose a secret. The display language is not a character skill. After drafting or a relevant revision, compare the actual own_language and Language skills and mention any material difficulty before inviting confirmation. This is a notice, not an extra question or confirmation gate: preserve chosen limitations and never change language skills merely to remove a warning. Only a player request, accepted suggestion or explicit delegation authorizes changing those choices.'+
       '\nThe rulebook tabulates these finance periods: '+JSON.stringify(context.rulebook_eras||[])+'. The authored setting can be descriptive prose or a year the rulebook never tabulated; never copy it as a table key. Pass profile.era only to name the listed period that reads closest to that setting. Omit it and the table\'s own period stands in. Either way the draft comes back with the period used and the setting it stood in for on sheet.finance, and setup is never blocked on this: say it once to the player in their own words (which setting, which period stood in for it) and carry on.'+
@@ -953,17 +1203,7 @@ export default function (pi: ExtensionAPI) {
     if(process.env.PI_COC_SETUP_AUTOSTART==='1' && campaign && !hasDialogue && !completed.has('complete')) {
       const guidance=await ensureGuidance();
       if(!guidance)throw new Error('The prepared module guidance is unavailable');
-      await bridge!.call('setup.prologue',{campaign,scene:guidance.scene,guide:guidance.guide,handoff:guidance.handoff,text:guidance.opening});
-      prologueRecorded=true;
-      // The prologue is the story and nothing else. What is happening here -- that this is the player's
-      // investigator being made, that a name and a trade is enough -- rides beside it as a help fold
-      // the host draws behind a "?" after the guide's question (user ruling 2026-09-16: immersion and
-      // guidance both; the pinned intro card that used to say this hid the transcript). Captions of the
-      // extension surface, so they arrive in the play language.
-      const words=await speaking();
-      // Open by itself the first time this home meets the moment, then only on the "?" (§4 of the spec).
-      const help=await openingHelp('setup-opening',words.line('setup_help_title'),[words.line('setup_help_1'),words.line('setup_help_2'),words.line('setup_help_3'),words.line('setup_help_4'),words.line('setup_help_skip')],{home:cocHome(ctx.cwd),agentHome:agentHomeOf(ctx.cwd)});
-      pi.sendMessage({customType:'coc-setup-opening',content:guidance.opening,display:true,details:{kind:'setup-opening',help}});
+      pi.sendMessage(await shownPrologue(guidance));
     }
     if (ctx.hasUI && steps && process.env.PI_COC_SETUP_AUTOSTART!=='1') {
 			// The player is told how long the table is and which step is next. The step's own
@@ -987,7 +1227,8 @@ export default function (pi: ExtensionAPI) {
       // here, once, in the words of its own failure: a review that needs another preparation
       // (`preparation_failed`) or anything else with its detail. The package cause is never
       // named as a guidance review, because it is not one.
-      if(!setupBlock.noticed){
+      // A missing opening is a question the guide asked in its own reply (§14.19), not a failure to announce.
+      if(!setupBlock.noticed && setupBlock.code!=='needs_choice'){
         const block=setupBlock;
         block.noticed=true;
         try {
@@ -999,11 +1240,6 @@ export default function (pi: ExtensionAPI) {
         catch {/* an unreadable content root must not swallow the agent_end handler */}
       }
       return;
-    }
-    if(characterGuidance && bridge && context.campaign && !prologueRecorded && !handoff) {
-      const messages=ctx?.sessionManager.getBranch().filter((e:any)=>e.type==='message'&&e.message?.role==='assistant') as any[] || [];
-      const last=messages.at(-1)?.message?.content?.filter((x:any)=>x.type==='text').map((x:any)=>x.text).join('\n');
-      if(last) {await bridge.call('setup.prologue',{campaign:context.campaign,scene:characterGuidance.scene,guide:characterGuidance.guide,handoff:characterGuidance.handoff,text:last});prologueRecorded=true;}
     }
 		if (!handoff) return;
 		const command = handoff;

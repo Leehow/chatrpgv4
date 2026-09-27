@@ -13,6 +13,8 @@
  * `admission-within-turn.test.mjs`, beside the rest of §32.12's engine seam.
  */
 import { strict as assert } from "node:assert";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, waitForIdle } from "./harness.mjs";
@@ -577,4 +579,64 @@ test("§143.15: the Keeper's own punch with two malformed answers keeps §32.2's
 	assert.match(rows[0].detail, /position 36/, "the second answer's own parse failure");
 	const refusal = table.telemetry().find((row) => row.tool === "resolve" && !row.lane && row.ok === false);
 	assert.equal(refusal?.reason, "admission_unavailable");
+
+// ---- What the player was told before play: the setup prologue (contract §32.3, §14.18) ------------
+//
+// §32.3 has the reviewer read "the setup prologue (`table.open`'s `setup_prologue`)" among what the
+// player was already told. The kernel sends that prologue as a record ({scene, guide, opening,
+// handoff, ...}) and the host kept it only if it was a string, so no review ever saw it -- on the
+// very turns it matters, when the player answers what the guide asked in it. This case builds the
+// campaign through the kernel's own setup RPC, lets the session play its real opening turn, and reads
+// the review the next player turn triggers.
+
+const repo = join(import.meta.dirname, "..", "..");
+/** One cold kernel process over the workspace, each request in order; every one must succeed. */
+function coldKernel(workspace, requests) {
+	const input = requests.map(([method, params], index) => JSON.stringify({ id: String(index), method, params })).join("\n");
+	const run = spawnSync(process.execPath, [join(repo, "build/kernel/rpc.mjs"), "--workspace", workspace, "--content", join(repo, "content")],
+		{ cwd: repo, input: `${input}\n`, encoding: "utf8" });
+	const frames = run.stdout.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line)).filter((frame) => !frame.progress);
+	for (const frame of frames) if (!frame.ok) throw new Error(`cold ${requests[Number(frame.id)][0]} failed: ${JSON.stringify(frame.error)}`);
+	return frames.map((frame) => frame.result);
+}
+
+test("the review reads the setup prologue the player was shown, and not its Keeper-facing handoff (§32.3)", async (t) => {
+	const campaign = "admission-prologue";
+	const opening = "Autumn 1920. Steven Knott taps a lease on his desk: \"The house on Corbitt Street. Will you look into it for me?\"";
+	const handoff = "Keeper-only continuation note: the commission has been offered, nothing accepted yet.";
+	const profile = { name: "Helen", occupation: "Journalist", age: 29, sex: "female", concept: "A cautious local reporter.", own_language: "English",
+		occupation_skills: ["Art and Craft (Photography)", "History", "Language (Own)", "Library Use", "Psychology", "Persuade", "Spot Hidden", "Listen"],
+		interest_skills: ["Accounting", "Law", "First Aid", "Drive Auto"],
+		backstory: { personal_description: "A practical coat", ideology_beliefs: "Evidence before rumors", significant_people: "An editor friend", scenario_bound: "Meeting Knott about the house" },
+		key_connection: { backstory_field: "significant_people", summary: "The editor friend" }, equipment: ["Notebook", "Camera"] };
+	const table = await openTable({
+		campaign, realKernel: true, seedCampaign: false,
+		prepareWorkspace: (workspace) => {
+			const [, draft] = coldKernel(workspace, [
+				["campaign.create", { id: campaign, module: "the-haunting", play_language: "en" }],
+				["setup.draft", { campaign, profile }],
+				["setup.prologue", { campaign, scene: "Knott's Office", guide: "Steven Knott", text: opening, handoff }],
+			]);
+			coldKernel(workspace, [["setup.confirm", { campaign, revision: draft.revision, consent: "approved" }], ["setup.complete", { campaign }]]);
+		},
+		responses: [
+			// The opening turn the host starts on its own (§128).
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "Knott waits for your answer." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("after"),
+			// The player's first turn: a voluntary action goes to review before it reaches the kernel.
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "corbitt-house" }] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "You set out for Corbitt Street." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("after"),
+		],
+	});
+	t.after(() => table.dispose());
+	await waitForIdle(table.session);
+
+	await table.session.prompt("I'll take the job and go and see the house on Corbitt Street.");
+	await waitForIdle(table.session);
+
+	const requests = table.lanes.admission.requests();
+	assert.ok(requests.length >= 1, `the move went to review: ${JSON.stringify(table.extensionErrors)}`);
+	assert.ok(requests[0].includes(opening), "the reviewer is given what the guide asked the player in the prologue");
+	assert.ok(!requests[0].includes(handoff), "the Keeper-facing handoff is not what the player was told, and stays out");
 });

@@ -1,6 +1,7 @@
 /** Host-only accounting for nested provider calls. The main Keeper has its own owner hook. */
-import {TaskLease, BudgetRefusal, type BudgetSpend} from './task-context.ts';
+import {TaskLease, BudgetRefusal, type BudgetSpend, type TaskClock} from './task-context.ts';
 import {ContractError} from './contracts.ts';
+import {createHash} from 'node:crypto';
 
 export interface ProviderModel {
   provider:string; id:string; api:string; maxTokens:number; contextWindow:number;
@@ -61,19 +62,40 @@ export function providerSpend(bound:ProviderBound):BudgetSpend {
   return {inputTokens:bound.inputTokens,outputTokens:bound.outputTokens,actions:1,costUsd:
     (bound.inputTokens*Math.max(...rates.flatMap(rate=>[rate.input,rate.cacheRead,rate.cacheWrite]))+bound.outputTokens*Math.max(...rates.map(rate=>rate.output)))/1_000_000};
 }
-/** Provider-specific output fields are closed API syntax, never inferred from prose. */
+/** Provider-specific output fields are closed API syntax, never inferred from prose. Null for an API with no known field. */
+export function outputFieldPath(api:string, payload:any):string[]|null {
+  switch(api) {
+    case 'openai-responses':case 'azure-openai-responses':case 'openai-codex-responses':return ['max_output_tokens'];
+    case 'openai-completions':return [Object.hasOwn(payload,'max_completion_tokens')?'max_completion_tokens':'max_tokens'];
+    case 'anthropic-messages':return ['max_tokens'];
+    case 'pi-messages':return ['options','maxTokens'];
+    case 'google-generative-ai':case 'google-vertex':return ['config','maxOutputTokens'];
+    case 'bedrock-converse-stream':return ['inferenceConfig','maxTokens'];
+    default:return null;
+  }
+}
+/**
+ * Contract §140: a child agent that runs without a lease still sends its own output bound, `min(model maxTokens,
+ * limit, any smaller bound already in the payload)`, so the provider's unstated default never decides it. Without
+ * one, opencode-go's default of 8,192 output tokens let deepseek-v4.1-flash spend the whole response reasoning (at
+ * "low", the lowest level it has) and end with no answer and no tool call. The payload is returned unchanged when the
+ * API has no known output field or the model declares no usable maxTokens: this bound is room, never a refusal.
+ */
+export function withOutputRoom(model:{api?:unknown;maxTokens?:unknown}|undefined, payload:any, limit:number):any {
+  if(!payload||typeof payload!=='object'||Array.isArray(payload)||typeof model?.api!=='string')return payload;
+  const path=outputFieldPath(model.api,payload),ceiling=Number(model.maxTokens);
+  if(!path||!Number.isSafeInteger(ceiling)||ceiling<1||!Number.isSafeInteger(limit)||limit<1)return payload;
+  const existing=path.reduce((value:any,key)=>value?.[key],payload);
+  const outputTokens=Math.min(ceiling,limit,typeof existing==='number'&&existing>0?existing:Infinity);
+  if(existing===outputTokens)return payload;
+  const bounded=structuredClone(payload);let target=bounded;
+  for(const key of path.slice(0,-1))target=target[key]??=( {} );target[path.at(-1)!]=outputTokens;
+  return bounded;
+}
 export function boundProviderRequest(model:ProviderModel, payload:any, outputLimit=8192):{payload:any;bound:ProviderBound} {
   if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new ContractError('provider_payload_unavailable');
-  let path:string[];
-  switch(model.api) {
-    case 'openai-responses':case 'azure-openai-responses':case 'openai-codex-responses':path=['max_output_tokens'];break;
-    case 'openai-completions':path=[Object.hasOwn(payload,'max_completion_tokens')?'max_completion_tokens':'max_tokens'];break;
-    case 'anthropic-messages':path=['max_tokens'];break;
-    case 'pi-messages':path=['options','maxTokens'];break;
-    case 'google-generative-ai':case 'google-vertex':path=['config','maxOutputTokens'];break;
-    case 'bedrock-converse-stream':path=['inferenceConfig','maxTokens'];break;
-    default:throw new ContractError('provider_output_bound_unsupported');
-  }
+  const path=outputFieldPath(model.api,payload);
+  if(!path)throw new ContractError('provider_output_bound_unsupported');
   const existing=path.reduce((value,key)=>value?.[key],payload);
   const outputTokens=Math.min(model.maxTokens,outputLimit,typeof existing==='number'?existing:Infinity);
   const body=JSON.stringify(payload);
@@ -110,13 +132,35 @@ export function createTaskProviderBudget(lease:TaskLease, options:{record?:(even
       finally{changedLater();}},release(){if(done)return;done=true;try{reservation.release();emit({kind:'provider-undispatched'});}finally{changedLater();}}};
   }};
 }
-/** A separately declared finite owner for work that has no foreground task. Never a child fallback. */
-export function independentProviderBudget(owner:string, signal?:AbortSignal, timeoutMs=180_000):{budget:TaskProviderBudget;close():void} {
-  const lease=new TaskLease({owner,goal:owner,scope:{owner,audience:'system'},capabilities:[],readSet:[],signal,
-    budget:{deadlineAt:Date.now()+timeoutMs,remainingInputTokens:1_000_000,remainingOutputTokens:65_536,remainingCostUsd:10,remainingActions:16}});
+/**
+ * A separately declared finite owner for work that has no foreground task. Never a child fallback. `clock` (SL-87, tests
+ * only): the deadline is measured and enforced on it; absent, the host's own clock, as before.
+ */
+export function independentProviderBudget(owner:string, signal?:AbortSignal, timeoutMs=180_000, clock?:TaskClock):{budget:TaskProviderBudget;close():void} {
+  const lease=new TaskLease({owner,goal:owner,scope:{owner,audience:'system'},capabilities:[],readSet:[],signal,...(clock?{clock}:{}),
+    budget:{deadlineAt:(clock?clock.now():Date.now())+timeoutMs,remainingInputTokens:1_000_000,remainingOutputTokens:65_536,remainingCostUsd:10,remainingActions:16}});
   return {budget:createTaskProviderBudget(lease),close:()=>lease.close()};
 }
 
+/** §140.1: one request's identity on the provider channel -- the bounded payload exactly as it is dispatched. */
+export function payloadDigest(payload:unknown):string {
+  return createHash('sha256').update(JSON.stringify(payload)??'').digest('hex');
+}
+/**
+ * §140.1: what a reservation shared by `attempts` identical requests is settled at, from the one of them that reported
+ * usage. Every attempt read the identical payload, so each is charged what the reporting one reported; that is an
+ * inference, so per dimension it never goes above the reservation (the inference alone never makes an overrun) and
+ * never below the report (a real overrun of the reporting call still is one). Unreadable usage, or a single attempt,
+ * passes through unchanged. Returns the provider-usage shape `providerUsage` reads.
+ */
+export function resentUsage(value:unknown, attempts:number, bound:ProviderBound):unknown {
+  const reported=providerUsage(value);
+  if(!reported||!Number.isSafeInteger(attempts)||attempts<=1)return value;
+  const reserved=providerSpend(bound);
+  const scaled=(one:number,ceiling:number)=>Math.max(one,Math.min(ceiling,one*attempts));
+  return {input:scaled(reported.inputTokens,reserved.inputTokens),output:scaled(reported.outputTokens,reserved.outputTokens),cacheRead:0,cacheWrite:0,
+    cost:{total:scaled(reported.costUsd,reserved.costUsd)}};
+}
 /** Child side of Node's private IPC channel, installed only by the host reader extension. */
 export function installChildProviderBudget(pi:any, enabled:boolean, outputLimit?:number):void {
   if(!enabled)return;
@@ -130,7 +174,9 @@ export function installChildProviderBudget(pi:any, enabled:boolean, outputLimit?
   pi.on('before_provider_request',async(event:any,ctx:any)=>{
     try {
       const prepared=boundProviderRequest(ctx.model,event.payload,...(outputLimit&&Number.isSafeInteger(outputLimit)&&outputLimit>0?[outputLimit]:[])),id=++sequence;
-      await new Promise<void>((resolve,reject)=>{process.channel?.ref();waiting.set(id,{resolve,reject});process.send!({type:'coc-provider-reserve',id,bound:prepared.bound},error=>{if(error){waiting.delete(id);reject(error);}});});
+      // §140.1: the digest of exactly what goes out, so the host can tell an identical resend from a new request.
+      const digest=payloadDigest(prepared.payload);
+      await new Promise<void>((resolve,reject)=>{process.channel?.ref();waiting.set(id,{resolve,reject});process.send!({type:'coc-provider-reserve',id,bound:prepared.bound,digest},error=>{if(error){waiting.delete(id);reject(error);}});});
       outstanding.push(id);return prepared.payload;
     }catch(error){
       process.send?.({type:'coc-provider-failure',error:String(error)});ctx.abort();
@@ -142,7 +188,10 @@ export function installChildProviderBudget(pi:any, enabled:boolean, outputLimit?
   pi.on('message_end',(event:any)=>{
     if(event.message?.role!=='assistant')return;
     const ids=outstanding.splice(0);
+    // §140.1: `failed` says the call ended on a provider error (a stream timeout, a dropped connection), which pi's own
+    // auto-retry may resend; an abort is a revoked run and is never resent, so it stays a plain call without usage.
     for(const [index,id] of ids.entries())process.send?.({type:'coc-provider-settle',id,
-      ...(index===ids.length-1&&!['error','aborted'].includes(event.message.stopReason)?{usage:event.message.usage}:{})});
+      ...(index===ids.length-1&&!['error','aborted'].includes(event.message.stopReason)?{usage:event.message.usage}:{}),
+      ...(index===ids.length-1&&event.message.stopReason==='error'?{failed:true}:{})});
   });
 }

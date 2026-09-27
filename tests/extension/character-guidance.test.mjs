@@ -129,3 +129,39 @@ test('background graph enrichment does not invalidate guidance for the same sour
  await writeFile(join(folder,'module.json'),JSON.stringify({id:'story',file_sha256:'a'.repeat(64),generation:2,opening:{start_scene:'scene-story'}}));
  await prepareCharacterGuidance(options);assert.equal(calls(),2);
 });
+test('§140: a reviewer that ends without writing review.json is a coded failure that says so, and nothing is accepted',async()=>{
+ const {folder,options}=await fixture();
+ const author=options.runner;
+ // The shape a truncated reviewer leaves (occ-check, 2026-09-26): the child exits cleanly, no verdict on disk.
+ options.runner=async req=>req.systemPrompt.endsWith('character-guidance-review.md')?{ok:true}:author(req);
+ await assert.rejects(prepareCharacterGuidance(options),error=>error.code==='preparation_failed'
+  &&/reviewer ended without writing review\.json/.test(error.message));
+ const [key]=await readdir(join(folder,'character-guidance'));
+ await assert.rejects(readFile(join(folder,'character-guidance',key,'accepted.json')));
+ // An author that writes nothing is named the same way.
+ options.runner=async()=>({ok:true});
+ await assert.rejects(prepareCharacterGuidance(options),error=>error.code==='preparation_failed'
+  &&/author ended without writing guidance\.json/.test(error.message));
+});
+test('§14.19 (SL-98): a two-opening book with no opening chosen is a question with the candidates, asked before any attempt exists',async()=>{
+ const {folder,options,calls}=await fixture();
+ // The Masks module.json as it was left: the kernel's report carries the choice and no start scene.
+ const candidates=[{node_id:'scene-story',scene:'story',name:'Story',summary:'The opening meeting.'},
+  {node_id:'scene-other',scene:'other',name:'Other opening',summary:'Another opening meeting.'}];
+ await writeFile(join(folder,'module.json'),JSON.stringify({id:'story',file_sha256:'a'.repeat(64),opening:{opening_ready:false,start_scene:null,
+  missing:['start_scene_ambiguous:scene-story,scene-other'],choice:{field:'start_scene',reason:'start_scene_ambiguous',candidates,method:'module.opening.choose'}}}));
+ for(const opening of [undefined,'The Cellar']) {
+  await assert.rejects(prepareCharacterGuidance({...options,opening}),error=>error.code==='needs_choice'&&error.details?.field==='start_scene'
+   &&JSON.stringify(error.details.candidates)===JSON.stringify(candidates)&&/prepare-module/.test(error.fix),`opening ${opening}`);
+ }
+ assert.equal(calls(),0,'no author or reviewer runs on a missing choice');
+ await assert.rejects(readdir(join(folder,'character-guidance')),'and no empty attempt folder is left behind');
+ const chosen=await prepareCharacterGuidance({...options,opening:'other'});
+ assert.equal(chosen.scene,'Other opening');assert.equal(calls(),2);
+});
+test('§14.19: a single-opening book whose opening cannot be found is still a preparation failure',async()=>{
+ const {folder,options,calls}=await fixture();
+ await writeFile(join(folder,'module.json'),JSON.stringify({id:'story',opening:{start_scene:'scene-missing'}}));
+ await assert.rejects(prepareCharacterGuidance(options),error=>error.code==='preparation_failed'&&/unavailable for character guidance/.test(error.message));
+ assert.equal(calls(),0);
+});

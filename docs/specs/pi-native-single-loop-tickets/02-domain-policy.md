@@ -710,3 +710,91 @@ Class lines: all met (median 37 ≤ 45, 18/20; t1 commission settled with keys/l
 Model-layer notes: t14 three `invalid_params` (move to the current scene; offer with adopt; an unaccepted definition name) each with a usable fix, no class limit. Refusal codes for the table: needs 27, invalid_params 3, internal 10 (all `usage-prefetch runtime_closed` cancellations, not Keeper refusals).
 Batch 12 verdict: SL-71/72/73 do what they were filed for; two new tickets (SL-80 P2, SL-81 P1) for batch 13 with SL-76/SL-74.
 
+### Long gate #14 (2026-09-26, b088de327, batch 13 live; INVALID for SL-74: cap × thinking, see SL-82)
+INVALID for SL-74 as run: delivered 12/20, stranded t9/10/12/13/17/18/19/20, median 107 s, ≤60 s 6/20. Cause is not the provider: every stranded turn is a step-1 call (thinking ON) killed by SL-69's per-call cap (22,500 ms, streaming phase) — 35 "exceeded its cap a second time" + 11 "timed out" error stops, four 200-responses per turn each ~25 s apart, then `ask_llm unavailable` → `model_unavailable:no_delivered_evidence`. A deepseek thinking call runs ≈35 s (gate #9), so the cap = max(floor, turn budget/2) kills it by construction. The two variables were never tested together; the pre-registration budgeted the call's time but not the cap.
+Valid readings on the same table:
+- SL-81 ✓: 64 lane starts all `off`/`off`; admission n 42, p50 0 / p90 2,268 / max 2,813 ms; review_timeout 0, review_pending 0 (line 4 met; #13: p90 10,275, 4 timeouts, 5 pending).
+- SL-76 shadow (preliminary, 10 turns with rows, stranded turns give `keeper_did: null`): npc_reaction cleared 7 (keeper_did false 2, other 1, null 4, true 0); clue_follow_up cleared 11 (keeper_did true 6, null 5) — clue agreement 6/6 where the Keeper acted; npc_reaction never agreed where paired (2 false): the reaction candidate fires on presence, the Keeper does not stage a first impression at those moments. Rows land only at turn close, so the eight stranded turns lost their pairing.
+- SL-80: no speech-only implicit draft this table (floor rows 0); nothing to confirm.
+- SL-74 side-effects visible even so: Keeper refusals needs 2 / invalid_params 5 / unknown_entity 1 (#13: 27 / 3 / 0); `first_step_thinking: true` on 51 of 93 requests because every retry of the killed step-1 call is again step 1.
+Next: exempt or resize the cap for the thinking step (SL-82), rerun as #15 with the same four variables.
+
+### Long gate #15 (2026-09-26, b088de327, #14 rerun with the cap floor at 60 s)
+1. Delivery 17/20 ✗ — stranded t10/t18/t19: step-1 thinking calls still killed by the cap at 60,000 ms (9 `keeper_call_cap` rows, 6 "timed out" + 3 "a second time"). Step-1 reasoning p50 4,697 tokens, max 7,879 (gate #9's p50 was 2,883): the first step of a turn thinks longest, and on this provider `low` is not low.
+2. Wall ✗: median 83 s (line ≤ 55; #13 42); ≤ 60 s 7/20 (line ≥ 14); max 143.
+3. SL-74's benefit ✓ (the reason for the experiment): Keeper refusals needs 2 / invalid_params 2 / unknown_entity 1 (#13: 27 / 3 / 0); model calls 62 (#13: 71); looks 8 (#13: 14); zero refusal-budget cuts. Planning errors do fall with thinking — at +41 s median and 3 stranded turns even with a 60 s cap.
+4. SL-81 ✓ (second table): 90 lane starts `off`/`off`; admission p90 2,440 / max 5,714 ms; review_timeout 0, review_pending 0.
+5. SL-76 shadow: rows present; Jev ≈ 0.5 s per turn; pairing numbers in SL-77 (npc_reaction blocked by SL-83's label/handle bug; clue_follow_up clean).
+6. SL-80: no speech-only implicit draft (floor rows 0).
+7. Routing ✓ (11 core-checks, 9 moves, 7 clues); prescreen prepared 31, no fallback; infer(bind) 0.
+Reading: first-step thinking on opencode-go/deepseek-v4.1-flash buys fewer planning refusals at a cost that breaks the ≤ 60 s turn and strands turns; the same refusals are being removed structurally (SL-71/72/73, Stage 2 candidates) at ~0 s. Recommendation: do not adopt; keep the flag as an experiment switch (SL-82 still worth landing so the switch is safe to use).
+
+### Long gate #16 (2026-09-26, b088de327; thinking off, shadow, lane off)
+1. Delivery 20/20 ✓; cap rows 0 ✓.
+2. Wall ✓: median 41 s; ≤60 s 18/20; max 76; reasoning 0 on 98/98 calls.
+3. SL-81 ✓ (third table): 118 lane starts `off`/`off`; admission p90 2,640 / max 4,201 ms; timeouts 0, pending 0.
+4. Shadow: 15/21 turns carried a shadow call, Jev median 495 ms/turn, max 813 ✓; `clue_follow_up` 1 cleared-but-false (t3 `house-built-1835` at 0.86: the Keeper filed no clue that turn; on gate #13 the same turn did) — at the line's limit; `npc_reaction` corrected agreement 2/4 = 0.50 (floor met; execute bar 0.9 not met; SL-83 pending).
+5. Keeper refusals: needs 8 ✓, unknown_entity 2 ✗ — both `look` on an unregistered object name (not SL-71's resolve class); invalid_params 9 (reunion continuity ×3, "library-research states no check" ×2, stated/minutes ×2, own-name ×1, transfer owner ×1): all with usable fixes, no class limit; cuts 0 ✓.
+6. SL-80: no speech-only draft; no thin delivery ✓.
+7. Routing ✗ on its face — moves by the compile 7/12 — but **Jev returned service errors on every call from turn 8 to turn 14** (route/compile/consequence/admission fast-path all `jev_service_error` in 200–440 ms, `jev_input_tokens: 0`; prescreen "Adaptive material retrieval: unavailable"); the product degraded exactly as §135.32 D2.7 says (the Keeper chose; admission fell to the lane; 7/7 of those turns delivered, walls 27–76 s). Excluding the outage turns the compile selected 7/7 of the script's moves it could see. Gap found: the adapter's failure code/HTTP status is not written to telemetry, so the outage cannot be classified (429 rate limit vs 529 overload vs 401) from the table's own records — SL-84.
+Reading: the batch-13 build with thinking off is back inside #13's envelope with the lane fixed (median 41, 18/20 ≤60, zero admission timeouts); the Jev outage is the table's one real event and it was survivable.
+
+### Long gate #17 (2026-09-26, f332d72bc, one line; Stage 2b for clue_follow_up)
+1. Delivery 20/20 ✓; cap rows 0; reasoning 0.
+2. Wall ✓✓: median 30 s (best table yet; #16 41, #13 42), ≤60 s 19/20, max 64.
+3. Execution: 3 consequence clue steps executed (t2 macario-tragedy 0.73, t5 burning-eyes-form 0.87, +1), all reached by the player's action, all in the prose, none re-filed by the Keeper (3c ✓); false positives 0.
+4. Residual ✗: Keeper-chosen apply 30 / resolve 8 over 18 residual turns — no drop vs #16. Why: Jev cleared only 2 of the 9 clues the Keeper went on to file (false negatives 7, yes-probability 0.12–0.45: globe-unpublished-story 0.39, dooley-macario-madness 0.45, gabriela-night-visitor 0.37, knott-macario-summary 0.20, nailed-windows 0.24, catholic-wards 0.12, upstairs-disturbance 0.20); 7 more filed clues were never offered (compile-filed or gate unsatisfied at route time). The question is too conservative on "reach", not the mechanism.
+5. npc_reaction shadow: 13 rows, keeper_did on 7 (the on-mode rows carry `shadow` but the report's shadow filter read 0) — reporting gap.
+6. Admission p90 2.3 s, 0 timeouts ✓. Jev (SL-84 live): one 404 on `action-admission`, one timeout on `keeper-support-agent`; both isolated, now classified ✓.
+7. Jev cost: median 1,555 ms per turn (was 495 in shadow) because the on-mode route runs after every settled write; at D6's 1.5 s line.
+8. Keeper refusals: needs 7, invalid_params 5, unknown_entity 2 (t13: a `look` on an unregistered object, an `apply` transfer naming '诺特' as owner); cuts 0. No thin delivery; t20 one implicit narrate refused (needs) then delivered.
+9. Reporting gaps: residual rows duplicated on turns 5/7/20 and missing on 1/11/12/14/17/19; an executed row's `keeper_did` reads the clerk's own receipt as `true`.
+Reading: the execute path is sound (0 FP, no double filing, fastest table); the lever now is the clue question's recall (7 FN), then the reporting gaps.
+
+### Long gates #18/#19 (2026-09-26, d08fa2ebb; Keeper switched to grok after deepseek ran out)
+## #18 Keeper grok-build/grok-4.5 low, lanes grok-4.5 low, clue execute on
+1. Delivery 20/20 ✓; cap rows 0; no `</text>` leak (tool-argument markup fix live) ✓; Jev failures 0.
+2. Wall: median 49 s, ≤60 s 18/20 (t14 61, t15 68) — inside the owner's "under a minute" for 18 turns; reasoning on 55/57 calls (low is real on grok); 17 `text_beside_tool_calls` drops (grok writes prose beside tool calls; dropped).
+3. SL-86 ✓ direction: clue_follow_up TP 7 / FP 0 / FN 8 → recall 0.47 (from 0.22–0.25), precision 1.0; five of the seven TPs sat at 0.42–0.51, i.e. cleared only by the new 0.4/0.67 class gate. FN still 8 (0.11–0.37): the question's state, not the gate, is the next lever.
+4. Residual: Keeper apply 22 / resolve 11 / lookup 8; consequence steps 8 (from 3). Line "≤ 30" missed by 3; the compile filed 4 clues, the clerk 8, the Keeper the rest.
+5. SL-85 ✓: residual rows 21 (one per turn incl. turn 0), no duplicates.
+6. Refusals: invalid_params 3, unknown_entity 1, needs 1; cuts 0 ✓. Prose median 287 chars, min 142, thin 0, ASCII names 0 ✓.
+7. Admission ✗: p90 7,105 / max 10,526 ms (grok-4.5 lanes at low reason on every review; 0 timeouts). A lane model that can switch thinking off (grok-4.3 `none`, or deepseek when its quota returns) is the fix; #20 runs lanes on 4.3 off.
+## #19 Keeper xai/grok-4.3 OFF, lanes xai/grok-4.3 off
+- 20/20, median 11 s, all ≤ 25 s, zero errors, xai OAuth refreshed. But the Keeper made 0 tool calls all table (29 model calls, output p50 89 tokens): prose median 101 chars, min 45, six deliveries under 80 chars, three ASCII full names in zh prose, one floor steer. The clerk did every mechanic; the Keeper added almost nothing. Not a Keeper at `off`.
+- Admission p90 1,385 ms with 4.3 off lanes (vs 7,105 on 4.5 low): the lane wants a no-thinking model.
+Reading: 4.5-low writes like a Keeper at ≈50 s; 4.3-off narrates thinly at 11 s. #20 (4.3 low, lanes 4.3 off) is the middle candidate; whichever way, lanes go on a no-thinking model.
+
+### Long gate #20 (2026-09-26, d08fa2ebb; Keeper xai/grok-4.3 LOW, lanes 4.3 off)
+20/20, median 19 s, all ≤ 27 s; reasoning on 23/31 calls (p50 609 tokens) but the Keeper still made 5 tool calls all table; prose median 128 chars, min 47, five thin deliveries (t12, t13, t14, t19, t20), five ASCII full names in zh prose. Not a Keeper at low either (owner: "grok4.3就是个垃圾"). Admission p90 1,365 ms with 4.3-off lanes (same as #19).
+
+### Where grok-4.5's time goes (gate #18, 881 s input-to-delivery over 20 turns)
+Keeper inference 55% (2.8 calls/turn × 9.3 s; per call ≈ 4.3 s to the first event — prefill of ≈ 46k context with ≈ 14k uncached plus queue, independent of reasoning count — then ≈ 4 s streaming ≈ 470 tokens); reasoning is ≈ 116 tokens/call (≈ 1 s, ≈ 6% of the wall). Keeper tool execution 27% (apply/resolve p50 4.6–4.9 s, mostly the admission lane reasoning on grok-4.5 low; lookup waits at the 8 s allowance ×9). Clerk operations 15%; Jev decisions 4%. The Keeper issues one tool per call and waits (apply → narrate, apply → resolve → narrate); each extra step ≈ 9 s. Levers: a no-thinking admission lane (4.3 off: p90 1.4 s), fewer Keeper steps (Stage 2), batching a write that needs no result with the narrate.
+
+### Long gate #21 (2026-09-26, 32e1d584f; SL-88 live; Keeper and lanes grok-4.5 low as #18)
+20/20; median 39 s (#18 49); ≤ 60 s 16/20 (#18 18/20; t3 89, t4 76, t5 89, t18 65); Keeper calls 2.8/turn (unchanged); `[apply…, narrate]` batches 4 (#18 1), standalone apply 20; generated 1,040 tokens/turn; concurrent admission never triggered (no response had 2+ writes); consequence steps 11 but 12 lane reviews on them = 75 s (SL-90); lane time on the Keeper's own writes 175 s (SL-91); 2 cap rows (one 22.5 s streaming), 2 refusal-budget cuts from a lane pending/timeout on t3; prose median 277, thin 0, ASCII 0; effect-key/ordinary markers used, 0 dropped.
+Reading: guidance alone does not make grok batch (SL-92 makes the batch one tool); the slow turns are the admission lane on a thinking model (SL-90 for consequence steps, SL-91 for the reviewer's own model).
+
+### Long gate #22 (2026-09-26, d64c7a7c4; batch 16 live: SL-90/91/92 + SL-87 + §141; Keeper grok-4.5 low, admission lane xai/grok-4.3 off)
+20/20; **median 30 s; ≤ 60 s 20/20; max 53 s** (#21: 39 / 16 of 20 / 89; #18: 49 / 18 / 68). Keeper calls 1.75/turn (from 2.8); `apply.narrate` used 18 times (17 delivered); standalone apply 4 (from 20); generated 852 tokens/turn (from 1,040). Admission: lane p50 1.2 s / p90 2.1 s / max 2.4 s (from 5–13 s), consequence steps on their own evidence 6, compile 25, one policy resolve still on the lane (t13 ordinary check), verdicts authorized 20 / entailed 2 / not_authorized 2 (t4 a first impression with the Hall of Records clerk; t6 time + `vittorio-bible-weapon` when the player visited and questioned Vittorio — the second reads as a false refusal by the 4.3 reviewer; watch). Cap rows 0; cuts 0; refusals needs 3; no markup leak; prose median 254.
+**P0 defect:** turns 1 and 8 delivered `apply.narrate` placeholders ("text thriftily-placeholder", "text") to the player — the floor covers only the implicit path (SL-93).
+
+
+### Long gate #23 (2026-09-26, 13ce6a7dd; batch 17 live: SL-93 re-scoped to apply.narrate, SL-94, SL-95 fold, SL-87 parts 2–3, setup-play-language; every model grok-4.5 low)
+20/20 delivered; no strand; cap rows and cuts 0; floor rows 0.
+
+**First visible prose** (owner's metric: `agent_start` to the first `coc-mechanics` entry; `first-prose.py`): **median 50.3 s, max 72.9, ≤ 60 s on 16 of 20.** #22 had 29.7 / 53.0 / 20 of 20.
+
+Cause: the admission lane is back on grok-4.5 low, the lowest effort that model offers.
+- 33 reviews: p50 6.8 s, p90 13.0 s.
+- **6 stalled at the 13 s cap** (`review_pending` t2, t5, t8, t13, t15, t20), each followed by a resend.
+- Keeper calls 2.45 per turn, from 1.75.
+
+The typed Jev reviewer ran first on 19 batches, taking about 0.5 s, but settled only one. The rest fell back on low confidence (t2 `[not_authorized 0.24, entailed 0.57]`) → SL-97.
+
+Other results:
+- `apply.narrate` delivered 9.
+- Prose median 251; one thin turn (t18, 108 chars, a door the book does not have).
+- ASCII only in an in-fiction inscription ("W. Corbitt").
+- **Defect:** t6 delivered `"text intermediate"` glued to the story. This is the provider's label prefix, and the floor cannot see it → SL-96.
+- Text beside tool calls: 15 drops. SL-95 folds them in the App; this is checked in the App, not by the driver.

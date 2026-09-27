@@ -1,5 +1,6 @@
 import {independentProviderBudget} from "./jev/provider-budget.ts";
 import {openStageProviderBudget} from "./jev/reading-stage-budget.ts";
+import {readingIdleBudget} from "./jev/host-budgets.ts";
 /** Fixed host adapters; checking never opens a kernel or publishes an artifact. */
 import { accessSync, constants, statSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -272,6 +273,11 @@ export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
       // Same shape as the budget knob below: the host's own environment is the operator's override.
       const idle = Number(context.env.PI_COC_MOD_HTTP_IDLE_TIMEOUT_MS);
       request.httpIdleTimeoutMs ??= idle > 0 ? idle : LANE_HTTP_IDLE_TIMEOUT_MS;
+    } else {
+      // SL-99 (contract §140.1): a reader child writes its draft in one tool call, and a grok-family model sends
+      // nothing while it generates that call's arguments. Its allowance is data (`reading.idle_ms`), read from the
+      // content this host captured; the Keeper's (the agent home's) and the lanes' are not touched.
+      request.httpIdleTimeoutMs ??= (await readingIdleBudget(context.contentRoot)).idleMs;
     }
     // A fully overridden command is not a Pi child, so its `--model` is never read and the agent
     // registry says nothing about what it can run.

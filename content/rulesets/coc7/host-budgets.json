@@ -2,12 +2,34 @@
   "schema_version": 1,
   "look_budget": {
     "per_turn": 8,
-    "tools": ["look", "lookup", "recall"]
+    "tools": [
+      "look",
+      "lookup",
+      "recall"
+    ]
   },
   "jev_steps": {
     "row_min": 0.5,
     "row_ratio": 2,
-    "shadow": true
+    "shadow": true,
+    "execute": [
+      "clue_follow_up"
+    ],
+    "classes": {
+      "clue_follow_up": {
+        "row_min": 0.4,
+        "row_ratio": 0.67
+      }
+    }
+  },
+  "first_step_thinking": {
+    "call_cap_ms": 60000
+  },
+  "delivery_floor": {
+    "min_prose_chars": 40
+  },
+  "reading": {
+    "idle_ms": 180000
   },
   "npc_act": {
     "timeout_ms": 12000,

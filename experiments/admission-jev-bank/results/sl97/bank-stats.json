@@ -1,0 +1,69 @@
+{
+  "built_at": "2026-09-26T18:24:48.350Z",
+  "homes": [
+    "/Users/haoli/leehow/code/chatrpgv4-wt-pi-coc-v2/.coc",
+    "/Users/haoli/leehow/code/chatrpgv4-wt-gate-13ce6a7dd/.coc",
+    "/Users/haoli/leehow/code/chatrpgv4-wt-gate-13ce6a7dd-masks/.coc",
+    "/Users/haoli/leehow/code/chatrpgv4-wt-gate-32e1d584f/.coc",
+    "/Users/haoli/leehow/code/chatrpgv4-wt-gate-d08fa2ebb/.coc",
+    "/Users/haoli/leehow/code/chatrpgv4-wt-gate-d08fa2ebb-43/.coc",
+    "/Users/haoli/leehow/code/chatrpgv4-wt-gate-d08fa2ebb-43low/.coc",
+    "/Users/haoli/leehow/code/chatrpgv4-wt-gate-d64c7a7c4/.coc",
+    "/Users/haoli/leehow/code/chatrpgv4-wt-gate-f332d72bc/.coc",
+    "/Users/haoli/Library/Application Support/Pipi/pipicoc/pi-coc/.coc"
+  ],
+  "sessions": [
+    "/Users/haoli/Library/Application Support/Pipi/pipicoc/pi-coc/agent/ui-sessions/play"
+  ],
+  "review_rows": 6306,
+  "campaigns_with_reviews": 247,
+  "cases": 5362,
+  "unpaired_rows": 944,
+  "by_lane_verdict": {
+    "not_authorized": 726,
+    "authorized": 3566,
+    "entailed": 723,
+    "not_player_action": 170,
+    "unavailable:model_error": 10,
+    "unavailable:timeout": 153,
+    "unavailable:bad_output": 3,
+    "uncertain": 2,
+    "review_pending": 9
+  },
+  "by_lane_model": {
+    "xai/grok-4.6": 4130,
+    "opencode-go/deepseek-v4.1-flash": 101,
+    "xai/grok-4.3": 67,
+    "deepseek/deepseek-v4-flash": 958,
+    "grok-build/grok-4.5": 76,
+    "grok-build/grok-4.6": 6,
+    "grok-build/grok-4.7-build-fast": 8,
+    "xai/grok-4.5": 2,
+    "jev-1.13.0": 5,
+    "unknown": 9
+  },
+  "by_source": {
+    "session": 28,
+    "driver:table": 549,
+    "driver:persona-bench": 4785
+  },
+  "by_pairing": {
+    "adjacent": 28,
+    "order": 3101,
+    "digest": 2233
+  },
+  "key_match": {
+    "true": 2259,
+    "false": 3103
+  },
+  "lines_from": {
+    "telemetry": 167,
+    "reprojected": 5195
+  },
+  "notes": {
+    "setup_prologue_omitted": 5362,
+    "answered_options_unknown": 5362,
+    "registered_destination_omitted": 1055,
+    "investigator_unknown": 27
+  }
+}

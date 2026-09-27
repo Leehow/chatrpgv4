@@ -32,6 +32,12 @@ const keeperTurn = text => [fauxAssistantMessage([fauxToolCall('look', {})], {st
 /** A turn that keeps working before it delivers, so its own tool traffic is what grows. */
 const busyTurn = (text, steps) => [...Array.from({length: steps}, () => fauxAssistantMessage([fauxToolCall('look', {})], {stopReason: 'toolUse'})),
     fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}), fauxAssistantMessage('Discarded post-delivery tail.')];
+/** Whether the Keeper's narrate of `text` has a tool result in the session. */
+function narrated(session, text) {
+    const call = session.messages.flatMap(message => message.role === 'assistant' && Array.isArray(message.content) ? message.content : [])
+        .find(block => block.type === 'toolCall' && block.name === 'narrate' && block.arguments?.text === text);
+    return Boolean(call && session.messages.some(message => message.role === 'toolResult' && message.toolCallId === call.id));
+}
 /** Long enough that a handful of turns puts the stored branch well past a small ceiling. */
 const long = turn => `第 ${turn} 回合的叙述。` + '这是一段足够长的守秘人正文，用来把会话分支推过预算。'.repeat(120);
 /** The messages the branch holds right now, exactly as the fold and the projection see them. */
@@ -55,10 +61,15 @@ test('campaign length never reaches the provider: the branch outgrows the ceilin
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: turns}, (_, turn) => keeperTurn(long(turn + 1))).flat()]});
     t.after(() => table.dispose());
+    // SL-87: each turn waits for its own delivery, not for an idle heuristic. On a loaded box `waitForIdle` returned while
+    // a held input was still to be replayed, the next prompt collided with that replay, and the extension logged "Agent is
+    // already processing a prompt".
+    await waitFor(() => narrated(table.session, long(0)), {label: 'the opening delivery', timeoutMs: 60000});
     await waitForIdle(table.session, {timeoutMs: 60000});
     const requests = outbound(table);
     for (let turn = 1; turn <= turns; turn++) {
         await table.session.prompt(`玩家第 ${turn} 次行动。`);
+        await waitFor(() => narrated(table.session, long(turn)), {label: `turn ${turn}'s delivery`, timeoutMs: 60000});
         await waitForIdle(table.session, {timeoutMs: 60000});
     }
     assert.ok(requests.length >= turns, `every turn made a request: ${requests.length}`);

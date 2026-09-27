@@ -8,7 +8,7 @@
 
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
@@ -246,6 +246,150 @@ test("a live setup process learns the card button's cold completion from the ker
 		"the live setup process exits so the launcher relaunches play on the ready_for_table campaign");
 });
 
+// ---- The setup guide is told the table's language (contract §14.17) -------------------------
+//
+// Live table npc-acts-b (2026-09-26: mystery-house, zh-Hans, deepseek-v4.1-flash, thinking off).
+// The campaign existed before the setup process started and the zh-Hans guidance pack was the one
+// loaded, yet the first setup reply opened with two English paragraphs -- the prologue retold in
+// English, then the guided-creation frame line close to its English instruction -- before it
+// switched to Chinese. The setup process has no capsule, and its prompt said "Use play_language"
+// without ever saying which language that was: the one mechanism §16.1 relies on had no value on
+// setup turns. A campaign the setup process created itself was worse off: the tag nested in
+// `campaign.create`'s answer never reached the context, so its prologue was prepared in the data
+// default. These cases read the provider request itself, on both ways a setup campaign exists, for
+// every language the starter ships guidance in -- the data default among them, so a fallback to it
+// cannot pass for the campaign's own tag.
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+/** The session's own prompt, as the launcher passes it with `--system-prompt` in setup mode. */
+const setupPrompt = readFileSync(join(repoRoot, "prompts/setup.md"), "utf8");
+const captureInto = (prompts, message) => (context) => { prompts.push(getCurrentSystemPrompt(context.messages)); return message; };
+/** A starter's bundled guidance, one pack per play language it ships (§14.16, §23.4). */
+const shippedGuidance = (starter) => Object.fromEntries(readdirSync(join(repoRoot, "content/starters", starter, "character-guidance"))
+	.map((file) => JSON.parse(readFileSync(join(repoRoot, "content/starters", starter, "character-guidance", file), "utf8")))
+	.map((pack) => [pack.play_language, pack.guidance]));
+
+for (const [language, guidance] of Object.entries(shippedGuidance("mystery-house"))) {
+	test(`a setup process opened on an existing ${language} campaign names its play_language to the guide on the first reply`, async (t) => {
+		const campaign = "setup-language";
+		const prompts = [];
+		const table = await openTable({
+			mode: "setup", campaign, realKernel: true, seedCampaign: false, systemPrompt: setupPrompt,
+			prepareWorkspace: (workspace) => coldKernel(workspace, [["campaign.create", { id: campaign, module: "mystery-house", play_language: language }]]),
+			responses: [captureInto(prompts, fauxAssistantMessage("A reply."))],
+		});
+		t.after(() => table.dispose());
+
+		await table.session.prompt("你好，我想建一个角色开始玩。");
+		await waitForIdle(table.session);
+
+		assert.deepEqual(table.extensionErrors, []);
+		assert.equal(prompts.length, 1, "the first reply reached the provider");
+		assert.ok(prompts[0].includes(guidance.opening), "the prologue handed to the guide is the campaign language's pack");
+		assert.ok(prompts[0].includes(`play_language=${language}`), "the guide is told which language every player-facing word is written in");
+	});
+}
+
+for (const [language, guidance] of Object.entries(shippedGuidance("the-haunting"))) {
+	test(`a setup process that creates a ${language} campaign itself prepares its prologue in that language and names it to the guide`, async (t) => {
+		const prompts = [];
+		const table = await openTable({
+			mode: "setup", campaign: null, realKernel: true, seedCampaign: false, systemPrompt: setupPrompt,
+			responses: [
+				setupCall({ step: "choose-source", kind: "starter", module: "the-haunting" }),
+				setupCall({ step: "create-campaign", id: "setup-language-new", title: "A haunted house", play_language: language }),
+				fauxAssistantMessage("A reply."),
+				captureInto(prompts, fauxAssistantMessage("Another reply.")),
+			],
+		});
+		t.after(() => table.dispose());
+
+		await table.session.prompt("I want to play the haunted house.");
+		await waitForIdle(table.session);
+		const created = setupResults(table.session).find((row) => row.step === "create-campaign");
+		assert.equal(created?.ok, true, "the campaign was created in this process");
+		assert.equal(created.character_guidance?.opening, guidance.opening, "the prologue is prepared in the campaign's language, not the data default");
+		await table.session.prompt("Go on.");
+		await waitForIdle(table.session);
+
+		assert.equal(prompts.length, 1);
+		assert.ok(prompts[0].includes(`play_language=${language}`), "the language named at create-campaign is bound on the next turn");
+	});
+}
+
+// ---- The accepted opening is delivered by the host and recorded as delivered (contract §14.18) ----
+//
+// Outside the App the setup process handed the prepared opening to the model to "use on the first
+// setup reply", and agent_end booked that whole reply as the prologue. On npc-acts-b the model retold
+// the zh-Hans opening in English, added the host's questions, and all of it became the committed
+// prologue the Keeper's opening continued from. The App path already showed the opening itself and
+// booked exactly those words; these cases hold the terminal/driver path to the same shape, on a real
+// kernel, reading the session and the kernel's record rather than the prompt.
+
+/** The session's messages from the player's first line on, as role/customType/text rows. */
+const transcriptRows = (session) => session.messages.filter((message) => message.role !== "system").map((message) => ({
+	role: message.role, customType: message.customType,
+	text: typeof message.content === "string" ? message.content : (message.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("\n"),
+}));
+
+test("a setup process opened on an existing campaign shows the accepted opening itself and records exactly it", async (t) => {
+	const campaign = "setup-prologue";
+	const language = "zh-Hans";
+	const {opening, handoff} = shippedGuidance("mystery-house")[language];
+	const reply = "Tell me what this person does for a living.";
+	const contexts = [];
+	const table = await openTable({
+		mode: "setup", campaign, realKernel: true, seedCampaign: false, systemPrompt: setupPrompt,
+		prepareWorkspace: (workspace) => coldKernel(workspace, [["campaign.create", { id: campaign, module: "mystery-house", play_language: language }]]),
+		responses: [(context) => { contexts.push(context); return fauxAssistantMessage(reply); }, fauxAssistantMessage("Noted.")],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("你好，我想建一个角色开始玩。");
+	await waitForIdle(table.session);
+	await table.session.prompt("私家侦探。");
+	await waitForIdle(table.session);
+
+	assert.deepEqual(table.extensionErrors, []);
+	const rows = transcriptRows(table.session);
+	const openings = rows.filter((row) => row.customType === "coc-setup-opening");
+	assert.deepEqual(openings.map((row) => row.text), [opening], "the host shows the accepted opening once, word for word, and not again on the next turn");
+	assert.deepEqual(rows.slice(0, 3).map((row) => row.role), ["user", "custom", "assistant"], "after the player's first line and before the guide's reply");
+	assert.ok(contexts[0].messages.some((message) => message.role !== "assistant" && JSON.stringify(message.content).includes(JSON.stringify(opening).slice(1, -1))),
+		"the guide's first request already holds the delivered opening");
+	const [{state: {prologue}}] = coldKernel(table.workspace, [["setup.steps", {campaign}]]);
+	assert.equal(prologue.opening, opening, "the committed prologue is what the player was shown, not the guide's reply");
+	assert.equal(prologue.handoff, handoff);
+});
+
+test("a setup process that creates the campaign itself shows the accepted opening right after create-campaign and records exactly it", async (t) => {
+	const language = "zh-Hans";
+	const {opening} = shippedGuidance("the-haunting")[language];
+	const reply = "Tell me what this person does for a living.";
+	const table = await openTable({
+		mode: "setup", campaign: null, realKernel: true, seedCampaign: false, systemPrompt: setupPrompt,
+		responses: [
+			setupCall({ step: "choose-source", kind: "starter", module: "the-haunting" }),
+			setupCall({ step: "create-campaign", id: "setup-prologue-new", title: "A haunted house", play_language: language }),
+			fauxAssistantMessage(reply),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("I want to play the haunted house.");
+	await waitForIdle(table.session);
+
+	assert.deepEqual(table.extensionErrors, []);
+	const rows = transcriptRows(table.session);
+	const at = rows.findIndex((row) => row.customType === "coc-setup-opening");
+	assert.ok(at > 0, `the host shows the opening: ${JSON.stringify(rows.map((row) => row.customType ?? row.role))}`);
+	assert.equal(rows[at].text, opening, "word for word");
+	assert.equal(rows[at - 1].role, "toolResult", "right after create-campaign's result");
+	assert.equal(rows.at(-1).text, reply, "and before the guide's reply");
+	const [{state: {prologue}}] = coldKernel(table.workspace, [["setup.steps", {campaign: "setup-prologue-new"}]]);
+	assert.equal(prologue.opening, opening, "the committed prologue is what the player was shown, not the guide's reply");
+});
+
 // ---- A blocked setup turn names its cause (contract §23.4, §26) ------------------------------
 //
 // Three failures block a setup turn and used to share one boolean: every `setup` call then got
@@ -270,10 +414,14 @@ function withReader(table, runTask) {
 	table.emit("coc:kernel-bridge", { ...current, runtime: { ...current.runtime, runTask } });
 }
 
-/** The captions a setup that has named no play language of its own speaks in: the data default (contract §23). */
-async function defaultWords() {
-	const declared = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "content/languages.json"), "utf8"));
-	return await extensionWords(declared.default);
+/**
+ * The captions a setup speaks in once create-campaign has named the campaign's play language
+ * (contract §23, §14.17): the tag the kernel was asked to create, not the data default. These cases used to
+ * expect the default after naming `en`, which was the bound tag being dropped, not a rule.
+ */
+async function campaignWords(table) {
+	const created = table.kernelRequests().find((row) => row.method === "campaign.create");
+	return await extensionWords(created.params.play_language);
 }
 
 /** The last assistant message's text blocks, as the screen shows them after `message_end`. */
@@ -322,7 +470,7 @@ test("a guidance review that fails inside create-campaign names itself, and the 
 
 	assert.deepEqual(lastAssistantTextBlocks(table.session), [], "§23.4: a failed review suppresses the invented fallback prose");
 
-	const words = await defaultWords();
+	const words = await campaignWords(table);
 	const notices = table.ui.notifications.filter((row) => row.type === "error").map((row) => row.message);
 	assert.deepEqual(notices, [words.word("setup_guidance_review_failed")],
 		"the player is told once, at the end of the run, in the words of a review that needs another preparation");
@@ -362,7 +510,7 @@ test("a guidance preparation that fails at the start of a turn names itself, and
 
 	assert.deepEqual(lastAssistantTextBlocks(table.session), [], "§23.4: the improvised opening never reaches the screen");
 
-	const words = await defaultWords();
+	const words = await campaignWords(table);
 	const notices = table.ui.notifications.filter((row) => row.type === "error").map((row) => row.message);
 	assert.equal(notices.length, 1, `one notice for one failure, not one per hook: ${JSON.stringify(notices)}`);
 	assert.equal(notices[0], words.line("setup_guidance_failed", { detail: refused.error.match(/\(preparation_failed: ([^)]*)\)/)[1] }),
@@ -405,7 +553,7 @@ test("a mods.context read that fails at the start of a turn names the packages, 
 
 	assert.deepEqual(lastAssistantTextBlocks(table.session), [explanation], "§26 blocks with a notice; the Keeper's explanation of it is not hidden");
 
-	const words = await defaultWords();
+	const words = await campaignWords(table);
 	const notices = table.ui.notifications.filter((row) => row.type === "error").map((row) => row.message);
 	assert.deepEqual(notices, [words.line("setup_packages_failed", { detail: kernelError.message })],
 		"the one notice is the package line with the kernel's detail; agent_end adds no 'guidance review failed'");

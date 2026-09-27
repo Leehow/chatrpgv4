@@ -502,6 +502,12 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
       send({ type: "agent_settled" });
       return;
     }
+    if (command.message === "__prose_turn__") {
+      // §135.11.5: a turn that opens and streams nothing of its own. The test injects every later
+      // event through the host's own reader (`rpcEvent`), so only what it sends reaches the stream.
+      send({ type: "agent_start" });
+      return;
+    }
     if (command.message === "__telemetry__") {
       // Deliberately spaced evidence for deterministic host timing tests. The
       // sensitive-looking values prove the telemetry recorder keeps only

@@ -1200,6 +1200,11 @@ reverting `personOfEffect`'s two `throw personRefusal(...)` calls back to the ba
 gate #12's `candidates: []` shape for all three new cases and is caught by them; the fourth test is
 unaffected by that mutation, proving the ordinary-candidates path was never touched.
 
+*Amended by §87.7 (2026-09-26):* "a name with no candidates and none of the three shapes still falls through to
+minting" no longer holds. An `npc` effect on a word nobody at the table carries establishes a person only with
+`walk_on: true`. Without it the refusal lists who is present and hands back the effect with the flag. The
+investigator and exact-kind answers above are asked first, flag or no flag.
+
 #### 11.5.9 An NPC the table knows can be the actor of an ordinary resolve: the NPC's own roll (2026-09-26, SL-71 of `docs/specs/pi-native-single-loop-tickets/71-an-npc-can-be-the-actor-of-a-resolve.md`; amends this section, §16.2 and §17.9)
 
 **Evidence** (long gate #11 `longgate11-haunting-1515`, ticket 02's entry). Five `resolve` calls with an
@@ -1967,6 +1972,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 `setup` 的 `step` 不在表里、前置未满足、或重复已完成的步 → 工具结果带该步的拒绝语与「下一步」（从表派生），不改状态。建卡进程没有胶囊、没有 Director；内核 `table.open` 只开 `ready_for_table` 或 `active` 的战役，其他状态报 `campaign_not_ready` 并给 `fix: bin/pi-coc setup --campaign <id>`。
 
+*(§14.17 amends this paragraph: with no capsule, the campaign's `play_language` reaches the setup model only through the line the onboarding extension appends to every setup request.)*
+
 ### 14.5 读者：一段 section 一个子 `pi` 进程
 
 模型侧的读书工作由 `module` 扩展驱动，不在内核里、也不是 `modelRegistry.complete`：每个 section 起一个子进程 `pi -p --no-session --no-context-files --tools read,write,edit,bash --system-prompt content/setup/reader.md`（工作目录 `work/<section_id>/`，模型 `PI_COC_BUILD_MODEL`，缺省与桌子同模型），标准命令由 `module.packet` 返回的 `brief` 给：读 `packet.json`，用 `bin/coc-evidence`（仓库脚本：`search <名字>` 在全节 span 里找、`verify <span-id>` 查 id 是否存在、`page <n>` 看整页）查证据，把 shard 写到 `shard.json`，跑 `bin/coc-review --module <id> --section <id>`（即 `module.review`）看 findings，改到 `accepted` 或放弃。每 section 至多 3 轮（子进程退出后 review 不过就带着 findings 原样重起一轮），超过记 `failed`；读者产出的一切只在 `work/` 里，进 `shards/` 的只有 review 通过并 `module.accept` 的。这是用户法则要求的形状：带工具的 agent 自己开包、自己分多次写、自己跑闸门。
@@ -2092,6 +2099,59 @@ Owner rulings of 2026-09-24 (`docs/specs/pi-native-single-loop.md`, "A built-in 
 **14.16.6 Campaigns.** A campaign that has not forked follows the library (§22.6) and reads the bound window; a fork copies `source.pdf` as every fork does. A fork made before its starter was bound keeps its own workspace: §22.6 forks do not follow later library publications, and a new campaign is how a table reads the book (a campaign is a compile snapshot).
 
 **14.16.7 The three ends (§31).** Producer: registration (built in) or the window bind (registered), both through `kernel-ts/modules/bound-source.ts` `bindStarterSource`. Reader: `Reading.source` and the two source snapshots, the capsule `reading` section. Adoption: `lookup kind=source`, the prescreen's `native_text` / `reviewed_source` candidates, the reading lane's jobs. Tests: `tests/extension/starter-source-binding.test.mjs` (real kernel runtime, a fixture book the suite writes, both modes, the refusal, replay, the capsule and the carried head's input), `tests/kernel/test_capsule.py` (the shipped Haunting reads its window; a starter without a declaration still answers `no_source_document`).
+
+### 14.17 The setup guide is told the table's language (2026-09-26; amends §14.4 and §16.1)
+
+**Evidence.** Live table `npc-acts-b` (2026-09-26; `mystery-house`, `play_language: zh-Hans`, setup mode through `tests/play/driver.py` with a setup launcher, `opencode-go/deepseek-v4.1-flash`, thinking off). The campaign existed before the setup process started, and the zh-Hans guidance pack was the one loaded: the committed prologue's `handoff` is that pack's, word for word. The first setup reply (no tool call) still opened with two English paragraphs -- the Chinese prologue retold in English, then the guided-creation package's frame line ("a couple of questions so the card carries this person's real strengths and weaknesses instead of whatever the dice say") close to its English wording -- and switched to Chinese only at the question. The same first request rebuilt on a real kernel (the test named in 14.17.4, before this fix) carries a 37.8K-character system prompt that says `play_language` ten times and never says which language that is: the setup process has no capsule (§14.4), and nothing else carried the value. §16.1's "the one sentence in the prompt is the only mechanism" had no value on setup turns, so the model took its language from the English around it.
+
+A second gap of the same shape: `campaign.create` answers with the campaign record, `play_language` nested in it, and the onboarding extension copied only top-level scalars into its context. A campaign the setup model created in-process therefore had no tag in the process, so its guidance was prepared, and its captions spoken, in `content/languages.json`'s `default`. An `en` campaign created from the terminal got the zh-Hans prologue (reproduced 2026-09-26); a zh-Hans one was right only because zh-Hans is the default.
+
+**14.17.1 The binding.** Once the campaign names a play language, every setup request's system prompt carries `play_language=<tag>` in one line the onboarding extension appends directly after the setup preamble, on every branch of `before_agent_start` -- the normal turn, guidance unavailable, package context unavailable, setup already complete -- because each of those replies is read by the player. The line says that every player-facing word is written in that language and that everything else in the request (the setup prompt, the module advice, the setup packages' instructions, tool results) is English for the model, to be carried in sense, never in its English words. `prompts/setup.md` states the rule and points at that line.
+
+**14.17.2 Where the tag comes from.** The kernel's record, as the process learns it: `setup.steps` `state.play_language` for a process opened on an existing campaign, and `campaign.play_language` in `campaign.create`'s answer for one this process created. The same bound tag is the one guidance is prepared in and the setup captions speak. Before a campaign exists there is no tag and none is guessed; the reply in which create-campaign itself runs keeps the prompt it started with.
+
+**14.17.3 What this is not.** Not a language check: nothing inspects what the model wrote (§23 forbids detection); the verifier lane's `play_language_mismatch` stays the only judgment of a delivery. No per-language branch: the tag is passed through as the kernel holds it. The guidance packs, the guided-creation package bytes and §23.4 are unchanged; a setup package's English instruction is covered by 14.17.1 rather than by each package restating the rule.
+
+**14.17.4 The three ends (§31).** Writer: the kernel (`campaign.create`, `setup.steps` `state`). Projection: `extensions/onboarding/index.ts` `tableLanguage()` into `before_agent_start`, and `noteResult` for the in-process campaign. Adoption: the setup model's replies. Tests: `tests/extension/setup.test.mjs`, the cases named "names its play_language" and "prepares its prologue in that language", read the provider request itself on a real kernel for every language the starter ships guidance in (the data default among them, so a fallback to it cannot pass); the three blocked-turn cases of §98 addendum 4 now expect the campaign's captions, not the default's.
+
+### 14.18 The host shows the accepted opening on every path and books what it showed (2026-09-26; amends §14.4 and §23.4's prologue paragraph)
+
+**Evidence.** §23.4 already said it: "The accepted public opening is delivered once, directly, and recorded through `setup.prologue`. The setup agent handles the player's answer without rewriting that opening", and "the setup context records the actual opening delivery". Only the App path did that (`PI_COC_SETUP_AUTOSTART=1`: session start sends the opening as a `coc-setup-opening` message and books those words). A terminal or driver setup gave the opening to the model to "use on the first setup reply only" and then, at `agent_end`, booked the model's whole reply as the prologue. On `npc-acts-b` (§14.17) the model retold the zh-Hans opening in English and added the host's frame and question; all of it became `setup.prologue.opening` and then `table.open`'s `setup_prologue`, the "Committed prologue" the Keeper's opening continues from. Two defects in one channel: the model could rewrite reviewed story text, and the record held whatever it wrote.
+
+**14.18.1 One delivery, three moments.** `shownPrologue(guidance)` in `extensions/onboarding/index.ts` books `setup.prologue` with the accepted `guidance.opening` and returns the `coc-setup-opening` message (display, `details.kind: setup-opening`, the "?" help fold); every path goes through it, once per campaign:
+
+- App: at session start, as before.
+- A terminal or driver setup on an existing campaign: on its first turn, returned as `before_agent_start`'s `message`, so it sits right after the player's first line and before the guide's reply, and is in the guide's first request. It is shown only once nothing else can still block that turn, and not when a draft already exists (the meeting is long past).
+- A campaign created in this process: sent while the turn runs, right after `create-campaign`'s result (Pi steers it in after the tool batch, before the next model step); the result says `opening_shown`.
+
+The guide never writes the prologue: `prompts/setup.md` and the prologue label say the host shows it word for word and the guide must not repeat, retell or translate it. `agent_end` no longer books anything.
+
+**14.18.2 The record.** `setup.prologue.opening` is exactly the words shown, so the Keeper's committed prologue is the story the player read, in the language the reviewed pack was written in. The kernel method, its validation (authored opening scene, guide present) and its first-write-wins rule are unchanged; a refusal blocks the turn as a guidance failure, as it already failed the App's session start.
+
+**14.18.3 The driver.** `tests/play/driver.py` records the shown opening as `setup_opening` in `turn-N.json` (from the message or its entry, once) and prints it before the guide's reply; `final_text` stays the reply. It is transport, not a second producer.
+
+**14.18.4 The three ends (§31).** Writer: `shownPrologue` (host) and `setup.prologue` (kernel). Readers: the player (the message), the guide (the message in its context), the Keeper's opening (`table.open` `setup_prologue`), the driver. Tests: `tests/extension/setup.test.mjs`, the two "shows the accepted opening" cases, on a real kernel read the session order and the kernel's record for both non-App paths; `tests/play/test_driver.py` the `setup_opening` capture. The fake kernel gained `setup.prologue`: before this, nothing on the fake path ever reached it except `agent_end`, where a failure went unseen.
+
+**14.18.5 The review reads it too.** §32.3 names the setup prologue among what the player was already told. `table.open` carries it (only while `opening_needed`) as the whole record, and the host read it with a string accessor, so the reviewer never received it on any table -- including the first player turns, when the player is answering what the guide asked in it. The host now takes the record's `opening` (`extensions/kernel/index.ts`, `table.prologue`); the `handoff` is Keeper-facing and stays out. Test: `tests/extension/admission.test.mjs`, "the review reads the setup prologue the player was shown", on a campaign built through the kernel's setup RPC and a real opening turn.
+
+### 14.19 The opening the player chose is recorded when it is made; a missing one is a question, never a dead end (2026-09-26, SL-98 and SL-100; amends §14.14, §14.18, §22.9 and §98 addendum 4)
+
+**Evidence.** The Masks PDF table (`masks-1350-20260926T175048Z`, gate worktree at 13ce6a7dd, grok-4.5 low), a fresh import of *Masks of Nyarlathotep* (669 pages), setup through `tests/play/driver.py`. From `events.jsonl`: `prepare-module {pdf}` waited out the skeleton reading six times (`needs`, `reading_timeout`: `read-1` once, `read-3` five times) and failed once (`reading_failed`, a review refusal at `/nodes/9`), then at 18:07:49 answered `needs_choice` with two candidates, `campaign-beginning-elias-message` (1925, New York) and `start-lima-bar-cordano` (1921, Lima). The player chose New York. `prepare-module {start_scene: "campaign-beginning-elias-message"}` then waited on the opening reading (18:08:26 `read-4` timeout; 18:10:49 `reading_failed`, the reader's input-token lease after a 60 s provider stall; 18:11:37 and 18:13:51 `read-5` timeouts; 18:16:06 `read-6` timeout) and landed at 18:20:15 as `{ok, module_id: "book-1", opening_ready: true}`. Nothing had recorded the choice: the onboarding host never kept `start_scene`, `create-campaign`'s params carry none, and the library `module.json` still had `opening.start_scene: null` with `opening.choice` naming both (no `opening_choice`; the reading service deliberately never stores a player's opening in the library, `tests/extension/reading-service.test.mjs`). At 18:20:17 `create-campaign {id: "masks-nyarlathotep"}` created the campaign with `opening_scene: null`, and guidance preparation threw `preparation_failed: The selected opening scene is unavailable for character guidance` (`openingNode` matched nothing for `''`), after creating an empty attempt folder. From then on every call -- `create-campaign` again, `prepare-module {start_scene, retry}` for both openings, twice with and twice without `pdf` -- was refused `setup_blocked` (`guidance_at_create_campaign`, then `guidance_at_turn_start`, cause `preparation_failed`) before it could act: the step that records a choice sat behind the block the missing choice caused, and the block also dropped the guide's text (§23.4). The player tried five times; the table ended in setup. The guide's replies read the machine half of those results to the player -- the job "changed its number", "we hit a quota" (the reader's token lease), "the selected opening cannot produce guidance", "wait until the host repairs this PDF" (SL-100).
+
+**14.19.1 Recorded when made.** The onboarding host records a `start_scene` in its setup context the moment the preparation step (the step whose op is `module.prepare`, `prepare-module` in today's table) receives one, before any reading runs; a later preparation call that leaves it out is filled from the record (`fillParams`' same-named fallback), so a reading that outlasts one call, and the call that rejoins it, keep the choice. The newest choice received wins. A preparation that answers `needs_choice` although a scene was given (the book does not offer it) does not keep that scene. The record is the setup process's until a campaign exists: the library `module.json` is never written with a player's opening, because other tables read the library (§22.9, fast-guided onboarding). Once a campaign exists the choice is the campaign's:
+
+- `create-campaign` passes the recorded opening to `campaign.create` as `start_scene`, carried by the host, not re-typed by the guide; the kernel checks it names an authored opening and pins it as `opening_scene` (§22.9, unchanged). The host learns the pinned opening from the returned record (`campaign.opening_scene`) or, on a resumed setup, from `setup.steps` `state.start_scene`.
+- A campaign that exists with no pinned opening -- one created before this section, like `masks-nyarlathotep` -- gets it when the preparation step next succeeds: `module.opening.choose {module_id, scene, campaign}`, scoped to that campaign (its first private write forks the module, §22.6; `opening_choice` is recorded there and every later `startScene()` of that campaign resolves to it). Never unscoped. A refusal of that pin comes back actionable; `needs_choice` there drops the recorded scene and asks again.
+
+**14.19.2 A missing opening is a question.** On a book that declares more than one opening, no selected opening -- or one that names none of them -- is answered `needs_choice` with `details: {field: "start_scene", candidates}` and a `fix` naming the preparation step and `start_scene`, never `preparation_failed`. This covers the reading service's `prepare` (as before), guidance preparation (`extensions/module/character-guidance.ts` `selectedOpeningScene`: the candidates are the kernel's `opening.choice.candidates` in `module.json`; decided before an attempt folder exists), and `create-campaign` (14.19.3). `preparation_failed` stays for a preparation that really failed, including a single-opening book whose opening cannot be found. The answer survives every projection to the guide: the `create-campaign` result (`code: "needs_choice"`, `cause`, `fix`, `details`; any other guidance failure keeps `code: "guidance_failed"` with the preparer's `cause`, `fix` and `details`), the block the failure raises, and the refusal every call gets while that block stands (§98 addendum 9). A missing opening is not announced as a failure: no error notice, and the guide's text -- its question -- is not dropped at `message_end`. At turn start the guide's prompt says there is no opening yet, lists the candidates, and names the step that records the answer.
+
+**14.19.3 The host enforces it at `create-campaign`.** Before `campaign.create` runs, a book that came through the preparation step with no recorded opening is asked `module.status {module_id}`; with more than one `opening_candidates` the step answers `needs_choice` with them, creates nothing and blocks nothing, and the preparation step is reopened (even though it is booked) until a choice is recorded. A status that cannot be read leaves the step to the kernel and the guidance preparer, which ask the same question themselves. A starter never meets this: its source has no preparation step. `prompts/setup.md` also tells the guide to ask before `create-campaign`; the host does not rely on it.
+
+**14.19.4 The player is told in their terms (SL-100).** Every setup result that is a wait or a refusal the player can do something about -- a reading still running (by its `details.read.purpose`: the book's structure, the chosen opening, the character's introduction), a reading that failed and is retried, an opening to choose, a blocked turn by its kind and cause, a failed guidance preparation, `setup.complete`'s `opening_preparing`, an unreadable PDF, a reader model that cannot see pages -- carries `player_reason`: one English sentence written to the player, chosen by the host from the result's closed codes (`extensions/onboarding/reasons.ts` `playerReason`), never from its prose. A reading wait adds roughly how long this setup has waited on that same reading, from the call that first waited. It names no job id, budget, quota, reviewer, host, tool or step name. The machine half (`error`, `message`, `fix`, `details`) is unchanged and stays the guide's. A refusal of the guide's own call (an unknown step, a missing parameter, a closed-vocabulary miss) has none: the player hears nothing about it. `prompts/setup.md` tells the guide to say `player_reason` in play_language, in its own words, with any choice that is theirs, and never to speak of the machine half. English source by the same rule as every host string (§16.1): the guide writes it in the table's language, the first of §23's two legs. The caption lane (§23) projects host-placed words the player reads directly (the notices and status line setup already speaks); a sentence the guide relays is the guide's to write, so none of these is a caption and no language is branched on. Nothing reads or filters what the guide writes.
+
+**14.19.5 What does not change.** A single-opening book: no question, no pin, `campaign.create` carries no `start_scene`, guidance takes the book's opening as before. A starter (the Haunting): unchanged, its authored opening pinned by `campaign.create` as before. The kernel: no change; `module.opening.choose`, `campaign.create`'s `start_scene` and the `opening_choice` replay (§14.14) are used as they are. A process restarted before `create-campaign` starts setup over, as it always has (nothing of a setup is durable before its campaign exists); the book is read by then, so the question comes back at once instead of a dead end.
+
+**14.19.6 The three ends (§31).** Writer: the preparation step's receipt of `start_scene` (host record); `campaign.create {start_scene}` and `module.opening.choose {campaign}` (kernel record). Reader: `fillParams` (the rejoin, `campaign.create`), `ensureGuidance` (`opening`), the kernel's `opening_scene` / scoped `opening_choice` for prologue, draft era, completion and `table.open`. Actor: the guide, who asks the question the result carries and relays `player_reason`; the player, who chooses. Tests: `tests/extension/setup-opening-choice.test.mjs` (a two-opening book whose opening read times out keeps the choice through the rejoin and `campaign.create` pins it; `create-campaign` with no recorded opening answers `needs_choice` with the candidates and creates nothing; a campaign created without its opening blocks with the question, keeps the guide's text, and `prepare-module {start_scene}` records it, pins it on the campaign and prepares guidance in the same call; a single-opening book unchanged; the Haunting unchanged on the real kernel), `tests/extension/character-guidance.test.mjs` (the two §14.19 cases), `tests/extension/setup-player-reasons.test.mjs`.
 
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
@@ -2226,7 +2286,7 @@ submit the chosen dispositions without guessing IDs or repeating the failed call
 ### 16.1 系统语言
 
 - 代码、契约、提示词（守秘人、建卡、读者）、工具描述、宿主消息、胶囊里内核写的说明（`head`、压力/待办的状态词、Director 的 reason、检查点 one_line）、事实清单、抽取指令、校验车道的输入与发现、读者 brief、启动器帮助——全部英文。代码里不出现中文；守卫测试扫 `kernel/**`、`extensions/**`、`bin/**`、`prompts/**`、`content/setup/*.json`、`content/craft/beat-directives.json`，命中 CJK 即失败（模组内容与规则术语表是数据，不受限）。
-- 玩家看到的一切由守秘人按战役 `play_language` 写（提示里的那一句是唯一机制）；记忆候选的 `statement` 也按 `play_language` 写（守秘人之后要读它、玩家可能通过 recall 看到它）；校验发现的 `why` 与遥测用英文。
+- 玩家看到的一切由守秘人按战役 `play_language` 写（提示里的那一句是唯一机制；*§14.17：那一句必须带上值，建卡进程由宿主写入 `play_language=<tag>`*）；记忆候选的 `statement` 也按 `play_language` 写（守秘人之后要读它、玩家可能通过 recall 看到它）；校验发现的 `why` 与遥测用英文。
 - 规则术语表（技能、武器的各语言译名）留在规则数据里，不再被渲染路径消费；守秘人自己把 `Spot Hidden` 说成玩家语言里的词。
 
 ### 16.2 机制投影（`mechanics`）
@@ -5703,7 +5763,7 @@ meeting with one identity question and a brief narrator hint, never a synopsis/m
 setup.prologue is host-only and binds scene/guide/text/handoff to the authored
 opening, validating that the guide is present. Only the first delivered meeting is
 recorded; it does not award any resource. The setup
-context records the actual opening delivery; confirmation records the introduction
+context records the actual opening delivery (*§14.18: on every path the host shows the opening and books those words; the guide never writes it*); confirmation records the introduction
 and last setup exchange. It cannot award keys, money, clues or accept commissions.
 Play opening receives that committed context and continues the meeting, without
 repeating arrival or introductions. Subsequent recovery uses the normal turn receipts.
@@ -8206,7 +8266,7 @@ and refusal/retry boundary only, not that a live model always judges the bargain
 The input is the exact current player text (the `table.player_input` prompt; on a recovered turn,
 `pending_turn.player_text` from `table.open`), the investigators' names and occupations, the scene's
 player-facing name and the names on stage, what the player was already told — the setup prologue
-(`table.open`'s `setup_prologue`) and the last four deliveries as the host delivered them (`rendered_text`
+(`table.open`'s `setup_prologue`, its `opening`; *§14.18.5: read as a string it was always dropped*) and the last four deliveries as the host delivered them (`rendered_text`
 of `narrate`/`ask`), with the capsule's `recent` heads standing in after a restart — what this turn has
 already settled through the kernel, what this turn has already refused, and the proposal itself, one
 line per `resolve` field or `apply` effect. Nothing Keeper-only travels: no scene summary, no
@@ -8798,7 +8858,10 @@ slow every time: turns 6 and 7 (a move beside two or three `person` lines), 9.9�
 pre-registered rule; it is not below §32.12's 12 s). About one review in eleven passes it (11 of 123). It is the longest
 one call waits for its review, measured from the review's start. The lane round's own deadline is the **hard cap**, twice
 the cap (26 s by default): past the cap the lane keeps running, so the Keeper's resend can collect it. 3 of the 123 rounds
-passed 26 s. The variable still overrides the cap, and the hard cap follows it.
+passed 26 s. The variable still overrides the cap, and the hard cap follows it. *(SL-87, 2026-09-26: the cap is checked
+against the clock that measures the review when its timer fires. Node's timers run on the event loop's cached time, which
+lags `Date.now()` on a loaded machine, and a loaded box once returned a call pending at 999 ms of a 1 000 ms cap. A timer
+that fires before the cap has passed is re-armed for what is left, so no call is returned at the cap before its cap.)*
 
 **Concurrent reviewers; the first sufficient verdict wins.** For every call §32.1 puts to review, after §32.4's reuse and
 §32.12's compile admission, `reviewAdmissionPrimary` starts the §32.2 lane and the §32.10 typed family at the same moment.
@@ -8909,7 +8972,15 @@ suites updated for concurrency):
   pending, and is not an outage;
 - the trickling socket at the cap: a bookkeeping batch typed 0.72 is admitted `typed_late` within cap + 1 s, and a
   `resolve` returns `review_pending` with the typed reading;
-- the resend collects a lane that answers after the cap and settles its verdict;
+- the resend collects a lane that answers after the cap and settles its verdict (SL-87: at cap 1 s, verdict 1.6 s,
+  hard cap 2 s on a manual clock the test drives, so nothing sleeps and a loaded machine cannot move the verdict out of
+  its round). The seam: `reviewAdmission`/`reviewAdmissionPrimary` take an optional `clock` (`TaskClock`: the review's
+  start, cap, hard cap, every `ms`, the typed attempt's deadline), `runLane` takes it for its deadline, `ms` and
+  `firstByteMs`, and the kernel extension times the resend's wait (`resend_wait_ms`, `concurrent_wait_ms`) on it. A test
+  hands the extension its clock on the test-only bus event `coc:test-admission-clock`; nothing in the product emits it,
+  and without it each of these is the host's `Date.now()` and `setTimeout`, exactly as before. The typed attempt's
+  decision adapter reads the same clock for what is left of its lease. A cap timer firing 1 ms early on that clock is
+  re-armed, not settled;
 - a resend past the hard cap is `review_timeout`, and a third identical call is refused from the turn's verdict;
 - the `admission-late` row.
 Mutations are in the SL-24 ticket.
@@ -9036,8 +9107,67 @@ mismatched lines, the remainder's typed reading); turn 14's shape (the threat le
 call), on the fake kernel and on the emitted kernel with its receipts; nothing cleared at 0.86 (the whole batch reviewed);
 the remainder reviewed alone with the cleared line shown as admitted in this call and no second typed call; a remainder the
 lane refuses (the cleared line alone lands, the `admission` block and note); a remainder past the cap returned pending
-alone and collected by its own resend; a whole-batch resend applying only what did not land; §78 for a delivery behind a
+alone and collected by its own resend (SL-87: on §32.12.2's manual clock -- the typed answer at 600 ms, the batch's cap at
+1 000, the rest's verdict at 1 700, its round's end at 2 000 -- asserting the split at 600, pending at exactly 1 000 and a
+resend that waited 700); a whole-batch resend applying only what did not land; §78 for a delivery behind a
 partial landing. Mutations are in the SL-30 ticket.
+
+#### 32.12.4 Addendum (2026-09-26, SL-88, "what needs no result does not wait"): the admission reviews of one response's write steps start together, as one round
+
+**Why.** Long gate #18 (grok-build/grok-4.5 low, 20 turns): every batch step's admission lane round ran strictly after the
+previous one settled -- 65 tool executions, 0 overlapping -- because each `apply`/`resolve` of a Keeper's batch only reaches
+`admitAction` when `runTool` is invoked for it, and pi's tool executor (`executeToolCalls`, `vendor/pi/packages/agent/src/
+agent-loop.ts`) awaits one call's whole result, admission included, before starting the next. A batch of two writes therefore
+paid two full lane rounds back to back even though nothing about the second write's review depends on the first write's
+having executed. Owner ruling, 2026-09-26 (the SL-88 ticket): the admission reviews of all write steps of one model response
+start together, as one lane round for the whole response (§32.12 already reviews the *batch* whole in meaning; the
+strictly sequential per-step rounds were only an implementation order, never a contract requirement); a later step's
+verdict is not reused if an earlier step of the batch was refused.
+
+**What changes, and what does not.** The kernel still executes the batch's steps in the model's order and stops at the
+first refusal exactly as §135.5 says; nothing here reorders a write, skips one, or admits a call the lane or the typed
+route would have refused. Only *when the review's own lane round starts* moves earlier: at `message_end`, the same hook
+that already reads the whole assistant message to find text beside a tool call (§135.11.1), a split delivery (§34.17) and
+an effect behind its own delivery (§78) -- because that is the one place in the host that sees every tool call of the
+Keeper's response before any of them has reached `runTool`. For every `apply`/`resolve` call of that response,
+`prefetchAdmission` (`extensions/kernel/index.ts`) clones and normalizes its raw arguments the same way `runTool` will,
+builds the identical proposal `admitAction` would (`admissionScopeBuilder`, the same destination lookups and the same
+scope, extracted so the two paths cannot drift), and -- when nothing is already decided or already running for that
+proposal's key -- starts `reviewAdmissionPrimary` at once and parks the promise in `state.admissionPending` under that key,
+tagged `prefetched: true`. This is the same map §32.12.2's one resend already collects a running round from: when the
+call's own turn actually comes and `admitAction` reaches it, it finds the parked entry exactly where a resend would and
+awaits it there, at whatever point it has reached -- often already answered, since it has been running since before the
+batch's first call even executed. A call the batch never reaches, because an earlier one fell (§135.5's failure branch),
+simply leaves its head start uncollected: wasted, never wrong, since a prefetch never writes kernel state or settles a
+verdict on its own, and a proposal key mismatch (the real call's normalization landed slightly differently) only costs the
+head start, never correctness -- the real call reviews fresh, exactly as it would without this section.
+
+**What the reviewer reads.** Each write's review reads the table (`admissionContextFor`, also extracted and shared) as it
+stood when the response arrived, before any step of this same batch has executed -- which is what "start together" has to
+mean: a prefetch cannot wait for an earlier step's effect without losing the concurrency the ruling is for. This is the
+same tradeoff §32.12.2's own pending/resend round already makes (a kept round's context is also from when it started, not
+from when it is collected); nothing here changes what §32.1 puts to review, what a verdict admits or refuses, or the batch's
+own execution order, which is still the only thing that decides what lands.
+
+**Telemetry (amends §32.7).** A call whose review `admitAction` collected from a prefetch, rather than starting fresh or
+resending a kept one, carries `concurrent: true` and `concurrent_wait_ms` (what it still had to wait once its own turn
+came) in place of the `resend`/`resend_wait_ms` pair a genuine §32.12.2 resend carries -- the Keeper never saw a
+`review_pending` refusal for a prefetched call, so it is not a resend, and a reader of the rows must be able to tell the two
+apart. Every other admission row is unchanged.
+
+**Three ends (§31).** *Writer:* `message_end`, which starts a review before any call of the batch has run; `prefetchAdmission`,
+which parks it. *Reader:* `admitAction`/`admitOne`, the one place a call is admitted or refused, which collects whatever it
+finds under the proposal's key regardless of who started it. *Actor:* the Keeper, whose batch executes in the same order and
+under the same refusals as before; the operator, through `concurrent`/`concurrent_wait_ms`.
+
+*Tests* (`tests/extension/admission-concurrent-batch.test.mjs`, a stub lane that records each call's start and end time so
+overlap can be asserted directly, never inferred from wall-clock margins): two writes of one Keeper response (`apply clue`,
+`apply time`) show overlapping lane calls -- the second call's review starts before the first call's review has answered;
+the kernel still lands both, in order; a batch whose first write is refused never starts the second write's own execution,
+and its parked prefetch (if any ran) is left uncollected without error; a prefetch whose proposal already has a kept verdict
+or a running round does not start a second lane call for the same key; a response with a `resolve` before a `narrate` still
+prefetches the `resolve`'s own review (concurrency does not depend on the blocking/non-blocking distinction, only on there
+being more than one write to review). Mutations in the SL-88 ticket's Comments.
 
 ## 33. Creation difficulty: an extension setting scaled into chargen (2026-09-11)
 
@@ -9285,6 +9415,8 @@ comparison (or the increment in `runTool`'s success path) to a no-op reproduces 
 **34.13 The inline marker is not out-of-game text (2026-09-12, regression from §34.1).** §34.1 folded "tool names, English enum values and field names" into the immersion principle as things that must not enter the story text. That sentence reads over the `{{marker}}` the narrate description asks for — a marker looks exactly like a field name written into the prose — and on the App's model (deepseek-flash) the Keeper stopped placing them, so every roll, clue and item card fell to the end of the turn instead of being drawn where it happened (§16.6's `marked_text` is empty when no marker is bound). Law 4 now names the marker as the one machine token that belongs in the text, says the kernel strips it before delivery, and points at the Writing paragraph; Writing states the rule affirmatively for the first time in the base prompt, which until now carried it only in the `narrate` tool description. Nothing about what the player may see changes: markers never reach them.
 
 **34.14 A marker is a rendering hint, not a reason to refuse (2026-09-12).** After §34.13 the Keeper placed markers again and the player read them as text: `{{scene:corbitt-house-ground}}你站在人行道上…{{clue:nailed-windows}}`, twice in one turn. Two faults met. The kernel's `bindMarkers` threw `unknown_marker` when a marker named no receipt of the turn — and the Keeper had narrated an `apply` that was refused, so every marker named nothing. The host, on a refused *implicit* delivery, returned without replacing the assistant message, so the raw draft stayed on screen, and the Keeper wrote it again. Both are repaired. `bindMarkers` now returns `{placed, unknown, duplicate, text}`: an unknown marker and every repeat after the first are removed from the text, the rest stand, `rendered_text` is always stripped so no brace can reach the player, `marked_text` carries only bound markers, and `narrate`/`ask` report `dropped_markers` `{unknown?, duplicate?, markers, note}` so the Keeper learns without spending the turn. `unknown_marker` and `duplicate_marker` are retired as refusals. The host drops the text blocks of a refused implicit delivery: a refused delivery is a turn that did not happen, and `agent_end` steers it closed. The `narrate` description and the base prompt now say the names come back in each tool result's `markers`, and that a dropped marker means that mechanic never landed. Tests: `test_markers.py` (dropped, first-placement-stands, all-miss-still-delivers), `turn.test.mjs` (no draft on screen).
+
+**34.13.1 Addendum (2026-09-26, SL-88, "what needs no result does not wait"): an effect key names a write's receipt when its own marker has not come back yet.** §135.5.1 makes an `apply` whose landing is fixed by its own arguments non-blocking: it goes out in the same message as the `narrate` that describes it, writes first. That `narrate` cannot copy the write's own marker (the name `markersFor` gives its receipt, returned in the `markers` list of the write's *result*), because that result has not arrived yet -- the Keeper is still composing the message that contains both calls. Owner ruling (2026-09-26): a marker may instead name the effect directly, `{{<kind>:<handle>}}` (e.g. `{{clue:globe-fire-cutoff}}`, `{{move:newspaper-morgue}}`), and it resolves to this turn's receipt of that effect. Closed vocabulary, never a text search: `kind` is a receipt's own `kind` field -- not the placement family `markerName` groups it under for the ordinary scheme (a `move` receipt's ordinary marker is a `scene:` name, because its card is drawn as a scene change, but its own `kind` is `move`, and an effect key uses `move`) -- and `handle` is the value the write itself named for that effect (`to` for `move`, `clue` for `clue`, `name` for `item`, `handout` for `handout`, `map` for `map`), folded into a slug the same way `markerName` already folds a name into the ordinary scheme's marker (case and punctuation only, nothing else). An effect key naming nothing this turn is dropped exactly as an unknown marker is today (§34.14 unchanged: `dropped_markers`, no refusal, the prose still delivers); a receipt whose ordinary marker the effect key happens to duplicate (a lone `clue` receipt's ordinary marker is already `clue:<its own handle>`) resolves identically either way. Implemented in `kernel-ts/write/text.ts` (`effectKeyHandle`, `effectKeyReceipt`), read by `bindMarkers` only when the ordinary scheme's own lookup misses, so a receipt that already resolves through its placement marker keeps doing so unchanged. Tests: `tests/extension/narrate-non-blocking-batch.test.mjs` (the effect key resolves a same-batch `apply clue`'s receipt; `{{move:x}}` resolves a same-batch move whose ordinary marker would have been `scene:x`; an effect key naming no receipt of the turn is dropped and the prose still delivers).
 
 **34.15 A starting weapon could not be named at creation (2026-09-12, table G).** The player brought a .38 revolver and a single-shot sleeve derringer. `setup.draft` refused eight times on `weapons must use existing rulebook profile names`, and the Keeper gave up and put both guns in `equipment`, apologising to the player in the prose that "this version's weapon list only accepts its own names". Two faults. `validateProfile` accepted only an exact key of `weapons.json` — the ASCII slugs `revolver_38`, `knife_small` — while `apply item weapon` has always taken the id *or* the printable name (§19), so one table taught the Keeper a convention the other refused; and a Keeper drafting in the play language never writes either. Worse, the refusal named no legal value: the same `details` ships `skills`, `occupations`, `backstory_fields` and the aptitude vocabulary, and shipped nothing for the hundred and six weapons, so there was nothing to read and nothing to correct towards. Repaired in `kernel-ts/setup/drafts.ts`. One index, built whole from the table and keyed by both the id and the printable name, is what validation checks and what the sheet resolves through — what is accepted is exactly what can be written, so no draft can pass the gate and then fail to build. The card takes the printable name: a profile reached by its id is never written onto the sheet, or into `equipment`, as `revolver_38`. The refusal now carries `details.weapons`, the printable names, narrowed to the era the draft names (advisory only — which era's entry is legal here has not changed) and falling back to the whole table when the era matches nothing. The issue text names `details.weapons` and says where a weapon the rulebook does not print belongs: out of `weapons`, into `equipment` under the name the player used, which is where the object lane registers it. Nothing promises the Keeper that parameters will arrive — that depends on an active package, and a fix text is executed literally (§34.7). Tests: `test_a_starting_weapon_is_named_the_way_play_names_it`, `test_a_weapon_the_rulebook_never_printed_is_refused_with_the_profiles_and_a_place_to_put_it`.
 
@@ -10714,6 +10846,8 @@ Supersedes the `sample_lines` word of §40.5 (`npc-voice` 1.1.0; design and sour
 - **Acceptance** is the lineup test of `docs/specs/npc-voice-mask.md` §4 on the seeded starter `voice-bench` (`content/starters/voice-bench`, unlisted; generated by `tests/play/fixtures/voice-bench/build.mjs`): names stripped, a judge attributes each spoken line to the roster.
 
 **Owner (2026-09-25).** The lane belongs to a package, not to `npc-voice` by name (user ruling of 2026-09-25, `docs/specs/prose-mod.md` §4). Every `voice.job`, `voice.submit` and `voice.fail` resolves the owner from the campaign's locks and the installed catalog: first the enabled unified expression package (`narration-craft` declaring `npc.voice.consolidation.v1`) when the manifest of its locked version and digest also declares `npc.voice.generation.v2`; otherwise the `npc-voice` lock under the rule it always had (enabled, any version -- frozen 1.0.x/1.1.x locks predate the capability); otherwise nobody, and `voice.job` answers `{job_id: null}`, not an error. Everything the lane reads and writes follows the owner: the namespace `world.mods.state[<owner>].dossier` (established, `taken_masks`, the write), the generation `{version, digest, state_version}` of the owner's lock (the `@digest` suffix of `job_id` and the packet's `generation`), `coarse_language` from the owner's settings, the `mod` stamp on the two records, the job file `<owner>/jobs[/v2/<digest>]/<handle>.json`, and the refusal that names a package which is not enabled. The unified owner's jobs therefore live under `narration-craft/jobs/...` and never share a folder with the legacy lane's. A job minted while another package owned the lane (a legacy job after handover, a unified job after the package is switched off) fails the existing generation check before any write, as before. The legacy owner is byte-identical to the lane before this ruling: the same job ids, paths, digests, records and messages. The task-state partition accepts a lane record stamped with either owner id in either namespace. The §30.7e handover copies cards stamped `npc-voice` into the unified namespace; with the unified package as owner they count as established, so a handed-over person is not generated again. Likewise a new unified generation (a version change with no state migration) keeps the owner's dossier, so settled people stay settled; only a state migration that moves the dossier aside, as `npc-voice`'s 1 to 2 does, starts them over. The owner is resolved in the kernel's voice handlers from the catalog; package locks carry no new field. The host lane (`extensions/npc-voice`) and its instruction (`content/setup/npc-voice.md`) are unchanged: the host asks `voice.job` after every commit and the kernel decides.
+
+**Instruction (2026-09-26).** The lane's instruction ships in the owning package, not in the kernel's content: a package that requires `npc.voice.generation.v2` may name one package Markdown file in `contributes.voice_lane` (listed in `package_files`; a `voice_lane` without the capability is refused at install), and `voice.job` carries that file's text whole as the packet's `instruction`, frozen with the package version like every package file (§26). An owner whose version predates the contribution (npc-voice 1.x, narration-craft 2.0.0 and 2.0.1) reads the frozen copy it was written against, `content/compat/npc-voice-lane.md`, so a saved game keeps its lane; neither readable, the kernel's short fallback in `kernel-ts/voice/jobs.ts`. `content/setup/npc-voice.md` is gone. Narration Craft 2.0.2 is the first owner that contributes it.
 
 ### 40.8 Natural speech is not compulsory mannerism (2026-09-19)
 
@@ -14221,6 +14355,9 @@ somebody said it at this table and it was applied.
   `person-named`. **No mechanics row**: the player said it, so a card telling them it was recorded
   is noise, and §16.2 already projects nothing for a kind it does not know.
 
+*Amended by §87.8 (2026-09-26):* a word this table gave two people is `unknown_entity` naming both as
+`details.candidates`. `who` had taken the first owner that resolved.
+
 ### 79.3 The readers
 
 One junction, `personLabel(world, id, authored)` in `kernel-ts/read/capsule.ts`, beside `placeLabel`.
@@ -14259,6 +14396,12 @@ it was established in play and has not been withdrawn.
 
 On a confluence the record joins the union field by field (§15): two lines that each established one
 half keep both.
+
+*Amended by §87.8 (2026-09-26):* `personLabel` writes the word out; reading it back in is the other half.
+Every entrance that takes a Keeper's word for a person -- `resolve`'s `actor` and `target`, `look
+focus=npc` and the npc lane methods, `apply clue from`, `apply npc`, `apply person.who` and the say
+token -- resolves it through one junction beside `personLabel`: `calledPerson`, `personNode` and
+`npcNode` in `kernel-ts/read/capsule.ts`.
 
 ### 79.4 What this does not do
 
@@ -15009,6 +15152,193 @@ unadvertised, which is harmless. Text ahead of the kernel would point the Keeper
 still refused, and a `fix` is executed literally (§34.7). **Splitting these two across branches is
 what would break it**, in either direction: the text alone is a lie, and the kernel alone is a road
 the Keeper has been told not to take.
+### 87.7 A table name is a name, and a newcomer is declared (2026-09-26, amends §87.2, §87.4, §79.2, §11.5.7 and its SL-73 addendum)
+
+**Evidence** (`.coc/playtests/prose-npc-temper-20260926/home-c`, campaign `temper-c`, module voice-bench, Keeper
+`opencode-go/deepseek-v4.1-flash` low; turns `0004.json`–`0008.json`). At turn 4 the dock labourer 王铁柱
+(`wang-tiezhu`) was in `capsule.present` with `untold` (label 靠门条凳上湿褂子贴肩的扛包汉子, `use`: "apply person,
+then called.name and say token"). The turn's two rolls targeted him by name. Then the Keeper sent one batch, `t4-c4`:
+
+```
+[{kind: "person", who: "王铁柱", name: "扛包的汉子", why: ...},
+ {kind: "npc",    name: "扛包的汉子", stance: "wary", why: ...}]
+```
+
+That is exactly what `untold.use` says to do. The person effect wrote `person_labels["wang-tiezhu"].name`; the npc
+effect resolved through `graph.npc` alone, found nothing, and minted `npc-table-681e26f1f827f9427144`, established
+`table`, placed in the teahouse. From then on the say token `{{say:扛包的汉子}}` resolved to the duplicate, because
+`speakerResolver` tries the present people before the table's names, so turns 4–5 carried his stance and his lines
+on a man who does not exist. At turn 6 the Keeper wrote the book's name, `王铁柱`, and from then on the table has
+both: turn 8's `capsule.voices` lists 王铁柱 and 扛包的汉子, two masks for one person. §11.5.6's host resolution never ran: it follows an `unknown_entity`, and a mint is not one.
+It could not have helped either, because its question reads committed state, where the word had not been written yet.
+
+Two causes, two rules.
+
+**1. The table's word for a person is one of their names in `apply npc`.** §79.2 already says this for
+`apply person.who`, and §79.3 for the say token; `personOfEffect` was the one person entrance that read the book's
+names and not the table's. The order is now: the graph (handle, aliases, the anchored run of §2), a creature with a
+stat block (§136.12), then `world.person_labels` by the same normalization (`calledOwners`,
+`kernel-ts/read/capsule.ts`). Exactly one owner is that person. Two owners are `unknown_entity` naming both as
+candidates, never a pick. Within one batch a `person` effect's word is visible to a later `npc` effect, because both
+read the staged world. This reads back a record the table wrote; it compares no word to any other word.
+
+**2. Minting a table person takes `walk_on: true`.** A word no record carries can as well be an authored person
+the Keeper has not introduced yet as someone the book never had, and deciding which is the semantic judgement §87.4
+forbids. So the Keeper declares it: `apply {kind: "npc", name, walk_on: true, ...}`, ticket 07's ruled shape
+(`docs/specs/npc-as-actor-tickets/07-walk-on-person.md`). Without the flag the word is refused, and the refusal
+carries the calls, because a `fix` is executed literally (§34.7):
+
+| field | what it holds |
+| --- | --- |
+| `code`, message | `unknown_entity`, with the graph's own sentence (`no npc named ...`), which is still true |
+| `details.present` | everyone in the scene as `{name, called?, introduce?}`, when anyone is. `introduce` is `{kind: "person", who: <name>, name: <the word>}`, on an authored person with no §79 word whom the player has not been told (§103's `untold`): the effect to put first in the same batch |
+| `details.candidates` | the graph's near names, then §87.4's roster; only when non-empty (SL-73) |
+| `details.walk_on` | the Keeper's own effect with `walk_on: true` (host-only `_` keys stripped): the effect to send instead |
+| `fix` | names only the lists that are there; `introduce` first and this effect after it, or `details.walk_on` in its place |
+
+This is also the `unknown_entity` §11.5.6 follows, so a plain miss now gets one Jev question against the scene's
+known people before the Keeper sees the refusal. A Keeper who declares the newcomer up front spends neither.
+
+What `walk_on: true` does, case by case:
+
+- **A word nobody carries** is established under that word (§87.1's record, `established: "table"`). A pin
+  (`skill`, `archetype`) or `conditions` rides on the establishing call; this amends §87.2, whose typo guard is now the
+  declaration itself plus the ambiguity rule below.
+- **A word that resolves to someone the table has** (the book's, an adaptation's, a §79 word, a creature) is
+  `invalid_params` with `field: "npc.walk_on"`, and nothing is written. Accepting it would write the "newcomer" onto
+  that person's record, which is §87's turn-106 substitution. A table person already established is accepted
+  idempotently: no second row, and no `established` on the receipt.
+- **A word the graph calls ambiguous**, by an exact key or as a run inside two names, keeps the graph's refusal,
+  flag or no flag: a third person under it would shadow both. `ModuleGraph.resolve` marks its own ambiguity
+  refusals (`isAmbiguity`), so no caller reads the message to tell the two refusals apart. The mark rides beside the
+  error, not in it: `resolve`'s error JSON is compared field for field against the frozen Python oracle.
+- **The investigator's own name, or exactly the name of a place or a clue**, keeps SL-73's answer
+  (`is_investigator`, `matched_kind`; `notAPerson`, `kernel-ts/read/module-graph.ts`), flag or no flag. It is
+  asked before any road to minting.
+- `reunion` on a word nobody carries is refused as before; a non-boolean `walk_on` is `invalid_params`.
+- A passage the source text carried this turn (§11.5.4) vouches for its person, who is established without the
+  flag unless the same call pins numbers.
+
+**Resemblance no longer refuses.** Before this, any ranked candidate made a miss the graph's refusal, "pick a name
+from details.candidates". For a newcomer whose word resembles someone (SL-70's 0.5 similarity; "the constable"
+beside "the porter") that pointed the Keeper at another person's record. §11.5.7 and its SL-70 addendum took the
+table's own people out of that count; this removes the count. Near names now lead the refusal's list, and a declared
+newcomer is established. The phrase and fold guards (`ts-kernel-name-phrase`, `ts-kernel-name-fold`) still hold:
+nothing near is ever silently picked, and nothing ambiguous is minted.
+
+**What this does not do.** It merges no existing duplicates: temper-c keeps both rows, because deciding that two
+records are one person is §87.4's open judgement. It migrates nothing: a table person already established resolves
+by its word with no flag. `resolve`'s `action.target`, `look focus=npc` and `apply clue from` still read only the
+graph, so a §79 word there is still a miss or a label; that is the same gap at three other entrances, left for its
+own change.
+
+*Amended by §87.8 (2026-09-26):* those three entrances now read the word, through one junction, and so do
+`apply person.who` and the say token, which had each picked when two people carried it. The rules above are
+unchanged; `personOfEffect` reads the same order through the junction instead of its own copy.
+
+**Deployment (§87.6's rule).** `NpcEffect.walk_on` ships in `extensions/kernel/tools.ts` on the same branch. The
+dispatcher closes every schema (`additionalProperties: false`), so a kernel without the schema would refuse every
+newcomer with no way to declare one. The text ships with it: the `name` and `walk_on` descriptions, the adaptation
+`purpose` line, lookup's not-found note, `apply person`'s `unknown_entity` fix, combat's needs-target fix and
+`personRefusal`'s generic fix all say `walk_on: true` where they send the Keeper to establish someone.
+
+**Three ends (§31).** *Writer:* `personOfEffect` (`kernel-ts/apply/entities.ts`), one row in
+`world.table_people[]` per declared newcomer; `apply person` for the §79 word. *Reader:* the same `personOfEffect`
+on every later `npc` effect, the graph projection (§87.1) and every node-typed consumer after it. *Actor:* the
+Keeper, who either declares a newcomer or gives an untold authored person the word, and whose refusal hands back
+both calls ready to send.
+
+*Tests.* `tests/kernel/test_walk_on_gate.py` over the emitted kernel: the t4-c4 batch lands on the authored person
+and establishes nobody; a word nobody carries is refused without `walk_on`, and its `introduce` followed by the
+same effect, sent as written, lands on the authored person; two declared newcomers in a row are both established;
+`walk_on` on the book's name or on a §79 word is refused; a pin rides on the declaring call; one word given to two
+people is refused and not picked; `walk_on` never establishes the investigator's name or a scene's. The extension
+guards (`a-person-this-table-has`, `npc-effect-refusal-shape`, `workspace-adversarial`) declare their newcomers, and
+`ts-kernel-name-phrase` adds a declared newcomer under an ambiguous run, refused. Mutations, each caught: the silent
+mint restored; the §79 lookup removed; `introduce` dropped; the ambiguity mark ignored; `walk_on` accepted on
+someone the table has; resemblance restored as a bar; `notAPerson` moved after the flag.
+
+### 87.8 One junction for a person's name (2026-09-26, amends §79.2, §79.3, §40.1 and §87.7)
+
+**Evidence** (the code, read against §87.7's "What this does not do"; the fixture is the starter's Steven Knott,
+given the word 门口的房东 with `apply person`).
+
+- `resolve {intent: social, target: 门口的房东, method: "persuade him"}`. `npcTarget()` asked `graph.actor`
+  alone, answered null, and `route` sends a social call without an NPC to the ordinary check (`!npc ?
+  [ORDINARY]`). It rolled Persuade against nobody: no `outcome.npc`, no motives, no `npc` on the roll receipt,
+  so §17.3's ledger fold never moved his stance. The same word as `actor` was `unknown_entity` (`actorKnown`).
+  An obligation claimed against a person refused the person's word as a check against somebody else
+  (`bindObligation`), and §134.17's fold never found the obligation at all; a dozen further readers of
+  `action.target` (combat, chase, a patient, the material gate, the rulings, a Mod's settlement) each asked the
+  graph on their own.
+- `look focus=npc`, `npc.perspective(s)`, `npc.job`, `npc.responses.job` and `apply clue from` called
+  `graph.npc`: the graph's `unknown_entity`.
+- The three entrances that did read the word had three copies of the lookup, and two of them picked when two
+  people carried it. `apply person.who` took the first owner that resolved; the say token took the last one
+  written (a `Map` built over the record). §87.7's "two owners are refused, never a pick" held in `apply npc`
+  alone.
+
+**The junction** (`kernel-ts/read/capsule.ts`, beside `calledOwners` and `personLabel`):
+
+| function | reads | on a miss |
+| --- | --- | --- |
+| `calledPerson(graph, world, name)` | §79's record only: the owners of the word in `world.person_labels` that are npcs of the graph | `null`. Two owners throw `unknown_entity` `{query, candidates}` naming both. |
+| `personNode(graph, world, name)` | the graph's actor (`graph.actor`: an npc by handle, alias or §2's anchored run, then a creature that states a stat block, §136.12), then `calledPerson` | `null` |
+| `npcNode(graph, world, name)` | the graph's npc (`graph.npc`), then `calledPerson` | the graph's own refusal, unchanged: its candidates are still the next step |
+
+The first layer with exactly one answer is the person. A word the graph answers is the graph's person even when
+the table gave the same word to somebody else; a word the graph finds ambiguous and the table gave to one person
+is that person, as `apply npc` already did under §87.7. Each entrance keeps the graph layer it already asked --
+`personNode` where a creature can fill the seat, `npcNode` where only people ever did -- and gains the table's
+word after it. Where an entrance takes an investigator, the party is asked first (a sheet's id or name): §79
+never gives an investigator a `name`.
+
+**Routed through it:**
+
+| entrance | before | now |
+| --- | --- | --- |
+| `resolve` `action.actor`, `action.target` | `graph.actor`, in each reader | read once at the entrance (`readCalledPeople`, `kernel-ts/resolve/pipeline.ts`), for every intent that settles anything. A seat the party or the graph's actor answers is left as written. A seat only `calledPerson` answers is read as that person's handle, which every reader after it already resolves. Two owners are refused there, before anything rolls. |
+| `look focus=npc` `name` | `graph.npc` | `npcNode`; the view's `called` carries the word |
+| `npc.perspective(s)`, `npc.job`, `npc.responses.job` `name` | `graph.npc` | `npcNode` |
+| `apply clue` `from` | `graph.npc` | `npcNode`; the receipt's `from` is the handle |
+| `apply npc` (§87.7) | its own copy of the lookup | `graph.npc` for the refusal it may need, then `personNode` |
+| `apply person` `who` (§79.2) | the first owner that resolved | the party, `graph.find` over npcs, then `calledPerson`: two owners are refused |
+| the say token (§40.1) | the last owner written | `calledPerson` after its own present-people, party and single-npc steps; two owners leave the name a label, because a token is a rendering hint and never a reason to refuse (§34.14) |
+
+**The stored call is the Keeper's.** `readCalledPeople` rewrites the local `action`, never `params`: the turn
+remembers the call as sent, so the same call id with the same word replays rather than colliding, exactly as
+§134.11's obligation binding leaves it. A refusal after the entrance names the handle in `details.query`, which the
+host's §11.5.6 question does not match against the call's own word, so it asks nothing. The `unknown_entity`
+refusals that can follow a resolved seat are about where a known person is (not in the scene, not in the fight),
+which is not a question about who the word means.
+
+**What this does not do.** It compares no word to any other word: it reads back what `apply person` wrote, by the
+normalization every name lookup uses. It does not reorder the graph against the table, and it gives a creature no
+§79 word (`apply person.who` still names investigators and npcs). It does not stop `apply person` from giving one
+word to two people; it refuses the word afterwards, wherever it is used. Three entrances that take a Keeper's word
+for a person still read only the graph, each one call from `npcNode`: `apply cash` `with`
+(`kernel-ts/apply/inventory.ts`), a Mod's `dossier` effect `name` (`kernel-ts/mods/stage.ts`) and a Mod effect's
+explicit target name (`effectTarget`, `kernel-ts/mods/effects.ts`; its default, `action.target`, is read at the
+resolve entrance above).
+
+**Three ends (§31).** *Writer:* `apply person` (§79.2), unchanged. *Reader:* the junction, at every entrance in
+the table above. *Actor:* the Keeper, who writes the table's word wherever they name the person, and whose rolls,
+views, clue sources and lines then land on that person, or are refused naming both when the word is two people's.
+
+*Tests.* `tests/kernel/test_person_junction.py` over the emitted kernel: a social check with the word as `target`
+runs the social adjudication against the person, carries `npc` on its roll, replays under the same call id and
+folds into the ledger; gate #3's Persuade against the archivist settles identically, §134.17's fold included,
+whether it names him by the book's name or the table's word, under the same seed; an obligation claimed against
+the word is that person's; the word as `actor` is that NPC's own keeper-side roll; a table word that collides with a
+book name leaves the book's person the target; a word two people carry refuses `resolve` before anything rolls,
+`look focus=npc`, `apply person.who`, and leaves a say token a label; `look focus=npc`, `npc.perspective`,
+`npc.job`, `npc.responses.job` and `apply clue from` each read the word. `tests/kernel/test_walk_on_gate.py` holds
+`apply npc`'s side. Mutations over the emitted kernel, each caught by the test that names it, the two files green
+again after every revert: the resolve entrance removed; the graph guard dropped from the entrance; `look
+focus=npc`, `npc/read.ts`, `npc.job`, `npc.responses.job` and `apply clue from` each back to `graph.npc`;
+`npcNode` asking the table first; `calledPerson` picking the first owner; `apply person.who` picking the first
+owner; the say token picking the last; `apply npc` without the table layer.
+
 ## 88. An offer is not a delivery (2026-09-17, extends §19's object model and §31)
 
 > **Section number is a placeholder.** The integrator assigns the real number at
@@ -16542,6 +16872,31 @@ shape, `interpretNameBoundary`'s per-row fail-safe default, and `checkNameBounda
 to ask about, a foreign lease, a throwing port, an incomplete result), mirroring `tests/extension/
 jev-person-resolution-domain.test.mjs`. Mutations in the SL-68 ticket's Comments.
 
+### §98 addendum 9 — a block never blocks its own remedy (2026-09-26, SL-98; amends addendum 4)
+
+Addendum 4 made every `setup` call answer `setup_blocked` while a turn is blocked. On the Masks table (§14.19) that
+included the one step that could clear the cause: the block was a missing opening choice, and `prepare-module
+{start_scene}` -- the step that records one -- was refused before it could act, turn after turn.
+
+The rule: **while setup is blocked on guidance (either guidance kind), the preparation step stays open**, done or not;
+only its "already done" refusal is waived, its prerequisites and its source still apply. It records a `start_scene`
+(§14.19.1), reruns the preparation (`retry: true` included), pins the opening on a campaign that has none, and then
+retries the guidance preparation in the same call: success clears the block, delivers the opening as §14.18's
+create-campaign moment does (`character_guidance`, `opening_shown`), and the card steps open again in that turn; a
+failure raises the block again with the new cause. A new player input still retries the preparation, as before. Card
+and campaign steps (`create-investigator`, `revise`, `confirm-investigator`, `create-campaign`, `note`, ...) keep
+waiting, and the package-context block has no remedy step: it is still fixed in the Mods panel.
+
+The refusal carries the cause's actionable half (`fix`, `details` -- the candidates, for a missing opening) and
+`player_reason` (§14.19.4). Its `error` names the remedy: for `needs_choice`, ask the player and call the preparation
+step with `start_scene`; for another guidance cause, a new player input or the preparation step with `retry: true`
+(named only when this source has that step; a starter's refusal says what it said before). A `needs_choice` block is a
+question (§14.19.2): its text is not dropped and neither hook announces it as a failure. `guidance_not_ready` keeps
+addendum 4's wording: no input repairs a stale starter bundle.
+
+Cases: `tests/extension/setup-opening-choice.test.mjs`, "a campaign created without its opening ..."; the three
+addendum-4 cases in `tests/extension/setup.test.mjs` are unchanged.
+
 ## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
 
 §97 was built from M-MAIN turn 109 but its fixture omitted the one property the live object had:
@@ -17587,7 +17942,13 @@ Failure is not global:
 
 Exact state, exact source, exact catalog/module/rule, secret-scope projection, and other sufficient local reads take the zero-Jev path. Jev is invoked only for a real semantic decision over host-issued candidates. Disabled or unconfigured Jev uses the declared incumbent or existing unavailable result; it never weakens admission.
 
-### S0 private role protocol and integration gate
+#### Jev attempt/batch failure telemetry (2026-09-26, SL-84)
+
+Gate #16 turns 8-14 answered every compile/route/consequence/admission-fast-path call `status: unavailable, reason: jev_service_error` in 200-440 ms with no row anywhere naming which HTTP status, or which network/timeout code, the typed family actually saw; the adapter's own `AdapterTrace` (`attempt` with `status`, `retry` with `reason`, `failure` with `code`) was emitted to a callback nothing subscribed. The product degraded correctly (§32.2's fail-closed admission, the incumbent path elsewhere), which is exactly why the outage went unnoticed without the triage's route column.
+
+Every Jev attempt that fails now writes one telemetry row `{lane: "jev", event: "attempt_failed", family, status (HTTP) | code (network/timeout), retry: n, ms}`, where `retry` is the number of attempts already made before this one (0 on the first attempt) and `ms` is that attempt's own round-trip time. A batch that exhausts every attempt additionally writes `{lane: "jev", event: "batch_failed", family, code, attempts}`, using the same closed `DecisionResult.failure.code` enum already in this section's shared-contract table. A rate-limit response (429) also carries the raw `retry-after` header text as `retry_after` when the provider sent one. No request or response content -- state, questions, answers, or the raw provider body -- ever reaches either row; only family, status/code, retry count, timing and, for a 429, the retry-after header text.
+
+`DecisionResult.failure` gains an optional `status: number | string`: the last attempt's HTTP status when a response was ever received, or its network/timeout code otherwise (absent when the batch never dispatched at all, e.g. `disabled`/`unconfigured`/`packing_limit`/`schema_error` before transport). Every existing `jev_service_error`-shaped row -- the route/compile/reask telemetry, the consequence shadow route, and the admission fast path's `jev_fallback` -- carries this same value forward as `jev_status`, so a reason string that only ever said "the typed family failed" now also says with what status. This is telemetry only: no domain policy, threshold, or admission verdict reads `status`, and a batch's `code`/`status`/`reason` classification is unchanged by its presence.
 
 S0 is a bounded public-SDK seam probe, not S2's production TaskRuntime. The planner is a private lane of the configured Keeper role and receives exactly one private `submit_plan_packet` protocol tool for the strict semantic submission. That tool is not added to the normal global seven gameplay verbs, does not write player prose, and is not Workpad. A simple plan may instead return a direct draft through the private role response. The writer uses the existing `narrate`/`ask` role tools; there is no private `submit_delivery_draft` wrapper. Existing `message_end`, delivery-termination, and split-order guards remain authoritative. The writer receives only validated real observations. The host retains the complete private role transcript, typed artifacts, provider usage/accounting, read-dispatch trace, cancellation, audit evidence, and delivery result under existing privacy rules.
 
@@ -19765,7 +20126,13 @@ rules data (§136) or the session view can issue is no longer boss-only by const
   candidate, one `exists` Noul per family -- never the route/compile fan-out's own `need`/typed-feature questions,
   and never able to select or change what those choose), but under `COC_JEV_STEPS=shadow` (the default; SL-76) it
   is never executed: it is logged and paired at turn close with what the Keeper did on its own (`{lane: "route",
-  shadow: true, class, key, cleared, confidence, distribution, keeper_did}`). `COC_JEV_STEPS=on` (SL-78's acceptance)
+  shadow: true, class, key, cleared, confidence, distribution, keeper_did}`). The pairing compares handles, never
+  a display name to a handle (SL-83): a `capsule.mods.pending_contacts[]`/`relationships[]` row carries the
+  person's `handle` (the graph handle, the same identifier the first-impression `roll` receipt's `npc` carries)
+  beside its display-name `target`; `npc_reaction`'s `key` and `bound.target` are that handle, its `label` and
+  Noul keep the display name, and `keeperDidFor` matches `bound.target` against `roll.npc` (a display-name target
+  from a row without `handle` is resolved through the turn's own `person` receipts, `name` → `who`, first; one no
+  receipt this turn names cannot pair). `COC_JEV_STEPS=on` (SL-78's acceptance)
   runs a cleared one through the same `clerkStep` gateway as any other clerk candidate (§135.4); `off` builds none
   of the three. Thresholds (`row_min`, `row_ratio`) are `content/rulesets/coc7/host-budgets.json`'s `jev_steps`
   entry, the same shape as `ROW_MIN`/`ROW_RATIO` (§135.30.9.1), never a literal in the policy.
@@ -19809,6 +20176,120 @@ as a `PlanArtifact` in the run view (`view.plan`: the steps, each with `onSucces
 session start and before every run. `bin/pi-coc` also refuses to start the S0/TaskRuntime private roles
 (`PI_COC_JEV_S0=1`, or `PI_COC_TASK_RUNTIME=1` in play) together with `PI_COC_LOOP_ENGINE=hybrid-v1`, instead
 of starting them on the legacy loop under a hybrid startup record.
+
+#### 135.5.1 Addendum (2026-09-26, SL-88, "what needs no result does not wait"): blocking and non-blocking steps; the non-blocking batch shape
+
+**Evidence** (long gate #18, grok-build/grok-4.5 low, 20 turns, 881 s input-to-delivery). Keeper inference is 55% of the
+wall: 56 calls, 2.8 per turn, 9.3 s each (a fit over the 56 calls, R² 0.90: call time ≈ 1.44 s fixed + 19.3 ms per
+generated token, ≈ 52 tok/s, generated includes reasoning, + 0.047 s per 1k uncached input). The Keeper issues one tool
+per call and waits: typical turns are `apply → narrate` or `apply → resolve → apply → narrate`; 18 standalone `apply`
+calls generated 7,092 tokens (≈ 382 each incl. reasoning) to say nothing at all. A clue reveal, a move, a time advance, a
+person staged -- their landing is fixed by their own arguments the moment the Keeper writes them, yet the Keeper paid a
+whole extra model step (fixed cost plus a fresh reasoning pass, ≈ 3–5 s) to write the prose it could have written
+alongside them.
+
+**Owner ruling (2026-09-26).** Anything that does not block does not wait. A step *blocks* only when the prose depends on
+a result the Keeper cannot know in advance from its own arguments: `resolve` (the roll's outcome, decided by dice),
+`look`, `lookup` and `recall` (information the Keeper has not read yet). Every other write is *non-blocking*: an `apply`
+whose landing is fixed by the arguments it carries -- a clue named, a move to a named destination, a time advance of a
+stated number of minutes, an item or handout given, a threat clock moved -- needs nothing back before the Keeper can
+narrate it, because the Keeper already knows, from its own call, exactly what it did.
+
+**The batch shape.** The normal shape of a batch, once nothing left in the turn is blocking, is one message:
+`[non-blocking write, non-blocking write, …, narrate]` -- every non-blocking write the turn still owes, in the order they
+happen, then the `narrate` that describes all of them, last, in the same model response. This section changes nothing
+about §135.5's own rules: the calls of one model response are still the Keeper's batch, they still run in their order,
+a step still fails when it is refused or a `resolve`'s check fails, and the steps after a failed step are still answered
+as not executed, with the run's next step still `infer(adjudicate)` reason `batch_fallen`. A `resolve`, `look`, `lookup`
+or `recall` may still sit anywhere in a batch, including just before a `narrate` -- nothing here refuses that shape or
+any other, because the distinction is guidance to the Keeper (stated in the `apply`/`narrate` tool descriptions and the
+turn-flow guidance, §135.11.1/§135.11.2's `SILENT_WRITES`/`CLERK_NOTE_HEAD`), never a host gate. §32.12.4 gives the
+admission side of the same ruling: the write steps of one such batch are reviewed concurrently, not one after another.
+
+**What a narrate in this shape cannot do.** A `narrate` that shares a batch with the writes it describes has not seen
+their results -- the writes' own `markers` are returned only when their tool call answers, which the Keeper's *next*
+turn to read would be, not this one. §34.13's addendum gives it another way to mark where a mechanic happened: an effect
+key naming the kind and the handle it itself wrote, which resolves to that write's receipt without needing the marker
+back first.
+
+**Three ends (§31).** *Writer:* none in the product -- this section is guidance, read by the Keeper model, never enforced
+by a host gate. *Reader:* the Keeper, from the `apply`/`narrate` tool descriptions and `SILENT_WRITES`/`CLERK_NOTE_HEAD`.
+*Actor:* the Keeper, who chooses the batch shape; the operator, reading `lane: "provider-call"` and `coc-clerk` note rows
+for calls per turn and wall time (the gate #21 acceptance below).
+
+*Tests* (`tests/extension/narrate-non-blocking-batch.test.mjs`, fake pi, the emitted kernel): a batch
+`[apply clue, apply time, narrate {{clue:x}}]` lands both writes, resolves the effect-key marker to the clue's receipt,
+and delivers in one model step; a batch whose first write is refused leaves the `narrate` of the same message not
+executed and returns the run to the Keeper (`batch_fallen`), exactly as §135.5 already required; a batch carrying a
+`resolve` before its `narrate` still runs to completion (guidance only, no host refusal). *Acceptance* on a live table
+(gate #21, grok-4.5 low, the ticket's own number): Keeper calls per turn ≤ 2.0 (from 2.8); median wall ≤ 40 s (from 49 s);
+≤ 60 s on 20 of 20 turns.
+
+#### 135.5.2 Addendum (2026-09-26, SL-92, "apply carries the narration that closes the turn"): `apply` takes an optional `narrate` -- one tool call where the model insists on one
+
+**Evidence.** §135.5.1's own batching guidance did not make the model batch: long gate #21 ran it live (grok-4.5 low,
+same Keeper and lanes as gate #18) and measured `[apply…, narrate]` batches at 4 (from 1 with no guidance at all) against
+standalone `apply` calls at 20 (from 18) -- Keeper calls per turn held at 2.8, unchanged. The model emits one tool call
+per message as a habit guidance does not reach; each separate `narrate` call after a non-blocking write still costs
+≈1.4 s fixed plus a fresh reasoning pass (≈160 tokens at ≈52 tok/s) plus prefill, ≈4-5 s a turn that a batched call would
+not pay. The fix §135.5.1 could not be is at the tool's own shape: give the model one tool call to make, not two to
+remember to combine.
+
+**Owner ruling (filed for the owner from gate #21; the owner approved the aim, "不需要等结果的写入和 narrate 合进同一次调用" --
+the same ruling that opened §135.5.1).** `apply` gains an optional `narrate` field: the same shape and rules as the
+`narrate` tool's own `text` (play_language, `{{marker}}`/`{{kind:handle}}` placement per §34.13.1, `{{say:Name}}…{{/say}}`
+spans). When present, the host settles the apply's own lines exactly as §135.5 already does -- admission, the kernel,
+receipts, the failure branch unchanged -- and only once every line landed does it run the `narrate` text through the
+same path the `narrate` tool itself uses: rendering, marker resolution, the narration audit, delivery, turn close. One
+model call closes the whole turn. If any line was refused, or the narration audit refuses the embedded text, nothing is
+delivered: the Keeper reads the refusal exactly as an explicit `narrate` call's own (§34.14: only a rendered delivery
+counts), and the effects that did land already stand -- they are not undone, and are not re-attempted by resending the
+call. `resolve`/`look`/`lookup`/`recall` gain no such field; §135.5.1 already makes them blocking, so there is nothing
+of theirs for a later call to carry. The standalone `narrate` tool is unchanged, for a turn with no write to carry it.
+
+**How it is the same path, not a parallel one.** `extensions/kernel/index.ts`'s `runTool` is the one function every
+tool call -- model-issued or policy-issued -- runs through (`createCanonicalOperationDispatcher`'s `execute` stage is a
+bare passthrough to it, §32's own dispatcher). An `apply` whose every line lands, and that carries `narrate`, calls
+`runTool` again, recursively, for a synthetic `narrate` call under `${toolCallId}:narrate` -- never a hand-written
+second implementation of rendering, the audit, or delivery. The recursive call is indistinguishable from an ordinary
+model-issued `narrate` to every seam that matters: `createCanonicalOperationDispatcher`'s per-call frame is populated
+only by a policy-origin's own `bindReadScope`/`bindIncumbentScope`/`dispatch`, never by a plain model call, so a
+synthetic id that was never registered reads exactly as an ordinary Keeper call does (`hostOrigin`, `tracksMutation`,
+`requireCapability`, `beforeKernelInvoke`, `bindKernelCallId` all no-op or default exactly as they already do for the
+Keeper's own top-level calls). The embedded narrate's own success path runs `applyToolSuccess(state, "narrate", …)`
+unchanged, so `state.closedThisRun`, `state.renderedText`, `state.deliveredTurn`, the mechanics/commit/standing
+projections and the narration audit's own post-delivery review all land exactly as they do for an explicit call; the
+one correction the host makes afterward is `state.deliveryToolCallId`, restored to the outer apply's own toolCallId (the
+one the transcript actually shows), since the synthetic id never appears there. A refusal from any stage the recursive
+call reaches -- admission, the kernel, the narration audit -- returns the same `{content, details: {coc_error}}` shape
+an explicit `narrate` call's own refusal would, which the outer `apply` call then reports as its own refusal (with the
+already-landed effects still named in the result), so `extensions/kernel/index.ts`'s `finalizeOperation` (`tool_result`)
+marks it `isError` and the refusal budget (§34.12) counts it exactly as a refused `narrate` would be counted.
+
+**What the driven run is told (`runtime/jev/hybrid-engine.ts`, `modelStep`).** `DELIVERY_VERBS` named only the two real
+delivery verbs (`narrate: 'accepted'`, `ask: 'awaiting_player'`); an `apply` whose result now carries
+`narrate_in_apply: true` is read beside it, so the run's own delivery bookkeeping (`closeConsequences`, the step's
+`delivery` field the driver reads to end the run `delivered`) treats it exactly as an explicit `narrate` would, never as
+a plain write that leaves the run still waiting on a delivery it already has.
+
+**Telemetry.** `{lane: "delivery", reason: "narrate_in_apply", ok, call_id}`: `ok: true` when the embedded narrate
+delivered, `ok: false, code` when it was refused. Every other admission/kernel/narration-audit row this call reaches is
+unchanged -- the two writes it does (`table.apply`, then `table.narrate`) are the ones the kernel has always taken,
+recorded exactly as it already records them.
+
+**Three ends (§31).** *Writer:* `runTool`'s own recursive call (the same writer as an explicit `narrate`, on a synthetic
+id). *Reader:* `modelStep`'s `narrate_in_apply` check; `finalizeOperation`'s `coc_error` check. *Actor:* the Keeper, who
+now has one tool call to make where it used to need two; the operator, through the `narrate_in_apply` telemetry row and
+the unchanged `table.apply`/`table.narrate` kernel rows underneath it.
+
+*Tests* (`tests/extension/apply-narrate-combined.test.mjs`, fake pi, the emitted kernel, the hybrid engine): `apply
+{effects, narrate}` settles the effects and delivers the narrate in one model step, closing the turn (an effect-key
+marker naming one of the same call's own effects resolves in it); a refused effect leaves nothing delivered, the
+refusal returned to the Keeper, and the run's failure branch (§135.5) unaffected by the embedded text ever having been
+written; a narration-audit refusal of the embedded text is reported the same way an explicit `narrate` call's own
+refusal is, with the landed effects still named in the result; an `apply` with no `narrate` behaves exactly as before
+(no embedded dispatch, no `narrate_in_apply` telemetry). *Acceptance* on gate #22: Keeper calls per turn ≤ 2.0;
+`narrate_in_apply` deliveries ≥ 8 (the ticket's own numbers).
 
 ### 135.6 Read first, re-read after a scene change; the prescreen is the run's read
 
@@ -20409,6 +20890,343 @@ move and whose Keeper's only reply is one say span is floor-steered once (not de
 `reason: "speech_only"`), a second leg with prose delivers, a second leg that brings nothing delivers the held
 say-only draft, and a reply with prose beside the say span delivers on the first leg; an explicit `narrate` of the
 same shape is unchanged, because the check never runs on that path.
+
+##### 135.11.4.1 Addendum (2026-09-26, SL-93, "one floor for every delivery path"): the explicit `narrate` and `apply.narrate` join the implicit close
+
+**Evidence** (long gate #22, `longgate22-haunting-1448`, `d64c7a7c4`, Keeper grok-4.5 low; filed P0, batch 17, because a
+placeholder reached the player). Turn 1: `apply {effects, narrate: "text thriftily-placeholder"}` — the effects
+landed, and the embedded narrate delivered that twenty-six-character fragment verbatim as the whole turn
+(`narrate_in_apply: true`, `closed_how: explicit`); the Keeper's real intent sat in the text beside its tool calls
+("受理委托与抵达已由书记结算。正在补登钥匙、称呼…"), dropped as `text_beside_tool_calls` and never recovered. Turn 8:
+`apply {effects, narrate: "text"}` delivered "text". This section's own floor (SL-80) runs only where `message_end`
+builds the implicit close (`toolCallsThisTurn === 0` or a speech-only draft): an explicit `narrate` call and
+`apply`'s embedded one both go through `runTool` directly and never meet that check, so four characters of prose
+passed every other gate — there is no admission for `narrate`, the Mod hooks ran on text that was about to be
+discarded, and the narration audit checks claims, not omissions — and delivered.
+
+**The ruling.** The floor is a property of the delivery, not of which of the three paths produced it. One shared
+structural count, `proseCharCount` (`extensions/kernel/unwrapped-speech.ts`), reads the draft the same way
+`isSpeechOnlyDraft` already does — `speechPass`'s own §40.1 repair, then every `{{...}}` token removed, a mechanics
+marker and a say span's open/close tokens alike, the spoken words a say span wraps left standing — and counts what
+is left in Unicode code points. That is exactly the shape of the kernel's own `rendered_text` (`stripMarkers`,
+`kernel-ts/write/text.ts`: `SAY_TOKENS` removes only the token, never the words between them), so the host
+anticipates the kernel's own rendering without waiting for a receipt to bind against. The threshold,
+`delivery_floor.min_prose_chars` in `content/rulesets/coc7/host-budgets.json` (default 40; never a word list, a
+structural length only), is read once per process through `runtime/jev/host-budgets.ts`'s `deliveryFloorBudget` —
+the same file and the same cached-promise shape `jevStepsBudget` and `firstStepThinkingBudget` already use — and
+compared against that count on all three paths:
+
+- **Implicit** (`message_end`, unchanged location). The existing `toolCallsThisTurn === 0 || speechOnly`
+  disjunction gains a third, `belowFloor`, computed from the same `prose` the speech-only check already reads
+  whenever the turn's steer is still unspent. `speechOnly` keeps its own `reason: "speech_only"` even on a draft
+  that also happens to be short — SL-80's own case is not retired by this one — and a draft that clears `speechOnly`
+  but not the count is `reason: "below_floor"`, carrying `path: "implicit"` and the count; the classic no-tool-call
+  turn keeps its unreasoned row when nothing else explains why it fired.
+- **Explicit `narrate` and `apply`'s embedded one** (`runTool`, `extensions/kernel/index.ts`). Both run through the
+  same code, because the embedded call is `runTool` calling itself recursively on a synthetic id (§135.5.2) — so
+  one check, placed once, at the top of `narrate`'s own try block (after the standing-defense recovery and the
+  continuity-review-unavailable checks, before admission, attribution or any Mod hook spends anything on a draft
+  that is about to be refused), covers both. It is skipped once the turn's one steer is already spent (a second
+  leg below the count still closes the turn, never stranding it) and while this call closes the opening
+  (`closesOpening`), the same exemption the implicit floor and the beginner's fold already read. Below the count,
+  the host sets `state.deliveryFix = {kind: "floor", text: FLOOR_STEER}` (the identical text §135.11's own
+  turn-close steer already sends) and throws a `needs` refusal (`details.reason: "below_floor"`, `chars`,
+  `min_chars`, `fix` carrying `FLOOR_STEER`'s own text) before the kernel is ever called: a genuine tool call needs a
+  result, and `table.narrate` must not be asked to commit a delivery the host is about to discard.
+  - This path never reaches `takeTurnCloseSteer`/`turn_close` the way the implicit close does. A batch that made a
+    tool call — refused or not — is not "no pending model proposals", so Pi's own agent loop simply hands the
+    refusal back to the Keeper and asks it again in the next step; the steer is the refusal's own `fix` field, read
+    directly, not a `coc-host` message. Because of this, the one-steer budget (`state.steeredThisTurn`) is set
+    `true` here synchronously, the moment the floor refuses — not deferred to a `turn_close` that this path may
+    never reach. Without it a Keeper that kept writing short drafts would be refused every time, never once, and a
+    turn could run short of the floor forever instead of being closed after one steer.
+  - For the **explicit** call this refusal reaches the Keeper exactly as a `repeated_line` or a narration-audit
+    refusal already do: an `isError` tool result, counted by the ordinary refusal budget (§34.12; `narrate` is
+    never shut by it) under its own class (`narrate`, `needs`, `below_floor`).
+  - For **`apply.narrate`** the recursive call's own refusal becomes `embedded.details.coc_error`, which the
+    existing SL-92 branch (`if (embeddedError)`) was already built to carry: `narrate_in_apply: false`, the effects
+    already landed still named in the result, and a message prefixed "This apply's effects landed and stand." — the
+    writes stand, only the embedded narrate is refused, and the refusal says what landed.
+- **Once the steer is spent**, `state.steeredThisTurn` guards every one of the three checks above the same way it
+  already guards the implicit floor and the speech steer: a second leg below the count still delivers, because the
+  alternative is a stranded turn.
+
+Telemetry: `{lane: "floor", reason: "below_floor", path: "explicit" | "embedded" | "implicit", chars}` (plus
+`min_chars`, and, for the implicit path, the existing `steered`/`round_trips`). The refused explicit/embedded call
+also leaves the ordinary tool-refusal row (`ok: false, code: "needs", reason: "below_floor"`) `finalizeOperation`
+already writes for any `coc_error`.
+
+`apply`'s own `narrate` field description (`extensions/kernel/tools.ts`) now says the field carries the turn's
+complete closing prose and is omitted when the Keeper means to narrate separately, on the same rules and the same
+floor an explicit call reads.
+
+**Three ends (§31).** *Writer:* `proseCharCount`'s structural read of the draft; `runTool`'s own
+`state.steeredThisTurn`/`state.deliveryFix` assignment before its throw (explicit/embedded), `message_end`'s
+`belowFloor` disjunct (implicit). *Reader:* `takeTurnCloseSteer`, unchanged, for the implicit path; Pi's own
+tool-refusal retry loop for the explicit/embedded path, which reads the refusal's `fix` field. *Actor:* the Keeper,
+whose second leg — however it arrives, an explicit `narrate`, an `apply.narrate`, or prose closed implicitly — is
+honoured however it comes, exactly as the implicit floor and SL-80's speech-only check already promise.
+
+*Tests* (`tests/extension/delivery-floor-every-path.test.mjs`; `proseCharCount`/`deliveryFloorBudget` directly, no
+table; the real `apply`/`narrate` tools over the emitted kernel and the hybrid engine; the fake kernel and the
+hybrid engine): `apply {effects, narrate: "text"}` lands the effects, delivers nothing, one floor steer
+(`path: "embedded"`, `chars: 4`; `chars: 0` since §138.1 removes `text` as the serialization's label before the floor counts), and the apply's own tool result names the landed effects; a second leg with real
+(40-plus-code-point) prose delivers; an explicit `narrate {text: "text"}` is steered the same way, its own refusal
+carrying `FLOOR_STEER`'s text as `fix`; once the steer is spent a second, equally short draft still closes the turn
+(never stranding it); a 40-plus-code-point Chinese draft delivers on the first leg on both the explicit and the
+embedded path; lowering or raising `delivery_floor.min_prose_chars` in a fixture content root (a symlinked overlay
+of the real `content/`, with only `rulesets/coc7/host-budgets.json` replaced) changes which of these delivers,
+proving the threshold is read at the actual use site and not a literal folded into the check. The existing
+floor/SL-80 suites (`single-loop-turn-close.test.mjs`, `unwrapped-speech.test.mjs`, `apply-narrate-combined.test.mjs`,
+`narrate-non-blocking-batch.test.mjs`, `gates.test.mjs`) were re-run in full; several of their own narrate fixtures
+were placeholder text under the new floor for a reason unrelated to length (batching, refusal-budget counting,
+runaway-abort accounting, an audit-refusal stub, a look-budget notice) and were lengthened past 40 code points
+without changing what each test is about, noted at each site; the opening's own exemption
+(`gates.test.mjs`'s "开桌回合") and the two implicit-path SL-80 tests that rely on a genuinely short say-only draft
+were left as they were.
+
+**Re-scoped at integration (2026-09-26): the length floor is `apply.narrate`'s alone.** Merged into line-2 at `92a8b0b42`,
+the every-path floor turned the box suites red: ext 118 and loop 23 failures, found by the load-proof worker at `3d9204520`.
+Their common cause was not stale fixtures but legitimate short prose. `turn.test.mjs`'s ordinary question
+"门厅很安静，你准备怎么做？" (13 code points) is a line a Keeper writes on purpose. Both placeholders in the evidence were
+in `apply.narrate`: the optional field was filled when the Keeper meant to narrate separately, and its text beside the
+calls said so.
+
+The floor therefore runs only under `narratePath: "embedded"`.
+- An explicit `narrate` and the implicit close keep exactly their SL-80 rules (no tool call, or a speech-only draft)
+  and no length check.
+- `apply.narrate`'s schema description says a short stand-in is refused and the field is omitted when the Keeper will
+  narrate separately.
+- The data knob, the one-steer budget spent at the refusal, the never-strand rule and the telemetry row
+  (`path: "embedded"`) are unchanged.
+
+Tests in `delivery-floor-every-path.test.mjs`:
+- The explicit-path steer test now asserts the short explicit line delivers on its first leg. The mutation of dropping
+  the `embedded` condition turns it red.
+- The spent-steer test and both knob tests run on `apply.narrate`.
+- The fixtures lengthened earlier stay long; they are harmless.
+
+#### 135.11.5 The turn record says when the player first sees the turn's prose: `first_prose`, `durations.firstProseMs`, `firstProseVia` (2026-09-26, SL-94)
+
+**Why.** Owner, 2026-09-26: the latency target is 60 s from the player's input to **the first character of the prose
+the player finally sees** -- not the whole text finishing. The App's turn record (`telemetry/turns.jsonl`, written by
+`Electron/packages/pi-backend/src/turn-telemetry.ts`) could not say it. `ttftMs` is the first provider stream event
+(thinking or a tool call), `first_text` is the first `text_delta`, and a PipiCOC turn's story travels in a `narrate`
+(or `apply.narrate`) tool argument that no `text_delta` carries. The long gates measure the metric from the driver's
+`events.jsonl` (#22: median 29.7 s, max 53.0, 20/20 under 60); real play in the App had no number.
+
+**The record.** Three additions, host-owned and measurement only:
+
+- the phase `first_prose`;
+- `durations.firstProseMs`: `host_received` to the first moment in this turn the backend streams to the renderer prose
+  that stays on screen;
+- `firstProseVia`, top level beside `durations`: `"mechanics" | "host" | "text"`, the road that prose took. The
+  serializer writes it only as one of those three words.
+
+A turn with no prose carries none of the three: absent, never 0. Only the first counts, and later prose never moves
+it. One refinement follows from rule (c): a streamed text is known to be kept only at its `message_end`, but it was on
+screen from its first delta, so the mark is the earliest time any counted prose was on screen. `firstProseMs` may
+exceed `turnMs`: a host placement projected after the settle is still this turn's prose (see the hold below).
+
+**Where the mark is taken.** At the backend's stream seam, `PiHostBackend.stream(event, row?)`, the one function that
+forwards to the renderer. Never from the raw pi events `observeRpc` reads: the host decides what is forwarded.
+`mechanicsEntry` can return nothing (every row keeper-only and no say span), presentations are deduplicated by entry
+id, a redraw replaces a card in place, and host deliveries are projected asynchronously from the transcript. An
+`entry_appended` whose `marked_text` the host never forwards put no prose on the screen.
+
+**What counts.** Decided by structure, never by reading the words (`src/first-prose.ts`, `proseArrival`):
+
+- **(a) `mechanics`.** A `presentation` whose `entry.presentation.renderer` is `coc-mechanics` and whose
+  `details.marked_text` or `details.rendered_text` is non-blank. Those are the two fields `pipicoc/mechanics.js` draws
+  as prose (`:1260`, `:1262`); `mechanicsEntry` carries only `marked_text` (`coc-view.ts:492-493`). A mechanics-only
+  card has neither and does not count: a roll or clue card from a non-delivery tool, §50's `undelivered: true` card,
+  a worldline fork card.
+- **(b) `host`.** A `presentation` of a host-placed row (`placedByHost`, §83) whose transcript row is not a §55
+  service notice. A notice is told apart by shape: a `coc-delivery` row whose `details` carry any key besides
+  `coc_delivery` and `turn`. Every notice names its subject with a flag of its own (`provider_outage`,
+  `turn_unfinished`, `review_unavailable`, ...); the §8 `placed_by_host` fallback, which carries the turn's own prose,
+  is `{coc_delivery: true, turn}` and nothing else (`extensions/kernel/index.ts:5837`). This is the complement of the
+  driver's closed set (`tests/play/driver.py`, `NOTICE_DETAIL_KEYS`): the same answer on every row the extension
+  writes today, and a notice added later without being registered anywhere is left out, never counted as prose. The
+  setup opening (`coc-setup-opening`) is the prologue, not a notice; it is placed at `session_start`, outside any
+  recorded turn.
+- **(c) `text`.** Assistant text, because a PipiCOC session renders it (evidence below):
+  - text the host keeps at `message_end` counts from its first non-blank delta;
+  - text replaced by non-blank text (`replace: true`) counts at the replace emission;
+  - text replaced by nothing never counts.
+
+A presentation counts only on its first projection. The two call sites that draw a row for the first time
+(`entry_appended` and `projectHostDeliveries`) pass that row to `stream`; a redraw in place (`startDeliveryPresentation`,
+`noteCardRow`, §132) passes none and never counts. That is what keeps an earlier turn's card, redrawn by a patch or a
+projection lane during this turn, out of this turn's number.
+
+**The hold.** A host delivery arrives as a custom `message_end` and is streamed after an asynchronous read of the
+transcript (`projectHostDeliveries`), while the `agent_settled` behind it can terminalize and flush the turn first: the
+§8 fallback is placed from `agent_end`, just before the settle. The backend therefore holds the turn's flush on that
+projection (`holdForProse`). A flush requested meanwhile waits until the projection settles, at most
+`TURN_TELEMETRY_PROSE_HOLD_MS` (2 s). The next turn's dispatch does not wait: the settled turn steps aside and is written
+when its projection settles, and a host placement streamed meanwhile is still its prose, never the new turn's. A fence,
+a teardown or `close` writes it at once.
+
+**Does a PipiCOC session render assistant text? Yes, so (c) applies.** Line numbers are at `b8079e9c1`.
+
+- The host forwards every `text_delta` as a `text` stream event (`Electron/packages/pi-backend/src/index.ts:6624-6633`)
+  and reconciles at `message_end` by diff: `replace: true` when the final text does not continue what streamed,
+  otherwise the missing tail (`:6739-6753`).
+- The renderer appends and replaces (`Electron/packages/ui/src/transcript-model.ts:692-731`) and draws each text
+  segment as Markdown (`AssistantTranscriptContent.tsx:210-211`), reached for every assistant row that is not a
+  presentation (`Transcript.tsx:353`). No PipiCOC switch hides it.
+- The only fold is `foldMarkedDeliveries` (`transcript-model.ts:231-243`, applied at `Transcript.tsx:162`): an
+  assistant row whose text equals a `coc-mechanics` card's `marked_text` with its markers removed is dropped, because
+  that card already draws it. The kernel sets `marked_text` only when the Keeper placed a marker or a say span
+  (`kernel-ts/write/delivery.ts:20`). A delivery with neither reaches the screen as the assistant message the
+  extension rewrites to `rendered_text` at `message_end` (`extensions/kernel/index.ts:5724-5734`), or through the §8
+  fallback. The card that folds a plain copy is appended before that copy arrives (during the `narrate` call, or inside
+  the `message_end` hook before Pi emits the event), so the fold never hides a copy that was the first prose.
+
+**Reported, not fixed: the Keeper's text beside tool calls is shown, then dropped.** This is a player-visible leak.
+
+- Pi emits each `message_update` to extensions and then to its RPC listeners as it streams
+  (`Electron/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js:363-366`). The kernel extension
+  hooks `message_end` only (`extensions/kernel/index.ts:5405`), so nothing holds a text delta back.
+- The host streams it at once (`index.ts:6624-6633`) and the renderer draws it (`transcript-model.ts:702-731`,
+  `AssistantTranscriptContent.tsx:210-211`).
+- Only at `message_end` does the extension strip the text from a message that carries tool calls
+  (`extensions/kernel/index.ts:5495-5505`). The host then streams `replace: true` with an empty delta
+  (`index.ts:6741-6742`), and the renderer deletes the segment (`transcript-model.ts:692-700`).
+
+So text like #22 turn 1's "受理委托与抵达已由书记结算。正在补登钥匙…" is on the player's screen from its first delta
+until that message's `message_end` hook returns: through the rest of the tool-call arguments and the hook's own work.
+This section does not count it (rule (c): replaced by nothing) and does not fix it. Hiding it is a separate ticket.
+
+**Three ends (§31).** *Writer:* `PiHostBackend.stream` through `proseArrival`, plus the `message_end` settle for kept
+text and the hold on host projections. *Reader:* `buildRecord`, into `turns.jsonl`. *Actor:* the owner and the
+integrator, who read `firstProseMs` against the 60 s target. Nothing feeds it back to the Keeper or the table.
+
+**Unchanged.** `ttftMs`, `first_text`, `performance`, `SessionPerformance`, every byte the renderer receives, the UI and
+the extension.
+
+*Tests.* `Electron/packages/pi-backend/test/turn-telemetry.test.ts`: the earliest prose wins and a later one never
+moves it; a kept text counts from its first delta and a replaced one at its replacement; a turn with no prose has none
+of the three fields; a held flush waits for the projection, the hold is bounded, and a placement projected after the
+next dispatch belongs to the turn that placed it; the serializer writes `firstProseVia` only as one of its three words;
+a maximal record stays inside the 4 KB bound. `test/turn-telemetry-first-prose.test.ts`: the classifier on each shape, and the live seam through
+`rpcEvent` -- a `narrate` card sets `mechanics` at its presentation with `ttftMs` unchanged; a no-prose card before it
+does not; a card the host never forwards does not; host prose sets `host` and a service notice does not; kept text
+counts from its first delta, text replaced by prose counts at the replace, text replaced by nothing never counts; an
+earlier turn's card redrawn by a patch does not count.
+
+#### 135.11.6 The Keeper's text is available, not read to the player: a message's text is folded until that message ends (2026-09-26, SL-95; applies §93 to assistant text)
+
+**Evidence.** §135.11.5 found the path: the host forwards every `text_delta` at once, the extension strips text beside
+tool calls only in its `message_end` hook, and the host then sends `replace: true` with an empty delta. Long gate #22
+(`longgate22-haunting-1448`): 11 assistant messages carried text beside tool calls across the opening and 20 turns, and
+that text was on the player's screen for a median of 5.5 s, max 14.6 s. It was Keeper bookkeeping and, once, a module
+spoiler: a line naming the floating-knife threat before the player had met it. The same window held for every draft a
+`message_end` hook drops or rewrites: the floor and speech steers (§34.6, §135.11.4, §40), a draft the narrate audit
+refuses (§34.14), a failed leg (§34.18), and a setup reply a guidance failure hides.
+
+**The owner's ruling (2026-09-26).** SL-95 was first implemented as a host hold (a bound session's text forwarded only
+at `message_end`). The owner did not merge it: it overrode the §22 correction of 2026-09-15, and chose §93's pattern
+instead, available and not pushed. The hold is kept, unmerged, on branch `claude/sl95-20260926` as the record.
+
+1. The host keeps streaming assistant text live exactly as before. Nothing is suppressed; §22's correction stands.
+2. Where the assistant keeps secrets (§93's structural boolean, `assistantKeepsSecretsFor`, never the content), the
+   renderer draws a message's text **while that message is still being written** inside a folded working card. Its
+   body is closed by default and one click opens it, the treatment §93 gives the Thinking body. It is not drawn as the
+   story. Its label says the Keeper is working, with the spinner, the way the Thinking card's label does.
+3. When the message ends, text it keeps is drawn as ordinary prose. Text the host removed (`replace: true`, empty)
+   disappears with its card, as before. Kept text the host replaced is drawn as the replacement. A history reading is
+   unchanged.
+4. A transcript whose assistant keeps no secrets (the base console) is unchanged: text opens and streams as prose.
+5. SL-94: in a bound COC session a text counts as first prose when it becomes prose, at its `message_end`, not at its
+   first delta. Sessions without a binding keep §135.11.5's first-delta rule. This is the only host change.
+6. Setup keeps secrets too (same product): the fold applies there.
+7. The label is a UI word with an English source, never a literal and never hand-translated (§23).
+
+**How the renderer knows a message has ended** (`unsettledTextIds`, `Electron/packages/ui/src/transcript-model.ts:202`).
+A live assistant row holds a whole turn; each message's activities carry that message's `segment` (the host's
+`messageEpoch`, which advances only at a `message_end`). A text activity is still being written unless one of three
+things the stream carries says otherwise, and nothing reads the words:
+
+- the row is no longer streaming (the turn settled, stopped or failed; every history row);
+- the host answered that segment's `message_end` with a replacement, which marks the activity `final`
+  (`:747`); an empty replacement removes the activity, so the card goes with it;
+- a later message of the same row has begun: some activity of the row carries a higher `segment`.
+
+A `message_end` that changes nothing sends nothing, so that text leaves its card when the next message of the turn
+begins or the turn settles. The gap is the host's work between that `message_end` and the next event (the extension's
+`agent_end` and `agent_settled` hooks). It is not closed here: a per-message end marker would change what the host
+streams, which point 1 rules out. §135.11.5's number for such a text is the host's `message_end`, which can precede the
+card opening by that gap. An implicit narrate whose draft carries say or marker tokens always sends a replacement: its
+rendered text drops them (§40.1, §16.6), so it differs from the draft.
+
+**The replacement lands on the message's own row** (`applyStreamEvent`, `transcript-model.ts:695`). An implicit
+narrate appends its `coc-mechanics` card inside the same `message_end` hook, before Pi emits that `message_end`, so the
+card was the last assistant row when the replacement arrived. The replacement landed on the card, and the streamed
+draft, say tokens and all, stayed in its row until the turn's history reload. A `replace` now goes to the streaming row
+that holds that segment's text (it may cross a card, as a tool's own events already do), and falls back to the last
+row as before when there is none. The plain copy of a marked delivery therefore folds into its card live (§16.6's
+`foldMarkedDeliveries`), not only on the history reading.
+
+**The card** (`Electron/packages/ui/src/AssistantTranscriptContent.tsx:216-222`): an `ActivityCard` with the word as its
+label and summary, the same token-count meta as the Thinking card, `running`, `defaultExpanded={false}`, and the text as
+Markdown inside. It replaces the prose segment for that text only; steps, cards and settled text of the same row are
+drawn as before.
+
+**The word.** `transcript.keeper_working`, authored in `content/ui/en/transcript.json` ("The Keeper is working…"). The
+host already attaches the campaign's `ui` block to the `timeline.graph` answer (§23), so `App.tsx:3000` provides
+`timeline.ui.words.transcript` through `TranscriptWords` (`transcript-words.tsx`) inside the §93 provider, and the card
+calls `transcriptWord(words, 'keeper_working')` with the key written in place. No words draws an ellipsis and words
+without the key draw the key, `presentationWord`'s rule. `tests/extension/ui-words-surfaces.test.mjs` now scans the
+renderer for every `transcriptWord(…, key)` and `presentationWord(…, 'transcript', key)` and requires exactly the
+authored keys. The `zh-Hans` seed's word came from the presenter lane, run offline on the fast-model setting
+(`opencode-go/deepseek-v4.1-flash`, thinking off) with the transcript surface projected whole, and only the missing key
+harvested (the lane kept `loading` as shipped). A first run over every surface (549 captions, the seed being
+incomplete) ended after 85 s without writing its output; its cause was not established.
+
+**Setup.** `assistantKeepsSecretsFor` answers for the product (`assistant-secrets.tsx:39-41`), so a setup session is
+folded like play. The kernel extension has no table there and strips nothing (`extensions/kernel/index.ts:1364`,
+`:4406-4420`, `:5435-5436`); the onboarding hook removes every text block while a setup block hides text
+(`extensions/onboarding/index.ts:827-831`, `setupBlockHidesText` `:70-72`, set at turn start `:859` or at
+`create-campaign` `:732`). That removal reaches the renderer as an empty replacement, and the card disappears with the
+text.
+
+**SL-94.** `settleText(id, from)` (`Electron/packages/pi-backend/src/turn-telemetry.ts:693`): `first_delta` counts from
+the candidate's first delta as before; `settle` counts from now. `message_end` passes `settle` when the session has a
+COC binding (`Electron/packages/pi-backend/src/index.ts:6779`). A replacement with prose still counts at the replacement,
+which is the same `message_end`; an empty replacement still clears the candidate. The fold is keyed by the product and
+the telemetry by the binding, as ruled: a `coc-keeper` session not yet bound folds its text but counts it from its
+first delta.
+
+**Reported, not changed: a COC session renders the Keeper's thinking.** The host forwards every `thinking_delta` live
+(`index.ts:6656-6671`) and backfills a dropped tail at `message_end` (`:6789-6811`); history keeps it
+(`test/pi-backend.test.ts`, "retains thinking and tool activity when a bound COC history is reconciled"). The renderer
+appends it (`transcript-model.ts:779-811`) and draws a Thinking card whose body starts closed in PipiCOC
+(`AssistantTranscriptContent.tsx:247`, `defaultExpanded={live && !assistantKeepsSecrets}`, §93) and opens with one
+click, live and in history. It can carry Keeper-only content: the Keeper reasons over the capsule's module truth and
+nothing filters reasoning (§93's H-DETOUR t10: "Arty grants access" before the narration). Its visibility is the
+owner's decision; §93 made it available, not pushed, and this section gives the Keeper's text the same treatment.
+
+**Three ends (§31).** *Writer:* the host's stream (live deltas, the `message_end` replacement, the segment), §93's
+boolean and the `ui` block. *Reader:* `unsettledTextIds` and `AssistantTranscriptContent`. *Actor:* the player, who
+reads the story as prose and opens the working card only by choice.
+
+**Unchanged.** What the host streams, the extensions, thinking, tool cards and results, presentations, the history
+projection, the console, and `ttftMs`/`first_text`.
+
+*Tests.* `Electron/packages/ui/src/keeper-text-is-available-not-pushed.test.tsx`, on the real `Transcript` with the
+host's event shapes: beside-text is a folded card while its message streams, never prose, and gone after an empty
+replacement; implicit prose is folded while it streams and drawn as the replacement at its message end; unchanged kept
+text becomes prose when a later message begins or the turn settles; the body is closed, one click opens it, and the
+label is the play language's word (the key when missing, an ellipsis with no words); a setup reply folds and its
+removal takes the card; a console streams prose; a history reading is prose; the model names the unsettled text by the
+three ends; a replacement lands on the message's row behind its own card and the plain copy folds; through `App`, the
+graph answer's words label the card in PipiCOC and the console streams prose. `tests/extension/ui-words-surfaces.test.mjs`:
+the transcript surface's keys equal what the renderer asks for. `Electron/packages/pi-backend/test/turn-telemetry.test.ts`
+and `test/turn-telemetry-first-prose.test.ts`: a folded text counts at its settle and an earlier card still wins; a
+bound session's unchanged text counts at its `message_end`; an unbound session's kept text counts from its first
+delta. Mutations in the SL-95 ticket's Comments.
 
 ### 135.20 The read hands the Keeper the bodies of what it issued (2026-09-23, SL-11 scope 1; the model-call diet)
 
@@ -21262,6 +22080,76 @@ step (`run_end undelivered`, the §38.7 notice) without exhausting the session's
 `first_byte`, since no header ever arrived); `keeperCallCapMs(env)`'s own floor-vs-half-budget arithmetic,
 including an explicit-floor override. `tests/extension/vendored-pi.test.mjs` pins the series (patch `0004`
 alongside `0001`–`0003`).
+
+#### 135.29 addendum 2 -- with SL-74's flag on, the turn's first Keeper call sizes its own cap (2026-09-26, SL-82; amends this section's SL-69 addendum)
+
+**Evidence.** Long gate #14 (`longgate14-haunting-0509`, `docs/specs/pi-native-single-loop-tickets/
+82-first-step-thinking-sizes-its-own-cap.md`): `deepseek-v4.1-flash` with thinking pays roughly 35 s a call
+(gate #9); the turn budget's own SL-69 cap on that table was `max(20 000, 45 000/2) = 22 500` ms. Every
+stranded turn (t9/10/12/13/17/18/19/20) shows the same shape: four `200` responses about 25 s apart, "Keeper
+call timed out: exceeded its per-call cap of 22500 ms (phase: streaming)" ×11, then "… a second time" ×35,
+then `ask_llm unavailable` → `model_unavailable:no_delivered_evidence`. Delivered turns were the ones whose
+thinking call happened to finish under the cap. Gate #15, same build, with
+`PI_COC_KEEPER_CALL_CAP_FLOOR_MS=60000`: no cap stops on turns 1–2, both delivered (75 s / 65 s). SL-69's cap
+is sized from the table's ordinary turn budget; §38.7.1's flag (SL-74) deliberately buys the turn's first call
+a slower, thinking-on model at the cost of every later call in the same turn running faster with thinking
+off. SL-69's addendum did not know about that trade when it set one cap for every call of a table: the flag
+was creating a cost it did not also budget for.
+
+**The ruling (owner, 2026-09-25, filed as this ticket).** The flag owns the cost it creates. With
+`COC_FIRST_STEP_THINKING=1`, the first Keeper provider call of a turn (§38.7.1's `isFirstStepOfTurn`, `step
+<= 1`) is capped at `max(the ordinary SL-69 cap, a thinking-call allowance)` -- a named default,
+`content/rulesets/coc7/host-budgets.json`'s `first_step_thinking.call_cap_ms`, read by the same loader
+SL-76's `jev_steps` uses (`runtime/jev/host-budgets.ts`), shipped at `60000` from the measured ≈35 s call
+with headroom to spare (the same margin gate #15's floor override already proved sufficient). Every call
+from the turn's second onward keeps the ordinary SL-69 cap unchanged: by the time that call goes out,
+§38.7.1 has already turned its thinking off, so it runs at the pace the ordinary cap was sized for. The flag
+off leaves every call's cap exactly as SL-69 computed it -- this addendum changes nothing about a table that
+does not set `COC_FIRST_STEP_THINKING=1`. If the flag ever becomes a setting rather than an experiment, the
+run's own time budget (§135.25) must add the same allowance for its first call, so the compose step is not
+squeezed by a budget that never knew about the extra time thinking spends.
+
+**The mechanism.** SL-69 handed the vendored session one fixed `keeperCallCapMs` number at construction
+(`runtime/pi-hybrid.ts` → `createAgentSession`, vendored patch `0004`). Which call of the turn is about to go
+out is known only once the RunDriver's session has emitted that call's `turn_start` -- information the
+vendored `streamFn` seam does not have and must not be taught, since the whole point of the vendored patch is
+to add one narrow capability (a per-call cap) without teaching Pi's own code about the product's turn
+structure. So `CreateAgentSessionOptions.keeperCallCapMs` accepts a plain number (unchanged) or a zero-argument
+function returning a number or a `Promise<number>`; `sdk.ts`'s `streamFn` resolves whichever shape it was
+given fresh on every attempt, immediately before composing `watchCallCap` around that attempt -- a plain
+number behaves exactly as before this addendum, byte for byte. `runtime/jev/hybrid-engine.ts` supplies the
+function form only when the flag is on: it keeps its own `turn_start`/`before_agent_start` counter (the same
+events and the same reset/increment contract as `extensions/kernel/first-step-thinking.ts`'s
+`isFirstStepOfTurn` documents for the kernel extension's own `table.roundTrips`, tracked independently so this
+engine never reaches into the kernel extension's private state for it), and on each resolution reads the data
+file's allowance and returns `firstStepCallCapMs(true, step, keeperCallCapMs(env), allowance)`
+(`extensions/kernel/first-step-thinking.ts`'s new pure decision function, the natural home for it beside
+`disableStepThinking`/`isFirstStepOfTurn` since it answers the same "which call of the turn is this" question
+for the same flag). With the flag off, `createHybridEngine` returns the plain ordinary number exactly as
+before this addendum -- the per-call function is never built, so a table running without
+`COC_FIRST_STEP_THINKING=1` takes the identical code path SL-69 already shipped. The `keeper_call_cap`
+telemetry row (`onKeeperCallCap` in `hybrid-engine.ts`) gains a `step` field on every row, flag or no flag,
+since the engine already knows it and it costs nothing to record: which call of the turn a cap fired on was
+previously only inferable from row order.
+
+**Three ends (§31).** *Writer:* `runtime/jev/hybrid-engine.ts` (the per-call cap function, the `step` on the
+telemetry row), `extensions/kernel/first-step-thinking.ts` (the pure decision), `content/rulesets/coc7/
+host-budgets.json` (the allowance). *Reader:* the vendored `streamFn` seam, which resolves whichever shape it
+was handed without knowing why. *Actor:* the Keeper, whose one thinking-on first call is no longer measured
+against a budget sized for a thinking-off one; the player, who no longer strands on a turn whose only fault
+was the flag's own cost never being budgeted.
+
+*Tests.* `tests/extension/first-step-thinking.test.mjs`: `firstStepCallCapMs` unit-covered at the flag on/off
+and step 1/2/3 boundary (mirroring `isFirstStepOfTurn`'s own boundary tests). A host-budgets test proves the
+allowance is read from `content/rulesets/coc7/host-budgets.json`, not a literal (mutating the fixture file
+changes the resolved cap), with the shipped file's own default recorded. `tests/extension/
+keeper-call-cap-first-step.test.mjs`: `createHybridEngine`'s own `turn_start`/`before_agent_start` counter
+driven directly against a stub extension host proves the exposed `keeperCallCapMs` is the plain ordinary
+number (not a function) when the flag is off, and a function resolving to the allowance on step 1 and the
+ordinary cap on step 2 when it is on; a real-socket integration test (the `keeper-call-cap-integration.test.
+mjs` harness) proves the vendored seam itself accepts and freshly resolves a function value, including one
+that changes its answer between attempts, and that the `keeper_call_cap` telemetry row it writes carries
+`step`.
 
 ### 135.30 Routing asks what the player does: one compile per run reads the declaration into typed features, and predicates select the clerk's candidates (2026-09-24, SL-13; amends §135.1, §135.6, §135.7, §135.26)
 
@@ -23195,6 +24083,54 @@ reaction. The owner confirmed the clerk executes the act before compose (spec se
 
 **Stages.** `COC_JEV_STEPS=shadow` (default from SL-76): the classes are routed and logged with `shadow: true` and paired at turn close with what the Keeper did (`keeper_did`), never executed. `on` (SL-78, opened by SL-77's agreement report meeting the spec's D6 2a): cleared candidates execute as clerk steps through the one gateway (§135.4, §32.12), the loop re-routes after each, the projection lists them under "clerk did" (§135.8), and a `residual` row per turn counts the Keeper's own `apply/resolve/look/lookup/recall`. Stage 3 (SL-79, opened by two tables meeting D6 2b): the compose step's catalog narrows to `narrate`, `ask`, `say` and a typed `propose {key}` over the run's offered candidates; free handles cannot be written by construction. Jev never writes prose and never `ask`s (§135.11 unchanged).
 
+#### 135.32 addendum — execute mode is per class (2026-09-26, owner, after SL-77's three-table report)
+`COC_JEV_STEPS=on` executes only the classes named in `content/rulesets/coc7/host-budgets.json` `jev_steps.execute` (data, no literal); every other class keeps the shadow path (routed, paired at turn close, never executed). Opened for `clue_follow_up` (agreement 6/6 on three tables, false positives ≤ 1); `npc_reaction` (corrected 0.50–0.60) and `time_cost` (no candidate issued yet) stay shadow. SL-78 lands the switch, the re-route after an executed step, the "clerk did" line and the per-turn `residual` row.
+
+#### 135.32 addendum 2 — the execution point, the re-route, the projection line and the `residual` row (2026-09-26, SL-78)
+
+**The execution point.** The shadow route (SL-76) fires once, from `turnCloseStep`, deliberately after every model step of the turn -- fine for pairing (it reads what the Keeper already did), wrong for executing (a clue filed only there reaches no narration this turn). `COC_JEV_STEPS=on` instead routes the listed classes' D1 candidates (`jevStepsBudget().execute`, e.g. `clue_follow_up`) at every point in the run a write just settled -- the compile-selected clerk step (`clerkStep`'s own tail) and the Keeper's own `apply`/`resolve` (`modelStep`'s WRITE_VERBS branch) -- using the same fresh read that step already took (`freshOf`, no extra kernel round trip). For a compile-selected declaration this sits strictly before the run's next step, which for a settled declaration is the compose (§135.11 addendum, "the exit leans to finish"): the executed clue is on the clerk-did note the run prepends to that very compose call (§135.8), so the Keeper can narrate or reverse it in the same turn. Unlisted classes are never routed here; they keep the single turn-close call, byte for byte as `shadow` always ran it -- `off` and `shadow` call none of this and are unaffected.
+
+**The re-route.** Because a settled write is exactly what a `clue_follow_up` candidate's gate is evaluated against, executing one is itself a settled write: `clerkStep`'s tail calls the same execution point again after its own dispatch succeeds, so a clue an executed clue's own write unlocks (a `time_cost` shape reachable only once the clue is filed, or a further clue the kernel now offers) is offered without waiting for the next model step. This is the loop's whole re-route; it needs no new anti-loop gate beyond the ones already in force: a key `run.consequenceExecuted` (SL-76) already holds is never offered to execute twice in the same run (the same "material" -- the candidate's own kernel row -- clears the same question at most once); `maxSteps` and §135.25's run-time budget bound the turn as they always did, since the re-route runs inside one host step's own async body, never as an additional driven-run step; the run's own decision budget (§135.6/§135.25) is untouched, because the consequence route has its own lease, exactly as the shadow path always used. A finite scene offers finitely many clues, so the chain always terminates; a fixed round cap on the recursion (`CONSEQUENCE_INLINE_ROUNDS_CAP`, 12) is a circuit breaker only, never reached on a real table. A refused write (the gateway declines it) settles nothing and re-routes nothing.
+
+**The projection line.** No new mechanism: an executed D1 candidate is a clerk write like any other (§135.4), so it already lands on `run.clerkDid` and reaches the Keeper's `coc-clerk` note under "clerk did" (§135.8) with the rules-default line where one was taken (§135.28's `defaultLine`) -- `clue_follow_up`'s own bound parameters are `stated`/`composed`, so ordinarily none is defaulted. The Keeper reconciles the clue in the fiction or reverses it with a real operation of its own, unchanged from the 2026-09-23 ruling (§135.3).
+
+**The `residual` row.** Once per turn, at turn close, `COC_JEV_STEPS=on` only (never `shadow`/`off`, so their telemetry is unaffected): `{lane: "residual", turn, keeper_calls: {apply, resolve, look, lookup, recall}, compile_calls, clerk_calls, consequence_calls}`. `keeper_calls` counts the Keeper's own tool calls this turn by verb, attempted or refused (`modelStep`'s own counter: a free-text `apply`/`resolve`/`look`/`lookup`/`recall` the Keeper made on its own, the residual SL-78 measures); `compile_calls` every `purpose: "compile"` Jev decision the run asked; `clerk_calls` every policy-origin write the gateway saw this run (`run.clerkDid.length`, admitted or refused); `consequence_calls` the subset of those whose clerk authority was `consequence_bookkeeping` (SL-78's own executions, never the compile-selected `declared_bookkeeping`/`declared_check`/… ones). `turn` is the kernel's own turn number, `null` before the run's read has bound one.
+
+**Three ends (§31).** *Writer:* `clerkStep`'s and `modelStep`'s own tails (the execution point and the re-route), `decide` (the compile counter), `modelStep` (the keeper-call counter). *Reader:* the Keeper's `coc-clerk` note (the projection line, unchanged mechanism), `tests/play/jev-steps-report.py`'s new "residual" section (the row). *Actor:* the Keeper, who narrates or reverses an executed clue exactly as any other clerk write; the operator, reading the residual row per table to decide when Stage 3 (§135.32, SL-79) opens.
+
+**Tests.** `tests/extension/consequence-shadow-gate.test.mjs`: `consequenceKeysToExecute` executes a cleared row only when its class is in the `executeClasses` argument, `on` with an empty or omitted list executes nothing, `shadow` never executes regardless. `tests/extension/consequence-host-budgets.test.mjs`: `jevStepsBudget().execute` reads the data file's array, drops a non-string entry, falls back to empty on a bad shape, and the shipped file names `["clue_follow_up"]`. `tests/extension/consequence-execute-mode.test.mjs` (SL-78, engine seam, stub `DecisionPort` and stub operation-dispatcher gateway): a cleared `clue_follow_up` executes through the gateway and produces a receipt, appearing on `clerkDid`/the projection's "clerk did" before the compose note; a cleared `npc_reaction` never executes under `on` (only listed classes do); the residual row's shape and counts after a mixed turn; a decision-port or gateway outage mid-run leaves the run deliverable with no consequence step executed.
+
+#### 135.32 addendum 3 — the clue question's state names what "reach" means for this clue, and the class gets its own gate (2026-09-26, SL-86, filed from long gate #17)
+
+**Evidence.** Gate #17, `COC_JEV_STEPS=on`: 36 distinct (turn, clue) rows over 13 turns, cleared 2 (both filed by the Keeper, both right), false positives 0 (also 0/0/1 on #14/#15/#16). Seven false negatives the same table: the Keeper filed the clue the same turn while Jev's `yes` sat at 0.12-0.45 (`nailed-windows` 0.24 on "walk around the house, look at the windows, locks and the basement vents"; `catholic-wards` 0.12 and `upstairs-disturbance` 0.20 on "go in, room by room, kitchen first"; `gabriela-night-visitor` 0.37 on "find Gabriela and ask about the night they left"; `globe-unpublished-story` 0.39; `dooley-macario-madness` 0.45; `knott-macario-summary` 0.20). Four tables, ~140 clue rows: precision 1.0 at the row gate, recall ~0.2. Reading the book's own affordance behind the misses (`content/starters/the-haunting`, `scene-corbitt-house-ground`'s `survey-locks-bolts`/`listen-upstairs`/`inspect-catholic-wards`) shows the candidate's Noul never told Jev what the book's own cue for that clue says -- only the clue's `summary` (the fact the clue yields once discovered), never the affordance text describing the action that discovers it. Literal reading (jaggedness #1): the question was answerable only by inferring the unstated cue from the summary, so a paraphrase like "go in, room by room" scores low even when it is, in the book's own terms, exactly the right action. The cost asymmetry is the reverse of what the shared gate assumes: a wrongly filed clue is reversible by the Keeper with a receipt (§135.3, unchanged), a missed one costs a Keeper write the residual (§135.32 addendum 2) exists to remove.
+
+**The fix has two independent parts, each data or state, never a hard-coded classification.**
+
+1. **The question's state names the book's own cues.** `table.apply.options`'s clue row already carries them (§135.30.9.2's `description.cues`, the affordances of the active scene that grant this clue, read by `grantingCues` in `kernel-ts/read/destination-rows.ts`) -- no new kernel field: the gap was that `consequence-candidates.ts`'s `clueFollowUpCandidates` read only `description.summary` and never `description.cues`. It now carries them on the candidate's `detail` (`Candidate.detail`, never sent as a write argument -- `bound` is unchanged: `{kind: "clue", clue, how}`, so an extra field never reaches `apply`'s closed effect shape) and `consequence-route.ts`'s `candidateView` now includes a candidate's `detail` in the state exactly as the route/compile fan-out's own candidate view already does (`step-policy.ts`). The settled action's own place/object/person, as this run's receipts name them (labels, never ids), was already in the state (D2.3's `settled_this_run`); this addendum adds the clue's own side of "reach", not the settled side, which needed no change.
+2. **The Noul's criteria are structured `{what, examples}` / `{not_for}`** (the skill's Choice/Noul rubric, `primitives.md` "Structured instructions/criteria"), never a single sentence: `true` names what the settled action must do -- perform one of the book's own ways to reach this clue, at the place the book puts it -- with the affordance cues themselves as `examples` (real book text, not paraphrase); `false` is `not_for`: naming the place from afar, moving toward it without acting, or a different room, object or person than the ones the book names for this clue. `instructions` states the same boundary in full sentence form (jaggedness #7: instructions and criteria say the same thing). A clue whose scene authors no affordance cue (an older or thinner module) carries no `examples`; the question still asks against the summary alone, unchanged from before this addendum.
+
+**The class gets its own gate.** `content/rulesets/coc7/host-budgets.json`'s `jev_steps` gains `classes: {"<class>": {"row_min": <number>}}`: a per-class override of `row_min` only -- `row_ratio` stays the one shared value, because the ratio is about how peaked the answer is, not how cheap a miss is, and only the row's `row_min` needs to move for a class whose false-negative cost dominates its false-positive cost. A class not named in `classes`, or named with an out-of-range value, falls back to the shared `row_min`/`row_ratio` byte for byte, so a table with no `classes` key reads exactly as before this addendum. The shipped file opens `clue_follow_up` at `row_min: 0.35` (down from the shared 0.5), keeping `row_ratio: 2`; `npc_reaction` and `time_cost` are unnamed and keep the shared gate. `runtime/jev/host-budgets.ts`'s `jevStepsBudget()` reads `classes` alongside `execute`, and a new `thresholdsForClass(budget, class)` resolves the class's own `{rowMin, rowRatio}`, falling back field by field. `interpretConsequenceResult` (`consequence-route.ts`) takes an optional per-class threshold map and applies it to both a candidate's own row and its class's `exists` row -- the same semantic gate, asked twice.
+
+**Reporting.** `tests/play/jev-steps-report.py` gains a recall/precision section per class per table: for each class, the offered rows the Keeper filed the same turn (`keeper_did: true`) that Jev's row did not clear (a false negative), printed with the Noul's own `yes` probability (`confidence`) beside `precision = tp/(tp+fp)` and `recall = tp/(tp+fn)` -- the number this addendum's acceptance line reads. It is read-only over already-recorded telemetry (no live Jev call), so a report run against a campaign played before this addendum reads that table's historical `cleared`/`keeper_did` values under whatever gate was live when it was played; the recall bar for the *next* live table is what §135.32's D6 2b tracks.
+
+**Acceptance (pre-registered, unchanged bar from `docs/specs/jev-driven-steps.md` D6 2b for this class).** Precision stays >= 0.9 (unchanged: the class's false-positive cost has not changed, only its false-negative cost was found to dominate); recall on the next live table is read from this report's new section, not asserted here -- this addendum lands the mechanism (state + per-class gate + report field) that a live table then measures.
+
+**Three ends (§31).** *Writer:* `clueFollowUpCandidates` (`consequence-candidates.ts`, the candidate's `detail.cues`), `consequenceBatch` (`consequence-route.ts`, the candidate's `detail` reaching the wire state), `jevStepsBudget` (`host-budgets.ts`, `classRowMin`). *Reader:* Jev (the Noul's `criteria`/`state`), `interpretConsequenceResult`'s per-class gate, `tests/play/jev-steps-report.py`'s new recall/precision section. *Actor:* the operator, deciding from the next live table's recall/precision whether `clue_follow_up`'s gate needs a further move, or whether another class needs its own `classes` entry.
+
+**Tests.** `tests/extension/consequence-candidates.test.mjs`: a clue row whose `description.cues` names affordance text carries them on `detail.cues`, and the Noul's `criteria.true.examples` equals them; a row with no cues carries no `detail` and no `examples`; `bound` never gains a `cues` key (mutation: drop the cues from the row -- the candidate's `detail` and the Noul's `examples` both lose them, `bound` is unaffected either way). `tests/extension/consequence-route.test.mjs`: `interpretConsequenceResult`'s optional per-class threshold map changes only the named class's gate, leaving every other class on the shared thresholds; a candidate's `detail` reaches `consequenceBatch`'s wire state. `tests/extension/consequence-host-budgets.test.mjs`: `jevStepsBudget().classRowMin` reads `jev_steps.classes.*.row_min`, drops an out-of-range or missing value back to the shared default, and the shipped file names `clue_follow_up: 0.35`; `thresholdsForClass` resolves a named class's override and falls back to the shared gate for an unnamed one.
+
+#### 135.32 addendum 4 — the `residual` row and the pairing row are each written once per turn, at the true close, whichever path closes it (2026-09-26, SL-85, filed from long gate #17; corrects addendum 2's own "once per turn" claim, which the implementation did not yet keep)
+
+**Evidence.** Gate #17: `lane:"residual"` rows duplicated on turns 5, 7, 20 and absent on turns 1, 11, 12, 14, 17, 19 -- all six delivered turns. The duplicate: `turnCloseStep` is not in fact called at most once a run (addendum 2's assumption) -- a `turn_close` proposal that comes back `steer` is answered, the Keeper is nudged, and `turn_close` is proposed again in the *same* run once the Keeper responds; both calls wrote the pairing rows and the `residual` row unconditionally, before either knew whether its own call was the steer or the close. The absence: `turn_close` is proposed only for "a run with no delivery evidence" (this section's own wording) -- a Keeper whose `narrate`/`ask` delivers on its own is never proposed one at all, so nothing wrote these rows for that turn. Separately, an executed `clue_follow_up` row's `keeper_did` read the clerk's own clue receipt back off `run.turnReceipts` and reported `true` -- pairing a write against itself, never against an independent Keeper write.
+
+**The fix.** `hybrid-engine.ts` gains `closeConsequences(run)`, the one place that calls `pairConsequences`/`recordResidual`, guarded by a new `run.residualWritten` flag. `turnCloseStep` calls it from every branch that is a true close (`delivered`, `none`, `unavailable`) and *not* from the `steer` branch, so a steer-then-close pair writes once, from the call that actually closes ("last writer wins" falls out of writing once, at the end, rather than writing every time and picking a winner afterward). `modelStep` calls the same `closeConsequences(run)` when its own `narrate`/`ask` call delivers (`DELIVERY_VERBS`), covering the path that never proposes `turn_close` at all -- without asking Jev again: it only writes telemetry over whatever `run.consequenceRows`/`consequenceExists` already hold from this run's own writes, each already routed through `routeConsequencesAfterWrite`. `clerkStep` records an executed consequence candidate's own receipt ids (`run.consequenceExecutedReceiptIds`, from `packet.receipts` -- the canonical operation dispatcher's own array of receipt id strings, `canonical-operation-dispatcher.ts`); `pairConsequences` excludes them before computing `keeperDidFor`, so the row asks "did anything *other than the clerk's own write* also file this" -- and marks the row `executed: true`. A row whose class never executed this turn (unlisted in `jev_steps.execute`, or listed but not cleared) carries `shadow: true` even under `COC_JEV_STEPS=on`, exactly as it read before this addendum; only an executed row's `shadow` reads `false`.
+
+**Reporting.** `tests/play/jev-steps-report.py`'s per-class table gains `executed`/`shadow` counts, and a new section lists any `(turn, class, key)` offered more than once -- the shape this addendum's fix removes going forward; a report run against telemetry recorded before this addendum still shows the duplicates and the missing rows, honestly, since it is a read of already-recorded data.
+
+**Three ends (§31).** *Writer:* `closeConsequences` (`turnCloseStep`'s non-`steer` branches, `modelStep`'s delivery branch), `clerkStep` (`consequenceExecutedReceiptIds`). *Reader:* `pairConsequences` (the exclusion, the `executed`/`shadow` flags), `tests/play/jev-steps-report.py`'s per-class table and duplicate-row section. *Actor:* the operator, who now reads one row per turn instead of reconciling duplicates or explaining an absence.
+
+**Tests.** `tests/extension/consequence-residual-pairing.test.mjs`: a `turn_close` that comes back `steer` writes nothing, and the later true close writes exactly one residual row reflecting state *as of that later call* (a tool call made between the two, proving "last writer wins" is not "first writer, then ignored"); a turn delivered by the Keeper's own `narrate` (no `turn_close` proposal at all) writes exactly one residual row, with no extra Jev call; a defensive double-close in one run still writes once; an executed candidate's row carries `executed: true`, `shadow: false`, and `keeper_did: false` when the clerk's own receipt is the only one -- and `true` when an independent receipt for the same entity also exists; an unexecuted, unlisted class's row carries `shadow: true` under `on`; `shadow` mode is unaffected (every row `shadow: true`, none carries `executed`).
+
 ## 137. context.style.v1: a package contributes the capsule's craft lines (2026-09-25, W3 of docs/specs/prose-mod.md)
 
 User ruling 2026-09-25 (`docs/specs/prose-mod.md` §2): one prose package owns how the Keeper is told to write, and
@@ -23328,6 +24264,178 @@ builds the two-argument `TextGraph`.
 - **Never otherwise.** A table with narration-craft disabled gets `language` and `register` only, as §137.3 says of any table without a provider; a current narration-craft is its own provider. The file is never edited: new craft goes into the package, and an explicit upgrade (`mods.configure`) moves a campaign onto it.
 - **Size.** The table fit the old 2048/1536 budgets and still does; `tests/kernel/test_capsule_nine.py` asserts no `truncated: style` for a legacy lock in both forms.
 
+
+## 138. A Keeper tool argument that carries the model's own tool-call markup is unwrapped at the host boundary (2026-09-26; amends §135.21's `prepareArguments` and §19.2)
+
+**Evidence.** Some models write a tool call in an XML dialect and the provider hands it back as JSON, so the tool-call serialization can end up inside a string argument. Across about 34,000 turn records (playtests, the long gates on `claude/integ-single-loop-20260923`, the App's own campaigns) four delivered turns carried it, all `narrate.text`, all on deepseek-v4.1-flash through opencode-go: two ended in `\n</text>\n` (temper-g t6, coarse-h2 t2), so the player read `</text>`; two went on after `</text>` with `<parameter name="workpad_patch">{…}` (longgate10 t18, longgate13 t7), so the player read the Keeper's private workpad JSON and the patch itself never reached the workpad, because the call's arguments were only `text` (and `using_skill`). The leaked text was then carried on: into the next turns' `recent` context, the memory extraction job, the NPC journal job and the Mod audits.
+
+**The rule.** Where the Keeper's arguments first enter the host, the Keeper tools' `prepareArguments` (before Pi's schema check and before §135.21's one-sentence check, on both loop engines), every top-level string argument is read against the tool's own declared parameters (`extensions/kernel/tool-argument-markup.ts`, `unwrapArgumentMarkup`):
+
+- a leading `<k>` or `<parameter name="k">` around argument `k` is markup, and the value ends at the earlier of its own closing tag (`</k>`, or `</parameter>` when it was opened that way) and the first opening tag of another declared parameter of the same tool;
+- each declared parameter found after that point, in either spelling, is recovered as its own argument, decoded by its declared type (a string parameter stays text; anything else is JSON when it parses), unless the call already gives that parameter as its own field, in which case the field wins and the swallowed copy is reported as `kept`;
+- what then remains must be tag-shaped tokens and whitespace only (the dialect's own closers); any other text after the closing tag is refused, never dropped: `invalid_params` with `code_detail: argument_markup`, `details: {field, after}` and a fix that says to send the value plain, with each other parameter as its own field, and that nothing in the call was written.
+
+Nothing is decided by what the prose says: a tag counts only when it names the argument it sits in or another parameter of the same tool, so narration with other angle brackets in it passes untouched (the same object). Only top-level string arguments are read; the dialect serializes per parameter. A recovered `workpad_patch` then follows §19.2 exactly like one given as its own field (stripped before the kernel, filed only if the delivery lands). Turns delivered before this section keep their text; there were none in the App's campaigns.
+
+**Three ends (§31).** *Writer:* the model's tool call, through the provider. *Reader:* `unwrapArgumentMarkup` in the Keeper tools' `prepareArguments` (`extensions/kernel/index.ts`), which hands the repaired arguments to §135.21's check, Pi's schema check and the dispatcher. *Record:* each repair is one telemetry row `{lane: "tool_arguments", event: "markup_unwrapped", tool, repairs: [{field, recovered, kept}]}`; a refusal goes through the ordinary refusal path and budget (§34.12).
+
+**Tests.** `tests/extension/tool-argument-markup.test.mjs`: the four recorded shapes and their variants (closed swallowed parameter followed by the dialect's closers, no own closing tag, bare-tag spelling, value wrapped whole in either spelling, `ask.text`), the explicit field winning over a swallowed copy, clean text returned as the same object, prose after the tag refused with the fix; through the real registration on both engines, a `</text>`-ended narrate reaching the kernel clean with its telemetry row; a swallowed workpad patch filed in the workpad store while neither the markup nor the patch reaches a visible surface; and a refused call whose resent version is the only one the kernel receives. Mutation: replacing the call in `prepareArguments` with the unrepaired arguments turns the four registration tests red.
+
+### 138.1 A field that carries another tool's argument, opened with the serialization's own label (2026-09-26, SL-96; extends §138, amends §135.5.2)
+
+**Evidence.** Every retained Keeper tool call — the 689 playtest event logs under the worktrees and the App's 44 Pi session files, 23,926 tool calls, 16,869 top-level string arguments, read at 2026-09-26T18:32Z — and every delivered turn record (5,170, 177 of them the App's):
+
+| table, turn | `apply.narrate` begins with | then | reached the player |
+| --- | --- | --- | --- |
+| long gate #22 t1 | `text thriftily-placeholder` | nothing | yes, as the whole turn |
+| long gate #22 t5 | `文本\|` | `{{move:…}}`, then the prose | yes, `文本\|` first |
+| long gate #22 t8 | `text` | nothing | yes, as the whole turn |
+| long gate #22 t12 | `text` | the prose, with no separator | yes, glued to the first sentence |
+| long gate #22 t20 | `文本::` | `{{time}}`, then the prose | yes, `文本::` first |
+| long gate #23 t6 | `text intermediate` | the prose, with no separator | yes, glued to the first sentence |
+| long gate #23 t8 | `text interim` | the prose, with no separator | no: an effect was refused, and the Keeper sent the same prose as an explicit `narrate`, without the label |
+
+All seven are grok-build/grok-4.5 (low), all in `apply.narrate`: 7 of that model's 32 `apply.narrate` values and none of its 62 `narrate.text`; none of the other 5,263 `narrate.text` (grok 4.5/4.6/4.7 through xai and grok-build, deepseek), the 103 `ask.text`, or the 3 deepseek `apply.narrate`. The shape is one label at the head of the value: the carried parameter's name `text`, with a tag (`intermediate`, `interim`, `thriftily-placeholder`) or without, or that name in the play language followed by a delimiter (`|`, `::`); then the value, or nothing.
+
+**It is the model's, through the provider, not our parsing.** `extensions/grok-build-oauth` registers `api: "openai-responses"` and has no stream code of its own (its only hooks are `before_provider_request`/`after_provider_response`, for structured output and input files). Pi's `openai-responses` stream appends each `response.function_call_arguments.delta` verbatim (`partialJson += event.delta`, `@earendil-works/pi-ai/dist/api/openai-responses-shared.js`) and emits it as the `toolcall_delta` the playtest event log records. Gate #23 t6's call arrived as one delta; its bytes at the field are `"narrate":"text intermediate\xe7\xbd\x97\xe5\x85\x8b…`, so the label is inside the JSON string the provider returned. The value is the narrate tool's `text` carried by another field (§135.5.2 dispatches it as exactly that, and the field's description says "same rules as the narrate tool's text"), and the model writes the name of the parameter it is filling into the value; where `text` is the field's own key (`narrate.text`), it never does.
+
+**The rule.** A field that carries another tool's argument is read for one leading label in the Keeper tools' `prepareArguments`, after §138's unwrapping and before §135.21's check (`stripDialectPrefixes`, `extensions/kernel/dialect-prefix.ts`). The fields are `EMBEDDED_ARGUMENTS`: `apply.narrate`, carrying `narrate.text`, the one embedding §135.5.2 dispatches. The label is, at the very start of the value, one of:
+
+- **(a)** the carried parameter's declared name, exactly as declared (`text`, not `Text`), optionally followed by one space and one identifier-shaped tag (`[A-Za-z][A-Za-z0-9_-]*`), where the label then meets the end of the value, a `|` or `::` delimiter (removed with it), or, with no separator at all, a `{{` token or a character outside ASCII (the value's own first character, which no ASCII identifier continues);
+- **(b)** any run of letters (Unicode `L`, then `L` or `M`) followed at once by `|` or `::` (removed with it).
+
+The label and any whitespace after it are removed, and nothing else is. A value that is only the label becomes the empty string, and the apply's embedded narrate meets the existing paths unchanged: the floor refuses it (`below_floor`, `chars: 0`, §135.11.4.1) while the turn's steer is unspent, and the kernel refuses an empty `text` (`invalid_params: params.text must be a non-empty string`) once it is spent, or on the opening, where the floor does not run. Neither delivers.
+
+**Why this is structure, not a reading of the prose.** Nothing asks what language the value is in or what the label means. (a) compares with the name the schema declares, as §138 compares tags with declared names, and ends the label by the identifier grammar: in running prose a word is followed by a space or punctuation, and the label is taken only where it meets nothing, the delimiter, or the value's first character with no separator. (b) reads a delimiter that no prose puts right after its first word. The tags are three in seven values, no two alike, so they are not listed; the grammar takes them. Hence:
+
+- `Text scrawled on the wall reads…` is untouched: `Text` is not the declared `text`, and (b) finds a space where it needs a delimiter;
+- `text` inside the prose is untouched: only position 0 is read;
+- `text messages flooded the switchboard…` and `textbook…` are untouched: the tag meets a space, and the name runs on into a longer word;
+- applied to every top-level string argument of every tool in the evidence above, not only to the embedded field, the rule matches the seven rows of the table and nothing else.
+
+**Known boundary** (tested as such): a label followed by whitespace and then the value (`text intermediate The door…`, `text` on its own line) cannot be told from prose that starts with that lowercase word, and is left as it is; the evidence has no such value. `narrate.text` and `ask.text` are not read: the evidence shows the label only where a field carries another tool's parameter.
+
+**Three ends (§31).** *Writer:* the model's tool call, through the provider. *Reader:* `stripDialectPrefixes` in `prepareArguments` (`extensions/kernel/index.ts`), which hands the value on to §135.21's check, Pi's schema check and the dispatcher; the embedded narrate's floor and the kernel then read the stripped value. *Record:* one telemetry row per stripped field, `{lane: "arguments", event: "dialect_prefix_stripped", tool, field, prefix}` (`prefix` is the removed text). Acceptance on long gate #24: the rows are counted, and no delivered `rendered_text` begins with a label.
+
+**Tests.** `tests/extension/dialect-prefix.test.mjs`: the seven recorded values, verbatim from the gate records, each lose exactly their label, and `text` and `text thriftily-placeholder` become empty; the other shapes (a delimiter after the name or the tag, a `{{` token right after the name, whitespace after the label); `Text scrawled on the wall reads…`, `Text intermediate` glued to prose, a zh narration with `text` mid-sentence, `text messages…`, `textbook…` and plain prose come back as the same object; the boundary above; a `narrate.text` or `ask.text` that begins with a label is not read; each `EMBEDDED_ARGUMENTS` entry names a declared string field and the carried tool's declared string parameter. Through the real registration, the emitted kernel and the hybrid engine: gate #23 t6's value delivers from its first real sentence, with its row; `text` and `text thriftily-placeholder` land the apply's effect and are refused at the floor with `chars: 0`, each with its row; once the steer is spent, a label-only value is refused by the kernel and not delivered; an English `Text scrawled…` value delivers unchanged with no row. `tests/extension/delivery-floor-every-path.test.mjs`: the SL-93 `narrate: "text"` case now counts `chars: 0` (the label is gone before the floor counts), and the data-knob case uses a short draft that is not a label. Mutations (a copy of the file, never `git checkout --`), each turning tests red: `prepareArguments` handing on the unstripped arguments, with and without the row (the registration cases, and the SL-93 `chars: 0` case); the row not recorded; (a) compared without case; (a) without its end/delimiter/no-separator condition; (a) without the no-separator case; the tag after the name not taken; (b) removed; the whitespace after the label kept.
+
+## 139. An excerpt a model copied out of delivered text is located with quotation marks as one class (2026-09-26; amends §12.5's `table.warn` anchoring and the continuity-review rows)
+
+**Evidence.** `table.warn` kept a verifier finding only if its `quote` was an exact substring of the turn's `rendered_text`. The verifier answers in JSON; a prose line in ASCII double quotes has to be escaped inside a JSON string, and the model retypes the marks as curly ones instead. Across about 700 verified turns (playtests, the long gates, the App's own campaigns) the findings on turns whose prose used ASCII `"` were dropped 44% of the time (36 findings, 16 dropped; 5 of 16 turns lost every finding, among them temper-b t8, where three speakers talked with no speech markers and all seven findings were dropped), against 1% with corner brackets, 0% with curly quotes and 4% with no quotation marks. A dropped finding is a warning the next capsule never shows the Keeper.
+
+**The rule.** An excerpt anchored to delivered text is located by `locateExcerpt` (`kernel-ts/read/excerpt.ts`): an exact substring is taken as given; otherwise the first span of the text that differs from the excerpt only in which quotation marks it uses. Which characters are quotation marks is Unicode's `Quotation_Mark` property, so no mark is listed and no language is named; every other character must match exactly. The excerpt that lands on the record is always the delivered text's own span, never the model's retyping. `table.warn`'s verifier findings and the continuity-review rows' quotes use it; the Mod audit's excerpts are selected by reference from the draft (`audit-references.ts`) and are exact by construction, so they do not. A finding whose quote is still not found is dropped as before (`reason: quote is not a substring of rendered_text`), and the lane's telemetry row now carries `unanchored: [{index, kind, quote}]` (quote cut to 80 characters) so the remaining drops can be read rather than counted.
+
+**Three ends (§31).** *Writer:* the verifier lane's `quote` (`extensions/kernel/verifier.ts`), and the continuity review's selected claims. *Reader:* `locateExcerpt` in `kernel-ts/memory/index.ts` (`warn`, `continuityRows`). *Record:* the turn record's `warnings[].quote` (the prose's own text) and the verifier telemetry row's `unanchored`.
+
+**Tests.** `tests/kernel/test_facts_warn.py::test_warn_locates_a_quote_whose_quotation_marks_were_retyped`: ASCII-quoted prose, one finding quoted with curly marks and one with corner brackets, both kept with the prose's own text; a quote the prose does not contain is dropped with its text in `unanchored`. The existing anchoring test is unchanged. Mutation: the exact substring check in place of `locateExcerpt` in `warn` turns the new test red.
+
+#### 135.32 addendum 3.1 — a class may carry its own `row_ratio` (2026-09-26, after SL-86's finding)
+For a Noul the two gates collapse into one number: `yes ≥ row_min` and `yes ≥ row_ratio × (1 − yes)` ⇔ `yes ≥ max(row_min, row_ratio/(1+row_ratio))`; with the shared ratio 2 the effective gate is 0.667, so SL-86's per-class `row_min` 0.35 cleared nothing the shared gate did not. `jev_steps.classes.<class>.row_ratio` (finite, > 0) is now read beside `row_min`; the shipped `clue_follow_up` gate is `row_min 0.4, row_ratio 0.67` (effective 0.4, from gate #17's false negatives at 0.37–0.45 against four tables with 0–1 false positives); other classes keep the shared 0.5 / 2. The bar to keep it is precision ≥ 0.9 on the next table's report.
+
+
+## 140. A child agent with no lease still sends its own output bound (2026-09-26; amends §20 addendum 2's per-call bound)
+
+**Evidence.** A character-creation table on the PDF module 血色公路 (line-2 @ d08fa2ebb, Keeper and lanes on opencode-go/deepseek-v4.1-flash, thinking low) could not start: the module's setup guidance had to be regenerated (its key binds the setup prompts, which changed since the guidance was accepted on 2026-09-16), and in both attempts the reviewer's second response reported `output 8192, reasoning 8192, stopReason length` and ended with no `review.json`. The guidance job is started by onboarding without a lease, so its children sent no output bound and the provider's unstated default (8,192 on opencode-go) decided it; `low` is the lowest level this model has. The reader runner counts a child that exits cleanly as `ok`, so the job then read a missing file (a bare ENOENT) and the guide told the player to come back later. In the App's module work logs (10,747 child messages, the grok period) no child ever stopped at `length`: the limit bites with a model that reasons at length.
+
+**The rule.**
+- Every child the reader runner starts loads `extensions/module/reader-context.ts`. Without a lease (`PI_COC_PROVIDER_BUDGET` is not `ipc-v1`) its `before_provider_request` sets the request's output field to `min(model maxTokens, limit, any smaller bound already in the payload)`, where `limit` is `PI_COC_PROVIDER_OUTPUT_LIMIT` when the host passes one, else the reading stage's per-call bound (`READING_STAGE_BUDGET.callOutputTokens`, 32,768, §20 addendum 2). The field is the provider's own (`outputFieldPath`, the same closed table `boundProviderRequest` uses, now shared); an API with no known field, or a model with no usable `maxTokens`, is left unchanged. The bound is room, never a refusal. A leased child is still bounded by `installChildProviderBudget`, unchanged.
+- The request log (`PI_COC_READER_REQUESTS_LOG`) records `output_bound` for every unleased request, so the bound a request went out with is read, not inferred.
+- `prepareCharacterGuidance` reads the author's `guidance.json` and the reviewer's `review.json` through `produced`: an agent that ended without writing its file is `preparation_failed` with the message `Character guidance <author|reviewer> ended without writing <file>. Retry preparation.`, never a bare ENOENT. The next setup request starts a new attempt, as before.
+
+**Three ends (§31).** *Writer:* the child's provider request (pi-ai builds it; the hook bounds it). *Reader:* the provider. *Record:* the request log's `output_bound`, and the guidance attempt directory (`review.json` present or the coded failure).
+
+**Tests.** `tests/extension/reader-context.test.mjs` ("§140: an unleased child sends its own output bound"): the occ-check model shape gets `max_tokens: 32768` without mutating the original payload; a smaller existing bound stands; a lower model ceiling caps it; an unknown API is untouched; the Anthropic and Google fields; the logged `output_bound`; a host-passed limit wins. `tests/extension/character-guidance.test.mjs` ("§140: a reviewer that ends without writing review.json ..."): a clean-exit reviewer with no verdict and a clean-exit author with no draft are coded failures naming the agent, and nothing is accepted. Mutations: the hook passing the payload through unbounded, and the reviewer's file read without `produced`, each turn its test red.
+
+
+### 140.1 A reader child's stream may stay silent while its model writes the draft, and an identical resend is paid from its failed attempt's reservation (2026-09-26, SL-99; amends §20 addendum 2's charge for a call that ends without usage)
+
+**Evidence.** The Masks table (`chatrpgv4-wt-gate-13ce6a7dd-masks`, every lane on `grok-build/grok-4.5` low, the owner's ruling). The opening reads `read-4` (rounds 1 and 2) and `read-5` (round 1) of `campaign-beginning-elias-message` each viewed pages 94-100 (12-13 images, 10-12 MB in context), announced their draft ("Writing the opening draft from the viewed pages." and two variants), and were cut exactly 60.0 s later: `Provider stream timed out: no response event for 60000 ms` (the vendored Pi's `core/stream-progress.ts`, armed with the agent home's `httpIdleTimeoutMs`). That is three timeouts; each is written on four lines of its event log. Measured over 6,606 reader steps in 1,153 retained event logs (2026-09-09 to 09-26: the App's module store and five worktrees; SL-99's Comments carry the table by model, step and images in context):
+
+- The first event after a stream starts is quick for every model and image count (grok-4.5 author steps holding 10-14 images: p99 4.9 s). The images are not what is slow.
+- The long silences end when a tool call arrives. `grok-build` and `xai` deliver a tool call's arguments as one delta once the model has generated all of them (2,107 grok-build tool calls carried 2,107 deltas; deepseek sends about 150 per call), so a draft written in one tool call is silent for as long as its generation takes. grok-4.5's healthy draft calls were silent up to 55.8 s (the `read-5` round-2 retry of this same draft: 5,392 output tokens, a 19,373-byte `write`); grok-4.6's up to 114.4 s (8,025 output tokens). The worst healthy silence of any reader step on record is 122.3 s; the slowest silent generation measured on a grok reader is 65.3 output tokens a second. No deepseek reader step was silent longer than 3.0 s.
+
+The budget did the rest. Opening reads outside a stage lease take the fixed per-child lease (1,000,000 input tokens, §20 addendum 3 and 5). The timed-out image call ended without usage and was charged its whole reservation (the model's context window, 500,000); Pi's automatic retry resent the identical request, asked for another 500,000, and was refused `budget_input_tokens` (`used` 562,341, 567,317 and 562,428, of which the round's real calls were 62,341, 67,317 and 62,428). Both jobs died with no page written.
+
+**1. A reader child's idle allowance is data.** `content/rulesets/coc7/host-budgets.json` gains `reading.idle_ms` (180,000), read by `readingIdleBudget(contentRoot)` in `runtime/jev/host-budgets.ts` (cached per content root; a missing, non-numeric or non-positive value falls back to 180,000; a fraction is floored, as Pi floors it). `runtime/tasks.ts` gives it, from the content root the host captured, as the `httpIdleTimeoutMs` of every `reader` task that names none of its own -- every tool-enabled child of that kind: index, index-audit, read and verify children, character guidance, adaptation -- and `extensions/module/reader.ts` writes it into that child's own `<cwd>/.pi/settings.json`, the per-child seam §37.12 uses, where Pi's transport timeouts and its stream watchdog both read it. Unchanged: the Keeper (the agent home's `httpIdleTimeoutMs`, 60 s, `runtime/launch.ts`) and every `mod` lane child (`LANE_HTTP_IDLE_TIMEOUT_MS`, 25 s, or `PI_COC_MOD_HTTP_IDLE_TIMEOUT_MS`). The value: 180 s clears the worst healthy reader silence on record (122.3 s) by about half again, the margin §37.12 took for the lanes, and covers the largest draft call on record (10,933 output tokens, §20 addendum 2) at the slowest measured rate (167 s). The price is that a reader stream that is really dead is noticed after three minutes instead of one; all four reader timeouts on record (the three above and one grok-4.7-build-fast opening on 2026-09-24) came while the model had just begun writing its draft.
+
+**2. An identical resend is paid from its failed attempt's reservation.** A leased child's `before_provider_request` sends `digest` with each reservation (`payloadDigest`: SHA-256 of the bounded payload exactly as it is dispatched), and its settle of a call whose message ended `stopReason: "error"` carries `failed: true` (an `aborted` call does not: a revoked run is never resent). The reader host's side of the channel (`extensions/module/reader.ts`):
+
+- a call that `failed` and reported no usage is not charged yet; its reservation is kept;
+- if the child's next reservation request has the same digest and the same bound -- Pi's auto-retry resending the attempt, which it has omitted from the model's context -- it is granted from the kept reservation, and no second reservation is made (the lease's cancellation and deadline still refuse it);
+- when that resend reports usage, the reservation is settled at `resentUsage(usage, attempts, bound)` (`runtime/jev/provider-budget.ts`): every attempt is charged what the resend reported, because every attempt read the same payload; per dimension (input tokens, output tokens, USD) the inferred amount never goes above the reservation, so the inference alone never makes an overrun, and never below the report, so a real overrun of the resend still is one; the chain is one action;
+- if the next request is a different payload, or the resend fails too and the child then ends, the kept reservation is charged whole, exactly as a call without usage always was, and counted in `unknown_usage_calls`. A chain of identical attempts that no resend measures is thus charged one whole reservation, not one per attempt: a whole-context reservation is the ceiling of what that one payload reads. The chain stays bounded by the child's Pi retry setting.
+
+The round's `usage` adds what the settles charged from reports (a resend's scaled usage included); `unknownCalls` keeps its meaning, calls charged their whole reservation. On the Masks shape (`read-4` round 1): before, the timed-out call was charged 500,000 and the resend refused at 1,062,341 of 1,000,000; now the resend is granted from the kept 500,000, and when it reports, the round is charged 62,341 plus twice the resend's input, and its next call reserves as usual. A real Pi reader child, retrying a real stalled stream, resends a byte-identical request with an identical digest (tested below), so this is the path the product takes, not only the scripted one.
+
+**Not in this addendum.** `read-5` round 2 died on the same fixed lease with no timeout at all: eleven image calls used 536,114 input tokens and the twelfth could not reserve another 500,000. An opening or guidance read outside a stage lease keeps the fixed 1,000,000 lease, which can pay only about half its ceiling in real calls when each image call reserves a whole 500,000-token context; sizing those jobs (§20 addendum 5 left them out) is a separate decision. The book's index read (`read-2`) used 1,644,424 input tokens over its two phases, inside its own 8,507,402-token stage lease.
+
+**Three ends (§31).** *Writer:* the data file (`reading.idle_ms`); the child's reservation (`digest`) and settle (`failed`). *Reader:* `runtime/tasks.ts`, then the child's project settings, then Pi's transport and stream watchdog; the reader host's side of the provider channel. *Record:* the child's event log (the timed-out `message_end` and `auto_retry_start`), and the round's `usage` with `unknownCalls` in `usage.jsonl` and the `lane: "reading"` rows.
+
+**Tests.** `tests/extension/reader-idle-allowance.test.mjs`: `readingIdleBudget` reads a fixture content root and falls back on a missing or malformed entry; the shipped value clears the measured worst silence and the slowest draft call; through `runtime/tasks.ts`, a reader child's project settings carry a fixture root's `reading.idle_ms` while a `mod` child keeps `LANE_HTTP_IDLE_TIMEOUT_MS` and the agent home keeps 60 s; with the shipped content the reader carries the shipped value; `piLaunch` still writes the Keeper's 60 s when its content carries a reading allowance; `resentUsage`'s ceiling and floor; and a real Pi reader child against a local provider that stalls after its first chunk: cut at the fixture's 2 s allowance (not the agent home's ten minutes), resent byte-identically by Pi's own retry, and charged one reservation at twice the resend's input with no call charged whole. `tests/extension/provider-refusal.test.mjs`: the Masks shape through the real child channel (the resend is dispatched and the lease is charged 15 + 15 + 2 x 15); a different request after the failed call is still refused, typed, with the failed call charged whole; the inference capped at the reservation without cancelling the lease; an unmeasured chain charged one whole reservation; an aborted call not kept, so an identical request after it is charged as a new one. `tests/extension/reading-play-lease.test.mjs` now reads a different page per call, since its subject is distinct image calls. Mutations in SL-99's Comments.
+
+## 141. A narrate interrupted between its writes and its commit is rolled back, or completed, when the campaign is next loaded (2026-09-26; amends §38.11's failed-commit rollback)
+
+**Evidence.** SL-87's stubborn-Git test on leehow-pc under load: in 4 of 32 instrumented runs the host's SIGTERM-to-SIGKILL grace (2 s) ran out while the kernel was shutting down inside narrate — after it wrote the turn record, transcript, events and the next `turn.json`, before its commit or the rollback of a failed commit — and the next kernel's `table.open` read those files and opened turn 2 as if the narrate had been delivered (`{number: 2, state: 'awaiting_player'}` where the turn should still owe its narrate). "Filesystem state remains authoritative between RPCs" (`transactions.ts`), and the rollback §38.11 performs needs values only narrate held in memory (the turn before, the campaign metadata, the transcript and events sizes, whether the record existed), so a killed process lost them.
+
+**The rule.**
+- Before its first finalizing write, narrate writes those values atomically to `<workspace>/.coc/narrate-journal/<campaign>.json` (`{turn, call_id, before, prior_meta, npc_ledger, transcript_size, events_size, had_record, at}`), outside the campaign's repository, because `commit` stages everything inside it. `before` already carries the rollback's `open` → `acting` change.
+- Narrate removes the journal as soon as its commit returns, before any post step can add another commit, and after the §38.11 rollback of a failed commit (which now goes through the same `rollBackNarrate`).
+- The write runtime's shared `load` — `table.open` and every write handler, under the campaign lock (`guardCampaign` in `kernel-ts/handlers.ts`) — looks for a journal first. If the campaign's last commit is this turn's (`head()`: subject `turn <n>:`), the commit landed: the record's `commit` and its call result's `commit` are stamped with that hash if missing, and the telemetry row is `{lane: kernel, step: narrate-recovery, turn, outcome: completed, commit}`. Otherwise nothing was committed and the writes are undone exactly as §38.11 does (`outcome: rolled_back`), so the turn is open, owes its narrate, and the same call id delivers it once. Either way the journal is removed.
+- A write that throws inside the window without killing the process (for example a full disk) leaves the journal too, and the next load rolls it back; before, such a partial write simply stood.
+- Not covered: post-commit steps (checkpoint, episode, worldline transition) remain best-effort as before. The NPC ledger is covered since §141.1.
+
+**Three ends (§31).** *Writer:* narrate (the journal) and `recoverInterruptedNarrate` (rollback or stamp). *Reader:* the shared `load`. *Record:* the `narrate-recovery` telemetry row; the turn record's `commit`.
+
+**Tests.** `tests/extension/ts-kernel-write.test.mjs`, two §141 cases with a Git wrapper that SIGKILLs the kernel calling it when narrate commits: before the real commit (reopens at `{1, 'acting'}` owing narrate, the undelivered prose is not in the transcript, the journal is gone, the resent narrate commits and appears once), and right after it succeeded (reopens at turn 2, the record and its call result carry the landed hash, the resent call replays it without a second commit). Mutation: skipping the recovery in `load` turns both red, the first with exactly the reported `{number: 2, state: 'awaiting_player'}`.
+
+### 141.1 The NPC ledger is part of the rollback (2026-09-26)
+
+`updateNpcLedger` runs between the turn record and the transcript, and `foldNpcTurn` is not idempotent: it appends each interaction and adds each stance delta and presence count. Neither §38.11 nor §141 restored `npc-ledger.json`, so every rolled-back narrate that was resent — after a killed kernel or after a plain failed commit — folded the same turn twice: two interactions for one social check, the social delta applied twice, `turns_present.count` counted twice. The journal now carries `npc_ledger` (the file's prior content, or `null` when it did not exist) and `rollBackNarrate` restores it (or removes the file) on both paths. Tests (`tests/extension/ts-kernel-write.test.mjs`, "§141.1"): a settled social check against Steven Knott, then a narrate killed before its commit and, separately, one whose commit is refused; after the rollback `npc-ledger.json` is byte-identical to what it was before narrate, and after the resend Knott has one turn-1 interaction. Mutation: skipping the ledger restore leaves the rolled-back fold in the ledger (`interactions` for turn 1, `turns_present.count` 2) and turns both red.
+
+#### 32.12.5 Addendum (2026-09-26, SL-90, filed from gate #21 t3): a step the consequence route executes is admitted on its own evidence, the same seam as the compile's
+
+**Why.** Gate #21 (`longgate21-haunting-*`, grok-4.5 low lanes), turn 3. After the Keeper's `apply time`, execute mode (§135.32 addendum 2) ran three `clue_follow_up` steps (`house-built-1835`, `neighbor-lawsuit-1852`, `basement-burial-lawsuit`, origin `policy`), and every one of them went to the lane: `path: "lane"`, `fast_path: true`, `jev_fallback: "low_confidence"` -- 6.2 s and 5.4 s `not_player_action`, then 13.0 s `review_pending` and a 12.9 s `review_timeout` for the third, 38 s of a 45 s `execute` step, serially, the turn already at 94.6 s. The compile's own clerk writes on the same turns are `path: "compile"`, 0 ms (§32.12): a compile selection and a consequence execution carry an equal kind of evidence -- a class gate's cleared Noul, with its own confidence, distribution and gate (§135.32 addendum 3.1) -- but only the compile's reached admission. The lane's answer, "not the player's action", is true and beside the point: a consequence is by definition not a declared action, so the lane's own question does not apply to it at all. Gate #18 paid the same shape, 8 consequence steps.
+
+**The rule.** A step the consequence route executed (§135.32 addendum 2: only a class `content/rulesets/coc7/host-budgets.json`'s `jev_steps.execute` names) carries the route's own evidence on `basis.consequence` (`hybrid-engine.ts`'s `candidateWithConsequenceBasis`, called from `routeConsequences` beside `run.consequenceExecuted.add(key)`, immediately before the executing `clerkStep` call): `{class, key, confidence, distribution, gate: {row_min, row_ratio}}` -- the class, the cleared row's own key, its Noul's confidence and `{true, false}` distribution, and the class's own gate (`thresholdsForClass`, §135.32 addendum 3.1's per-class override or the shared default). It rides beside the candidate's own provenance (`read`/`path`/`row`), never replacing it, exactly as `basis.compile` rides beside a compile selection's provenance (§32.12). `admitAction` (`extensions/kernel/index.ts`) admits the call with **no lane call and no typed call** when `consequenceAdmission` (`extensions/kernel/admission.ts`, pure) says so:
+
+1. the call is policy-origin (`evidence.origin === "policy"`); nothing in the tool arguments can say so;
+2. its `basis.consequence` names a non-empty `class` string and a non-empty `key` string;
+3. that `class` is one of the classes the table currently executes (`jevStepsBudget().execute`, read by the caller and passed in, never a literal in `admission.ts`) -- a class the table stopped listing, or never listed, refuses the exemption even when the rest of the evidence is otherwise well-formed, because a shadow-only row was never meant to write at all (§135.32 addendum 2's "only the listed classes execute");
+4. `confidence` is a finite number in `[0, 1]`, `distribution` is `{true, false}` with both finite numbers in `[0, 1]`, and `gate` is `{row_min, row_ratio}` with `row_min` in `(0, 1)` and `row_ratio > 0`. Every one of these is what the route already computed to decide the row cleared; admission does not re-ask whether it cleared, exactly as the compile's exemption does not re-ask whether a feature fired -- it asks only whether the record it needs is there and well-formed.
+
+A missing or malformed field, or a class outside the table's current `execute` list, is not evidence and the exemption is refused; the review runs exactly as before this section (the ordinary lane path), fail closed. The admission is not kept in the turn's verdict map: it is this call's own evidence, so an unrelated identical proposal (there is none: a consequence key is unique to its own candidate) would still be reviewed.
+
+The consequence path's row: `ok: true, verdict: "authorized", admitted: true, reused: false, path: "consequence", reviewer: "consequence", ms` (the write's own time), `class`, `key`, `confidence`, `distribution`, `gate: {row_min, row_ratio}`. When `basis.consequence` is present and the exemption is refused, the row adds `consequence_refused` with the same reason `consequenceAdmission` gave (`class_unrecorded`, `key_unrecorded`, `class_not_executed`, `confidence_unrecorded`, `distribution_unrecorded` or `gate_unrecorded`), beside `compile_refused` when both happen to apply (they never do on one call in practice: a candidate is either a compile selection or a consequence execution, never both).
+
+**What this is not.** It does not change what §32.1 puts to review, what the lane judges, the typed reviewer or the fast path for anything else, or §32.4's reuse. It does not admit on a failure: a missing record is a lane review, never an admit. It is not a second gate on the Noul's own confidence -- the route's gate (§135.32 addendum 3.1) is the only gate, already applied before this candidate was ever offered to `clerkStep`; admission reads that it was applied and recorded, not whether it should have cleared. A shadow class (unlisted in `jev_steps.execute`, or listed but not cleared) never executes at all (§135.32 addendum 2's `consequenceKeysToExecute`), so it never reaches `clerkStep` and never reaches admission either -- there is no `basis.consequence` for admission to refuse, because there is no call.
+
+**Three ends (§31).** *Writer:* `routeConsequences`'s own executing loop (`candidateWithConsequenceBasis`, `hybrid-engine.ts`), before the dispatch. *Reader:* `admitAction`/`admitOne` (`extensions/kernel/index.ts`), the one place a call is admitted or refused, ahead of Mod hooks and the kernel -- unchanged from §32.12 except for the added branch. *Actor:* the Keeper, through the unchanged admit; the operator, through the rows' `path: "consequence"`, `class`, `key`, `confidence`, `gate` and `consequence_refused`.
+
+*Tests.* `tests/extension/consequence-admission.test.mjs`: `consequenceAdmission` (pure) admits a well-formed evidence whose class the given `execute` list names, and refuses on every missing or malformed field and on a class outside that list, each with its own reason; `candidateWithConsequenceBasis` (pure) attaches the evidence beside the candidate's own provenance, never replacing it; at the engine seam (`hybrid-engine.ts` driven directly, no Pi session, no kernel), the executed candidate's own dispatch carries `basis.consequence` with the class's own gate (`thresholdsForClass`, proving it is read, not a literal), and an unlisted class's candidate never dispatches at all, so it never carries the evidence either; at the extension seam (the real `apply` tool, the real admission seam, the emitted kernel, the product's hybrid engine with a stub Jev, the harness's scripted admission lane counted), a real `clue_follow_up` D1 candidate (the shipped `the-haunting` module's `knott-commission`, confirmed offered and ungated by probing the real kernel) executes and is admitted `path: "consequence"` with the lane asked zero times; the same shape with no `basis.consequence` at all (an ordinary Keeper-authored `apply` of the same clue) keeps the ordinary lane review. Mutations (a copy of `admission.ts`/`index.ts`/`hybrid-engine.ts`, never `git checkout --`): `consequenceAdmission` forced to always return `undefined`, the `admitOne` branch neutralized, and the enriched candidate dropped before `clerkStep` each turn the extension-seam and/or engine-seam tests red.
+
+#### 135.32 addendum 5 — the executed candidate carries the route's own evidence into the gateway, admitted there (2026-09-26, SL-90; contract §32.12.5)
+
+Addendum 2's execution point (`clerkStep`'s and `modelStep`'s own tails, calling `routeConsequences` inline after a settled write) hands the cleared candidate to the same `clerkStep` gateway any other clerk candidate uses (§135.4) -- but until this addendum that candidate's `basis` carried only its own kernel-read provenance (`read`/`path`/`row`), never the route's own verdict. Gate #21 t3's evidence (§32.12.5) is this gap: the gateway's admission seam had nothing of the route's own confidence/distribution/gate to read, so every executed step -- by definition never a declared action -- was asked the lane's "is this the player's action" question anyway, and answered `not_player_action` at 5–13 s each, three times in one `execute` step. `routeConsequences`'s executing loop now builds each candidate's evidence (`candidateWithConsequenceBasis`, `consequence-route.ts`) from the same `ConsequenceRow` (`class`, `key`, `confidence`, `distribution`) `interpretConsequenceResult` already produced and the same per-class gate (`thresholdsForClass`) it already applied, and attaches it to the executed candidate's `basis.consequence` before the `clerkStep` call -- one line added to a loop this addendum's own predecessor (addendum 2) already had, no new Jev call, no new kernel read. `admitAction` reads it exactly as §32.12.5 says; the "clerk did" projection line (addendum 2) and the `residual`/pairing rows (addenda 2/4) are unaffected -- they read `run.clerkDid`/`run.consequenceRows` as before, which this addendum does not touch.
+
+**Three ends (§31).** *Writer:* `routeConsequences` (`hybrid-engine.ts`), immediately before each executing `clerkStep` call. *Reader:* `admitAction` (§32.12.5). *Actor:* the operator, reading the executed step's own admission row for `path: "consequence"` instead of a lane's `not_player_action`.
+
+*Tests.* The same `tests/extension/consequence-admission.test.mjs` §32.12.5 names; acceptance on the next live table (gate #22, per the ticket): `path: "lane"` rows with `origin: "policy"` fall to zero, and a turn with consequence steps no longer grows by the lane's own time.
+
+#### 12.8.1 addendum 2 (2026-09-26, SL-91): a lane whose model comes from its own env override also takes its own thinking level from a matching env
+
+**Why.** Gate #21 (lanes `grok-build/grok-4.5`, `low`): the admission lane reviewed at 5-13 s each; turn 3 paid two refusal-budget cuts from a `review_pending` then a `review_timeout`, turn 4 spent 26 s of lane time on three `resolve` reviews, and the admission lane alone spent 175 s across the table reviewing the model's own writes. Gates #19/#20 (lanes `xai/grok-4.3`, `off`) measured the same admission lane at p90 1,385 ms / 1,365 ms with 0 timeouts -- the owner rejected `grok-4.3` as the Keeper for other reasons, but as a reviewer it is fast and its verdicts held. `PI_COC_ADMISSION_MODEL` already routes the admission lane to its own model (§37.10.1), but `laneThinkingLevel` (§12.8.1 addendum) resolved one shared level for every lane -- `PI_COC_LANE_THINKING`, then the fast-model setting, then the table -- so an admission lane pointed at `grok-4.3` would still run at whatever the table (or the shared override) asked for, never at the level that made `grok-4.3` fast on gates #19/#20 in the first place. An operator who names a different model for one lane had no way to also name that model's own effort without moving every other lane's.
+
+**The rule.** When a lane's model came from its own environment override (`envName`, e.g. `PI_COC_ADMISSION_MODEL` is set -- the same variable `resolveLaneModel` already checks to decide the model, never a second, drifting copy of that check), its thinking level comes from a matching `${envName}_THINKING` (e.g. `PI_COC_ADMISSION_MODEL_THINKING=off`) on its own, ranked *above* the shared `PI_COC_LANE_THINKING`, the fast-model setting and the table -- the same four-way ladder `laneThinkingLevel` already climbs (§12.8.1 addendum), with this one rank added at the top, conditional on the model rank that already outranks everything else. No model override, or a model override with no matching `_THINKING`, is today's resolution unchanged byte for byte: the lane-specific check is skipped and the existing ladder runs exactly as before this addendum. The resolved level is mapped through the model's own `thinkingLevelMap` exactly as the shared level already is -- `laneReasoningOptions`'s `off`-omission and `clampThinkingLevel`'s reported floor (§12.8.1 addendum) read whatever level won this ladder, whichever rank it came from; nothing about that downstream mapping changes.
+
+`extensions/lanes/subsession.ts` gains `laneThinkingChoice(ctx, envName)`: `{level, source}`, where `source` is one of `caller` (the round's own caller named a level directly; no caller does today), `lane-operator` (the new `${envName}_THINKING`), `operator` (the shared `PI_COC_LANE_THINKING`), `setting`, `table` or `default`. `laneThinkingLevel(ctx, envName?)` is the pre-addendum string-returning shape, now optionally taking `envName` too, unwrapping `laneThinkingChoice(ctx, envName).level` -- every caller that already existed before this addendum omits `envName` and is unaffected. `runLane`'s own resolution (`runLaneAttempt`) passes `request.envName` through. `fastLaneChoice` (the tool-enabled child road, `runtime.runTask`) gets the same conditional lane-specific `_THINKING` check ahead of its own existing resolution (the setting, then the literal default; it never consults the table, by design, §37.11), for the callers that hand its result straight to a launched child without a second, independent resolution downstream (`extensions/kernel/adaptation.ts`'s `reader`-kind tasks) -- a caller whose child launch re-resolves independently by its own convention (`runtime/tasks.ts`'s `mod`-kind branch, `PI_COC_MOD_MODEL`/`PI_COC_MOD_THINKING`, pre-existing and unrelated to this addendum's `${envName}_THINKING` naming) is unaffected either way, since that branch never reads what `fastLaneChoice` returned for `thinking` in the first place.
+
+**`thinking_source`.** The `start` row (§12.8.1's four-row table, §12.8.1 addendum's `lane_thinking_effective`) gains a fifth field, `thinking_source`, naming which of the six ranks `laneThinkingChoice` decided on: a reader no longer has to re-derive it from `lane_thinking`/`lane_thinking_effective`/`thinking_carried` and the table's own state at the time, several of which the row does not carry at all (the shared env var's value, the setting's).
+
+**What this is not.** It does not change what `laneReasoningOptions`/`clampThinkingLevel` do with whatever level is resolved, the cap a lane round runs under, or the model resolution ladder (`resolveLaneModel`) itself -- only which level a lane whose *model* already came from its own override also takes. It does not give every lane a private thinking knob unconditionally: a lane still following the table's model, or the fast-model setting's, is unaffected, exactly as a lane whose model the setting chose is unaffected by another lane's own operator override today.
+
+**Three ends (§31).** *Writer:* the operator's `${envName}_THINKING` variable, read at the moment the lane runs (never frozen into a spawn environment, matching every other reader in this file, §37.10). *Reader:* `laneThinkingChoice`, then `runLaneAttempt`'s resolution and `laneReasoningOptions`/`clampThinkingLevel` downstream of it, unchanged. *Actor:* the operator, through the `start` row's `thinking_source` and the driver/gate scripts that now pass `--env PI_COC_ADMISSION_MODEL=xai/grok-4.3 --env PI_COC_ADMISSION_MODEL_THINKING=off` on the next gate (#22).
+
+*Tests.* `tests/extension/lane-reasoning-budget.test.mjs`: `laneThinkingChoice` ranks the lane-specific override above the shared variable, the setting and the table; the lane-specific check is skipped entirely when the model override is absent, even if a stray `_THINKING` variable is set; omitting `envName` altogether (every pre-addendum caller) resolves exactly as before; a garbage lane-specific value still names `lane-operator` as the source, normalized to the literal default, the same fallback the shared variable already gets; at the lane seam (`runLane`, a real `openai-responses`-shaped model whose map supports `off`), a lane with both envs set starts on its own model at `off` with no literal `reasoningEffort` sent and `thinking_source: "lane-operator"` on the `start` row, while a second, unrelated lane (a different, unset `envName`) in the same process still takes the shared level -- proving the override is per-lane, not process-wide once any lane's env is set. Mutations (a copy of `subsession.ts`, never `git checkout --`): dropping the lane-specific override read, dropping `thinking_source` from the `start` row, and dropping `request.envName` from the call into `laneThinkingChoice` inside `runLaneAttempt`, each turned the lane-seam test (and, for the first, the pure ranking test) red.
 
 ## 142. What a person sets out to do is a ledger row with a result (2026-09-26, `docs/specs/npc-as-actor.md`; amends §17.3, §34 D2 and the NPC response bank)
 

@@ -25,7 +25,7 @@ export const GENERATION_CAPABILITY = 'npc.voice.generation.v2';
  *  false is "no owner": nothing is offered and nothing is written. That case keeps the legacy identity (its
  *  possibly disabled lock, `npc-voice/jobs`, its refusal) so a table without the unified owner sees exactly
  *  the lane it saw before the ruling. */
-export type VoiceOwner = { readonly id: string; readonly lock: Row; readonly enabled: boolean };
+export type VoiceOwner = { readonly id: string; readonly lock: Row; readonly enabled: boolean; readonly manifest?: Row };
 /** The enabled unified package whose locked manifest declares generation comes first; then the legacy lock
  *  under its old rule (enabled, any version: frozen 1.0.x/1.1.x locks predate the capability). */
 export function voiceOwner(world: Row, catalog: ReadonlyMap<string, Row>): VoiceOwner {
@@ -33,16 +33,16 @@ export function voiceOwner(world: Row, catalog: ReadonlyMap<string, Row>): Voice
     const manifest = catalog.get(`${EXPRESSION_MOD}\0${string(unified.version)}`);
     if (truth(unified.enabled) && isUnifiedExpression(manifest) && manifest!.digest === unified.digest
         && array(manifest!.requires).includes(GENERATION_CAPABILITY))
-        return { id: EXPRESSION_MOD, lock: unified, enabled: true };
+        return { id: EXPRESSION_MOD, lock: unified, enabled: true, manifest: manifest! };
     const legacy = row(locks[MOD]);
-    return { id: MOD, lock: legacy, enabled: truth(legacy.enabled) };
+    return { id: MOD, lock: legacy, enabled: truth(legacy.enabled), manifest: catalog.get(`${MOD}\0${string(legacy.version)}`) };
 }
 /** Version-1 locks keep their original identity and storage. New identities come only from the lock. */
 export function generationOf(owner: VoiceOwner): Row | null {
     const lock = packageState(owner);
     return lock && number(lock.state_version) >= 2 ? { version: lock.version, digest: lock.digest, state_version: lock.state_version } : null;
 }
-/** The fallback when `content/setup/npc-voice.md` cannot be read; the file is the instruction (§40.7). */
+/** The fallback when neither the owner's `contributes.voice_lane` nor `content/compat/npc-voice-lane.md` can be read (§40.7). */
 /** The last lines this person spoke at this table that ride in the packet (§113 D). */
 const SAID_LINES = 8;
 const INSTRUCTION = 'Write how this person is heard, in the play language and in the writing system its tag names. First a mask, one line describing register and flexible ' +
@@ -51,7 +51,9 @@ const INSTRUCTION = 'Write how this person is heard, in the play language and in
     'someone says, an arrow, and this person answering those actual words in natural connected speech. The first is ordinary ' +
     'first contact, not a mandatory brush-off. Courtesy, uncertainty, agreement and direct answers fit every register. Vary ' +
     'the responses, not three versions of an agenda; examples illustrate a voice, never a phrase bank or a script to recite. ' +
-    'Let the situation decide cooperation, emotion and length. The book\'s voice and facts govern. The investigator block is ' +
+    'Let the situation decide cooperation, emotion and length. The book\'s voice and facts govern. coarse_language is the ' +
+    'table\'s permission, not a trait: write swearing into the mask only when the source says this person swears or their ' +
+    'station plainly makes coarse talk their everyday speech; nobody else gets a swearing habit. The investigator block is ' +
     'the listener: respect the given sex and address, invent no name or relationship, and use only supplied visible facts ' +
     'for an address term. Where those facts do not settle the language\'s form, use wording that fits anyone. Never leak ' +
     'secrets, undiscovered facts, other people\'s names or rules: hides informs the person, not what they say aloud. ' +

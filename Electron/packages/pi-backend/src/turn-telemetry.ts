@@ -19,33 +19,55 @@ export const TURN_TELEMETRY_MAX_PERFORMANCE_SAMPLES = 32;
 export const TURN_TELEMETRY_MAX_PERFORMANCE_SESSIONS = 128;
 /** Maximum terminal records waiting behind one in-flight filesystem write. */
 export const TURN_TELEMETRY_MAX_PENDING_WRITES = 256;
+/**
+ * Contract §135.11.5: the longest a terminal record waits for a host delivery still being
+ * projected from the transcript, so the turn's own prose is not written after its record.
+ */
+export const TURN_TELEMETRY_PROSE_HOLD_MS = 2_000;
+/** The allowlisted record is far smaller; this protects rotation from old huge files. */
+export const TURN_TELEMETRY_MAX_RECORD_BYTES = 4 * 1024;
 
 const MAX_TURN_ID_LENGTH = 64;
 const MAX_OPEN_SUBMISSIONS = 256;
-/** The allowlisted record is far smaller; this protects rotation from old huge files. */
-const MAX_RECORD_BYTES = 4 * 1024;
+const MAX_RECORD_BYTES = TURN_TELEMETRY_MAX_RECORD_BYTES;
 
-type PhaseName =
-  | "renderer_submit"
-  | "renderer_preflight_start"
-  | "renderer_preflight_end"
-  | "host_received"
-  | "host_queued"
-  | "host_preparation_start"
-  | "host_preparation_end"
-  | "pi_dispatch"
-  | "pi_dispatch_accepted"
-  | "pi_agent_start"
-  | "first_stream"
-  | "first_thinking"
-  | "first_text"
-  | "first_assistant"
-  | "tool_activity"
-  | "settled"
-  | "stopped"
-  | "error";
+const PHASE_NAMES = [
+  "renderer_submit",
+  "renderer_preflight_start",
+  "renderer_preflight_end",
+  "host_received",
+  "host_queued",
+  "host_preparation_start",
+  "host_preparation_end",
+  "pi_dispatch",
+  "pi_dispatch_accepted",
+  "pi_agent_start",
+  "first_stream",
+  "first_thinking",
+  "first_text",
+  "first_assistant",
+  "tool_activity",
+  /** §135.11.5: the first prose this turn put on the player's screen and left there. */
+  "first_prose",
+  "settled",
+  "stopped",
+  "error",
+] as const;
+type PhaseName = typeof PHASE_NAMES[number];
 
 export type TurnTelemetryPhase = { name: PhaseName; at: number };
+/** §135.11.5: the road the turn's first prose took to the screen. */
+export type FirstProseVia = "mechanics" | "host" | "text";
+const FIRST_PROSE_VIAS: ReadonlySet<string> = new Set<FirstProseVia>(["mechanics", "host", "text"]);
+/**
+ * What one event the backend streamed to the renderer means for §135.11.5 (`first-prose.ts` decides):
+ * prose on a card or a host placement; a non-blank text delta, which counts only if its
+ * `message_end` keeps it; or a replacement of the streamed text, which counts only when non-blank.
+ */
+export type ProseArrival =
+  | { kind: "prose"; via: "mechanics" | "host" }
+  | { kind: "text" }
+  | { kind: "text_replace"; prose: boolean };
 export type TurnResourceSample = { rssBytes?: number; childCount?: number };
 export type TurnTelemetryMetrics = {
   promptBytes?: number;
@@ -69,6 +91,8 @@ export type TurnTelemetryDurations = {
   ttftMs?: number;
   generationMs?: number;
   turnMs?: number;
+  /** §135.11.5: `host_received` to the first prose the backend streamed that stayed on screen. */
+  firstProseMs?: number;
 };
 export type TurnTelemetryRecord = {
   v: typeof TURN_TELEMETRY_VERSION;
@@ -76,6 +100,8 @@ export type TurnTelemetryRecord = {
   outcome: "settled" | "stopped" | "error";
   phases: TurnTelemetryPhase[];
   durations?: TurnTelemetryDurations;
+  /** §135.11.5: present exactly when `durations.firstProseMs` is. */
+  firstProseVia?: FirstProseVia;
   metrics?: TurnTelemetryMetrics;
   resources?: { start?: TurnResourceSample; end?: TurnResourceSample };
   performance?: { ttftMs?: number; tokensPerSecond?: number };
@@ -93,6 +119,8 @@ export type TurnTelemetryOptions = {
   closeTimeoutMs?: number;
   /** Test/host override for the process-wide inactive-session cap. */
   maxPerformanceSessions?: number;
+  /** Test/host override for `TURN_TELEMETRY_PROSE_HOLD_MS`. */
+  proseHoldMs?: number;
   debug?: boolean | (() => boolean);
 };
 
@@ -110,6 +138,14 @@ type OpenTurn = {
   firstStreamAt?: number;
   firstTextAt?: number;
   firstAssistantAt?: number;
+  /** §135.11.5: the earliest time counted prose was on screen, and its road. */
+  firstProseAt?: number;
+  firstProseVia?: FirstProseVia;
+  /** First non-blank text delta of the assistant message now streaming; counted only if `message_end` keeps it. */
+  textFirstAt?: number;
+  /** Host deliveries still being projected; a flush requested meanwhile waits for them. */
+  proseHolds: number;
+  flushWanted?: boolean;
   terminalAt?: number;
   outcome?: TurnTelemetryRecord["outcome"];
   metrics: TurnTelemetryMetrics;
@@ -202,6 +238,7 @@ export function serializeTurnTelemetryRecord(record: TurnTelemetryRecord): strin
     phases: record.phases.map((phase) => ({ name: phase.name, at: phase.at })),
   };
   if (record.durations && Object.keys(record.durations).length) safe.durations = record.durations;
+  if (typeof record.firstProseVia === "string" && FIRST_PROSE_VIAS.has(record.firstProseVia)) safe.firstProseVia = record.firstProseVia;
   if (record.metrics && Object.keys(record.metrics).length) safe.metrics = record.metrics;
   if (record.resources && Object.keys(record.resources).length) safe.resources = record.resources;
   if (record.performance && Object.keys(record.performance).length) safe.performance = record.performance;
@@ -266,6 +303,9 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
   const rotate = options.rotate ?? defaultRotate;
   const maxBytes = options.maxBytes ?? TURN_TELEMETRY_MAX_BYTES;
   const closeTimeoutMs = options.closeTimeoutMs ?? TURN_TELEMETRY_CLOSE_TIMEOUT_MS;
+  const proseHoldMs = options.proseHoldMs !== undefined && Number.isFinite(options.proseHoldMs) && options.proseHoldMs >= 0
+    ? options.proseHoldMs
+    : TURN_TELEMETRY_PROSE_HOLD_MS;
   const file = turnTelemetryPath(options.agentDir);
   const backup = turnTelemetryBackupPath(options.agentDir);
   const requestedPerformanceSessions = options.maxPerformanceSessions;
@@ -276,6 +316,11 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
     : TURN_TELEMETRY_MAX_PERFORMANCE_SESSIONS;
   const pending = new Map<string, OpenTurn>();
   const active = new Map<string, OpenTurn>();
+  /**
+   * §135.11.5: settled turns the next dispatch displaced while a host delivery they placed was still
+   * being projected. Written when that projection settles or the hold's bound expires.
+   */
+  const held = new Map<string, OpenTurn>();
   /** Teardown fence: late events cannot recreate an OpenTurn for this session. */
   const fenced = new Set<string>();
   /** Insertion order is the deterministic least-recently-used order. */
@@ -304,7 +349,7 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
   const generatedId = (): string => `turn-${randomUUID().replace(/-/g, "").slice(0, 24)}`;
 
   function addPhase(turn: OpenTurn, name: PhaseName, at = clock()): void {
-    if (turn.phases.some((phase) => phase.name === name) || turn.phases.length >= 18) return;
+    if (turn.phases.some((phase) => phase.name === name) || turn.phases.length >= PHASE_NAMES.length) return;
     turn.phases.push({ name, at });
   }
 
@@ -315,6 +360,7 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
       turnId: renderer?.turnId ?? generatedId(),
       phases: [],
       hostReceivedAt,
+      proseHolds: 0,
       metrics: {
         ...(renderer?.promptBytes !== undefined ? { promptBytes: renderer.promptBytes } : {}),
         ...(renderer?.attachmentCount !== undefined ? { attachmentCount: renderer.attachmentCount } : {}),
@@ -441,7 +487,9 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
       if (turn.outcome !== "error") turn.outcome = "stopped";
       addPhase(turn, turn.outcome === "error" ? "error" : "stopped", turn.terminalAt);
     }
-    if (active.has(sessionId)) flushTerminal(sessionId);
+    // The displaced turn is the older one, so its record goes first.
+    writeHeld(sessionId);
+    if (active.has(sessionId)) flush(sessionId, true);
     performance.delete(sessionId);
   }
 
@@ -468,7 +516,7 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
   function retainedState(): { pending: number; active: number; fenced: number; performance: number } {
     return {
       pending: pending.size,
-      active: active.size,
+      active: active.size + held.size,
       fenced: fenced.size,
       performance: performance.size,
     };
@@ -488,6 +536,15 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
     let turn = renderer ? pending.get(renderer.turnId) : undefined;
     if (!turn || turn.sessionId !== sessionId) turn = makeTurn(sessionId, renderer);
     pending.delete(turn.turnId);
+    // §135.11.5: a settled turn whose record waits only for a host delivery's projection steps aside
+    // for the next turn and is written when that projection settles. The delivery was its prose, so
+    // it must not become the new turn's.
+    const previous = active.get(sessionId);
+    if (previous?.terminalAt !== undefined && previous.flushWanted) {
+      writeHeld(sessionId);
+      active.delete(sessionId);
+      held.set(sessionId, previous);
+    }
     // Queue semantics prevent concurrent prompt dispatches. If a broken/old
     // client violates that invariant, retain the active measurement rather than
     // falsely assigning later events to a second turn.
@@ -588,6 +645,82 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
     if (contextWindow !== undefined) turn.metrics.contextWindow = contextWindow;
   }
 
+  /**
+   * §135.11.5: the earliest time counted prose was on screen wins. Arrivals come in the order the
+   * backend streams them, so a later one never moves the mark; only a kept text, known to be kept at
+   * its `message_end` but on screen since its first delta, can be earlier than what is already held.
+   */
+  function markProse(turn: OpenTurn, via: FirstProseVia, at: number): void {
+    if (turn.firstProseAt !== undefined && turn.firstProseAt <= at) return;
+    turn.firstProseAt = at;
+    turn.firstProseVia = via;
+    const phase = turn.phases.find((item) => item.name === "first_prose");
+    if (phase) phase.at = at;
+    else addPhase(turn, "first_prose", at);
+  }
+
+  /**
+   * One event the backend has just streamed to the renderer (§135.11.5). Taken while the turn is
+   * active, settled or not: a host delivery can be projected after the settle and before the flush.
+   */
+  function observeProse(sessionId: string, arrival: ProseArrival | undefined): void {
+    if (!arrival) return;
+    // A host placement streamed while a displaced turn still waits on its projection is that turn's.
+    const turn = arrival.kind === "prose" && arrival.via === "host"
+      ? held.get(sessionId) ?? active.get(sessionId)
+      : active.get(sessionId);
+    if (!turn) return;
+    const at = clock();
+    if (arrival.kind === "prose") {
+      markProse(turn, arrival.via, at);
+      return;
+    }
+    if (arrival.kind === "text") {
+      turn.textFirstAt ??= at;
+      return;
+    }
+    // The streamed text is gone from the screen: only what replaced it can count, and from now.
+    turn.textFirstAt = undefined;
+    if (arrival.prose) markProse(turn, "text", at);
+  }
+
+  /**
+   * The assistant message ended and the host kept its streamed text. Where that text was on screen as
+   * it streamed, it counts from its first delta (`first_delta`). In a bound COC session the renderer
+   * holds a message's text in a folded working card until the message ends (§135.11.6), so the text
+   * becomes prose now, at this `message_end` (`settle`).
+   */
+  function settleText(sessionId: string, from: "first_delta" | "settle" = "first_delta"): void {
+    const turn = active.get(sessionId);
+    if (!turn || turn.textFirstAt === undefined) return;
+    const at = from === "settle" ? clock() : turn.textFirstAt;
+    turn.textFirstAt = undefined;
+    markProse(turn, "text", at);
+  }
+
+  /**
+   * A host delivery is being projected from the transcript (§55); its prose, if any, is streamed
+   * when `pending` settles. A flush requested meanwhile waits for it, bounded by `proseHoldMs`.
+   */
+  function holdForProse(sessionId: string, pending: PromiseLike<unknown>): void {
+    const turn = active.get(sessionId);
+    if (!turn) return;
+    turn.proseHolds += 1;
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      clearTimeout(timer);
+      turn.proseHolds -= 1;
+      if (turn.proseHolds > 0 || !turn.flushWanted) return;
+      if (active.get(turn.sessionId) === turn) flush(turn.sessionId, false);
+      else if (held.get(turn.sessionId) === turn) writeHeld(turn.sessionId);
+    };
+    const timer = setTimeout(release, proseHoldMs);
+    (timer as { unref?: () => void }).unref?.();
+    Promise.resolve(pending).then(release, release);
+  }
+
   function terminal(sessionId: string, requested: "settled" | "stopped"): void {
     const turn = active.get(sessionId);
     if (!turn || turn.terminalAt !== undefined) return;
@@ -605,7 +738,7 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
     turn.terminalAt = clock();
     turn.endResources = resources();
     addPhase(turn, "error", turn.terminalAt);
-    flushTerminal(sessionId);
+    flush(sessionId, true);
   }
 
   function buildRecord(turn: OpenTurn): TurnTelemetryRecord | undefined {
@@ -623,6 +756,8 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
     const ttftMs = nonNegativeDuration(turn.piDispatchAt, turn.firstStreamAt);
     const generationMs = nonNegativeDuration(turn.firstStreamAt, turn.firstAssistantAt ?? turn.terminalAt);
     const turnMs = nonNegativeDuration(turn.hostReceivedAt, turn.terminalAt);
+    // §135.11.5: absent when the turn put no prose on screen, never 0.
+    const firstProseMs = nonNegativeDuration(turn.hostReceivedAt, turn.firstProseAt);
     const rate = turn.metrics.outputTokens !== undefined
       && turn.metrics.outputTokens > 0
       && generationMs !== undefined
@@ -638,6 +773,7 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
       ...(ttftMs !== undefined ? { ttftMs } : {}),
       ...(generationMs !== undefined ? { generationMs } : {}),
       ...(turnMs !== undefined ? { turnMs } : {}),
+      ...(firstProseMs !== undefined ? { firstProseMs } : {}),
     });
     const resources = nonEmpty({
       ...(turn.startResources ? { start: turn.startResources } : {}),
@@ -649,6 +785,7 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
       outcome: turn.outcome,
       phases: [...turn.phases].sort((left, right) => left.at - right.at),
       ...(durations ? { durations } : {}),
+      ...(firstProseMs !== undefined && turn.firstProseVia ? { firstProseVia: turn.firstProseVia } : {}),
       ...(nonEmpty({ ...turn.metrics }) ? { metrics: { ...turn.metrics } } : {}),
       ...(resources ? { resources } : {}),
       ...(ttftMs !== undefined || tokensPerSecond !== undefined
@@ -673,14 +810,34 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
     return record;
   }
 
-  function flushTerminal(sessionId: string): void {
+  /** `force` writes a turn still held for a host delivery's projection (§135.11.5). */
+  function flush(sessionId: string, force: boolean): void {
     const turn = active.get(sessionId);
     if (!turn || turn.terminalAt === undefined) return;
+    if (!force && turn.proseHolds > 0) {
+      turn.flushWanted = true;
+      return;
+    }
     active.delete(sessionId);
+    write(turn);
+  }
+
+  function write(turn: OpenTurn): void {
     const record = buildRecord(turn);
     if (!record) return;
     const line = serializeTurnTelemetryRecord(record);
     enqueue(line);
+  }
+
+  function writeHeld(sessionId: string): void {
+    const turn = held.get(sessionId);
+    if (!turn) return;
+    held.delete(sessionId);
+    write(turn);
+  }
+
+  function flushTerminal(sessionId: string): void {
+    flush(sessionId, false);
   }
 
   function sessionPerformance(sessionId: string): SessionPerformance | undefined {
@@ -708,7 +865,8 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
   }
 
   function dispose(): void {
-    for (const sessionId of [...active.keys()]) flushTerminal(sessionId);
+    for (const sessionId of [...held.keys()]) writeHeld(sessionId);
+    for (const sessionId of [...active.keys()]) flush(sessionId, true);
     pending.clear();
     fenced.clear();
     for (const sessionId of performance.keys()) {
@@ -738,6 +896,9 @@ export function createTurnTelemetry(options: TurnTelemetryOptions) {
     dispatchAccepted,
     observeRpc,
     observeSessionStats,
+    observeProse,
+    settleText,
+    holdForProse,
     terminal,
     failDispatch,
     flushTerminal,

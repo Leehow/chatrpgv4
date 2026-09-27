@@ -14,6 +14,7 @@ import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import npc from '../../extensions/npc/index.ts';
 import {supportWire} from './support-agent-helpers.mjs';
+import {PRESELECT_ALLOWANCE_MAX_MS} from '../../extensions/jev/agent/config.js';
 
 const root=resolve(import.meta.dirname,'../..'),evidence=join(root,'.pi/npc-prescreen-integration/tests');
 await mkdir(evidence,{recursive:true});

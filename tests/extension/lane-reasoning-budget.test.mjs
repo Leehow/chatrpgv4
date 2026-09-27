@@ -20,13 +20,23 @@
 
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { laneReasoningOptions, laneThinkingLevel, runLane } from "../../extensions/lanes/subsession.ts";
+import { laneReasoningOptions, laneThinkingChoice, laneThinkingLevel, runLane } from "../../extensions/lanes/subsession.ts";
+
+/** Set (or, with undefined, remove) process variables for one case and put them back after. */
+function withEnv(t, values) {
+	const saved = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
+	for (const [key, value] of Object.entries(values)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+	t.after(() => { for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
+}
 
 function laneCtx(model, record) {
 	return {
 		model,
 		sessionManager: { getSessionId: () => undefined },
 		modelRegistry: {
+			// An env-named override (`resolveLaneModel`) looks the model up by provider/id; every test
+			// here only ever asks for the one model it configured, so returning it as found is enough.
+			find: (provider, id) => (model.provider === provider && model.id === id ? model : undefined),
 			complete: async (_model, _context, options) => {
 				record(options);
 				return { stopReason: "stop", content: [{ type: "text", text: '{"ok":true}' }] };
@@ -198,4 +208,74 @@ test("SL-81: 桌子在 off，但模型的映射表不支持 off：保留今天�
 	assert.equal(start.lane_thinking, "off");
 	assert.equal(start.lane_thinking_effective, "minimal", "clampThinkingLevel's own floor for a model that cannot disable reasoning");
 	assert.equal(start.thinking_carried, true, "a field was sent, even though it did not achieve off");
+});
+
+// ---- SL-91 (contract §12.8.1 addendum 2): a lane whose model comes from its own env override also takes its own
+// thinking level from a matching env ------------------------------------------------------------------------------
+
+const LANE_ENV = "PI_COC_LANE_BUDGET_TEST_MODEL";
+const LANE_THINKING_ENV = `${LANE_ENV}_THINKING`;
+
+test("SL-91 laneThinkingChoice: the lane's own model override in play, and a matching _THINKING set, decides on its own -- above PI_COC_LANE_THINKING, the setting and the table", (t) => {
+	withEnv(t, { [LANE_ENV]: "xai/grok-4.3", [LANE_THINKING_ENV]: "off", PI_COC_LANE_THINKING: "high" });
+	const ctx = { thinkingLevel: "medium" };
+	assert.deepEqual(laneThinkingChoice(ctx, LANE_ENV), { level: "off", source: "lane-operator" });
+	// `laneThinkingLevel` (every existing caller) still returns the plain level.
+	assert.equal(laneThinkingLevel(ctx, LANE_ENV), "off");
+});
+
+test("SL-91: no matching _THINKING (even with the model override set) is today's resolution, unchanged -- the shared PI_COC_LANE_THINKING still wins", (t) => {
+	withEnv(t, { [LANE_ENV]: "xai/grok-4.3", [LANE_THINKING_ENV]: undefined, PI_COC_LANE_THINKING: "high" });
+	assert.deepEqual(laneThinkingChoice({ thinkingLevel: "medium" }, LANE_ENV), { level: "high", source: "operator" });
+});
+
+test("SL-91: the lane-specific _THINKING is inert when the model did NOT come from its own override -- it must not leak in from the setting or the table's own path", (t) => {
+	// The model env is unset (so this lane's model would come from the setting or the table), but the
+	// `_THINKING` variable is set anyway (a stray or leftover operator env): it must not be read at
+	// all, because the ruling's own condition is "when a lane's model comes from its own env override".
+	withEnv(t, { [LANE_ENV]: undefined, [LANE_THINKING_ENV]: "off", PI_COC_LANE_THINKING: undefined });
+	assert.deepEqual(laneThinkingChoice({ thinkingLevel: "medium" }, LANE_ENV), { level: "medium", source: "table" });
+});
+
+test("SL-91: without an envName at all (every caller before this ticket), resolution is unchanged -- the shared env, then the table, then the default", (t) => {
+	withEnv(t, { PI_COC_LANE_THINKING: undefined });
+	assert.deepEqual(laneThinkingChoice({ thinkingLevel: "off" }), { level: "off", source: "table" });
+	assert.deepEqual(laneThinkingChoice({}), { level: "low", source: "default" });
+	assert.deepEqual(laneThinkingChoice(undefined), { level: "low", source: "default" });
+	withEnv(t, { PI_COC_LANE_THINKING: "medium" });
+	assert.deepEqual(laneThinkingChoice({ thinkingLevel: "off" }), { level: "medium", source: "operator" });
+});
+
+test("SL-91: a garbage _THINKING value still names its own rank as the source, normalized to the literal default -- the same fallback the shared variable already gets", (t) => {
+	withEnv(t, { [LANE_ENV]: "xai/grok-4.3", [LANE_THINKING_ENV]: "not-a-level", PI_COC_LANE_THINKING: "high" });
+	assert.deepEqual(laneThinkingChoice({}, LANE_ENV), { level: "low", source: "lane-operator" });
+});
+
+test("SL-91 at the lane seam: the admission lane starts on its own model at `off` (the disabled request shape for a map with off), and the `start` row's thinking_source names it, while another lane with no override keeps the shared level", async (t) => {
+	withEnv(t, { [LANE_ENV]: "xai/grok-4.6", [LANE_THINKING_ENV]: "off", PI_COC_LANE_THINKING: "medium" });
+	// The overridden lane: its own model, and its own `_THINKING`, ahead of the shared `medium`.
+	let seenOverridden;
+	const rowsOverridden = [];
+	const ctxOverridden = laneCtx({ provider: "xai", id: "grok-4.6", api: "openai-responses", thinkingLevelMap: { off: "off" } }, (options) => { seenOverridden = options; });
+	const overridden = await lane(ctxOverridden, { record: (row) => rowsOverridden.push(row) });
+	assert.equal(overridden.ok, true, JSON.stringify(overridden));
+	assert.equal("reasoningEffort" in seenOverridden, false, "off, mapped through this model's own thinkingLevelMap, sends no literal reasoningEffort");
+	const startOverridden = rowsOverridden.find((row) => row.phase === "start");
+	assert.deepEqual([startOverridden.lane_thinking, startOverridden.lane_thinking_effective, startOverridden.thinking_carried, startOverridden.thinking_source],
+		["off", "off", false, "lane-operator"]);
+
+	// A second, unrelated lane (a different envName, unset) is unaffected: it still takes the shared
+	// `medium` -- proving the override is per-lane, not process-wide once any lane's env is set.
+	let seenShared;
+	const rowsShared = [];
+	const ctxShared = laneCtx({ provider: "verifier", id: "v1", api: "openai-responses", thinkingLevelMap: { off: "off" } }, (options) => { seenShared = options; });
+	const shared = await runLane({
+		ctx: ctxShared, envName: "PI_COC_LANE_BUDGET_TEST_MODEL_UNRELATED", lane: "verifier",
+		systemPrompt: "return json", input: "x", record: (row) => rowsShared.push(row),
+		shape: (parsed) => (parsed && parsed.ok === true ? parsed : undefined),
+	});
+	assert.equal(shared.ok, true, JSON.stringify(shared));
+	assert.equal(seenShared.reasoningEffort, "medium");
+	const startShared = rowsShared.find((row) => row.phase === "start");
+	assert.deepEqual([startShared.lane_thinking, startShared.thinking_source], ["medium", "operator"]);
 });

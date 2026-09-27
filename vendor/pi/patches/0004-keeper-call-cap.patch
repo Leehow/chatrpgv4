@@ -1,5 +1,8 @@
 A Keeper provider call is capped past its own per-call total-duration ceiling, beside the idle-progress
-watchdog of 0003 (contract §135.29's SL-69 addendum).
+watchdog of 0003 (contract §135.29's SL-69 addendum). Amended by SL-82 (§135.29 addendum 2):
+`keeperCallCapMs` also accepts a zero-argument function, resolved fresh immediately before every attempt,
+so a per-turn host can size one call's cap differently from the rest without the vendored session ever
+being taught what a turn is.
 Base: 0003 applied. Apply with: git apply -p1 from the repository root.
 
 diff --git a/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts b/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts
@@ -26,7 +29,7 @@ index 64291ea2f..b1d94fec7 100644
  	});
  }
 diff --git a/vendor/pi/packages/coding-agent/src/core/sdk.ts b/vendor/pi/packages/coding-agent/src/core/sdk.ts
-index 6c00754c5..37800a212 100644
+index 6c00754..0c72cd8 100644
 --- a/vendor/pi/packages/coding-agent/src/core/sdk.ts
 +++ b/vendor/pi/packages/coding-agent/src/core/sdk.ts
 @@ -17,7 +17,7 @@ import type { ResourceLoader } from "./resource-loader.ts";
@@ -38,13 +41,17 @@ index 6c00754c5..37800a212 100644
  import { time } from "./timings.ts";
  import {
  	createBashTool,
-@@ -90,6 +90,13 @@ export interface CreateAgentSessionOptions {
+@@ -90,6 +90,17 @@ export interface CreateAgentSessionOptions {
  	sessionStartEvent?: SessionStartEvent;
  	/** Drive runs through the RunDriver with the host's policy and ports instead of the model-first loop. */
  	runDriver?: SessionRunDriver;
 +	/** Contract §135.29's SL-69 addendum: a per-call total-duration cap composed around the idle-progress
-+	 * watchdog (`watchStreamProgress`) in every provider attempt this session makes. 0 or absent disables it. */
-+	keeperCallCapMs?: number;
++	 * watchdog (`watchStreamProgress`) in every provider attempt this session makes. 0 or absent disables it.
++	 * §135.29 addendum 2 (SL-82): a zero-argument function is also accepted, resolved fresh immediately
++	 * before every attempt (a plain number is unaffected -- it behaves exactly as before this addendum) --
++	 * this is how a per-turn host tells the session "the call about to go out is a different one" without the
++	 * session ever being taught what a turn is. */
++	keeperCallCapMs?: number | (() => number | Promise<number>);
 +	/** Told once per attempt the cap above ends, with the phase ("first_byte" before any event of the
 +	 * attempt arrived, "streaming" after) it fired in. Never told anything else; a session without one set
 +	 * simply is not told. */
@@ -52,14 +59,16 @@ index 6c00754c5..37800a212 100644
  }
  
  /** Result from createAgentSession */
-@@ -366,6 +373,17 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
+@@ -366,6 +377,19 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
  		});
  	};
  
-+	// Contract §135.29's SL-69 addendum. `options` below is captured here under a distinct name because
-+	// `streamFn`'s own parameter is also (confusingly, but matching the callback's established shape)
-+	// named `options` -- reading `options.keeperCallCapMs` inside `streamFn` would read the wrong one.
-+	const keeperCallCapMs = options.keeperCallCapMs ?? 0;
++	// Contract §135.29's SL-69 addendum (extended by addendum 2, SL-82). `options` below is captured here
++	// under a distinct name because `streamFn`'s own parameter is also (confusingly, but matching the
++	// callback's established shape) named `options` -- reading `options.keeperCallCapMs` inside `streamFn`
++	// would read the wrong one. The setting itself may be a plain number or a zero-argument function
++	// (SL-82): resolved fresh inside `streamFn`, immediately before every attempt, never once here.
++	const keeperCallCapSetting = options.keeperCallCapMs ?? 0;
 +	const onKeeperCallCap = options.onKeeperCallCap;
 +	// Keyed by each infer step's own outer signal (stable across that step's internal retries, since a
 +	// retry resends under the same step and thus the same caller-owned cancellation signal): how many
@@ -70,7 +79,7 @@ index 6c00754c5..37800a212 100644
  	const agent = new Agent({
  		initialState: {
  			systemPrompt: "",
-@@ -387,11 +405,29 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
+@@ -387,11 +411,32 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
  			}
  			// The same idle allowance, measured on the events the agent consumes rather than on bytes: a
  			// stream that answers and then produces no event ends as a retryable error (stream-progress.ts).
@@ -85,6 +94,9 @@ index 6c00754c5..37800a212 100644
 +					signal,
 +					settingsManager.getHttpIdleTimeoutMs(),
 +				);
++			// SL-82: resolved fresh on every attempt (a function may answer differently call to call, e.g.
++			// the product's own "is this the turn's first Keeper call" cap); a plain number is unaffected.
++			const keeperCallCapMs = typeof keeperCallCapSetting === "function" ? await keeperCallCapSetting() : keeperCallCapSetting;
 +			if (!(keeperCallCapMs > 0)) return underIdleWatchdog(requestOptions.signal);
 +			const stepSignal = options?.signal;
 +			return watchCallCap(underIdleWatchdog, requestOptions.signal, keeperCallCapMs,
@@ -202,22 +214,23 @@ index 363b2e198..c8ae2433a 100644
 +	return out;
 +}
 diff --git a/vendor/pi/packages/coding-agent/src/main.ts b/vendor/pi/packages/coding-agent/src/main.ts
-index 5664f351b..e44e899a2 100644
+index 5664f35..1e0d523 100644
 --- a/vendor/pi/packages/coding-agent/src/main.ts
 +++ b/vendor/pi/packages/coding-agent/src/main.ts
-@@ -564,6 +564,11 @@ export interface MainOptions {
+@@ -564,6 +564,12 @@ export interface MainOptions {
  	extensionFactories?: InlineExtension[];
  	/** Drive the session's runs through the RunDriver (forwarded to the session factory). */
  	runDriver?: SessionRunDriver;
 +	/** Contract §135.29's SL-69 addendum: the per-call total-duration cap (forwarded to the session
-+	 * factory). 0 or absent disables it, exactly like `httpIdleTimeoutMs`'s own 0 convention. */
-+	keeperCallCapMs?: number;
++	 * factory). 0 or absent disables it, exactly like `httpIdleTimeoutMs`'s own 0 convention. §135.29
++	 * addendum 2 (SL-82): also accepts a zero-argument function, resolved fresh before every attempt. */
++	keeperCallCapMs?: number | (() => number | Promise<number>);
 +	/** Told once per attempt the cap above ends, with the phase it fired in; never told anything else. */
 +	onKeeperCallCap?: (phase: "first_byte" | "streaming", capMs: number) => void;
  }
  
  export async function main(args: string[], options?: MainOptions) {
-@@ -833,6 +838,8 @@ export async function main(args: string[], options?: MainOptions) {
+@@ -833,6 +839,8 @@ export async function main(args: string[], options?: MainOptions) {
  			noTools: sessionOptions.noTools,
  			customTools: sessionOptions.customTools,
  			runDriver: options?.runDriver,

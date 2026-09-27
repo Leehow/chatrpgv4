@@ -42,6 +42,33 @@ export function isFirstStepOfTurn(roundTrips: number): boolean {
 	return roundTrips <= 1;
 }
 
+/** `COC_FIRST_STEP_THINKING=1`, read the exact way `extensions/kernel/index.ts`'s `before_provider_request`
+ * hook already does. Exported so `runtime/jev/hybrid-engine.ts` (SL-82, contract §135.29 addendum 2) can gate
+ * its own per-call cap on the same flag without a second copy of the literal. */
+export function firstStepThinkingEnabled(env: Readonly<Record<string, string | undefined>>): boolean {
+	return env.COC_FIRST_STEP_THINKING === "1";
+}
+
+/**
+ * SL-82 (contract §135.29 addendum 2; long gate #14). With the flag on, the turn's first Keeper provider
+ * call sizes its own per-call cap: the larger of the ordinary SL-69 cap (`runtime/jev/hybrid-engine.ts`'s
+ * `keeperCallCapMs`) and a thinking-call allowance named in `content/rulesets/coc7/host-budgets.json`
+ * (`first_step_thinking.call_cap_ms`, read by `runtime/jev/host-budgets.ts`). A thinking call at that step
+ * routinely runs far longer than a cap sized from the turn budget allows -- long gate #14 killed every
+ * ~35 s thinking call at a 22,500 ms cap, stranding 8 of 20 turns. Steps 2 and later never see the
+ * allowance: by the time that call goes out, `disableStepThinking` above has already turned thinking off
+ * for it, so it runs at the ordinary pace the cap was already sized for.
+ *
+ * The flag off, or a step that is not the turn's first, returns `ordinaryCapMs` completely untouched. The
+ * caller (`hybrid-engine.ts`) does not even reach this function in the flag-off case -- it keeps returning
+ * the plain ordinary number it always has, so a table without `COC_FIRST_STEP_THINKING=1` takes the exact
+ * code path SL-69 shipped, byte for byte.
+ */
+export function firstStepCallCapMs(flagOn: boolean, step: number, ordinaryCapMs: number, allowanceMs: number): number {
+	if (!flagOn || !isFirstStepOfTurn(step)) return ordinaryCapMs;
+	return Math.max(ordinaryCapMs, allowanceMs);
+}
+
 /**
  * Given the payload pi-ai built for an enabled call, return the same payload with thinking turned
  * off, or `{status: "unsupported_format"}` when the shape in front of us cannot be inverted safely.

@@ -248,7 +248,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style", "voice_lane"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     // Contract §28.9. A name this build does not know is recorded on the manifest and makes the
     // package incompatible -- exactly what an unknown capability in `requires` already does five
@@ -267,13 +267,13 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
             invalid("Dependency ids must be semantic slugs");
         version(ver);
     }
-    for (const field of ["instructions", "brief", "setup_instructions", "materializer", "auditor"]) {
+    for (const field of ["instructions", "brief", "setup_instructions", "materializer", "auditor", "voice_lane"]) {
         const path = manifest.contributes[field];
         if (path != null && (typeof path !== "string" || !files.has(path) || !path.endsWith(".md")))
             invalid(`contributes.${field} must name a package Markdown file`);
     }
     if (scoped) {
-        for (const field of ["instructions", "brief", "setup_instructions", "setup_slots", "materializer", "auditor"]) {
+        for (const field of ["instructions", "brief", "setup_instructions", "setup_slots", "materializer", "auditor", "voice_lane"]) {
             const name = manifest.contributes[field];
             if (typeof name === "string" && !declared.includes(name))
                 invalid(`package_files must include contributes.${field}`);
@@ -281,6 +281,9 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     }
     if (manifest.contributes.brief != null && manifest.contributes.instructions == null)
         invalid("contributes.brief is the per-turn form of contributes.instructions and needs it");
+    // Contract §40.7 Instruction: only a package that owns the voice lane can say how the lane writes.
+    if (manifest.contributes.voice_lane != null && !array(manifest.requires).includes("npc.voice.generation.v2"))
+        invalid("contributes.voice_lane is the voice lane's instruction and needs npc.voice.generation.v2");
     validateSetupSlots(manifest, files);
     // Contract §137.2: the pairing and the path here; the file's lines are checked where the catalog loads.
     validateStyleDeclaration(manifest, files);
@@ -737,10 +740,15 @@ export function contactRows(graph: ModuleGraph, world: Row, party: Row[], active
             for (const npc of people) {
                 const pair = jsonDigest([name, actor.id, npc.node_id]),
                     known = values(row(row(world.mods).state)).map(state => row(state.checks)[pair]).filter(Boolean).sort((a, b) => number(a.turn) - number(b.turn))[0];
+                // SL-83: `target` is the table's display name for the person (what the Keeper says); `handle` is the
+                // graph handle, the same identifier the first-impression `roll` receipt's `npc` carries
+                // (`mods/resolve.ts`: `npc: graph.handle(target)`), so a consumer that must pair this row with
+                // that receipt compares handle to handle and never a label to a handle.
                 if (known)
                     relationships.push({
                         actor: actor.name,
                         target: graph.displayName(npc),
+                        handle: graph.handle(npc),
                         decision: name,
                         impression: row(row(known.result).outcome).impression ?? null,
                         since_turn: known.turn
@@ -749,6 +757,7 @@ export function contactRows(graph: ModuleGraph, world: Row, party: Row[], active
                     contacts.push({
                         actor: actor.name,
                         target: graph.displayName(npc),
+                        handle: graph.handle(npc),
                         decision: name,
                         when: "first meaningful contact, not merely appearing in this list"
                     });

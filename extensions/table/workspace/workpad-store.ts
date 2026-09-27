@@ -149,10 +149,13 @@ function safeEntry(value: unknown): value is WorkpadEntry {
 export class WorkpadStore {
   readonly root: string;
   private queue: Promise<unknown> = Promise.resolve();
+  /** SL-87: the clock the cross-instance lock's wait is measured on (`withWorkspaceCacheLock`); absent, `Date.now`. */
+  private readonly now?: () => number;
 
-  constructor(root: string) {
+  constructor(root: string, options: {now?: () => number} = {}) {
     if (!isText(root) || root.includes("\0")) throw new TypeError("workpad store root must be a non-empty path");
     this.root = resolve(root);
+    this.now = options.now;
   }
 
   private contained(path: string): string {
@@ -169,7 +172,7 @@ export class WorkpadStore {
   }
 
   private serialize<T>(job: () => Promise<T>): Promise<T> {
-    const locked = () => withWorkspaceCacheLock(this.root, job);
+    const locked = () => withWorkspaceCacheLock(this.root, job, this.now);
     const next = this.queue.then(locked, locked);
     this.queue = next.catch(() => undefined);
     return next;
@@ -271,6 +274,6 @@ export function workpadStoreRoot(home: string): string {
   return join(resolve(home), ".coc", "workspace-cache", "workpad");
 }
 
-export function createWorkpadStore(homeOrRoot: string): WorkpadStore {
-  return new WorkpadStore(homeOrRoot);
+export function createWorkpadStore(homeOrRoot: string, options: {now?: () => number} = {}): WorkpadStore {
+  return new WorkpadStore(homeOrRoot, options);
 }

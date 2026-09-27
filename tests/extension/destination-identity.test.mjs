@@ -29,7 +29,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { openTable, waitForIdle } from "./harness.mjs";
+import { openTable, waitFor, waitForIdle } from "./harness.mjs";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const MODULE_GRAPH = join(ROOT, "content/starters/the-haunting/module-graph.json");
@@ -93,6 +93,13 @@ const CAMPAIGN = "destination-identity";
 const EXTERIOR = "我推开环球报的门，先去威尔莫特的柜台。";
 const INTERIOR_WITH_GATEKEEPER = "我去剪报室，但进门先找到威尔莫特问他允不允许，我不绕过他。";
 
+/** Whether the Keeper's narrate of `text` has a tool result in the session. */
+function delivered(session, text) {
+	const call = session.messages.flatMap((message) => message.role === "assistant" && Array.isArray(message.content) ? message.content : [])
+		.find((block) => block.type === "toolCall" && block.name === "narrate" && block.arguments?.text === text);
+	return Boolean(call && session.messages.some((message) => message.role === "toolResult" && message.toolCallId === call.id));
+}
+
 function turn(playerFacing) {
 	return [
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "newspaper-morgue", travel_minutes: 20 }] })], { stopReason: "toolUse" }),
@@ -119,11 +126,16 @@ test("the reviewer is handed the place the module authored, not the handle's slu
 		laneResponses: { admission: [fauxAssistantMessage(JSON.stringify({ verdict: "not_authorized", grounds: "scripted refusal, as the live table answered", missing: "which door they go in by" }))] },
 	});
 	t.after(() => table.dispose());
+	// SL-87: each wait is on the delivery that ends the run the next step depends on, not on an idle heuristic: on a loaded box
+	// `waitForIdle` returned before the opening run, both player inputs were held behind it, and the reviews were read before
+	// either turn had run (0 of 2).
+	await waitFor(() => delivered(table.session, "诺特把钥匙放下，说前一家租户出了事。"), { label: "the opening's delivery", timeoutMs: 60_000 });
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
 
 	// Both stalled directions, each as its own turn through the real tool path.
 	await table.session.prompt(EXTERIOR);
 	await table.session.prompt(INTERIOR_WITH_GATEKEEPER);
+	await waitFor(() => delivered(table.session, "威尔莫特抬起头。"), { label: "the second turn's delivery", timeoutMs: 60_000 });
 
 	const requests = table.lanes.admission.requests();
 	assert.equal(requests.length, 2, `each turn's move was reviewed once: ${requests.length}`);

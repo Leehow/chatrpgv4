@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import readerContext, { boundImages, confineReaderEnvironment, createReaderToolGuard } from "../../extensions/module/reader-context.ts";
@@ -185,4 +185,33 @@ test("a host-owned provider request ceiling aborts before an extra model call", 
 		if (previous == null) delete process.env.PI_COC_READER_MAX_REQUESTS;
 		else process.env.PI_COC_READER_MAX_REQUESTS = previous;
 	}
+});
+
+test("§140: an unleased child sends its own output bound, so the provider's default never decides it", async t => {
+	const dir = await mkdtemp(join(tmpdir(), "reader-output-"));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const log = join(dir, "requests.jsonl");
+	const hooks = {};
+	readerContext({ on(name, fn) { hooks[name] = fn; } }, { env: { PI_COC_READER_REQUESTS_LOG: log } });
+	// The occ-check reviewer's model: opencode-go serves it over chat completions and declares 384,000 output tokens.
+	const deepseek = { provider: "opencode-go", id: "deepseek-v4.1-flash", api: "openai-completions", maxTokens: 384000 };
+	const payload = { model: "deepseek-v4.1-flash", reasoning_effort: "low", messages: [] };
+	const sent = hooks.before_provider_request({ payload }, { model: deepseek, abort() {} });
+	assert.equal(sent.max_tokens, 32768, "the reading's per-call bound, not the provider's unstated 8,192");
+	assert.equal("max_tokens" in payload, false, "the original payload is not mutated");
+	// A smaller bound already in the payload stands; a model whose ceiling is lower caps it; an unknown API is left alone.
+	assert.equal(hooks.before_provider_request({ payload: { ...payload, max_tokens: 4000 } }, { model: deepseek, abort() {} }), undefined);
+	assert.equal(hooks.before_provider_request({ payload }, { model: { ...deepseek, maxTokens: 16384 }, abort() {} }).max_tokens, 16384);
+	assert.equal(hooks.before_provider_request({ payload }, { model: { ...deepseek, api: "some-new-api" }, abort() {} }), undefined);
+	// Anthropic and Google shapes use their own fields.
+	assert.equal(hooks.before_provider_request({ payload: { messages: [] } }, { model: { api: "anthropic-messages", maxTokens: 64000 }, abort() {} }).max_tokens, 32768);
+	assert.deepEqual(hooks.before_provider_request({ payload: { contents: [] } }, { model: { api: "google-generative-ai", maxTokens: 65536 }, abort() {} }).config, { maxOutputTokens: 32768 });
+	// The request log carries the bound each request actually went out with.
+	const rows = (await readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+	assert.deepEqual(rows.map((row) => row.output_bound), [32768, 4000, 16384, null, 32768, 32768]);
+
+	// A lease's per-call bound, when the host passes one, is the room instead.
+	const leaseHooks = {};
+	readerContext({ on(name, fn) { leaseHooks[name] = fn; } }, { env: { PI_COC_PROVIDER_OUTPUT_LIMIT: "20000" } });
+	assert.equal(leaseHooks.before_provider_request({ payload }, { model: deepseek, abort() {} }).max_tokens, 20000);
 });

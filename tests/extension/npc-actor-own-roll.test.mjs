@@ -68,7 +68,7 @@ async function table(t) {
 
 /** Places `name` (default `GUARD`) in the current scene, a table person the module never authored. */
 async function place(game, name = GUARD) {
-	const result = await game.apply({ kind: 'npc', name, to: 'here', why: 'a face at the table' });
+	const result = await game.apply({ kind: 'npc', name, to: 'here', walk_on: true, why: 'a face at the table' });
 	const receipt = (await game.receipts()).find((row) => result.receipts.includes(row.id) && row.kind === 'npc');
 	assert.ok(receipt, 'placing the person minted an npc receipt');
 	return receipt.handle;

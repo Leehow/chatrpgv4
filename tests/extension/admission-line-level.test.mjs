@@ -19,7 +19,8 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { openTable, waitForIdle } from "./harness.mjs";
+import { openTable, waitFor, waitForIdle } from "./harness.mjs";
+import { manualClock, runWaitsPastRound } from "./manual-clock.mjs";
 import { clearedLines, lineClearable, remainderAttempt } from "../../extensions/kernel/admission.ts";
 
 const KEY = { EXT_JEV_APIKEY: "test-jev-key" };
@@ -50,15 +51,18 @@ function distribution(keys, chosen, confidence) {
 	const rest = keys.length > 1 ? (1 - confidence) / (keys.length - 1) : 0;
 	return Object.fromEntries(keys.map((key) => [key, key === chosen ? (keys.length > 1 ? confidence : 1) : rest]));
 }
-/** The typed endpoint: `lines[i]` is line i's `{verdict, confidence}`, answered after `delayMs`. Returns the requests it answered. */
-function installJev(t, lines, delayMs = 0) {
+/**
+ * The typed endpoint: `lines[i]` is line i's `{verdict, confidence}`, answered after `delayMs` (on `clock` when a test gives
+ * one, SL-87). Returns the requests it answered.
+ */
+function installJev(t, lines, delayMs = 0, clock) {
 	const original = globalThis.fetch;
 	const requests = [];
 	globalThis.fetch = async (url, init) => {
 		if (String(url) !== "https://api.typesafe.ai/v1/systemone") return original(url, init);
 		const body = JSON.parse(init.body);
 		requests.push(body);
-		if (delayMs) await sleep(delayMs);
+		if (delayMs) await (clock ? clock.sleep(delayMs) : sleep(delayMs));
 		const answers = Object.fromEntries(Object.entries(body.questions).map(([key, question]) => {
 			const keys = Object.keys(question.criteria), index = Number(key.split("_")[1]), line = lines[index] ?? lines[0];
 			const choice = key.startsWith("verdict_") ? line.verdict : key.startsWith("missing_") ? (line.missing ?? "none") : body.state.playerWords?.[0]?.alias ?? "none";
@@ -240,13 +244,49 @@ test("§32.12.3: a rest the lane refuses does not land; the cleared line lands a
 });
 
 test("§32.12.3 with §32.12.2: a rest past the cap is returned pending alone; the cleared line lands at once, and the rest's own resend collects its review", async (t) => {
-	// The typed answer takes 600 ms: the rest's cap is still the batch's, measured from the review's start.
-	installJev(t, [{ verdict: "entailed", confidence: 0.93 }, { verdict: "authorized", confidence: 0.4 }], 600);
-	const table = await openTable({ env: { ...KEY, PI_COC_ADMISSION_TIMEOUT_MS: "1000" },
-		responses: [call("apply", { effects: [TIME, MOVE] }), call("apply", { effects: [MOVE] }), ...close],
-		laneResponses: { admission: restLane({ verdict: "authorized", grounds: "the player went down to the kitchen" }, 1100) } });
+	// SL-87: the subject is a wall-clock budget -- the rest's cap and round are the batch's, measured from the review's start
+	// -- so the review and the resend run on a manual clock (`coc:test-admission-clock`) and nothing sleeps: the typed answer
+	// lands at 600 ms, the rest's cap is at 1000, its lane answers 1100 ms after the split (1700), its round ends at 2000.
+	// On a loaded box the real-time version lost the verdict past the round, overran its 1400 ms bound, and once read a cap
+	// that fired 1 ms early (999 ms; the early-fire guard's own test is in admission-late.test.mjs).
+	const CAP_MS = 1000, TYPED_MS = 600, REST_VERDICT_MS = 1100, HARD_CAP_MS = 2 * CAP_MS;
+	const clock = manualClock(), T0 = clock.at();
+	let restAsked = false, resendAt;
+	installJev(t, [{ verdict: "entailed", confidence: 0.93 }, { verdict: "authorized", confidence: 0.4 }], TYPED_MS, clock);
+	// The lane, by what it is asked (as `restLane`): the batch's own round answers nothing before the test is over; the
+	// rest's round answers 1100 ms after it was asked.
+	const laneStep = async (context) => {
+		const text = (context?.messages ?? []).flatMap((message) => (message.role === "user" ? message.content : [])).map((block) => block.text ?? "").join("");
+		if (/apply time/.test(proposes(text))) { await clock.until(T0 + 5 * CAP_MS); return fauxAssistantMessage(JSON.stringify({ verdict: "not_authorized", grounds: "the batch's own round" })); }
+		restAsked = true;
+		await clock.sleep(REST_VERDICT_MS);
+		return fauxAssistantMessage(JSON.stringify({ verdict: "authorized", grounds: "the player went down to the kitchen" }));
+	};
+	// The Keeper resends the rest once it has read the pending part; what the clock had been read by then is marked.
+	const resend = () => { resendAt = clock.reads(); return call("apply", { effects: [MOVE] }); };
+	// The typed attempt's own cap is incidental here: a minute, so its real-time attempt bound never decides.
+	const table = await openTable({ env: { ...KEY, PI_COC_ADMISSION_TIMEOUT_MS: String(CAP_MS), PI_COC_ADMISSION_JEV_TIMEOUT_MS: "60000" },
+		responses: [call("apply", { effects: [TIME, MOVE] }), resend, ...close],
+		laneResponses: { admission: [laneStep, laneStep] } });
 	t.after(() => table.dispose());
-	await table.session.prompt(WORDS);
+	table.emit("coc:test-admission-clock", clock);
+	let ended = false;
+	const prompt = table.session.prompt(WORDS).finally(() => { ended = true; });
+	// The batch's review is running: the typed answer, the cap and the round's end are all on the clock.
+	await waitFor(() => [TYPED_MS, CAP_MS, HARD_CAP_MS].every((at) => clock.due().includes(T0 + at)), { timeoutMs: 60_000,
+		label: "the batch's review on the clock" });
+	clock.advanceTo(T0 + TYPED_MS);
+	// The typed answer clears the time line; the rest (the move) is reviewed on its own, on the batch's cap and round.
+	await waitFor(() => restAsked, { timeoutMs: 60_000, label: "the rest's lane round" });
+	for (const at of [CAP_MS, TYPED_MS + REST_VERDICT_MS, HARD_CAP_MS])
+		assert.ok(clock.due().includes(T0 + at), `the rest's round: a timer due ${at} ms into the batch's review (${clock.due().map((due) => due - T0)})`);
+	clock.advanceTo(T0 + CAP_MS);
+	// The rest goes back pending at the batch's cap; the Keeper resends it, and the resend's start is the next reading.
+	await waitFor(() => resendAt !== undefined && clock.reads() > resendAt, { timeoutMs: 60_000, label: "the resend waiting on the rest's round" });
+	clock.advanceTo(T0 + TYPED_MS + REST_VERDICT_MS);
+	await runWaitsPastRound(clock, T0 + HARD_CAP_MS, () => ended);
+	assert.ok(ended, "the run ended");
+	await prompt;
 	assert.deepEqual(effectsOf(table), [["time"], ["move"]], "the time at the cap, the move on its resend");
 	const [first, second] = toolResults(table.session, "apply");
 	assert.equal(first.details.admission.not_landed.details.reason, "review_pending");
@@ -257,9 +297,9 @@ test("§32.12.3 with §32.12.2: a rest past the cap is returned pending alone; t
 		[["typed", "admitted", "entailed", null], ["lane", "remainder", "review_pending", null], ["lane", null, "authorized", true]]);
 	assert.deepEqual(rows[1].lines, [2], "the pending row names the lines still waiting");
 	assert.deepEqual(rows[1].proposed.map((line) => line.split(":")[0]), ["apply move"]);
-	assert.ok(rows[1].ms >= 1000 && rows[1].ms < 1400, `pending at the batch's cap (${rows[1].ms} ms)`);
-	const [firstCall] = table.telemetry().filter((row) => row.tool === "apply" && row.ok === true);
-	assert.ok(firstCall.ms < 1400, `the call waited the batch's cap from its review's start, not a fresh cap from the split at 600 ms (${firstCall.ms} ms)`);
+	assert.equal(rows[0].ms, TYPED_MS, "the split, when the typed answer landed");
+	assert.equal(rows[1].ms, CAP_MS, "pending at the batch's cap, measured from the review's start -- not a fresh cap from the split (1600)");
+	assert.equal(rows[2].resend_wait_ms, TYPED_MS + REST_VERDICT_MS - CAP_MS, "the resend waited from the cap to the rest's verdict, inside the round");
 	assert.equal(restRequests(table).length, 1, "the resend collected the rest's running round");
 });
 

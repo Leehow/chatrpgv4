@@ -39,7 +39,9 @@ const runner=new ExtensionRunner([{path:"play-lease-conformance",handlers}],crea
 runner.bindCore({}, {getModel:()=>ctx.model,abort:()=>ctx.abort()});
 const wait=ms=>new Promise(done=>setTimeout(done,ms));
 for(let n=0;n<${calls};n++){
- let payload={model:ctx.model.id,input:[{type:'input_image',image_url:'data:image/png;base64,small'}]};
+ // A different page each call: SL-99 (§140.1) pays an identical resend from its failed attempt's reservation, and this
+ // file's subject is distinct image calls that each end without usage.
+ let payload={model:ctx.model.id,input:[{type:'input_image',image_url:'data:image/png;base64,page'+n}]};
  payload=await runner.emitBeforeProviderRequest(payload);
  appendFileSync(${JSON.stringify(marker)},JSON.stringify({max_output_tokens:payload.max_output_tokens})+'\\n');
  const message={role:'assistant',stopReason:'error',errorMessage:${JSON.stringify(STALL)}};
@@ -51,7 +53,9 @@ process.disconnect();`);
   const base = composeRuntimeContext({owner: 'preparation', home}, {resourceRoot: ROOT, env: {...process.env, PI_COC_HOME: home, PI_CODING_AGENT_DIR: agent}});
   const context = {...base, entrypoints: {...base.entrypoints, pi: cli}};
   const dispatched = async () => (await readFile(marker, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
-  const run = request => runtimeCapabilities.runTask(context, {kind: 'reader', request: {cwd, brief: 'Play lease conformance only', model: 'test/vision', timeoutMs: 10_000, ...request}},
+  // SL-87: the reader's time is not this file's subject; its token lease is. On a loaded box the child outlasted a 10 s
+  // lease deadline and the refusal read `budget_deadline`: the fixed lease's deadline is a minute here.
+  const run = request => runtimeCapabilities.runTask(context, {kind: 'reader', request: {cwd, brief: 'Play lease conformance only', model: 'test/vision', timeoutMs: 60_000, ...request}},
     new AbortController().signal);
   return {run, dispatched};
 }

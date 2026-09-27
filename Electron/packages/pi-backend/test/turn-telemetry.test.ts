@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createTurnTelemetry,
   sanitizeRendererTurnTelemetry,
+  serializeTurnTelemetryRecord,
+  TURN_TELEMETRY_MAX_RECORD_BYTES,
   turnTelemetryBackupPath,
   turnTelemetryPath,
   type TurnTelemetryRecord,
@@ -330,5 +332,310 @@ describe("turn telemetry", () => {
       preflightEndedAt: 11,
       headers: { authorization: "secret" },
     })).toEqual({ turnId: "safe-turn", submittedAt: 10 });
+  });
+});
+
+/**
+ * Contract §135.11.5 (SL-94): `first_prose`, `durations.firstProseMs` and `firstProseVia` say when the
+ * player first saw the turn's prose. The backend classifies what it streams (`first-prose.ts`); these
+ * tests pin what the recorder does with each arrival.
+ */
+describe("turn telemetry: the first prose the player sees", () => {
+  function openTurn(sessionId: string, clock: { value: number }, telemetry: ReturnType<typeof createTurnTelemetry>) {
+    telemetry.beginDispatch(sessionId, undefined);
+    telemetry.preparationComplete(sessionId, 10);
+    clock.value += 1;
+    telemetry.dispatchStarted(sessionId);
+    clock.value += 1;
+    telemetry.dispatchAccepted(sessionId);
+    telemetry.observeRpc(sessionId, { type: "agent_start" });
+    clock.value += 2;
+    // The narrate call streams first: TTFT is this, never the prose.
+    telemetry.observeRpc(sessionId, { type: "message_update", assistantMessageEvent: { type: "toolcall_start" } });
+  }
+  const phase = (record: TurnTelemetryRecord, name: string) => record.phases.find((item) => item.name === name)?.at;
+
+  it("records the earliest prose with its road beside the durations, and a later arrival never moves it", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-turn-telemetry-prose-first-"));
+    const clock = { value: 100 };
+    const telemetry = createTurnTelemetry({ agentDir: root, now: () => clock.value });
+    openTurn("s", clock, telemetry);
+    clock.value = 130;
+    telemetry.observeProse("s", { kind: "prose", via: "mechanics" });
+    clock.value = 150;
+    telemetry.observeProse("s", { kind: "prose", via: "host" });
+    clock.value = 160;
+    telemetry.observeProse("s", { kind: "text_replace", prose: true });
+    clock.value = 170;
+    telemetry.observeProse("s", { kind: "text" });
+    telemetry.settleText("s");
+    clock.value = 180;
+    telemetry.terminal("s", "settled");
+    telemetry.flushTerminal("s");
+    await telemetry.pending();
+
+    const [record] = await readRows(turnTelemetryPath(root));
+    expect(record!.firstProseVia).toBe("mechanics");
+    expect(record!.durations?.firstProseMs).toBe(130 - 100);
+    expect(phase(record!, "first_prose")).toBe(130);
+    expect(record!.phases.filter((item) => item.name === "first_prose")).toHaveLength(1);
+    // TTFT is the first provider stream event, as before: the tool call at 104, not the prose.
+    expect(record!.durations?.ttftMs).toBe(phase(record!, "first_stream")! - phase(record!, "pi_dispatch")!);
+    expect(record!.durations?.ttftMs).toBe(3);
+    expect(record!.performance?.ttftMs).toBe(3);
+  });
+
+  it("counts a kept text from its first delta, even when its message ends after a card", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-turn-telemetry-prose-kept-"));
+    const clock = { value: 100 };
+    const telemetry = createTurnTelemetry({ agentDir: root, now: () => clock.value });
+    openTurn("s", clock, telemetry);
+    clock.value = 120;
+    telemetry.observeProse("s", { kind: "text" });
+    clock.value = 125;
+    // A later delta of the same message does not move its start.
+    telemetry.observeProse("s", { kind: "text" });
+    clock.value = 140;
+    telemetry.observeProse("s", { kind: "prose", via: "mechanics" });
+    clock.value = 160;
+    telemetry.settleText("s");
+    telemetry.terminal("s", "settled");
+    telemetry.flushTerminal("s");
+    await telemetry.pending();
+
+    const [record] = await readRows(turnTelemetryPath(root));
+    expect(record!.firstProseVia).toBe("text");
+    expect(record!.durations?.firstProseMs).toBe(20);
+    expect(phase(record!, "first_prose")).toBe(120);
+  });
+
+  it("counts a folded text at its settle, not its first delta, and an earlier prose still wins (§135.11.6)", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-turn-telemetry-prose-folded-"));
+    const clock = { value: 100 };
+    const telemetry = createTurnTelemetry({ agentDir: root, now: () => clock.value });
+    openTurn("s", clock, telemetry);
+    clock.value = 120;
+    telemetry.observeProse("s", { kind: "text" });
+    clock.value = 160;
+    telemetry.settleText("s", "settle");
+    clock.value = 170;
+    telemetry.terminal("s", "settled");
+    telemetry.flushTerminal("s");
+    await telemetry.pending();
+    const [record] = await readRows(turnTelemetryPath(root));
+    expect(record!.firstProseVia).toBe("text");
+    expect(phase(record!, "first_prose")).toBe(160);
+    expect(record!.durations?.firstProseMs).toBe(60);
+
+    // A card drawn before the folded text settles is the turn's first prose.
+    openTurn("t", clock, telemetry);
+    clock.value = 180;
+    telemetry.observeProse("t", { kind: "text" });
+    clock.value = 190;
+    telemetry.observeProse("t", { kind: "prose", via: "mechanics" });
+    clock.value = 200;
+    telemetry.settleText("t", "settle");
+    telemetry.terminal("t", "settled");
+    telemetry.flushTerminal("t");
+    await telemetry.pending();
+    const rows = await readRows(turnTelemetryPath(root));
+    expect(rows[1]!.firstProseVia).toBe("mechanics");
+    expect(phase(rows[1]!, "first_prose")).toBe(190);
+  });
+
+  it("counts a replaced text at its replacement, and a text replaced by nothing never", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-turn-telemetry-prose-replaced-"));
+    const clock = { value: 100 };
+    const telemetry = createTurnTelemetry({ agentDir: root, now: () => clock.value });
+    // Replaced by nothing: the Keeper's words beside a tool call leave with the message.
+    openTurn("dropped", clock, telemetry);
+    clock.value = 110;
+    telemetry.observeProse("dropped", { kind: "text" });
+    clock.value = 120;
+    telemetry.observeProse("dropped", { kind: "text_replace", prose: false });
+    telemetry.settleText("dropped");
+    // Replaced by prose: counts at the replacement, not at the draft's first delta.
+    clock.value = 130;
+    telemetry.observeProse("dropped", { kind: "text" });
+    clock.value = 145;
+    telemetry.observeProse("dropped", { kind: "text_replace", prose: true });
+    telemetry.settleText("dropped");
+    clock.value = 150;
+    telemetry.terminal("dropped", "settled");
+    telemetry.flushTerminal("dropped");
+    await telemetry.pending();
+
+    const [record] = await readRows(turnTelemetryPath(root));
+    expect(record!.firstProseVia).toBe("text");
+    expect(phase(record!, "first_prose")).toBe(145);
+    expect(record!.durations?.firstProseMs).toBe(45);
+  });
+
+  it("leaves all three fields out of a turn that put no prose on screen, never 0", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-turn-telemetry-prose-none-"));
+    const clock = { value: 100 };
+    const telemetry = createTurnTelemetry({ agentDir: root, now: () => clock.value });
+    openTurn("s", clock, telemetry);
+    clock.value = 110;
+    telemetry.observeProse("s", { kind: "text" });
+    telemetry.observeProse("s", { kind: "text_replace", prose: false });
+    telemetry.settleText("s");
+    clock.value = 120;
+    // A delta whose message never ended is not known to be kept.
+    telemetry.observeProse("s", { kind: "text" });
+    telemetry.observeProse("s", undefined);
+    telemetry.terminal("s", "stopped");
+    telemetry.flushTerminal("s");
+    await telemetry.pending();
+
+    const [record] = await readRows(turnTelemetryPath(root));
+    expect(record!.durations).not.toHaveProperty("firstProseMs");
+    expect(record).not.toHaveProperty("firstProseVia");
+    expect(record!.phases.map((item) => item.name)).not.toContain("first_prose");
+    expect(record!.durations?.turnMs).toBe(20);
+  });
+
+  it("holds a settled turn's record for a host delivery still being projected, then writes its prose", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-turn-telemetry-prose-hold-"));
+    const clock = { value: 100 };
+    const telemetry = createTurnTelemetry({ agentDir: root, now: () => clock.value });
+    openTurn("s", clock, telemetry);
+    let land!: () => void;
+    const projection = new Promise<void>((resolve) => { land = resolve; });
+    telemetry.holdForProse("s", projection);
+    clock.value = 140;
+    // The settle behind the §8 fallback arrives before the projection reaches the renderer.
+    telemetry.terminal("s", "settled");
+    telemetry.flushTerminal("s");
+    await telemetry.pending();
+    expect(await readRows(turnTelemetryPath(root))).toEqual([]);
+    expect(telemetry.hasActive("s")).toBe(true);
+
+    clock.value = 150;
+    telemetry.observeProse("s", { kind: "prose", via: "host" });
+    land();
+    await projection;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await telemetry.pending();
+    const [record] = await readRows(turnTelemetryPath(root));
+    expect(record!.firstProseVia).toBe("host");
+    expect(record!.durations?.firstProseMs).toBe(50);
+    // The prose landed after the settle, and the record says so rather than hiding it.
+    expect(record!.durations?.turnMs).toBe(40);
+    expect(telemetry.hasActive("s")).toBe(false);
+  });
+
+  it("bounds the hold, so a projection that never lands cannot keep the record back", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-turn-telemetry-prose-hold-bound-"));
+    const clock = { value: 100 };
+    const telemetry = createTurnTelemetry({ agentDir: root, now: () => clock.value, proseHoldMs: 20 });
+    openTurn("bounded", clock, telemetry);
+    telemetry.holdForProse("bounded", new Promise(() => undefined));
+    telemetry.terminal("bounded", "settled");
+    telemetry.flushTerminal("bounded");
+    await telemetry.pending();
+    expect(await readRows(turnTelemetryPath(root))).toEqual([]);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await telemetry.pending();
+    const [record] = await readRows(turnTelemetryPath(root));
+    expect(record!.outcome).toBe("settled");
+    expect(record).not.toHaveProperty("firstProseVia");
+    expect(telemetry.retainedState()).toMatchObject({ active: 0 });
+  });
+
+  it("gives a host placement projected after the next dispatch to the turn that placed it, never to the new one", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-turn-telemetry-prose-displaced-"));
+    const clock = { value: 100 };
+    const telemetry = createTurnTelemetry({ agentDir: root, now: () => clock.value });
+    const placedBy = telemetry.rendererSubmission("s", { turnId: "placed-by", submittedAt: 99 });
+    telemetry.beginDispatch("s", placedBy);
+    telemetry.dispatchStarted("s");
+    let land!: () => void;
+    const projection = new Promise<void>((resolve) => { land = resolve; });
+    clock.value = 120;
+    telemetry.holdForProse("s", projection);
+    telemetry.terminal("s", "settled");
+    telemetry.flushTerminal("s");
+
+    // A queued message is dispatched before the projection reaches the renderer.
+    clock.value = 125;
+    const next = telemetry.rendererSubmission("s", { turnId: "next-turn", submittedAt: 124 });
+    telemetry.beginDispatch("s", next);
+    expect(telemetry.hasActive("s")).toBe(true);
+    expect(telemetry.retainedState()).toMatchObject({ active: 2 });
+    clock.value = 130;
+    telemetry.observeProse("s", { kind: "prose", via: "host" });
+    land();
+    await projection;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clock.value = 170;
+    telemetry.observeProse("s", { kind: "prose", via: "mechanics" });
+    telemetry.terminal("s", "settled");
+    telemetry.flushTerminal("s");
+    await telemetry.pending();
+
+    const rows = await readRows(turnTelemetryPath(root));
+    expect(rows.map((row) => row.turnId)).toEqual(["placed-by", "next-turn"]);
+    expect(rows[0]!.firstProseVia).toBe("host");
+    expect(rows[0]!.durations?.firstProseMs).toBe(30);
+    expect(rows[1]!.firstProseVia).toBe("mechanics");
+    expect(rows[1]!.durations?.firstProseMs).toBe(45);
+    expect(telemetry.retainedState()).toMatchObject({ active: 0 });
+  });
+
+  it("writes firstProseVia only as one of its three words, and keeps a maximal record inside 4 KB", async () => {
+    const base = { v: 2 as const, turnId: "safe-turn", outcome: "settled" as const, phases: [], durations: { firstProseMs: 5 } };
+    for (const via of ["mechanics", "host", "text"] as const) {
+      expect(JSON.parse(serializeTurnTelemetryRecord({ ...base, firstProseVia: via })).firstProseVia).toBe(via);
+    }
+    const forged = JSON.parse(serializeTurnTelemetryRecord({ ...base, firstProseVia: "the prose itself" as any }));
+    expect(forged).not.toHaveProperty("firstProseVia");
+    // The renderer cannot supply either field.
+    expect(sanitizeRendererTurnTelemetry({ turnId: "safe-turn", submittedAt: 1, firstProseMs: 1, firstProseVia: "host" }))
+      .toEqual({ turnId: "safe-turn", submittedAt: 1 });
+
+    root = await mkdtemp(join(tmpdir(), "pipi-turn-telemetry-prose-bound-"));
+    const clock = { value: 1_000_000_000_000 };
+    const telemetry = createTurnTelemetry({
+      agentDir: root,
+      now: () => clock.value,
+      resourceSample: () => ({ rssBytes: Number.MAX_SAFE_INTEGER, childCount: Number.MAX_SAFE_INTEGER }),
+    });
+    const sample = telemetry.rendererSubmission("max", {
+      turnId: "t".repeat(64), submittedAt: clock.value - 10, preflightStartedAt: clock.value - 9, preflightEndedAt: clock.value - 8,
+      promptBytes: Number.MAX_SAFE_INTEGER, attachmentCount: Number.MAX_SAFE_INTEGER,
+      attachmentBytes: Number.MAX_SAFE_INTEGER, documentCount: Number.MAX_SAFE_INTEGER,
+    });
+    clock.value += 1;
+    telemetry.markQueued(sample);
+    clock.value += 1;
+    telemetry.beginDispatch("max", sample);
+    telemetry.preparationComplete("max", Number.MAX_SAFE_INTEGER);
+    telemetry.dispatchStarted("max");
+    telemetry.dispatchAccepted("max");
+    const events = [
+      { type: "agent_start" },
+      { type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "x" } },
+      { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "x" } },
+      { type: "tool_execution_end" },
+      { type: "message_end", message: { role: "assistant", usage: { input: Number.MAX_SAFE_INTEGER, output: Number.MAX_SAFE_INTEGER }, stopReason: "error" } },
+    ];
+    for (const event of events) {
+      clock.value += 1_000_000;
+      telemetry.observeRpc("max", event);
+    }
+    telemetry.observeSessionStats("max", { contextTokens: Number.MAX_SAFE_INTEGER, contextWindow: Number.MAX_SAFE_INTEGER });
+    clock.value += 1_000_000;
+    telemetry.observeProse("max", { kind: "prose", via: "mechanics" });
+    clock.value += 1_000_000;
+    telemetry.terminal("max", "settled");
+    telemetry.flushTerminal("max");
+    await telemetry.pending();
+    const line = (await readFile(turnTelemetryPath(root), "utf8")).trim();
+    const record = JSON.parse(line) as TurnTelemetryRecord;
+    expect(record.firstProseVia).toBe("mechanics");
+    expect(record.phases.map((item) => item.name)).toContain("first_prose");
+    expect(record.phases.length).toBeGreaterThanOrEqual(17);
+    expect(Buffer.byteLength(line + "\n", "utf8")).toBeLessThanOrEqual(TURN_TELEMETRY_MAX_RECORD_BYTES);
   });
 });

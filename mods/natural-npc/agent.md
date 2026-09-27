@@ -32,6 +32,12 @@ The initial impression is pair-specific. It is not the party's shared stance and
 does not overwrite later interactions. Continue to use the existing social checks,
 NPC ledger and apply npc for subsequent developments, with a reason when needed.
 
+## Asking for something
+
+A request this person might grant is uncertain, so it is rolled: a modest discount, a small favour, a door opened a little early. Use the social skill the player's approach suggests, and give the check the motive it deserves: the more the ask cuts against what this person wants, and the less they like the investigator, the stronger the opposing motive. The dice choose where inside the plausible range this person lands; a failure is a refusal in their words, a success is what was asked or close to it.
+
+A request nobody in this person's position would grant, goods, labour or a secret handed over for nothing with no reason they could accept, is not uncertain: no roll. They refuse outright, in their own register, with the offence the ask deserves. A reason the fiction supports (a debt owed, a real threat, something of value in trade) makes it a request again and puts it back in the range the dice decide.
+
 ## The language of the exchange
 
 The dossier's `speaks` records a person's tongue. Missing `speaks` means unknown,

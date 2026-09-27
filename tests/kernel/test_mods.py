@@ -413,6 +413,27 @@ def test_first_impression_uses_higher_value_and_reuses_pair(seeded_kernel):
     assert again["reused"] is True
 
 
+def test_pending_contact_carries_the_handle_the_first_impression_receipt_carries(seeded_kernel):
+    """SL-83: `capsule.mods.pending_contacts[]` says who by display name (`target`) and by graph handle (`handle`);
+    the first-impression `roll` receipt says who by handle only (`npc`). A consumer pairing the row with the
+    receipt (the single loop's shadow route, `keeperDidFor`) compares `handle` to `npc`; before SL-83 the row had no
+    handle and the pairing compared the display name to it, which never matched on a real table (SL-77)."""
+    kernel = seeded_kernel
+    open_turn(kernel)
+    pending = [row for row in kernel.table("capsule")["mods"]["pending_contacts"] if row["decision"] == "natural-npc:first-impression"]
+    knott = next(row for row in pending if row["target"] == "Steven Knott")
+    assert knott["handle"] == "steven-knott", knott
+    assert all(row["handle"] and row["handle"] != row["target"] for row in pending), pending
+    kernel.table("resolve", call_id="t1-c1", action={"intent":"social", "decision":"natural-npc:first-impression",
+                                                     "target":"Steven Knott", "goal":"Introduce myself"})
+    roll = next(r for r in kernel.table("status")["receipts"] if r.get("kind") == "roll" and r.get("decision") == "natural-npc:first-impression")
+    assert roll["npc"] == knott["handle"], (roll["npc"], knott)
+    mods = kernel.table("capsule")["mods"]
+    assert not any(row["handle"] == knott["handle"] for row in mods["pending_contacts"]), "settled: no longer pending"
+    settled = next(row for row in mods["relationships"] if row["decision"] == "natural-npc:first-impression" and row["target"] == "Steven Knott")
+    assert settled["handle"] == roll["npc"], settled
+
+
 def test_mod_toggle_waits_for_safe_boundary(kernel):
     open_turn(kernel)
     view = kernel.ok("mods.configure", {"campaign":CAMPAIGN, "id":"natural-npc", "enabled":False})

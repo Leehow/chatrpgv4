@@ -1,5 +1,5 @@
 /** A single bounded foreground preparation owner over the existing shared decision port. */
-import {TaskLease} from './task-context.ts';
+import {TaskLease,type TaskClock} from './task-context.ts';
 import {createTaskProviderBudget,type TaskProviderBudget} from './provider-budget.ts';
 import type {DecisionPort} from './decision-port.ts';
 import {packDecisionBatch,JEV_MODEL,JEV_REQUEST_TOKEN_LIMIT} from './question-packing.ts';
@@ -13,11 +13,13 @@ export const PREPARATION_DECISION_BUDGET=Object.freeze({actions:24,inputTokens:1
 export const preparationProviderBudget=():{actions:number;inputTokens:number;outputTokens:number;costUsd:number}=>({...PREPARATION_DECISION_BUDGET});
 
 export function preparationBudget(options:{decision:DecisionPort;campaign:string;deadlineAt:number;signal:AbortSignal;parent?:TaskProviderBudget;
-    owner?:string;goal?:string}) {
+    owner?:string;goal?:string;
+    /** SL-87 (tests only): the clock `deadlineAt` is on and enforced by. Absent: the host's own clock, as before. */
+    clock?:TaskClock}) {
     const signal=options.parent?AbortSignal.any([options.signal,options.parent.signal]):options.signal;
     const owner=options.owner??'keeper-preparation';
     const lease=new TaskLease({owner,goal:options.goal??'Prepare evidence and NPC intentions for one player input',
-        scope:{owner,campaign:options.campaign,audience:'keeper'},capabilities:['decision'],readSet:[],signal,
+        scope:{owner,campaign:options.campaign,audience:'keeper'},capabilities:['decision'],readSet:[],signal,...(options.clock?{clock:options.clock}:{}),
         budget:{deadlineAt:Math.min(options.deadlineAt,options.parent?.deadlineAt??Infinity),remainingActions:PREPARATION_DECISION_BUDGET.actions,
             remainingInputTokens:PREPARATION_DECISION_BUDGET.inputTokens,remainingOutputTokens:PREPARATION_DECISION_BUDGET.outputTokens,
             remainingCostUsd:PREPARATION_DECISION_BUDGET.costUsd}});

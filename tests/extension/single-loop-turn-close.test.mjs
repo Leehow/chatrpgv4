@@ -100,9 +100,11 @@ test("§135.11: a text-only last model step is delivered by the implicit narrate
 });
 
 test("§135.11: a step that called narrate itself is unchanged: its own result is the evidence and no turn close is asked", async (t) => {
+	// SL-93 (§135.11.4.1): the explicit path now carries its own length floor, so this fixture's prose clears
+	// it -- the point here is unrelated to length (no turn close is asked when narrate already delivered).
 	const table = await hybridTable({
 		decide: (batch) => answered(batch, "finish"),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "The cellar door creaks open." })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "The cellar door creaks open on rusted hinges, and the cold from below climbs the stairs." })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("I push the cellar door.");
@@ -406,18 +408,26 @@ test("§135.11 SL-80: a reply with prose beside the say span is not speech-only 
 	assert.equal(unfinished(table.table.session).length, 0);
 });
 
+// SL-93 (§135.11.4.1) now runs a length floor on the explicit path too, so this fixture's say span carries
+// enough spoken words to clear it (63 code points) -- this test's own point is the *structural* speech-only
+// check (isSpeechOnlyDraft) never running on the explicit path, which is unaffected by and unrelated to the
+// new length floor; a short span here would trip that other, new check instead of proving anything about
+// this one. The short, shared `sayOnly` stays as it is for the two implicit-path tests above, where a short
+// say-only draft is exactly the point.
+const sayOnlyLongEnough = '{{say:Gatekeeper}}"No, sir. Not today, and not tomorrow. Come back another time."{{/say}}';
+
 test("§135.11 SL-80: an explicit narrate of the same say-only shape is unchanged -- this check never runs on that path", async (t) => {
 	const table = await hybridTable({
 		decide: (batch) => answered(batch, "finish"),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: sayOnly })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: sayOnlyLongEnough })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
 
-	assert.equal(table.requests.length, 1, "no floor steer: an explicit narrate is never gated by this check");
+	assert.equal(table.requests.length, 1, "no floor steer: an explicit narrate is never gated by the structural speech-only check");
 	const narrates = kernel(table.table, "table.narrate");
 	assert.equal(narrates.length, 1);
-	assert.equal(narrates[0].params.text, sayOnly);
+	assert.equal(narrates[0].params.text, sayOnlyLongEnough);
 	assert.equal(narrates[0].params.implicit, undefined, "the Keeper's own explicit call, not the host's implicit close");
 	assert.equal(runEnd(table.events).status, "delivered");
 	assert.equal(runEnd(table.events).reason, "delivery_accepted");

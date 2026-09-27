@@ -34,10 +34,10 @@
 import type { RunDriverPorts, RunEvent } from '@earendil-works/pi-agent-core';
 import type { SessionRunDriver } from '@earendil-works/pi-coding-agent';
 import { createHash } from 'node:crypto';
-import { createDecisionAdapter } from './decision-adapter.ts';
+import { createDecisionAdapter, jevFailureTelemetry } from './decision-adapter.ts';
 import type { DecisionPort as JevDecisionPort } from './decision-port.ts';
 import { ContractError, type DecisionBatch, type DecisionResult, type IntentBinding, type Json, type ObservationPacket, type OperationProposal, type ReadSet, type ScopeBinding } from './contracts.ts';
-import { TaskLease } from './task-context.ts';
+import { TaskLease, type TaskClock } from './task-context.ts';
 import { JEV_MODEL } from './question-packing.ts';
 import { preparationProviderBudget } from './preparation-budget.ts';
 import { prepareCheckPreflight } from './check-preflight.ts';
@@ -48,8 +48,9 @@ import type { HostOperationContext, OperationIdentity } from '../../extensions/k
 import { buildCandidates, buildConsequenceCandidates, keeperCall, NPC_REACTION_DECISION, type ConsequenceCandidate, type ConsequenceClass } from './candidates.ts';
 import { compileRows } from './compile-rows.ts';
 import { actGated, interpretCompile, interpretReask, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput } from './route-compile.ts';
-import { CONSEQUENCE_FAMILY, consequenceBatch, interpretConsequenceResult, type ConsequenceExistsRow, type ConsequenceRow, type ConsequenceView } from './consequence-route.ts';
-import { jevStepsBudget, npcActBudget } from './host-budgets.ts';
+import { candidateWithConsequenceBasis, CONSEQUENCE_FAMILY, consequenceBatch, interpretConsequenceResult, type ConsequenceExistsRow, type ConsequenceRow, type ConsequenceView } from './consequence-route.ts';
+import { firstStepThinkingBudget, jevStepsBudget, npcActBudget, thresholdsForClass } from './host-budgets.ts';
+import { firstStepCallCapMs, firstStepThinkingEnabled } from '../../extensions/kernel/first-step-thinking.ts';
 import { createNpcActLane, type NpcActPort } from './npc-act.ts';
 import { isNpcAct, runNpcAct, runNpcScan, struckReceipts, type NpcActDeps, type NpcActOutcome } from './npc-act-step.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
@@ -70,11 +71,14 @@ const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value
 /**
  * §135.11.2 (SL-50 stage 2): the head line of the run's first `coc-clerk` note -- writes are silent, stated once per run
  * where the model reads it beside the carried views right before its step. The capsule's own sentence stays (§135.11.1).
- * Keeper-only, system language.
+ * §135.5 addendum (SL-88, "what needs no result does not wait"): names which calls are blocking and which are not, so a
+ * non-blocking apply goes out with its narrate in one call instead of costing a whole extra model step. Keeper-only,
+ * system language.
  */
-export const CLERK_NOTE_HEAD = 'Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never shown). The '
-  + 'turn\'s prose goes through narrate, or is the text of your final step, in the same response as the writes whenever nothing among '
-  + 'them needs a result first.';
+export const CLERK_NOTE_HEAD = 'Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never shown). '
+  + 'An apply whose landing is fixed by its own arguments is non-blocking: put it and the narrate that follows in the same response, '
+  + 'writes first, narrate last; resolve, look, lookup and recall are blocking -- the prose needs a result you do not have yet -- so '
+  + 'wait for their result before you narrate.';
 /**
  * §135.30.6 (SL-40): what the Keeper is told with a held destination. The guard is a pacing condition: the place and its
  * entrance exist (the guard's `exists`), so the Keeper narrates the entrance as the book has it and what is missing, never
@@ -160,6 +164,13 @@ export interface HybridEngineOptions {
   maxSteps?: number;
   /** The run's clock (§135.25); tests pass a stub. Defaults to `Date.now`. */
   now?: () => number;
+  /**
+   * SL-87: the clock of the run's steps and its Jev work -- the step timings the decision budget sums, each read's
+   * prescreen allowance (its deadline, timeouts and leases) and the decision leases -- for a test whose subject is that
+   * wall-clock budget. `now` defaults to it. Absent: the host's real clock and timers, exactly as before. The clerk's
+   * operation lease stays on the real clock (the kernel gateway reads it).
+   */
+  clock?: TaskClock;
   /** §135.30: the typed-feature compile before a route that has an uncompiled reachable candidate (default true). `false` is the SL-12 policy: the replays' control arm, and tests whose subject is the route. */
   compile?: boolean;
   /**
@@ -193,6 +204,19 @@ const DELIVERY_VERBS: Readonly<Record<string, 'accepted' | 'awaiting_player'>> =
 const WRITE_VERBS = new Set(['apply', 'resolve']);
 /** The prescreen packet's byte ceiling (the same cap the context hook's own prescreen used). */
 const PRESCREEN_BYTES = 16 * 1024;
+/**
+ * SL-78: the Keeper's own tool calls the `residual` telemetry row counts (design D3/D4, "the Keeper's free tool
+ * calls become the residual"). `narrate`/`ask`/`say` are the Keeper's words, never bookkeeping, and are not here.
+ */
+const KEEPER_RESIDUAL_KEYS = ['apply', 'resolve', 'look', 'lookup', 'recall'] as const;
+type KeeperResidualKey = typeof KEEPER_RESIDUAL_KEYS[number];
+const isKeeperResidualKey = (value: string): value is KeeperResidualKey => (KEEPER_RESIDUAL_KEYS as readonly string[]).includes(value);
+/**
+ * SL-78: a defensive circuit breaker on `routeConsequencesAfterWrite`'s own recursion (through `clerkStep`'s tail
+ * calling back into it). Never hit on a real table: each round only offers keys `run.consequenceExecuted` has not
+ * already taken, and a scene has finitely many clues, so the chain ends on its own long before this.
+ */
+const CONSEQUENCE_INLINE_ROUNDS_CAP = 12;
 
 /**
  * SL-76 (§135.32, §135.3.1): `COC_JEV_STEPS`, read once per process like every other engine env switch here.
@@ -218,11 +242,20 @@ export function receiptLabel(receipt: Row): string {
  * model-origin call's arguments, which this engine does not otherwise retain. `true`: the same entity, the same
  * kind of consequence; `other`: the same kind of consequence landed on a different entity this turn (npc_reaction,
  * clue_follow_up only -- `time_cost` has no second entity to distinguish); `false`: neither.
+ *
+ * SL-83: `npc_reaction` compares handles. The candidate's `target` is the person's graph handle
+ * (`consequence-candidates.ts`, off the capsule row's `handle`), and the first-impression `roll` receipt's `npc` is
+ * the same handle. A `target` that is not a handle but the person's display name (a capsule row from a kernel
+ * older than SL-83 carries only that) is resolved through the turn's own `person` receipts, whose `name` is that
+ * display name and whose `who` is the handle -- the turn's own data, never a list -- before the comparison; when
+ * no receipt this turn names it, it cannot be paired and reads as `other`/`false` exactly as a stranger would.
  */
 export function keeperDidFor(entry: {consequenceClass: ConsequenceClass; target?: string; clue?: string}, receipts: readonly Row[]): true | false | 'other' {
   if (entry.consequenceClass === 'npc_reaction') {
     const rolls = receipts.filter(receipt => text(receipt.kind) === 'roll' && text(receipt.decision) === NPC_REACTION_DECISION);
-    if (rolls.some(receipt => text(receipt.npc) === entry.target)) return true;
+    const handles = new Set([entry.target ?? '']);
+    for (const receipt of receipts) if (text(receipt.kind) === 'person' && text(receipt.name) === entry.target && text(receipt.who)) handles.add(text(receipt.who));
+    if (rolls.some(receipt => handles.has(text(receipt.npc)))) return true;
     return rolls.length ? 'other' : false;
   }
   if (entry.consequenceClass === 'clue_follow_up') {
@@ -233,15 +266,18 @@ export function keeperDidFor(entry: {consequenceClass: ConsequenceClass; target?
   return receipts.some(receipt => text(receipt.kind) === 'time');
 }
 /**
- * SL-76 (D4): the pure gate over whether shadow ever executes. `shadow` (the default) and `off` always return no
- * keys, whatever `rows` clears -- this is the whole of "shadow never executes", pulled out of `routeConsequences`
- * so it can be proven by a table of inputs rather than by reading the engine's control flow. `on` returns the
- * cleared rows' keys, once each (a key already in `executed` is skipped: SL-78's "once per key", not this
- * ticket's re-route loop).
+ * SL-76/SL-78 (D4; §135.32 addendum 2): the pure gate over whether shadow ever executes, and (SL-78) over which
+ * *class* `on` executes. `shadow` and `off` always return no keys, whatever `rows` clears -- this is the whole
+ * of "shadow never executes", pulled out of `routeConsequences` so it can be proven by a table of inputs rather
+ * than by reading the engine's control flow. `on` returns the cleared rows' keys whose class is in
+ * `executeClasses` (`jevStepsBudget().execute`, data, never a literal), once each -- a key already in `executed`
+ * is skipped (SL-78's "once per key", not this ticket's re-route loop) and a cleared row of an unlisted class is
+ * left exactly as `shadow` leaves it: routed and paired, never executed.
  */
-export function consequenceKeysToExecute(mode: 'shadow' | 'on' | 'off', rows: readonly ConsequenceRow[], executed: ReadonlySet<string>): string[] {
+export function consequenceKeysToExecute(mode: 'shadow' | 'on' | 'off', rows: readonly ConsequenceRow[], executed: ReadonlySet<string>,
+  executeClasses: readonly string[] = []): string[] {
   if (mode !== 'on') return [];
-  return rows.filter(row => row.cleared && !executed.has(row.key)).map(row => row.key);
+  return rows.filter(row => row.cleared && !executed.has(row.key) && executeClasses.includes(row.class)).map(row => row.key);
 }
 
 export function emptyTurnContext(): TurnContext {
@@ -472,6 +508,29 @@ interface RunState {
    * (`struckHeld`); the first that has ends it.
    */
   npcHeld?: {names: string[]; before: string[]};
+  /** SL-78: `routeConsequencesAfterWrite`'s own recursion counter (`CONSEQUENCE_INLINE_ROUNDS_CAP`'s circuit breaker). */
+  consequenceInlineRounds?: number;
+  /** SL-78: how many of this run's clerk steps (`clerkDid`) were consequence-class executions, for the `residual` row. */
+  consequenceCalls?: number;
+  /** SL-78 (§135.32 addendum 2, the `residual` row): the Keeper's own tool calls this turn, by verb. */
+  keeperCalls: Record<KeeperResidualKey, number>;
+  /** SL-78: how many `purpose: "compile"` Jev decisions this run asked, for the `residual` row. */
+  compileCalls: number;
+  /**
+   * SL-85 (§135.32 addendum 2's own "once per turn" ruling): whether `closeConsequences` -- the one place that
+   * writes the `route`/`consequence` pairing rows and the `residual` row -- has already run for this run. A run
+   * can reach the point a turn closes more than once (a `turn_close` proposal that comes back `steer`, then a
+   * later one that actually closes) or not through `turnCloseStep` at all (the Keeper's own `narrate`/`ask`
+   * delivers directly, `modelStep`'s own path): this flag is the single choke point that makes either shape
+   * write exactly once, at whichever call is the true final one (a steer's own call never sets it).
+   */
+  residualWritten?: true;
+  /**
+   * SL-85: the receipt ids `packet.receipts` returned for a specific executed consequence candidate's own clerk
+   * write (`clerkStep`, keyed by the candidate's key) -- so the turn-close pairing can tell "the Keeper also
+   * filed this independently" from "this is the clerk's own receipt, read back off `run.turnReceipts`".
+   */
+  consequenceExecutedReceiptIds: Map<string, string[]>;
 }
 
 /**
@@ -479,22 +538,31 @@ interface RunState {
  * bridge and the operation gateway (both go onto the bus at session_start, after the driver was created).
  */
 export function createHybridEngine(options: HybridEngineOptions): {runDriver: SessionRunDriver; extension: (pi: any) => void; bridge: () => KernelBridge | undefined;
-  /** §135.29's SL-69 addendum: the per-call cap Pi's session should enforce on every Keeper provider call, and the callback told when it fires. */
-  keeperCallCapMs: number; onKeeperCallCap: (phase: 'first_byte' | 'streaming', capMs: number) => void} {
+  /** §135.29's SL-69 addendum: the per-call cap Pi's session should enforce on every Keeper provider call, and
+   * the callback told when it fires. §135.29 addendum 2 (SL-82): with `COC_FIRST_STEP_THINKING=1` this is a
+   * per-call function instead of a fixed number, so the turn's first call can size its own cap (vendored patch
+   * `0004` resolves either shape fresh per attempt); the flag off returns the plain ordinary number, exactly
+   * as before this addendum. */
+  keeperCallCapMs: number | (() => Promise<number>); onKeeperCallCap: (phase: 'first_byte' | 'streaming', capMs: number) => void} {
   let bridge: KernelBridge | undefined, gateway: OperationGateway | undefined, closer: TurnClosePort | undefined, api: any;
   /** §143.3: the product's npc-act lane, made when the extension loads, on the session context the latest event gave. */
   let npcActLane: NpcActPort | undefined, sessionCtx: any;
   const NO_ACT: NpcActPort = {generate: async () => ({unavailable: 'model_unavailable', detail: 'no npc-act generation on this engine'})};
   const npcActPort = (): NpcActPort => options.npcAct === null ? NO_ACT : options.npcAct ?? npcActLane ?? NO_ACT;
   let consultations: SourceAnswersPort | undefined;
-  const now = options.now ?? (() => Date.now());
+  // SL-87: `clock`, when given, is the run's steps' and its Jev work's clock (the read's prescreen allowance, the decision
+  // leases); without it every one of them reads the host's real clock and timers, as before. `now` alone stays the policy's.
+  const clock = options.clock, stepNow = clock ? () => clock.now() : () => Date.now(), leaseClock = clock ? {clock} : {};
+  const now = options.now ?? stepNow;
   /** §135.25: the clerk steps the last run's budget deferred, for the next run's first note to the Keeper (session memory). */
   let carried: {campaign?: string; run: string; turn?: number; deferred: DeferredStep[]} | undefined;
-  const jev = options.decision === null ? undefined
-    : options.decision ?? (readJevApiKey(options.env) ? createDecisionAdapter({env: options.env, maxConcurrency: 4}) : undefined);
   const record = (row: Record<string, unknown>) => {
     try { (options.record ?? bridge?.record)?.(row); } catch { /* Telemetry never steers the run. */ }
   };
+  // SL-84 (contract §122 "Jev attempt/batch failure telemetry" addendum): the adapter's own AdapterTrace, which
+  // otherwise went nowhere, now writes the `attempt_failed`/`batch_failed` rows.
+  const jev = options.decision === null ? undefined
+    : options.decision ?? (readJevApiKey(options.env) ? createDecisionAdapter({env: options.env, maxConcurrency: 4, trace: jevFailureTelemetry(record)}) : undefined);
   const call = async (method: string, params: Record<string, unknown> = {}) => {
     if (!bridge?.call || !bridge.campaign) throw new Error('kernel_bridge_unavailable');
     return object(await bridge.call(method, {campaign: bridge.campaign, ...params}));
@@ -549,7 +617,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     run.issued = candidates;
     // §143.28: a blow that struck a person the fight hold held back rides on the fresh read (the policy owes them the scan).
     const struck = await struckHeld(run, stepId);
-    return {context: read.table.context, candidates, rows: read.rows(), ...(struck.length ? {struck} : {})};
+    // SL-78: `consequences` rides on every fresh read (never called unless something reads it) so the execute-mode
+    // inline route (`routeConsequencesAfterWrite`, below) can build D1 candidates off the same reads `freshOf`
+    // already made, with no extra kernel round trip. `shadow`/`off` never call it, so their own use of `freshOf`
+    // (unpacking only `context`/`candidates`/`rows`) is exactly what it was before this addition.
+    return {context: read.table.context, candidates, rows: read.rows(), consequences: read.consequences, ...(struck.length ? {struck} : {})};
   }, () => undefined);
 
   /**
@@ -596,14 +668,19 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const built = consequenceBatch(view, run.scope, run.readSet);
     if (!built) return;
     const thresholds = await jevStepsBudget();
-    const began = Date.now();
+    const began = stepNow();
     const lease = new TaskLease({owner: CONSEQUENCE_FAMILY, goal: `run ${run.runId} consequence`, scope: run.scope, capabilities: ['decision'],
-      readSet: run.readSet, signal, budget: {deadlineAt: Date.now() + 15_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
+      readSet: run.readSet, signal, ...leaseClock, budget: {deadlineAt: stepNow() + 15_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
     let result: DecisionResult | undefined;
     try { result = await jev.decide(built.batch, lease); } catch { result = undefined; } finally { lease.close(); }
-    const ms = Date.now() - began;
+    const ms = stepNow() - began;
     run.consequenceMs += ms;
-    const outcome = interpretConsequenceResult(candidates, result, thresholds);
+    // SL-86 (§135.32 addendum 3): each class offered this batch gets its own gate (`thresholdsForClass`), falling
+    // back to the shared `thresholds` for a class `content/rulesets/coc7/host-budgets.json`'s `jev_steps.classes`
+    // does not name.
+    const classThresholds = Object.fromEntries([...new Set(candidates.map(candidate => candidate.consequenceClass))]
+      .map(cls => [cls, thresholdsForClass(thresholds, cls)]));
+    const outcome = interpretConsequenceResult(candidates, result, thresholds, classThresholds);
     for (const row of outcome.rows) {
       const candidate = candidates.find(value => value.key === row.key);
       run.consequenceRows.set(row.key, {...row, label: candidate?.label ?? row.key,
@@ -614,22 +691,61 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // Recorded now only when Jev could not answer (D2.7: an outage degrades to no D1 rows plus this reason); a
     // complete answer's own telemetry is the turn-close pairing row below, carrying `keeper_did`.
     if (result?.status !== 'complete') record({lane: 'route', purpose: 'consequence', shadow: mode !== 'on', run: run.runId, step: stepId,
-      status: result?.status ?? 'unavailable', reason: outcome.reason, ms, offered: candidates.length});
-    for (const key of consequenceKeysToExecute(mode, outcome.rows, run.consequenceExecuted)) {
+      status: result?.status ?? 'unavailable', reason: outcome.reason,
+      // SL-84: the last attempt's HTTP status or network/timeout code, so a `jev_service_error` reason is legible.
+      ...(result?.failure?.status !== undefined ? {jev_status: result.failure.status} : {}), ms, offered: candidates.length});
+    // SL-78 (§135.32 addendum 2): only the classes `content/rulesets/coc7/host-budgets.json`'s `jev_steps.execute`
+    // names are ever executed here; a cleared row of any other class is left for the shadow pairing exactly as before.
+    for (const key of consequenceKeysToExecute(mode, outcome.rows, run.consequenceExecuted, thresholds.execute)) {
       run.consequenceExecuted.add(key);
       const candidate = candidates.find(value => value.key === key);
-      if (!candidate) continue;
-      await clerkStep(run, {candidate}, {runId: run.runId, stepId, operationId: `consequence:${candidate.key}`, signal}).catch(() => undefined);
+      const row = outcome.rows.find(value => value.key === key);
+      if (!candidate || !row) continue;
+      run.consequenceCalls = (run.consequenceCalls ?? 0) + 1;
+      // SL-90 (§32.12 addendum, §135.32 addendum 5): the executed candidate carries the route's own evidence
+      // (`basis.consequence`) into the gateway, so admission can admit it on this evidence -- `path: "consequence"`,
+      // no lane round -- exactly as a compile selection carries `basis.compile` into the same seam.
+      const executed = candidateWithConsequenceBasis(candidate, row, classThresholds[candidate.consequenceClass]);
+      await clerkStep(run, {candidate: executed}, {runId: run.runId, stepId, operationId: `consequence:${candidate.key}`, signal}).catch(() => undefined);
     }
+  }
+
+  /**
+   * SL-78 (§135.32 addendum 2; design D3/D4): with `COC_JEV_STEPS=on`, the point in the run where a listed D1
+   * class's cleared candidate can still be filed and reach the Keeper's own narration this turn -- after a settled
+   * write (the compile's own clerk step, a consequence step's own write, or the Keeper's own apply/resolve) and
+   * before the run's next step, which for a settled declaration is the compose (§135.11 addendum, "the exit leans
+   * to finish"). Routes only the classes `jevStepsBudget().execute` names (never the unlisted ones early: those
+   * keep the single turn-close route `shadow` always took, byte for byte); a cleared one executes through
+   * `routeConsequences`'s own `clerkStep` call, which -- because that function's own tail calls back in here --
+   * is this ticket's re-route: each round only offers keys `run.consequenceExecuted` has not already taken, and a
+   * scene has finitely many clues, so the recursion ends on its own. `CONSEQUENCE_INLINE_ROUNDS_CAP` is a circuit
+   * breaker only, never hit on a real table. `shadow`/`off` return at once: `run.consequenceCandidates` (the turn
+   * close's own, unconditional, unchanged call) is untouched by this function when it does.
+   */
+  async function routeConsequencesAfterWrite(run: RunState, fresh: {context: TurnContext; consequences: () => ConsequenceCandidate[]} | undefined,
+    signal: AbortSignal, stepId: string): Promise<void> {
+    if (!fresh || jevStepsMode(options.env as NodeJS.ProcessEnv) !== 'on') return;
+    if ((run.consequenceInlineRounds ?? 0) >= CONSEQUENCE_INLINE_ROUNDS_CAP) return;
+    const all = fresh.consequences();
+    // Kept for the turn close's own call, which still runs unconditionally (§135.11.2-style belt and suspenders):
+    // with `on`, that call now sees the latest state a write left, not only the last scene-changing read's.
+    run.consequenceCandidates = all;
+    run.consequenceContext = fresh.context;
+    const {execute: executeClasses} = await jevStepsBudget();
+    const early = all.filter(candidate => executeClasses.includes(candidate.consequenceClass));
+    if (!early.length) return;
+    run.consequenceInlineRounds = (run.consequenceInlineRounds ?? 0) + 1;
+    await routeConsequences(run, early, fresh.context, signal, stepId);
   }
 
   function makePorts(run: RunState): RunDriverPorts {
     return {
-      clock: {now: () => Date.now()},
+      clock: {now: stepNow},
       record: {record: (event: RunEvent) => { record({lane: 'run', ...event}); if (event.type === 'run_end') budgetSummary(run); }},
       read: {
         async read(_proposal, invocation) {
-          const began = Date.now();
+          const began = stepNow();
           const {capsule, table, candidates, rows, consequences} = await tableReads(run);
           let bindingArtifact: Extract<StepArtifact, {kind: 'read'}>['binding'];
           if (table.scope && table.readSet && table.binding) {
@@ -656,11 +772,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             materials = reuse.materials; packet = reuse.message; outcome = reuse;
             prescreen = {status: 'reused', from: reuse.step, jev_calls: 0, ms: 0, materials: materials.length};
           } else if (!skipped && jev && bridge?.call && bridge.campaign && table.binding) {
-            const events: Row[] = [], prescreenBegan = Date.now();
+            const events: Row[] = [], prescreenBegan = stepNow();
             const message = await prepareKeeperSupport({call: (method, params) => bridge!.call!(method, params), campaign: bridge.campaign,
               binding: table.binding, capsule, signal: invocation.signal, decision: jev, env: options.env as NodeJS.ProcessEnv,
               record: event => { events.push(event); record({...event, run: run.runId, step: invocation.stepId}); },
-              byteBudget: PRESCREEN_BYTES, deadlineAt: Date.now() + allowance, providerBudget: run.providerBudget});
+              byteBudget: PRESCREEN_BYTES, deadlineAt: stepNow() + allowance, providerBudget: run.providerBudget, ...leaseClock});
             const prepared = events.find(event => event.event === 'prepared'), fallback = events.find(event => event.event === 'fallback');
             // A prescreen that fell back still spent its calls (§124.11): gate #5's read said 0 while 12 had run.
             calls = Number((prepared ?? fallback)?.jev_calls ?? 0);
@@ -669,7 +785,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             if (found.located.length) run.located = found.located;
             // What the read did, as the route question sees it under "done this turn": the prototype's read summary
             // (runs 11-13 decided the declared move with it), including the locate's own judgment of what is relevant.
-            const prescreenMs = Date.now() - prescreenBegan;
+            const prescreenMs = stepNow() - prescreenBegan;
             prescreen = {status: message ? 'prepared' : text(events.find(event => event.event === 'fallback' || event.event === 'skipped')?.event) || 'none',
               jev_calls: calls, ms: prescreenMs, allowance_ms: allowance, materials: materials.length, supplied: prepared?.supplied ?? null,
               stop_reason: prepared?.stop_reason ?? null, locate: prepared?.locate ?? null, located: found.located.length,
@@ -697,7 +813,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           for (const entry of issued?.bodies ?? []) if (entry.family === 'person') for (const name of [entry.name, text(entry.body.id)]) if (name) run.shown.people.add(name);
           if (packet && table.binding && bridge?.campaign)
             api?.events?.emit?.('coc:run-prescreen', {campaign: bridge.campaign, turn: table.binding.turn, run: run.runId, message: packet});
-          const ms = Date.now() - began;
+          const ms = stepNow() - began;
           record({lane: 'run', event: 'read', run: run.runId, stepId: invocation.stepId, ms, scene: table.context.scene,
             candidates: fresh.candidates.map(candidate => candidate.key), prescreen,
             ...(issued ? {bodies: {count: issued.bodies.length, bytes: issued.bytes, reads: issued.reads, ms: issued.ms,
@@ -719,7 +835,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       },
       operations: {
         async execute(proposal, invocation) {
-          if (proposal.origin === 'model' && invocation.executeModelTool) return modelStep(run, proposal, invocation.executeModelTool, invocation.stepId);
+          if (proposal.origin === 'model' && invocation.executeModelTool) return modelStep(run, proposal, invocation.executeModelTool, invocation.stepId, invocation.signal);
           if (proposal.operation === 'llm_proposal') return {status: 'ok', artifact: {kind: 'execute', executed: {ok: true, summary: {slot: 'llm_proposal'}}}};
           if (proposal.operation === 'execute') return clerkStep(run, object(proposal.params), invocation);
           if (proposal.operation === 'turn_close') return turnCloseStep(run, invocation);
@@ -732,7 +848,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   }
 
   /** One Keeper call of the batch its response made. A step that fails sends the rest of the batch back unrun. */
-  async function modelStep(run: RunState, proposal: {operation: string; assistantMessage?: unknown; toolCall?: {id: string}}, execute: () => Promise<any>, stepId: string) {
+  async function modelStep(run: RunState, proposal: {operation: string; assistantMessage?: unknown; toolCall?: {id: string}}, execute: () => Promise<any>,
+    stepId: string, signal: AbortSignal) {
     if (run.batch?.message !== proposal.assistantMessage) run.batch = {message: proposal.assistantMessage};
     const batch = run.batch!;
     if (batch.fell) {
@@ -741,11 +858,33 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     // §135.31: the kernel extension's tool row names the step a model call came from (announced before it runs).
     if (proposal.toolCall?.id) api?.events?.emit?.('coc:model-step', {toolCallId: proposal.toolCall.id, run: run.runId, step: stepId, operation: proposal.operation});
+    // SL-78 (§135.32 addendum 2, the `residual` row): every Keeper tool call among the five bookkeeping verbs is
+    // counted here, attempt or not -- a refused free-text call is exactly the residual SL-78 measures.
+    if (isKeeperResidualKey(proposal.operation)) run.keeperCalls[proposal.operation]++;
     const toolResult = await execute();
-    const delivery = !toolResult.isError ? DELIVERY_VERBS[proposal.operation] : undefined;
+    // SL-92: an apply whose embedded narrate landed closed the turn exactly as an explicit narrate would (the
+    // kernel extension ran the same table.narrate call, on a synthetic call of its own); `DELIVERY_VERBS` only
+    // ever named the two real delivery verbs, so this apply's own `narrate_in_apply` flag is read beside it.
+    const delivery = !toolResult.isError
+      ? DELIVERY_VERBS[proposal.operation]
+        ?? (proposal.operation === 'apply' && (toolResult.details as {narrate_in_apply?: unknown} | undefined)?.narrate_in_apply === true ? 'accepted' : undefined)
+      : undefined;
     const fell = toolResult.isError ? `${proposal.operation}_refused` : proposal.operation === 'resolve' && failedCheck(toolResult.details) ? 'check_failed' : undefined;
     if (fell) { batch.fell = fell; batch.fellAt = proposal.toolCall?.id; }
     const fresh = !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? await freshOf(run, stepId) : undefined;
+    // SL-78: the Keeper's own settled write (never merely proposed) is a point a listed D1 class can newly clear
+    // from, the same as a clerk write. `off`/`shadow` return at once inside `routeConsequencesAfterWrite`.
+    if (fresh) await routeConsequencesAfterWrite(run, fresh, signal, stepId).catch(() => undefined);
+    // SL-85: a real `narrate`/`ask` delivery is the turn's true close exactly as much as a `turn_close` proposal's
+    // `delivered` verdict is (§135.11: `turn_close` is proposed only for "a run with no delivery evidence" --
+    // a Keeper that delivers here is never proposed one at all). Without this, a turn delivered this way wrote no
+    // pairing/residual row at all (SL-85's evidence: turns 1, 11, 12, 14, 17, 19). `closeConsequences` is the same
+    // once-per-run guard `turnCloseStep` uses, so a run that somehow reaches both paths still writes once. It
+    // spends no extra Jev call here (unlike `turnCloseStep`'s own `routeConsequences`): it only writes telemetry
+    // over whatever `run.consequenceRows`/`consequenceExists` already hold from this run's own writes (each
+    // `apply`/`resolve` already routed itself through `routeConsequencesAfterWrite`), never asking Jev again for a
+    // turn that is closing by a Keeper delivery instead of a `turn_close` proposal.
+    if (delivery) closeConsequences(run);
     return {status: toolResult.isError ? 'refused' as const : 'ok' as const, toolResult, ...(delivery ? {delivery} : {}),
       artifact: {kind: 'execute', executed: {ok: !toolResult.isError, summary: {tool: proposal.operation}}, ...(fresh ? {fresh} : {}), ...(fell ? {fell} : {})}};
   }
@@ -830,7 +969,18 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       receipts: packet.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
       result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null, ...(result.obligation ? {obligation: result.obligation} : {})} : {effects: args.effects}) as Json,
       ...(obligation ? {obligation} : {}), ...(crossed ? {obligation_open: crossed} : {}), ...(binding ? {binding} : {})});
+    // SL-85: an executed consequence candidate's own receipt ids, so the turn-close pairing (`pairConsequences`)
+    // can exclude them and ask "did the Keeper *also* file this, independently" -- never "does the clerk's own
+    // write pair with itself". `packet.receipts` is already an array of receipt id strings (the canonical
+    // operation dispatcher's own shape, `canonical-operation-dispatcher.ts`), the same ids `table.status.receipts[].id`
+    // carries -- never an array of receipt objects.
+    if (ok && (candidate as Partial<ConsequenceCandidate>).consequenceClass)
+      run.consequenceExecutedReceiptIds.set(candidate.key, array(packet.receipts).filter((value): value is string => typeof value === 'string'));
     const read = await freshOf(run, invocation.stepId);
+    // SL-78 (§135.32 addendum 2): a settled clerk write -- the compile's own declared step, or (recursively) an
+    // executed consequence step itself -- is a point a listed D1 class can newly clear from; this is the loop's
+    // re-route, run here, before the run's next step. A refused write settles nothing and re-routes nothing.
+    if (ok && read) await routeConsequencesAfterWrite(run, read, invocation.signal, invocation.stepId).catch(() => undefined);
     return {status: ok ? 'ok' as const : 'refused' as const, ...(ok ? {} : {reason: String(refusal)}),
       artifact: {kind: 'execute', executed: {ok, summary: {origin: 'policy', tool, call_id: callId, status: packet.status, receipts: packet.receipts,
         clerk: candidate.clerk ?? null, basis: candidate.basis ?? null, ...(ok ? checkOf(tool, result) : {}), ...(ok ? {} : {refusal: String(refusal)})} as Json},
@@ -915,44 +1065,97 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    */
   function pairConsequences(run: RunState) {
     if (!run.consequenceRows.size && !run.consequenceExists.size) return;
-    const mode = jevStepsMode(options.env as NodeJS.ProcessEnv), shadow = mode !== 'on';
-    for (const [key, row] of run.consequenceRows) record({lane: 'route', purpose: 'consequence', shadow, run: run.runId, class: row.class, key,
-      cleared: row.cleared, confidence: row.confidence, distribution: row.distribution, ...(row.direct ? {direct: true} : {}),
-      keeper_did: keeperDidFor({consequenceClass: row.class, target: row.target, clue: row.clue}, run.turnReceipts)});
-    for (const [cls, row] of run.consequenceExists) record({lane: 'route', purpose: 'consequence', shadow, run: run.runId, class: cls, exists: true,
+    const mode = jevStepsMode(options.env as NodeJS.ProcessEnv);
+    for (const [key, row] of run.consequenceRows) {
+      // SL-85 (§135.32 addendum 2's "clerk did" line, this ticket's own ruling): an executed candidate's row
+      // pairs against the Keeper's writes *other than the clerk's own receipt* -- excluded here by id, never by
+      // re-deriving "was this the clerk's" from the receipt's shape -- and carries `executed: true`. A row whose
+      // class was never executed this turn (unlisted in `jev_steps.execute`, or listed but not cleared) reads
+      // exactly as the shadow path always did: `shadow: true`, even under `COC_JEV_STEPS=on`.
+      const executed = run.consequenceExecuted.has(key);
+      const ownReceiptIds = executed ? new Set(run.consequenceExecutedReceiptIds.get(key) ?? []) : undefined;
+      const receiptsForPairing = ownReceiptIds ? run.turnReceipts.filter(receipt => !ownReceiptIds.has(text(receipt.id))) : run.turnReceipts;
+      record({lane: 'route', purpose: 'consequence', shadow: mode !== 'on' || !executed, run: run.runId, class: row.class, key,
+        cleared: row.cleared, confidence: row.confidence, distribution: row.distribution, ...(row.direct ? {direct: true} : {}),
+        ...(executed ? {executed: true} : {}),
+        keeper_did: keeperDidFor({consequenceClass: row.class, target: row.target, clue: row.clue}, receiptsForPairing)});
+    }
+    for (const [cls, row] of run.consequenceExists) record({lane: 'route', purpose: 'consequence', shadow: mode !== 'on', run: run.runId, class: cls, exists: true,
       cleared: row.cleared, confidence: row.confidence, distribution: row.distribution});
     if (run.consequenceMs) record({lane: 'run', event: 'consequence_budget', run: run.runId, ms: run.consequenceMs, rows: run.consequenceRows.size});
+  }
+
+  /**
+   * SL-78 (§135.32 addendum 2; design D4 "Residual telemetry per turn"): one `lane: "residual"` row per turn,
+   * `COC_JEV_STEPS=on` only -- `off`/`shadow` write none of this, so they stay byte for byte what they were
+   * before this ticket. `keeper_calls` is the Keeper's own tool calls (`modelStep`'s counter); `compile_calls`
+   * every `purpose: "compile"` decision this run asked (`decide`'s counter); `clerk_calls` every policy-origin
+   * write the gateway saw this run (`run.clerkDid.length`, unconditional on success: a refused clerk write still
+   * used the gateway); `consequence_calls` the subset of those whose `clerk` was `consequence_bookkeeping` (SL-78's
+   * own executions, never the compile-selected `declared_bookkeeping`/`declared_check`/… ones).
+   */
+  function recordResidual(run: RunState): void {
+    if (jevStepsMode(options.env as NodeJS.ProcessEnv) !== 'on') return;
+    record({lane: 'residual', run: run.runId, turn: run.turn ?? null, keeper_calls: {...run.keeperCalls}, compile_calls: run.compileCalls,
+      clerk_calls: run.clerkDid.length, consequence_calls: run.consequenceCalls ?? 0});
+  }
+
+  /**
+   * SL-85 (§135.32 addendum 2's own "once per turn" ruling, which the code did not yet keep): the single choke
+   * point for the pairing rows and the `residual` row, called from every path that can be the turn's *true* close
+   * -- `turnCloseStep`'s non-`steer` verdicts, and `modelStep`'s own `narrate`/`ask` delivery (§135.11's "a run
+   * with no delivery evidence" is exactly the case `turnCloseStep` is proposed for; a Keeper that delivers on its
+   * own is never proposed one at all, so nothing downstream of this ticket's fix would otherwise write these rows
+   * for that turn). `run.residualWritten` makes either shape idempotent: a `turn_close` proposal that comes back
+   * `steer` calls `routeConsequences` (unchanged: it still needs the latest D1 state for the Keeper's next note)
+   * but never this function, so the *next*, truly final call is the one and only writer -- "last writer wins"
+   * falls out of writing once, at the end, rather than writing every time and picking a winner afterward.
+   */
+  function closeConsequences(run: RunState): void {
+    if (run.residualWritten) return;
+    run.residualWritten = true;
+    pairConsequences(run);
+    recordResidual(run);
   }
 
   async function turnCloseStep(run: RunState, invocation: {stepId: string; signal: AbortSignal}) {
     // SL-76: the shadow route's one Jev call per run, made here -- after the run's own route/compile/bind calls are
     // long done, so it can never be mistaken for the run's first decision, and a `read_more` that must spend no
-    // Jev call (§135.6's same-scene reuse) still spends none. `routeConsequences` itself is the guard against
-    // asking twice: nothing here dedupes by digest, because a run has exactly one turn close.
+    // Jev call (§135.6's same-scene reuse) still spends none. A `turn_close` proposal that comes back `steer` (the
+    // Keeper is nudged, then asked again) calls this a second time in the same run; only the pairing/residual
+    // rows below are guarded against that (`closeConsequences`) -- this call itself still refreshes the D1 state
+    // for whichever note comes next.
     await routeConsequences(run, run.consequenceCandidates, run.consequenceContext ?? emptyTurnContext(), invocation.signal, invocation.stepId);
-    pairConsequences(run);
     const done = (status: 'ok' | 'unavailable', verdict: Row, delivery?: 'accepted' | 'awaiting_player') =>
       ({status, ...(delivery ? {delivery} : {}), ...(status === 'unavailable' ? {reason: 'turn_close_unavailable'} : {}),
         artifact: {kind: 'turn_close', verdict} as StepArtifact});
-    if (!closer) return done('unavailable', {status: 'unavailable', reason: 'no_turn_close_port'});
+    if (!closer) { closeConsequences(run); return done('unavailable', {status: 'unavailable', reason: 'no_turn_close_port'}); }
     let verdict: Row;
     try { verdict = object(await closer.verdict()); } catch (error) {
+      closeConsequences(run);
       return done('unavailable', {status: 'unavailable', reason: String((error as Error)?.message ?? error).slice(0, 200)});
     }
     if (verdict.status === 'delivered') {
       const delivery = verdict.delivery === 'awaiting_player' ? 'awaiting_player' as const : 'accepted' as const;
+      closeConsequences(run);
       return done('ok', {status: 'delivered', delivery, implicit: verdict.implicit === true, call_id: verdict.call_id ?? null, turn: verdict.turn ?? null}, delivery);
     }
     if (verdict.status === 'steer' && verdict.message && typeof verdict.message === 'object') {
+      // Not a close: the run continues (the Keeper is nudged, then this operation is proposed again). Writing
+      // here is exactly SL-85's duplicate -- the pairing/residual rows wait for the call that actually closes.
       run.steer = object(verdict.message);
       return done('ok', {status: 'steer', kind: text(verdict.kind) || 'steer'});
     }
+    closeConsequences(run);
     return done('ok', {status: 'none', reason: text(verdict.reason) || 'nothing_owed'});
   }
 
   /** Jev's decisions: route and closed bind through the DecisionPort, the ordinary check through its binder. */
   async function decide(run: RunState, request: {runId: string; stepId: string; purpose: string; question: unknown; signal: AbortSignal}) {
     const question = object(request.question);
+    // SL-78 (the `residual` row): every compile decision this run asked, whatever it answers -- counted here,
+    // at the one place every `purpose: "compile"` request passes, rather than duplicated at each call site.
+    if (request.purpose === 'compile') run.compileCalls++;
     if (request.purpose === 'locate') return {status: 'ok' as const, artifact: {kind: 'locate', calls: 0, ms: 0, summary: {folded_into: 'read'}} as StepArtifact};
     // §135.28: a clerk bind the policy settles without Jev (its budget is spent) asks nothing here.
     if (question.offline) return {status: 'unavailable' as const, artifact: {reason: `offline_${text(question.offline)}`}};
@@ -960,15 +1163,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const candidate = question.candidate as Candidate | undefined;
       if (!candidate || !run.scope || !run.readSet || run.turn === undefined || !bridge?.campaign || !bridge.call)
         return {status: 'unavailable' as const, artifact: {kind: 'bind-ordinary', bound: {disposition: 'unavailable', unresolved: ['binder_unavailable'], calls: 0, ms: 0}} as StepArtifact};
-      const began = Date.now();
+      const began = stepNow();
       const lease = new TaskLease({owner: 'ordinary-resolve', goal: run.rawInput.trim() || 'ordinary check', scope: run.scope, capabilities: ['decision'],
-        readSet: run.readSet, signal: request.signal,
+        readSet: run.readSet, signal: request.signal, ...leaseClock,
         // A decision's own lease, like the route's (§135.6, SL-22 addendum): never the prescreen allowance's remainder.
-        budget: {deadlineAt: Date.now() + 15_000, remainingInputTokens: 400_000,
+        budget: {deadlineAt: stepNow() + 15_000, remainingInputTokens: 400_000,
           remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
       try {
         const result = await prepareCheckPreflight({campaign: bridge.campaign, turn: run.turn, rawInput: run.rawInput, goal: run.rawInput, scope: run.scope,
-          readSet: run.readSet, publicContext: [{role: 'player', text: run.rawInput}], call: (method, params) => bridge!.call!(method, params), decision: jev!, lease,
+          readSet: run.readSet, publicContext: [{role: 'player', text: run.rawInput}], call: (method, params) => bridge!.call!(method, params), decision: jev!, lease, ...leaseClock,
           // §135.30.3 (owner ruling 2026-09-24): the compile's cleared act settled roll-or-not; the binder's own answer is recorded.
           ...(compiledCheck(candidate) ? {compiled: compiledCheck(candidate)} : {}),
           // SL-31 (§135.28): the clerk's binder takes the difficulty and the dice from Jev only past the policy's gate, else
@@ -977,7 +1180,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         // §135.30.3 (SL-26): the profile answer behind the skill rides with the action, so the bind record says whether it cleared.
         const skill = result.evidence?.profile;
         const bound = {disposition: result.advice.disposition, ...(result.advice.action ? {action: result.advice.action as unknown as Record<string, Json>} : {}),
-          unresolved: result.advice.unresolved, calls: result.decisionCalls, ms: Date.now() - began, ...(skill ? {skill} : {}),
+          unresolved: result.advice.unresolved, calls: result.decisionCalls, ms: stepNow() - began, ...(skill ? {skill} : {}),
           ...(result.evidence?.route ? {route: result.evidence.route} : {}), ...(result.evidence?.paths ? {paths: result.evidence.paths} : {})};
         record({lane: 'route', purpose: 'bind-ordinary', run: run.runId, step: request.stepId, candidate: candidate.key, disposition: bound.disposition,
           unresolved: bound.unresolved, ms: bound.ms, jev_calls: bound.calls,
@@ -993,10 +1196,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const batch = question.batch as DecisionBatch | undefined;
     if (!batch || (request.purpose !== 'route' && request.purpose !== 'bind' && request.purpose !== 'compile' && request.purpose !== 'reask'))
       return {status: 'unavailable' as const, artifact: {reason: batch ? `no_${request.purpose}_decider` : 'no_scope_binding'}};
-    const began = Date.now();
+    const began = stepNow();
     const lease = new TaskLease({owner: batch.family, goal: `run ${request.runId} ${request.purpose}`, scope: batch.scope, capabilities: ['decision'],
-      readSet: batch.readSet, signal: request.signal,
-      budget: {deadlineAt: Date.now() + 15_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
+      readSet: batch.readSet, signal: request.signal, ...leaseClock,
+      budget: {deadlineAt: stepNow() + 15_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
     try {
       const result = await jev!.decide(batch, lease);
       const answers = result.status === 'complete' ? Object.fromEntries(Object.entries(result.answers ?? {}).map(([key, value]) => [key,
@@ -1019,11 +1222,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       if (request.purpose === 'reask') {
         const input = object(question.input) as unknown as ReaskInput;
         const reasked = interpretReask({candidates: array(question.candidates) as Candidate[]}, input, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE);
-        record({lane: 'route', purpose: 'reask', run: run.runId, step: request.stepId, status: result.status, ms: Date.now() - began,
+        record({lane: 'route', purpose: 'reask', run: run.runId, step: request.stepId, status: result.status, ms: stepNow() - began,
+          // SL-84: the last attempt's HTTP status or network/timeout code, so a `jev_service_error` reason is legible.
+          ...(result.failure?.status !== undefined ? {jev_status: result.failure.status} : {}),
           settled_by: array(input.settled).map(entry => object(entry).key), answers: reasked.answers, filed: reasked.filed.map(candidate => candidate.key), reason: reasked.reason});
         return {status: result.status === 'complete' ? 'ok' as const : 'unavailable' as const, artifact: {kind: 'reask', result} as StepArtifact};
       }
-      record({lane: 'route', purpose: request.purpose, run: run.runId, step: request.stepId, status: result.status, ms: Date.now() - began,
+      record({lane: 'route', purpose: request.purpose, run: run.runId, step: request.stepId, status: result.status, ms: stepNow() - began,
+        // SL-84: the last attempt's HTTP status or network/timeout code, so a `jev_service_error` reason is legible.
+        ...(result.failure?.status !== undefined ? {jev_status: result.failure.status} : {}),
         ...(request.purpose === 'route' ? {offered: offered.map(candidate => candidate.key), selected: routed?.selected ?? [], exit: routed?.exit ?? null, reason: routed?.reason ?? null,
           ...(settled.length ? {settled} : {}), ...(actGatedKeys.length ? {act_gated: actGatedKeys} : {})}
           : compiled ? {features: compiled.features, fired: compiled.selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
@@ -1270,8 +1477,23 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    * writes -- `onKeeperCallCap` below has no run/step of its own to go on otherwise, since it is told by the
    * session's own provider-call wrapper, outside any one run's own event stream. */
   let currentRunId: string | undefined;
+  /** §135.29 addendum 2 (SL-82): this engine's own turn-start counter -- the same reset/increment contract
+   * `extensions/kernel/first-step-thinking.ts`'s `isFirstStepOfTurn` documents for the kernel extension's own
+   * `table.roundTrips` (both react to the same Pi bus events, so they always agree), kept independently so
+   * this engine never reaches into the kernel extension's private state for it. Read by `keeperCallCapMs`
+   * below and recorded on every `keeper_call_cap` row so a cap firing says which call of the turn it was. */
+  let step = 0;
   const onKeeperCallCap = (phase: 'first_byte' | 'streaming', capMs: number) => {
-    record({lane: 'run', event: 'keeper_call_cap', run: currentRunId ?? null, phase, cap_ms: capMs});
+    record({lane: 'run', event: 'keeper_call_cap', run: currentRunId ?? null, step, phase, cap_ms: capMs});
+  };
+  /** §135.29 addendum 2 (SL-82): the turn's first call's own cap, resolved fresh per attempt (the data-file
+   * read is cached after the first, so this is cheap). Only ever installed when the flag is on -- see the
+   * `keeperCallCapMs` return below -- so the flag-off path never reaches it and stays the plain ordinary
+   * number SL-69 already shipped, byte for byte. */
+  const resolveKeeperCallCapMs = async (): Promise<number> => {
+    const ordinary = keeperCallCapMs(options.env);
+    const {callCapMs: allowance} = await firstStepThinkingBudget();
+    return firstStepCallCapMs(true, step, ordinary, allowance);
   };
 
   const runDriver: SessionRunDriver = {
@@ -1287,7 +1509,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         guarded: [], guardedShown: 0,
         prescreenSpent: {reads: 0, jev_calls: 0, ms: 0},
         consequenceRows: new Map(), consequenceExists: new Map(), consequenceExecuted: new Set(), consequenceMs: 0, turnReceipts: [], consequenceCandidates: [],
-        present: [], npcSeen: new Set(), npcCount: {acted: 0}};
+        present: [], npcSeen: new Set(), npcCount: {acted: 0},
+        keeperCalls: {apply: 0, resolve: 0, look: 0, lookup: 0, recall: 0}, compileCalls: 0, consequenceExecutedReceiptIds: new Map()};
       const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
         ...(options.compile === false ? {compile: false} : {})});
       return {policy: budgetRows(run, policy), ports: makePorts(run), maxSteps: options.maxSteps ?? 48};
@@ -1314,7 +1537,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (options.npcAct === undefined && typeof pi.on === 'function')
       npcActLane = createNpcActLane(pi, {ctx: () => sessionCtx, campaign: () => bridge?.campaign});
     pi.on('session_start', async (_event: unknown, ctx: unknown) => { sessionCtx = ctx ?? sessionCtx; announce(); withoutPlanTool(); });
-    pi.on('before_agent_start', async (_event: unknown, ctx: unknown) => { sessionCtx = ctx ?? sessionCtx; withoutPlanTool(); });
+    // §135.29 addendum 2 (SL-82): `step`'s own reset/increment, exactly matching the kernel extension's
+    // `table.roundTrips` contract (extensions/kernel/first-step-thinking.ts's isFirstStepOfTurn) so the two
+    // independent counters always agree: 0 on new player input, +1 on every turn_start thereafter.
+    pi.on('before_agent_start', async (_event: unknown, ctx: unknown) => { sessionCtx = ctx ?? sessionCtx; withoutPlanTool(); step = 0; });
+    pi.on('turn_start', async () => { step += 1; });
   };
-  return {runDriver, extension, bridge: () => bridge, keeperCallCapMs: keeperCallCapMs(options.env), onKeeperCallCap};
+  return {runDriver, extension, bridge: () => bridge,
+    keeperCallCapMs: firstStepThinkingEnabled(options.env) ? resolveKeeperCallCapMs : keeperCallCapMs(options.env),
+    onKeeperCallCap};
 }

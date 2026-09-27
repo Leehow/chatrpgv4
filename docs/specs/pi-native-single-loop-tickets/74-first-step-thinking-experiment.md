@@ -110,3 +110,5 @@ with the project's documented flake pattern under box contention, not a regressi
 dropdown's missing "Off") remains explicitly out of scope, as filed.
 
 Status: **ready-for-human**.
+- Live (gate #14, b088de327): INVALID — the step-1 thinking call (≈35 s) was killed by SL-69's 22.5 s cap on 8/20 turns (SL-82 filed). Side reading before the strandings: Keeper refusals needs 2 / invalid_params 5 / unknown_entity 1 (#13: 27 / 3 / 0). Rerun as gate #15 with `PI_COC_KEEPER_CALL_CAP_FLOOR_MS=60000`.
+- Live (gate #15, cap floor 60 s): delivered 17/20 (3 step-1 calls still exceeded 60 s: reasoning p50 4,697 tokens, max 7,879), median 83 s, ≤60 s 7/20; benefit real (needs 27→2, invalid_params 3→2, calls 71→62, looks 14→8). Recommendation: not adopted for this provider; flag stays an experiment (SL-82 makes it safe).

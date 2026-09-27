@@ -111,7 +111,7 @@ test("apply npc's skill pin on a name nobody knows still refuses, with a real ne
  */
 test('apply npc keeps its ordinary candidates list when the name has real similar matches', async (t) => {
 	const game = await table(t);
-	await game.apply({ kind: 'npc', name: 'Fabius Okonkwo', to: 'here', why: 'a face at the table' });
+	await game.apply({ kind: 'npc', name: 'Fabius Okonkwo', to: 'here', walk_on: true, why: 'a face at the table' });
 	const error = await game.apply({ kind: 'npc', name: 'Fabius Okonko', skill: { name: 'STR', value: 60 }, why: 'probe' })
 		.then(() => null, (thrown) => thrown);
 	assert.ok(error);

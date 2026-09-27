@@ -473,8 +473,49 @@ def unified_package(kernel, tmp_path, *, generation=True, version=UNIFIED_VERSIO
     manifest["version"] = version
     requires = [cap for cap in manifest["requires"] if cap != GENERATION]
     manifest["requires"] = [*requires, GENERATION] if generation else requires
+    if not generation and "voice_lane" in manifest["contributes"]:
+        # §40.7 Instruction: only a lane owner may contribute the lane's words.
+        lane = manifest["contributes"].pop("voice_lane")
+        manifest["package_files"] = [name for name in manifest["package_files"] if name != lane]
+        (path / lane).unlink()
     (path / "mod.json").write_text(json.dumps(manifest), encoding="utf-8")
     kernel.ok("mods.install", {"path": str(path)})
+
+
+def test_the_lane_instruction_comes_from_the_owning_package(kernel, tmp_path):
+    """Contract §40.7 Instruction (2026-09-26): the packet carries the owner package's contributes.voice_lane, frozen
+    with its version; the kernel's content no longer holds the lane's words for a current owner."""
+    path = tmp_path / f"{EXPRESSION}-lane"
+    shutil.copytree(WORKTREE / "mods" / EXPRESSION, path)
+    manifest = read_json(path / "mod.json")
+    manifest["version"] = UNIFIED_VERSION
+    (path / manifest["contributes"]["voice_lane"]).write_text("Package lane instruction: taken_masks, said, and the voice shape.", encoding="utf-8")
+    (path / "mod.json").write_text(json.dumps(manifest), encoding="utf-8")
+    kernel.ok("mods.install", {"path": str(path)})
+    create_campaign(kernel)
+    narrate_opening(kernel)
+    kernel.table("player_input", text="我仔细观察诺特。")
+    packet = job(kernel)
+    assert packet["generation"]["version"] == UNIFIED_VERSION
+    assert packet["instruction"] == "Package lane instruction: taken_masks, said, and the voice shape."
+
+
+def test_a_legacy_owner_keeps_the_frozen_lane_instruction(kernel):
+    """An owner whose package predates the contribution (npc-voice 1.x here) reads content/compat/npc-voice-lane.md."""
+    on(kernel)
+    packet = job(kernel)
+    assert packet["instruction"] == (WORKTREE / "content" / "compat" / "npc-voice-lane.md").read_text(encoding="utf-8").strip()
+
+
+def test_voice_lane_without_the_generation_capability_is_refused(kernel, tmp_path):
+    path = tmp_path / f"{EXPRESSION}-no-lane"
+    shutil.copytree(WORKTREE / "mods" / EXPRESSION, path)
+    manifest = read_json(path / "mod.json")
+    manifest["version"] = UNIFIED_VERSION
+    manifest["requires"] = [cap for cap in manifest["requires"] if cap != GENERATION]
+    (path / "mod.json").write_text(json.dumps(manifest), encoding="utf-8")
+    error = kernel.err("mods.install", {"path": str(path)})
+    assert error["code"] == "invalid_params" and "voice_lane" in error["message"]
 
 
 def task_world_revision(client):

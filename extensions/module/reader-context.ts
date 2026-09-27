@@ -1,4 +1,5 @@
-import {installChildProviderBudget} from "../../runtime/jev/provider-budget.ts";
+import {installChildProviderBudget, outputFieldPath, withOutputRoom} from "../../runtime/jev/provider-budget.ts";
+import {READING_STAGE_BUDGET} from "../../runtime/jev/reading-stage-budget.ts";
 /** Keep page-image history bounded without changing the recorded reader transcript. */
 import { appendFileSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -187,6 +188,12 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 	const maxRequests = Number.isInteger(configuredRequests) && configuredRequests > 0 ? configuredRequests : null;
 	let providerRequests = 0;
 	const sent = new Set<string>();
+	// Contract §140: with no lease (no budget channel) the child still sends its own output bound -- the lease's
+	// per-call one, else a reading's -- so the provider's unstated default never decides how much a reasoning
+	// model may think before it answers. A leased child is bounded by `installChildProviderBudget` below instead.
+	const leased = env.PI_COC_PROVIDER_BUDGET === "ipc-v1";
+	const configuredOutput = Number(env.PI_COC_PROVIDER_OUTPUT_LIMIT);
+	const outputRoom = Number.isSafeInteger(configuredOutput) && configuredOutput > 0 ? configuredOutput : READING_STAGE_BUDGET.callOutputTokens;
 	if (env.PI_COC_READER_SOURCE) {
 		confineReaderEnvironment(cwd, env);
 		const guard = createReaderToolGuard(cwd, env);
@@ -198,12 +205,19 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 			throw new Error(`The bounded reader reached its ${maxRequests}-request limit`);
 		}
 		providerRequests++;
+		const bounded = leased ? event.payload : withOutputRoom(ctx?.model, event.payload, outputRoom);
 		const log = env.PI_COC_READER_REQUESTS_LOG;
-		if (log) appendFileSync(log, JSON.stringify({at: new Date().toISOString(), provider: ctx.model?.provider,
-			model: event.payload?.model, reasoning_effort: event.payload?.reasoning?.effort ?? event.payload?.reasoning_effort ?? null}) + "\n");
+		if (log) {
+			const path = bounded && typeof ctx?.model?.api === "string" ? outputFieldPath(ctx.model.api, bounded) : null;
+			const output = path ? path.reduce((value: any, key) => value?.[key], bounded) : undefined;
+			appendFileSync(log, JSON.stringify({at: new Date().toISOString(), provider: ctx.model?.provider,
+				model: event.payload?.model, reasoning_effort: event.payload?.reasoning?.effort ?? event.payload?.reasoning_effort ?? null,
+				...(leased ? {} : {output_bound: typeof output === "number" ? output : null})}) + "\n");
+		}
+		return bounded === event.payload ? undefined : bounded;
 	});
 	// The owning lease's per-call output bound (contract §20 addendum 2); absent keeps the default.
-	installChildProviderBudget(pi, env.PI_COC_PROVIDER_BUDGET === "ipc-v1", Number(env.PI_COC_PROVIDER_OUTPUT_LIMIT) || undefined);
+	installChildProviderBudget(pi, leased, Number(env.PI_COC_PROVIDER_OUTPUT_LIMIT) || undefined);
 	pi.on("context", (event: any) => {
 		const configured=Number(env.PI_COC_READER_IMAGE_HISTORY);
 		const result = boundImages(event.messages, sent, undefined, configured>0?configured:undefined);

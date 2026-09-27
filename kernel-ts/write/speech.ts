@@ -6,8 +6,9 @@
  * word list deciding what kind of person a label denotes: a name that matches nobody stays a label.
  */
 import { ModuleGraph } from '../read/module-graph.js';
-import { npcsPresent, personLabel } from '../read/capsule.js';
-import { array, entries, normalize, normalizeText, row, string, truth, type Row } from '../read/values.js';
+import { RpcError } from '../errors.js';
+import { calledPerson, npcsPresent, personLabel } from '../read/capsule.js';
+import { array, normalize, normalizeText, row, string, truth, type Row } from '../read/values.js';
 
 import type {Speaker, SpeakerResolver} from './speech-pass.js';
 export {speechPass, NAME_LIMIT, SAY_TOKENS, isSayMarker, type Speaker, type SpeakerResolver} from './speech-pass.js';
@@ -34,10 +35,6 @@ export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[]): S
     };
     const npc = (node: Row): Speaker => ({ npc: graph.handle(node), name: personLabel(world, graph.handle(node), graph.displayName(node)) });
     const sheetSpeaker = (sheet: Row): Speaker => ({ investigator: string(sheet.id), name: personLabel(world, string(sheet.id), string(sheet.name)) });
-    const atThisTable = new Map(entries(row(world.person_labels)).flatMap(([id, record]) => {
-        const key = normalize(string(row(record).name));
-        return key ? [[key, id] as [string, string]] : [];
-    }));
     return (name: string): Speaker => {
         const key = normalize(name);
         if (!key) return { label: name };
@@ -50,14 +47,12 @@ export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[]): S
         if (investigators.length === 1) return sheetSpeaker(investigators[0]);
         const anyone = only([...graph.nodes.values()].filter(node => node.node_kind === 'npc'), key);
         if (anyone) return npc(anyone);
-        const owner = atThisTable.get(key);
-        if (owner != null) {
-            const node = graph.find(owner, ['npc']);
-            if (node) return npc(node);
-            const sheet = party.find(value => string(value.id) === owner);
-            if (sheet) return sheetSpeaker(sheet);
-        }
-        return { label: name };
+        // §87.8's junction: the one person this table gave the word. Two of them leave it a label -- a token is a
+        // rendering hint and never a reason to refuse (§34.14), and picking one would put the line in the wrong mouth.
+        let owner: Row | null = null;
+        try { owner = calledPerson(graph, world, name); }
+        catch (error) { if (!(error instanceof RpcError)) throw error; }
+        return owner ? npc(owner) : { label: name };
     };
 }
 

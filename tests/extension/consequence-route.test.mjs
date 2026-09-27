@@ -28,6 +28,12 @@ const clueCandidate = (key = "consequence:clue_follow_up:x") => ({
 	basis: { read: "table.apply.options" },
 	noul: { instructions: "does the settled action reach clue x", criteria: { true: "yes", false: "no" } },
 });
+const clueCandidateWithCues = (key = "consequence:clue_follow_up:nailed-windows") => ({
+	...clueCandidate(key), detail: { cues: ["Examine the nailed-shut ground-floor windows"] },
+	noul: { instructions: "does the settled action perform one of the book's own ways to reach this clue",
+		criteria: { true: { what: "performs the book's own way to reach it", examples: ["Examine the nailed-shut ground-floor windows"] },
+			false: { not_for: "naming the place from afar" } } },
+});
 const directTimeCandidate = () => ({
 	key: "consequence:time_cost:canvass", verb: "apply", family: "time_cost", label: "Advance the clock",
 	source: "capsule.where.rules", bound: { kind: "time", stated: "canvass" }, unbound: [],
@@ -108,6 +114,48 @@ test("interpretConsequenceResult: a direct candidate (no Noul) is always reporte
 	assert.equal(outcome.rows[0].cleared, true);
 	assert.equal(outcome.rows[0].direct, true);
 	assert.equal(outcome.rows[0].confidence, null, "never asked, so it carries no Jev confidence");
+});
+
+test("consequenceBatch (SL-86, §135.32 addendum 3): a candidate's `detail` (the clue's own cues) reaches the wire state, alongside `bound`", () => {
+	const { batch } = consequenceBatch(
+		{ runId: "r1", rawInput: "I examine the windows", context: CONTEXT, observations: [], candidates: [clueCandidateWithCues()],
+			settled: [], present: [] },
+		SCOPE, READ_SET,
+	);
+	const candidateView = batch.state.candidates.find((entry) => entry.class === "clue_follow_up");
+	assert.deepEqual(candidateView.detail, { cues: ["Examine the nailed-shut ground-floor windows"] });
+});
+
+test("consequenceBatch (SL-86): a candidate's own Noul criteria can be a structured `{what, examples}`/`{not_for}` object (the skill's rubric), not only a string", () => {
+	const { batch } = consequenceBatch(
+		{ runId: "r1", rawInput: "", context: CONTEXT, observations: [], candidates: [clueCandidateWithCues()], settled: [], present: [] },
+		SCOPE, READ_SET,
+	);
+	const question = batch.questions.find((entry) => entry.key === "c_1");
+	assert.deepEqual(question.criteria.true, { what: "performs the book's own way to reach it", examples: ["Examine the nailed-shut ground-floor windows"] });
+	assert.deepEqual(question.criteria.false, { not_for: "naming the place from afar" });
+});
+
+test("interpretConsequenceResult (SL-86, §135.32 addendum 3): a per-class threshold map overrides only its own class, leaving the rest on the shared gate", () => {
+	const candidates = [npcCandidate("k1"), clueCandidate("k2")];
+	const { batch } = consequenceBatch({ runId: "r1", rawInput: "", context: CONTEXT, observations: [], candidates, settled: [], present: [] }, SCOPE, READ_SET);
+	// 0.72 clears `true` under the shared gate (0.5/2: 0.72 >= 0.5 and 0.72 >= 2*0.28), for both rows.
+	const result = nouls(batch, { c_1: 0.72, c_2: 0.72, exists_npc_reaction: 0.72, exists_clue_follow_up: 0.72 });
+	const shared = interpretConsequenceResult(candidates, result, GATES);
+	assert.equal(shared.rows.find((row) => row.key === "k1").cleared, true, "no override: the shared gate clears both rows");
+	assert.equal(shared.rows.find((row) => row.key === "k2").cleared, true);
+	// A per-class override with a stricter row_min (0.9) un-clears only the class it names -- proving the map is
+	// read per class, not applied globally. (The shipped SL-86 override moves the opposite direction, `row_min`
+	// down to 0.35; at the shared `row_ratio` of 2 that specific number is mathematically inert for any
+	// probability below ~0.667, since the ratio term alone already requires that much -- see the host-budgets
+	// tests' comment. This test proves the *mechanism* reads and applies a class's own threshold; the shipped
+	// numbers' real-world effect is a separate, already-flagged finding.)
+	const overridden = interpretConsequenceResult(candidates, result, GATES, { clue_follow_up: { rowMin: 0.9, rowRatio: 2 } });
+	assert.equal(overridden.rows.find((row) => row.key === "k1").cleared, true, "npc_reaction is untouched by a clue_follow_up-only override");
+	assert.equal(overridden.rows.find((row) => row.key === "k2").cleared, false, "clue_follow_up no longer clears under its own stricter row_min");
+	const existsOverridden = Object.fromEntries(overridden.exists.map((row) => [row.class, row]));
+	assert.equal(existsOverridden.clue_follow_up.cleared, null, "the class's own `exists` row uses the same per-class gate (0.72 is now unresolved, not cleared)");
+	assert.equal(existsOverridden.npc_reaction.cleared, true);
 });
 
 test("interpretConsequenceResult: an outage or an incomplete batch degrades to no D1 rows cleared, with a reason -- never a guess", () => {

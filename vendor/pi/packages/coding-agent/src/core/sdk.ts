@@ -91,8 +91,12 @@ export interface CreateAgentSessionOptions {
 	/** Drive runs through the RunDriver with the host's policy and ports instead of the model-first loop. */
 	runDriver?: SessionRunDriver;
 	/** Contract §135.29's SL-69 addendum: a per-call total-duration cap composed around the idle-progress
-	 * watchdog (`watchStreamProgress`) in every provider attempt this session makes. 0 or absent disables it. */
-	keeperCallCapMs?: number;
+	 * watchdog (`watchStreamProgress`) in every provider attempt this session makes. 0 or absent disables it.
+	 * §135.29 addendum 2 (SL-82): a zero-argument function is also accepted, resolved fresh immediately
+	 * before every attempt (a plain number is unaffected -- it behaves exactly as before this addendum) --
+	 * this is how a per-turn host tells the session "the call about to go out is a different one" without the
+	 * session ever being taught what a turn is. */
+	keeperCallCapMs?: number | (() => number | Promise<number>);
 	/** Told once per attempt the cap above ends, with the phase ("first_byte" before any event of the
 	 * attempt arrived, "streaming" after) it fired in. Never told anything else; a session without one set
 	 * simply is not told. */
@@ -373,10 +377,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		});
 	};
 
-	// Contract §135.29's SL-69 addendum. `options` below is captured here under a distinct name because
-	// `streamFn`'s own parameter is also (confusingly, but matching the callback's established shape)
-	// named `options` -- reading `options.keeperCallCapMs` inside `streamFn` would read the wrong one.
-	const keeperCallCapMs = options.keeperCallCapMs ?? 0;
+	// Contract §135.29's SL-69 addendum (extended by addendum 2, SL-82). `options` below is captured here
+	// under a distinct name because `streamFn`'s own parameter is also (confusingly, but matching the
+	// callback's established shape) named `options` -- reading `options.keeperCallCapMs` inside `streamFn`
+	// would read the wrong one. The setting itself may be a plain number or a zero-argument function
+	// (SL-82): resolved fresh inside `streamFn`, immediately before every attempt, never once here.
+	const keeperCallCapSetting = options.keeperCallCapMs ?? 0;
 	const onKeeperCallCap = options.onKeeperCallCap;
 	// Keyed by each infer step's own outer signal (stable across that step's internal retries, since a
 	// retry resends under the same step and thus the same caller-owned cancellation signal): how many
@@ -411,6 +417,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 					signal,
 					settingsManager.getHttpIdleTimeoutMs(),
 				);
+			// SL-82: resolved fresh on every attempt (a function may answer differently call to call, e.g.
+			// the product's own "is this the turn's first Keeper call" cap); a plain number is unaffected.
+			const keeperCallCapMs = typeof keeperCallCapSetting === "function" ? await keeperCallCapSetting() : keeperCallCapSetting;
 			if (!(keeperCallCapMs > 0)) return underIdleWatchdog(requestOptions.signal);
 			const stepSignal = options?.signal;
 			return watchCallCap(underIdleWatchdog, requestOptions.signal, keeperCallCapMs,

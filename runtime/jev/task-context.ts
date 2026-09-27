@@ -9,6 +9,14 @@ export interface TaskClock { now(): number; schedule(callback: () => void, delay
 const realClock: TaskClock = { now: Date.now, schedule(callback, delay) {
   const timer = setTimeout(callback, delay); timer.unref(); return () => clearTimeout(timer);
 } };
+/**
+ * SL-87: the host's own clock, looked up at each call -- `Date.now()` and an unref'd `setTimeout` -- so code that took an
+ * optional `clock` where it used to call them directly behaves exactly as before without one, a test that mocks `Date` or
+ * the timers included.
+ */
+export const hostClock: TaskClock = { now: () => Date.now(), schedule(callback, delayMs) {
+  const timer = setTimeout(callback, delayMs); timer.unref?.(); return () => clearTimeout(timer);
+} };
 export interface BudgetSpend { inputTokens: number; outputTokens: number; costUsd: number; actions: number }
 const BUDGET_FIELDS = { inputTokens: 'remainingInputTokens', outputTokens: 'remainingOutputTokens', costUsd: 'remainingCostUsd', actions: 'remainingActions' } as const;
 const SPEND_KEYS = Object.keys(BUDGET_FIELDS) as Array<keyof BudgetSpend>;

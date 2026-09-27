@@ -393,7 +393,7 @@
     {
       "id": "SL-78",
       "file": "78-execute-mode-and-residual.md",
-      "status": "blocked"
+      "status": "ready"
     },
     {
       "id": "SL-79",
@@ -408,6 +408,106 @@
     {
       "id": "SL-81",
       "file": "81-the-lane-thinks-at-low-on-a-model-where-low-is-full.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-82",
+      "file": "82-first-step-thinking-sizes-its-own-cap.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-83",
+      "file": "83-shadow-pairing-compares-a-label-to-a-handle.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-84",
+      "file": "84-a-jev-outage-leaves-no-status-code.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-85",
+      "file": "85-execute-mode-reporting-gaps.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-86",
+      "file": "86-the-clue-question-under-recalls.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-87",
+      "file": "87-wall-clock-budget-tests-must-not-time-the-box.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-88",
+      "file": "88-what-needs-no-result-does-not-wait.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-89",
+      "file": "89-the-keeper-context-is-rebuilt-every-turn.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-90",
+      "file": "90-a-consequence-step-is-admitted-on-its-own-evidence.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-91",
+      "file": "91-the-admission-lane-takes-its-own-thinking.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-92",
+      "file": "92-apply-carries-the-narration-that-closes-the-turn.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-93",
+      "file": "93-every-delivery-path-has-the-floor.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-94",
+      "file": "94-the-turn-record-says-when-the-player-first-sees-prose.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-95",
+      "file": "95-keeper-text-beside-calls-never-reaches-the-screen.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-96",
+      "file": "96-tool-call-label-prefix-in-narrate.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-97",
+      "file": "97-jev-admission-confident-enough-to-settle.md",
+      "status": "ready"
+    },
+    {
+      "id": "SL-98",
+      "file": "98-pdf-opening-choice-deadlock.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-99",
+      "file": "99-reader-idle-allowance-for-slow-image-steps.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-100",
+      "file": "100-setup-guide-speaks-to-the-player.md",
+      "status": "ready-for-human"
+    },
+    {
+      "id": "SL-101",
+      "file": "101-admission-lines-reviewed-in-parallel.md",
       "status": "ready"
     }
   ],

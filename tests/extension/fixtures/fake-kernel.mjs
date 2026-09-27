@@ -50,9 +50,15 @@
  *                          resolve, `details.index` for apply) -- not single-shot, like a real name the
  *                          graph does not know, which stays unknown every time it is spelled the same
  *                          way; a call whose name was rewritten to a different string passes as usual.
+ *   FAKE_SETUP_RESUME      JSON object {"completed": [...], "state": {...}}: what `setup.steps {campaign}` answers,
+ *                          the shape the kernel gives a setup process reopened on an existing campaign (§14.4) --
+ *                          a PDF campaign created before its opening was chosen answers `state.start_scene: null`.
+ *   FAKE_KERNEL_READING_GATE  a file path: while that file exists, `module.read.request` for an `opening` reading
+ *                          answers "still reading", so the reading service's foreground wait runs out on the real
+ *                          service (§22.4's `reading_timeout`); remove the file and the next poll lands it (§14.19).
  */
 
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 // Loaded only when a test asks for the say pass, so every other table starts exactly as fast as before.
 const SAY = process.env.FAKE_KERNEL_SAY_PASS ? await import("../../../kernel-ts/write/speech-pass.ts") : null;
 import { createHash } from "node:crypto";
@@ -560,6 +566,7 @@ function handle(method, params) {
 					steps: SETUP_STEPS,
 					completed: process.env.FAKE_SETUP_COMPLETED === "all" ? SETUP_STEPS.map((step) => step.id) : [],
 					state: {},
+					...(process.env.FAKE_SETUP_RESUME && params?.campaign ? JSON.parse(process.env.FAKE_SETUP_RESUME) : {}),
 				},
 			};
 		case "mods.context":
@@ -626,6 +633,12 @@ function handle(method, params) {
         }
         case "setup.confirm":
             return {ok:true,result:{committed:true,investigator_id:"inv-1"}};
+        case "setup.prologue": {
+            // §14.18: the host books the opening it showed; the kernel keeps the first one and answers every call.
+            const prologues = (globalThis.__fakePrologues ??= new Map());
+            if (!prologues.has(params.campaign)) prologues.set(params.campaign, {scene: params.scene, guide: params.guide ?? null, opening: params.text ?? "", handoff: params.handoff ?? ""});
+            return {ok:true,result:{recorded:true}};
+        }
 		case "setup.investigator": {
 			if (!params.name || !params.occupation) {
 				return { ok: false, error: { code: "invalid_params", message: "建卡要名字与职业 id" } };
@@ -680,6 +693,8 @@ function handle(method, params) {
 						module_id: params.module ?? MODULE_ID,
 						play_language: params.play_language ?? "zh-Hans",
 						status: "setting_up",
+						// The kernel pins the opening it was given (§22.9) and answers with it on the record.
+						opening_scene: params.start_scene ?? null,
 					},
 				},
 			};
@@ -777,6 +792,8 @@ function handle(method, params) {
 			// FAKE_KERNEL_READING=1: the source is still being read and no host gets to claim the job,
 			// so a foreground wait runs out (contract §22.4's `reading_timeout`) on the real reading service.
 			if (process.env.FAKE_KERNEL_READING === "1") return { ok: true, result: { state: "reading", job_id: "read-7", generation } };
+			if (params?.purpose === "opening" && process.env.FAKE_KERNEL_READING_GATE && existsSync(process.env.FAKE_KERNEL_READING_GATE))
+				return { ok: true, result: { state: "reading", job_id: "read-4", generation } };
             return { ok: true, result: { state: "ready", generation } };
 		case "module.read.claim":
             return { ok: true, result: { job_id: null } };

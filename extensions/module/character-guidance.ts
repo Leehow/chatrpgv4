@@ -1,9 +1,10 @@
 /** Module-owned, reviewed guidance shared by character creation sessions. */
 import {createHash, randomUUID} from 'node:crypto';
 import {access, mkdir, readFile, writeFile, rename} from 'node:fs/promises';
-import {join, resolve, relative, isAbsolute} from 'node:path';
+import {basename, join, resolve, relative, isAbsolute} from 'node:path';
 import {resourceRootFrom} from '../../runtime/deployment.mjs';
 import {coded} from '../ui/errors.ts';
+import {KernelError} from '../kernel/client.ts';
 import {reasoned, readerFailureReason} from './reader.ts';
 import type {ReaderRequest, ReaderOutcome} from './reader.ts';
 
@@ -37,6 +38,31 @@ function openingNode(graph:Row, meta:Row, selected?:string):Row|undefined {
     return [node.node_id,node.name,handle,...(node.aliases||[]),record.display_name,record.name,record.title]
       .some(alias=>typeof alias==='string' && normalize(alias)===normalize(value));
   });
+}
+/**
+ * The openings the book itself declares when it declares more than one (contract §14.14): the kernel
+ * writes them to `module.json` as `opening.choice.candidates` and never picks one. Empty for a book
+ * with one opening, so a single-opening book never sees the question below.
+ */
+function declaredOpenings(meta:Row):Row[] {
+  const candidates=meta.opening?.choice?.candidates;
+  return Array.isArray(candidates)&&candidates.length>1?candidates.filter((row:unknown)=>row&&typeof row==='object'):[];
+}
+/**
+ * The scene guidance is written for (§14.19, SL-98). With no selected opening, or one that names none
+ * of a multi-opening book's scenes, this is the player's choice still to be made: `needs_choice` with
+ * the candidates, which the setup host carries to the guide and answers by recording a `start_scene`.
+ * `preparation_failed` stays for a book whose one opening really cannot be found.
+ */
+function selectedOpeningScene(graph:Row, meta:Row, selected:string):Row {
+  const scene=openingNode(graph,meta,selected);
+  if(scene&&typeof scene.name==='string'&&scene.name.trim())return scene;
+  const candidates=declaredOpenings(meta);
+  if(candidates.length)throw new KernelError({code:'needs_choice',
+    message:selected?`the selected opening ${JSON.stringify(selected)} is not one of this book's openings`:'this book has more than one opening and none is selected',
+    fix:'ask the player which opening to start from (details.candidates: name and summary), then call setup prepare-module with that candidate\'s scene as start_scene',
+    details:{field:'start_scene',candidates}});
+  throw coded('preparation_failed','The selected opening scene is unavailable for character guidance');
 }
 const recordOf=(node:Row):Row=>node.properties?.runtime_projection?.record || node.properties || {};
 const identities=(node:Row):string[]=>[node.node_id,node.name,recordOf(node).npc_id,recordOf(node).handle]
@@ -106,6 +132,19 @@ async function json(path:string) {
   if(Buffer.byteLength(raw)>64*1024)throw coded('guidance_unavailable','Character guidance exceeds the file limit');
   return JSON.parse(raw);
 }
+/**
+ * An agent's required file, read after the agent ended. An agent that ends without writing it (contract §140: a
+ * reviewer on deepseek-v4.1-flash spent its whole response reasoning and stopped at the output limit) is a coded
+ * preparation failure that says which one, never a bare ENOENT.
+ */
+async function produced(path:string, who:string) {
+  try { return await json(path); }
+  catch(error) {
+    if((error as NodeJS.ErrnoException)?.code==='ENOENT')
+      throw coded('preparation_failed',`Character guidance ${who} ended without writing ${basename(path)}. Retry preparation.`);
+    throw error;
+  }
+}
 export async function prepareCharacterGuidance(options:Options):Promise<Guidance> {
   const content = options.contentRoot ?? join(root, 'content');
   const promptPath = join(content, 'setup/character-guidance.md');
@@ -134,14 +173,15 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
   if(meta.bundled_guidance_required && !options.buildBundle && await bundleShipped(content,options.module_id,options.play_language))
     throw coded('guidance_not_ready','Bundled starter guidance for this language is stale. Rebuild the starter guidance bundle.');
   if(options.signal?.aborted)throw coded('interrupted','Character guidance cancelled');
+  const graph=JSON.parse(graphBytes);
+  // Settled before an attempt exists: a question for the player is not a failed attempt, and the Masks
+  // table left five empty attempt folders behind one missing choice (SL-98).
+  const selectedScene=selectedOpeningScene(graph,meta,selectedOpening);
   const attempt=join(cache,'attempts',randomUUID());
   await mkdir(attempt,{recursive:true});
-  const graph=JSON.parse(graphBytes);
   // Only semantic names and prose enter the model packet; opaque graph keys stay host-side.
   const nodes=(graph.nodes||[]).map((node:Row)=>({name:node.name,kind:node.node_kind,
     visibility:node.visibility,summary:node.summary}));
-  const selectedScene=openingNode(graph,meta,selectedOpening);
-  if(!selectedScene||typeof selectedScene.name!=='string'||!selectedScene.name.trim())throw coded('preparation_failed','The selected opening scene is unavailable for character guidance');
   const opening=selectedScene.name,guides=guideSources(graph,selectedScene);
   const publicFields=['era','place','player_safe_summary','investigator_hook','investigator_constraints'];
   const publicSetup=(graph.nodes||[]).filter((node:Row)=>node.node_kind==='module').flatMap((node:Row)=>{
@@ -166,7 +206,7 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
         'Revise guidance.json using the independent review findings in review.json. Preserve source facts and obey the original instructions.'});
     if(!authored.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'interrupted':'preparation_failed',
       reasoned('Character guidance could not be prepared. Retry preparation.',options.signal?.aborted?undefined:readerFailureReason(authored)));
-    rawGuidance=await json(join(attempt,'guidance.json'));
+    rawGuidance=await produced(join(attempt,'guidance.json'),'author');
     guidance=validateGuidanceReference(rawGuidance,opening,guides);
     await writeFile(join(attempt,'guidance.json'),JSON.stringify(rawGuidance,null,2));
     await writeFile(join(attempt,`guidance-round-${round}.json`),JSON.stringify(rawGuidance,null,2));
@@ -174,7 +214,7 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
     const reviewed=await runner({...request,systemPrompt:reviewPath,eventLog:join(attempt,'reviewer.jsonl'),
       brief:'Independently review packet.json and guidance.json. Write review.json.'});
     if(!reviewed.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'interrupted':'preparation_failed','Character guidance review interrupted. Retry preparation.');
-    review=await json(join(attempt,'review.json'));
+    review=await produced(join(attempt,'review.json'),'reviewer');
     await writeFile(join(attempt,`review-round-${round}.json`),JSON.stringify(review,null,2));
     if(JSON.stringify(await json(join(attempt,'guidance.json')))!==JSON.stringify(rawGuidance))throw coded('preparation_failed','Character guidance changed during review');
     if(review.approved===true && Array.isArray(review.issues) && !review.issues.length)break;

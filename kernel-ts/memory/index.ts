@@ -9,6 +9,7 @@ import type { ModuleGraph } from '../read/module-graph.js';
 import { readCampaign, unsupported } from '../read/handlers.js';
 import { playLanguageOf } from '../read/languages.js';
 import { array, row, number, integer, string, truth, repr, chars, type Row } from '../read/values.js';
+import { locateExcerpt } from '../read/excerpt.js';
 import { createWriteRuntime } from '../write/index.js';
 import { CampaignWriter, nowIso } from '../write/store.js';
 import { noteMemory, readNpcLedger } from '../write/contributions.js';
@@ -49,7 +50,8 @@ function continuityRows(accepted: Row, rendered: string): Row[] {
     const rows: Row[] = [], at = nowIso();
     const add = (kind: string, quote: unknown, why: string) => {
         if (rows.length >= 10 || !why.trim()) return;
-        rows.push({ lane: CONTINUITY_LANE, kind, quote: typeof quote === 'string' && quote.trim() && rendered.includes(quote) ? chars(quote, 120) : null,
+        const anchored = locateExcerpt(rendered, quote);
+        rows.push({ lane: CONTINUITY_LANE, kind, quote: anchored ? chars(anchored, 120) : null,
             why: chars(why, 200), fix: FORWARD[kind], at });
     };
     for (const conflict of array(row(accepted.continuity_review).conflicts)) add('continuity_conflict', conflict.claim, string(conflict.reason));
@@ -119,15 +121,18 @@ async function warn(context: KernelContext, loaded: { campaign: CampaignWriter; 
     const record = await campaign.readTurnRecord(number(turn));
     if (!record || record.closed_by !== 'narrate')
         throw new RpcError('invalid_params', `turn ${turn} has no narrate record to anchor findings to`, { details: { turn } });
-    const rendered = string(record.rendered_text || ''), accepted: Row[] = [], dropped: Row[] = [];
+    const rendered = string(record.rendered_text || ''), accepted: Row[] = [], dropped: Row[] = [], unanchored: Row[] = [];
     for (const [index, finding] of findings.entries()) {
         if (!isJsonObject(finding))
             throw new RpcError('invalid_params', `findings[${index}] must be an object`, { details: { index } });
         const kind = finding.kind, quote = finding.quote;
         if (!FINDINGS.includes(kind as string))
             throw new RpcError('invalid_params', `findings[${index}].kind ${repr(kind)} is not a finding kind`, { fix: `one of ${repr(FINDINGS)}`, details: { index } });
-        if (typeof quote !== 'string' || !quote.trim() || !rendered.includes(quote)) {
+        // Contract §139: the quote is located with quotation marks as one class, and the record keeps the prose's own text.
+        const anchored = locateExcerpt(rendered, quote);
+        if (!anchored) {
             dropped.push({ index, kind, reason: 'quote is not a substring of rendered_text' });
+            unanchored.push({ index, kind, quote: chars(string(quote), 80) });
             continue;
         }
         if (accepted.length >= 10) {
@@ -135,13 +140,14 @@ async function warn(context: KernelContext, loaded: { campaign: CampaignWriter; 
             continue;
         }
         const clue = revealedClue(module.graph, finding as Row);
-        accepted.push({ lane, kind, quote: chars(quote, 120), why: chars(string(finding.why || ''), 200), ...(clue ? { clue } : {}), at: nowIso() });
+        accepted.push({ lane, kind, quote: chars(anchored, 120), why: chars(string(finding.why || ''), 200), ...(clue ? { clue } : {}), at: nowIso() });
     }
     const warnings = [...array(record.warnings), ...accepted];
     record.warnings = warnings;
     await campaign.writeTurnRecord(record);
     const named = accepted.filter(value => typeof value.clue === 'string').length;
-    await campaign.telemetry({ lane, turn, ok: true, findings: findings.length, accepted: accepted.length, dropped: dropped.length, clues: named });
+    await campaign.telemetry({ lane, turn, ok: true, findings: findings.length, accepted: accepted.length, dropped: dropped.length, clues: named,
+        ...(unanchored.length ? { unanchored } : {}) });
     return { turn, lane, accepted: accepted.length, dropped, warnings: warnings.map(value => ({ kind: value.kind, quote: value.quote, why: value.why, ...(value.clue ? { clue: value.clue } : {}) })) };
 }
 export function createMemoryHandlers(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {

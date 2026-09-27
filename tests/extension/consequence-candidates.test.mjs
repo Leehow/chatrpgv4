@@ -36,6 +36,30 @@ test("npc_reaction: a pending natural-npc contact issues one candidate with its 
 	assert.match(candidate.noul.instructions, /engage/);
 });
 
+test("npc_reaction: SL-83 -- the key and bound.target carry the row's handle; the display name stays in the label and the Noul", () => {
+	// The real capsule row (`kernel-ts/read/mods.ts`): `target` is the display name, `handle` the graph handle the
+	// first-impression roll receipt's `npc` also carries. Before SL-83 the key/bound carried the display name and
+	// `keeperDidFor` could never pair it with the receipt (SL-77: 0/4 and 0/2 on two real tables).
+	const reads = { capsule: { mods: { pending_contacts: [
+		{ decision: NPC_REACTION_DECISION, target: "Vittorio Macario", handle: "vittorio-macario", actor: "Thomas Hayes", when: "first meaningful contact" },
+	] } }, applyOptions: {}, resolveOptions: {} };
+	const [candidate] = npcReactionCandidates(reads, "I ask to see Vittorio");
+	assert.equal(candidate.key, "consequence:npc_reaction:Thomas Hayes:vittorio-macario");
+	assert.equal(candidate.bound.target, "vittorio-macario", "what the pairing compares to the roll receipt's `npc`, and what `resolve` is given (a handle resolves exactly)");
+	assert.match(candidate.label, /engages Vittorio Macario/, "the human-facing label keeps the display name");
+	assert.match(candidate.noul.criteria.true, /Vittorio Macario/, "Jev is asked in the table's words for the person, never a handle");
+	assert.ok(!JSON.stringify(candidate.noul).includes("vittorio-macario"), "the handle never reaches the Noul");
+});
+
+test("npc_reaction: SL-83 -- a row without a handle (an older kernel) falls back to its target, and the guard still reads the display name", () => {
+	const legacy = { decision: NPC_REACTION_DECISION, target: "Vittorio Macario", actor: "Thomas Hayes" };
+	const [candidate] = npcReactionCandidates({ capsule: { mods: { pending_contacts: [legacy] } }, applyOptions: {}, resolveOptions: {} });
+	assert.equal(candidate.bound.target, "Vittorio Macario", "no handle on the row: the target is all there is (keeperDidFor then pairs it through the turn's person receipts)");
+	const withHandle = { ...legacy, handle: "vittorio-macario" };
+	const guarded = { capsule: { mods: { pending_contacts: [withHandle] } }, ...withGuard("people", ["Vittorio Macario"]), resolveOptions: {} };
+	assert.deepEqual(npcReactionCandidates(guarded), [], "obligation guards name people by display name (kernel-ts/read/obligations.ts); the handle does not change what withholds");
+});
+
 test("npc_reaction: a guarded person (an open obligation's guard) issues none -- the gate the graph already enforces", () => {
 	const reads = { capsule: { mods: { pending_contacts: [{ decision: NPC_REACTION_DECISION, target: "thomas-hayes", actor: "steven-knott" }] } },
 		...withGuard("people", ["thomas-hayes"]), resolveOptions: {} };
@@ -67,6 +91,39 @@ test("clue_follow_up: an unguarded clue row issues one candidate with its own No
 	assert.equal(out[0].clerk, "consequence_bookkeeping");
 	assert.equal(out[0].bound.clue, "globe-unpublished-story");
 	assert.ok(out[0].noul);
+});
+
+test("clue_follow_up (SL-86, §135.32 addendum 3): a row whose description carries the book's own cues puts them on `detail.cues` and the Noul's `criteria.true.examples`, never on `bound`", () => {
+	const reads = { ...emptyReads, applyOptions: { candidates: [
+		{ effect: { kind: "clue", clue: "nailed-windows" }, description: { summary: "the windows are nailed shut",
+			cues: ["Examine the side door's multiple bolts and the nailed-shut ground-floor windows"] } },
+	] } };
+	const out = clueFollowUpCandidates(reads);
+	assert.equal(out.length, 1);
+	assert.deepEqual(out[0].detail, { cues: ["Examine the side door's multiple bolts and the nailed-shut ground-floor windows"] });
+	assert.deepEqual(out[0].noul.criteria.true.examples, ["Examine the side door's multiple bolts and the nailed-shut ground-floor windows"]);
+	assert.ok(out[0].noul.criteria.false.not_for, "the false side names what does not count, per the skill's Noul rubric");
+	assert.equal(out[0].bound.cues, undefined, "cues never reach `bound`: they must never become an apply write argument");
+	assert.deepEqual(Object.keys(out[0].bound).sort(), ["clue", "how", "kind"].sort(), "bound stays exactly {kind, clue, how}, byte for byte");
+});
+
+test("clue_follow_up (SL-86): a row with no cues carries no `detail` and no `examples` -- the mutation-killable case: drop the cues, lose them from both", () => {
+	const reads = { ...emptyReads, applyOptions: { candidates: [
+		{ effect: { kind: "clue", clue: "globe-unpublished-story" }, description: { summary: "a spiked story about the tragedy" } },
+	] } };
+	const out = clueFollowUpCandidates(reads);
+	assert.equal(out.length, 1);
+	assert.equal(out[0].detail, undefined);
+	assert.equal(out[0].noul.criteria.true.examples, undefined);
+});
+
+test("clue_follow_up (SL-86): a non-string or blank cue entry is dropped, never carried through as `examples`/`detail`", () => {
+	const reads = { ...emptyReads, applyOptions: { candidates: [
+		{ effect: { kind: "clue", clue: "x" }, description: { summary: "y", cues: ["a real cue", "", 7, null, "  "] } },
+	] } };
+	const out = clueFollowUpCandidates(reads);
+	assert.deepEqual(out[0].detail, { cues: ["a real cue"] });
+	assert.deepEqual(out[0].noul.criteria.true.examples, ["a real cue"]);
 });
 
 test("clue_follow_up: a row the kernel withholds (`guarded_by`) issues none -- the gate is data, never asked", () => {

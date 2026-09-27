@@ -1,5 +1,25 @@
 # Narration Craft
 
+## 2.0.7
+- Words a speaker quotes inside their own line take the play language's inner quotation marks, never a second pair of the outer ones. On table temper-d (deepseek-v4.1-flash low) the scholar quoted the player inside his line with the same corner brackets twice over. Full instruction only; the brief is unchanged.
+
+## 2.0.6
+- Restores "risk" to the brief's stopping boundary ("first outcome, obstacle, risk or fork"): it is the boundary docs/specs/prose-mod.md §6 shares with keeper-pacing, and `tests/extension/jev-pacing-mod-alignment.test.mjs` pins it. 2.0.5 had folded it away to save six bytes.
+
+## 2.0.5
+- The brief is trimmed so that natural-npc's language rules fit back into the shared 5000-byte ceiling word for word: no status-note clause, no `density_guide` reminder (the full instruction keeps it), "risk" folded into "obstacle or fork", and the temper line reads "asked for something for nothing, they send you packing". Nothing is added.
+
+## 2.0.4
+- Profanity is stated as what a person does, not as a limit: with `coarse_language` on, a person whose voice swears (their mask, their description in the book) swears when crossed, pushed or mocked, and a rough one tells an outrageous asker to get lost; nobody else swears. The brief said "Profanity only if apt", and on tables temper-b and temper-c a dock labourer whose mask and book description both say he curses when displeased swore once in six provoked turns.
+- The brief's full-name line is shorter, to keep the active briefs within 5000 bytes.
+
+## 2.0.3
+- A demand for something for nothing no longer ends in a polite refusal: the asker is sent packing, as rudely as the person's station allows (a shopkeeper shows them the door, a labourer tells them to get lost). On table temper-b (deepseek-v4.1-flash low) a dock labourer who had just been mocked answered a demand for free portering with a shrug and "we're square"; the owner expects a real person to tell the asker to get lost.
+
+## 2.0.2
+- Carries the voice lane's instruction (`contributes.voice_lane`, `voice-lane.md`); the kernel no longer keeps it as base content. Older owners read a frozen compatibility copy.
+- People react to how they are treated: asked the same thing again they answer shorter, then sharper; sarcasm and insult land in their register; a demand for something for nothing is refused outright. A feeling that outlasts the exchange is recorded with `apply npc` and a stance.
+
 ## 2.0.1
 - States the viewpoint in the package itself: the investigator is always "you", never a name or he/she, in both the full instruction and the per-turn brief; and the investigator's thoughts, feelings, hesitations and intentions are written only when declared or rules-settled. On the single-loop line table prose-mod-c (deepseek-v4.1-flash low) two of fifteen turns narrated the investigator in the third person; the opening sentence no longer invites a novelist's register ("as a writer writes").
 

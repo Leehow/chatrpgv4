@@ -16,9 +16,9 @@ from pathlib import Path
 
 from conftest import CAMPAIGN, MODULE, PREGEN, WORKTREE, open_turn
 
-GUARDED_DIRS = ("kernel-ts", "content/setup")
+GUARDED_DIRS = ("kernel-ts", "content/setup", "content/compat")
 # Contract §137: the craft lines a table's `style` carries are package system content, English like every instruction.
-GUARDED_FILES = ("mods/narration-craft/style.json",)
+GUARDED_FILES = ("mods/narration-craft/style.json", "mods/narration-craft/voice-lane.md")
 GUARDED_GLOBS = ("bin/coc-*",)
 SKIP_PARTS = {"__pycache__", ".pytest_cache"}
 
