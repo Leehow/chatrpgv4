@@ -504,6 +504,11 @@
       "id": "SL-100",
       "file": "100-setup-guide-speaks-to-the-player.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-101",
+      "file": "101-admission-lines-reviewed-in-parallel.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
