@@ -128,3 +128,34 @@ pre-registration and the exact commands are in `experiments/admission-jev-bank/r
   - Jev is not bit-reproducible: identical v1 requests agreed on 327 of 351 batch verdicts, with |Δ confidence| p90 0.09.
 - **Next.** The cheapest step needs no Jev call: relabel the 720 replayed cases with the current lane (two runs each) and
   re-score the stored typed answers with `sl97b-analyze.mjs`. Product integration (phase 2b) should wait for that.
+
+**Phase 2a relabel (2026-09-27, worktree `chatrpgv4-wt-sl97c`, branch `claude/sl97c-20260926`, base `4811ddf06`).**
+No product code changed; no new Jev call. Code: `experiments/admission-jev-bank/sl97c-relabel.mjs`,
+`sl97c-labels.mjs`, `sl97c-key-thresholds.mjs`, plus a `--labels` option added to `sl97b-analyze.mjs`. Results and
+the exact commands are in `experiments/admission-jev-bank/results/sl97c/` (`README.md`).
+
+- **Relabelled the same 720 cases phase 2a replayed** (390 main + 330 holdout) with today's
+  `admissionSystemPrompt`/`admissionRequest` (unchanged) and the owner's current lane model
+  (`grok-build/grok-4.5`, thinking `low`), two runs each, batch-level plus one call per proposal line alone for
+  every multi-line batch (both runs): **2 806 live lane calls**, 2 failures (`model_error`, both at the 60 s
+  measurement cap), 0 `review_timeout`. 8.7% of calls exceeded the product's real 13 s cap. Latency: all calls p50
+  6 558 ms / p90 12 533 ms (n=2 806); batch-level only p50 6 972 ms / p90 14 016 ms (n=1 440).
+- **Run-to-run agreement (batch level, the same-model floor under today's prompt), n=719 decided pairs:** exact
+  85.8%, admit/refuse 95.5% (flip rate 4.5%; of run 1's admits 3.7% run 2 refused, of run 2's admits 1.3% run 1
+  refused). Per class (admit/refuse): time 97.9%, move 91.9%, clue 97.4%, resolve 93.5%, other 93.3%. Phase 2a's
+  own same-model floor (SL-24/30/39 pooled) was a 3.2% flip rate; this single-model measurement's 4.5% is the same
+  order of magnitude, on the noisier side.
+- **Agreement with the old (mostly 2026-09-11/12 grok-4.6) bank label, per class** (both-refuse combination of the
+  two runs; either-refuse is within 1-3 points): time 71.6% (n=190), move 64.9% (n=148), clue 76.1% (n=222),
+  resolve 67.2% (n=122), other 69.0% (n=29); overall 70.8% (n=711).
+- **Re-scored false admits against the new labels are far lower than phase 2a reported, on every fast-path class.**
+  At T=0.87 (both-refuse), main sample: 2a.2 -- time 54/0 settled/false-admits (was 54/2 against the old label),
+  move 8/0 (was 8/1), clue 10/0 (was 10/1); 2a.3 -- time 19/0, move 5/0, clue 2/0 (already 0 against the old
+  label). `resolve` keeps non-zero false admits in every revision (2a.2 31/1 at T=0.87, 2a.1 67/4). Holdout (2a.3
+  only), T=0.87: time 23/0 (was 23/5, 2.3%), move 6/0 (was 6/2, 9.6%), clue 1/0 (was 1/0). The either-refuse
+  (stricter ground truth) definition recovers some of the old false admits on `resolve` (e.g. 2a.1 at T=0.87: 67/8
+  vs 67/4) but leaves `time`/`move`/`clue` at 0 false admits everywhere in both samples. Full per-threshold tables
+  in `results/sl97c/key-thresholds.md`.
+- Numbers only; no new recommendation is made. Phase 2a's recommendation ("no threshold is recommended", the
+  pre-registered 1.8% bar) stands as written -- this data would change the picture if the owner asks for a new
+  recommendation from it, but that is not done here.

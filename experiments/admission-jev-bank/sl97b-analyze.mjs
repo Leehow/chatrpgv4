@@ -2,7 +2,7 @@
 // SL-97 phase 2a analysis: typed admission arms against the retained lane labels, and the lane's own disagreement floor.
 // Reads stored replay rows only (no live call). Usage:
 //   node experiments/admission-jev-bank/sl97b-analyze.mjs --bank <bank.jsonl> [--bank <bank.jsonl>]... --out <dir>
-//     --arm <name>=<reading>:<replay.jsonl> [--arm ...] [--floor-root <repo root>]
+//     --arm <name>=<reading>:<replay.jsonl> [--arm ...] [--floor-root <repo root>] [--labels <id-to-verdict.json>]
 // <reading> is how a row becomes an admit/refuse decision with a confidence:
 //   max    : the row's own batch verdict and confidence (v1 as the product reads it: the top verdict of each line);
 //   sum    : each line's admitting probability mass (line_admit_p), confidence |2p-1|, the batch the minimum over lines;
@@ -11,6 +11,9 @@
 //            term, or with `order` capping only the investigator's own acts. Post hoc; never the pre-registered reading.
 // Agreement is with the retained lane label, which is not ground truth. `review_pending` is not a label (the lane gave no
 // verdict); those cases are reported apart. Batch classes come from the closed effect kinds of the proposal lines.
+// --labels (SL-97c): a JSON object {id: verdict} overriding every arm's stored `lane` ground truth with a freshly
+// measured one (e.g. today's lane, run twice, combined by `sl97c-labels.mjs`). An id missing from the map is
+// excluded from that run's analysis, never silently kept at its old label.
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {revisionFamilies} from './admission-roles.ts';
@@ -170,11 +173,12 @@ export function laneFloor(root) {
     cross_model: count(cross)};
 }
 
-function args(argv) {
+export function args(argv) {
   const out = {banks: [], arms: [], root: join(import.meta.dirname, '../..')};
   for (let index = 0; index < argv.length; index += 2) {
     const [flag, value] = [argv[index], argv[index + 1]];
     if (flag === '--bank') out.banks.push(value); else if (flag === '--out') out.out = value; else if (flag === '--floor-root') out.root = value;
+    else if (flag === '--labels') out.labels = value;
     else if (flag === '--arm') { const [name, rest] = value.split(/=(.*)/s); const [reading, path] = rest.split(/:(.*)/s); out.arms.push({name, reading, path}); }
     else throw new Error(`unknown argument ${flag}`);
   }
@@ -218,6 +222,12 @@ function markdown(report) {
 
 async function main() {
   const options = args(process.argv.slice(2));
+  // SL-97c: an id -> verdict map overriding the stored replay row's own `lane` field (its ground truth at the time
+  // it was replayed) with a freshly measured one -- e.g. today's product lane, run twice, combined by one of two
+  // rules (results/sl97c/sl97c-labels.mjs). An id absent from the map is excluded (its `lane` becomes `null`, not
+  // in `LABELS`), never silently falls back to the stored label: a case the new measurement could not decide is
+  // not ground truth either.
+  const labels = options.labels ? new Map(Object.entries(JSON.parse(readFileSync(options.labels, 'utf8')))) : null;
   const bank = new Map();
   for (const path of options.banks) for (const value of readJsonl(path)) if (!bank.has(value.id)) bank.set(value.id, value);
   const bankCounts = {}, classCounts = {};
@@ -234,7 +244,8 @@ async function main() {
   for (const arm of options.arms) {
     const cases = readJsonl(arm.path).map(row => {
       const value = bank.get(row.id);
-      return {id: row.id, lane: row.lane, source: row.source, cls: value ? (value.verb === 'resolve' ? 'resolve' : batchClass(value.input.proposal)) : 'other',
+      return {id: row.id, lane: labels ? (labels.get(row.id) ?? null) : row.lane, source: row.source,
+        cls: value ? (value.verb === 'resolve' ? 'resolve' : batchClass(value.input.proposal)) : 'other',
         read: readRow(row, arm.reading), jev_ms: row.route === 'typed' || row.route === 'fallback' ? row.jev_ms : undefined};
     }).filter(value => value.jev_ms !== undefined || value.read);
     const counts = {};
