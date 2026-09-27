@@ -97,8 +97,6 @@ import {
 	consequenceAdmission,
 	type ClerkEvidence,
 	declaredAction,
-	admissionHardCapMs,
-	admissionTimeoutMs,
 	effectSignature,
 	remainderAttempt,
 	keyDigest,

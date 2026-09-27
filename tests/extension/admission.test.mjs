@@ -579,6 +579,7 @@ test("§143.15: the Keeper's own punch with two malformed answers keeps §32.2's
 	assert.match(rows[0].detail, /position 36/, "the second answer's own parse failure");
 	const refusal = table.telemetry().find((row) => row.tool === "resolve" && !row.lane && row.ok === false);
 	assert.equal(refusal?.reason, "admission_unavailable");
+});
 
 // ---- What the player was told before play: the setup prologue (contract §32.3, §14.18) ------------
 //

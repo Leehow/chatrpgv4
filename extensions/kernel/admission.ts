@@ -1087,6 +1087,7 @@ export function compileActRefusal(act: string | undefined, reads: readonly Compi
 		path: "compile",
 		read,
 	};
+}
 
 export type ConsequenceAdmission =
 	| { ok: true; class: string; key: string; confidence: number; distribution: { true: number; false: number }; gate: { rowMin: number; rowRatio: number } }
