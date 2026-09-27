@@ -143,3 +143,5 @@ gates' own single-line rounds are the better per-line sample.
   concurrent calls; the call's wait is `batch_ms`. Not changed here (no pytest in scope).
 - Each call reads one line with no batch-mates (the ruling); a line whose meaning depends on another (a clue beside the move
   that makes it discoverable) is judged without it. The batch still lands whole or not at all.
+
+- 2026-09-26 (integrator): merged. The worker's open question is settled for the existing contract. A batch lands whole or not at all (§32.10; a line's consent is read with its batch-mates, e.g. a trip's time with the trip). Landing admitted lines individually (the worker's M7) is not adopted. Gate #24 checks `review_pending` and the critical path; the offline estimate is about 2 pending per 30 rounds, so "≤ 1" is not assured.
