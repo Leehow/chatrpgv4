@@ -63,3 +63,7 @@ Mutation-killable.
     before setup through its own call to the preparer and does not retry; it is a separate producer and was left
     alone. (3) The retried preparation starts a fresh draft: it does not see the refused draft's review.
     `manifest.json` untouched.
+
+- 2026-09-27 (integrator): merged.
+  - The one retry living in `ensureGuidance` (so turn start and the App's session start get it too, not only the two steps) is accepted: one behaviour everywhere, still bounded to one retry.
+  - Open: `pipicoc/onboarding-worker.ts`, the App's pre-setup guidance producer, does not retry. It is a separate producer, left for a follow-up if the App shows the same refusal.
