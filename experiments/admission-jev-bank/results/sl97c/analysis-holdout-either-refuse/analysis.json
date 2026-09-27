@@ -1,0 +1,2976 @@
+{
+  "generated_at": "2026-09-27T03:10:16.073Z",
+  "thresholds": [
+    0,
+    0.5,
+    0.6,
+    0.7,
+    0.8,
+    0.85,
+    0.87,
+    0.9,
+    0.95
+  ],
+  "bank_label_counts": {
+    "not_authorized": 726,
+    "authorized": 3566,
+    "entailed": 723,
+    "not_player_action": 170,
+    "uncertain": 2,
+    "review_pending": 9
+  },
+  "sample_label_counts": {
+    "entailed": 114,
+    "authorized": 106,
+    "not_authorized": 44,
+    "not_player_action": 65,
+    "uncertain": 1
+  },
+  "class_refusal_rate_bank": {
+    "clue": 0.127,
+    "move": 0.1496,
+    "resolve": 0.1693,
+    "other": 0.1341,
+    "time": 0.0665
+  },
+  "arms": {
+    "holdout-2a.3": {
+      "reading": "sum",
+      "path": "experiments/admission-jev-bank/results/sl97b/it3-holdout-v2-2a.3.jsonl",
+      "labelled": 330,
+      "typed": 330,
+      "pending": [],
+      "confidence": {
+        "p25": 0.2632,
+        "median": 0.526,
+        "p75": 0.76,
+        "mean": 0.5098
+      },
+      "latency_ms": {
+        "p50": 407,
+        "p90": 602,
+        "max": 1204,
+        "n": 330
+      },
+      "by_threshold": [
+        {
+          "threshold": 0,
+          "decided": 330,
+          "coverage": 1,
+          "exact_agreement": 0.6212,
+          "admission_agreement": 0.7364,
+          "false_admits": 14,
+          "false_refusals": 73,
+          "settled_admits": 226,
+          "settled_share": 0.6848,
+          "false_admit_share": 0.0619,
+          "false_admit_share_bank_mix": 0.0612,
+          "false_admit_wilson_upper": 0.1013,
+          "lane_refusals_admitted": 0.3111,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 106,
+              "same_admission": 77,
+              "exact": 62
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 114,
+              "same_admission": 101,
+              "exact": 99
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 65,
+              "same_admission": 34,
+              "exact": 13
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 44,
+              "same_admission": 31,
+              "exact": 31
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 1,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0.1429,
+              "settle_given_admit": 0.9417,
+              "false_admit_share_class_natural": 0.0107,
+              "false_admit_share_class_natural_upper": 0.0399,
+              "decided": 110,
+              "same_admission": 103,
+              "settled_admits": 98,
+              "false_admits": 1,
+              "false_admit_share": 0.0102,
+              "false_admit_share_bank_mix": 0.0247,
+              "false_admit_wilson_upper": 0.0556
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0.3448,
+              "settle_given_admit": 0.7654,
+              "false_admit_share_class_natural": 0.0734,
+              "false_admit_share_class_natural_upper": 0.1227,
+              "decided": 110,
+              "same_admission": 81,
+              "settled_admits": 72,
+              "false_admits": 10,
+              "false_admit_share": 0.1389,
+              "false_admit_share_bank_mix": 0.0681,
+              "false_admit_wilson_upper": 0.2371
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0.3333,
+              "settle_given_admit": 0.5248,
+              "false_admit_share_class_natural": 0.0846,
+              "false_admit_share_class_natural_upper": 0.1799,
+              "decided": 110,
+              "same_admission": 59,
+              "settled_admits": 56,
+              "false_admits": 3,
+              "false_admit_share": 0.0536,
+              "false_admit_share_bank_mix": 0.075,
+              "false_admit_wilson_upper": 0.1461
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.5,
+          "decided": 173,
+          "coverage": 0.5242,
+          "exact_agreement": 0.7919,
+          "admission_agreement": 0.9017,
+          "false_admits": 3,
+          "false_refusals": 14,
+          "settled_admits": 148,
+          "settled_share": 0.4485,
+          "false_admit_share": 0.0203,
+          "false_admit_share_bank_mix": 0.0227,
+          "false_admit_wilson_upper": 0.0579,
+          "lane_refusals_admitted": 0.0667,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 54,
+              "same_admission": 47,
+              "exact": 41
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 82,
+              "same_admission": 79,
+              "exact": 78
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 23,
+              "same_admission": 19,
+              "exact": 7
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 14,
+              "same_admission": 11,
+              "exact": 11
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 0,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.7864,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.0349,
+              "decided": 85,
+              "same_admission": 83,
+              "settled_admits": 81,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.0453
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0.069,
+              "settle_given_admit": 0.4938,
+              "false_admit_share_class_natural": 0.024,
+              "false_admit_share_class_natural_upper": 0.0906,
+              "decided": 57,
+              "same_admission": 48,
+              "settled_admits": 42,
+              "false_admits": 2,
+              "false_admit_share": 0.0476,
+              "false_admit_share_bank_mix": 0.0244,
+              "false_admit_wilson_upper": 0.1579
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0.1111,
+              "settle_given_admit": 0.2376,
+              "false_admit_share_class_natural": 0.0637,
+              "false_admit_share_class_natural_upper": 0.277,
+              "decided": 31,
+              "same_admission": 25,
+              "settled_admits": 25,
+              "false_admits": 1,
+              "false_admit_share": 0.04,
+              "false_admit_share_bank_mix": 0.0613,
+              "false_admit_wilson_upper": 0.1954
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.6,
+          "decided": 148,
+          "coverage": 0.4485,
+          "exact_agreement": 0.7905,
+          "admission_agreement": 0.8986,
+          "false_admits": 3,
+          "false_refusals": 12,
+          "settled_admits": 128,
+          "settled_share": 0.3879,
+          "false_admit_share": 0.0234,
+          "false_admit_share_bank_mix": 0.0264,
+          "false_admit_wilson_upper": 0.0666,
+          "lane_refusals_admitted": 0.0667,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 46,
+              "same_admission": 40,
+              "exact": 35
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 73,
+              "same_admission": 70,
+              "exact": 69
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 18,
+              "same_admission": 15,
+              "exact": 5
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 11,
+              "same_admission": 8,
+              "exact": 8
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 0,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.7087,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.0394,
+              "decided": 77,
+              "same_admission": 75,
+              "settled_admits": 73,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.05
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0.069,
+              "settle_given_admit": 0.4074,
+              "false_admit_share_class_natural": 0.0289,
+              "false_admit_share_class_natural_upper": 0.1118,
+              "decided": 47,
+              "same_admission": 39,
+              "settled_admits": 35,
+              "false_admits": 2,
+              "false_admit_share": 0.0571,
+              "false_admit_share_bank_mix": 0.0289,
+              "false_admit_wilson_upper": 0.1861
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0.1111,
+              "settle_given_admit": 0.1881,
+              "false_admit_share_class_natural": 0.0791,
+              "false_admit_share_class_natural_upper": 0.3381,
+              "decided": 24,
+              "same_admission": 19,
+              "settled_admits": 20,
+              "false_admits": 1,
+              "false_admit_share": 0.05,
+              "false_admit_share_bank_mix": 0.0733,
+              "false_admit_wilson_upper": 0.2361
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.7,
+          "decided": 113,
+          "coverage": 0.3424,
+          "exact_agreement": 0.8496,
+          "admission_agreement": 0.9204,
+          "false_admits": 0,
+          "false_refusals": 9,
+          "settled_admits": 97,
+          "settled_share": 0.2939,
+          "false_admit_share": 0,
+          "false_admit_share_bank_mix": 0,
+          "false_admit_wilson_upper": 0.0381,
+          "lane_refusals_admitted": 0,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 37,
+              "same_admission": 33,
+              "exact": 29
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 62,
+              "same_admission": 60,
+              "exact": 59
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 7,
+              "same_admission": 4,
+              "exact": 1
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 7,
+              "same_admission": 7,
+              "exact": 7
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 0,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.5922,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.0485,
+              "decided": 63,
+              "same_admission": 62,
+              "settled_admits": 61,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.0592
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.3457,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.0757,
+              "decided": 38,
+              "same_admission": 34,
+              "settled_admits": 28,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.1206
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.0792,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.5169,
+              "decided": 12,
+              "same_admission": 8,
+              "settled_admits": 8,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.3244
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.8,
+          "decided": 69,
+          "coverage": 0.2091,
+          "exact_agreement": 0.8696,
+          "admission_agreement": 0.9275,
+          "false_admits": 0,
+          "false_refusals": 5,
+          "settled_admits": 61,
+          "settled_share": 0.1848,
+          "false_admit_share": 0,
+          "false_admit_share_bank_mix": 0,
+          "false_admit_wilson_upper": 0.0592,
+          "lane_refusals_admitted": 0,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 17,
+              "same_admission": 16,
+              "exact": 14
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 45,
+              "same_admission": 43,
+              "exact": 42
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 4,
+              "same_admission": 2,
+              "exact": 1
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 3,
+              "same_admission": 3,
+              "exact": 3
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 0,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.4175,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.0717,
+              "decided": 44,
+              "same_admission": 43,
+              "settled_admits": 43,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.082
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.1852,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.1512,
+              "decided": 19,
+              "same_admission": 18,
+              "settled_admits": 15,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.2039
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.0297,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.8108,
+              "decided": 6,
+              "same_admission": 3,
+              "settled_admits": 3,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.5615
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.85,
+          "decided": 42,
+          "coverage": 0.1273,
+          "exact_agreement": 0.9048,
+          "admission_agreement": 0.9524,
+          "false_admits": 0,
+          "false_refusals": 2,
+          "settled_admits": 38,
+          "settled_share": 0.1152,
+          "false_admit_share": 0,
+          "false_admit_share_bank_mix": 0,
+          "false_admit_wilson_upper": 0.0918,
+          "lane_refusals_admitted": 0,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 8,
+              "same_admission": 8,
+              "exact": 8
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 30,
+              "same_admission": 29,
+              "exact": 28
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 2,
+              "same_admission": 1,
+              "exact": 0
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 2,
+              "same_admission": 2,
+              "exact": 2
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 0,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.2816,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.1102,
+              "decided": 30,
+              "same_admission": 29,
+              "settled_admits": 29,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.117
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.0988,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.2879,
+              "decided": 10,
+              "same_admission": 10,
+              "settled_admits": 8,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.3244
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.0099,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.9613,
+              "decided": 2,
+              "same_admission": 1,
+              "settled_admits": 1,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.7935
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.87,
+          "decided": 34,
+          "coverage": 0.103,
+          "exact_agreement": 0.8824,
+          "admission_agreement": 0.9412,
+          "false_admits": 0,
+          "false_refusals": 2,
+          "settled_admits": 30,
+          "settled_share": 0.0909,
+          "false_admit_share": 0,
+          "false_admit_share_bank_mix": 0,
+          "false_admit_wilson_upper": 0.1135,
+          "lane_refusals_admitted": 0,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 6,
+              "same_admission": 6,
+              "exact": 6
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 24,
+              "same_admission": 23,
+              "exact": 22
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 2,
+              "same_admission": 1,
+              "exact": 0
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 2,
+              "same_admission": 2,
+              "exact": 2
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 0,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.2233,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.1411,
+              "decided": 24,
+              "same_admission": 23,
+              "settled_admits": 23,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.1431
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.0741,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.3744,
+              "decided": 8,
+              "same_admission": 8,
+              "settled_admits": 6,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.3903
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.0099,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.9613,
+              "decided": 2,
+              "same_admission": 1,
+              "settled_admits": 1,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.7935
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.9,
+          "decided": 26,
+          "coverage": 0.0788,
+          "exact_agreement": 0.8846,
+          "admission_agreement": 0.9615,
+          "false_admits": 0,
+          "false_refusals": 1,
+          "settled_admits": 23,
+          "settled_share": 0.0697,
+          "false_admit_share": 0,
+          "false_admit_share_bank_mix": 0,
+          "false_admit_wilson_upper": 0.1431,
+          "lane_refusals_admitted": 0,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 4,
+              "same_admission": 4,
+              "exact": 4
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 18,
+              "same_admission": 18,
+              "exact": 17
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 2,
+              "same_admission": 1,
+              "exact": 0
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 2,
+              "same_admission": 2,
+              "exact": 2
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 0,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.1748,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.1819,
+              "decided": 18,
+              "same_admission": 18,
+              "settled_admits": 18,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.1759
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.0494,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.5151,
+              "decided": 6,
+              "same_admission": 6,
+              "settled_admits": 4,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.4899
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.0099,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.9613,
+              "decided": 2,
+              "same_admission": 1,
+              "settled_admits": 1,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.7935
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.95,
+          "decided": 5,
+          "coverage": 0.0152,
+          "exact_agreement": 1,
+          "admission_agreement": 1,
+          "false_admits": 0,
+          "false_refusals": 0,
+          "settled_admits": 4,
+          "settled_share": 0.0121,
+          "false_admit_share": 0,
+          "false_admit_share_bank_mix": 0,
+          "false_admit_wilson_upper": 0.4899,
+          "lane_refusals_admitted": 0,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 1,
+              "same_admission": 1,
+              "exact": 1
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 3,
+              "same_admission": 3,
+              "exact": 3
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 0,
+              "same_admission": 0,
+              "exact": 0
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 1,
+              "same_admission": 1,
+              "exact": 1
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 0,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.0291,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.7172,
+              "decided": 3,
+              "same_admission": 3,
+              "settled_admits": 3,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.5615
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.0123,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.9041,
+              "decided": 2,
+              "same_admission": 2,
+              "settled_admits": 1,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.7935
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": 1,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        }
+      ],
+      "by_source": {
+        "persona-bench": {
+          "labelled": 307,
+          "by_threshold": [
+            {
+              "threshold": 0,
+              "decided": 307,
+              "coverage": 1,
+              "exact_agreement": 0.6156,
+              "admission_agreement": 0.7296,
+              "false_admits": 14,
+              "false_refusals": 69,
+              "settled_admits": 208,
+              "settled_share": 0.6775,
+              "false_admit_share": 0.0673,
+              "false_admit_share_bank_mix": 0.0657,
+              "false_admit_wilson_upper": 0.1098,
+              "lane_refusals_admitted": 0.3182
+            },
+            {
+              "threshold": 0.5,
+              "decided": 158,
+              "coverage": 0.5147,
+              "exact_agreement": 0.7848,
+              "admission_agreement": 0.8924,
+              "false_admits": 3,
+              "false_refusals": 14,
+              "settled_admits": 133,
+              "settled_share": 0.4332,
+              "false_admit_share": 0.0226,
+              "false_admit_share_bank_mix": 0.0247,
+              "false_admit_wilson_upper": 0.0642,
+              "lane_refusals_admitted": 0.0682
+            },
+            {
+              "threshold": 0.6,
+              "decided": 135,
+              "coverage": 0.4397,
+              "exact_agreement": 0.7852,
+              "admission_agreement": 0.8889,
+              "false_admits": 3,
+              "false_refusals": 12,
+              "settled_admits": 115,
+              "settled_share": 0.3746,
+              "false_admit_share": 0.0261,
+              "false_admit_share_bank_mix": 0.0289,
+              "false_admit_wilson_upper": 0.0739,
+              "lane_refusals_admitted": 0.0682
+            },
+            {
+              "threshold": 0.7,
+              "decided": 102,
+              "coverage": 0.3322,
+              "exact_agreement": 0.8529,
+              "admission_agreement": 0.9118,
+              "false_admits": 0,
+              "false_refusals": 9,
+              "settled_admits": 86,
+              "settled_share": 0.2801,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.0428,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.8,
+              "decided": 62,
+              "coverage": 0.202,
+              "exact_agreement": 0.871,
+              "admission_agreement": 0.9194,
+              "false_admits": 0,
+              "false_refusals": 5,
+              "settled_admits": 54,
+              "settled_share": 0.1759,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.0664,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.85,
+              "decided": 37,
+              "coverage": 0.1205,
+              "exact_agreement": 0.8919,
+              "admission_agreement": 0.9459,
+              "false_admits": 0,
+              "false_refusals": 2,
+              "settled_admits": 33,
+              "settled_share": 0.1075,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.1043,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.87,
+              "decided": 30,
+              "coverage": 0.0977,
+              "exact_agreement": 0.8667,
+              "admission_agreement": 0.9333,
+              "false_admits": 0,
+              "false_refusals": 2,
+              "settled_admits": 26,
+              "settled_share": 0.0847,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.1287,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.9,
+              "decided": 24,
+              "coverage": 0.0782,
+              "exact_agreement": 0.875,
+              "admission_agreement": 0.9583,
+              "false_admits": 0,
+              "false_refusals": 1,
+              "settled_admits": 21,
+              "settled_share": 0.0684,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.1546,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.95,
+              "decided": 5,
+              "coverage": 0.0163,
+              "exact_agreement": 1,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 4,
+              "settled_share": 0.013,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.4899,
+              "lane_refusals_admitted": 0
+            }
+          ]
+        },
+        "table": {
+          "labelled": 23,
+          "by_threshold": [
+            {
+              "threshold": 0,
+              "decided": 23,
+              "coverage": 1,
+              "exact_agreement": 0.6957,
+              "admission_agreement": 0.8261,
+              "false_admits": 0,
+              "false_refusals": 4,
+              "settled_admits": 18,
+              "settled_share": 0.7826,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.1759,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.5,
+              "decided": 15,
+              "coverage": 0.6522,
+              "exact_agreement": 0.8667,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 15,
+              "settled_share": 0.6522,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.2039,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.6,
+              "decided": 13,
+              "coverage": 0.5652,
+              "exact_agreement": 0.8462,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 13,
+              "settled_share": 0.5652,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.2281,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.7,
+              "decided": 11,
+              "coverage": 0.4783,
+              "exact_agreement": 0.8182,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 11,
+              "settled_share": 0.4783,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.2588,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.8,
+              "decided": 7,
+              "coverage": 0.3043,
+              "exact_agreement": 0.8571,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 7,
+              "settled_share": 0.3043,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.3543,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.85,
+              "decided": 5,
+              "coverage": 0.2174,
+              "exact_agreement": 1,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 5,
+              "settled_share": 0.2174,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.4345,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.87,
+              "decided": 4,
+              "coverage": 0.1739,
+              "exact_agreement": 1,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 4,
+              "settled_share": 0.1739,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.4899,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.9,
+              "decided": 2,
+              "coverage": 0.087,
+              "exact_agreement": 1,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 2,
+              "settled_share": 0.087,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.6576,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.95,
+              "decided": 0,
+              "coverage": 0,
+              "exact_agreement": null,
+              "admission_agreement": null,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 0,
+              "settled_share": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null,
+              "lane_refusals_admitted": 0
+            }
+          ]
+        }
+      }
+    },
+    "holdout-2a.3-single": {
+      "reading": "single",
+      "path": "experiments/admission-jev-bank/results/sl97b/it3-holdout-v2-2a.3.jsonl",
+      "labelled": 330,
+      "typed": 330,
+      "pending": [],
+      "confidence": {
+        "p25": 0.5,
+        "median": 0.78,
+        "p75": 0.94,
+        "mean": 0.6822
+      },
+      "latency_ms": {
+        "p50": 407,
+        "p90": 602,
+        "max": 1204,
+        "n": 330
+      },
+      "by_threshold": [
+        {
+          "threshold": 0,
+          "decided": 330,
+          "coverage": 1,
+          "exact_agreement": null,
+          "admission_agreement": 0.7818,
+          "false_admits": 33,
+          "false_refusals": 39,
+          "settled_admits": 279,
+          "settled_share": 0.8455,
+          "false_admit_share": 0.1183,
+          "false_admit_share_bank_mix": 0.1168,
+          "false_admit_wilson_upper": 0.1615,
+          "lane_refusals_admitted": 0.7333,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 106,
+              "same_admission": 96,
+              "exact": 0
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 114,
+              "same_admission": 104,
+              "exact": 0
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 65,
+              "same_admission": 46,
+              "exact": 0
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 44,
+              "same_admission": 12,
+              "exact": 0
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 1,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0.8571,
+              "settle_given_admit": 0.9903,
+              "false_admit_share_class_natural": 0.0581,
+              "false_admit_share_class_natural_upper": 0.0683,
+              "decided": 110,
+              "same_admission": 103,
+              "settled_admits": 108,
+              "false_admits": 6,
+              "false_admit_share": 0.0556,
+              "false_admit_share_bank_mix": 0.1285,
+              "false_admit_wilson_upper": 0.1159
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0.7586,
+              "settle_given_admit": 0.9259,
+              "false_admit_share_class_natural": 0.126,
+              "false_admit_share_class_natural_upper": 0.1541,
+              "decided": 110,
+              "same_admission": 82,
+              "settled_admits": 97,
+              "false_admits": 22,
+              "false_admit_share": 0.2268,
+              "false_admit_share_bank_mix": 0.1225,
+              "false_admit_wilson_upper": 0.3196
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0.5556,
+              "settle_given_admit": 0.6832,
+              "false_admit_share_class_natural": 0.1058,
+              "false_admit_share_class_natural_upper": 0.1674,
+              "decided": 110,
+              "same_admission": 73,
+              "settled_admits": 74,
+              "false_admits": 5,
+              "false_admit_share": 0.0676,
+              "false_admit_share_bank_mix": 0.0892,
+              "false_admit_wilson_upper": 0.1486
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.5,
+          "decided": 248,
+          "coverage": 0.7515,
+          "exact_agreement": null,
+          "admission_agreement": 0.871,
+          "false_admits": 23,
+          "false_refusals": 9,
+          "settled_admits": 235,
+          "settled_share": 0.7121,
+          "false_admit_share": 0.0979,
+          "false_admit_share_bank_mix": 0.0916,
+          "false_admit_wilson_upper": 0.1426,
+          "lane_refusals_admitted": 0.5111,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 89,
+              "same_admission": 87,
+              "exact": 0
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 101,
+              "same_admission": 98,
+              "exact": 0
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 31,
+              "same_admission": 27,
+              "exact": 0
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 26,
+              "same_admission": 4,
+              "exact": 0
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 1,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0.2857,
+              "settle_given_admit": 0.932,
+              "false_admit_share_class_natural": 0.0214,
+              "false_admit_share_class_natural_upper": 0.0501,
+              "decided": 98,
+              "same_admission": 96,
+              "settled_admits": 98,
+              "false_admits": 2,
+              "false_admit_share": 0.0204,
+              "false_admit_share_bank_mix": 0.0487,
+              "false_admit_wilson_upper": 0.0714
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0.6552,
+              "settle_given_admit": 0.9012,
+              "false_admit_share_class_natural": 0.1134,
+              "false_admit_share_class_natural_upper": 0.147,
+              "decided": 97,
+              "same_admission": 76,
+              "settled_admits": 92,
+              "false_admits": 19,
+              "false_admit_share": 0.2065,
+              "false_admit_share_bank_mix": 0.1096,
+              "false_admit_wilson_upper": 0.3002
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0.2222,
+              "settle_given_admit": 0.4257,
+              "false_admit_share_class_natural": 0.0706,
+              "false_admit_share_class_natural_upper": 0.1926,
+              "decided": 53,
+              "same_admission": 44,
+              "settled_admits": 45,
+              "false_admits": 2,
+              "false_admit_share": 0.0444,
+              "false_admit_share_bank_mix": 0.057,
+              "false_admit_wilson_upper": 0.1483
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.6,
+          "decided": 222,
+          "coverage": 0.6727,
+          "exact_agreement": null,
+          "admission_agreement": 0.9009,
+          "false_admits": 15,
+          "false_refusals": 7,
+          "settled_admits": 212,
+          "settled_share": 0.6424,
+          "false_admit_share": 0.0708,
+          "false_admit_share_bank_mix": 0.0673,
+          "false_admit_wilson_upper": 0.1134,
+          "lane_refusals_admitted": 0.3333,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 78,
+              "same_admission": 76,
+              "exact": 0
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 98,
+              "same_admission": 96,
+              "exact": 0
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 28,
+              "same_admission": 25,
+              "exact": 0
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 17,
+              "same_admission": 3,
+              "exact": 0
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 1,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0.1429,
+              "settle_given_admit": 0.9029,
+              "false_admit_share_class_natural": 0.0111,
+              "false_admit_share_class_natural_upper": 0.0422,
+              "decided": 94,
+              "same_admission": 93,
+              "settled_admits": 94,
+              "false_admits": 1,
+              "false_admit_share": 0.0106,
+              "false_admit_share_bank_mix": 0.0255,
+              "false_admit_wilson_upper": 0.0578
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0.4138,
+              "settle_given_admit": 0.8395,
+              "false_admit_share_class_natural": 0.0798,
+              "false_admit_share_class_natural_upper": 0.1228,
+              "decided": 85,
+              "same_admission": 71,
+              "settled_admits": 80,
+              "false_admits": 12,
+              "false_admit_share": 0.15,
+              "false_admit_share_bank_mix": 0.0751,
+              "false_admit_wilson_upper": 0.2441
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0.2222,
+              "settle_given_admit": 0.3564,
+              "false_admit_share_class_natural": 0.0832,
+              "false_admit_share_class_natural_upper": 0.2279,
+              "decided": 43,
+              "same_admission": 36,
+              "settled_admits": 38,
+              "false_admits": 2,
+              "false_admit_share": 0.0526,
+              "false_admit_share_bank_mix": 0.0882,
+              "false_admit_wilson_upper": 0.1729
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.7,
+          "decided": 194,
+          "coverage": 0.5879,
+          "exact_agreement": null,
+          "admission_agreement": 0.933,
+          "false_admits": 9,
+          "false_refusals": 4,
+          "settled_admits": 187,
+          "settled_share": 0.5667,
+          "false_admit_share": 0.0481,
+          "false_admit_share_bank_mix": 0.0432,
+          "false_admit_wilson_upper": 0.0889,
+          "lane_refusals_admitted": 0.2,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 71,
+              "same_admission": 70,
+              "exact": 0
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 90,
+              "same_admission": 89,
+              "exact": 0
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 21,
+              "same_admission": 19,
+              "exact": 0
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 11,
+              "same_admission": 3,
+              "exact": 0
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 1,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.835,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.0325,
+              "decided": 86,
+              "same_admission": 86,
+              "settled_admits": 86,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.0428
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0.2759,
+              "settle_given_admit": 0.7901,
+              "false_admit_share_class_natural": 0.0579,
+              "false_admit_share_class_natural_upper": 0.1045,
+              "decided": 76,
+              "same_admission": 67,
+              "settled_admits": 72,
+              "false_admits": 8,
+              "false_admit_share": 0.1111,
+              "false_admit_share_bank_mix": 0.0517,
+              "false_admit_wilson_upper": 0.2042
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0.1111,
+              "settle_given_admit": 0.2772,
+              "false_admit_share_class_natural": 0.0551,
+              "false_admit_share_class_natural_upper": 0.241,
+              "decided": 32,
+              "same_admission": 28,
+              "settled_admits": 29,
+              "false_admits": 1,
+              "false_admit_share": 0.0345,
+              "false_admit_share_bank_mix": 0.0677,
+              "false_admit_wilson_upper": 0.1718
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.8,
+          "decided": 162,
+          "coverage": 0.4909,
+          "exact_agreement": null,
+          "admission_agreement": 0.9506,
+          "false_admits": 7,
+          "false_refusals": 1,
+          "settled_admits": 160,
+          "settled_share": 0.4848,
+          "false_admit_share": 0.0438,
+          "false_admit_share_bank_mix": 0.0357,
+          "false_admit_wilson_upper": 0.0875,
+          "lane_refusals_admitted": 0.1556,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 67,
+              "same_admission": 66,
+              "exact": 0
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 76,
+              "same_admission": 76,
+              "exact": 0
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 11,
+              "same_admission": 11,
+              "exact": 0
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 7,
+              "same_admission": 1,
+              "exact": 0
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 1,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.7476,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.0371,
+              "decided": 77,
+              "same_admission": 77,
+              "settled_admits": 77,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.0475
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0.2069,
+              "settle_given_admit": 0.7407,
+              "false_admit_share_class_natural": 0.0468,
+              "false_admit_share_class_natural_upper": 0.096,
+              "decided": 68,
+              "same_admission": 61,
+              "settled_admits": 66,
+              "false_admits": 6,
+              "false_admit_share": 0.0909,
+              "false_admit_share_bank_mix": 0.0402,
+              "false_admit_wilson_upper": 0.1845
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0.1111,
+              "settle_given_admit": 0.1584,
+              "false_admit_share_class_natural": 0.0926,
+              "false_admit_share_class_natural_upper": 0.3877,
+              "decided": 17,
+              "same_admission": 16,
+              "settled_admits": 17,
+              "false_admits": 1,
+              "false_admit_share": 0.0588,
+              "false_admit_share_bank_mix": 0.0836,
+              "false_admit_wilson_upper": 0.2698
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.85,
+          "decided": 141,
+          "coverage": 0.4273,
+          "exact_agreement": null,
+          "admission_agreement": 0.9716,
+          "false_admits": 4,
+          "false_refusals": 0,
+          "settled_admits": 140,
+          "settled_share": 0.4242,
+          "false_admit_share": 0.0286,
+          "false_admit_share_bank_mix": 0.0204,
+          "false_admit_wilson_upper": 0.0712,
+          "lane_refusals_admitted": 0.0889,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 60,
+              "same_admission": 60,
+              "exact": 0
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 67,
+              "same_admission": 67,
+              "exact": 0
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 9,
+              "same_admission": 9,
+              "exact": 0
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 4,
+              "same_admission": 1,
+              "exact": 0
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 1,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.6796,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.0414,
+              "decided": 70,
+              "same_admission": 70,
+              "settled_admits": 70,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.052
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0.1379,
+              "settle_given_admit": 0.679,
+              "false_admit_share_class_natural": 0.0345,
+              "false_admit_share_class_natural_upper": 0.086,
+              "decided": 60,
+              "same_admission": 56,
+              "settled_admits": 59,
+              "false_admits": 4,
+              "false_admit_share": 0.0678,
+              "false_admit_share_bank_mix": 0.0271,
+              "false_admit_wilson_upper": 0.1618
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.1089,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.4128,
+              "decided": 11,
+              "same_admission": 11,
+              "settled_admits": 11,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.2588
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.87,
+          "decided": 129,
+          "coverage": 0.3909,
+          "exact_agreement": null,
+          "admission_agreement": 0.9922,
+          "false_admits": 1,
+          "false_refusals": 0,
+          "settled_admits": 128,
+          "settled_share": 0.3879,
+          "false_admit_share": 0.0078,
+          "false_admit_share_bank_mix": 0.0009,
+          "false_admit_wilson_upper": 0.0429,
+          "lane_refusals_admitted": 0.0222,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 56,
+              "same_admission": 56,
+              "exact": 0
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 64,
+              "same_admission": 64,
+              "exact": 0
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 7,
+              "same_admission": 7,
+              "exact": 0
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 1,
+              "same_admission": 1,
+              "exact": 0
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 1,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.6311,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.0451,
+              "decided": 65,
+              "same_admission": 65,
+              "settled_admits": 65,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.0558
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0.0345,
+              "settle_given_admit": 0.642,
+              "false_admit_share_class_natural": 0.0094,
+              "false_admit_share_class_natural_upper": 0.0536,
+              "decided": 54,
+              "same_admission": 53,
+              "settled_admits": 53,
+              "false_admits": 1,
+              "false_admit_share": 0.0189,
+              "false_admit_share_bank_mix": 0.0011,
+              "false_admit_wilson_upper": 0.0994
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.099,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.4432,
+              "decided": 10,
+              "same_admission": 10,
+              "settled_admits": 10,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.2775
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.9,
+          "decided": 115,
+          "coverage": 0.3485,
+          "exact_agreement": null,
+          "admission_agreement": 0.9913,
+          "false_admits": 1,
+          "false_refusals": 0,
+          "settled_admits": 114,
+          "settled_share": 0.3455,
+          "false_admit_share": 0.0088,
+          "false_admit_share_bank_mix": 0.0009,
+          "false_admit_wilson_upper": 0.048,
+          "lane_refusals_admitted": 0.0222,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 53,
+              "same_admission": 53,
+              "exact": 0
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 54,
+              "same_admission": 54,
+              "exact": 0
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 6,
+              "same_admission": 6,
+              "exact": 0
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 1,
+              "same_admission": 1,
+              "exact": 0
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 1,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.5534,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.0523,
+              "decided": 57,
+              "same_admission": 57,
+              "settled_admits": 57,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.0631
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0.0345,
+              "settle_given_admit": 0.6049,
+              "false_admit_share_class_natural": 0.0099,
+              "false_admit_share_class_natural_upper": 0.0574,
+              "decided": 51,
+              "same_admission": 50,
+              "settled_admits": 50,
+              "false_admits": 1,
+              "false_admit_share": 0.02,
+              "false_admit_share_bank_mix": 0.0012,
+              "false_admit_wilson_upper": 0.105
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.0693,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.5616,
+              "decided": 7,
+              "same_admission": 7,
+              "settled_admits": 7,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.3543
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        },
+        {
+          "threshold": 0.95,
+          "decided": 70,
+          "coverage": 0.2121,
+          "exact_agreement": null,
+          "admission_agreement": 1,
+          "false_admits": 0,
+          "false_refusals": 0,
+          "settled_admits": 70,
+          "settled_share": 0.2121,
+          "false_admit_share": 0,
+          "false_admit_share_bank_mix": 0,
+          "false_admit_wilson_upper": 0.052,
+          "lane_refusals_admitted": 0,
+          "per_label": {
+            "authorized": {
+              "of": 106,
+              "decided": 39,
+              "same_admission": 39,
+              "exact": 0
+            },
+            "entailed": {
+              "of": 114,
+              "decided": 30,
+              "same_admission": 30,
+              "exact": 0
+            },
+            "not_player_action": {
+              "of": 65,
+              "decided": 1,
+              "same_admission": 1,
+              "exact": 0
+            },
+            "not_authorized": {
+              "of": 44,
+              "decided": 0,
+              "same_admission": 0,
+              "exact": 0
+            },
+            "uncertain": {
+              "of": 1,
+              "decided": 0,
+              "same_admission": 0,
+              "exact": 0
+            }
+          },
+          "per_class": {
+            "time": {
+              "of": 110,
+              "lane_refusals": 7,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.301,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.1026,
+              "decided": 31,
+              "same_admission": 31,
+              "settled_admits": 31,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.1103
+            },
+            "move": {
+              "of": 110,
+              "lane_refusals": 29,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.4568,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.0551,
+              "decided": 37,
+              "same_admission": 37,
+              "settled_admits": 37,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.0941
+            },
+            "clue": {
+              "of": 110,
+              "lane_refusals": 9,
+              "settle_given_refuse": 0,
+              "settle_given_admit": 0.0198,
+              "false_admit_share_class_natural": 0,
+              "false_admit_share_class_natural_upper": 0.8888,
+              "decided": 2,
+              "same_admission": 2,
+              "settled_admits": 2,
+              "false_admits": 0,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.6576
+            },
+            "resolve": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            },
+            "other": {
+              "of": 0,
+              "lane_refusals": 0,
+              "settle_given_refuse": null,
+              "settle_given_admit": null,
+              "false_admit_share_class_natural": null,
+              "false_admit_share_class_natural_upper": null,
+              "decided": 0,
+              "same_admission": 0,
+              "settled_admits": 0,
+              "false_admits": 0,
+              "false_admit_share": null,
+              "false_admit_share_bank_mix": null,
+              "false_admit_wilson_upper": null
+            }
+          }
+        }
+      ],
+      "by_source": {
+        "persona-bench": {
+          "labelled": 307,
+          "by_threshold": [
+            {
+              "threshold": 0,
+              "decided": 307,
+              "coverage": 1,
+              "exact_agreement": null,
+              "admission_agreement": 0.772,
+              "false_admits": 32,
+              "false_refusals": 38,
+              "settled_admits": 257,
+              "settled_share": 0.8371,
+              "false_admit_share": 0.1245,
+              "false_admit_share_bank_mix": 0.1203,
+              "false_admit_wilson_upper": 0.1705,
+              "lane_refusals_admitted": 0.7273
+            },
+            {
+              "threshold": 0.5,
+              "decided": 231,
+              "coverage": 0.7524,
+              "exact_agreement": null,
+              "admission_agreement": 0.8658,
+              "false_admits": 23,
+              "false_refusals": 8,
+              "settled_admits": 219,
+              "settled_share": 0.7134,
+              "false_admit_share": 0.105,
+              "false_admit_share_bank_mix": 0.0966,
+              "false_admit_wilson_upper": 0.1527,
+              "lane_refusals_admitted": 0.5227
+            },
+            {
+              "threshold": 0.6,
+              "decided": 207,
+              "coverage": 0.6743,
+              "exact_agreement": null,
+              "admission_agreement": 0.8937,
+              "false_admits": 15,
+              "false_refusals": 7,
+              "settled_admits": 197,
+              "settled_share": 0.6417,
+              "false_admit_share": 0.0761,
+              "false_admit_share_bank_mix": 0.0708,
+              "false_admit_wilson_upper": 0.1218,
+              "lane_refusals_admitted": 0.3409
+            },
+            {
+              "threshold": 0.7,
+              "decided": 181,
+              "coverage": 0.5896,
+              "exact_agreement": null,
+              "admission_agreement": 0.9282,
+              "false_admits": 9,
+              "false_refusals": 4,
+              "settled_admits": 174,
+              "settled_share": 0.5668,
+              "false_admit_share": 0.0517,
+              "false_admit_share_bank_mix": 0.0456,
+              "false_admit_wilson_upper": 0.0954,
+              "lane_refusals_admitted": 0.2045
+            },
+            {
+              "threshold": 0.8,
+              "decided": 149,
+              "coverage": 0.4853,
+              "exact_agreement": null,
+              "admission_agreement": 0.9463,
+              "false_admits": 7,
+              "false_refusals": 1,
+              "settled_admits": 147,
+              "settled_share": 0.4788,
+              "false_admit_share": 0.0476,
+              "false_admit_share_bank_mix": 0.0379,
+              "false_admit_wilson_upper": 0.095,
+              "lane_refusals_admitted": 0.1591
+            },
+            {
+              "threshold": 0.85,
+              "decided": 129,
+              "coverage": 0.4202,
+              "exact_agreement": null,
+              "admission_agreement": 0.969,
+              "false_admits": 4,
+              "false_refusals": 0,
+              "settled_admits": 128,
+              "settled_share": 0.4169,
+              "false_admit_share": 0.0313,
+              "false_admit_share_bank_mix": 0.0216,
+              "false_admit_wilson_upper": 0.0776,
+              "lane_refusals_admitted": 0.0909
+            },
+            {
+              "threshold": 0.87,
+              "decided": 117,
+              "coverage": 0.3811,
+              "exact_agreement": null,
+              "admission_agreement": 0.9915,
+              "false_admits": 1,
+              "false_refusals": 0,
+              "settled_admits": 116,
+              "settled_share": 0.3779,
+              "false_admit_share": 0.0086,
+              "false_admit_share_bank_mix": 0.0009,
+              "false_admit_wilson_upper": 0.0472,
+              "lane_refusals_admitted": 0.0227
+            },
+            {
+              "threshold": 0.9,
+              "decided": 105,
+              "coverage": 0.342,
+              "exact_agreement": null,
+              "admission_agreement": 0.9905,
+              "false_admits": 1,
+              "false_refusals": 0,
+              "settled_admits": 104,
+              "settled_share": 0.3388,
+              "false_admit_share": 0.0096,
+              "false_admit_share_bank_mix": 0.001,
+              "false_admit_wilson_upper": 0.0525,
+              "lane_refusals_admitted": 0.0227
+            },
+            {
+              "threshold": 0.95,
+              "decided": 63,
+              "coverage": 0.2052,
+              "exact_agreement": null,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 63,
+              "settled_share": 0.2052,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.0575,
+              "lane_refusals_admitted": 0
+            }
+          ]
+        },
+        "table": {
+          "labelled": 23,
+          "by_threshold": [
+            {
+              "threshold": 0,
+              "decided": 23,
+              "coverage": 1,
+              "exact_agreement": null,
+              "admission_agreement": 0.913,
+              "false_admits": 1,
+              "false_refusals": 1,
+              "settled_admits": 22,
+              "settled_share": 0.9565,
+              "false_admit_share": 0.0455,
+              "false_admit_share_bank_mix": 0.0608,
+              "false_admit_wilson_upper": 0.218,
+              "lane_refusals_admitted": 1
+            },
+            {
+              "threshold": 0.5,
+              "decided": 17,
+              "coverage": 0.7391,
+              "exact_agreement": null,
+              "admission_agreement": 0.9412,
+              "false_admits": 0,
+              "false_refusals": 1,
+              "settled_admits": 16,
+              "settled_share": 0.6957,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.1936,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.6,
+              "decided": 15,
+              "coverage": 0.6522,
+              "exact_agreement": null,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 15,
+              "settled_share": 0.6522,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.2039,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.7,
+              "decided": 13,
+              "coverage": 0.5652,
+              "exact_agreement": null,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 13,
+              "settled_share": 0.5652,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.2281,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.8,
+              "decided": 13,
+              "coverage": 0.5652,
+              "exact_agreement": null,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 13,
+              "settled_share": 0.5652,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.2281,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.85,
+              "decided": 12,
+              "coverage": 0.5217,
+              "exact_agreement": null,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 12,
+              "settled_share": 0.5217,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.2425,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.87,
+              "decided": 12,
+              "coverage": 0.5217,
+              "exact_agreement": null,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 12,
+              "settled_share": 0.5217,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.2425,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.9,
+              "decided": 10,
+              "coverage": 0.4348,
+              "exact_agreement": null,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 10,
+              "settled_share": 0.4348,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.2775,
+              "lane_refusals_admitted": 0
+            },
+            {
+              "threshold": 0.95,
+              "decided": 7,
+              "coverage": 0.3043,
+              "exact_agreement": null,
+              "admission_agreement": 1,
+              "false_admits": 0,
+              "false_refusals": 0,
+              "settled_admits": 7,
+              "settled_share": 0.3043,
+              "false_admit_share": 0,
+              "false_admit_share_bank_mix": 0,
+              "false_admit_wilson_upper": 0.3543,
+              "lane_refusals_admitted": 0
+            }
+          ]
+        }
+      }
+    }
+  },
+  "lane_floor": {
+    "sources": {
+      "sl24": true,
+      "sl30": true,
+      "sl39alt": true,
+      "sl39lat": true
+    },
+    "same_model_repeat": {
+      "ordered_pairs": 1640,
+      "flip_rate": 0.0317,
+      "false_admit_share": 0.0181,
+      "refusals_admitted_by_other": 0.1262,
+      "a_refuses_b_admits": 26,
+      "b_admits": 1434,
+      "a_refuses": 206
+    },
+    "per_source_model": {
+      "sl24 opencode-go/deepseek-v4.1-flash": {
+        "ordered_pairs": 144,
+        "flip_rate": 0.0278,
+        "false_admit_share": 0.0141,
+        "refusals_admitted_by_other": 1,
+        "a_refuses_b_admits": 2,
+        "b_admits": 142,
+        "a_refuses": 2
+      },
+      "sl30 opencode-go/deepseek-v4.1-flash": {
+        "ordered_pairs": 156,
+        "flip_rate": 0.0256,
+        "false_admit_share": 0.013,
+        "refusals_admitted_by_other": 1,
+        "a_refuses_b_admits": 2,
+        "b_admits": 154,
+        "a_refuses": 2
+      },
+      "sl39-alternatives grok-build/grok-4.7-build-fast": {
+        "ordered_pairs": 318,
+        "flip_rate": 0.0755,
+        "false_admit_share": 0.0469,
+        "refusals_admitted_by_other": 0.1935,
+        "a_refuses_b_admits": 12,
+        "b_admits": 256,
+        "a_refuses": 62
+      },
+      "sl39-alternatives opencode-go/deepseek-v4.1-flash": {
+        "ordered_pairs": 314,
+        "flip_rate": 0.0127,
+        "false_admit_share": 0.0069,
+        "refusals_admitted_by_other": 0.0833,
+        "a_refuses_b_admits": 2,
+        "b_admits": 290,
+        "a_refuses": 24
+      },
+      "sl39-alternatives opencode-go/qwen3.8-flash": {
+        "ordered_pairs": 106,
+        "flip_rate": 0,
+        "false_admit_share": 0,
+        "refusals_admitted_by_other": 0,
+        "a_refuses_b_admits": 0,
+        "b_admits": 100,
+        "a_refuses": 6
+      },
+      "sl39-alternatives xai/grok-4.6": {
+        "ordered_pairs": 318,
+        "flip_rate": 0.0126,
+        "false_admit_share": 0.0087,
+        "refusals_admitted_by_other": 0.0227,
+        "a_refuses_b_admits": 2,
+        "b_admits": 230,
+        "a_refuses": 88
+      },
+      "sl39-latency:a_current opencode-go/deepseek-v4.1-flash": {
+        "ordered_pairs": 140,
+        "flip_rate": 0.0286,
+        "false_admit_share": 0.0154,
+        "refusals_admitted_by_other": 0.2,
+        "a_refuses_b_admits": 2,
+        "b_admits": 130,
+        "a_refuses": 10
+      },
+      "sl39-latency:b_fast_setting opencode-go/deepseek-v4.1-flash": {
+        "ordered_pairs": 144,
+        "flip_rate": 0.0556,
+        "false_admit_share": 0.0303,
+        "refusals_admitted_by_other": 0.3333,
+        "a_refuses_b_admits": 4,
+        "b_admits": 132,
+        "a_refuses": 12
+      }
+    },
+    "cross_model": {
+      "ordered_pairs": 4342,
+      "flip_rate": 0.1129,
+      "false_admit_share": 0.0672,
+      "refusals_admitted_by_other": 0.3525,
+      "a_refuses_b_admits": 245,
+      "b_admits": 3647,
+      "a_refuses": 695
+    }
+  }
+}

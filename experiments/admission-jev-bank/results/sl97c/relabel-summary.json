@@ -1,0 +1,293 @@
+{
+  "generated_at": "2026-09-27T03:10:04.629Z",
+  "cases": 720,
+  "lane_calls": {
+    "total": 2806,
+    "batch": 1440,
+    "line": 1366
+  },
+  "latency_ms": {
+    "all": {
+      "p50": 6558,
+      "p90": 12533,
+      "max": 60003,
+      "n": 2806
+    },
+    "batch_only": {
+      "p50": 6972,
+      "p90": 14016,
+      "max": 60003,
+      "n": 1440
+    }
+  },
+  "failures": {
+    "total": 2,
+    "by_reason": {
+      "model_error": 2
+    },
+    "review_timeout": 0,
+    "over_13s_share": 0.087
+  },
+  "run_to_run_agreement": {
+    "overall": {
+      "pairs": 719,
+      "exact_agreement": 0.8581,
+      "admit_refuse_agreement": 0.9555,
+      "flip_rate": 0.0445,
+      "of_run2_admits_run1_refused": 0.0127,
+      "of_run1_admits_run2_refused": 0.0372
+    },
+    "by_sample": {
+      "main": {
+        "pairs": 389,
+        "exact_agreement": 0.8895,
+        "admit_refuse_agreement": 0.9614,
+        "flip_rate": 0.0386,
+        "of_run2_admits_run1_refused": 0.0118,
+        "of_run1_admits_run2_refused": 0.0317
+      },
+      "holdout": {
+        "pairs": 330,
+        "exact_agreement": 0.8212,
+        "admit_refuse_agreement": 0.9485,
+        "flip_rate": 0.0515,
+        "of_run2_admits_run1_refused": 0.0138,
+        "of_run1_admits_run2_refused": 0.0436
+      }
+    },
+    "by_class": {
+      "time": {
+        "pairs": 189,
+        "exact_agreement": 0.9101,
+        "admit_refuse_agreement": 0.9788,
+        "flip_rate": 0.0212,
+        "of_run2_admits_run1_refused": 0.0055,
+        "of_run1_admits_run2_refused": 0.0163
+      },
+      "move": {
+        "pairs": 148,
+        "exact_agreement": 0.9189,
+        "admit_refuse_agreement": 0.9189,
+        "flip_rate": 0.0811,
+        "of_run2_admits_run1_refused": 0.0263,
+        "of_run1_admits_run2_refused": 0.075
+      },
+      "clue": {
+        "pairs": 229,
+        "exact_agreement": 0.7511,
+        "admit_refuse_agreement": 0.9738,
+        "flip_rate": 0.0262,
+        "of_run2_admits_run1_refused": 0.0092,
+        "of_run1_admits_run2_refused": 0.0183
+      },
+      "resolve": {
+        "pairs": 123,
+        "exact_agreement": 0.9024,
+        "admit_refuse_agreement": 0.935,
+        "flip_rate": 0.065,
+        "of_run2_admits_run1_refused": 0.0211,
+        "of_run1_admits_run2_refused": 0.0606
+      },
+      "other": {
+        "pairs": 30,
+        "exact_agreement": 0.8667,
+        "admit_refuse_agreement": 0.9333,
+        "flip_rate": 0.0667,
+        "of_run2_admits_run1_refused": 0,
+        "of_run1_admits_run2_refused": 0.087
+      }
+    }
+  },
+  "agreement_with_old_bank_label": {
+    "by_class": {
+      "time": {
+        "run1": {
+          "of": 190,
+          "decided": 189,
+          "admit_refuse_agreement": 0.7249,
+          "false_admits_vs_old_refusal": 51,
+          "false_admit_wilson_upper": 0.3459
+        },
+        "run2": {
+          "of": 190,
+          "decided": 190,
+          "admit_refuse_agreement": 0.7316,
+          "false_admits_vs_old_refusal": 50,
+          "false_admit_wilson_upper": 0.342
+        },
+        "both_refuse_def": {
+          "of": 190,
+          "decided": 190,
+          "admit_refuse_agreement": 0.7158,
+          "false_admits_vs_old_refusal": 53,
+          "false_admit_wilson_upper": 0.3537
+        },
+        "either_refuse_def": {
+          "of": 190,
+          "decided": 189,
+          "admit_refuse_agreement": 0.7407,
+          "false_admits_vs_old_refusal": 48,
+          "false_admit_wilson_upper": 0.3339
+        }
+      },
+      "move": {
+        "run1": {
+          "of": 148,
+          "decided": 148,
+          "admit_refuse_agreement": 0.6689,
+          "false_admits_vs_old_refusal": 45,
+          "false_admit_wilson_upper": 0.4642
+        },
+        "run2": {
+          "of": 148,
+          "decided": 148,
+          "admit_refuse_agreement": 0.7095,
+          "false_admits_vs_old_refusal": 39,
+          "false_admit_wilson_upper": 0.4331
+        },
+        "both_refuse_def": {
+          "of": 148,
+          "decided": 148,
+          "admit_refuse_agreement": 0.6486,
+          "false_admits_vs_old_refusal": 48,
+          "false_admit_wilson_upper": 0.4785
+        },
+        "either_refuse_def": {
+          "of": 148,
+          "decided": 148,
+          "admit_refuse_agreement": 0.7297,
+          "false_admits_vs_old_refusal": 36,
+          "false_admit_wilson_upper": 0.416
+        }
+      },
+      "clue": {
+        "run1": {
+          "of": 222,
+          "decided": 222,
+          "admit_refuse_agreement": 0.7523,
+          "false_admits_vs_old_refusal": 52,
+          "false_admit_wilson_upper": 0.306
+        },
+        "run2": {
+          "of": 222,
+          "decided": 222,
+          "admit_refuse_agreement": 0.7613,
+          "false_admits_vs_old_refusal": 50,
+          "false_admit_wilson_upper": 0.2987
+        },
+        "both_refuse_def": {
+          "of": 222,
+          "decided": 222,
+          "admit_refuse_agreement": 0.7613,
+          "false_admits_vs_old_refusal": 52,
+          "false_admit_wilson_upper": 0.3033
+        },
+        "either_refuse_def": {
+          "of": 222,
+          "decided": 222,
+          "admit_refuse_agreement": 0.7523,
+          "false_admits_vs_old_refusal": 50,
+          "false_admit_wilson_upper": 0.3014
+        }
+      },
+      "resolve": {
+        "run1": {
+          "of": 122,
+          "decided": 122,
+          "admit_refuse_agreement": 0.6885,
+          "false_admits_vs_old_refusal": 35,
+          "false_admit_wilson_upper": 0.4516
+        },
+        "run2": {
+          "of": 122,
+          "decided": 122,
+          "admit_refuse_agreement": 0.6885,
+          "false_admits_vs_old_refusal": 33,
+          "false_admit_wilson_upper": 0.4474
+        },
+        "both_refuse_def": {
+          "of": 122,
+          "decided": 122,
+          "admit_refuse_agreement": 0.6721,
+          "false_admits_vs_old_refusal": 37,
+          "false_admit_wilson_upper": 0.4636
+        },
+        "either_refuse_def": {
+          "of": 122,
+          "decided": 122,
+          "admit_refuse_agreement": 0.7049,
+          "false_admits_vs_old_refusal": 31,
+          "false_admit_wilson_upper": 0.4341
+        }
+      },
+      "other": {
+        "run1": {
+          "of": 29,
+          "decided": 29,
+          "admit_refuse_agreement": 0.6897,
+          "false_admits_vs_old_refusal": 4,
+          "false_admit_wilson_upper": 0.3714
+        },
+        "run2": {
+          "of": 29,
+          "decided": 29,
+          "admit_refuse_agreement": 0.6897,
+          "false_admits_vs_old_refusal": 3,
+          "false_admit_wilson_upper": 0.3464
+        },
+        "both_refuse_def": {
+          "of": 29,
+          "decided": 29,
+          "admit_refuse_agreement": 0.6897,
+          "false_admits_vs_old_refusal": 4,
+          "false_admit_wilson_upper": 0.3714
+        },
+        "either_refuse_def": {
+          "of": 29,
+          "decided": 29,
+          "admit_refuse_agreement": 0.6897,
+          "false_admits_vs_old_refusal": 3,
+          "false_admit_wilson_upper": 0.3464
+        }
+      }
+    },
+    "overall": {
+      "run1": {
+        "of": 711,
+        "decided": 710,
+        "admit_refuse_agreement": 0.7141,
+        "false_admits_vs_old_refusal": 187,
+        "false_admit_wilson_upper": 0.3291
+      },
+      "run2": {
+        "of": 711,
+        "decided": 711,
+        "admit_refuse_agreement": 0.7271,
+        "false_admits_vs_old_refusal": 175,
+        "false_admit_wilson_upper": 0.317
+      },
+      "both_refuse_def": {
+        "of": 711,
+        "decided": 711,
+        "admit_refuse_agreement": 0.7075,
+        "false_admits_vs_old_refusal": 194,
+        "false_admit_wilson_upper": 0.3357
+      },
+      "either_refuse_def": {
+        "of": 711,
+        "decided": 710,
+        "admit_refuse_agreement": 0.7338,
+        "false_admits_vs_old_refusal": 168,
+        "false_admit_wilson_upper": 0.3097
+      }
+    }
+  },
+  "labelled_both_refuse": {
+    "main": 390,
+    "holdout": 330
+  },
+  "labelled_either_refuse": {
+    "main": 389,
+    "holdout": 330
+  }
+}
