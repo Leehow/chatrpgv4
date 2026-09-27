@@ -1,4 +1,4 @@
-Status: ready-for-agent（2026-09-26，用户：「顶档要多样一些，我希望有一些意想不到的东西，比如裤裆掏出火箭筒这种，躲进厕所里掏出一把电锯之类的，跑团的乐趣就是这种啊」）
+Status: landed @ cea0384f7（2026-09-26）；2026-09-26，用户：「顶档要多样一些，我希望有一些意想不到的东西，比如裤裆掏出火箭筒这种，躲进厕所里掏出一把电锯之类的，跑团的乐趣就是这种啊」
 Spec: docs/specs/npc-acts-first.md（D10；第九节「D10 武器面的造景探针」）
 
 # 32 — 顶档就是意想不到：出格、不重样、掏出来就能用
@@ -24,3 +24,10 @@ Spec: docs/specs/npc-acts-first.md（D10；第九节「D10 武器面的造景探
 - ext：绑定批在 1920s 模组上能把「电锯」对到现代的 Chainsaw 记录（夹具 Jev）。
 - 变异：年代放开关掉 → 电锯那条逮住；`table_brought_out` 去掉 → 包那条逮住。
 - **造景探针（lead 跑）：** `--stakes lethal:severe` 3 轮：出现的东西种类 ≥ 4；同一轮里同一类东西不连续出现；武器类的意外 ≥ 90% 对到带武器数据的记录。
+
+## 落地记录（2026-09-26）
+
+- 各档 `lines.severe_surprise` 改为邀请出格（原文见契约 §143.30）；`lines.surprise` 不动。车道说明加两句：severe 的意外为了桌上的乐趣、不必合理、不是 `table_brought_out` 里的同一类东西。
+- `npc.situation` 顶层加 `table_brought_out [{name, by, turn}]`：这张桌上所有人拿出过的东西（工单 30 的 `brought_out` 与 `world.npc_weapons`），最近在前，至多 12 条，预算里先于 holdings 被裁。放在顶层而不是 `at_hand`，免得别人的东西被判成「他已知有」。
+- `produce: true` 的价目表放开年代：模组年代的记录在前，其余年代同名不重复的记录在后（1920s 起始局 396 → 559 条，仍是 22 个部分，最大部分 102 条 < 255）。夹具里「电锯」对到现代的 Chainsaw 记录，同一行动的攻击掷 Fighting (Chainsaw)。
+- 测试：produce 6、act_options 15、stakes 46、npc-act 55/55、generation 55/55；变异（年代放开关掉、`table_brought_out` 去掉、holdings 先裁）各被逮住。
