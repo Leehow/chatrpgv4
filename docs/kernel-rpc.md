@@ -25452,6 +25452,24 @@ leg; the dash-dialogue boundary), `tests/kernel/test_markup_in_prose.py` (the re
 finding and both telemetry rows, a fresh gate on the next turn, lines named, ordinary prose and the host's markers
 passing).
 
+*Note, 2026-09-26 (after the line-2 merge; §138):* line-2's §138 unwraps a Keeper tool argument's own tool-call markup in
+the Keeper tools' `prepareArguments`, before the call reaches the kernel. It reads only tags that name a declared
+parameter of the tool the argument sits in. For `narrate` (`using_skill`, `text`, `workpad_patch`) that is a leading
+`<text>` or `<parameter name="text">`, the value's own closing tag (`</text>`, or `</parameter>` when it was opened that
+way) and any tags after it, and a swallowed `workpad_patch` or `using_skill`; prose after the closing tag is refused
+there (`invalid_params`, `code_detail: argument_markup`) and never reaches this gate either. So this section's turn 6, an
+explicit `narrate` ending in `</text>`, is now delivered on its first try, clean: §138's `markup_unwrapped` row, and no
+`markup_in_prose` refusal, steer, row or finding. What this gate still reads: every tag that names no parameter of its
+tool (`</narration>`, `<b>`, a lone `</parameter>` that was never opened, `</invoke>`, and `</text>` inside
+`apply.narrate`, since `apply` declares no `text`); every list or heading line; and the whole of an implicit close,
+which is the model's prose and no tool argument, `</text>` included. No product behaviour changed. Tests
+(`tests/extension/markup-in-prose.test.mjs`): the explicit cases now send a closing tag that names no narrate parameter
+(`</narration>`, the "second delivery" case included); a new real-kernel case pins the combination, `</text>` delivered
+on the first try and never refused `markup_in_prose`; a unit case asks `unwrapArgumentMarkup` with narrate's own schema
+that it hands on as written every text the file sends the gate, and takes `</text>` and a `<text>` pair off. Mutations
+(a copy, restored): this gate turned off in the emitted kernel fails the ten gate cases and not the §138 case; §138
+turned off in `prepareArguments` fails the §138 case alone.
+
 **143.11 A refused implicit draft is not lost to a spent steer: the three second-time behaviours side by side (2026-09-26,
 ticket 12; the spec's section 七; amends §135.11's gate #4 addendum and §135.11.3).**
 **Evidence.** Found by ticket 11's worker while building 143.10, not at a table. A turn has one steer (§135.11). Once it is
@@ -26084,6 +26102,19 @@ a closing tag with a host marker beyond it in the Keeper's text; a tag inside th
 list line; different names at the two ends, a self-closing tag last, and a tag first beside one inside -- the last five
 delivered as written with no `stripped`. Mutation (copy and restore): the strip removed from the handler fails the
 trailing-`</text>` cases in both files.
+
+*Note, 2026-09-26 (after the line-2 merge; §138):* this section's evidence shape -- an explicit `narrate` ending in
+`</text>`, twice -- no longer reaches the kernel: §138 takes the argument's own closing tag, and a `<text>…</text>` pair,
+off at the host boundary on every delivery, the first included (§143.10's note of the same date). On an explicit
+narrate, then, §138 subsumes this section for tags that name one of the tool's parameters. It does not subsume the
+section: a bare wrapper whose tag names no parameter of the tool (`<narration>…</narration>`, a trailing `</parameter>`
+never opened) still reaches the second-time branch, and so does any wrapper on an implicit close, `</text>` included,
+since an implicit close is no tool argument. §138 trims only the value's end, so a `<text>` pair with a line break after
+its opening tag leaves the Keeper's `text` and `marked_text` starting with that line break; `rendered_text`, what the
+player reads, does not carry it (measured on the real kernel, 2026-09-26), where this section's strip trimmed both ends.
+No product behaviour changed. Tests (`tests/extension/markup-in-prose.test.mjs`): the trailing and paired cases now send
+`</narration>` and `<narration>…</narration>`; the spent-steer case keeps its implicit `</text>` and still expects it
+stripped. Mutation (a copy of the emitted kernel, restored): the strip removed fails those three cases.
 
 **143.18 The Keeper does not turn a demand into a blow: the fix names no other fight action, and the Keeper's fight action
 for the investigator is reviewed against the player's words (2026-09-26, ticket 19 of `docs/specs/npc-acts-first-tickets/`,
