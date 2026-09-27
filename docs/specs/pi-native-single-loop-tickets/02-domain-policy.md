@@ -845,3 +845,19 @@ What the Keeper looked up one turn is not in its hands the next → SL-102.
 - **Lookups 8 (#24: 15), no cross-turn repeat.** `held_dropped` scene_change 2. `held_wait` 0: every read landed within its own turn.
 - **Jev settled 10 lines, all `time`, confidence 0.87–0.97.** Each was read against the player's words: every one is the routine time of the action the player declared (walk to the Globe 40 min, street canvass 30, bedroom search 15, stairs 5…), so 0 false admits by this reading. `lane_cancelled` 10.
 - Lane reviews 27 (#24: 42).
+
+### Masks PDF third run (2026-09-27, 6ba21726d; fresh import, setup → handoff → play; every model grok-4.5 low; a sonnet agent as the player)
+
+**Setup: 11 turns, about 15 min, almost all of it reading.**
+- Reader timeouts 0, `provider_refused` 0, `setup_blocked` 0.
+- The openings came out as the Lima prologue and the 1925 Chelsea Hotel murder; the player chose the Chelsea.
+- The card was confirmed and handed off.
+- The guide never showed a command line and never asked for a message "to try again" (SL-103).
+
+**Play: 10 turns at the Chelsea Hotel with Lt. Poole; Jackson Elias murdered in room 410.**
+- **First visible prose: median 18.1 s, max 35.4 s, ≤ 60 s on 10/10.**
+- No markup, meta-talk, placeholder or refusal.
+
+**Observations**
+- One observation, not filed (a single instance): turn 8's lobby description volunteered "也没有人把红布条或奇怪的头饰露在外面". That is a negative observation nobody asked for, which foreshadows the book's cult. Watch for it; file it on a third instance.
+- The card raised a stealth stat the player hadn't asked for. It was shown for confirmation, so it is not a defect.
