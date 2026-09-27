@@ -836,3 +836,12 @@ What the Keeper looked up one turn is not in its hands the next → SL-102.
 - **First visible prose: median 40.5 s, max 75.3, ≤ 60 on 10/11.**
 - Keeper 2.64 calls/turn at a median of 10.2 s. Lookups 18: module 9, source 6. Five waited the full 8 s foreground allowance for a source answer still being read (`unwaited` 3).
 - Admission: `review_pending` 1, `not_authorized` 1.
+
+### Long gate #25 (2026-09-27, 6ba21726d; batch 19 live: SL-102 held answers, SL-97 phase 2b typed time settles, SL-103; every model grok-4.5 low)
+- 20/20 delivered; no strand; `review_pending` 0; floor 0; label prefix 0.
+- Prose median 249, min 121; no markup.
+- **First visible prose: median 34.8 s, max 60.1 s, ≤ 60 s on 19/20.** #24: 45.1 / 79.2 / 16. #22 (admission on the since-banned 4.3): 29.7 / 53.0 / 20. The one miss is t3 at 60.1 s: 3 Keeper calls (8.3 + 3.6 + 13.2 s) around sequential lane reviews of two checks (8.0 and 7.2 s).
+- Keeper calls 2.15/turn (#24: 2.6), median 9.5 s per call.
+- **Lookups 8 (#24: 15), no cross-turn repeat.** `held_dropped` scene_change 2. `held_wait` 0: every read landed within its own turn.
+- **Jev settled 10 lines, all `time`, confidence 0.87–0.97.** Each was read against the player's words: every one is the routine time of the action the player declared (walk to the Globe 40 min, street canvass 30, bedroom search 15, stairs 5…), so 0 false admits by this reading. `lane_cancelled` 10.
+- Lane reviews 27 (#24: 42).
