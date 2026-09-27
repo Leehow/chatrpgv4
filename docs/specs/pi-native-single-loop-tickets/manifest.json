@@ -493,17 +493,17 @@
     {
       "id": "SL-98",
       "file": "98-pdf-opening-choice-deadlock.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-99",
       "file": "99-reader-idle-allowance-for-slow-image-steps.md",
-      "status": "ready"
+      "status": "ready-for-human"
     },
     {
       "id": "SL-100",
       "file": "100-setup-guide-speaks-to-the-player.md",
-      "status": "ready"
+      "status": "ready-for-human"
     }
   ],
   "relatedSpecs": [
