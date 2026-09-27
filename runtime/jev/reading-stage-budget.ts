@@ -108,12 +108,15 @@ export async function measuredPageCost(moduleDir: string): Promise<PageCost | un
 
 /**
  * The stage a reading job with no stage lease is sized as: the reads raised during play (§20 addendum 3), `detail` (`map`
- * for a map's pages) and `answer`, and the background index and a skeleton outside a stage (§20 addendum 5, SL-53).
- * Opening and guidance outside a stage lease keep the fixed per-child lease.
+ * for a map's pages) and `answer`, the background index and a skeleton outside a stage (§20 addendum 5, SL-53), and
+ * (§140.2, SL-99b) an opening or a guidance read outside a stage -- the table's setup and `/coc ingest` -- sized as the
+ * import stage of its own name. Every reading job the service runs without a stage lease is sized; the fixed per-child
+ * lease (1,000,000 input tokens, 16 actions, 8,192 output tokens a call) no longer pays for any page image.
  */
 export function readingJobStage(job: {purpose?: unknown; material?: unknown}): ReadingStage | undefined {
   if (job.purpose === 'detail') return job.material === 'map' ? 'map' : 'detail';
-  return job.purpose === 'answer' || job.purpose === 'index' || job.purpose === 'skeleton' ? job.purpose : undefined;
+  return job.purpose === 'answer' || job.purpose === 'index' || job.purpose === 'skeleton' || job.purpose === 'opening' || job.purpose === 'guidance'
+    ? job.purpose : undefined;
 }
 
 /** Open the stage's lease. The caller closes it when the stage ends; readings it queued in the background keep their own. */

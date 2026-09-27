@@ -808,6 +808,7 @@ export class ReadingService implements ReadingBridge {
 		// the job opens a lease of that size (runtime/tasks.ts). §20 addendum 6 (SL-65): the size also carries this reader's
 		// own context window, so the floor holds its "eight whole-context reservations" against the reader actually reading
 		// this book, not a fixed assumption -- a campaign's private fork reads under the exact same rule as the library.
+		// §140.2 (SL-99b): an opening or guidance read outside a stage (the table's setup, `/coc ingest`) is sized too.
 		const stage = providerBudget ? undefined : readingJobStage(job);
 		const readingLease: StageBudget | undefined = stage ? readingStageBudget(stage, { pageCount: Number(job.source?.page_count) || 0,
 			perPage: await measuredPageCost(resolve(cwd, "..", "..", "..")), contextWindow: model.contextWindow }) ?? undefined : undefined;
