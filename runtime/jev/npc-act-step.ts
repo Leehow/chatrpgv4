@@ -96,7 +96,7 @@ export interface ActOptions {
   conversation?: {turn: number; order: number; by: string[]} | null;
   ways: ActWay[];
   act?: {line: string; ref: string; continues: {ref: string; status: string; since_turn: number | null; turn: number | null} | null};
-  /** §143.19: the rulebook's price list of the module's era, asked with `produce: true`. */
+  /** §143.19: the rulebook's price list, asked with `produce: true` -- the module's era first, then other eras (§143.30). */
   produce?: ActOption[];
 }
 

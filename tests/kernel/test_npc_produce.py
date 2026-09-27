@@ -11,6 +11,7 @@ the investigator can take it with `object {from, to}`.
 """
 
 import json
+import shutil
 
 from conftest import CONTENT_DIR, RpcClient, campaign_dir, narrate, open_turn, read_json
 
@@ -131,8 +132,8 @@ def test_what_the_kernel_refuses(tmp_path):
         client.close()
 
 
-def situation(client):
-    return client.ok("npc.situation", {"campaign": "c1", "name": "Steven Knott"})
+def situation(client, name="Steven Knott"):
+    return client.ok("npc.situation", {"campaign": "c1", "name": name})
 
 
 def close_turn(client, turn, text):
@@ -182,5 +183,78 @@ def test_what_his_own_act_brought_out_says_when_and_by_which_act(tmp_path):
         client.table("apply", call_id="t2-c3", effects=[{"kind": "object", "name": PHOTO, "from": "Steven Knott", "to": "Thomas Hayes",
                                                          "handover": "taken", "why": "I snatch the photograph"}])
         assert [entry["name"] for entry in situation(client)["at_hand"]["brought_out"]] == [pistol]
+    finally:
+        client.close()
+
+
+# ---- §143.30 (ticket 32): what anyone at this table has brought out ---------------------------------------------------
+
+SAW = "一把油乎乎的电锯"
+SAW_ACT = "埃德娜从洗手间里拖出一把油乎乎的电锯，拉响了它。"
+
+
+def edna_walks_on(client, call_id):
+    """Edna Hale is a person the book never had: the table declares her a newcomer (§87.7), as test_last_exchange does."""
+    client.table("apply", call_id=call_id, effects=[{"kind": "npc", "name": "Edna Hale", "to": "here", "walk_on": True, "why": "test fixture: the landlord's clerk"}])
+
+
+def test_what_anyone_at_the_table_brought_out_is_in_every_packet_newest_first_and_capped(tmp_path):
+    """§143.30 (ticket 32; the D10 probe's eighteen hidden revolvers): the packet's `table_brought_out` is everything
+    anyone's act at this table has brought out -- another person's thing, whoever holds it now, and a drawn weapon -- by
+    name, who brought it out and the turn, newest first, at most twelve. Read from the writes' marks (the instance's
+    `brought_out`, the `world.npc_weapons` row); whether two things are of one kind is never compared."""
+    client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "1"})
+    try:
+        open_turn(client, "I tell Knott I will not take the job.")
+        assert "table_brought_out" not in situation(client), "nothing brought out yet: no section"
+        client.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Steven Knott",
+                                                         "_draws": {"weapon": "automatic_25_derringer", "price_id": DERRINGER["price_id"]}}])
+        edna_walks_on(client, "t1-c2")
+        close_turn(client, 1, "诺特的手搭在抽屉上，埃德娜推门进来。")
+
+        client.table("player_input", text="I wrench the thing out of her hands.")
+        client.table("apply", call_id="t2-c1", effects=[{"kind": "npc", "name": "Edna Hale", "_produces": {"name": SAW, "description": SAW_ACT}}])
+        client.table("apply", call_id="t2-c2", effects=[{"kind": "object", "name": SAW, "from": "Edna Hale", "to": "Thomas Hayes",
+                                                         "handover": "taken", "why": "I wrench it away"}])
+        view = situation(client)
+        pistol = next(name for name in view["at_hand"]["holdings"] if "Derringer" in name)
+        assert view["table_brought_out"] == [{"name": SAW, "by": "Edna Hale", "turn": 2}, {"name": pistol, "by": "Steven Knott", "turn": 1}], \
+            view.get("table_brought_out")
+        assert SAW not in json.dumps(view["at_hand"], ensure_ascii=False), "not his and not at hand: hers, now the investigator's"
+        assert situation(client, "Edna Hale")["table_brought_out"] == view["table_brought_out"], "one list for everyone at the table"
+
+        # Twelve more of hers on this turn: the newest twelve are listed, the oldest (his pistol, her saw) are not.
+        client.table("apply", call_id="t2-c3", effects=[{"kind": "npc", "name": "Edna Hale", "_produces": {"name": f"thing {n:02d}", "description": SAW_ACT}}
+                                                         for n in range(1, 13)])
+        listed = situation(client)["table_brought_out"]
+        assert [entry["name"] for entry in listed] == [f"thing {n:02d}" for n in range(12, 0, -1)], listed
+    finally:
+        client.close()
+
+
+def test_the_budget_cuts_what_the_table_brought_out_before_what_he_holds(tmp_path):
+    """§143.30: `table_brought_out` is cut after at_hand's objects and exits and before his own `brought_out` and
+    `holdings`, oldest first, and named once in `truncated`."""
+    content = tmp_path / "content"
+    shutil.copytree(CONTENT_DIR, content)
+    path = content / "rulesets" / "coc7" / "host-budgets.json"
+    budgets = json.loads(path.read_text(encoding="utf-8"))
+    budgets["npc_situation"]["max_bytes"] = 1024
+    path.write_text(json.dumps(budgets), encoding="utf-8")
+    client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "1"}, content=content)
+    try:
+        open_turn(client, "I look Knott over.")
+        client.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Steven Knott", "_produces": {"name": PHOTO, "description": ACT}}])
+        edna_walks_on(client, "t1-c2")
+        client.table("apply", call_id="t1-c3", effects=[{"kind": "npc", "name": "Edna Hale",
+                                                         "_produces": {"name": f"a long and particular thing of hers, number {n:02d}", "description": SAW_ACT}}
+                                                         for n in range(1, 13)])
+        packet = situation(client)
+        assert "table_brought_out" in packet["truncated"], packet["truncated"]
+        assert packet["at_hand"]["holdings"] == [PHOTO] and [entry["name"] for entry in packet["at_hand"]["brought_out"]] == [PHOTO], \
+            "what he holds, and what his own act brought out, outlast the table's list"
+        kept = [entry["name"] for entry in packet["table_brought_out"]]
+        assert len(kept) < 12 and kept == [f"a long and particular thing of hers, number {n:02d}" for n in range(12, 12 - len(kept), -1)], \
+            "the oldest go first"
     finally:
         client.close()

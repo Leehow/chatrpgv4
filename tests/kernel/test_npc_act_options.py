@@ -13,6 +13,8 @@ the investigator's punch lands and it is Knott's turn in the fight afterwards (t
 """
 
 import json
+import re
+from collections import Counter
 
 import pytest
 
@@ -136,15 +138,49 @@ def test_the_produce_list_is_the_price_list_of_the_modules_era_and_only_when_ask
     equipment = json.loads((CONTENT_DIR / "rulesets" / "coc7" / "rules-json" / "equipment.json").read_text(encoding="utf-8"))["records"]
     priced = {row["price_id"]: row for row in equipment}
     era = [row for row in equipment if row["era"] == "1920s"]
-    assert [option["value"] for option in produce] == [row["price_id"] for row in era], "the haunting is a 1920s module: every record of it, in the book's order"
+    # §143.30: the module's era comes first; other eras follow it (the next test).
+    assert [option["value"] for option in produce][:len(era)] == [row["price_id"] for row in era], "the haunting is a 1920s module: every record of it, in the book's order"
     assert all(option["label"] == priced[option["value"]]["name"] and option["category"] == priced[option["value"]]["category"] for option in produce)
     armed = [option for option in produce if "weapon" in option]
     assert armed and all(option["weapon"] in weapons and priced[option["value"]]["entity_ref"]["entity_id"] == option["weapon"] for option in armed), \
         "a weapon record names its weapons.json profile"
-    assert len(armed) == sum(1 for row in era if (row.get("entity_ref") or {}).get("kind") == "weapon")
+    assert len([option for option in produce[:len(era)] if "weapon" in option]) == sum(1 for row in era if (row.get("entity_ref") or {}).get("kind") == "weapon")
     assert any(option["weapon"] == "automatic_25_derringer" for option in armed), "the pocket pistol the loop test draws"
     assert any(option["label"] == "Umbrella" and "weapon" not in option for option in produce), "and things that are not weapons"
     assert len(produce) >= 255, "longer than one Jev question holds: the host asks by its part first"
+
+
+def book_name(name):
+    """The kernel's name normalization, for the price list's plain names: lower case, runs of space, _ and - as one space."""
+    return re.sub(r"[\s_\-]+", " ", name.lower()).strip()
+
+
+def test_a_surprise_is_not_held_to_the_modules_era_and_the_modules_own_record_is_preferred(knott):
+    """§143.30 (ticket 32, the owner: the top rung's surprise may be anachronistic): with `produce` the price list goes
+    past the module's era -- the 1920s records first, in the book's order, then every other era's record whose name the
+    list does not have yet -- so a thing out of its time still finds the book's numbers. Without `produce` nothing of it
+    is listed at all."""
+    pinned(knott)
+    plain = options(knott)
+    assert "produce" not in plain and "eq.modern." not in json.dumps(plain), "without produce: no price list, nothing of another era"
+    produce = options(knott, produce=True)["produce"]
+    equipment = json.loads((CONTENT_DIR / "rulesets" / "coc7" / "rules-json" / "equipment.json").read_text(encoding="utf-8"))["records"]
+    priced = {row["price_id"]: row for row in equipment}
+    era = [row for row in equipment if row["era"] == "1920s"]
+    assert [option["value"] for option in produce[:len(era)]] == [row["price_id"] for row in era], "the module's era first"
+    later = produce[len(era):]
+    assert later and all(priced[option["value"]]["era"] != "1920s" for option in later), "then the other eras"
+    era_names = {book_name(row["name"]) for row in era}
+    assert not [option["label"] for option in later if book_name(option["label"]) in era_names], "a name the module's era prints is its own record"
+    assert len({book_name(option["label"]) for option in later}) == len(later), "each other-era name once"
+    assert [option["value"] for option in produce if option["label"] == "Hand Grenade*"] == \
+        ["eq.1920s.weapon_table.table_xvii_explosives_heavy_weapons_misc.hand_grenade"], "printed in both eras: the module's record only"
+    chainsaw = next(option for option in later if option.get("weapon") == "chainsaw")
+    assert (chainsaw["value"], chainsaw["label"], chainsaw["category"]) == \
+        ("eq.modern.weapon_table.table_xvii_hand_to_hand_weapons.chainsaw_i", "Chainsaw* (i)", "weapon_table"), "a modern weapon, with its profile"
+    assert {"m79_grenade_launcher", "minigun"} <= {option.get("weapon") for option in later}
+    parts = Counter(option["category"] for option in produce)
+    assert max(parts.values()) + 1 <= 255, f"every part still fits one choice question beside none: {parts.most_common(3)}"
 
 
 

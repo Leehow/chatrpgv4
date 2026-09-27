@@ -19,7 +19,7 @@
  *
  * With `produce: true` (the host asks only when the generated act brings out something no one knew this person had --
  * `produces`, allowed by a surprise of the stakes die, §143.19, spec D10) the result also lists `produce`: every record
- * of the rulebook's price list (`equipment.json`) of the module's era, one option per record (`value` its `price_id`,
+ * of the rulebook's price list (`equipment.json`), the module's era first (§143.30), one option per record (`value` its `price_id`,
  * `label` the book's name, `category`, and `weapon` -- its `weapons.json` profile -- when the record is a weapon). It
  * replaces D9's weapons-only `draw` list (ticket 20): what a person brings out is anything the book prices.
  */
@@ -96,9 +96,13 @@ function weaponLabel(catalog: Row, weapon: unknown): Option | null {
 }
 
 /**
- * §143.19: the rulebook's price list of the module's era, one option per record. A record whose `entity_ref` names a
- * `weapons.json` profile carries it as `weapon` (the host draws it through §143.3's `_draws`); every other record is an
- * object the kernel places in the person's hands (`_produces`, `apply/draw.ts`).
+ * §143.19: the rulebook's price list, one option per record. A record whose `entity_ref` names a `weapons.json` profile
+ * carries it as `weapon` (the host draws it through §143.3's `_draws`); every other record is an object the kernel
+ * places in the person's hands (`_produces`, `apply/draw.ts`).
+ *
+ * §143.30 (ticket 32): what a surprise brings out is not held to the module's era -- the top rung may be anachronistic,
+ * and the thing should still find its rules. The module era's records come first, in the book's order; then every other
+ * era's record whose name no earlier option has (the kernel's name normalization), so the module's era is preferred.
  */
 async function produceCatalog(context: KernelContext, graph: ModuleGraph): Promise<Option[]> {
     const read = async (name: string): Promise<Row> => {
@@ -106,13 +110,15 @@ async function produceCatalog(context: KernelContext, graph: ModuleGraph): Promi
     };
     const [equipment, weapons] = await Promise.all([read('equipment.json'), read('weapons.json')]);
     const profiles = row(weapons.weapons), era = string(moduleDeclaration(graph.moduleNode).era);
+    const ofEra = (record: Row): boolean => !era || !string(record.era) || string(record.era) === era;
+    const records = array(equipment.records).map(row).filter(record => string(record.price_id) && string(record.name));
+    const named = new Set(records.filter(ofEra).map(record => normalize(record.name)));
+    const others = records.filter(record => !ofEra(record) && !named.has(normalize(record.name)) && (named.add(normalize(record.name)), true));
     const out: Option[] = [];
-    for (const value of array(equipment.records)) {
-        const record = row(value), id = string(record.price_id), name = string(record.name), ref = row(record.entity_ref), profile = string(ref.entity_id);
-        if (!id || !name) continue;
-        if (era && string(record.era) && string(record.era) !== era) continue;
+    for (const record of [...records.filter(ofEra), ...others]) {
+        const ref = row(record.entity_ref), profile = string(ref.entity_id);
         const weapon = ref.kind === 'weapon' && Object.hasOwn(profiles, profile) ? {weapon: profile} : {};
-        out.push(option(id, name, {category: string(record.category) || null, ...weapon}));
+        out.push(option(string(record.price_id), string(record.name), {category: string(record.category) || null, ...weapon}));
     }
     return once(out);
 }

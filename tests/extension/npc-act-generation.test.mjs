@@ -361,6 +361,9 @@ test("the instruction file: the bound, the play language, the JSON shape, and no
 	assert.match(text, /`stakes\.surprise` is true/);
 	assert.match(text, /`produces` beside `act`/);
 	assert.match(text, new RegExp(`\\b${NPC_PRODUCES_MAX_CHARS} characters\\b`));
+	// §143.30: the severe surprise is the table's fun, and the table's list of what came out is named for it.
+	assert.match(text, /`stakes\.outcome` is `severe` too, the surprise is\s+for the table's fun/);
+	assert.match(text, /not the same kind of thing as anything in\s+`table_brought_out`/);
 	// Structure, not words: an action menu is a list, so the file carries no markdown list item at all (Agents.md: no
 	// hard-coded action menus; the ticket's guard against examples of acts).
 	const items = text.split("\n").filter((line) => /^\s*(?:[-*+]|\d+[.)])\s/.test(line));
