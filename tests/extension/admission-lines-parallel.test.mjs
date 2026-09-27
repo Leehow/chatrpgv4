@@ -11,9 +11,11 @@
  * - The cap, the late admission and `review_pending` apply per call: the batch is pending only on the lines still under
  *   review, and its resend re-joins only those.
  * - Verdict reuse (§32.4) keys by line.
- * - A one-line batch, a `resolve`, a typed verdict that stands for the batch and §32.12.3's split are what they were; the
- *   compile's and the consequence route's own admissions are pinned by `admission-within-turn.test.mjs` and
- *   `consequence-admission.test.mjs`, unchanged.
+ * - A one-line batch and a `resolve` are what they were; the compile's and the consequence route's own admissions are
+ *   pinned by `admission-within-turn.test.mjs` and `consequence-admission.test.mjs`, unchanged. Since §32.12.3.2 (SL-97
+ *   phase 2b) the typed reading settles a line of the batch (a listed class at the settle confidence) as that line's own
+ *   outcome, cancelling only that line's call; §32.12.3's split, which aborted every line's call and reviewed a fresh
+ *   remainder, no longer happens (`admission-typed-settle.test.mjs` pins the rule).
  *
  * The seam: the real `apply`/`resolve` tools and admission seam, the harness's scripted `admission/a1` lane answering by
  * the line it is asked about, the fake kernel, and -- where the subject is time -- the admission clock
@@ -24,6 +26,7 @@ import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { admissionProposes, laneByLine, openTable, waitFor } from "./harness.mjs";
 import { manualClock, runWaitsPastRound } from "./manual-clock.mjs";
+import { installTypedEndpoint } from "./typed-admission-endpoint.mjs";
 import { KernelError } from "../../extensions/kernel/client.ts";
 import {
 	REVIEW_PENDING,
@@ -81,30 +84,8 @@ async function advance(table, clock, T0, at, ends) {
 	await sleep(40);
 }
 
-function distribution(keys, chosen, confidence) {
-	const rest = keys.length > 1 ? (1 - confidence) / (keys.length - 1) : 0;
-	return Object.fromEntries(keys.map((key) => [key, key === chosen ? (keys.length > 1 ? confidence : 1) : rest]));
-}
-/** The typed endpoint: `lines[i]` is line i's `{verdict, confidence}`, answered after `delayMs` on `clock` when given. */
-function installJev(t, lines, delayMs = 0, clock) {
-	const original = globalThis.fetch;
-	const requests = [];
-	globalThis.fetch = async (url, init) => {
-		if (String(url) !== "https://api.typesafe.ai/v1/systemone") return original(url, init);
-		const body = JSON.parse(init.body);
-		requests.push(body);
-		if (delayMs) await clock.sleep(delayMs);
-		const answers = Object.fromEntries(Object.entries(body.questions).map(([key, question]) => {
-			const keys = Object.keys(question.criteria), index = Number(key.split("_")[1]), line = lines[index] ?? lines[0];
-			const choice = key.startsWith("verdict_") ? line.verdict : key.startsWith("missing_") ? "none" : body.state.playerWords?.[0]?.alias ?? "none";
-			const confidence = key.startsWith("verdict_") ? line.confidence : 0.97;
-			return [key, { type: "choice", choice, confidence, probabilities: distribution(keys, choice, confidence) }];
-		}));
-		return new Response(JSON.stringify({ model: "jev-1.13.0", answers, usage: { input_tokens: 900, output_tokens: 40 } }), { status: 200 });
-	};
-	t.after(() => { globalThis.fetch = original; });
-	return requests;
-}
+/** The typed endpoint (the role-first design): `lines[i]` is line i's `{verdict, confidence}`, answered after `delayMs` on `clock` when given. */
+const installJev = (t, lines, delayMs = 0, clock) => installTypedEndpoint(t, lines, { delayMs, clock });
 
 // ---- the pure rules ---------------------------------------------------------------------------------------------------
 
@@ -236,7 +217,7 @@ test("§32.12.3.1: a line past the cap leaves only that line pending; nothing la
 	assert.deepEqual(firstCall.map((row) => [row.lines[0], row.verdict, row.batch_admitted, row.batch_reason]),
 		[[1, "authorized", false, REVIEW_PENDING], [2, REVIEW_PENDING, false, REVIEW_PENDING], [3, "authorized", false, REVIEW_PENDING]]);
 	assert.equal(firstCall[1].ms, CAP_MS, "the diaries line went pending at its cap");
-	assert.equal(firstCall[1].late_rule, "no_typed_verdict");
+	assert.equal(firstCall[1].late_rule, "class_not_listed", "§32.12.3.2: a clue line is never admitted on the typed reading, late or not");
 	assert.deepEqual(firstCall[0].line_ms, [300, null, 400], "the diaries call was still running when the call returned");
 	assert.deepEqual(resent.map((row) => [row.lines[0], row.reused, row.resend ?? false]).sort((a, b) => a[0] - b[0]),
 		[[1, true, false], [2, false, true], [3, true, false]], "two lines reused by their own keys, the pending one re-joined");
@@ -383,9 +364,9 @@ test("§32.12.3.1: an admitted line does not land beside a refused one; the batc
 		[[1, "entailed", true, false, "uncertain"], [2, "uncertain", false, false, "uncertain"]]);
 });
 
-test("§32.12.3.1: once a line's lane has given a verdict, a typed answer that would stand for the batch no longer does", async (t) => {
-	// The typed answer (both lines admitting at 0.95, the fast path's rule) arrives at 400 ms, after the time line's lane verdict
-	// (100 ms) and before the diaries line's (800 ms, uncertain): the lane has spoken on the batch, so the lane decides it.
+test("§32.12.3.1 with §32.12.3.2: once a line's lane has given a verdict, the typed reading no longer settles that line", async (t) => {
+	// The typed answer (both lines admitting at 0.95) arrives at 400 ms, after the time line's lane verdict (100 ms) and before
+	// the diaries line's (800 ms, uncertain): the time line is the lane's already, and a clue line is never the typed reading's.
 	const clock = manualClock(), T0 = clock.at();
 	const typed = installJev(t, [{ verdict: "entailed", confidence: 0.95 }, { verdict: "authorized", confidence: 0.95 }], 400, clock);
 	const lane = clockLane(clock, T0, [[/apply time/, { verdict: "entailed", grounds: "reporting back takes the walk" }, 100],
@@ -487,41 +468,35 @@ test("§32.12.3.1: a one-line batch and a resolve are one lane call each, and th
 		assert.equal(row[field], undefined, `${row.verb}: no ${field}`);
 });
 
-test("§32.12.3.1: a typed verdict that stands for the batch settles it as before, one row, no line's lane verdict", async (t) => {
+test("§32.12.3.2: a typed reading no longer settles a batch whole -- its time line is settled by jev, its clue line is the lane's, one row each", async (t) => {
 	const typed = installJev(t, [{ verdict: "authorized", confidence: 0.9 }, { verdict: "entailed", confidence: 0.88 }]);
 	const table = await openTable({ env: KEY, responses: [call("apply", { effects: [TIME, DIARIES] }), ...close],
-		laneResponses: { admission: laneByLine([[/apply/, { verdict: "not_authorized", grounds: "a lane that would refuse", missing: "x" }, 1500]]) } });
+		laneResponses: { admission: laneByLine([[/apply time/, { verdict: "not_authorized", grounds: "a lane that would refuse", missing: "x" }, 1500],
+			[/corbitt-diaries/, ok("told on the report"), 300]]) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 	assert.equal(typed.length, 1, "one typed batch over both lines");
 	assert.equal(kernelCalls(table, "table.apply").length, 1);
 	const rows = admissionRows(table);
-	assert.deepEqual(rows.map((row) => [row.path, row.typed_rule, row.line_level ?? null]), [["typed", "fast_path", null]]);
+	assert.deepEqual(rows.map((row) => [row.lines[0], row.path, row.reviewer, row.line_class, row.lane_cancelled]),
+		[[1, "typed", "jev", "time", true], [2, "lane", "lane", "clue", false]]);
+	assert.ok(rows.every((row) => row.line_level === "line" && row.batch_admitted === true));
 });
 
-test("§32.12.3.1 with §32.12.3: a split's two-line remainder is reviewed one call per line, each told the cleared line landed in this call", async (t) => {
+test("§32.12.3.2: no split -- a three-line batch whose time line the typed reading settles keeps its other lines' own calls running, and lands whole", async (t) => {
 	const typed = installJev(t, [{ verdict: "entailed", confidence: 0.93 }, { verdict: "authorized", confidence: 0.4 }, { verdict: "authorized", confidence: 0.4 }]);
-	const REST = "admitted in this same call: apply time";
-	const step = async (context) => {
-		const text = userText(context);
-		if (!text.includes(REST)) { await sleep(5000); return fauxAssistantMessage(JSON.stringify({ verdict: "not_authorized", grounds: "the batch's own round" })); }
-		await sleep(150);
-		return fauxAssistantMessage(JSON.stringify(ok("told on the report")));
-	};
 	const table = await openTable({ env: KEY, responses: [call("apply", { effects: [TIME, DIARIES, COMMISSION] }), ...close],
-		laneResponses: { admission: Array.from({ length: 6 }, () => step) } });
+		laneResponses: { admission: laneByLine([[/apply time/, { verdict: "not_authorized", grounds: "a lane that would refuse", missing: "x" }, 3000],
+			[/corbitt-diaries|knott-commission/, ok("told on the report"), 150]]) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
-	const rest = table.lanes.admission.requests().filter((text) => text.includes(REST));
-	assert.equal(rest.length, 2, "the remainder's two lines, one call each");
-	assert.ok(rest.every((text) => proposedLines(text).length === 1 && !/apply time/.test(admissionProposes(text))));
-	// One typed attempt over the batch's three lines (the family packs two lines a request, §32.10), none for the remainder.
-	assert.deepEqual(typed.flatMap((body) => Object.keys(body.questions).filter((key) => key.startsWith("verdict_"))).sort(), ["verdict_0", "verdict_1", "verdict_2"],
-		"the remainder carries the batch's typed answer: no second typed attempt");
+	assert.ok(!table.lanes.admission.requests().some((text) => text.includes("admitted in this same call")), "no remainder round");
+	assert.ok(table.lanes.admission.requests().length <= 3, "at most one call per line");
+	assert.equal(typed.length, 1, "one typed attempt over the three lines, none again");
 	const rows = admissionRows(table);
 	assert.deepEqual(rows.map((row) => [row.path, row.line_level, row.lines, row.remainder ?? false]),
-		[["typed", "admitted", [1], false], ["lane", "line", [2], true], ["lane", "line", [3], true]]);
-	assert.ok(rows.slice(1).every((row) => row.line_calls === 2 && row.batch_admitted === true));
+		[["typed", "line", [1], false], ["lane", "line", [2], false], ["lane", "line", [3], false]]);
+	assert.ok(rows.every((row) => row.line_calls === 3 && row.batch_admitted === true));
 	assert.deepEqual(kernelCalls(table, "table.apply")[0].params.effects.map((effect) => effect.clue ?? effect.kind), ["time", "corbitt-diaries", "knott-commission"]);
 });
 

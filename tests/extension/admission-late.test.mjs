@@ -7,7 +7,9 @@
  * - A lane answer without grounds is no verdict: it neither admits nor refuses and is not an outage.
  * - At the cap (13 s by default, measured) a bookkeeping-only batch typed admitting at 0.70 or above is admitted
  *   `typed_late`; anything else is returned `review_pending` with the typed reading, the lane still running to the hard
- *   cap (twice the cap) for the Keeper's one resend, which collects it.
+ *   cap (twice the cap) for the Keeper's one resend, which collects it. Since §32.12.3.2 (SL-97 phase 2b) only the line
+ *   classes the typed reading may settle (the data's list, today `time`) are admitted late; the typed endpoint answers the
+ *   role-first design (`typed-admission-endpoint.mjs`).
  *
  * The seam: the real `apply`/`resolve` tools, the real admission seam and shared decision adapter, a controlled typed
  * endpoint behind `fetch`, the harness's scripted `admission/a1` lane (delayed where the order matters), and a real
@@ -19,6 +21,7 @@ import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { laneByLine, openTable, waitFor } from "./harness.mjs";
 import { manualClock, runWaitsPastRound } from "./manual-clock.mjs";
+import { installTypedEndpoint } from "./typed-admission-endpoint.mjs";
 import {
 	ADMISSION_LATE_DEFAULT_MIN_CONFIDENCE,
 	DEFAULT_ADMISSION_TIMEOUT_MS,
@@ -39,30 +42,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const slowVerdict = (row, ms) => async () => { await sleep(ms); return fauxAssistantMessage(JSON.stringify(row)); };
 const verdict = (row) => fauxAssistantMessage(JSON.stringify(row));
 
-function distribution(keys, chosen, confidence) {
-	const rest = keys.length > 1 ? (1 - confidence) / (keys.length - 1) : 0;
-	return Object.fromEntries(keys.map((key) => [key, key === chosen ? (keys.length > 1 ? confidence : 1) : rest]));
-}
-/** The typed endpoint: `lines[i]` is line i's `{verdict, confidence}`, answered after `delayMs`. */
-function installJev(t, lines, delayMs = 0) {
-	const original = globalThis.fetch;
-	const requests = [];
-	globalThis.fetch = async (url, init) => {
-		if (String(url) !== "https://api.typesafe.ai/v1/systemone") return original(url, init);
-		const body = JSON.parse(init.body);
-		requests.push(body);
-		if (delayMs) await sleep(delayMs);
-		const answers = Object.fromEntries(Object.entries(body.questions).map(([key, question]) => {
-			const keys = Object.keys(question.criteria), index = Number(key.split("_")[1]), line = lines[index] ?? lines[0];
-			const choice = key.startsWith("verdict_") ? line.verdict : key.startsWith("missing_") ? (line.missing ?? "none") : body.state.playerWords?.[0]?.alias ?? "none";
-			const confidence = key.startsWith("verdict_") ? line.confidence : 0.97;
-			return [key, { type: "choice", choice, confidence, probabilities: distribution(keys, choice, confidence) }];
-		}));
-		return new Response(JSON.stringify({ model: "jev-1.13.0", answers, usage: { input_tokens: 900, output_tokens: 40 } }), { status: 200 });
-	};
-	t.after(() => { globalThis.fetch = original; });
-	return requests;
-}
+/** The typed endpoint (the role-first design): `lines[i]` is line i's `{verdict, confidence}`, answered after `delayMs`. */
+const installJev = (t, lines, delayMs = 0) => installTypedEndpoint(t, lines, { delayMs });
 function toolResultTexts(session, tool) {
 	return session.messages
 		.filter((message) => message.role === "toolResult" && message.toolName === tool)
@@ -70,7 +51,7 @@ function toolResultTexts(session, tool) {
 }
 const call = (name, args) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
 const close = [call("narrate", { text: "你说明了来意。" }), fauxAssistantMessage("after")];
-const bookkeeping = [{ kind: "move", to: "newspaper-morgue", travel_minutes: 30 }, { kind: "clue", clue: "globe-unpublished-story" }];
+const TIME = { kind: "time", minutes: 30, why: "going through the clippings" };
 const persuade = { action: { intent: "social", skill: "Persuade", target: "Ruth Blake", goal: "请她调出旧剪报", method: "说明来意" } };
 const WORDS = "我去环球报的剪报室查那栋房子的旧闻";
 
@@ -124,48 +105,51 @@ test("§32.12.2: the cap is the measured 13 s, the lane's hard cap twice it, the
 	assert.equal(admissionLateMinConfidence({ PI_COC_ADMISSION_LATE_MIN_CONFIDENCE: "off" }), undefined);
 });
 
-test("§32.12.2 lateAdmission: only a bookkeeping-only batch typed admitting every line at the threshold is admitted late", () => {
+test("§32.12.2 lateAdmission: only a bookkeeping-only batch typed admitting every line at the threshold is admitted late (§32.12.3.2: of a listed class)", () => {
 	const apply = (kinds) => ({ tool: "apply", key: kinds.join("+"), lines: kinds.map((kind) => `apply ${kind}: x`), kinds });
 	const typed = (verdict, confidence) => ({ status: "decided", verdict, confidence, lineVerdicts: [verdict], grounds: "Decided by the player's words" });
-	const reason = (proposal, reading, env = {}) => { const late = lateAdmission(proposal, reading, env); return late.ok ? late.verdict.path : late.reason; };
-	// The owner's kinds, cash included; the non-triggering kinds ride along.
-	assert.equal(reason(apply(["move", "person", "person"]), typed("authorized", 0.72)), "typed_late");
-	assert.equal(reason(apply(["clue", "time", "threat"]), typed("entailed", 0.7)), "typed_late");
-	assert.equal(reason(apply(["cash", "define"]), typed("authorized", 0.9)), "typed_late");
-	assert.equal(reason(apply(["handout"]), typed("not_player_action", 0.95)), "typed_late");
+	const LISTED = ["time"];
+	const reason = (proposal, reading, env = {}, classes = LISTED) => { const late = lateAdmission(proposal, reading, env, classes); return late.ok ? late.verdict.path : late.reason; };
+	// A listed class; the non-triggering kinds ride along.
+	assert.equal(reason(apply(["time", "person", "person"]), typed("entailed", 0.72)), "typed_late");
+	assert.equal(reason(apply(["time", "threat"]), typed("not_player_action", 0.7)), "typed_late");
+	// The owner's other late kinds are not the typed reading's to admit (§32.12.3.2).
+	for (const kind of ["move", "clue", "handout", "cash"]) assert.equal(reason(apply([kind]), typed("authorized", 0.99)), "class_not_listed", kind);
+	assert.equal(reason(apply(["move"]), typed("authorized", 0.99), {}, ["move", "time"]), "typed_late", "a list that names move admits it");
 	// Everything else is pending.
 	assert.equal(reason(apply(["clue", "cash", "item", "time", "person"]), typed("authorized", 0.99)), "not_bookkeeping", "turn 1's batch carries an item");
 	assert.equal(reason({ tool: "resolve", key: "r", lines: ["resolve"] }, typed("authorized", 0.99)), "not_bookkeeping");
 	assert.equal(reason(apply(["threat"]), typed("authorized", 0.99)), "not_bookkeeping", "no triggering kind at all");
-	assert.equal(reason(apply(["move"]), typed("authorized", 0.69)), "low_confidence");
-	assert.equal(reason(apply(["move"]), typed("not_authorized", 0.99)), "typed_refusal");
-	assert.equal(reason(apply(["move"]), typed("uncertain", 0.99)), "typed_refusal");
-	assert.equal(reason(apply(["move"]), { status: "fallback", reason: "unconfigured" }), "no_typed_verdict");
-	assert.equal(reason(apply(["move"]), undefined), "no_typed_verdict");
-	assert.equal(reason(apply(["move"]), typed("authorized", 0.99), { PI_COC_ADMISSION_LATE_MIN_CONFIDENCE: "off" }), "late_off");
-	const late = lateAdmission(apply(["move"]), typed("entailed", 0.8), {});
+	assert.equal(reason(apply(["time"]), typed("entailed", 0.69)), "low_confidence");
+	assert.equal(reason(apply(["time"]), typed("not_authorized", 0.99)), "typed_refusal");
+	assert.equal(reason(apply(["time"]), typed("uncertain", 0.99)), "typed_refusal");
+	assert.equal(reason(apply(["time"]), { status: "fallback", reason: "unconfigured" }), "no_typed_verdict");
+	assert.equal(reason(apply(["time"]), undefined), "no_typed_verdict");
+	assert.equal(reason(apply(["time"]), typed("entailed", 0.99), { PI_COC_ADMISSION_LATE_MIN_CONFIDENCE: "off" }), "late_off");
+	const late = lateAdmission(apply(["time"]), typed("entailed", 0.8), {}, LISTED);
 	assert.deepEqual(late, { ok: true, minConfidence: 0.7, verdict: { verdict: "entailed", grounds: "Decided by the player's words", reviewer: "jev", path: "typed_late" } });
 	assert.equal(lateEligibleBatch(apply(["move", "map"])), false, "map is not among the owner's kinds");
 });
 
 // ---- the first sufficient verdict wins -----------------------------------------------------------------------------------
 
-test("§32.12.2: a typed fast-path admission stands without waiting for a slow lane, whose refusal never lands", async (t) => {
-	installJev(t, [{ verdict: "authorized", confidence: 0.95 }, { verdict: "entailed", confidence: 0.9 }]);
-	const table = await openTable({ env: KEY, responses: [call("apply", { effects: bookkeeping }), ...close],
+test("§32.12.2: a typed admission that settles its line stands without waiting for a slow lane, whose refusal never lands", async (t) => {
+	installJev(t, [{ verdict: "entailed", confidence: 0.95 }]);
+	const table = await openTable({ env: KEY, responses: [call("apply", { effects: [TIME] }), ...close],
 		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "only interest", missing: "which archive" }, 3000)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 	assert.equal(kernelCalls(table, "table.apply").length, 1, "admitted on the typed verdict");
 	const [row] = admissionRows(table);
 	assert.equal(row.path, "typed");
-	assert.equal(row.typed_rule, "fast_path");
+	assert.equal(row.reviewer, "jev");
+	assert.equal(row.lane_cancelled, true);
 	assert.ok(row.ms < 2000, `the review did not wait for the lane (${row.ms} ms)`);
 });
 
 test("§32.12.2: a lane faster than Jev stands without waiting for Jev; the row says the lane came first", async (t) => {
-	installJev(t, [{ verdict: "authorized", confidence: 0.99 }, { verdict: "authorized", confidence: 0.99 }], 2500);
-	const table = await openTable({ env: KEY, responses: [call("apply", { effects: bookkeeping }), ...close],
+	installJev(t, [{ verdict: "entailed", confidence: 0.99 }], 2500);
+	const table = await openTable({ env: KEY, responses: [call("apply", { effects: [TIME] }), ...close],
 		laneResponses: { admission: [verdict({ verdict: "not_authorized", grounds: "only interest in the papers", missing: "which archive to visit" })] } });
 	t.after(() => table.dispose());
 	await table.session.prompt("那看看报纸");
@@ -198,10 +182,10 @@ test("§32.12.2: a lane refusal without grounds refuses nothing and is no outage
 });
 
 test("§32.12.2: a bookkeeping batch whose lane answered without grounds is admitted late on a typed admission at the threshold", async (t) => {
-	installJev(t, [{ verdict: "authorized", confidence: 0.8 }, { verdict: "entailed", confidence: 0.75 }]);
+	installJev(t, [{ verdict: "not_player_action", confidence: 0.8 }, { verdict: "entailed", confidence: 0.75 }]);
 	// §32.12.3.1: each line has its own lane call, and each call its own late admission, on that line's typed reading.
-	const table = await openTable({ env: KEY, responses: [call("apply", { effects: bookkeeping }), ...close],
-		laneResponses: { admission: laneByLine([[/apply (move|clue)/, { verdict: "not_authorized", grounds: "" }, 300]]) } });
+	const table = await openTable({ env: KEY, responses: [call("apply", { effects: [TIME, { ...TIME, minutes: 10, why: "waiting for the clerk" }] }), ...close],
+		laneResponses: { admission: laneByLine([[/apply time/, { verdict: "not_authorized", grounds: "" }, 300]]) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 	assert.equal(kernelCalls(table, "table.apply").length, 1);
@@ -218,16 +202,16 @@ test("§32.12.2: a bookkeeping batch whose lane answered without grounds is admi
 // ---- at the cap -------------------------------------------------------------------------------------------------------------
 
 test("§32.12.2: at the cap a bookkeeping batch typed 0.72 is admitted typed_late within cap + 1 s; the lane runs on to the hard cap and leaves its late row", async (t) => {
-	installJev(t, [{ verdict: "authorized", confidence: 0.8 }, { verdict: "entailed", confidence: 0.72 }]);
+	installJev(t, [{ verdict: "entailed", confidence: 0.72 }]);
 	const provider = await tricklingProvider(t);
 	const table = await openTable({ env: { ...KEY, PI_COC_ADMISSION_MODEL: "trickle/trickle-1", PI_COC_ADMISSION_TIMEOUT_MS: "1500" },
-		responses: [call("apply", { effects: bookkeeping }), ...close] });
+		responses: [call("apply", { effects: [TIME] }), ...close] });
 	t.after(() => table.dispose());
 	registerTrickle(table, provider.port);
 	assert.equal(await promptWithin(table, WORDS, 15_000), "ended");
 	assert.equal(kernelCalls(table, "table.apply").length, 1, "the batch landed");
 	const [row] = admissionRows(table);
-	assert.equal(row.verdict, "authorized");
+	assert.equal(row.verdict, "entailed");
 	assert.equal(row.path, "typed_late");
 	assert.equal(row.late_rule, "typed_late");
 	assert.equal(row.cap_ms, 1500);
