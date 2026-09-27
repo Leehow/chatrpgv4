@@ -141,11 +141,33 @@ def test_npc_job_reads_the_table_word(kernel):
     assert kernel.ok("npc.job", {"campaign": "c1", "name": KNOTT})["job_id"] == packet["job_id"]
 
 
-def test_npc_responses_job_reads_the_table_word(kernel):
+def test_the_npc_act_reads_read_the_table_word(kernel):
+    """§87.8's `npc.responses.job` row is retired with the response bank (§143.6). What reads a person by name for his
+    part in the turn now is the act step's three calls, in its order: the stakes roll (§143.8), the situation (§143.1)
+    and the act's options (§143.3). Each reads the table's word as the person the book's name is."""
     open_turn(kernel)
     name(kernel, KNOTT, EPITHET)
-    # He has no personality yet, so the answer is that it is pending -- for him, not a refusal of the word.
-    assert kernel.ok("npc.responses.job", {"campaign": "c1", "name": EPITHET}) == {"job_id": None, "reason": "personality_pending"}
+    params = {"campaign": "c1"}
+    stakes = kernel.ok("npc.stakes", {**params, "name": EPITHET})
+    # Once per person per turn: the book's name reads back what the word rolled, and nothing new is written.
+    assert kernel.ok("npc.stakes", {**params, "name": KNOTT}) == stakes
+    assert all(r["actor"] == "steven-knott" for r in receipts(kernel, "roll") if r.get("family") == "stakes")
+    situation = kernel.ok("npc.situation", {**params, "name": EPITHET})
+    assert situation["npc"]["handle"] == "steven-knott"
+    assert situation == kernel.ok("npc.situation", {**params, "name": KNOTT})
+    options = kernel.ok("npc.act.options", {**params, "name": EPITHET})
+    assert options["npc"]["handle"] == "steven-knott"
+    assert options == kernel.ok("npc.act.options", {**params, "name": KNOTT})
+
+
+def test_the_npc_act_reads_refuse_a_word_two_people_carry(kernel):
+    open_turn(kernel)
+    share_one_word(kernel)
+    for method in ("npc.stakes", "npc.situation", "npc.act.options"):
+        refused = kernel.err(method, {"campaign": "c1", "name": SHARED})
+        assert refused["code"] == "unknown_entity", (method, refused)
+        assert sorted(c["name"] for c in refused["details"]["candidates"]) == ["steven-knott", "walter-corbitt"], method
+    assert not [r for r in receipts(kernel, "roll") if r.get("family") == "stakes"], "a refused word rolls nothing"
 
 
 # ---- apply -----------------------------------------------------------------------------------------

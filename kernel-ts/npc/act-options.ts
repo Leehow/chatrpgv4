@@ -29,7 +29,7 @@ import type {HandlerGroup} from '../handlers.js';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
 import {fleeBlockers} from '../combat/flee-footing.js';
-import {npcsPresent, personLabel} from '../read/capsule.js';
+import {npcNode, npcsPresent, personLabel} from '../read/capsule.js';
 import {readCampaign} from '../read/handlers.js';
 import {playLanguageOf} from '../read/languages.js';
 import {moduleDeclaration, type ModuleGraph} from '../read/module-graph.js';
@@ -127,7 +127,8 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
             if (params.produce != null && typeof params.produce !== 'boolean')
                 throw new RpcError('invalid_params', 'params.produce is true, false or absent', {details: {field: 'produce'}});
             const {campaign, module} = await readCampaign(context, params, false, false, {}, true);
-            const {graph} = module, {world, turn, party} = campaign, node = graph.npc(params.name);
+            // §87.8: the person's name through the junction, as `npc.situation` reads it.
+            const {graph} = module, {world, turn, party} = campaign, node = npcNode(graph, world, params.name);
             const me = personOf(graph, world, node), handle = me.handle;
             const place = typeof row(world.npc_presence)[handle] === 'string' ? string(row(world.npc_presence)[handle]) : null;
             const here = place !== null && place === world.active_scene;

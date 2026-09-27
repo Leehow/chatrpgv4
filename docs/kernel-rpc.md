@@ -15339,6 +15339,12 @@ focus=npc`, `npc/read.ts`, `npc.job`, `npc.responses.job` and `apply clue from` 
 `npcNode` asking the table first; `calledPerson` picking the first owner; `apply person.who` picking the first
 owner; the say token picking the last; `apply npc` without the table layer.
 
+*Note, 2026-09-26 (merge with `claude/npc-as-actor-20260926`, §143.6):* `npc.responses.job` is retired with the NPC
+response bank (§143.6), and so is its case above. The reads that take a person's name for their part in the turn on
+that line -- `npc.stakes` (§143.8), `npc.situation` (§143.1) and `npc.act.options` (§143.3) -- now read it through
+`npcNode` like the other npc lane methods in the table above; §143.6's note of the same date has the evidence and the
+tests.
+
 ## 88. An offer is not a delivery (2026-09-17, extends §19's object model and §31)
 
 > **Section number is a placeholder.** The integrator assigns the real number at
@@ -25052,6 +25058,23 @@ prescreen still delivered; the legacy message dropped), `tests/extension/npc-int
 ledger only; `by: "table"` through a rebuild and a later Keeper result), `tests/extension/npc-character-rpc.test.mjs`
 (unknown methods; an older bank file neither read nor deleted), `tests/extension/npc-character-lane.test.mjs` (the
 lane authors personalities only).
+
+*Note, 2026-09-26 (after the line-2 merge; §87.8):* line-2's §87.8 routed `npc.responses.job` through the person
+junction and tested it (`test_npc_responses_job_reads_the_table_word`); the method is retired here, so that case is
+replaced. The reads that now take a person's name for their part in the turn -- the act step's `npc.stakes` (§143.8),
+`npc.situation` (§143.1) and `npc.act.options` (§143.3), in that order -- were written beside §87.8 and asked
+`graph.npc` alone. At the merged head (2dad1d350), after `apply person {who: "Steven Knott", name: "门口的房东"}`,
+`npc.stakes {name: "门口的房东"}` was `unknown_entity` ("no npc named '门口的房东' in the module graph", `candidates:
+[]`), and a word two people carry was refused with no candidates. The three now read the name through `npcNode`
+(`kernel-ts/read/capsule.ts`: the graph's npc, then the table's word, then the graph's refusal unchanged), as
+`npc.perspective(s)` and `npc.job` do; a word two people carry is refused naming both, and nothing is rolled. Latent,
+not seen at a table: the act step passes the capsule's `present[].name` (the book's) or the fight's handle today. What
+these reads return is unchanged: the packet's and the options' `npc.name` stay the book's display name, and the other
+people (`at_hand.present`, the labels in `happened`, the options' targets) were already the table's words (§79's
+`personLabel`). Tests: `tests/kernel/test_person_junction.py` -- the three reads by the word equal the reads by the book's
+name, the stakes roll written once and on Steven Knott; a word two people carry refused by all three, both candidates
+named, no stakes roll. Mutation over the emitted kernel (a copy, restored): each of the three put back to `graph.npc`
+fails both cases.
 
 **143.7 The Keeper's side: an act the table already wrote, where a ref comes from, the name a table mints (ticket 06,
 spec D7).** Under §143 the people present may have acted before the Keeper composes: the table generated the act and
