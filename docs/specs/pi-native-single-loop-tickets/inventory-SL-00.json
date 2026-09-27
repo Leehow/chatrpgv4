@@ -1253,6 +1253,21 @@
     },
     {
       "file": "extensions/onboarding/index.ts",
+      "symbol": "afterPreparation",
+      "kind": "trigger-turn",
+      "callee": "pi.sendMessage{steer-when-streaming}",
+      "count": 1,
+      "owner": "onboarding ext",
+      "path": "app-setup",
+      "role": "leaf",
+      "trace": "n/a (setup)",
+      "note": "Setup opening (coc-setup-opening) shown right after a prepare-module result that pinned the opening on an existing campaign and retried its guidance block in the same call (SL-98, §14.19); rides the live setup run as a steering message, like execute's after create-campaign.",
+      "lines_at_7d8ff69e8": [
+        800
+      ]
+    },
+    {
+      "file": "extensions/onboarding/index.ts",
       "symbol": "checkNameBoundaryFor",
       "kind": "jev-adapter",
       "callee": "createDecisionAdapter",
